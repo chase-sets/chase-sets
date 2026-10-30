@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildPushWakeCapacityEvidence,
   loadPushWakeCapacityInputs,
@@ -11,6 +11,12 @@ import {
   readSourceContextWakeRegistryShards,
   renderPushWakeCapacityMarkdown,
 } from "./push-wake-capacity-evidence.mjs";
+
+const temporaryDirectories = [];
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
 
 describe("push wake capacity evidence", () => {
   it("computes current staging and production connection-budget posture from checked-in sources", () => {
@@ -218,7 +224,9 @@ describe("push wake capacity evidence", () => {
   });
 
   it("writes a redacted JSON evidence record from the CLI", () => {
-    const outPath = join(mkdtempSync(join(tmpdir(), "push-wake-capacity-")), "evidence.json");
+    const directory = mkdtempSync(join(tmpdir(), "push-wake-capacity-"));
+    temporaryDirectories.push(directory);
+    const outPath = join(directory, "evidence.json");
 
     execFileSync(
       process.execPath,

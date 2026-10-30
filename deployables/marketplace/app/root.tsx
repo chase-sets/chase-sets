@@ -249,15 +249,13 @@ export default function App() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
-  const isRouteError = isRouteErrorResponse(error);
-  const isNotFound = isRouteError && error.status === 404;
-  const message = isRouteError
-    ? error.statusText
-    : error instanceof Error
-      ? error.message
-      : t("marketplace.app.root.unknown.error");
+  const isNotFound = isRouteErrorResponse(error) && error.status === 404;
+  // Thrown fetcher, network and decode failures land here; their message,
+  // statusText and data are transport text, so buyers only see localized copy.
   const title = isNotFound ? t("marketplace.app.root.page.not.found") : t("marketplace.app.root.marketplace.error");
-  const description = isNotFound ? t("marketplace.app.root.page.not.found.description") : message;
+  const description = isNotFound
+    ? t("marketplace.app.root.page.not.found.description")
+    : t("marketplace.app.root.unknown.error");
 
   return (
     <html lang="en">

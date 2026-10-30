@@ -1,6 +1,6 @@
 # Credential Rotation
 
-Platform credentials live as GitHub Actions secrets in the repository and its environments. This runbook defines the credential inventory, the daily credential health check that reads it, the command that rotates an `assisted` credential, and the GitHub App that rotation tooling uses. Automatic rotation arrives with #9915 and #9916.
+Platform credentials live as GitHub Actions secrets in the repository and its environments. This runbook defines the credential inventory, the agent tier it records, the daily credential health check that reads it, the command that rotates an `assisted` credential, and the GitHub App that rotation tooling uses. Automatic rotation arrives with #9915 and #9916.
 
 ## Definitions
 
@@ -12,6 +12,9 @@ Platform credentials live as GitHub Actions secrets in the repository and its en
   - `external-owner`: another workstream owns the value's lifecycle; the entry names its `owner` issue (the TCGplayer cookie belongs to #8447).
 - **Value group**: the environments that share one value. By default each environment is its own group. A group ages from its oldest member's GitHub `updated_at`, so a stale copy is never hidden by a fresh one.
 - **Provider expiry**: `updated_at` plus `providerExpiryDays` (90 for the three DigitalOcean API tokens). A `github-token` check's measured expiry replaces it.
+- **Agent tier**: the credential inventory names whose test values a lane may receive through `scripts/agent-secrets/with-secrets.ps1` from Bitwarden Secrets Manager project `chase-sets-agent-dev`, listed in the inventory's `agentTier` (see [Agent tier](#agent-tier)). The agent value of a name is always a separately created test credential; its GitHub copies are never read.
+- **CI/deploy-only**: every credential inventory entry the agent tier does not list. Its values reach only CI and deploy workflows, never a lane.
+- **Agent token renewal**: replacing the Bitwarden machine-account token that `with-secrets.ps1` reads before its recorded `tokenExpiresOn` (see [Agent token renewal](#agent-token-renewal)). It is a recurring Todd step; `credential:rotate` does not apply.
 
 ## Credential Inventory Entries
 
@@ -26,6 +29,24 @@ Rules enforced by `scripts/credential-inventory.test.mjs` in `test:scripts`:
 - Each `proofWorkflows` file references the secret, and each `optional` name is referenced somewhere.
 
 Add, rename or remove the entry in the same pull request that adds, renames or removes a secret reference. When a secret is set or deleted outside a pull request, the next daily run warns until the credential inventory matches.
+
+## Agent Tier
+
+The top-level `agentTier` holds `project`, the Bitwarden project name, and `keys`, sorted by name. Each key has `name`, an existing inventory entry, and `testPrefixes`, the prefixes its agent value must start with; the list is empty when the provider has no test-key shape. `node ./scripts/credential-inventory.mjs tiers` prints the names in each tier, never a value.
+
+Membership rules, enforced by `scripts/credential-inventory.test.mjs` in `test:scripts` and settled by the [#10031 decision](https://github.com/chase-sets/chase-sets/issues/10031):
+
+- A key must name an inventory entry.
+- `DIGITALOCEAN_`, `SES_` and `TCGPLAYER_` names, names containing `ADMIN_PASSWORD`, `external-owner` entries, and entries whose liveness is `digitalocean-account` or `spaces-list-buckets` are CI/deploy-only.
+- Every `pairedWith` partner of a key is in the agent tier too, so a pair never joins by halves.
+- A Spaces pair joins only when its liveness is `spaces-bucket`, neither member's scope includes `production` or `repository` (production jobs can read repository secrets), and no other entry with such a scope uses its bucket.
+- `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` list exactly the test-mode prefixes that `STRIPE_KEY_CASES` in `scripts/stripe-key-mode.mjs` gives their role.
+
+`agentTier.accounts` is optional and lists the Bitwarden machine accounts whose tokens lanes hold. Each account has exactly `name` (the `with-secrets.ps1 -Account` name, matching `^[a-z0-9][a-z0-9-]{0,62}$`, unique), `machineAccount` (the Bitwarden machine account), `access` (`read`) and `tokenExpiresOn`, the expiry date recorded when its token was minted, as a calendar `YYYY-MM-DD` or `null` before a token is issued. The repository's `lanes` account is `chase-sets-lanes`. The committed date is the only record of the expiry: Bitwarden tokens carry no readable expiry and GitHub cannot reach the token.
+
+Voyage and Scrydex keys stay CI/deploy-only: they bill real usage, so lanes that need them dispatch the CI workflows that hold them. Admitting a name is a pull request that adds it to `agentTier` and passes these rules; the value then goes into the Bitwarden project.
+
+`scripts/agent-secrets/with-secrets.ps1` enforces the tier at run time. For `-Command` and `-Check` it first reads `agentTier` from `.github/credential-inventory.json` in the checkout it sits in, before it reads the token. If that file is missing, unparseable or has no valid `agentTier`, it refuses with `inventory-unavailable`. It then lists the project, keeping values in memory, and refuses with `tier-violation` while the project holds a key that `agentTier.keys` does not list, or a value that starts with none of its key's `testPrefixes`. The refusal names each offending key and never prints its value, and `-Command` never reaches `bws run`, with or without `-NoInheritEnv`. `-ListKeys` skips the guard, so the names stay inspectable. To clear a violation, delete the key from the project or replace its value with a test credential. A value added between the list and the run is not checked. After a passing check, `-Check` prints `token expires <date> (<n> days)` from the account's `tokenExpiresOn`, or `token expiry not recorded for account '<name>'`, and warns on stderr within 21 days of the date or past it. It never refuses on the date alone, because the date can be stale; a dead token surfaces as `bws-failed` on first use.
 
 ## Daily Credential Health Check
 
@@ -49,6 +70,8 @@ Levels apply per credential and value group:
 
 A collection failure never reports success: a failed or skipped `metadata` or `liveness` job, a missing liveness row, an undiscovered environment list or a scope whose listing does not reconcile is at least a warning. The absence of an `optional` name never warns.
 
+Each `agentTier.accounts` row is classified from its `tokenExpiresOn` alone with the `assisted` provider-expiry levels, counting whole UTC calendar days: failure on or past the date or within 7 days of it, warning within 21 days, success otherwise. A `null` date shows as `not issued` at success. The row carries only the account name, date, days remaining and level; nothing is collected for it, and value-group counts exclude it. The run summary lists the rows under "Agent token accounts", and the alert lists every row after the collection findings.
+
 ## Liveness Checks
 
 | Kind                   | Request                                                                     | Live       | Dead                 | Unknown                                                          |
@@ -67,6 +90,7 @@ Network errors and 5xx are unknown for every kind. A secret absent from an envir
 - **liveness-unknown** on a DigitalOcean token: a 403 usually means the token lacks the `account:read` scope; add it at the next rotation. On Spaces, `SignatureDoesNotMatch` or `AccessDenied` means the pair or bucket grant does not match the credential inventory.
 - **not-inventoried** or **missing-from-scope**: update the credential inventory, or set or delete the secret so the two agree.
 - **metadata-not-collected**, **liveness-not-collected** or a `*-job-*` finding: open the run and fix the collection; the run is not evidence of health until it completes.
+- **agent token** row at warning or failure: follow [Agent token renewal](#agent-token-renewal).
 
 The run summary table lists every live name per scope with its update date, age, provider expiry, liveness verdict and level.
 
@@ -91,6 +115,17 @@ Examples:
 - `pnpm run ops -- credential:rotate --secret PROJECTS_TOKEN`: checks the token against GitHub `/user` and writes the repository secret.
 
 Values never enter argv, a child process environment, stdout, stderr or a file; they reach only `gh secret set` on stdin and the in-process liveness check.
+
+## Agent Token Renewal
+
+The token for each `agentTier.accounts` account is minted in Bitwarden with a 90-day expiry and stored only in Windows Credential Manager on the lane host. `credential:rotate` does not apply: it writes GitHub secrets through `gh`, and this token is neither. Bitwarden offers agents no token-minting API for machine accounts, so renewal stays a recurring Todd step. Start it when the daily report or `-Check` warns, within 21 days of `tokenExpiresOn`:
+
+1. Todd mints a new 90-day access token for machine account `chase-sets-lanes` in Bitwarden Secrets Manager.
+2. Todd runs `pwsh -NoProfile -File scripts/agent-secrets/set-bitwarden-agent-token.ps1 -ProjectId <project-guid>` in an interactive terminal on the lane host and pastes the token at its masked prompt.
+3. An agent PR sets the account's `tokenExpiresOn` in `.github/credential-inventory.json` to the new expiry date; Todd gives the agent the date only, never the token.
+4. Todd revokes the old token in Bitwarden.
+
+A stale date fails safe: the report alerts on the old date until step 3 lands. Never paste a token into an issue, PR, log or screenshot.
 
 ## Rotation App
 

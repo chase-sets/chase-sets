@@ -10,6 +10,7 @@ import {
   fenceAgentGrantActor,
   createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
+  type ReceiptLookupActorOptions,
 } from "@chase-sets/auth/server";
 import {
   createCheckoutUcpHandlers,
@@ -92,6 +93,10 @@ import {
 } from "@chase-sets/marketplace/server";
 import {
   createRateLimitPolicyResolver,
+  deriveProjectionTriage,
+  deriveWakeAttentionItems,
+  normalizeProjectionOperationsSnapshot,
+  normalizeWakeStatusSnapshot,
   type OfferEconomicsCrossContextPort,
   rateLimitPolicy,
   type OpsMarketAnalyticsCrossContextPort,
@@ -171,6 +176,7 @@ import {
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
+import { createPlatformApiInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
 import {
   createEvidenceWindowRegistrationRoutes,
   createEvidenceWindowSourceAdmissionMiddleware,
@@ -187,6 +193,8 @@ import {
 } from "@chase-sets/platform-runtime/mcp";
 import {
   createProjectionOperationsRoutes,
+  loadBlockedProjectionState,
+  loadWakeStatus,
   type ProjectionWakeStatusWorkSignalStore,
 } from "@chase-sets/platform-runtime/projection-operations-routes";
 import {
@@ -209,6 +217,7 @@ import {
 import {
   createIdentityAuthMiddleware,
   createPlatformActorMiddleware,
+  createReceiptLookupActorMiddleware,
   type AnonymousRouteDeclaration,
   type PlatformActorResolver,
   type TenantContextEnv,
@@ -285,6 +294,7 @@ export type BuildPlatformApiOptions = Readonly<{
   getProjectionReplay?: () => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>;
   readinessChecks?: readonly ReadinessCheck[];
   resolveActor?: PlatformActorResolver;
+  receiptLookupActor?: Omit<ReceiptLookupActorOptions, "canonicalAdminOrigin">;
   realtimeObserver?: RealtimeObserver;
   realtimeResourceLimits?: RealtimeResourceLimits;
   realtimeRouteTuning?: RealtimeRouteTuning;
@@ -320,9 +330,14 @@ export function createPlatformApiHost(
   options: Parameters<typeof createApiHost>[2] &
     Readonly<{
       runtimeProfile?: PlatformApiRuntimeProfile;
+      controlPlane?: PlatformControlPlane;
+      workSignalStore?: ProjectionWakeStatusWorkSignalStore;
     }>,
 ): ApiHostRuntime {
   let runtime: ApiHostRuntime | null = null;
+  const inventoryDraftListingConsumer = createPlatformApiInventoryDraftListingConsumer(
+    () => runtime?.services.marketplace as MarketplaceServices | undefined,
+  );
   const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const identityPool = getPlatformApiPool(options.pools.identity);
@@ -625,13 +640,7 @@ export function createPlatformApiHost(
       ? { sources: supportReferenceLookupCrossContextSources }
       : undefined;
   const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
-    const marketplaceServices = runtime?.services.marketplace as
-      | {
-          listings?: {
-            createBatchDraftListingFromInventorySnapshot?: InventoryDraftListingCreator;
-          };
-        }
-      | undefined;
+    const marketplaceServices = runtime?.services.marketplace as MarketplaceServices | undefined;
     const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
     if (!createDraft) {
       throw new Error("Marketplace draft listing service is unavailable.");
@@ -674,8 +683,6 @@ export function createPlatformApiHost(
   };
   const pricingHostPorts: PricingHostPorts | undefined = pricingPool
     ? {
-        tcgplayerMarketTransport: { kind: "not-mounted" },
-        tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
         channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
           const services = runtime?.services.channels;
@@ -695,7 +702,25 @@ export function createPlatformApiHost(
     ...options,
     runtimeProfile,
     hostPorts: {
+      inventoryDraftListingConsumer,
+      draftListingDelivery: inventoryDraftListingConsumer,
       ...options.hostPorts,
+      operationsAttentionRuntimeReads: {
+        loadBlockedProjections: async () => {
+          if (!runtime) {
+            throw new Error("Platform API runtime is not initialized.");
+          }
+          return normalizeProjectionOperationsSnapshot(await loadBlockedProjectionState(runtime, options.controlPlane))
+            .blockedProjections;
+        },
+        loadWakeStatus: async () => {
+          if (!runtime) {
+            throw new Error("Platform API runtime is not initialized.");
+          }
+          const snapshot = normalizeWakeStatusSnapshot(await loadWakeStatus(options.workSignalStore));
+          return { generatedAt: snapshot.generatedAt, wakeStore: snapshot.wakeStore };
+        },
+      },
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
@@ -1010,6 +1035,16 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
                   readyForFulfillmentAt: fact.ready_for_fulfillment_at,
                   label: `${fact.display_reference}`,
                   permalinkUrl: `/account/purchases/${fact.order_id}`,
+                  totals: {
+                    itemSubtotal: fact.item_subtotal_amount,
+                    shipping: fact.shipping_charge_amount,
+                    tax: fact.sales_tax_amount,
+                    total: fact.total_amount,
+                  },
+                  lines: fact.lines.map((line) => ({
+                    listingId: line.listing_id,
+                    unitPrice: line.unit_price_amount,
+                  })),
                 }));
             }
           : async () => [],
@@ -1067,6 +1102,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
 
   app.onError(errorHandler);
   app.use("*", createHonoObservabilityMiddleware());
+  app.use("/api/channels/staff/*", createReceiptLookupActorMiddleware(options.receiptLookupActor));
   const connectorChannels = runtime.services.channels;
   if (isChannelsServices(connectorChannels)) app.use("/api/channels/*", connectorAuditMiddleware(connectorChannels.db));
   app.route(
@@ -1121,6 +1157,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     createProjectionOperationsRoutes(runtime, {
       controlPlane: options.controlPlane,
       workSignalStore: options.workSignalStore,
+      deriveProjectionTriage,
+      deriveWakeAttentionItems,
     }),
   );
   if (marketplacePlatformRoutesEnabled) {

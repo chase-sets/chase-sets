@@ -13,6 +13,7 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createSupportRequestRuntime } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
+import { actorContext, operationsResponseFixture, responseCases } from "./participant-attempt.test-support";
 import {
   attachmentManifestReferences,
   attachmentOperationStreamId,
@@ -43,6 +44,72 @@ const operatorSellerNonShipmentFinding = {
   evidenceBasis: { type: "operator-finding", reference: "support-test.operator-adjudication.v1" },
   responsibilityReasonCode: "product-not-received.seller-did-not-ship",
 } as const;
+
+describe("operations response preservation", () => {
+  for (const scenario of responseCases) {
+    it(`operations empty resolution remains refused: ${scenario.responseType}`, async () => {
+      const f = await operationsResponseFixture(scenario.responseType, "Offer");
+      const before = f.allEvents.length;
+      await expect(
+        f.runtime.recordResponse(
+          {
+            ...f.body,
+            supportRequestId: f.id,
+            accountId: f.operator.accountId,
+            submittedByRole: "support",
+            scope: "operations",
+            offerResolutionType: "",
+          },
+          actorContext(f.operator),
+        ),
+      ).rejects.toThrow("Support resolution type is not supported.");
+      expect(f.allEvents).toHaveLength(before);
+    });
+    for (const field of [{}, { offerResolutionType: null }]) {
+      it(`operations offer omission remains refused: ${scenario.responseType} ${JSON.stringify(field)}`, async () => {
+        const f = await operationsResponseFixture(scenario.responseType, "Offer");
+        const before = f.allEvents.length;
+        const action = f.runtime.recordResponse(
+          {
+            ...f.body,
+            ...field,
+            supportRequestId: f.id,
+            accountId: f.operator.accountId,
+            submittedByRole: "support",
+            scope: "operations",
+          },
+          actorContext(f.operator),
+        );
+        if (scenario.resolutionType) {
+          await expect(action).rejects.toThrow("Support resolution type is not supported.");
+          expect(f.allEvents).toHaveLength(before);
+        } else {
+          await action;
+          expect(f.allEvents.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toBeNull();
+        }
+      });
+    }
+    if (scenario.resolutionType) {
+      it(`operations explicit offer remains supported: ${scenario.responseType}`, async () => {
+        const f = await operationsResponseFixture(scenario.responseType, "Offer");
+        await f.runtime.recordResponse(
+          {
+            ...f.body,
+            supportRequestId: f.id,
+            accountId: f.operator.accountId,
+            submittedByRole: "support",
+            scope: "operations",
+            offerResolutionType: scenario.resolutionType,
+          },
+          actorContext(f.operator),
+        );
+        expect(
+          f.allEvents.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer,
+        ).toMatchObject({ resolutionType: scenario.resolutionType, offeredByRole: "support" });
+      });
+    }
+  }
+});
 
 describe("support request runtime", () => {
   it("opens, evidences, and resolves an Honor Offline case idempotently", async () => {
@@ -279,6 +346,12 @@ describe("support request runtime", () => {
       sellerResponseHours: 24,
       supportReviewHours: 12,
     });
+
+    await expect(runtime.resolveSupportFlowDefinition("product-not-received")).resolves.toMatchObject({
+      sellerResponseHours: 96,
+      supportReviewHours: 48,
+    });
+    expect(resolvePolicy).toHaveBeenCalledTimes(2);
   });
 
   it("listFlowDefinitions falls back to the compiled catalog when no policies dependency is wired", async () => {

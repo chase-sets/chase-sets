@@ -29,94 +29,9 @@ export type RoleAssignmentAuthority =
   | Readonly<{ type: "actor"; roleKey: RoleKey }>
   | Readonly<{ type: "system" }>
   | Readonly<{ type: "platform-bootstrap" }>;
-export type PermissionKey =
-  | "provider-connections.view"
-  | "accounts.manage"
-  | "accounts.view"
-  | "catalog.manage"
-  | "catalog.view"
-  | "channels.manage"
-  | "channels.view"
-  | "commercial-terms.agreements.manage"
-  | "commercial-terms.manage"
-  | "commercial-terms.view"
-  | "fulfillment.manage"
-  | "fulfillment.view"
-  | "return-intake.manage"
-  | "return-intake.view"
-  | "google-shopping.manage"
-  | "google-shopping.view"
-  | "insights-dashboards.view"
-  | "memberships.manage"
-  | "memberships.view"
-  | "inventory.manage"
-  | "inventory.view"
-  | "listings.manage"
-  | "listings.view"
-  | "listing-evidence-policy.activate"
-  | "listing-evidence-policy.draft"
-  | "listing-evidence-policy.validate"
-  | "listing-evidence-policy.view"
-  | "offers.manage"
-  | "offers.view"
-  | "orders.manage"
-  | "orders.view"
-  | "payouts.manage"
-  | "payouts.reconcile"
-  | "payouts.platform.view"
-  | "payouts.request"
-  | "payouts.setup"
-  | "payouts.view"
-  | "payout-review-holds.manage"
-  | "wallet-adjustments.operate"
-  | "postage-policies.manage"
-  | "postage-policies.view"
-  | "pricing.manage"
-  | "pricing.view"
-  | "projection-operations.operate"
-  | "projection-operations.rebuild"
-  | "projection-operations.view"
-  // Customer feedback operator capabilities. Staff-only: platform-admin
-  // is the sole role granted these. `view` reads the operator queue/detail/
-  // metrics; `manage` performs triage/notes/review/archive/bulk/follow-up/
-  // redaction; `export` is a separate grant so a viewer cannot download the
-  // free-text comment corpus unless export is explicitly authorized. Ordinary
-  // account roles (owner/manager/fulfillment/viewer) hold none of these --
-  // submitting one's own experience feedback is an authenticated-subject
-  // authority, not an operator capability.
-  | "platform-feedback.export"
-  | "platform-feedback.manage"
-  | "platform-feedback.view"
-  | "platform-feedback.export"
-  | "platform-policy.manage"
-  | "platform-policy.view"
-  | "public-presence.manage"
-  | "public-presence.view"
-  | "recovered-inventory.evidence"
-  | "recovered-inventory.manage"
-  | "recovered-inventory.view"
-  | "reported-content.view"
-  | "reputation.manage"
-  | "reputation.view"
-  | "support.manage"
-  | "support.remedies.approve"
-  | "support.remedies.approve-elevated"
-  | "support.remedies.correct"
-  | "support.remedies.override-return"
-  | "support.remedies.propose"
-  | "support.remedies.retry"
-  | "support.remedies.waive"
-  | "support.view"
-  | "security.manage"
-  // Platform Wallet Adjustment authority ratified by ADR 0020: purpose-specific,
-  // never bundled into `payouts.*`, and granted to platform-admin only. Read,
-  // create (request), approve (approve/reject), and reverse are independently
-  // enforced permissions so each action of the lifecycle can be withheld on
-  // its own.
-  | "wallet-adjustments.approve"
-  | "wallet-adjustments.create"
-  | "wallet-adjustments.reverse"
-  | "wallet-adjustments.view";
+export const IDENTITY_BOOTSTRAP_TENANT_ID = "tnt_identity" as const;
+export const IDENTITY_BOOTSTRAP_USER_ID = "usr_identity_system" as const;
+export const IDENTITY_BOOTSTRAP_ACCOUNT_ID = "acc_identity_system" as const;
 export type EmptyEventData = Readonly<Record<string, never>>;
 export type IdentityValue = JsonValue;
 

@@ -207,13 +207,14 @@ export function createInventoryImportBatchMcpHandlers(
     const accountId = readMcpStringArgument(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const batchId = readMcpTypedIdArgument(args, "batchId", "imb");
+    const idempotencyKey = readMcpStringArgument(args, "idempotencyKey");
 
     const job = await services.enqueueCommitBatchJob(
       {
         accountId: scopedActor.accountId as AccountId,
         batchId,
       },
-      createActorEventStoreContext(scopedActor),
+      withInventoryMutationAttempt(createActorEventStoreContext(scopedActor), idempotencyKey ?? ""),
     );
     return { receiptVersion: 1, jobId: job.jobId, batchId: job.payload.batchId, status: "accepted" };
   };

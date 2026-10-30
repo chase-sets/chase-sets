@@ -14,6 +14,8 @@ import {
 import { apiContextRegistry } from "./generated/api-context-registry";
 
 const PLATFORM_IDLE_TRANSACTION_TIMEOUT_MS = 15_000;
+// Preserve the existing public-profile lock database across registry/profile/release changes.
+export const PLATFORM_SCHEMA_BOOTSTRAP_LOCK_CONTEXT = "auth";
 const PLATFORM_API_DEFAULT_POOL = {
   max: 10,
   idleTimeoutMillis: 30_000,
@@ -117,10 +119,7 @@ export function createSeedCommandPools(config: PlatformApiBaseConfig) {
     ...directConfig,
     pool: poolOptions,
   });
-  const lockContextName = getPlatformApiContextsForRuntimeProfile(config.runtimeProfile)[0];
-  if (!lockContextName) {
-    throw new Error("Platform API has no registered context for the schema bootstrap lock.");
-  }
+  const lockContextName = PLATFORM_SCHEMA_BOOTSTRAP_LOCK_CONTEXT;
   const lockUrl = directConfig.contextDatabaseUrls[lockContextName] ?? directConfig.sharedDatabaseUrl;
   if (!lockUrl) {
     throw new Error(`Missing direct database URL for schema bootstrap lock context '${lockContextName}'.`);

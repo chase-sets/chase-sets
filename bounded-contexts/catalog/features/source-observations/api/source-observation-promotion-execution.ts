@@ -22,6 +22,7 @@ import {
   type SourceObservationMagicSetReferenceNormalized,
   type SourceObservationNormalized,
   type SourceObservationOnePieceSetReferenceNormalized,
+  type SourceObservationYugiohSetReferenceNormalized,
   type SourceObservationPromotionProfileEvidence,
 } from "../domain/domain";
 import { ProviderSendStoppedError } from "./providers/provider-send-admission";
@@ -33,10 +34,6 @@ import {
 } from "./seeding/product-asset-normalization";
 import { type PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
 import { createPromotionAliasReader } from "./promotion/provider-promotion-alias-reader";
-import {
-  buildTcgplayerAutomationSourceObservationPayload,
-  type TcgplayerAutomationProductDetail,
-} from "./providers/tcgplayer-automation-catalog-client";
 import {
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -392,7 +389,8 @@ export function referenceDataPromotionEvidence(input: {
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized;
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized;
   referenceRecordId: ReferenceRecordId;
 }): SourceObservationPromotionProfileEvidence {
   return {
@@ -407,7 +405,8 @@ function referenceDataPromotionPlanFingerprint(input: {
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized;
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized;
   referenceRecordId: ReferenceRecordId;
 }): string {
   const payload = {
@@ -776,7 +775,8 @@ export async function requireReferenceDataPromotionProfileVersion(
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized,
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized,
   selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const profile = selector
@@ -928,38 +928,11 @@ export function prepareProviderAdapterSourceObservationPayload(input: {
     };
   }
 
-  if (input.providerProfile.connector.kind !== "tcgplayer-automation-client") {
-    return { kind: "payload", payload: input.payload };
+  if (input.providerProfile.providerKey === "tcgplayer") {
+    return { kind: "failure", reason: "TCGplayer server transport is retired; use the browser handoff." };
   }
 
-  if (!isJsonRecord(input.payload)) {
-    return { kind: "failure", reason: "TCGplayer adapter returned an invalid product detail payload." };
-  }
-
-  if (input.payload.kind === "product-detail-failure") {
-    return {
-      kind: "failure",
-      reason: typeof input.payload.reason === "string" ? input.payload.reason : "TCGplayer product detail failed.",
-    };
-  }
-
-  if (input.payload.kind !== "product-detail" || !isJsonRecord(input.payload.detail)) {
-    return { kind: "failure", reason: "TCGplayer adapter returned an unsupported product payload." };
-  }
-
-  const selectedOptionMapping = input.providerProfile.selectedOptionMapping;
-  if (!selectedOptionMapping) {
-    return { kind: "failure", reason: "TCGplayer import profile must define selected option mapping." };
-  }
-
-  return {
-    kind: "payload",
-    payload: buildTcgplayerAutomationSourceObservationPayload({
-      detail: input.payload.detail as TcgplayerAutomationProductDetail,
-      selectedOptionMapping,
-      externalReferenceRules: input.providerProfile.externalReferenceExtractionRules.rules,
-    }),
-  };
+  return { kind: "payload", payload: input.payload };
 }
 
 export async function defaultSourceObservationImportProviderKey(

@@ -113,38 +113,6 @@ export type TcgplayerAutomationClientConnectorProfile = Readonly<{
     commit: string;
   }>;
   sourceContractDocument: string;
-  authentication: Readonly<{
-    scheme: "tcgplayer-production-cookie";
-    cookieName: "TCGAuthTicket_Production";
-    userAgentRequired: true;
-  }>;
-  domains: Readonly<{
-    search: "mp-search-api.tcgplayer.com";
-    marketplaceApi: "mpapi.tcgplayer.com";
-    infiniteApi: "infinite-api.tcgplayer.com";
-    marketplaceGateway: "mpgateway.tcgplayer.com";
-  }>;
-  retryStatusCodes: readonly number[];
-  throttling: Readonly<{
-    strategy: "domain-adaptive";
-    controls: readonly ("request-delay" | "cooldown" | "max-concurrency" | "learned-min-delay")[];
-  }>;
-  catalogFlow: Readonly<{
-    productLineScope: "product-lines";
-    setScope: "catalog-set-names-by-product-line";
-    productScope: "product-search-by-set";
-    detailScope: "product-detail-with-skus";
-    detectsProductSetReclassification: true;
-  }>;
-  externalReferencePolicy: Readonly<{
-    catalogItemReferencePrefix: "product:";
-    productReferencePrefix: "sku:";
-    productConditionIdSource: "sku-product-condition-id";
-  }>;
-  catalogBoundary: Readonly<{
-    acceptedEvidence: readonly ("product-id" | "sku-id" | "product-condition-id" | "set-name" | "product-line")[];
-    excludedEvidence: readonly ("listing-price" | "sales-history" | "order" | "message" | "seller-inventory")[];
-  }>;
 }>;
 
 export type ScrydexScryfallJsonConnectorProfile = Readonly<{
@@ -470,6 +438,20 @@ export type CatalogProviderReferenceHierarchyRecordRule = Readonly<{
   attributes?: readonly CatalogProviderReferenceHierarchyAttributeRule[];
   relationships?: readonly CatalogProviderReferenceHierarchyRelationshipRule[];
   requiredPaths?: readonly string[];
+  languageEdition?: CatalogProviderReferenceHierarchyLanguageEditionRule;
+}>;
+
+/**
+ * Makes a provider record one language edition of the provider product. The
+ * payload language is recorded in `attributeKey`, and reuse accepts only a
+ * record holding it. Any other language than `unqualifiedLanguageCode`
+ * qualifies the provider record id and key, so each language gets its own
+ * record; a payload without a language provisions no record.
+ */
+export type CatalogProviderReferenceHierarchyLanguageEditionRule = Readonly<{
+  languageCodePath: string;
+  attributeKey: string;
+  unqualifiedLanguageCode: string;
 }>;
 
 export type CatalogProviderReferenceHierarchyRecordIdRule =

@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import {
   buildComposeSmokeValues,
   composeSmokeAdminEmail,
@@ -10,6 +12,7 @@ import {
   renderComposeSmokeEnvFile,
 } from "./platform-compose-smoke.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
+import { buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
 
 function envValue(component, name) {
   return component.env.find((entry) => entry.name === name)?.value;
@@ -116,5 +119,22 @@ describe("platform-compose-smoke", () => {
 
   it("throws for an unknown component", () => {
     expect(() => renderComposeSmokeEnvFile("does-not-exist")).toThrow(/Unknown platform Helm component/);
+  });
+
+  it("gives the four ingress-fronted services the rendered forwarded-headers switch through their env files only", () => {
+    const switchName = "CHASE_SETS_TRUST_FORWARDED_HEADERS";
+    const rendered = buildPlatformHelmValues();
+    const compose = parseYaml(readFileSync(new URL("../docker-compose.pr-smoke.yml", import.meta.url), "utf8"));
+
+    for (const componentName of ["public-web", "marketplace", "admin-web", "platform-api"]) {
+      const runtimeEntries = rendered.components[componentName].env.filter((entry) => entry.name === switchName);
+      expect(runtimeEntries, componentName).toEqual([{ name: switchName, value: "true" }]);
+      const switchLines = renderComposeSmokeEnvFile(componentName)
+        .split("\n")
+        .filter((line) => line.startsWith(`${switchName}=`));
+      expect(switchLines, componentName).toEqual([`${switchName}=${runtimeEntries[0].value}`]);
+      expect(compose.services[componentName].env_file, componentName).toMatch(new RegExp(`/${componentName}\\.env$`));
+      expect(compose.services[componentName], componentName).not.toHaveProperty("environment");
+    }
   });
 });

@@ -1821,7 +1821,7 @@ describe("MCP runtime routes", () => {
             arguments: {
               accountId: "account_1",
               returnUrl: "https://app.chasesets.test/account/payment-methods",
-              idempotencyKey: "idem_setup_1",
+              idempotencyKey: "3f2b8c1e-6a4d-4e9b-b7c2-1d0e5f6a7b81",
               confirmationText: "Start Payment Method Setup.",
               ...extraArguments,
             },

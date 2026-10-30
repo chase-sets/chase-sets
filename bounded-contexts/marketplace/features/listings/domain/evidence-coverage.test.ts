@@ -5,7 +5,7 @@ import type {
   MarketplaceListingPhotoAssetRole,
   MarketplaceListingPhotoStatus,
 } from "./domain";
-import { evaluateEvidenceCoverage } from "./evidence-coverage";
+import { evidenceCoverageCodeLocaleKey, evaluateEvidenceCoverage } from "./evidence-coverage";
 
 function photo(
   overrides: Partial<MarketplaceListingPhoto> & { photoId: string } & {
@@ -136,6 +136,28 @@ describe("evaluateEvidenceCoverage", () => {
     expect(result.activePhotoCount).toBe(0);
   });
 
+  it("only active photos satisfy required slots while preserving their identity", () => {
+    const active = photo({ photoId: "active", slotId: "front", viewKind: "front" });
+    const result = evaluateEvidenceCoverage(
+      requirements({
+        minimumPhotoCount: 2,
+        requiredSlots: [slot({ slotId: "front", viewKind: "front" }), slot({ slotId: "back", viewKind: "back" })],
+      }),
+      [
+        photo({ photoId: "removed", status: "removed", slotId: "back", viewKind: "back" }),
+        photo({ photoId: "replaced", status: "replaced", slotId: "front", viewKind: "front" }),
+        active,
+      ],
+    );
+    expect(result.activePhotoCount).toBe(1);
+    expect(result.complete).toBe(false);
+    expect(result.unmetCodes).toEqual(["min-photo-count-unmet", "slot-missing"]);
+    expect(result.slots).toEqual([
+      { slotId: "back", viewKind: "back", satisfied: false, matchedPhotoId: null, unmetCode: "slot-missing" },
+      { slotId: "front", viewKind: "front", satisfied: true, matchedPhotoId: active.photoId, unmetCode: null },
+    ]);
+  });
+
   it("flags a view-kind mismatch", () => {
     const result = evaluateEvidenceCoverage(
       requirements({ requiredSlots: [slot({ slotId: "front", viewKind: "front" })] }),
@@ -188,5 +210,18 @@ describe("evaluateEvidenceCoverage", () => {
     );
     expect(result.complete).toBe(false);
     expect(result.unmetCodes).toContain("duplicate-source");
+  });
+});
+
+describe("evidenceCoverageCodeLocaleKey", () => {
+  it.each([
+    "min-photo-count-unmet",
+    "slot-missing",
+    "slot-view-mismatch",
+    "slot-dimensions-too-small",
+    "slot-expired",
+    "duplicate-source",
+  ] as const)("retains the locale mapping for %s", (code) => {
+    expect(evidenceCoverageCodeLocaleKey(code)).toBe(`marketplace.features.listings.evidenceCoverage.${code}`);
   });
 });

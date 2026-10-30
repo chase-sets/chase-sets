@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import { AUTH_ROLE_PERMISSIONS } from "./constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import type { AuthServices, AuthSessionMembership } from "../runtime-support/services";
 
 const DEFAULT_MEMBERSHIP: AuthSessionMembership = {
@@ -7,7 +7,7 @@ const DEFAULT_MEMBERSHIP: AuthSessionMembership = {
   accountId: "acc_test",
   roleKey: "owner",
   status: "active",
-  rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
+  rolePermissions: ROLE_PERMISSIONS.owner,
 };
 
 type AuthServicesFakeSession = Readonly<{

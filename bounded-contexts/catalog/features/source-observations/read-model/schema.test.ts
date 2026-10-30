@@ -27,6 +27,9 @@ describe("catalogSourceObservationSchemaSql", () => {
       "CREATE UNLOGGED TABLE IF NOT EXISTS catalog_source_observation_payload_assemblies",
     );
     expect(catalogSourceObservationSchemaSql).toContain("encoded_chunks jsonb NOT NULL DEFAULT '[]'::jsonb");
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "CREATE UNLOGGED TABLE IF NOT EXISTS catalog_source_observation_normalized_evidence_assemblies",
+    );
   });
 
   it("creates source-observation integration scope summary storage without boot-time backfill/index rebuilds", () => {

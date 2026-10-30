@@ -26,10 +26,13 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outcomeDescription = '<!-- outcome: {"version":1,"track":"wave","order":2,"status":"committed"} -->';
+const PRODUCT = "chase-sets/chase-sets";
+const CONTROLLER = "chase-sets/chase-sets-controller";
 
 function issue(overrides = {}) {
   return {
     number: 1,
+    repository: PRODUCT,
     state: "open",
     milestone: { title: "Wave 2", description: outcomeDescription },
     labels: [{ name: "priority:p1" }, { name: "area:catalog" }, { name: "kind:product" }],
@@ -59,14 +62,18 @@ function boardNode({
   blockedBy = 0,
   parent = null,
   issueType = { name: "Slice" },
+  repository = PRODUCT,
+  outcomeOrder = null,
 } = {}) {
   return {
     id,
     status: status === null ? null : { name: status },
     targetDate: targetDate === null ? null : { date: targetDate },
+    outcomeOrder: outcomeOrder === null ? null : { number: outcomeOrder },
     content: {
       id: `issue-${number}`,
       number,
+      repository: { nameWithOwner: repository },
       state,
       stateReason,
       issueType,
@@ -170,8 +177,8 @@ describe("project status derivation", () => {
       dryRun,
     });
     expect(result.outcomeOrderUpdates).toEqual([
-      { type: "set", itemId: "set", number: 1, from: null, to: 2 },
-      { type: "clear", itemId: "clear", number: 3, from: 3, to: null },
+      { type: "set", itemId: "set", number: 1, repository: PRODUCT, from: null, to: 2 },
+      { type: "clear", itemId: "clear", number: 3, repository: PRODUCT, from: 3, to: null },
     ]);
     expect(mutationRequests(requests)).toEqual(
       dryRun
@@ -280,7 +287,7 @@ describe("project status derivation", () => {
   it("keeps #6169 native-type precedence as the only Epic authority", () => {
     expect(isEpic(issue({ issueType: { name: "Epic" }, labels: [] }))).toBe(true);
     expect(isEpic(issue({ issueType: { name: "Slice" }, labels: [{ name: "kind:epic" }] }))).toBe(false);
-    expect(isEpic(issue({ labels: [{ name: "kind:epic" }] }))).toBe(true);
+    expect(isEpic(issue({ labels: [{ name: "kind:epic" }] }))).toBe(false);
   });
 
   it("plans only real status transitions", () => {
@@ -434,6 +441,219 @@ describe("project status derivation", () => {
   });
 });
 
+// Outcome order is a product-repository projection. Controller issues share the
+// board and reuse milestone numbers, so they must never reach the rank maps.
+describe("cross-repository outcome order", () => {
+  const outcome = (number, order, { track = "commerce", title = `Outcome ${number}`, dueOn = null } = {}) => ({
+    number,
+    title,
+    state: "OPEN",
+    dueOn,
+    description: `<!-- outcome: {"version":1,"track":"${track}","order":${order},"status":"committed"} -->`,
+  });
+  // The controller milestone 2 is OPEN, committed and ordered between the
+  // product milestones 1 (order 10) and 2 (order 30).
+  const controllerOutcome = outcome(2, 20, { track: "controller", title: "Controller 2" });
+  const isProductRow = (item) => item.issue.repository === PRODUCT;
+
+  function collisionNodes() {
+    return [
+      boardNode({ id: "p1", number: 11, milestone: outcome(1, 10) }),
+      boardNode({
+        id: "p2",
+        number: 12,
+        milestone: outcome(2, 30, { dueOn: "2026-11-01T00:00:00Z" }),
+        outcomeOrder: 3,
+      }),
+      { id: "draft", status: null, targetDate: null, outcomeOrder: null, content: {} },
+      boardNode({
+        id: "c1",
+        number: 5,
+        repository: CONTROLLER,
+        milestone: controllerOutcome,
+        status: "Backlog",
+        targetDate: "2026-08-12",
+        outcomeOrder: 2,
+      }),
+      boardNode({ id: "c2", number: 6, repository: CONTROLLER, milestone: controllerOutcome }),
+    ];
+  }
+
+  function pagedResponder(nodes) {
+    return ({ query, variables }) => {
+      if (query !== ITEMS_QUERY) return { mutation: { ok: true } };
+      return variables.after === "page-2"
+        ? itemPage(nodes.slice(3), { totalCount: nodes.length })
+        : itemPage(nodes.slice(0, 3), { totalCount: nodes.length, hasNextPage: true, endCursor: "page-2" });
+    };
+  }
+
+  async function runMain(nodes, responder = ({ query }) => (query === ITEMS_QUERY ? itemPage(nodes) : {})) {
+    const { request, requests } = scriptedRequest(responder);
+    const logger = { log: vi.fn() };
+    const result = await main({ env: validEnv({ OUTCOME_ORDER_FIELD_ID: "outcome-field-id" }), request, logger });
+    return { result, requests, lines: logger.log.mock.calls.map(([line]) => line) };
+  }
+
+  function plannerItems() {
+    return [
+      { itemId: "p1", outcomeOrder: null, issue: issue({ number: 11, milestone: outcome(1, 10) }) },
+      { itemId: "p2", outcomeOrder: 3, issue: issue({ number: 12, milestone: outcome(2, 30) }) },
+      {
+        itemId: "c-stale",
+        outcomeOrder: 2,
+        issue: issue({ number: 5, repository: CONTROLLER, milestone: controllerOutcome }),
+      },
+      {
+        itemId: "c-empty",
+        outcomeOrder: null,
+        issue: issue({ number: 6, repository: CONTROLLER, milestone: controllerOutcome }),
+      },
+      {
+        itemId: "c-first",
+        outcomeOrder: null,
+        issue: issue({ number: 7, repository: CONTROLLER, milestone: outcome(3, 5, { track: "controller" }) }),
+      },
+    ];
+  }
+
+  function projectedRanks(items, updates) {
+    const next = new Map(updates.map((update) => [update.itemId, update.to]));
+    return [...new Set(items.map((item) => (next.has(item.itemId) ? next.get(item.itemId) : item.outcomeOrder)))]
+      .filter((rank) => rank !== null)
+      .sort((left, right) => left - right);
+  }
+
+  it("keeps same-number milestones from different repositories independent", () => {
+    expect(ITEMS_QUERY).toMatch(/\.\.\. on Issue \{[^}]*repository \{ nameWithOwner \}/);
+    expect(projectItemFromNode(boardNode({ repository: CONTROLLER })).issue.repository).toBe(CONTROLLER);
+    expect(projectItemFromNode(boardNode()).issue.repository).toBe(PRODUCT);
+
+    const product = { itemId: "p", outcomeOrder: null, issue: issue({ number: 12, milestone: outcome(2, 30) }) };
+    const foreign = {
+      itemId: "c",
+      outcomeOrder: null,
+      issue: issue({ number: 12, repository: CONTROLLER, milestone: controllerOutcome }),
+    };
+    expect(planOutcomeOrderUpdates([foreign, product])).toEqual([
+      { type: "set", itemId: "p", number: 12, repository: PRODUCT, from: null, to: 1 },
+    ]);
+  });
+
+  it("runs the cross-repository collision through main and clears only the foreign rank", async () => {
+    const nodes = collisionNodes();
+    const { result, requests, lines } = await runMain(nodes, pagedResponder(nodes));
+    const baseline = await runMain(nodes.filter((node) => node.content?.repository?.nameWithOwner !== CONTROLLER));
+
+    const firstMutation = requests.findIndex(({ query }) => /\bmutation\b/.test(query));
+    expect(firstMutation).toBeGreaterThan(0);
+    expect(requests.slice(0, firstMutation).every(({ query }) => query === ITEMS_QUERY)).toBe(true);
+    expect(requests.slice(firstMutation).every(({ query }) => /\bmutation\b/.test(query))).toBe(true);
+
+    const foreignIds = new Set(["c1", "c2"]);
+    const mutations = mutationRequests(requests);
+    expect(mutations.filter(({ variables }) => !foreignIds.has(variables.i))).toEqual(
+      mutationRequests(baseline.requests),
+    );
+    const foreignOutcome = mutations.filter(
+      ({ variables }) => foreignIds.has(variables.i) && variables.f === "outcome-field-id",
+    );
+    expect(foreignOutcome).toEqual([
+      expect.objectContaining({
+        query: expect.stringContaining("clearProjectV2ItemFieldValue"),
+        variables: { p: "project-id", i: "c1", f: "outcome-field-id" },
+      }),
+    ]);
+    expect(foreignOutcome.some(({ query }) => /SetOutcomeOrder/.test(query))).toBe(false);
+
+    expect(lines).toContain("  outcome-order:clear chase-sets/chase-sets-controller#5: 2 -> (none)");
+    expect(lines).toContain("  outcome-order:set #11: (none) -> 1");
+    expect(lines).toContain("  outcome-order:set #12: 3 -> 2");
+    expect(lines.filter((line) => line.includes("chase-sets-controller#6"))).toEqual([]);
+
+    // Status and Target date still project both repositories, unchanged.
+    const items = nodes.map((node) => projectItemFromNode(node)).filter(Boolean);
+    expect(result.statusUpdates).toEqual(planStatusUpdates(items));
+    expect(result.dateUpdates).toEqual(planDateUpdates(items));
+    expect(result.statusUpdates.map(({ itemId }) => itemId)).toContain("c1");
+    expect(result.dateUpdates.map(({ itemId }) => itemId)).toContain("c1");
+  });
+
+  it("is inert for foreign Outcome order on the run after cleanup", async () => {
+    const applied = { p1: 1, p2: 2, c1: null };
+    const nodes = collisionNodes().map((node) =>
+      Object.hasOwn(applied, node.id)
+        ? { ...node, outcomeOrder: applied[node.id] === null ? null : { number: applied[node.id] } }
+        : node,
+    );
+    const { result, requests, lines } = await runMain(nodes, pagedResponder(nodes));
+    expect(result.outcomeOrderUpdates).toEqual([]);
+    expect(mutationRequests(requests).filter(({ variables }) => variables.f === "outcome-field-id")).toEqual([]);
+    expect(lines.filter((line) => line.includes("outcome-order:"))).toEqual([]);
+  });
+
+  it("ranks product outcomes densely and never sets a foreign rank", () => {
+    const items = plannerItems();
+    const updates = planOutcomeOrderUpdates(items);
+    const productItems = items.filter(isProductRow);
+
+    expect(updates.filter((update) => update.repository === PRODUCT)).toEqual(planOutcomeOrderUpdates(productItems));
+    expect(projectedRanks(productItems, updates)).toEqual([1, 2]);
+    expect(updates.filter((update) => update.repository !== PRODUCT)).toEqual([
+      { type: "clear", itemId: "c-stale", number: 5, repository: CONTROLLER, from: 2, to: null },
+    ]);
+
+    // Filter-after-interleave mutant: rank both repositories as one, then drop
+    // the foreign rows. The product ranks it leaves are not dense.
+    const interleaved = items.map((item) =>
+      isProductRow(item)
+        ? item
+        : {
+            ...item,
+            issue: {
+              ...item.issue,
+              repository: PRODUCT,
+              milestone: { ...item.issue.milestone, number: 1000 + item.issue.milestone.number },
+            },
+          },
+    );
+    expect(projectedRanks(productItems, planOutcomeOrderUpdates(interleaved))).toEqual([2, 4]);
+  });
+
+  it.each([
+    ["absent", (content) => delete content.repository],
+    ["null", (content) => (content.repository = null)],
+    ["without nameWithOwner", (content) => (content.repository = {})],
+    ["non-string", (content) => (content.repository = { nameWithOwner: 42 })],
+    ["empty", (content) => (content.repository = { nameWithOwner: "" })],
+  ])("fails closed when the board path omits repository identity (%s)", async (_label, vary) => {
+    const valid = boardNode({ id: "valid", number: 21, status: "Backlog" });
+    const varied = boardNode({ id: "varied", number: 22, status: "Backlog" });
+    vary(varied.content);
+    const { request, requests } = scriptedRequest(({ query }) =>
+      query === ITEMS_QUERY ? itemPage([valid, varied]) : { mutation: { ok: true } },
+    );
+
+    await expect(
+      main({ env: validEnv({ OUTCOME_ORDER_FIELD_ID: "outcome-field-id" }), request, logger: { log: vi.fn() } }),
+    ).rejects.toMatchObject({
+      name: "ProjectStatusSyncIssueError",
+      message: expect.stringMatching(/repository identity/),
+    });
+    expect(mutationRequests(requests)).toEqual([]);
+  });
+
+  it.each([undefined, null, 42, ""])("refuses to plan a row with repository %j as foreign", (repository) => {
+    const row = { itemId: "x", outcomeOrder: 2, issue: issue({ repository }) };
+    expect(() => planOutcomeOrderUpdates([row])).toThrowError(
+      expect.objectContaining({
+        name: "ProjectStatusSyncIssueError",
+        message: expect.stringMatching(/repository identity/),
+      }),
+    );
+  });
+});
+
 // The complete open-state contract published in docs/contributing/backlog-model.md.
 // Precedence is first match wins: Epic -> Tracking -> Blocked -> Refined -> Backlog.
 const OPEN_STATE_DECISION_TABLE = [
@@ -448,9 +668,9 @@ const OPEN_STATE_DECISION_TABLE = [
     expected: "Epic",
   },
   {
-    name: "untyped legacy kind:epic issue",
+    name: "untyped kind:epic issue",
     subject: issue({ number: 4001, labels: [{ name: "kind:epic" }] }),
-    expected: "Epic",
+    expected: "Backlog",
   },
   {
     name: "native Epic carrying an open blocking dependency",
@@ -467,12 +687,12 @@ const OPEN_STATE_DECISION_TABLE = [
     expected: "Epic",
   },
   {
-    name: "pathological untyped legacy epic that also carries status:tracking-only",
+    name: "untyped kind:epic issue carrying status:tracking-only",
     subject: issue({ number: 4002, labels: [{ name: "kind:epic" }, { name: "status:tracking-only" }] }),
-    expected: "Epic",
+    expected: "Tracking",
   },
   {
-    name: "native Slice carrying the legacy kind:epic label but otherwise classified",
+    name: "native Slice carrying kind:epic label but otherwise classified",
     subject: issue({
       number: 6001,
       issueType: { name: "Slice" },
@@ -481,7 +701,7 @@ const OPEN_STATE_DECISION_TABLE = [
     expected: "Refined",
   },
   {
-    name: "native Slice carrying the legacy kind:epic label and nothing else",
+    name: "native Slice carrying kind:epic label and nothing else",
     subject: issue({ number: 6002, issueType: { name: "Slice" }, labels: [{ name: "kind:epic" }] }),
     expected: "Backlog",
   },
@@ -675,9 +895,9 @@ describe("planner correction and lane ownership", () => {
       derived: "Epic",
     },
     {
-      name: "untyped legacy Epic",
+      name: "untyped kind:epic issue",
       subject: issue({ labels: [{ name: "kind:epic" }], milestone: null }),
-      derived: "Epic",
+      derived: "Backlog",
     },
     {
       name: "tracking-only continuity record",

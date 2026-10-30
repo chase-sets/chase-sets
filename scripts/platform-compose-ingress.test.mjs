@@ -1,5 +1,10 @@
+import { once } from "node:events";
+import { request as httpRequest } from "node:http";
 import { connect } from "node:net";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "../infrastructure/platform-runtime/http.ts";
+import { createWebApp } from "../infrastructure/platform-runtime/web-server.ts";
+import { createWebServerTestRoot } from "../infrastructure/platform-runtime/web-server-test-support.ts";
 import { createComposeIngressServer, shouldRouteToApi, xForwardedHeaders } from "./platform-compose-ingress.mjs";
 import { platformApiIngressPrefixes } from "./render-platform-helm-values.mjs";
 
@@ -162,5 +167,141 @@ describe("platform-compose-ingress", () => {
     } finally {
       await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }
+  });
+});
+
+// The compose ingress in front of the shared web server, as compose boots the
+// web deployables: React Router aborts any action whose Origin differs from
+// the request origin the server derives, with the switch on or off.
+describe("platform-compose-ingress in front of the shared web server", () => {
+  const publicHost = "shop.chasesets.test:18180";
+  const stacks = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    await Promise.all(stacks.splice(0).map((stack) => stack.close()));
+  });
+
+  async function startStack(trust) {
+    vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, trust);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const root = createWebServerTestRoot();
+    const build = await root.loadBuild();
+    const web = createWebApp({ build, rootDirectory: root.rootDirectory, logStream: { write: () => {} } }).listen(
+      0,
+      "127.0.0.1",
+    );
+    await once(web, "listening");
+    const webPort = web.address().port;
+    const ingress = createComposeIngressServer({
+      label: "web",
+      webTarget: `http://127.0.0.1:${webPort}`,
+      apiTarget: "http://127.0.0.1:9",
+    });
+    const ingressPort = await listen(ingress);
+    const stack = {
+      build,
+      webPort,
+      ingressPort,
+      close: async () => {
+        for (const server of [ingress, web]) {
+          server.closeAllConnections();
+          await new Promise((resolve) => server.close(resolve));
+        }
+        root.remove();
+      },
+    };
+    stacks.push(stack);
+    return stack;
+  }
+
+  // Node's HTTP client, not sendRaw: the ingress streams the request body
+  // upstream, so a client that half-closes after writing gets an empty reply.
+  function postThroughIngress({ ingressPort }, headers) {
+    const body = "intent=probe";
+    return new Promise((resolve, reject) => {
+      const request = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: ingressPort,
+          method: "POST",
+          path: "/",
+          agent: false,
+          headers: {
+            host: publicHost,
+            ...headers,
+            "content-type": "application/x-www-form-urlencoded",
+            "content-length": String(Buffer.byteLength(body)),
+          },
+        },
+        (response) => {
+          response.resume();
+          response.once("end", () => resolve(response.statusCode));
+        },
+      );
+      request.once("error", reject);
+      request.end(body);
+    });
+  }
+
+  function withOrigin(origin, edit) {
+    const url = new URL(origin);
+    edit(url);
+    return url.origin;
+  }
+
+  const controls = [
+    {
+      control: "a foreign host",
+      headers: (origin) => ({ Origin: withOrigin(origin, (url) => (url.hostname = "attacker.invalid")) }),
+    },
+    {
+      control: "a foreign scheme",
+      headers: (origin) => ({ Origin: withOrigin(origin, (url) => (url.protocol = "https:")) }),
+    },
+    {
+      control: "a foreign port",
+      headers: (origin) => ({ Origin: withOrigin(origin, (url) => (url.port = String(Number(url.port) + 1))) }),
+    },
+    {
+      control: "a spoofed X-Forwarded-Host",
+      headers: (origin) => {
+        const spoofed = new URL(withOrigin(origin, (url) => (url.hostname = "attacker.invalid")));
+        return { "X-Forwarded-Host": spoofed.host, "X-Forwarded-Proto": "http", Origin: spoofed.origin };
+      },
+    },
+  ];
+
+  describe.each([
+    { trust: "true", requestOrigin: () => `http://${publicHost}` },
+    { trust: "false", requestOrigin: ({ webPort }) => `http://127.0.0.1:${webPort}` },
+  ])("with CHASE_SETS_TRUST_FORWARDED_HEADERS=$trust", ({ trust, requestOrigin }) => {
+    it("runs a same-origin action", async () => {
+      const stack = await startStack(trust);
+
+      const status = await postThroughIngress(stack, { Origin: requestOrigin(stack) });
+
+      expect(status).toBe(200);
+      expect(stack.build.actionCount()).toBe(1);
+    });
+
+    it.each(controls)("rejects $control without running the action", async ({ headers }) => {
+      const stack = await startStack(trust);
+
+      const status = await postThroughIngress(stack, headers(requestOrigin(stack)));
+
+      expect(status).toBe(400);
+      expect(stack.build.actionCount()).toBe(0);
+    });
+  });
+
+  it("does not adopt the ingress-forwarded public origin while the switch is off", async () => {
+    const stack = await startStack("false");
+
+    const status = await postThroughIngress(stack, { Origin: `http://${publicHost}` });
+
+    expect(status).toBe(400);
+    expect(stack.build.actionCount()).toBe(0);
   });
 });

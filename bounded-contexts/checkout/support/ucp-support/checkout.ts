@@ -3,9 +3,11 @@ import {
   createUcpEnvelope,
   readUcpRequestMeta,
   type UcpEnvelope,
+  type UcpMessageInput,
   type UcpOperationHandlerInput,
 } from "@chase-sets/platform-runtime/ucp";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
+import { sumMoneyAmounts, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { UcpPaymentHandlerHandoff } from "@chase-sets/payments/server";
 import {
@@ -15,6 +17,7 @@ import {
 import type { CheckoutServices } from "../runtime-support/services";
 import { CheckoutDomainError } from "../runtime-support/common";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
+import type { CheckoutFulfillmentPreview } from "../../features/sessions/domain/fulfillment-preview";
 import { prepareBuyNowCheckout } from "../../features/sessions/api/buy-now-preparation";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
@@ -26,6 +29,20 @@ export type CheckoutUcpOrderFact = Readonly<{
   readyForFulfillmentAt?: string | null;
   label?: string;
   permalinkUrl?: string;
+  totals?: Readonly<{ itemSubtotal: string; shipping: string; tax: string; total: string }>;
+  lines?: readonly Readonly<{ listingId: string; unitPrice: string }>[];
+}>;
+
+export type CheckoutUcpQuote = Readonly<{
+  subtotal: string;
+  fulfillment: string;
+  tax: string;
+  total: string;
+  linePrice: (listingId: string) => string | null;
+}>;
+
+export type CheckoutUcpResourcePayment = Readonly<{
+  currency_code?: string | null;
 }>;
 
 export type CheckoutUcpListing = Readonly<{
@@ -87,7 +104,7 @@ export function createCheckoutUcpHandlers(
   const payload = async (
     input: UcpOperationHandlerInput,
     session: CheckoutSessionRow,
-    preparedPreview?: Parameters<typeof checkoutUcpState>[3],
+    preparedPreview?: CheckoutFulfillmentPreview,
   ) => {
     const currentTime = now();
     const hasOrders = session.order_ids.length > 0;
@@ -104,54 +121,31 @@ export function createCheckoutUcpHandlers(
             line: session.lines[0],
           })));
     const state = checkoutUcpState(session, facts, payment, preview, currentTime);
-    return {
-      id: session.session_id,
-      status: state.status,
-      source_type: session.source_type,
-      shipping_option: session.shipping_option,
-      optimization_goal: session.optimization_goal,
-      shipping_address: session.shipping_address,
-      line_items: session.lines.map((line) => ({
-        catalog_item_id: line.catalogItemId,
-        product_id: line.productId,
-        listing_id: line.listingId,
-        title: line.itemTitle,
-        subtitle: line.itemSubtitle,
-        selected_options: line.selectedOptions,
-        product_summary: line.productSummary,
-        quantity: line.quantity,
-        fulfillment_mode: line.fulfillmentMode ?? "optimize",
-        availability_state: line.availabilityState ?? "available",
-      })),
-      order_ids: session.order_ids,
-      payment_id: session.payment_id,
-      offer_id: session.submitted_offer_id,
-      cancelled_at: session.cancelled_at,
-      ...(options.paymentHandoff ? { payment: options.paymentHandoff.payment } : {}),
-      created_at: session.created_at,
-      updated_at: session.updated_at,
-      ...(state.continue ? { continue_url: checkoutContinueUrl(input.request, session.session_id) } : {}),
-      ...(session.handoff_expires_at ? { expires_at: session.handoff_expires_at } : {}),
-      ...(state.order
-        ? {
-            order: state.order.map((fact) => ({
-              id: fact.id,
-              label: fact.label ?? fact.id,
-              permalink_url: new URL(
-                fact.permalinkUrl ?? `/account/purchases/${encodeURIComponent(fact.id)}`,
-                resolvePublicRequestOrigin(input.request),
-              ).href,
-            })),
-          }
-        : {}),
-      ...(state.messages.length ? { messages: state.messages } : {}),
-    };
+    const quote = await resolveCheckoutUcpQuote({
+      session,
+      orderFacts: facts,
+      preview,
+      loadRetainedQuote: () => checkout.sessions.getLastRecordedQuote(session.session_id, session.buyer_account_id),
+    });
+    if (!quote) return null;
+    return checkoutUcpResource({ session, state, quote, payment, request: input.request, now: currentTime });
   };
+  const resourceEnvelope = (
+    resource: Readonly<Record<string, unknown>> | null,
+    messages: readonly UcpMessageInput[] = [],
+  ) =>
+    resource
+      ? createUcpEnvelope("success", resource, messages, { paymentHandlers: {} })
+      : createUcpEnvelope("error", {}, [{ code: "not_found", content: "The requested checkout was not found." }]);
 
   const handler =
-    (permission: "orders.view" | "orders.manage", run: UcpHandler): UcpHandler =>
+    (
+      permission: "orders.view" | "orders.manage",
+      run: UcpHandler,
+      handlerOptions: Readonly<{ checkContext?: boolean }> = {},
+    ): UcpHandler =>
     async (input) => {
-      const accessError = requireCheckoutAccess(input, permission);
+      const accessError = requireCheckoutAccess(input, permission, handlerOptions.checkContext);
       if (accessError) return accessError;
       try {
         return await run(input);
@@ -160,9 +154,7 @@ export function createCheckoutUcpHandlers(
       }
     };
   const closed = () =>
-    createUcpEnvelope("error", {}, [
-      { severity: "error", code: "checkout_closed", message: "Checkout is closed until public launch." },
-    ]);
+    createUcpEnvelope("error", {}, [{ code: "checkout_closed", content: "Checkout is closed until public launch." }]);
   const handlers = {
     create_checkout: handler("orders.manage", async (input) => {
       if (options.checkoutClosed) return closed();
@@ -202,10 +194,19 @@ export function createCheckoutUcpHandlers(
       });
       const session = await checkout.sessions.getSession(prepared.sessionId, input.actor!.accountId);
       if (!session) throw new CheckoutDomainError("Checkout was not found after creation.", "not_found");
-      return createUcpEnvelope("ok", { checkout: await payload(input, session, prepared.fulfillmentPreview) });
+      return resourceEnvelope(await payload(input, session, prepared.fulfillmentPreview));
     }),
-    get_checkout: handler("orders.view", async (input) =>
-      createUcpEnvelope("ok", { checkout: await payload(input, await loadSession(input)) }),
+    get_checkout: handler(
+      "orders.view",
+      async (input) => {
+        const session = await loadSession(input);
+        return input.context
+          ? resourceEnvelope(await payload(input, session))
+          : createUcpEnvelope("error", {}, [
+              { code: "context_required", content: "UCP checkout requires an event-store context." },
+            ]);
+      },
+      { checkContext: false },
     ),
     update_checkout: handler("orders.manage", async (input) => {
       if (options.checkoutClosed) return closed();
@@ -217,35 +218,25 @@ export function createCheckoutUcpHandlers(
         JSON.stringify(session.lines.map((line) => ({ listingId: line.listingId, quantity: line.quantity })))
       )
         throw new CheckoutDomainError("Checkout line updates are not supported.", "line_items_update_unsupported");
-      return createUcpEnvelope("ok", { checkout: await payload(input, session) });
+      return resourceEnvelope(await payload(input, session));
     }),
     complete_checkout: handler("orders.manage", async (input) => {
       if (options.checkoutClosed) return closed();
       const session = await loadSession(input);
       assertHandoffLive(session, now());
-      const derived = await payload(input, session);
-      return createUcpEnvelope(
-        derived.status === "requires_escalation" ? "requires_action" : "ok",
-        { checkout: derived },
-        derived.messages ?? [],
-      );
+      return resourceEnvelope(await payload(input, session));
     }),
     cancel_checkout: handler("orders.manage", async (input) => {
       const session = await loadSession(input);
+      if (session.cancelled_at) return resourceEnvelope(await payload(input, session));
       if (!["Signature-Input", "Signature", "Content-Digest"].some((name) => input.request.headers.has(name)))
-        return createUcpEnvelope("ok", { checkout: await payload(input, session) });
-      const released = await releaseCheckoutInventoryReservations(input.request, session);
+        return resourceEnvelope(await payload(input, session));
+      await releaseCheckoutInventoryReservations(input.request, session);
       const result = await checkout.sessions.cancelSession(
         { sessionId: session.session_id, accountId: input.actor!.accountId as AccountId },
         input.context!,
       );
-      return createUcpEnvelope("ok", {
-        checkout: await payload(input, result.session),
-        released_reservation_ids: released.map((reservation) => reservation.holdId),
-        ...(result.commitPosition ? { commit_position: result.commitPosition } : {}),
-        ...(result.commitEventIds ? { commit_event_ids: result.commitEventIds } : {}),
-        ...(result.commitPositions ? { commit_positions: result.commitPositions } : {}),
-      });
+      return resourceEnvelope(await payload(input, result.session));
     }),
   };
   return {
@@ -372,22 +363,205 @@ export function checkoutUcpState(
   };
 }
 
-function requireCheckoutAccess(input: UcpOperationHandlerInput, permission: "orders.view" | "orders.manage") {
+/** Build the UCP 2026-08-25 Checkout resource from the already-resolved rules. */
+export function checkoutUcpResource({
+  session,
+  state,
+  quote,
+  payment,
+  request,
+  now = new Date(),
+}: Readonly<{
+  session: CheckoutSessionRow;
+  state: ReturnType<typeof checkoutUcpState>;
+  quote: CheckoutUcpQuote;
+  payment: CheckoutUcpResourcePayment | null;
+  request: Request;
+  now?: Date;
+}>) {
+  const currency = payment?.currency_code?.trim().toUpperCase() || "USD";
+  const currentTime = now;
+  const line_items = session.lines.map((line, index) => {
+    const listingId = line.listingId ?? "";
+    const linePrice = quote.linePrice(listingId);
+    const unitPrice = exactMinorUnits(String(linePrice ?? ""), `line ${listingId}`);
+    const lineTotal = unitPrice * BigInt(line.quantity);
+    return {
+      id: line.cartLineId ?? line.listingId ?? `line_${index + 1}`,
+      item: {
+        id: listingId,
+        title: line.itemTitle ?? line.productSummary ?? line.listingId,
+        price: wireMinorUnits(unitPrice, `line ${listingId}`),
+      },
+      quantity: line.quantity,
+      totals: [
+        { type: "subtotal", amount: wireMinorUnits(lineTotal, `line ${listingId} total`) },
+        { type: "total", amount: wireMinorUnits(lineTotal, `line ${listingId} total`) },
+      ],
+    };
+  });
+  const totals = [
+    { type: "subtotal", amount: wireMinorUnits(exactMinorUnits(quote.subtotal, "subtotal"), "subtotal") },
+    { type: "fulfillment", amount: wireMinorUnits(exactMinorUnits(quote.fulfillment, "fulfillment"), "fulfillment") },
+    { type: "tax", amount: wireMinorUnits(exactMinorUnits(quote.tax, "tax"), "tax") },
+    { type: "total", amount: wireMinorUnits(exactMinorUnits(quote.total, "total"), "total") },
+  ];
+  const terminal = state.status === "canceled" || state.status === "completed";
+  const resources = {
+    id: session.session_id,
+    status: state.status,
+    currency,
+    line_items,
+    totals,
+    links: [
+      { type: "terms_of_service", url: new URL("/terms", resolvePublicRequestOrigin(request)).href },
+      { type: "privacy_policy", url: new URL("/privacy", resolvePublicRequestOrigin(request)).href },
+    ],
+    ...(state.messages.length ? { messages: state.messages.map(checkoutUcpMessage) } : {}),
+    ...(state.continue ? { continue_url: checkoutContinueUrl(request, session.session_id) } : {}),
+    ...(!terminal
+      ? {
+          ...(session.order_ids.length > 0
+            ? { expires_at: new Date(currentTime.getTime() + handoffTtlMs).toISOString() }
+            : session.handoff_expires_at
+              ? { expires_at: session.handoff_expires_at }
+              : {}),
+        }
+      : {}),
+    ...(state.status === "completed" && state.order?.length
+      ? (() => {
+          const confirmed = state.order.find((fact) => fact.id === session.order_ids[0]);
+          return {
+            order: {
+              id: session.order_ids[0]!,
+              ...(confirmed?.label ? { label: confirmed.label } : {}),
+              permalink_url: new URL(
+                session.order_ids.length > 1
+                  ? "/account/purchases"
+                  : (confirmed?.permalinkUrl ?? `/account/purchases/${encodeURIComponent(session.order_ids[0]!)}`),
+                resolvePublicRequestOrigin(request),
+              ).href,
+            },
+          };
+        })()
+      : {}),
+  };
+  return resources;
+}
+
+function checkoutUcpMessage(row: ReturnType<typeof checkoutUcpState>["messages"][number]) {
+  return {
+    type: row.severity === "warning" ? ("warning" as const) : ("error" as const),
+    code: row.code,
+    content: row.message,
+    ...(row.target ? { path: row.target } : {}),
+  };
+}
+
+function exactMinorUnits(amount: string | null, label: string) {
+  const value = typeof amount === "string" ? tryMoneyToCents(amount) : null;
+  if (value === null) throw new Error(`UCP Checkout ${label} has no exact USD amount.`);
+  return value;
+}
+
+function wireMinorUnits(value: bigint, label: string) {
+  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER))
+    throw new Error(`UCP Checkout ${label} exceeds safe minor units.`);
+  return Number(value);
+}
+
+/**
+ * Decision D1, "an honest quote source for every Checkout state", cells C1-C10. With orders,
+ * Ordering's purchase facts are summed once every order has one (C8); the retained quote answers
+ * until then (C9). An orderless session uses its snapshot, else `preview`, else the retained quote
+ * (C1-C7). No source returns null (C10). The retained quote is loaded only in C3, C5, C7 and C9;
+ * C10 is that load finding none.
+ */
+export async function resolveCheckoutUcpQuote({
+  session,
+  orderFacts,
+  preview,
+  loadRetainedQuote,
+}: Readonly<{
+  session: CheckoutSessionRow;
+  orderFacts: readonly CheckoutUcpOrderFact[];
+  preview: CheckoutFulfillmentPreview | null;
+  loadRetainedQuote: () => Promise<CheckoutFulfillmentPreview | null>;
+}>): Promise<CheckoutUcpQuote | null> {
+  const offerPrice = (listingId: string) =>
+    session.lines.find((line) => line.listingId === listingId)?.offerPriceAmount ?? null;
+  if (session.order_ids.length > 0) {
+    const purchases = session.order_ids.flatMap((orderId) => {
+      const fact = orderFacts.find((candidate) => candidate.id === orderId);
+      return fact?.totals ? [{ totals: fact.totals, lines: fact.lines ?? [] }] : [];
+    });
+    if (purchases.length < session.order_ids.length) return quoteFromPreview(await loadRetainedQuote(), offerPrice);
+    const sum = (amount: keyof NonNullable<CheckoutUcpOrderFact["totals"]>) =>
+      sumMoneyAmounts(purchases.map(({ totals }) => totals[amount]));
+    const lines = purchases.flatMap((purchase) => purchase.lines);
+    return {
+      subtotal: sum("itemSubtotal"),
+      fulfillment: sum("shipping"),
+      tax: sum("tax"),
+      total: sum("total"),
+      linePrice: (listingId) =>
+        offerPrice(listingId) ?? lines.find((line) => line.listingId === listingId)?.unitPrice ?? null,
+    };
+  }
+  const snapshot = session.fulfillment_preview_snapshot;
+  const source = snapshot ?? preview;
+  if (!source) return quoteFromPreview(await loadRetainedQuote(), offerPrice);
+  // C3: the same-request preview omits an unavailable line, which only the retained quote still prices.
+  const unpriced =
+    !snapshot &&
+    session.lines.some(
+      ({ listingId }) => listingId && offerPrice(listingId) === null && previewLinePrice(source, listingId) === null,
+    );
+  return quoteFromPreview(source, offerPrice, unpriced ? await loadRetainedQuote() : null);
+}
+
+function quoteFromPreview(
+  source: CheckoutFulfillmentPreview | null,
+  offerPrice: (listingId: string) => string | null,
+  fallback: CheckoutFulfillmentPreview | null = null,
+): CheckoutUcpQuote | null {
+  if (!source) return null;
+  return {
+    subtotal: source.totals.itemSubtotalAmount,
+    fulfillment: source.totals.shippingAmount,
+    tax: source.totals.salesTaxAmount,
+    total: source.totals.totalAmount,
+    linePrice: (listingId) =>
+      offerPrice(listingId) ?? previewLinePrice(source, listingId) ?? previewLinePrice(fallback, listingId),
+  };
+}
+
+function previewLinePrice(preview: CheckoutFulfillmentPreview | null, listingId: string) {
+  return (
+    preview?.sellerGroups.flatMap((group) => group.lines).find((line) => line.listingId === listingId)
+      ?.estimatedUnitPriceAmount ?? null
+  );
+}
+
+function requireCheckoutAccess(
+  input: UcpOperationHandlerInput,
+  permission: "orders.view" | "orders.manage",
+  checkContext = true,
+) {
   if (!input.actor)
     return createUcpEnvelope("error", {}, [
-      { severity: "error", code: "authentication_required", message: "UCP checkout requires a linked buyer account." },
+      { code: "authentication_required", content: "UCP checkout requires a linked buyer account." },
     ]);
   if (!input.actor.permissions.includes(permission) && !input.actor.permissions.includes("guest-checkout.manage"))
     return createUcpEnvelope("error", {}, [
       {
-        severity: "error",
         code: "authorization_forbidden",
-        message: "The linked buyer account cannot manage this checkout session.",
+        content: "The linked buyer account cannot manage this checkout session.",
       },
     ]);
-  if (!input.context)
+  if (checkContext && !input.context)
     return createUcpEnvelope("error", {}, [
-      { severity: "error", code: "context_required", message: "UCP checkout requires an event-store context." },
+      { code: "context_required", content: "UCP checkout requires an event-store context." },
     ]);
   return null;
 }
@@ -412,11 +586,11 @@ function readSelectedOptions(value: unknown) {
     : [];
 }
 function validationError(error: unknown) {
+  const code = error instanceof CheckoutDomainError ? error.code : "validation_failed";
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
-      code: error instanceof CheckoutDomainError ? error.code : "validation_failed",
-      message: error instanceof Error ? error.message : String(error),
+      code,
+      content: "The checkout request could not be completed.",
     },
   ]);
 }

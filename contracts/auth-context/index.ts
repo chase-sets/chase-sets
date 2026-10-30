@@ -1,6 +1,15 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 export const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
+export const AUTH_GUEST_CHECKOUT_COOKIE_NAME = "chase_sets_guest_checkout";
+export const STAGING_EBAY_RECEIPT_LOOKUP_SERVICE_ID = "staging-ebay-receipt-lookup";
+export const EBAY_RECEIPT_LOOKUP_PERMISSION = "channels.receipt.lookup";
+export type ReceiptLookupCredential = Readonly<{ version: 1; token: string; expiresAt: string }>;
+export type ReceiptLookupServiceActor = Readonly<{
+  kind: "service";
+  serviceId: typeof STAGING_EBAY_RECEIPT_LOOKUP_SERVICE_ID;
+  permissions: readonly string[];
+}>;
 export const CHANNEL_CONNECTOR_OPERATIONS = ["claim", "report", "ingest"] as const;
 export const CHANNEL_CONNECTOR_SCOPE_FAMILY = {
   key: "channel-connector",
@@ -90,6 +99,308 @@ export function resolveRecentAuthenticationStatus(
   const maxAgeMs = options.maxAgeMinutes * 60_000;
   return { recentlyAuthenticated: ageMs >= 0 && ageMs <= maxAgeMs, authenticatedAt };
 }
+
+/**
+ * Every permission key a role grants or a surface checks. Declaring a key
+ * grants it to no one; checks keep taking `string`, and
+ * `infrastructure/platform-runtime/permission-keys.test.ts` holds every
+ * permission string in the repo to this list.
+ */
+export const PERMISSION_KEYS = [
+  "provider-connections.view",
+  "accounts.manage",
+  "accounts.view",
+  // Authenticity's API checks these; no role grants them.
+  "authenticity.manage",
+  "authenticity.view",
+  "catalog.manage",
+  "catalog.view",
+  "channels.manage",
+  "channels.receipt.lookup",
+  "channels.view",
+  "commercial-terms.agreements.manage",
+  "commercial-terms.manage",
+  "commercial-terms.view",
+  // Customer Feedback attention checks this; no role grants it.
+  "customer-feedback.privacy.export-sensitive-feedback",
+  "fulfillment.manage",
+  "fulfillment.view",
+  "return-intake.manage",
+  "return-intake.view",
+  "google-shopping.manage",
+  "google-shopping.view",
+  // Auth grants this to guest checkout actors, never through a role.
+  "guest-checkout.manage",
+  "insights-dashboards.view",
+  "memberships.manage",
+  "memberships.view",
+  "inventory.manage",
+  "inventory.view",
+  "listings.manage",
+  // The Seller Desk price action requires this; no role grants it.
+  "listings.price",
+  "listings.view",
+  "listing-evidence-policy.activate",
+  "listing-evidence-policy.draft",
+  "listing-evidence-policy.validate",
+  "listing-evidence-policy.view",
+  "offers.manage",
+  "offers.view",
+  "orders.manage",
+  "orders.view",
+  "payouts.manage",
+  "payouts.reconcile",
+  "payouts.platform.view",
+  "payouts.request",
+  "payouts.setup",
+  "payouts.view",
+  "payout-review-holds.manage",
+  "wallet-adjustments.operate",
+  "postage-policies.manage",
+  "postage-policies.view",
+  "pricing.manage",
+  "pricing.view",
+  "projection-operations.operate",
+  "projection-operations.rebuild",
+  "projection-operations.view",
+  // Customer feedback operator capabilities. Staff-only: platform-admin
+  // is the sole role granted these. `view` reads the operator queue/detail/
+  // metrics; `manage` performs triage/notes/review/archive/bulk/follow-up/
+  // redaction; `export` is a separate grant so a viewer cannot download the
+  // free-text comment corpus unless export is explicitly authorized. Ordinary
+  // account roles (owner/manager/fulfillment/viewer) hold none of these --
+  // submitting one's own experience feedback is an authenticated-subject
+  // authority, not an operator capability.
+  "platform-feedback.export",
+  "platform-feedback.manage",
+  "platform-feedback.view",
+  "platform-policy.manage",
+  "platform-policy.view",
+  "public-presence.manage",
+  "public-presence.view",
+  "recovered-inventory.evidence",
+  "recovered-inventory.manage",
+  "recovered-inventory.view",
+  "reported-content.view",
+  "reputation.manage",
+  "reputation.view",
+  "support.manage",
+  // Customer Feedback attention checks this; no role grants it.
+  "support.notify",
+  "support.remedies.approve",
+  "support.remedies.approve-elevated",
+  "support.remedies.correct",
+  "support.remedies.override-return",
+  "support.remedies.propose",
+  "support.remedies.retry",
+  "support.remedies.waive",
+  "support.view",
+  "security.manage",
+  // Platform Wallet Adjustment authority ratified by ADR 0020: purpose-specific,
+  // never bundled into `payouts.*`, and granted to platform-admin only. Read,
+  // create (request), approve (approve/reject), and reverse are independently
+  // enforced permissions so each action of the lifecycle can be withheld on
+  // its own.
+  "wallet-adjustments.approve",
+  "wallet-adjustments.create",
+  "wallet-adjustments.reverse",
+  "wallet-adjustments.view",
+] as const;
+
+export type PermissionKey = (typeof PERMISSION_KEYS)[number];
+
+export const PERMISSION_PRESETS = {
+  paymentsOperator: ["orders.manage", "orders.view"],
+  payoutsOperator: ["payouts.manage", "payouts.reconcile", "payouts.request", "payouts.setup", "payouts.view"],
+  payoutsViewer: ["payouts.view"],
+} satisfies Readonly<Record<string, readonly PermissionKey[]>>;
+
+/**
+ * The one role-to-permission table. Identity's membership projection writes a
+ * role's entry into the membership's `role_permissions` snapshot, and Auth
+ * resolves a session's permissions as that snapshot united with the role's
+ * entry here.
+ */
+export const ROLE_PERMISSIONS = {
+  "platform-admin": [
+    "payout-review-holds.manage",
+    "payouts.platform.view",
+    "provider-connections.view",
+    "accounts.manage",
+    "accounts.view",
+    "catalog.manage",
+    "catalog.view",
+    "commercial-terms.agreements.manage",
+    "commercial-terms.manage",
+    "commercial-terms.view",
+    "google-shopping.manage",
+    "google-shopping.view",
+    "listing-evidence-policy.activate",
+    "listing-evidence-policy.draft",
+    "listing-evidence-policy.validate",
+    "listing-evidence-policy.view",
+    "insights-dashboards.view",
+    "memberships.manage",
+    "memberships.view",
+    "postage-policies.manage",
+    "postage-policies.view",
+    "return-intake.manage",
+    "return-intake.view",
+    "projection-operations.operate",
+    "projection-operations.rebuild",
+    "projection-operations.view",
+    // Customer feedback operator capabilities: platform-staff only.
+    // Export is a distinct grant from view/manage so the sensitive free-text
+    // comment download can be withheld independently.
+    "platform-feedback.export",
+    "platform-feedback.manage",
+    "platform-feedback.view",
+    "platform-policy.manage",
+    "platform-policy.view",
+    "public-presence.manage",
+    "public-presence.view",
+    "recovered-inventory.evidence",
+    "recovered-inventory.manage",
+    "recovered-inventory.view",
+    "reported-content.view",
+    "security.manage",
+    "support.manage",
+    "support.remedies.approve",
+    "support.remedies.approve-elevated",
+    "support.remedies.correct",
+    "support.remedies.override-return",
+    "support.remedies.propose",
+    "support.remedies.retry",
+    "support.remedies.waive",
+    "support.view",
+    // Platform Wallet Adjustment authority (ADR 0020): platform-admin only.
+    // Never granted via invitation/membership assignment -- platform-admin
+    // itself can only be assigned by platform bootstrap -- and never bundled
+    // into payouts.*.
+    "wallet-adjustments.approve",
+    "wallet-adjustments.create",
+    "wallet-adjustments.reverse",
+    "wallet-adjustments.view",
+  ],
+  owner: [
+    "accounts.manage",
+    "accounts.view",
+    "catalog.manage",
+    "catalog.view",
+    "channels.manage",
+    "channels.view",
+    "commercial-terms.manage",
+    "commercial-terms.view",
+    "fulfillment.manage",
+    "fulfillment.view",
+    "google-shopping.manage",
+    "google-shopping.view",
+    "insights-dashboards.view",
+    "memberships.manage",
+    "memberships.view",
+    "inventory.manage",
+    "inventory.view",
+    "listings.manage",
+    "listings.view",
+    "listing-evidence-policy.view",
+    "offers.manage",
+    "offers.view",
+    "orders.manage",
+    "orders.view",
+    "postage-policies.manage",
+    "postage-policies.view",
+    // Decision #9241 owns whether owner keeps projection-operations.*.
+    "projection-operations.operate",
+    "projection-operations.rebuild",
+    "projection-operations.view",
+    ...PERMISSION_PRESETS.payoutsOperator,
+    "pricing.manage",
+    "pricing.view",
+    // Customer feedback operator capabilities are platform-staff only;
+    // an account owner does not enumerate/export/mutate platform feedback.
+    "platform-policy.view",
+    "public-presence.manage",
+    "public-presence.view",
+    "reputation.manage",
+    "reputation.view",
+    "support.manage",
+    "support.view",
+    "security.manage",
+  ],
+  manager: [
+    "accounts.view",
+    "channels.manage",
+    "channels.view",
+    "catalog.manage",
+    "catalog.view",
+    "commercial-terms.manage",
+    "commercial-terms.view",
+    "fulfillment.manage",
+    "fulfillment.view",
+    "google-shopping.manage",
+    "google-shopping.view",
+    "insights-dashboards.view",
+    "memberships.manage",
+    "memberships.view",
+    "inventory.manage",
+    "inventory.view",
+    "listings.manage",
+    "listings.view",
+    "listing-evidence-policy.view",
+    "offers.manage",
+    "offers.view",
+    "orders.manage",
+    "orders.view",
+    "postage-policies.manage",
+    "postage-policies.view",
+    ...PERMISSION_PRESETS.payoutsOperator,
+    "pricing.manage",
+    "pricing.view",
+    // Customer feedback operator capabilities are platform-staff only.
+    "platform-policy.view",
+    "public-presence.manage",
+    "public-presence.view",
+    "reputation.manage",
+    "reputation.view",
+    "support.manage",
+    "support.view",
+  ],
+  fulfillment: [
+    "accounts.view",
+    "channels.view",
+    "fulfillment.manage",
+    "fulfillment.view",
+    "memberships.view",
+    "inventory.view",
+    "listings.view",
+    "offers.view",
+    "orders.view",
+    "return-intake.manage",
+    "return-intake.view",
+    // No platform-feedback.* -- operator feedback is platform-staff only.
+    "pricing.view",
+    "public-presence.view",
+    "reputation.view",
+    "support.manage",
+    "support.view",
+  ],
+  viewer: [
+    "accounts.view",
+    "channels.view",
+    "fulfillment.view",
+    "memberships.view",
+    "inventory.view",
+    "listings.view",
+    "offers.view",
+    "orders.view",
+    ...PERMISSION_PRESETS.payoutsViewer,
+    "pricing.view",
+    // No platform-feedback.* -- operator feedback is platform-staff only.
+    "public-presence.view",
+    "reputation.view",
+    "support.view",
+  ],
+} satisfies Readonly<Record<string, readonly PermissionKey[]>>;
 
 export type AgentOAuthScope = AgentOAuthCommerceScope | AgentOAuthOperatorScope;
 

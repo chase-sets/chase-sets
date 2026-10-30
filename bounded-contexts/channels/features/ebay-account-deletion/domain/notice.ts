@@ -20,6 +20,47 @@ function canonicalInstant(value: string) {
 
 type EbayAccountDeletionCandidate = Omit<EbayAccountDeletionNotice, "topic"> & Readonly<{ topic: string }>;
 
+export function parseEbayAccountDeletionPayload(value: unknown) {
+  function closed(input: unknown, names: readonly string[]): Record<string, unknown> {
+    if (
+      !input ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      Object.keys(input).length !== names.length ||
+      names.some((name) => !Object.hasOwn(input, name))
+    )
+      throw new EbayReceiptError("invalid-notice");
+    return input as Record<string, unknown>;
+  }
+  const payload = closed(value, ["metadata", "notification"]);
+  const metadata = closed(payload.metadata, ["topic", "schemaVersion", "deprecated"]);
+  const notification = closed(payload.notification, [
+    "notificationId",
+    "eventDate",
+    "publishDate",
+    "publishAttemptCount",
+    "data",
+  ]);
+  const data = closed(notification.data, ["username", "userId", "eiasToken"]);
+  if (
+    metadata.topic !== "MARKETPLACE_ACCOUNT_DELETION" ||
+    typeof metadata.deprecated !== "boolean" ||
+    typeof metadata.schemaVersion !== "string" ||
+    !metadata.schemaVersion ||
+    metadata.schemaVersion.length > 256 ||
+    [data.username, data.eiasToken].some((field) => typeof field !== "string" || !field || field.length > 2048)
+  )
+    throw new EbayReceiptError("invalid-notice");
+  return parseEbayAccountDeletionNotice({
+    notificationId: notification.notificationId,
+    topic: metadata.topic,
+    eventDate: notification.eventDate,
+    publishDate: notification.publishDate,
+    publishAttemptCount: notification.publishAttemptCount,
+    userId: data.userId,
+  });
+}
+
 // New-topic admission follows the retained identity check, so a changed topic
 // on an existing notification is a conflict rather than a new notice.
 export function parseEbayAccountDeletionNotice(value: unknown): EbayAccountDeletionCandidate {

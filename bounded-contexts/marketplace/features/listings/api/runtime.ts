@@ -50,6 +50,7 @@ import type {
 } from "../ui/contracts";
 import {
   activeListingPhotos,
+  assertNativeListingCommand,
   decideMarketplaceListing,
   evolveMarketplaceListing,
   initialMarketplaceListingState,
@@ -59,6 +60,7 @@ import {
   type MarketplaceListingCommand,
   type MarketplaceListingEvent,
   type MarketplaceListingState,
+  type InventoryCapacityRecoveryBlock,
 } from "../domain/domain";
 import { evaluateListingEvidenceReadiness } from "../domain/listing-evidence-readiness";
 import { resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
@@ -75,6 +77,7 @@ import {
 import { createListingPublishedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
 import { marketplaceListingBulkPriceUpdatePolicy } from "../domain/bulk-price-update-policy";
+import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
 import {
   assertActiveListingCapacity,
   decideInventoryListingCapacity,
@@ -90,6 +93,7 @@ import {
 } from "../../listing-evidence-policy/domain/policy";
 import { evaluateEvidenceCoverage } from "../domain/evidence-coverage";
 import { normalizeListingPhoto } from "./listing-photo-normalization";
+import { parseAcquisitionCostSnapshot, parseShipFromAddressSnapshot } from "./listing-snapshot-parsers";
 import {
   decideSellerListingAvailability,
   evolveSellerListingAvailability,
@@ -119,7 +123,6 @@ import {
   getSellerListingStatusCounts,
   getSellerOrderCapacity,
   hasSellerSupplyLocationNamed,
-  listActiveListingsForInventoryItem,
   listDueSellerAvailabilityRestores,
   listDueSellerAwayWindowStarts,
   listItemListings,
@@ -141,7 +144,7 @@ const LISTING_PHOTO_JPEG_MAX_BYTES = 15_000_000;
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 7;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 9;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every
@@ -182,6 +185,36 @@ export class MarketplaceListingEvidenceIncompleteError extends Error {
 }
 
 export type { MarketplaceBulkListingPriceUpdateInput, MarketplaceBulkListingPriceUpdateOutcome } from "../ui/contracts";
+export { marketplaceListingCommandTypes as marketplaceListingCommandInventory } from "../domain/domain";
+
+type MarketplaceCreateListingParams = Readonly<{
+  accountId: AccountId;
+  inventoryItemId: string;
+  priceAmount: string;
+  priceCurrencyCode: string;
+  publicationScope?: "native" | "channel-only";
+  quantityCap: number;
+  purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+  listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
+  listingIdOverride?: ListingId;
+}>;
+type MarketplaceCreateListingResult<Fingerprint extends string | null = string | null> = Readonly<{
+  listingId: ListingId;
+  version: number;
+  feeQuoteFingerprint: Fingerprint;
+  state: MarketplaceListingState;
+}>;
+type MarketplaceCreateListing = {
+  (
+    params: MarketplaceCreateListingParams & { publicationScope: "channel-only" },
+    context: EventStoreContext,
+  ): Promise<MarketplaceCreateListingResult<null>>;
+  (
+    params: MarketplaceCreateListingParams & { publicationScope?: "native" },
+    context: EventStoreContext,
+  ): Promise<MarketplaceCreateListingResult<string>>;
+  (params: MarketplaceCreateListingParams, context: EventStoreContext): Promise<MarketplaceCreateListingResult>;
+};
 
 export type MarketplaceListingServices = Readonly<{
   operatorUnlistListing: (
@@ -211,19 +244,7 @@ export type MarketplaceListingServices = Readonly<{
     SellerOrderCapacityState,
     SellerOrderCapacityEvent
   >;
-  createListing: (
-    params: Readonly<{
-      accountId: AccountId;
-      inventoryItemId: string;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      quantityCap: number;
-      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-      listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
-      listingIdOverride?: ListingId;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
+  createListing: MarketplaceCreateListing;
   createBatchDraftListingFromInventorySnapshot: (
     params: Readonly<{
       accountId: string;
@@ -242,6 +263,7 @@ export type MarketplaceListingServices = Readonly<{
       totalQuantity: number;
       availableQuantity?: number;
       acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode?: string | null;
       priceAmount: string;
       priceCurrencyCode: string;
       quantityCap: number;
@@ -265,15 +287,22 @@ export type MarketplaceListingServices = Readonly<{
       totalQuantity: number;
       availableQuantity?: number;
       acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode?: string | null;
       priceAmount: string;
       priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
+      publicationScope?: "native" | "channel-only";
       listingIdOverride?: ListingId;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
+  ) => Promise<{
+    listingId: ListingId;
+    version: number;
+    feeQuoteFingerprint: string | null;
+    state: MarketplaceListingState;
+  }>;
   addListingPhotos: (
     params: Readonly<{
       accountId: string;
@@ -703,13 +732,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     evolve: evolveInventoryListingCapacity,
     decide: decideInventoryListingCapacity,
   });
-  const { commandHandler: sellerAvailabilityCommandHandler } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>(),
-    initialState: () => initialSellerListingAvailabilityState,
-    evolve: evolveSellerListingAvailability,
-    decide: decideSellerListingAvailability,
-  });
+  const { commandHandler: sellerAvailabilityCommandHandler, repository: sellerAvailabilityRepository } =
+    createAggregateCommandHandler({
+      eventStore: deps.eventStore,
+      codec: createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>(),
+      initialState: () => initialSellerListingAvailabilityState,
+      evolve: evolveSellerListingAvailability,
+      decide: decideSellerListingAvailability,
+    });
   const { commandHandler: orderCapacityCommandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<SellerOrderCapacityEvent>(),
@@ -777,7 +807,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     inventoryItemId: string,
     command: Extract<MarketplaceListingCommand, { type: "CreateListing" }>,
     context: EventStoreContext,
-  ): Promise<number> {
+  ): Promise<{ version: number; state: MarketplaceListingState }> {
     const appendToStreams = deps.eventStore.appendToStreams;
     assert(appendToStreams, "Atomic inventory listing registration is unavailable.");
     const capacityStreamId = inventoryListingCapacityStreamId(inventoryItemId);
@@ -788,7 +818,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         inventoryListingCapacityRepository.load(capacityStreamId),
       ]);
       if (listing.state.listingId !== null) {
-        return listing.version;
+        assert(
+          listing.state.accountId === command.accountId &&
+            listing.state.publicationScope === (command.publicationScope ?? "native"),
+          "Listing creation identity or publication scope changed.",
+        );
+        return { version: listing.version, state: listing.state };
       }
       const discoveredListingIds =
         capacity.state.listingIds.length === 0 ? await discoverInventoryListingIds(inventoryItemId) : [];
@@ -814,7 +849,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           },
         ]);
         recordCommittedEvents(results.flatMap((result) => result.storedEvents));
-        return listing.version + listingEvents.length;
+        return {
+          version: listing.version + listingEvents.length,
+          state: listingEvents.reduce(evolveMarketplaceListing, listing.state),
+        };
       } catch (error) {
         if (!isConcurrencyConflict(error) || attempt === 4) {
           throw error;
@@ -827,7 +865,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   async function commitCapacityBoundListingCommand(
     listingId: string,
     accountId: string,
-    command: MarketplaceListingCommand,
+    command:
+      | MarketplaceListingCommand
+      | Readonly<{
+          type: "ReconcileInventoryCapacity";
+          intent: "pause" | "recover";
+        }>,
     context: EventStoreContext,
   ): Promise<number> {
     const appendToStreams = deps.eventStore.appendToStreams;
@@ -848,27 +891,49 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       const registeredListingIds = [
         ...new Set([...capacity.state.listingIds, ...discoveredListingIds, listingId]),
       ].sort();
-      const listingEvents = decideMarketplaceListing(listing.state, command);
-      if (listingEvents.length === 0) {
-        return listing.version;
-      }
-      const nextListing = applyEvents(listing.state, evolveMarketplaceListing, listingEvents);
-      const otherListings = await Promise.all(
-        registeredListingIds
-          .filter((registeredListingId) => registeredListingId !== listingId)
-          .map((registeredListingId) => repository.load(`marketplace.listing-${registeredListingId}`)),
+      const otherListings = await loadInventoryListings(
+        registeredListingIds.filter((registeredListingId) => registeredListingId !== listingId),
       );
       const supply = await getInventoryItemSupply(deps.db, inventoryItemId);
       if (!supply) {
         throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
       }
-      assertActiveListingCapacity(
-        [nextListing, ...otherListings.map((aggregate) => aggregate.state)].map((state) => ({
-          status: state.status,
-          quantityCap: state.quantityCap,
-        })),
-        supply.available_quantity,
+      const activeTotal = [listing, ...otherListings].reduce(
+        (sum, aggregate) => sum + (aggregate.state.status === "active" ? aggregate.state.quantityCap : 0),
+        0,
       );
+      let listingEvents: readonly MarketplaceListingEvent[];
+      if (command.type === "ReconcileInventoryCapacity") {
+        if (command.intent === "pause") {
+          if (listing.state.status !== "active" || activeTotal <= supply.available_quantity) return listing.version;
+          listingEvents = decideMarketplaceListing(listing.state, {
+            type: "PauseListing",
+            reason: "inventory-capacity",
+          });
+        } else {
+          if (
+            listing.state.status !== "paused" ||
+            listing.state.pauseReason !== "inventory-capacity" ||
+            listing.state.publicationScope !== "native" ||
+            activeTotal + listing.state.quantityCap > supply.available_quantity
+          )
+            return listing.version;
+          listingEvents = await inventoryCapacityRecoveryEvents(listing.state);
+        }
+      } else {
+        listingEvents = decideMarketplaceListing(listing.state, command);
+      }
+      if (listingEvents.length === 0) return listing.version;
+      const nextListing = applyEvents(listing.state, evolveMarketplaceListing, listingEvents);
+      // A shortage pause may need several serialized commands before the total fits.
+      if (command.type !== "ReconcileInventoryCapacity" || nextListing.status === "active")
+        assertActiveListingCapacity(
+          [nextListing, ...otherListings.map((aggregate) => aggregate.state)].map((state) => ({
+            status: state.status,
+            quantityCap: state.quantityCap,
+          })),
+          supply.available_quantity,
+        );
       const registrationEvents = decideInventoryListingCapacity(capacity.state, {
         type: "RegisterInventoryListings",
         inventoryItemId,
@@ -925,20 +990,89 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       return;
     }
 
-    const activeListings = await listActiveListingsForInventoryItem(deps.db, inventoryItemId);
-    let activeTotal = activeListings.reduce((sum, listing) => sum + listing.quantity_cap, 0);
+    const capacity = await inventoryListingCapacityRepository.load(inventoryListingCapacityStreamId(inventoryItemId));
+    const listingIds =
+      capacity.state.listingIds.length > 0
+        ? capacity.state.listingIds
+        : await discoverInventoryListingIds(inventoryItemId);
+    // Enumerate the item registry, not a seller's first page or lagging Listing projection.
+    const listings = await loadInventoryListings([...listingIds].sort());
+    let activeTotal = listings.reduce(
+      (sum, listing) => sum + (listing.state.status === "active" ? listing.state.quantityCap : 0),
+      0,
+    );
+    for (const listing of [...listings].reverse()) {
+      if (activeTotal <= supply.available_quantity) break;
+      if (listing.state.status !== "active" || !listing.state.listingId || !listing.state.accountId) continue;
+      const version = await commitCapacityBoundListingCommand(
+        listing.state.listingId,
+        listing.state.accountId,
+        {
+          type: "ReconcileInventoryCapacity",
+          intent: "pause",
+        },
+        createMarketplaceSystemContext(listing.state.accountId),
+      );
+      if (version > listing.version) activeTotal -= listing.state.quantityCap;
+    }
+    for (const listing of listings) {
+      if (listing.state.pauseReason !== "inventory-capacity" || !listing.state.listingId || !listing.state.accountId)
+        continue;
+      await commitCapacityBoundListingCommand(
+        listing.state.listingId,
+        listing.state.accountId,
+        {
+          type: "ReconcileInventoryCapacity",
+          intent: "recover",
+        },
+        createMarketplaceSystemContext(listing.state.accountId),
+      );
+    }
+  }
 
-    for (const listing of activeListings) {
-      if (activeTotal <= supply.available_quantity) {
-        break;
-      }
+  async function loadInventoryListings(listingIds: readonly string[]) {
+    const listings: Awaited<ReturnType<typeof repository.load>>[] = [];
+    for (const batch of chunkItems(listingIds, 100)) {
+      listings.push(...(await Promise.all(batch.map((id) => repository.load(`marketplace.listing-${id}`)))));
+    }
+    return listings;
+  }
 
-      await commandHandler({
-        streamId: `marketplace.listing-${listing.listing_id}`,
-        command: { type: "PauseListing" },
-        context: createMarketplaceSystemContext(listing.account_id),
+  async function inventoryCapacityRecoveryEvents(
+    listing: MarketplaceListingState,
+  ): Promise<readonly MarketplaceListingEvent[]> {
+    const blocked = (block: InventoryCapacityRecoveryBlock) =>
+      decideMarketplaceListing(listing, {
+        type: "PauseListing",
+        reason: "inventory-capacity",
+        inventoryCapacityRecoveryBlock: block,
       });
-      activeTotal -= listing.quantity_cap;
+    if (listing.nativeVisibility !== "enabled" || listing.nativeFeeState !== "enrolled")
+      return blocked("native-visibility-disabled");
+    if (!listing.priceAmount || !listing.priceCurrencyCode) return blocked("price-incomplete");
+    if (!listing.productMeasureSnapshot) return blocked("shipping-measure-missing");
+    const availability = await sellerAvailabilityRepository.load(
+      `marketplace.seller-listing-availability-${listing.accountId}`,
+    );
+    if (availability.state.status === "unavailable") return blocked("seller-away");
+    try {
+      const now = new Date().toISOString();
+      const evidenceRequirements = await resolveEvidenceRequirementsForListing(listing, now);
+      const readiness = await evaluateListingReadiness(listing, evidenceRequirements, now);
+      if (!readiness.ready) return blocked("evidence-incomplete");
+      const refreshed = decideMarketplaceListing(listing, {
+        type: "RefreshListingEvidenceRequirements",
+        evidenceRequirements,
+      });
+      return [
+        ...refreshed,
+        ...decideMarketplaceListing(applyEvents(listing, evolveMarketplaceListing, refreshed), {
+          type: "PublishListing",
+          readiness,
+        }),
+      ];
+    } catch {
+      return blocked("publication-unavailable");
     }
   }
 
@@ -1239,6 +1373,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     if (params.listingPhotoUploads.length === 0) {
       return [];
     }
+    // The aggregate judges the same trimmed descriptions again; checking first
+    // means rejected text never leaves normalized assets orphaned in storage.
+    for (const upload of params.listingPhotoUploads) {
+      assertSafeAuthoredText("listing-evidence-alt-text", upload.altText?.trim());
+    }
     assert(deps.listingPhotoStorage, "Listing photo storage is not configured.");
 
     const gatePolicy = await resolveListingGatePolicy();
@@ -1307,8 +1446,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       shipFromAddress: AddressSnapshot;
       totalQuantity: number;
       acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode?: string | null;
     }>,
   ) {
+    const cost = parseAcquisitionCostSnapshot(params.acquisitionCostAmount, params.acquisitionCostCurrencyCode);
+    const address = parseShipFromAddressSnapshot(params.shipFromAddress);
+    assert(address, "Ship-from address is required.");
     await deps.db.query(
       `INSERT INTO marketplace_supply_locations (
          storage_location_id,
@@ -1331,7 +1474,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         params.accountId,
         params.storageLocationName,
         params.shipFromCode,
-        JSON.stringify(params.shipFromAddress),
+        JSON.stringify(address),
       ],
     );
     await deps.db.query(
@@ -1345,9 +1488,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          storage_location_id,
          total_quantity,
          acquisition_cost_amount,
+         acquisition_cost_currency_code,
          last_stream_version,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, now())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, now())
        ON CONFLICT (item_id) DO UPDATE SET
          account_id = EXCLUDED.account_id,
          catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
@@ -1357,6 +1501,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          storage_location_id = EXCLUDED.storage_location_id,
          total_quantity = EXCLUDED.total_quantity,
          acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
+         acquisition_cost_currency_code = EXCLUDED.acquisition_cost_currency_code,
          updated_at = EXCLUDED.updated_at`,
       [
         params.inventoryItemId,
@@ -1367,7 +1512,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         params.gradedCard ? JSON.stringify(params.gradedCard) : null,
         params.storageLocationId,
         params.totalQuantity,
-        params.acquisitionCostAmount,
+        cost.acquisitionCostAmount,
+        cost.acquisitionCostCurrencyCode,
       ],
     );
   }
@@ -1416,17 +1562,20 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     } satisfies MarketplaceListingFeeHistoryEntry;
   }
 
+  function createListing(
+    params: MarketplaceCreateListingParams & { publicationScope: "channel-only" },
+    context: EventStoreContext,
+  ): Promise<MarketplaceCreateListingResult<null>>;
+  function createListing(
+    params: MarketplaceCreateListingParams & { publicationScope?: "native" },
+    context: EventStoreContext,
+  ): Promise<MarketplaceCreateListingResult<string>>;
+  function createListing(
+    params: MarketplaceCreateListingParams,
+    context: EventStoreContext,
+  ): Promise<MarketplaceCreateListingResult>;
   async function createListing(
-    params: Readonly<{
-      accountId: AccountId;
-      inventoryItemId: string;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      quantityCap: number;
-      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-      listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
-      listingIdOverride?: ListingId;
-    }>,
+    params: Parameters<MarketplaceListingServices["createListing"]>[0],
     context: EventStoreContext,
   ) {
     const listingId = params.listingIdOverride ?? (createId("lst") as ListingId);
@@ -1436,8 +1585,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       if (existing.state.accountId !== params.accountId) {
         throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
       }
+      assert(
+        existing.state.publicationScope === (params.publicationScope ?? "native"),
+        "Listing publication scope cannot change.",
+      );
       const feeQuoteFingerprint = existing.state.feeQuoteFingerprint;
-      assert(feeQuoteFingerprint, "Listing fee quote fingerprint is missing.");
+      if (existing.state.publicationScope === "native")
+        assert(feeQuoteFingerprint, "Listing fee quote fingerprint is missing.");
       if (params.listingPhotoUploads?.length) {
         const photoResult = await addListingPhotos(
           {
@@ -1450,46 +1604,52 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         return {
           listingId,
           version: photoResult.version,
-          feeQuoteFingerprint,
+          feeQuoteFingerprint: photoResult.state.feeQuoteFingerprint,
+          state: photoResult.state,
         };
       }
       return {
         listingId,
         version: existing.version,
         feeQuoteFingerprint,
+        state: existing.state,
       };
     }
     const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
     if (!supply) {
       throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
     }
-    const quote = await quoteListingTerms(params.accountId, params.priceAmount);
+    const quote =
+      params.publicationScope === "channel-only" ? null : await quoteListingTerms(params.accountId, params.priceAmount);
     const evidence = await normalizePhotoUploads({
       accountId: params.accountId,
       listingId,
       listingPhotoUploads: params.listingPhotoUploads ?? [],
     });
     const evaluatedAt = new Date().toISOString();
-    let evidenceRequirements;
-    try {
-      evidenceRequirements = await resolveListingEvidenceRequirements(deps, {
-        accountId: params.accountId,
-        catalogItemId: supply.catalog_catalog_item_id,
-        productId: supply.product_id,
-        selectedOptions: supply.selected_options,
-        gradedItem: supply.graded_card !== null,
-        priceAmount: params.priceAmount,
-        evaluatedAt,
-      });
-    } catch {
-      throw new Error("Listing evidence requirements are unavailable.");
+    let evidenceRequirements = null;
+    if (params.publicationScope !== "channel-only") {
+      try {
+        evidenceRequirements = await resolveListingEvidenceRequirements(deps, {
+          accountId: params.accountId,
+          catalogItemId: supply.catalog_catalog_item_id,
+          productId: supply.product_id,
+          selectedOptions: supply.selected_options,
+          gradedItem: supply.graded_card !== null,
+          priceAmount: params.priceAmount,
+          evaluatedAt,
+        });
+      } catch {
+        throw new Error("Listing evidence requirements are unavailable.");
+      }
     }
 
-    const version = await commitListingCreation(
+    const committed = await commitListingCreation(
       streamId,
       supply.item_id,
       {
         type: "CreateListing",
+        publicationScope: params.publicationScope ?? "native",
         listingId,
         accountId: params.accountId,
         inventoryItemId: supply.item_id,
@@ -1507,7 +1667,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         shipFromAddress: supply.ship_from_address,
         priceAmount: params.priceAmount,
         priceCurrencyCode: params.priceCurrencyCode,
-        feeLock: feeLockFromMarketplaceTermsQuote(params.quantityCap, quote),
+        feeLock: quote ? feeLockFromMarketplaceTermsQuote(params.quantityCap, quote) : null,
         quantityCap: params.quantityCap,
         purchaseLimits: params.purchaseLimits,
         evidenceRequirements,
@@ -1516,7 +1676,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       context,
     );
 
-    return { listingId, version, feeQuoteFingerprint: quote.fee_quote_fingerprint };
+    return {
+      listingId,
+      version: committed.version,
+      feeQuoteFingerprint: committed.state.feeQuoteFingerprint,
+      state: committed.state,
+    };
   }
 
   async function addListingPhotos(
@@ -1544,7 +1709,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       context,
     });
 
-    return { listingId: params.listingId, version: result.version };
+    return { listingId: params.listingId, version: result.version, state: result.state };
   }
 
   return {
@@ -1584,6 +1749,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           inventoryItemId: params.inventoryItemId,
           priceAmount: params.priceAmount,
           priceCurrencyCode: params.priceCurrencyCode,
+          publicationScope: params.publicationScope,
           quantityCap: params.quantityCap,
           purchaseLimits: params.purchaseLimits,
           listingIdOverride: params.listingIdOverride,
@@ -1635,6 +1801,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         (photo) => photo.photoId === params.replacedPhotoId && photo.status === "active",
       );
       assert(target, "Listing evidence entry was not found.");
+      assertSafeAuthoredText("listing-evidence-alt-text", params.upload.altText?.trim(), target.altText);
       assert(deps.listingPhotoStorage, "Listing photo storage is not configured.");
       const gatePolicy = await resolveListingGatePolicy();
       const contentType = params.upload.contentType.toLowerCase();
@@ -1829,6 +1996,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     claimAnonymousListingDraftIntent,
     updateListingPrice: async (params, context) => {
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
+      assertNativeListingCommand(listing);
       const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, params.priceAmount));
 
       const result = await commandHandler({
@@ -1849,10 +2017,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         return [];
       }
 
-      const [policy, termsSession] = await Promise.all([
-        resolveBulkPriceUpdatePolicy(),
-        openMarketplaceListingTermsSession(deps.commercialTermsResolver, { accountId: params.accountId }),
-      ]);
+      const policy = await resolveBulkPriceUpdatePolicy();
+      let termsSession: Awaited<ReturnType<typeof openMarketplaceListingTermsSession>> | undefined;
       const waves = chunkItems(params.updates, policy.chunkSize);
       const outcomesByListingId = new Map<string, MarketplaceBulkListingPriceUpdateOutcome>();
 
@@ -1863,6 +2029,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         for (const update of wave) {
           try {
             const listing = await loadOwnedListingState(update.listingId, params.accountId);
+            assertNativeListingCommand(listing);
             assert(listing.priceAmount !== null, "Listing price is missing.");
             if (update.idempotencyKey && tryMoneyToCents(listing.priceAmount) === tryMoneyToCents(update.priceAmount)) {
               const replayed = await findReplayedListingMutation(update.listingId, update.idempotencyKey);
@@ -1875,6 +2042,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
                 continue;
               }
             }
+            termsSession ??= await openMarketplaceListingTermsSession(deps.commercialTermsResolver, {
+              accountId: params.accountId,
+            });
             const quote = termsSession.quote(update.priceAmount);
             if (update.feeQuoteFingerprint) {
               assertConfirmedFeeQuote(update.feeQuoteFingerprint, quote);
@@ -1954,6 +2124,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     updateListingQuantityCap: async (params, context) => {
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
+      assertNativeListingCommand(listing);
       assert(listing.priceAmount, "Listing price is missing.");
       const addedUnitCount = Math.max(0, params.quantityCap - listing.quantityCap);
       const quote = addedUnitCount > 0 ? await quoteListingTerms(params.accountId, listing.priceAmount) : null;
@@ -1996,6 +2167,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     publishListing: async (params, context) => {
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
+      assertNativeListingCommand(listing);
       assert(listing.inventoryItemId, "Listing inventory item is missing.");
       assert(listing.priceAmount, "Listing price is missing.");
       assert(listing.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");

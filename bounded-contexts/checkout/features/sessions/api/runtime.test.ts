@@ -1,13 +1,16 @@
 import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../../cart/domain/domain";
+import { readFileSync } from "node:fs";
 import {
   evolveCheckoutSession,
   initialCheckoutSessionState,
   type CheckoutSessionEvent,
   type CheckoutSessionState,
 } from "../domain/domain";
+import type { CheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
   AppendToStreamInput,
@@ -20,9 +23,13 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { cartReadinessDecisionsFromSnapshot, createCartReadinessSnapshot } from "../../cart/domain/readiness";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
+import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
-import { createCheckoutSessionRuntime, OrderCartCleanupError } from "./runtime";
+import { createCheckoutSessionRuntime, OrderCartCleanupError, type CheckoutSessionServices } from "./runtime";
+import { createCheckoutSessionEntryServices } from "./session-entry";
+import { createCheckoutSessionReadServices } from "./session-read";
+import { createCheckoutSessionCleanupService } from "./session-cleanup";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -148,13 +155,37 @@ const secondSellerCartLine: CheckoutCartLineRow = {
   ],
 };
 
+/** A Cart double whose every attempt commits: each line command succeeds once. */
+function committedCartAttempt() {
+  return vi.fn<CheckoutCartServices["executeCartAttempt"]>(async (request) => ({
+    replayed: false,
+    result: {
+      schemaVersion: 1,
+      kind: request.kind,
+      fingerprint: "0".repeat(64),
+      actorBinding: { kind: request.ownerKey.startsWith("anon_") ? "anonymous" : "account", digest: "0".repeat(64) },
+      target: request.target,
+      requestHash: request.requestHash,
+      ownerStatus: "committed",
+      vector: request.commands.map((command, index) => ({
+        index,
+        command: command.type,
+        outcome: "succeeded",
+        lineId: "lineId" in command ? command.lineId : null,
+        status: command.type === "checkout" ? "checked-out" : "removed",
+        version: 1,
+        message: null,
+      })),
+    },
+  }));
+}
+
 function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLine]) {
   return {
     listCartLines: vi.fn(async () => lines),
     listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async () => [...lines]),
     listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => []),
-    removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async () => ({ lineId: "cli_1" as never, version: 1 })),
-    checkout: vi.fn(async () => ({ version: 1 })),
+    executeCartAttempt: committedCartAttempt(),
     createReadinessSnapshot: vi.fn(async () => createCartReadinessSnapshot(lines)),
   };
 }
@@ -190,8 +221,7 @@ function createUnionCartServices(
       resolveLines(params.presentedAnonymousCartId),
     ),
     listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => []),
-    removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async ({ lineId }) => ({ lineId, version: 1 })),
-    checkout: vi.fn(async () => ({ version: 1 })),
+    executeCartAttempt: committedCartAttempt(),
     createReadinessSnapshot: vi.fn<CheckoutCartServices["createReadinessSnapshot"]>(async (params) => {
       const lines = resolveLines(params.presentedAnonymousCartId);
       return createCartReadinessSnapshot(
@@ -895,8 +925,7 @@ describe("checkout session runtime", () => {
       Array.from({ length: 4 }, () => [{ accountId: "acc_buyer", presentedAnonymousCartId: anonymousCartId }]),
     );
     expect(allEvents).toHaveLength(eventCount);
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
   it("preserves aggregate cancellation refusal and reservation guards while getSession still checks readiness", async () => {
@@ -1846,8 +1875,7 @@ describe("checkout session runtime", () => {
       code: "readiness_snapshot_stale",
       message: "Cart readiness changed. Review your cart before checkout.",
     } satisfies Partial<CheckoutDomainError>);
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
   it("rejects order handoff when session lines have unassigned fulfillment", async () => {
@@ -1919,12 +1947,11 @@ describe("checkout session runtime", () => {
     ).rejects.toMatchObject({
       code: "unresolved_fulfillment",
     } satisfies Partial<CheckoutDomainError>);
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
-  it("blocks unsupported delivery regions before order creation", async () => {
-    const { eventStore } = createInMemoryEventStore();
+  it("rejects unsupported delivery regions at the address write", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
     const cart = createCartServices([readyCartLine]);
     const services = createCheckoutSessionRuntime({
       eventStore,
@@ -1942,48 +1969,28 @@ describe("checkout session runtime", () => {
       },
       context,
     );
-    await services.setShippingAddress(
-      {
-        sessionId: created.sessionId,
-        accountId: "acc_buyer" as never,
-        shippingAddress: {
-          ...serviceableShippingAddress,
-          state: "PR",
-          postalCode: "00901",
-        },
-      },
-      context,
-    );
-
     await expect(
-      services.assertReadyForOrderCreation({
-        sessionId: created.sessionId,
-        accountId: "acc_buyer" as never,
-      }),
-    ).rejects.toMatchObject({
-      code: "shipping_address_unsupported",
-      message: "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
-    } satisfies Partial<CheckoutDomainError>);
-
-    await expect(
-      services.recordOrdersCreated(
+      services.setShippingAddress(
         {
           sessionId: created.sessionId,
           accountId: "acc_buyer" as never,
-          orderIds: ["ord_1"],
-          fulfilledLineKeys: ["cli_1"],
+          shippingAddress: {
+            ...serviceableShippingAddress,
+            state: "PR",
+            postalCode: "00901",
+          },
         },
         context,
       ),
     ).rejects.toMatchObject({
       code: "shipping_address_unsupported",
+      message: "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
     } satisfies Partial<CheckoutDomainError>);
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(0);
   });
 
-  it("blocks unsupported delivery countries before order creation", async () => {
-    const { eventStore } = createInMemoryEventStore();
+  it("rejects unsupported delivery countries at the address write", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSessionRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
@@ -2000,27 +2007,151 @@ describe("checkout session runtime", () => {
       },
       context,
     );
-    await services.setShippingAddress(
-      {
-        sessionId: created.sessionId,
-        accountId: "acc_buyer" as never,
-        shippingAddress: {
-          ...serviceableShippingAddress,
-          country: "CA",
+    await expect(
+      services.setShippingAddress(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingAddress: {
+            ...serviceableShippingAddress,
+            country: "CA",
+          },
         },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "shipping_address_unsupported",
+      message: "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    } satisfies Partial<CheckoutDomainError>);
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(0);
+  });
+
+  it("checks the accepted suggested address at the write boundary", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices([readyCartLine]) as never,
+      addressVerificationProvider: {
+        providerName: "verification-test",
+        providerMode: "test",
+        verifyAddress: vi.fn<NonNullable<PostageLabelProvider["verifyAddress"]>>(async () => ({
+          providerName: "verification-test",
+          providerMode: "test",
+          status: "corrected",
+          checkedAt: "2026-10-25T00:00:00.000Z",
+          address: {
+            name: serviceableShippingAddress.name,
+            street1: serviceableShippingAddress.line1,
+            street2: serviceableShippingAddress.line2,
+            city: serviceableShippingAddress.city,
+            state: serviceableShippingAddress.state,
+            postalCode: serviceableShippingAddress.postalCode,
+            country: serviceableShippingAddress.country,
+          },
+          suggestedAddress: {
+            name: serviceableShippingAddress.name,
+            street1: "PO Box 100",
+            street2: null,
+            city: serviceableShippingAddress.city,
+            state: serviceableShippingAddress.state,
+            postalCode: serviceableShippingAddress.postalCode,
+            country: serviceableShippingAddress.country,
+          },
+          messages: [],
+        })),
+        purchaseUspsLabel: vi.fn(),
+        voidLabel: vi.fn(),
+      } satisfies PostageLabelProvider,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_address_accepted_suggested" as never,
       },
       context,
     );
 
     await expect(
-      services.assertReadyForOrderCreation({
-        sessionId: created.sessionId,
+      services.setShippingAddress(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingAddress: serviceableShippingAddress,
+          addressVerificationDecision: "accept-suggested",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "shipping_address_restricted" } satisfies Partial<CheckoutDomainError>);
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(0);
+  });
+
+  it("checks the kept original address at the write boundary", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices([readyCartLine]) as never,
+      addressVerificationProvider: {
+        providerName: "verification-test",
+        providerMode: "test",
+        verifyAddress: vi.fn<NonNullable<PostageLabelProvider["verifyAddress"]>>(async () => ({
+          providerName: "verification-test",
+          providerMode: "test",
+          status: "corrected",
+          checkedAt: "2026-10-25T00:00:00.000Z",
+          address: {
+            name: serviceableShippingAddress.name,
+            street1: "PO Box 100",
+            street2: null,
+            city: serviceableShippingAddress.city,
+            state: serviceableShippingAddress.state,
+            postalCode: serviceableShippingAddress.postalCode,
+            country: serviceableShippingAddress.country,
+          },
+          suggestedAddress: {
+            name: serviceableShippingAddress.name,
+            street1: serviceableShippingAddress.line1,
+            street2: serviceableShippingAddress.line2,
+            city: serviceableShippingAddress.city,
+            state: serviceableShippingAddress.state,
+            postalCode: serviceableShippingAddress.postalCode,
+            country: serviceableShippingAddress.country,
+          },
+          messages: [],
+        })),
+        purchaseUspsLabel: vi.fn(),
+        voidLabel: vi.fn(),
+      } satisfies PostageLabelProvider,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
         accountId: "acc_buyer" as never,
-      }),
-    ).rejects.toMatchObject({
-      code: "shipping_address_unsupported",
-      message: "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
-    } satisfies Partial<CheckoutDomainError>);
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_address_kept_original" as never,
+      },
+      context,
+    );
+
+    await expect(
+      services.setShippingAddress(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingAddress: { ...serviceableShippingAddress, line1: "PO Box 100" },
+          addressVerificationDecision: "keep-original",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "shipping_address_restricted" } satisfies Partial<CheckoutDomainError>);
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(0);
   });
 
   it("blocks incomplete delivery addresses before order creation", async () => {
@@ -2059,12 +2190,105 @@ describe("checkout session runtime", () => {
       message: "Confirm the shipping address before creating orders.",
     } satisfies Partial<CheckoutDomainError>);
 
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
-  it("blocks PO box delivery addresses before order creation", async () => {
-    const { eventStore } = createInMemoryEventStore();
+  it.each([
+    ["required", { ...serviceableShippingAddress, postalCode: "" }, "shipping_address_required"],
+    ["region", { ...serviceableShippingAddress, state: "PR" }, "shipping_address_unsupported"],
+    ["country", { ...serviceableShippingAddress, country: "CA" }, "shipping_address_unsupported"],
+    ["restricted", { ...serviceableShippingAddress, line1: "PO Box 100" }, "shipping_address_restricted"],
+  ] as const)("appends zero events for rejected %s addresses", async (_name, shippingAddress, code) => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const { sessionId } = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+      },
+      context,
+    );
+    const before = [...allEvents];
+    const error = await services
+      .setShippingAddress({ sessionId, accountId: "acc_buyer" as never, shippingAddress }, context)
+      .then(
+        () => null,
+        (failure: unknown) => failure,
+      );
+    expect(allEvents).toEqual(before);
+    expect(error).toMatchObject({ code });
+  });
+
+  it("retains the order-creation defense for legacy pre-guard addresses", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const cart = createCartServices();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: cart as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_legacy_address_guard" as never,
+      },
+      context,
+    );
+    await eventStore.appendToStream({
+      streamId: `checkout.session-${created.sessionId}`,
+      expectedVersion: 1,
+      context,
+      events: [
+        {
+          eventType: "checkout.session.shipping-address-set",
+          payload: {
+            sessionId: created.sessionId,
+            shippingAddress: { ...serviceableShippingAddress, line1: "PO Box 100" },
+            selectedAt: "2026-06-09T00:01:00.000Z",
+          },
+        },
+      ],
+    });
+
+    await expect(
+      services.assertReadyForOrderCreation({
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+      }),
+    ).rejects.toMatchObject({
+      code: "shipping_address_restricted",
+      message:
+        "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+    } satisfies Partial<CheckoutDomainError>);
+    const before = [...allEvents];
+    await expect(
+      services.recordOrdersCreated(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1"],
+          fulfilledLineKeys: ["cli_1"],
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "shipping_address_restricted" });
+    expect(allEvents).toEqual(before);
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
+  });
+
+  it("rejects PO box delivery addresses at the address write", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
     const cart = createCartServices([readyCartLine]);
     const services = createCheckoutSessionRuntime({
       eventStore,
@@ -2082,33 +2306,217 @@ describe("checkout session runtime", () => {
       },
       context,
     );
-    await services.setShippingAddress(
-      {
-        sessionId: created.sessionId,
-        accountId: "acc_buyer" as never,
-        shippingAddress: {
-          ...serviceableShippingAddress,
-          line1: "PO Box 100",
-        },
-      },
-      context,
-    );
-
     await expect(
-      services.assertReadyForOrderCreation({
-        sessionId: created.sessionId,
-        accountId: "acc_buyer" as never,
-      }),
+      services.setShippingAddress(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingAddress: {
+            ...serviceableShippingAddress,
+            line1: "PO Box 100",
+          },
+        },
+        context,
+      ),
     ).rejects.toMatchObject({
       code: "shipping_address_restricted",
       message:
         "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
     } satisfies Partial<CheckoutDomainError>);
 
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(0);
   });
 });
+
+describe("Checkout session entry and read relocation parity", () => {
+  it("complete Checkout session behavior ownership", () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const cart = createCartServices() as never;
+    const eventStore = {} as never;
+    const commandHandler = vi.fn() as never;
+    const repository = { load: vi.fn() } as never;
+    const entry = createCheckoutSessionEntryServices({ eventStore, db, cart, commandHandler, repository });
+    const read = createCheckoutSessionReadServices({
+      db,
+      cart,
+      loadSessionStateForBuyer: vi.fn(),
+      loadSessionStateForBuyerOrNull: vi.fn(),
+    });
+    const cleanup = createCheckoutSessionCleanupService({
+      eventStore,
+      cart,
+      repository,
+      loadSessionStateForBuyer: vi.fn(),
+      applySessionCommandForBuyer: vi.fn(),
+      stateToCheckoutSessionRow: vi.fn(),
+    });
+    const { eventStore: realEventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore: realEventStore,
+      checkpointStore: createCheckpointStore(),
+      db,
+      cart,
+    });
+    const owners = [entry, read, cleanup].map((owner) => Object.keys(owner));
+    const ownedKeys = owners.flat();
+    expect(owners).toEqual([
+      ["createFromCart", "createBuyNow", "createOfferIntent"],
+      ["assertReadyForOrderCreation", "getSession", "getLastRecordedQuote"],
+      ["resumeOrderCartCleanup", "recordOrdersCreated"],
+    ]);
+    expect(new Set(ownedKeys).size).toBe(ownedKeys.length);
+    const directKeys = Object.keys(services).filter((key) => !ownedKeys.includes(key));
+    expect(directKeys.sort()).toEqual(
+      [
+        "cancelSession",
+        "commandHandler",
+        "getPaymentConfirmation",
+        "getPaymentSummary",
+        "listSavedPaymentInstruments",
+        "projectors",
+        "recordCheckoutReservations",
+        "recordFulfillmentPreview",
+        "recordOfferSubmitted",
+        "recordPaymentStarted",
+        "selectAuthenticityCheckOptIn",
+        "selectOptimizationGoal",
+        "selectShippingOption",
+        "setShippingAddress",
+        "verifyShippingAddress",
+      ].sort(),
+    );
+    expect(new Set([...ownedKeys, ...directKeys])).toEqual(new Set(Object.keys(services)));
+    expect(Object.keys(services).length).toBe(ownedKeys.length + directKeys.length);
+
+    const source = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
+    const runtimeSource = source("runtime.ts");
+    const readSource = source("session-read.ts");
+    expect(runtimeSource.match(/repository\.load\(`checkout\.session-/g)).toHaveLength(2);
+    expect(readSource).not.toMatch(/repository\.load\(`checkout\.session-/);
+    expect(readSource).toContain("unresolvedFulfillmentError");
+  });
+
+  it("preserves public entry and aggregate-read behavior", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+      },
+      context,
+    );
+    await expect(services.getSession(created.sessionId, "acc_buyer")).resolves.toMatchObject({
+      session_id: created.sessionId,
+      source_type: "cart",
+    });
+  });
+
+  it("rethrows a regenerated-id synthetic concurrency conflict instead of replaying the override", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createBuyNowReadinessDb(),
+      cart: createCartServices() as never,
+    });
+    const buyNowInput = {
+      accountId: "acc_buyer" as never,
+      listingId: "lst_1",
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+      fulfillmentMode: "locked-listing" as const,
+      lockedListingId: "lst_1",
+      shippingOption: "standard",
+      fulfillmentPreviewRevision: "buy_now_supply_ready",
+      sessionIdOverride: "chk_synthetic_override_conflict" as never,
+    };
+    const first = await services.createBuyNow(buyNowInput, context);
+    await services.setShippingAddress(
+      { sessionId: first.sessionId, accountId: "acc_buyer" as never, shippingAddress: serviceableShippingAddress },
+      context,
+    );
+    await services.recordOrdersCreated(
+      { sessionId: first.sessionId, accountId: "acc_buyer" as never, orderIds: ["ord_synthetic"] },
+      context,
+    );
+
+    const originalAppend = eventStore.appendToStream.bind(eventStore);
+    const fault = vi.spyOn(eventStore, "appendToStream").mockImplementation(async (input) => {
+      if (
+        input.streamId !== `checkout.session-${first.sessionId}` &&
+        input.events[0]?.eventType === "checkout.session.started"
+      )
+        throw Object.assign(new Error("synthetic regenerated-id conflict"), { code: "concurrency_conflict" });
+      return originalAppend(input);
+    });
+    await expect(services.createBuyNow(buyNowInput, context)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    fault.mockRestore();
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
+  });
+
+  it("real CheckoutSessionServices consumers compile", () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services: CheckoutSessionServices = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    expect(services.commandHandler).toBeDefined();
+    expect(services.getSession).toBeTypeOf("function");
+  });
+});
+
+describe("Checkout retained cleanup relocation parity", () => {
+  it("keeps the retained cleanup entrypoint idempotent for non-cart sessions", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createBuyNowReadinessDb(),
+      cart: createCartServices() as never,
+    });
+    const created = await services.createOfferIntent(
+      {
+        accountId: "acc_buyer" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        offerPriceAmount: "20.00",
+        offerPriceCurrencyCode: "USD",
+        quantity: 1,
+      },
+      context,
+    );
+    const resumed = await services.resumeOrderCartCleanup(
+      { sessionId: created.sessionId, accountId: "acc_buyer" as never },
+      context,
+    );
+    expect(resumed.session.session_id).toBe(created.sessionId);
+    expect(resumed.session.source_type).toBe("offer-intent");
+  });
+});
+
+/** Every event type one append carries, across all of the streams it writes. */
+function eventTypesOf(inputs: readonly AppendToStreamInput[]) {
+  return inputs.flatMap((input) => input.events.map((event) => event.eventType));
+}
 
 // The oracle is the real event-sourced Cart, including its typed missing-line refusal.
 async function unionCleanupHarness(
@@ -2152,7 +2560,7 @@ async function unionCleanupHarness(
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
   let listingSequence = 0;
   const add = async (owner: string) =>
-    cart.addLine(
+    cartAttemptDriver(cart).addLine(
       {
         accountId: owner as never,
         catalogItemId: "cat_1",
@@ -2309,7 +2717,7 @@ describe("durable union cleanup", () => {
     expect((await h.cartState(h.buyer)).lines).toEqual([]);
     // The Account never held these anonymous lines, so removing one there is an
     // absorbed no-op that reports no stream write and appends nothing.
-    expect(await h.cart.removeLine({ accountId: h.buyer, lineId: h.ids[0]! }, context)).toEqual({
+    expect(await cartAttemptDriver(h.cart).removeLine({ accountId: h.buyer, lineId: h.ids[0]! }, context)).toEqual({
       lineId: h.ids[0],
       version: 0,
     });
@@ -2369,7 +2777,10 @@ describe("durable union cleanup", () => {
     const h = await unionCleanupHarness();
     await h.copy(h.ids[0]!);
     await h.copy(h.ids[0]!, "acc_foreign", 7);
-    await h.cart.setLineQuantity({ accountId: h.anonymous as never, lineId: h.ids[0]!, quantity: 3 }, context);
+    await cartAttemptDriver(h.cart).setLineQuantity(
+      { accountId: h.anonymous as never, lineId: h.ids[0]!, quantity: 3 },
+      context,
+    );
     expect((await h.cartState(h.anonymous)).lines[0]?.quantity).toBe(3);
     expect((await h.cartState(h.buyer)).lines[0]?.quantity).toBe(1);
     const later = await h.add(h.anonymous);
@@ -2409,25 +2820,34 @@ describe("durable union cleanup", () => {
     await h.copy(h.ids[0]!);
     await h.copy(h.ids[1]!);
     const original = h.eventStore.appendToStream.bind(h.eventStore);
+    const originalBatch = h.eventStore.appendToStreams!.bind(h.eventStore);
     let removal = 0;
-    const spy = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
-      const type = input.events[0]?.eventType;
-      const at =
-        type === "checkout.session.orders-created"
-          ? "orders"
-          : type === "checkout.session.cart-cleanup-completed"
-            ? "complete"
-            : type === "checkout.cart.line-removed"
-              ? `remove-${++removal}`
-              : "other";
+    // Session events append one stream at a time; a cart removal commits with
+    // its attempt record in one atomic batch, so each batch is one boundary.
+    const crashAt = async <T>(types: readonly string[], append: () => Promise<T>) => {
+      const at = types.includes("checkout.session.orders-created")
+        ? "orders"
+        : types.includes("checkout.session.cart-cleanup-completed")
+          ? "complete"
+          : types.includes("checkout.cart.line-removed")
+            ? `remove-${++removal}`
+            : "other";
       if (at === boundary) {
-        if (committed) await original(input);
+        if (committed) await append();
         throw new Error(`store ${h.anonymous}`);
       }
-      return original(input);
-    });
+      return append();
+    };
+    const spies = [
+      vi
+        .spyOn(h.eventStore, "appendToStream")
+        .mockImplementation((input) => crashAt(eventTypesOf([input]), () => original(input))),
+      vi
+        .spyOn(h.eventStore, "appendToStreams")
+        .mockImplementation((inputs) => crashAt(eventTypesOf(inputs), () => originalBatch(inputs))),
+    ];
     await expect(h.runtime().recordOrdersCreated(h.record, context)).rejects.toBeInstanceOf(OrderCartCleanupError);
-    spy.mockRestore();
+    for (const spy of spies) spy.mockRestore();
     const pending = await h.state();
     expect(pending.orderCartCleanup?.status).toBe(
       boundary === "orders" && !committed ? undefined : boundary === "complete" && committed ? "complete" : "pending",
@@ -2457,7 +2877,7 @@ describe("durable union cleanup", () => {
     new Error("store unavailable"),
   ])("union cleanup failure classification and concurrency propagates %s", async (failure) => {
     const h = await unionCleanupHarness();
-    const spy = vi.spyOn(h.realCart, "removeLine").mockRejectedValueOnce(failure);
+    const spy = vi.spyOn(h.realCart, "executeCartAttempt").mockRejectedValueOnce(failure);
     await expect(h.runtime().recordOrdersCreated(h.record, context)).rejects.toBeInstanceOf(OrderCartCleanupError);
     expect((await h.state()).orderCartCleanup?.status).toBe("pending");
     spy.mockRestore();
@@ -2490,7 +2910,8 @@ describe("durable union cleanup", () => {
       return original(input);
     });
     // Start one sweep after the removals so the barrier targets session completion, not cart conflict.
-    for (const lineId of h.ids) await h.cart.removeLine({ accountId: h.anonymous as never, lineId }, context);
+    for (const lineId of h.ids)
+      await cartAttemptDriver(h.cart).removeLine({ accountId: h.anonymous as never, lineId }, context);
     const outcomes = await Promise.allSettled([
       h.runtime().resumeOrderCartCleanup(h.params, context),
       h.runtime().resumeOrderCartCleanup(h.params, context),
@@ -2618,20 +3039,58 @@ describe("union cleanup concurrent cart writes", () => {
     const barrier = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const original = h.eventStore.appendToStream.bind(h.eventStore);
-    const fault = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
-      if (input.events[0]?.eventType === "checkout.cart.line-removed" && ++arrivals <= 2) {
-        if (arrivals === 2) release();
-        await barrier;
+    const isConflict = (error: unknown) => (error as { code?: unknown } | null)?.code === "concurrency_conflict";
+    // A cart removal commits with its attempt record in one atomic batch: hold
+    // the first two so both sweeps append the same removal at the same version.
+    const originalBatch = h.eventStore.appendToStreams!.bind(h.eventStore);
+    const storeRefusals: unknown[] = [];
+    const fault = vi.spyOn(h.eventStore, "appendToStreams").mockImplementation(async (inputs) => {
+      if (!eventTypesOf(inputs).includes("checkout.cart.line-removed") || ++arrivals > 2) {
+        return originalBatch(inputs);
       }
-      return original(input);
+      if (arrivals === 2) release();
+      await barrier;
+      try {
+        return await originalBatch(inputs);
+      } catch (error) {
+        storeRefusals.push(isConflict(error) ? "concurrency_conflict" : error);
+        throw error;
+      }
+    });
+    const original = h.eventStore.appendToStream.bind(h.eventStore);
+    let completionConflicts = 0;
+    const completions = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
+      try {
+        return await original(input);
+      } catch (error) {
+        if (eventTypesOf([input]).includes("checkout.session.cart-cleanup-completed") && isConflict(error)) {
+          completionConflicts += 1;
+        }
+        throw error;
+      }
+    });
+    const executeCartAttempt = h.realCart.executeCartAttempt;
+    const contended: Awaited<ReturnType<typeof executeCartAttempt>>[] = [];
+    const attempts = vi.spyOn(h.realCart, "executeCartAttempt").mockImplementation(async (request, attemptContext) => {
+      const answer = await executeCartAttempt(request, attemptContext);
+      if (request.ownerKey === h.anonymous && request.target === h.ids[0]) contended.push(answer);
+      return answer;
     });
     const results = await Promise.allSettled([
       h.runtime().resumeOrderCartCleanup(h.params, context),
       h.runtime().resumeOrderCartCleanup(h.params, context),
     ]);
     fault.mockRestore();
-    expect(results.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    completions.mockRestore();
+    attempts.mockRestore();
+    // The store still refuses the losing append at the stale cart version, and
+    // that sweep replays the winner's recorded removal instead of failing it.
+    expect(storeRefusals).toEqual(["concurrency_conflict"]);
+    expect(contended.map((answer) => answer.replayed).sort()).toEqual([false, true]);
+    expect(contended[1]!.result).toEqual(contended[0]!.result);
+    // A sweep can still lose the session completion race, never the cart race.
+    expect(results.map((result) => result.status)).toContain("fulfilled");
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(completionConflicts);
     await h.runtime().resumeOrderCartCleanup(h.params, context);
     expect((await h.cartState(h.anonymous)).lines).toEqual([]);
     expect(
@@ -2695,8 +3154,8 @@ describe("durable union cleanup across claimed streams", () => {
     for (const lineId of h.ids) await h.copy(lineId);
     // Fail after the order event and partway through the multi-stream sweep.
     const fault = vi
-      .spyOn(h.realCart, "removeLine")
-      .mockImplementationOnce(h.cart.removeLine)
+      .spyOn(h.realCart, "executeCartAttempt")
+      .mockImplementationOnce(h.cart.executeCartAttempt)
       .mockRejectedValueOnce(new Error("store unavailable"));
 
     await expect(h.runtime().recordOrdersCreated(h.record, context)).rejects.toBeInstanceOf(OrderCartCleanupError);
@@ -2761,20 +3220,21 @@ describe("durable union cleanup across claimed streams", () => {
       context,
       events: seed,
     });
-    const checkout = vi.spyOn(h.realCart, "checkout");
-    const removeLine = vi.spyOn(h.realCart, "removeLine");
+    const attempts = vi.spyOn(h.realCart, "executeCartAttempt");
 
     await h.runtime().recordOrdersCreated({ ...h.record, sessionId }, context);
 
-    expect(checkout.mock.calls).toEqual([[h.buyer, context]]);
-    expect(removeLine).not.toHaveBeenCalled();
+    // Exactly one cleanup attempt: the whole-cart checkout on the buyer Account,
+    // and no line removal anywhere.
+    expect(
+      attempts.mock.calls.map(([request]) => [request.ownerKey, request.commands.map((command) => command.type)]),
+    ).toEqual([[h.buyer, ["checkout"]]]);
     // The claimed device keeps every page, including the planned duplicate.
     expect((await h.cartState(h.separateClaimedSource)).lines.map((line) => line.lineId).sort()).toEqual(
       [h.ids[0]!, h.unplannedClaimedLineId].sort(),
     );
     expect((await h.cartState(h.anonymous)).lines.map((line) => line.lineId)).toEqual(h.ids);
-    checkout.mockRestore();
-    removeLine.mockRestore();
+    attempts.mockRestore();
   });
 });
 
@@ -2851,8 +3311,7 @@ describe("checkout session post-claim source authority", () => {
       listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async (params) =>
         resolveAuthorizedLines(params.accountId, params.presentedAnonymousCartId),
       ),
-      checkout: vi.fn<CheckoutCartServices["checkout"]>(async () => ({ version: 1 })),
-      removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async ({ lineId }) => ({ lineId, version: 1 })),
+      executeCartAttempt: committedCartAttempt(),
       listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => [...aliasOwnerKeys]),
     } satisfies CheckoutCartServices;
     const sessionMemory = createInMemoryEventStore();
@@ -3104,8 +3563,7 @@ describe("checkout session post-claim source authority", () => {
       // Nothing was read from the refused source and nothing was appended.
       expect(test.streamEventTypes(streamId), name).toEqual(beforeSession);
       expect(test.cart.listAuthorizedCartLines, name).not.toHaveBeenCalled();
-      expect(test.cart.checkout, name).not.toHaveBeenCalled();
-      expect(test.cart.removeLine, name).not.toHaveBeenCalled();
+      expect(test.cart.executeCartAttempt, name).not.toHaveBeenCalled();
     }
 
     expect(test.cartStreamEventTypes(`checkout.cart-${SOURCE}`)).toEqual([
@@ -3215,5 +3673,200 @@ describe("checkout session post-claim source authority", () => {
     // authority read is never reached and the existing path is unchanged.
     expect(resolveCartSourceAuthority).not.toHaveBeenCalled();
     resolveCartSourceAuthority.mockRestore();
+  });
+});
+
+describe("checkout session last recorded quote", () => {
+  const quote = (revision: string, totalAmount: string): CheckoutFulfillmentPreview => ({
+    revision,
+    optimizationGoal: "lowest-total",
+    readyLineKeys: ["lst_1"],
+    unavailableLineKeys: [],
+    sellerGroups: [],
+    totals: {
+      itemSubtotalAmount: "25.00",
+      shippingAmount: "4.00",
+      salesTaxAmount: "0.00",
+      totalAmount,
+      packageCount: 1,
+    },
+    unavailableLines: [],
+    materialChangeReasons: [],
+  });
+  const q1 = quote("rev_q1", "29.00");
+  const recordedSessionId = "chk_recorded_quote";
+  // A stream as current code writes it: start with Q1, address set, cancel. No
+  // payload carries a retained-quote field; the value is derived on load.
+  const recordedStream = [
+    {
+      type: "checkout.session.started",
+      data: {
+        sessionId: recordedSessionId as never,
+        buyerAccountId: "acc_buyer" as never,
+        sourceType: "buy-now",
+        optimizationGoal: "lowest-total",
+        fulfillmentPreviewRevision: "rev_q1",
+        fulfillmentPreviewSnapshot: q1,
+        cartReadinessSnapshot: null,
+        presentedAnonymousCartId: null,
+        splitGroupHandoff: null,
+        shippingOption: "standard",
+        lines: [
+          {
+            listingId: "lst_1",
+            cartLineId: null,
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+            fulfillmentMode: "locked-listing",
+            lockedListingId: "lst_1",
+            sellerPreferenceId: null,
+            availabilityState: "available",
+          },
+        ],
+        handoffExpiresAt: "2026-10-16T06:00:00.000Z",
+        createdAt: "2026-10-16T00:00:00.000Z",
+      },
+    },
+    {
+      type: "checkout.session.shipping-address-set",
+      data: {
+        sessionId: recordedSessionId as never,
+        shippingAddress: serviceableShippingAddress,
+        selectedAt: "2026-10-16T00:01:00.000Z",
+      },
+    },
+    {
+      type: "checkout.session.cancelled",
+      data: {
+        sessionId: recordedSessionId as never,
+        cancelledAt: "2026-10-16T00:02:00.000Z",
+        releasedReservationIds: [],
+      },
+    },
+  ] satisfies CheckoutSessionEvent[];
+
+  async function runtimeWithRecordedStream() {
+    const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: `checkout.session-${recordedSessionId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: recordedStream.map((event) => ({ eventType: event.type, payload: event.data as never })),
+    });
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db,
+      cart: createCartServices() as never,
+    });
+    return { db, services };
+  }
+
+  it("reads the retained quote from existing streams", async () => {
+    const { db, services } = await runtimeWithRecordedStream();
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-16T00:03:00.000Z"));
+      await expect(services.getLastRecordedQuote(recordedSessionId, "acc_buyer")).resolves.toEqual(q1);
+      vi.setSystemTime(new Date("2026-10-16T06:00:01.000Z"));
+      await expect(services.getLastRecordedQuote(recordedSessionId, "acc_buyer")).resolves.toEqual(q1);
+      vi.setSystemTime(new Date("2026-10-17T06:00:01.000Z"));
+      await expect(services.getLastRecordedQuote(recordedSessionId, "acc_buyer")).resolves.toEqual(q1);
+    } finally {
+      vi.useRealTimers();
+    }
+    // Aggregate-derived: no read-model row or column is consulted.
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("returns null for another buyer's or an unknown session, matching getSession", async () => {
+    const { services } = await runtimeWithRecordedStream();
+    for (const [sessionId, accountId] of [
+      [recordedSessionId, "acc_other"],
+      ["chk_unknown", "acc_buyer"],
+    ] as const) {
+      await expect(services.getLastRecordedQuote(sessionId, accountId)).resolves.toBeNull();
+      await expect(services.getSession(sessionId, accountId)).resolves.toBeNull();
+    }
+  });
+
+  it("retains the quote recorded by each session writer and returns null when never quoted", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: {
+        query: vi.fn(async (sql: string) => ({
+          rows: sql.includes("checkout_catalog_items")
+            ? [{ catalog_item_id: "cat_1", status: "active", product_schema: null }]
+            : [],
+        })),
+      },
+      cart: createCartServices() as never,
+    });
+    const accountId = "acc_buyer" as never;
+    const item = {
+      accountId,
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+    };
+    const buyNow = {
+      ...item,
+      listingId: "lst_1",
+      fulfillmentPreviewRevision: "rev_q1",
+      fulfillmentPreviewSnapshot: q1,
+    };
+
+    const cancelled = await services.createBuyNow(buyNow, context);
+    await services.setShippingAddress(
+      { sessionId: cancelled.sessionId, accountId, shippingAddress: serviceableShippingAddress },
+      context,
+    );
+    await services.cancelSession({ sessionId: cancelled.sessionId, accountId }, context);
+    await expect(services.getLastRecordedQuote(cancelled.sessionId, accountId)).resolves.toEqual(q1);
+
+    // prepareBuyNowCheckout records a replacement preview on the session it was handed.
+    const q2 = quote("rev_q2", "31.00");
+    const replaced = await services.createBuyNow(buyNow, context);
+    await services.recordFulfillmentPreview(
+      {
+        sessionId: replaced.sessionId,
+        accountId,
+        fulfillmentPreviewRevision: "rev_q2",
+        fulfillmentPreviewSnapshot: q2,
+      },
+      context,
+    );
+    await expect(services.getLastRecordedQuote(replaced.sessionId, accountId)).resolves.toEqual(q2);
+
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const cart = await services.createFromCart(
+      { accountId, readinessSnapshotId: readiness.snapshotId, readinessSourceRevision: readiness.sourceRevision },
+      context,
+    );
+    await expect(services.getLastRecordedQuote(cart.sessionId, accountId)).resolves.toBeNull();
+    const q3 = quote("rev_q3", "33.00");
+    await services.recordFulfillmentPreview(
+      { sessionId: cart.sessionId, accountId, fulfillmentPreviewRevision: "rev_q3", fulfillmentPreviewSnapshot: q3 },
+      context,
+    );
+    await expect(services.getLastRecordedQuote(cart.sessionId, accountId)).resolves.toEqual(q3);
+
+    const offer = await services.createOfferIntent(
+      { ...item, offerPriceAmount: "20.00", offerPriceCurrencyCode: "USD" },
+      context,
+    );
+    await expect(services.getLastRecordedQuote(offer.sessionId, accountId)).resolves.toBeNull();
   });
 });

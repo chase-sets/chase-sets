@@ -26,6 +26,8 @@ import type {
   listRepricingCategories,
 } from "../../features/repricing-policies/read-model/controls";
 import type { RepricingActivityFilter, listRepricingActivity } from "../../features/repricing-engine/api/activity";
+import type { ApplyGoalRequest, ApplyGoalResult, PricingHealthData } from "../../features/pricing-health/api/services";
+import type { GoalParameterRequest } from "../../features/pricing-health/api/goal-comparison";
 
 export type RepricingPolicyListItem = RepricingPolicyState & Readonly<{ changesUsedToday: number }>;
 export type RepricingBudget = Readonly<{ day: string; changesUsed: number }>;
@@ -118,6 +120,54 @@ export function createPricingApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
+    async getPricingHealth(
+      policyId?: string,
+      goals?: readonly GoalParameterRequest[],
+    ): Promise<PricingHealthData & { canCompute: boolean }> {
+      return parseJsonResponse(
+        await client.account["pricing-health"].$get({
+          query: {
+            ...(policyId === undefined ? {} : { policyId }),
+            ...(goals === undefined ? {} : { goals: JSON.stringify(goals) }),
+          },
+          header: headers,
+        }),
+      );
+    },
+    async computePricingHealth(policyId: string): Promise<{ dryRunId: string }> {
+      return parseJsonResponse(
+        await client.account["pricing-health"][":policyId"].compute.$post({
+          param: { policyId },
+          header: headers,
+        }),
+      );
+    },
+    async comparePricingHealth(
+      policyId: string,
+      goals?: readonly GoalParameterRequest[],
+    ): Promise<{ runs: readonly { goalId: string; goalVersion: number; dryRunId: string }[] }> {
+      const response =
+        goals === undefined
+          ? await client.account["pricing-health"][":policyId"].compare.$post({
+              param: { policyId },
+              header: headers,
+            })
+          : await client.account["pricing-health"][":policyId"].compare.$post({
+              param: { policyId },
+              json: { goals },
+              header: headers,
+            });
+      return parseJsonResponse(response);
+    },
+    async applyPricingHealthGoal(policyId: string, body: ApplyGoalRequest): Promise<ApplyGoalResult> {
+      return parseJsonResponse(
+        await client.account["pricing-health"][":policyId"]["apply-goal"].$post({
+          param: { policyId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async listAccountRecommendations(query = ""): Promise<ListResponse<AccountRecommendationListItem>> {
       return parseJsonResponse(
         await client.account.recommendations.$get({

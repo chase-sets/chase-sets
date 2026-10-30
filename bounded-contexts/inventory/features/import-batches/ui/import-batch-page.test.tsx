@@ -24,7 +24,6 @@ function batch(overrides: Partial<InventoryImportBatch> = {}): InventoryImportBa
     adapter_version: 1,
     quantity_mode: "add",
     default_storage_location_id: "loc_1",
-    source_filename: "stock.csv",
     total_count: 1,
     accepted_count: 1,
     rejected_count: 0,
@@ -66,6 +65,7 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
     committed_inventory_item_id: null,
     committed_listing_id: null,
     committed_at: null,
+    needs_seller: false,
     created_at: timestamp,
     updated_at: timestamp,
     ...overrides,
@@ -84,14 +84,62 @@ function detail(rows: readonly InventoryImportBatchRow[]): InventoryImportBatchD
       committed_count: committedCount,
       status: rows.length > 0 && acceptedCount > 0 && acceptedCount === committedCount ? "committed" : "uploaded",
     }),
+    can_commit: acceptedCount > committedCount,
+    commit_ready_count: acceptedCount - committedCount,
     rows,
   };
 }
 
 describe("InventoryImportBatchPage", () => {
+  it("draws commit controls and count only from the API readiness", () => {
+    const hidden = renderToString(
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[]}
+        detail={{ ...detail([row()]), can_commit: false }}
+      />,
+    );
+    expect(hidden).not.toContain('value="commit-batch"');
+    const shown = renderToString(
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[]}
+        detail={{ ...detail([]), status: "committed", can_commit: true, commit_ready_count: 7 }}
+      />,
+    );
+    expect(shown).toContain('value="commit-batch"');
+    expect(shown).toContain("7 accepted rows are ready to commit.");
+  });
+
+  it("draws the notice, queue and row triggers from needs_seller despite contradictory row facts", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[]}
+        currentPath="/account/inventory/imports/imb_1"
+        detail={detail([
+          row({ row_id: "imr_api_yes", needs_seller: true }),
+          row({
+            row_id: "imr_api_no",
+            status: "rejected",
+            resolution_status: "unresolved",
+            product_id: null,
+            needs_seller: false,
+          }),
+        ])}
+      />,
+    );
+    expect(html).toContain("1 rows need you");
+    expect(html).toContain("resolveRowId=imr_api_yes");
+    expect(html).not.toContain("resolveRowId=imr_api_no");
+  });
   it.each(["validating", "failed-safe", "ambiguous", "expired"] as const)("never offers commit while %s", (status) => {
     const html = renderToString(
-      <InventoryImportBatchPage batches={[]} storageLocations={[]} detail={{ ...detail([row()]), status }} />,
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[]}
+        detail={{ ...detail([row()]), status, can_commit: false }}
+      />,
     );
     expect(html).not.toContain('value="commit-batch"');
   });
@@ -100,7 +148,7 @@ describe("InventoryImportBatchPage", () => {
       <InventoryImportBatchPage
         batches={[]}
         storageLocations={[]}
-        detail={{ ...detail([row()]), status: "expired" }}
+        detail={{ ...detail([row()]), status: "expired", can_commit: false }}
       />,
     );
     expect(html).toContain("Import expired");
@@ -132,6 +180,19 @@ describe("InventoryImportBatchPage", () => {
     expect(html).toContain("Export current inventory");
     expect(html).toContain("/api/inventory/import-batches/exports/native-csv");
     expect(html).toContain("No imports yet");
+  });
+
+  it("references each recent import by its batch id", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[batch({ batch_id: "imb_recent_synthetic" })]}
+        storageLocations={[]}
+        detail={null}
+      />,
+    );
+
+    expect(html).toContain("Recent imports");
+    expect(html).toMatch(/>imb_recent_synthetic</);
   });
 
   it("renders accepted, rejected, and committed row outcomes", () => {
@@ -182,6 +243,7 @@ describe("InventoryImportBatchPage", () => {
             product_id: null,
             storage_location_id: "loc_active",
             validation_errors: ["Seller SKU 'box-a-101' is not mapped for this account."],
+            needs_seller: true,
           }),
         ])}
       />,
@@ -207,6 +269,7 @@ describe("InventoryImportBatchPage", () => {
               status: "rejected",
               storage_location_id: null,
               validation_errors: ["storageLocationId or defaultStorageLocationId is required."],
+              needs_seller: true,
             }),
           ]),
           source_key: "saved-list",
@@ -424,6 +487,7 @@ function unresolvedRow(overrides: Partial<InventoryImportBatchRow> = {}): Invent
     product_id: null,
     selected_options: [],
     validation_errors: ["Catalog item is required."],
+    needs_seller: true,
     ...overrides,
   });
 }

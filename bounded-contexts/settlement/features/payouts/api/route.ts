@@ -115,19 +115,35 @@ export function createPayoutRoutes(services: PayoutServices) {
       return access.response;
     }
 
-    const limit = Number(c.req.query("limit") ?? 50);
-    const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listPayouts({
-      accountId: access.actor.accountId,
-      limit,
-      offset,
-    });
+    const [page, summary] = await Promise.all([
+      services.listPayouts({
+        accountId: access.actor.accountId,
+        limit: Number(c.req.query("limit") ?? 50),
+        offset: Number(c.req.query("offset") ?? 0),
+      }),
+      services.getPayoutSummary({
+        accountId: access.actor.accountId,
+        canRequestPayouts: access.actor.permissions.includes("payouts.request"),
+      }),
+    ]);
 
     return c.json({
-      items: result.items,
-      total: result.total,
-      count: result.items.length,
+      ...page,
+      count: page.items.length,
+      completeness: summary.completeness,
+      next_payout: summary.next_payout,
+      blocked_payouts: summary.blocked_payouts,
+      availability: summary.availability,
     });
+  });
+
+  app.get("/payouts/quick-amounts", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(await services.getPayoutQuickAmounts({ accountId: access.actor.accountId as AccountId }));
   });
 
   app.get("/payouts/reconciliation", async (c) => {
@@ -204,11 +220,22 @@ export function createPayoutRoutes(services: PayoutServices) {
     }
 
     try {
+      const amountSelection = body.amountSelection;
+      if (
+        amountSelection !== undefined &&
+        amountSelection !== null &&
+        amountSelection !== "" &&
+        amountSelection !== "minimum" &&
+        amountSelection !== "available"
+      ) {
+        throw new Error(t("settlement.features.payouts.api.route.amount.selection.invalid"));
+      }
       return c.json(
         await services.previewPayoutRequest(
           {
             accountId: access.actor.accountId as AccountId,
             amount: String(body.amount ?? ""),
+            amountSelection,
           },
           context,
         ),

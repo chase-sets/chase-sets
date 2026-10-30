@@ -12,7 +12,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { buildSessionProjectionHandlers } from "../../features/sessions/read-model/projection";
 import { authSchemaSql } from "../runtime-support/schema";
-import { AUTH_ROLE_PERMISSIONS } from "./constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import {
   buildAuthIdentityAccountProjectionHandlers,
   buildAuthIdentityInvitationProjectionHandlers,
@@ -296,7 +296,7 @@ describeDb("auth projection row identity", () => {
           user_id: "usr_1",
           account_id: "acc_1",
           role_key: "manager",
-          role_permissions: AUTH_ROLE_PERMISSIONS.manager,
+          role_permissions: ROLE_PERMISSIONS.manager,
           status: "active",
           updated_at: "2026-06-12T12:18:00.000Z",
         },
@@ -307,7 +307,7 @@ describeDb("auth projection row identity", () => {
           user_id: "usr_1",
           account_id: "acc_1",
           role_key: "manager",
-          role_permissions: AUTH_ROLE_PERMISSIONS.manager,
+          role_permissions: ROLE_PERMISSIONS.manager,
           status: "active",
           updated_at: "2026-06-12T12:18:00.000Z",
         },
@@ -376,6 +376,10 @@ describeDb("auth projection row identity", () => {
             [membershipId],
           );
           expect(result.rows).toHaveLength(1);
+          expect(result.rows[0]!.role_permissions).toEqual(ROLE_PERMISSIONS[roleKey as keyof typeof ROLE_PERMISSIONS]);
+          expect(result.rows[0]!.role_permissions.filter((key) => key === "payout-review-holds.manage")).toEqual(
+            roleKey === "platform-admin" ? ["payout-review-holds.manage"] : [],
+          );
           const pricing = result.rows[0]!.role_permissions.filter((key) => key.startsWith("pricing.")).sort();
           expect(pricing).toEqual(
             roleKey === "platform-admin"

@@ -6,6 +6,7 @@ import {
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import {
   SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
   withRegistrationConsentResolution,
@@ -25,6 +26,12 @@ import type { AuthServices } from "../runtime-support/services";
 import { createInvitationProjectionFreshnessWaiter } from "../runtime-support/invitation-projection-freshness";
 import { registerInvitationRoutes } from "./invitation-routes";
 import type { AuthApiEnv } from "./support";
+import {
+  SAME_SITE_TEST_ORIGIN,
+  UNSAFE_AUTH_PATHS,
+  VALID_AUTH_PATHS,
+} from "../auth-support/same-site-path.test-support";
+import * as sameSitePaths from "../auth-support/same-site-path";
 
 function invitationFreshWriteHeader(maxGlobalPosition: string): Record<string, string> {
   const receipt: FreshWriteReceipt = {
@@ -84,12 +91,14 @@ vi.mock("../runtime-support/services", () => ({
   startInteractiveAuth: mockStartInteractiveAuth,
 }));
 
-vi.mock("@chase-sets/identity/server", () => ({
-  isRegistrationConsentRejectionCode: (value: unknown) =>
-    typeof value === "string" && value.startsWith("registration_consent_"),
-  createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
-    withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
-}));
+vi.mock("@chase-sets/identity/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>("@chase-sets/identity/server");
+  return {
+    ...actual,
+    createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
+      withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
+  };
+});
 
 function buildApp(services: unknown) {
   return createTestApp<AuthApiEnv>({
@@ -106,6 +115,7 @@ function buildApp(services: unknown) {
     ),
     routes: (app) => {
       registerInvitationRoutes(app, services as AuthServices);
+      app.onError(errorHandler);
     },
   });
 }
@@ -195,6 +205,137 @@ function createIdentityMutations() {
 useMockReset();
 
 describe("invitation auth routes", () => {
+  it("checks the final invitation origin before appending a token even if validation regresses", async () => {
+    const guard = vi.spyOn(sameSitePaths, "getSafeSameSitePath").mockReturnValue("/\\outside.example.test/collect");
+    try {
+      const services = createServices();
+      mockCreateIdentityAuthRequestClient.mockReturnValue(createIdentityMutations());
+      const response = await buildApp(services).request(
+        `${SAME_SITE_TEST_ORIGIN}/invitations/acceptance-link/request`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ invitationId: "ivt_1" }),
+        },
+      );
+      expect(response.status).toBe(200);
+      const message = services.notificationOutbox.enqueueNotification.mock.calls[0]![0].message;
+      const url = new URL(String(message.templateData.invitationLink));
+      expect(url.origin).toBe(SAME_SITE_TEST_ORIGIN);
+      expect(url.pathname).toBe("/invite/ivt_1");
+      expect(url.searchParams.get("token")).toBe("invite_token");
+    } finally {
+      guard.mockRestore();
+    }
+  });
+
+  it.each([...UNSAFE_AUTH_PATHS, ...VALID_AUTH_PATHS])(
+    "tokenized links remain same-origin: invitation %j",
+    async (path) => {
+      const services = createServices();
+      const mutations = createIdentityMutations();
+      mockCreateIdentityAuthRequestClient.mockReturnValue(mutations);
+      const response = await buildApp(services).request(
+        `${SAME_SITE_TEST_ORIGIN}/invitations/acceptance-link/request`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ invitationId: "ivt_1", landingPath: path }),
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).not.toHaveProperty("token");
+      const message = services.notificationOutbox.enqueueNotification.mock.calls[0]![0].message;
+      const url = new URL(String(message.templateData.invitationLink));
+      const expected = new URL(VALID_AUTH_PATHS.includes(path) ? path : "/invite/ivt_1", SAME_SITE_TEST_ORIGIN);
+      expect(url.origin).toBe(SAME_SITE_TEST_ORIGIN);
+      expect(url.pathname).toBe(expected.pathname);
+      expect(url.hash).toBe(expected.hash);
+      expect(url.searchParams.get("token")).toBe("invite_token");
+      expect(url.searchParams.get("invitationId")).toBe("ivt_1");
+      for (const [key, value] of expected.searchParams) expect(url.searchParams.get(key)).toBe(value);
+      expect(mutations.issueInvitationAcceptanceToken).toHaveBeenCalledWith(
+        expect.objectContaining({ tokenHash: "hashed:invite_token" }),
+      );
+    },
+  );
+
+  const consentRejections = [
+    {
+      code: "registration_consent_not_server_minted",
+      reason: "absent",
+      message: "A server-minted registration consent resolution is required.",
+    },
+    {
+      code: "registration_consent_expired",
+      reason: "superseded",
+      message: "The registration consent resolution no longer matches the current required bundle.",
+    },
+    {
+      code: "registration_consent_affirmation_required",
+      reason: "affirmation-required",
+      message: "Registration consent must be affirmed before identity creation.",
+    },
+  ] as const;
+  const conflicts = [
+    { code: "registration_operation_consent_disagreement", message: "Consent disagreement." },
+    { code: "registration_operation_participant_disagreement", message: "Participant disagreement." },
+    { code: "conflict", message: "Conflict." },
+    { code: "display_name_already_taken", message: "Display name is already taken." },
+  ] as const;
+
+  function identityError(status: number, body: unknown) {
+    return Object.assign(new Error("synthetic Identity failure"), { status, body });
+  }
+
+  async function requestWithIdentityError(status: number, body: unknown) {
+    const services = createServices();
+    const mutations = createIdentityMutations();
+    mutations.createPersonalIdentity.mockRejectedValue(identityError(status, body));
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mutations);
+    return buildApp(services).request("/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        invitationId: "ivt_1",
+        token: "synthetic-secret",
+        password: "synthetic-password",
+      }),
+    });
+  }
+
+  it.each(consentRejections)("relays the recognized $code rejection body unchanged", async (rejection) => {
+    const response = await requestWithIdentityError(400, { error: rejection });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: rejection });
+  });
+
+  it.each(conflicts)("relays the listed $code conflict body unchanged", async (conflict) => {
+    const response = await requestWithIdentityError(409, { error: conflict });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: conflict });
+  });
+
+  it("redacts an unknown consent-like rejection instead of accepting a prefix match", async () => {
+    const response = await requestWithIdentityError(400, {
+      error: { code: "registration_consent_unrecognized", message: "secret source message" },
+    });
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({ error: { code: "internal_error", message: "Internal server error." } });
+    expect(JSON.stringify(body)).not.toContain("secret source message");
+  });
+
+  it("redacts a 5xx Identity failure instead of exposing its source message", async () => {
+    const response = await requestWithIdentityError(500, {
+      error: { code: "unknown", message: "secret source message" },
+    });
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({ error: { code: "internal_error", message: "Internal server error." } });
+    expect(JSON.stringify(body)).not.toContain("secret source message");
+  });
+
   const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
   const keyedRequest = {
     method: "POST",
@@ -206,6 +347,18 @@ describe("invitation auth routes", () => {
       password: "synthetic-password",
     }),
   };
+  it.each(consentRejections)("PROBE F2 keyed attempt relays $code consent rejection", async (rejection) => {
+    const accept = vi
+      .spyOn(journey, "acceptInvitationAttempt")
+      .mockRejectedValueOnce(identityError(400, { error: rejection }));
+    try {
+      const response = await buildApp(createServices()).request("/invitations/accept", keyedRequest);
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: rejection });
+    } finally {
+      accept.mockRestore();
+    }
+  });
   it.each([
     ["auth.invitation.accept.ip", "local", 10],
     ["auth.invitation.accept.identifier", "invitation:ivt_1", 5],

@@ -9,6 +9,7 @@ import { enumerateGuardImportCandidates } from "./check-structure/module-resolut
 import { deriveGuardCandidateProvenance } from "./check-structure/guard-candidate-provenance.mjs";
 import { listNonTestTypeScriptModules } from "./check-structure/sql-execution-surface.mjs";
 import { enumerateTrackedRoots } from "./check-structure/authoritative-stream-read-classification.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   RELEASE_QUALIFICATION_APPLICABILITY_KINDS,
   RELEASE_QUALIFICATION_APPLICABILITY_BINDINGS,
@@ -26,6 +27,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const fixturesDir = path.join(repoRoot, "scripts", "fixtures", "release-qualification-scope");
 const classifierPath = path.join(repoRoot, "scripts", "release-qualification-scope.mjs");
 const hash = (value) => createHash("sha256").update(value).digest("hex");
+it("registers the production lock monitor as advisory, not release selection or deployment", () => {
+  expect(releaseQualificationScopeRegistry.workflows["platform-production-lock-monitor.yml"]).toBe("ci");
+});
 const emit = (label, value) => process.stdout.write(`${label} ${JSON.stringify(value)}\n`);
 const git = (args) => execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
 
@@ -284,17 +288,25 @@ const tree = (...names) => Buffer.from(`${names.join("\0")}\0`);
 const neutralityForkPoint = "406d9bf5d82cbee79fcc5b295c67aa7cc9f35bb9";
 const neutralityLanding = "c08e1e4ec547dcbd70959874b48afd70931026cc";
 
-function assertPinnedNeutrality(readGit = git) {
+function assertPinnedNeutrality(readGit) {
   for (const sha of [neutralityForkPoint, neutralityLanding]) {
     try {
-      readGit(["cat-file", "-e", `${sha}^{commit}`]);
+      if (readGit) readGit(["cat-file", "-e", `${sha}^{commit}`]);
+      else git(["cat-file", "-e", `${sha}^{commit}`]);
     } catch {
       neutralityError("NEUTRALITY_PINNED_OBJECT_MISSING", "pinned-object-existence");
     }
   }
   let parentage;
   try {
-    parentage = readGit(["rev-list", "--parents", "-n", "1", neutralityLanding]).toString("utf8").trim().split(/\s+/);
+    parentage = (
+      readGit
+        ? readGit(["rev-list", "--parents", "-n", "1", neutralityLanding])
+        : git(["rev-list", "--parents", "-n", "1", neutralityLanding])
+    )
+      .toString("utf8")
+      .trim()
+      .split(/\s+/);
   } catch {
     neutralityError("NEUTRALITY_PINNED_PARENTAGE_MISMATCH", "pinned-parentage");
   }
@@ -303,7 +315,15 @@ function assertPinnedNeutrality(readGit = git) {
   const record = deriveGuardCandidateProvenance({
     env: { GITHUB_EVENT_NAME: "merge_group" },
     execGit: (args) =>
-      args.length === 2 && args[0] === "rev-parse" && args[1] === "HEAD" ? neutralityLanding : readGit(args),
+      args.length === 2 && args[0] === "rev-parse" && args[1] === "HEAD"
+        ? neutralityLanding
+        : readGit
+          ? readGit(args)
+          : execFileSync("git", args, {
+              cwd: repoRoot,
+              maxBuffer: 32 * 1024 * 1024,
+              windowsHide: true,
+            }),
     readEventPayload: () => ({ merge_group: { head_sha: neutralityLanding, base_sha: neutralityForkPoint } }),
   });
   expect(record.environment).toBe("merge-group");
@@ -312,7 +332,14 @@ function assertPinnedNeutrality(readGit = git) {
     baseTipAtAnalysis: { sha: neutralityForkPoint, source: "merge-group-event-base" },
     forkPoint: { sha: neutralityForkPoint, source: "git-merge-base" },
   });
-  const read = (sha) => () => readGit(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]);
+  const read = (sha) => () =>
+    readGit
+      ? readGit(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha])
+      : execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha], {
+          cwd: repoRoot,
+          maxBuffer: 32 * 1024 * 1024,
+          windowsHide: true,
+        });
   const members = compareTrees(read(neutralityForkPoint), read(neutralityLanding));
   expect(members.length).toBeGreaterThan(0);
   emit("AC11_HISTORICAL_N1", { roles: record.roles, members: members.length });
@@ -323,7 +350,7 @@ describe("AC11 issue-owned raw membership comparator, historical replay only", (
     const treeReads = [];
     assertPinnedNeutrality((args) => {
       if (args[0] === "ls-tree") treeReads.push(args.at(-1));
-      return git(args);
+      return execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
     });
     expect(treeReads).toEqual([neutralityForkPoint, neutralityLanding]);
   });
@@ -414,10 +441,17 @@ describe("AC11 issue-owned raw membership comparator, historical replay only", (
     vi.stubEnv("GITHUB_SHA", later);
     try {
       assertPinnedNeutrality((args) =>
-        args[0] === "rev-parse" && args[1] === "HEAD" ? Buffer.from(later) : git(args),
+        args[0] === "rev-parse" && args[1] === "HEAD"
+          ? Buffer.from(later)
+          : execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true }),
       );
       refusal(deriveGuardCandidateProvenance, "guard-provenance-environment-ambiguous", "environment-classification");
-      const read = (sha) => () => git(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]);
+      const read = (sha) => () =>
+        execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha], {
+          cwd: repoRoot,
+          maxBuffer: 32 * 1024 * 1024,
+          windowsHide: true,
+        });
       refusal(
         () => compareTrees(read("ce038cd3bc769bd73856fac463d8372dd5920bf2"), read(later)),
         "NEUTRALITY_MEMBER_SET_CHANGED",
@@ -434,7 +468,7 @@ describe("AC11 issue-owned raw membership comparator, historical replay only", (
         assertPinnedNeutrality((args) => {
           if (args[0] === "cat-file" && args[2] === `${missing}^{commit}`) throw new Error("missing pin");
           expect(args[0]).toBe("cat-file");
-          return git(args);
+          return execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
         }),
       "NEUTRALITY_PINNED_OBJECT_MISSING",
       "pinned-object-existence",
@@ -456,7 +490,7 @@ describe("AC11 issue-owned raw membership comparator, historical replay only", (
             return Buffer.from(parentage);
           }
           expect(args[0]).toBe("cat-file");
-          return git(args);
+          return execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
         }),
       "NEUTRALITY_PINNED_PARENTAGE_MISMATCH",
       "pinned-parentage",
@@ -882,7 +916,11 @@ describe("advisory CLI exit polarity", () => {
 });
 
 describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #5837 AC 2", () => {
-  const trackedFiles = execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8" })
+  const trackedFiles = execFileSync("git", ["ls-files"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
@@ -979,9 +1017,10 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     );
     expect(misses).toEqual([]);
     expect(discovered).toContain("bounded-contexts/identity/support/seed-support/account-management-browser.ts");
+    expect(discovered).toContain("bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts");
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 165,
-      persistentCount: 160,
+      discovered: 168,
+      persistentCount: 163,
       ruledCount: 5,
     });
   });
@@ -1166,6 +1205,20 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
 });
 
 describe("registration contract drift (fail-closed registration)", () => {
+  it("classifies inventory draft receipts as a persistent release surface", () => {
+    expect(releaseQualificationScopeRegistry.contracts["inventory-draft-listing"]).toBe("event-store-persistence");
+    const record = classifyReleaseQualificationScope({
+      base: DUMMY_BASE,
+      candidate: DUMMY_CANDIDATE,
+      changedFiles: [{ path: "contracts/inventory-draft-listing/index.ts", status: "modified" }],
+      readFileAt: (_ref, filePath) => readFileSync(path.join(repoRoot, filePath), "utf8"),
+      releaseWorkflowScriptReferences: new Set(),
+      now: () => 1753100000000,
+    });
+    expect(record.class).toBe("persistent_required");
+    expect(record.reasonCodes).toEqual(["migration_schema"]);
+  });
+
   it("classifies market observation event payloads as a persistent release surface", () => {
     expect(releaseQualificationScopeRegistry.contracts["tcgplayer-market-observations"]).toBe(
       "event-store-persistence",
@@ -1194,6 +1247,11 @@ describe("registration contract drift (fail-closed registration)", () => {
     });
     expect(record.class).toBe("isolated");
     expect(record.reasonCodes).toEqual(["application_runtime"]);
+  });
+
+  it("registers Google Merchant provider and Shopping export contract as live providers", () => {
+    expect(releaseQualificationScopeRegistry.infrastructure["google-merchant"]).toBe("live-provider");
+    expect(releaseQualificationScopeRegistry.contracts["google-shopping-export"]).toBe("live-provider");
   });
 
   it("registers the extracted theme contract and appearance adapter as runtime libraries", () => {
@@ -1233,7 +1291,12 @@ describe("registration contract drift (fail-closed registration)", () => {
   });
 
   it("registers every workflow, action, deployable, and infrastructure directory", () => {
-    const tracked = execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8" })
+    expect(releaseQualificationScopeRegistry.workflows["browser-boundary-timeout-verifier.yml"]).toBe("ci");
+    const tracked = execFileSync("git", ["ls-files"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split(/\r?\n/)
       .map((line) => line.trim().replaceAll("\\", "/"))
       .filter(Boolean);

@@ -30,6 +30,7 @@ import {
 import {
   decideSupportRequest,
   evolveSupportRequest,
+  expectedOfferResolution,
   initialSupportRequestState,
   type OpenSupportRequestCommand,
   type SupportRequestCommand,
@@ -434,7 +435,7 @@ export function createParticipantRuntime(deps: Deps) {
             offerId: ["accept-return", "offer-partial-refund", "offer-replacement"].includes(b.responseType)
               ? createId("sof")
               : null,
-            offerResolutionType: b.offerResolutionType,
+            offerResolutionType: b.offerResolutionType ?? expectedOfferResolution(b.responseType),
             refundAmount: b.refundAmount,
             affectedLineIds: b.affectedLineIds,
             refundCurrencyCode: b.refundCurrencyCode,

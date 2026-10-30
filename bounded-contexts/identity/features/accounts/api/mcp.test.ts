@@ -14,6 +14,12 @@ const actor = {
   permissions: ["accounts.view"],
 } satisfies ResolvedActor;
 
+const operatorActor = {
+  ...actor,
+  roleKey: "platform-admin",
+  permissions: ["accounts.view", "accounts.manage"],
+} satisfies ResolvedActor;
+
 const legacyMcpProtocol = {
   protocolVersion: "2025-06-18",
   stateless: false,
@@ -32,7 +38,13 @@ function mcpRequest(arguments_: Record<string, unknown>, requestActor: ResolvedA
 }
 
 function services(): AccountServices {
+  const commandHandler = vi.fn(async ({ command }: { command: { type: string } }) => ({
+    version: 2,
+    state: { status: command.type === "CloseAccount" ? "closed" : "active", badges: ["trusted-seller"] },
+  }));
   return {
+    commandHandler,
+    listAccounts: vi.fn(async () => ({ items: [{ account_id: "acc_1" }], total: 1 })),
     getAccountForRead: vi.fn(async (accountId) => ({
       account_id: accountId,
       account_type: "personal",
@@ -46,6 +58,65 @@ function services(): AccountServices {
 }
 
 describe("identity account MCP handlers", () => {
+  it("covers every operator account tool and preserves actor attribution", async () => {
+    const fakeServices = services();
+    const handlers = createAccountMcpHandlers(fakeServices).toolHandlers;
+    const writeEnvelope = { idempotencyKey: "key-1", confirmed: true, confirmationText: "confirmed" };
+    const reference = { kind: "support-request", supportRequestId: "sup_01ARYZ6S41TSV4RRFFQ69G5FAV" };
+
+    await handlers["identity.list-accounts"]?.(mcpRequest({}, operatorActor));
+    await handlers["identity.update-account-profile"]?.(
+      mcpRequest({ accountId: "acc_1", name: "Updated LLC", displayName: "Updated", ...writeEnvelope }, operatorActor),
+    );
+    await handlers["identity.suspend-account"]?.(
+      mcpRequest({ accountId: "acc_1", reason: "policy-violation", reference, ...writeEnvelope }, operatorActor),
+    );
+    await handlers["identity.reactivate-account"]?.(
+      mcpRequest({ accountId: "acc_1", reason: "appeal-upheld", reference: null, ...writeEnvelope }, operatorActor),
+    );
+    await handlers["identity.close-account"]?.(
+      mcpRequest({ accountId: "acc_1", reason: "seller-requested", reference, ...writeEnvelope }, operatorActor),
+    );
+    await handlers["identity.assign-account-badge"]?.(
+      mcpRequest({ accountId: "acc_1", badgeKey: "trusted-seller", ...writeEnvelope }, operatorActor),
+    );
+    await handlers["identity.remove-account-badge"]?.(
+      mcpRequest({ accountId: "acc_1", badgeKey: "trusted-seller", ...writeEnvelope }, operatorActor),
+    );
+
+    expect(fakeServices.commandHandler).toHaveBeenCalledTimes(6);
+    expect(fakeServices.commandHandler).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "SuspendAccount",
+          enforcement: expect.objectContaining({ reason: "policy-violation", reference }),
+        }),
+        context: expect.objectContaining({ audit: expect.objectContaining({ performedByUserId: "usr_1" }) }),
+      }),
+    );
+  });
+
+  it("rejects malformed and unauthorized enforcement input before effects", async () => {
+    const fakeServices = services();
+    const handler = createAccountMcpHandlers(fakeServices).toolHandlers["identity.suspend-account"];
+    const envelope = {
+      accountId: "acc_1",
+      reason: "policy-violation",
+      idempotencyKey: "key-1",
+      confirmed: true,
+      confirmationText: "confirmed",
+    };
+
+    await expect(
+      handler?.(mcpRequest({ ...envelope, reference: { kind: "wrong", supportRequestId: "sup_bad" } }, operatorActor)),
+    ).rejects.toThrow("Account enforcement reference is invalid.");
+    await expect(handler?.(mcpRequest({ ...envelope, reference: null }, actor))).rejects.toThrow(
+      "Missing required permission: accounts.manage.",
+    );
+    expect(fakeServices.commandHandler).not.toHaveBeenCalled();
+  });
+
   it("reads the authenticated account profile", async () => {
     const fakeServices = services();
     const handlers = createAccountMcpHandlers(fakeServices);

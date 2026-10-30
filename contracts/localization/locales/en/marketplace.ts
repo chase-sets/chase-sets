@@ -1,4 +1,21 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.features.listings.capacityRecovery.title": "Paused for inventory capacity",
+  "marketplace.features.listings.capacityRecovery.waiting":
+    "This system pause protects held stock. The Listing will resume when enough inventory is available and publication checks pass.",
+  "marketplace.features.listings.capacityRecovery.summary":
+    "Listing {reference} could not resume after inventory capacity returned. {action}",
+  "marketplace.features.listings.capacityRecovery.evidence":
+    "Review the Listing evidence checklist, correct unmet requirements, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.away":
+    "Turn Seller Listing Availability back on, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.visibility":
+    "Review the Listing's native visibility and fee enrollment before publishing.",
+  "marketplace.features.listings.capacityRecovery.measure":
+    "Resolve the Product's shipping measure, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.price":
+    "Set a complete price and currency before publishing this Listing.",
+  "marketplace.features.listings.capacityRecovery.unavailable":
+    "Publication checks are unavailable. Open this Listing and retry publication when checks are available.",
   "marketplace.marketFollowing.title": "Market-following Offers",
   "marketplace.marketFollowing.toggle": "Follow the market for selected Offers",
   "marketplace.marketFollowing.itemOnly":
@@ -94,7 +111,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.app.root.marketplace.error": "Marketplace error",
   "marketplace.app.root.page.not.found": "Page not found",
   "marketplace.app.root.page.not.found.description": "This marketplace page does not exist or is no longer available.",
-  "marketplace.app.root.unknown.error": "Unknown error",
+  "marketplace.app.root.unknown.error": "Something went wrong. Please try again.",
   "marketplace.app.routes.layout.exit.guest.checkout": "Exit guest checkout",
   "marketplace.app.routes.layout.sign.out": "Sign Out",
   "marketplace.app.routes.layout.add.passkey": "Add a passkey to secure your account",
@@ -146,6 +163,22 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.request.failed": "Request failed.",
   "marketplace.features.reports.api.reporter.required": "Start a new report session before reporting this listing.",
   "marketplace.features.reports.api.request.failed": "Report request failed.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.controlCharacter":
+    "Remove hidden control characters from your text, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.directionOverride":
+    "Remove hidden text-direction characters from your text, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.unsafeLink":
+    "Links must start with https://. Remove other kinds of links, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.duplicateLink": "Include each link only once, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.rateLimited":
+    "You have sent several of these recently. Wait a few minutes, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.title": "Your text was not posted",
+  "marketplace.features.reviews.ui.authoredTextRecovery.draftKept":
+    "Your text is still here so you can edit it and try again.",
+  "marketplace.features.reviews.ui.authoredTextGuidance.description":
+    "What you post here is public and must follow the community guidelines.",
+  "marketplace.features.reviews.ui.authoredTextGuidance.communityGuidelines": "Community guidelines",
+  "marketplace.features.reviews.ui.authoredTextGuidance.contactSupport": "Contact support",
   "marketplace.features.listings.domain.domain.greater.than.zero": "greater than zero",
   "marketplace.features.listings.domain.domain.price.amount": "Price amount",
   "marketplace.features.listings.domain.domain.zero.or.greater": "zero or greater",

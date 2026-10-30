@@ -1,8 +1,14 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildPrReleaseStatus, parsePrReleaseStatusArgs, writePrReleaseStatus } from "./pr-release-status.mjs";
+
+const temporaryDirectories = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 describe("PR release status", () => {
   it("describes deployable PR release posture without replacing merge queue", () => {
@@ -39,6 +45,7 @@ describe("PR release status", () => {
 
   it("writes markdown for comments and job summaries", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-pr-release-status-"));
+    temporaryDirectories.push(directory);
     const outFile = join(directory, "status.md");
     const markdown = await writePrReleaseStatus({
       outPath: outFile,

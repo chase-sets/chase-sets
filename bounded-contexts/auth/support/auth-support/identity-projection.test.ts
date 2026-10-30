@@ -1,13 +1,52 @@
 import { describe, expect, it, vi } from "vitest";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   authIdentityProjectionSchemaSql,
   buildAuthIdentityAccountProjectionHandlers,
+  buildAuthIdentityMembershipProjectionHandlers,
   buildAuthIdentityUserProjectionHandlers,
   getActiveAuthMembershipForUserAccount,
 } from "./identity-projection";
+
+describe("auth canonical membership permissions", () => {
+  it.each(Object.keys(ROLE_PERMISSIONS) as (keyof typeof ROLE_PERMISSIONS)[])(
+    "projects the canonical hold authority to both membership mirrors on grant and role change: %s",
+    async (roleKey) => {
+      const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({
+        rows: [{ user_id: "usr_synthetic_hold", account_id: "acc_synthetic_hold", status: "active" }],
+      }));
+      const handlers = buildAuthIdentityMembershipProjectionHandlers({ query } as PgQueryable);
+      for (const type of ["identity.membership.granted", "identity.membership.role-changed"]) {
+        query.mockClear();
+        await handlers[type]!(
+          buildTransportEvent(
+            type,
+            {
+              membershipId: "mbr_synthetic_hold",
+              userId: "usr_synthetic_hold",
+              accountId: "acc_synthetic_hold",
+              roleKey,
+            },
+            { streamId: "identity.membership-mbr_synthetic_hold" },
+          ),
+        );
+        for (const table of ["auth_identity_memberships", "auth_identity_user_memberships"]) {
+          const write = query.mock.calls.find(([sql]) => sql.includes(table) && sql.includes("role_permissions"));
+          expect(write).toBeDefined();
+          const index = type.endsWith("role-changed") && table === "auth_identity_memberships" ? 1 : 4;
+          const permissions: string[] = JSON.parse(String(write![1]![index]));
+          expect(permissions).toEqual(ROLE_PERMISSIONS[roleKey]);
+          expect(permissions.filter((key) => key === "payout-review-holds.manage")).toEqual(
+            roleKey === "platform-admin" ? ["payout-review-holds.manage"] : [],
+          );
+        }
+      }
+    },
+  );
+});
 
 describe("auth account enforcement payload compatibility", () => {
   it("projects every modern lifecycle payload without reading its additive enforcement data", async () => {

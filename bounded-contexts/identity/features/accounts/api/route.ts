@@ -3,17 +3,13 @@ import { Hono } from "hono";
 import { submitAccountManagement } from "../../account-management/api/route-support";
 import type { AccountManagementServices } from "../../account-management/api/runtime";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
-import {
-  accountEnforcementReasonCodes,
-  accountEnforcementReversalReasonCodes,
-  type AccountEnforcementReference,
-} from "@chase-sets/event-core";
-import { createId, parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
+import { accountEnforcementReasonCodes, accountEnforcementReversalReasonCodes } from "@chase-sets/event-core";
 import type { IdentityApiEnv } from "../../../api";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
 import type { AccountServices } from "./runtime";
 import type { AccountEnforcementRequest } from "./contracts";
+import { readAccountEnforcementRequest, submitAccountEnforcement } from "./account-enforcement";
 
 function readAccountBadgeKey(value: unknown): AccountBadgeKey | null {
   return typeof value === "string" && accountBadgeKeys.includes(value as AccountBadgeKey)
@@ -22,7 +18,7 @@ function readAccountBadgeKey(value: unknown): AccountBadgeKey | null {
 }
 
 function canManageAccount(actor: IdentityApiEnv["Variables"]["actor"], accountId: string) {
-  return !actor || actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.accountId === accountId;
+  return actor?.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor?.accountId === accountId;
 }
 
 function canManageAccountBadges(actor: IdentityApiEnv["Variables"]["actor"]) {
@@ -47,56 +43,6 @@ function validationFailed(error: unknown) {
   };
 }
 
-async function readAccountEnforcementRequest<Reason extends string>(
-  request: Request,
-  allowedReasons: readonly Reason[],
-): Promise<AccountEnforcementRequest<Reason>> {
-  const rawBody = await request.text();
-  if (rawBody.length === 0) {
-    return { reason: "operator-other" as Reason, reference: null };
-  }
-
-  const value: unknown = JSON.parse(rawBody);
-  if (!isRecord(value)) {
-    throw new Error("Account enforcement request must be a JSON object.");
-  }
-  const keys = Object.keys(value).sort();
-  if (keys.length === 0) {
-    return { reason: "operator-other" as Reason, reference: null };
-  }
-  if (keys.length !== 2 || keys[0] !== "reason" || keys[1] !== "reference") {
-    throw new Error("Account enforcement request must contain exactly reason and reference.");
-  }
-  if (typeof value.reason !== "string" || !allowedReasons.includes(value.reason as Reason)) {
-    throw new Error("Account enforcement reason is invalid for this action.");
-  }
-
-  return {
-    reason: value.reason as Reason,
-    reference: readAccountEnforcementReference(value.reference),
-  };
-}
-
-function readAccountEnforcementReference(value: unknown): AccountEnforcementReference | null {
-  if (value === null) {
-    return null;
-  }
-  if (!isRecord(value)) {
-    throw new Error("Account enforcement reference is invalid.");
-  }
-  const keys = Object.keys(value).sort();
-  if (keys.length !== 2 || keys[0] !== "kind" || keys[1] !== "supportRequestId") {
-    throw new Error("Account enforcement reference is invalid.");
-  }
-  if (value.kind !== "support-request" || typeof value.supportRequestId !== "string") {
-    throw new Error("Account enforcement reference is invalid.");
-  }
-  return {
-    kind: "support-request",
-    supportRequestId: parseStrictTypedUlid(value.supportRequestId, "sup"),
-  };
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -105,6 +51,9 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
   const app = new Hono<IdentityApiEnv>();
 
   app.post("/", async (c) => {
+    if (!c.var.actor) {
+      return c.json({ error: { code: "authentication_required" } }, 401);
+    }
     const body = await c.req.json();
     const context = c.get("context");
     const accountId = parseTypedIdBoundary(body.accountId, "acc", "accountId");
@@ -123,6 +72,9 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
   });
 
   app.put("/:id", async (c) => {
+    if (!c.var.actor) {
+      return c.json(forbidden(), 403);
+    }
     const body = await c.req.json();
     const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
     const attempted = await submitAccountManagement(c, accountManagement, "update-profile", accountId, body);
@@ -154,14 +106,7 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
     } catch (error) {
       return c.json(validationFailed(error), 400);
     }
-    const result = await services.commandHandler({
-      streamId: `identity.account-${accountId}`,
-      command: {
-        type: "SuspendAccount",
-        enforcement: { version: 1, enforcementActionId: createId("enf"), ...request },
-      },
-      context: c.get("context"),
-    });
+    const result = await submitAccountEnforcement(services, accountId, "suspend", request, c.get("context"));
     return c.json({ id: accountId, version: result.version, status: result.state.status });
   });
 
@@ -176,14 +121,7 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
     } catch (error) {
       return c.json(validationFailed(error), 400);
     }
-    const result = await services.commandHandler({
-      streamId: `identity.account-${accountId}`,
-      command: {
-        type: "ReactivateAccount",
-        enforcement: { version: 1, enforcementActionId: createId("enf"), ...request },
-      },
-      context: c.get("context"),
-    });
+    const result = await submitAccountEnforcement(services, accountId, "reactivate", request, c.get("context"));
     return c.json({ id: accountId, version: result.version, status: result.state.status });
   });
 
@@ -198,14 +136,7 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
     } catch (error) {
       return c.json(validationFailed(error), 400);
     }
-    const result = await services.commandHandler({
-      streamId: `identity.account-${accountId}`,
-      command: {
-        type: "CloseAccount",
-        enforcement: { version: 1, enforcementActionId: createId("enf"), ...request },
-      },
-      context: c.get("context"),
-    });
+    const result = await submitAccountEnforcement(services, accountId, "close", request, c.get("context"));
     return c.json({ id: accountId, version: result.version, status: result.state.status });
   });
 
@@ -321,7 +252,7 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
   app.get("/:id", async (c) => {
     const actor = c.var.actor;
     const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
-    if (actor && !canManageAccount(actor, accountId)) {
+    if (!canManageAccount(actor, accountId)) {
       return c.json(forbidden(), 403);
     }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 
 import {
   ygoprodeckCentralTypeAdditions,
@@ -13,7 +14,7 @@ describe("YGOPRODeck executable mapping contract", () => {
     expect(ygoprodeckYugiohCardReferenceSourceObservationMappingContract).toMatchObject({
       providerKey: "ygoprodeck",
       profileKey: "yugioh-card-print-reference-data",
-      profileVersion: "2026.06.21",
+      profileVersion: "2026.10.18",
       ingestionUnitIdentity: {
         unitKey: "ygoprodeck:yugioh:single-card:reference-data",
         productDomain: "yugioh",
@@ -82,6 +83,24 @@ describe("YGOPRODeck executable mapping contract", () => {
     expect(mappedCatalogMaterial).not.toMatch(/card_prices|set_price|tcgplayer_price|cardmarket_price/i);
     expect(mappedCatalogMaterial).not.toMatch(/image_url|image_url_small|image_url_cropped/i);
     expect(mappedCatalogMaterial).toMatch(/imageEvidenceCount/);
+  });
+
+  it("resolves every Yu-Gi-Oh product-line rule to the seeded canonical record", () => {
+    for (const profile of [ygoprodeckYugiohCardReferenceProviderProfile, ygoprodeckYugiohSetReferenceProviderProfile]) {
+      const productLineRule = profile.referenceHierarchyMapping.referenceRecords.find(
+        (rule) => rule.ruleKey === "yugioh-product-line",
+      );
+      expect(productLineRule).toMatchObject({
+        typeKey: "product-line",
+        recordId: {
+          kind: "static",
+          referenceRecordId: catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
+        },
+        key: { kind: "static", value: "yu-gi-oh-official-card-game" },
+      });
+      expect(productLineRule?.recordId.kind).not.toBe("provider");
+      expect(productLineRule?.key).not.toMatchObject({ value: "yu-gi-oh" });
+    }
   });
 
   it("documents the exact central type additions needed before active registry/profile wiring", () => {

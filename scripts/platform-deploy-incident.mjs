@@ -20,6 +20,8 @@ export const DEPLOY_ROOT_CAUSE_CODES = Object.freeze([
   "blocking-staging-verification",
   "production-verification",
   "superseded-pre-mutation",
+  "registry-gc-read-only",
+  "agent-grant-revocation-activation-refused",
   "doks-admission-webhook-unreachable",
   "unknown",
 ]);
@@ -70,6 +72,14 @@ const ROOT_CAUSES = Object.freeze({
     phase: "pre-mutation",
     affectedComponent: "deploy-lane",
   },
+  "agent-grant-revocation-activation-refused": {
+    summary:
+      "Agent Grant revocation activation refused after the release was healthy; the release was neither aborted nor rolled back.",
+    remediation:
+      "Read the refusal code and the agent-grant-revocation-status artifact, then follow the activation runbook; do not retry a non-transient refusal until it is resolved.",
+    phase: "agent-grant-revocation-activation",
+    affectedComponent: "agent-grant-revocation",
+  },
   "doks-admission-webhook-unreachable": {
     summary:
       "The production Helm upgrade failed because the DOKS control plane could not reach an admission webhook (No agent available).",
@@ -77,6 +87,13 @@ const ROOT_CAUSES = Object.freeze({
       "The deploy restores the last-known-good release and retries once; when that retry is refused or fails, confirm the admission webhook answers a server dry-run, then rerun the failed Platform Deploy run.",
     phase: "production-deploy",
     affectedComponent: "doks-control-plane",
+  },
+  "registry-gc-read-only": {
+    summary: "DigitalOcean Container Registry garbage collection is active and the registry is read-only.",
+    remediation:
+      "Wait for the identified garbage collection to reach terminal succeeded, then retry the registry mutation; do not bypass the gate.",
+    phase: "registry-gc",
+    affectedComponent: "digitalocean-container-registry",
   },
   unknown: {
     summary: "The deployment failed without a known safe classification.",
@@ -336,6 +353,20 @@ export function classifyDeploymentRootCause(input = {}) {
     .map((step) => [step.name, step.componentName, step.phase, step.reasonCode, step.message].join(" "))
     .join("\n");
   const allText = `${stepText}\n${text}`;
+  const registryGcEvidence = (input.diagnostics ?? []).find(
+    (diagnostic) =>
+      diagnostic &&
+      typeof diagnostic === "object" &&
+      diagnostic.rootCauseCode === "registry-gc-read-only" &&
+      diagnostic.active === true,
+  );
+  if (registryGcEvidence) {
+    return rootCauseRecord("registry-gc-read-only", input, steps, text, {
+      providerReason: registryGcEvidence.status || registryGcEvidence.detail || "active garbage collection",
+      phase: "registry-gc",
+      affectedComponent: "digitalocean-container-registry",
+    });
+  }
   const stagingDnsPattern =
     /DomainZoneInvalid|DomainCNAMEMismatch|domain (?:name )?.{0,40}(?:already exists|conflict|collision)|CNAME.{0,40}(?:mismatch|conflict)|staging-dns/i;
   const terraformPattern =
@@ -349,6 +380,15 @@ export function classifyDeploymentRootCause(input = {}) {
 
   if (input.superseded === true || /superseded-pre-mutation/.test(phaseHint)) {
     return rootCauseRecord("superseded-pre-mutation", input, steps, text);
+  }
+  if (phaseHint === "agent-grant-revocation-activation") {
+    // The status record's refusal is already a bounded code; nothing else is carried.
+    const refusal = (input.diagnostics ?? [])
+      .map((diagnostic) => diagnostic?.refusal)
+      .find((code) => typeof code === "string" && /^revocation_[a-z_]{1,64}$/.test(code));
+    return rootCauseRecord("agent-grant-revocation-activation-refused", input, steps, text, {
+      providerReason: refusal ?? "revocation_release_refused",
+    });
   }
   const admissionWebhookTransient = admissionWebhookTransientFromAttempts(input.diagnostics);
   if (admissionWebhookTransient) {
@@ -442,6 +482,7 @@ export function parsePlatformDeployIncidentOptions(argv, env = process.env) {
       "",
     productionRootCauseCode:
       readOption(argv, "--production-root-cause-code") ?? readEnv("PRODUCTION_ROOT_CAUSE_CODE", env) ?? "",
+    buildRootCauseCode: readOption(argv, "--build-root-cause-code") ?? readEnv("BUILD_ROOT_CAUSE_CODE", env) ?? "",
     rootCauseSummary: readOption(argv, "--root-cause-summary") ?? readEnv("ROOT_CAUSE_SUMMARY", env) ?? "",
     affectedComponent: readOption(argv, "--affected-component") ?? readEnv("AFFECTED_COMPONENT", env) ?? "",
     rootCausePhase: readOption(argv, "--root-cause-phase") ?? readEnv("ROOT_CAUSE_PHASE", env) ?? "",
@@ -505,6 +546,8 @@ export function classifyPlatformDeployRun(input = {}) {
     rootCause = rootCauseFromCode(legacyCode, input);
   } else if (input.deployProductionResult === "failure") {
     rootCause = rootCauseFromCode(input.productionRootCauseCode || "production-verification", input);
+  } else if (input.buildImageResult === "failure") {
+    rootCause = rootCauseFromCode(input.buildRootCauseCode || "unknown", input);
   } else {
     rootCause = rootCauseFromCode("unknown", input);
   }

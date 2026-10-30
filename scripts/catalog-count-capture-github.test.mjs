@@ -49,6 +49,51 @@ describe("bounded capture GitHub transport", () => {
     expect(transport).toHaveBeenCalledTimes(3);
   });
 
+  it("reads only exact allowlisted paths: the Platform Deploy run listing, its near misses and a planted token", async () => {
+    const listing =
+      "/actions/workflows/platform-production.yml/runs?per_page=100&page=7&created=2026-09-07T13:00:00Z..2026-10-19T13:00:00Z";
+    const planted = "synthetic-planted-token-0d41";
+    const transport = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ total_count: 0, workflow_runs: [] }))
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://synthetic.blob.core.windows.net/log?signature=synthetic" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("synthetic log"));
+    const client = createCountCaptureGitHubReader({ repository: "synthetic/repository", token: planted, transport });
+    expect(await client.json(listing)).toEqual({ total_count: 0, workflow_runs: [] });
+    expect(transport).toHaveBeenCalledWith(
+      `https://api.github.com/repos/synthetic/repository${listing}`,
+      expect.objectContaining({
+        redirect: "manual",
+        headers: expect.objectContaining({ authorization: `Bearer ${planted}` }),
+      }),
+    );
+    // The token reaches neither the signed log request nor any result.
+    const log = await client.jobLog("118064914233");
+    expect(JSON.stringify([log, transport.mock.calls[2]])).not.toContain(planted);
+    expect(transport.mock.calls[2][1].headers).toEqual({});
+    for (const path of [
+      "/actions/workflows/platform-production.yml/runs?per_page=100&page=1",
+      "/actions/workflows/platform-production.yml/runs?per_page=100&page=0&created=2026-09-07T13:00:00Z..2026-10-19T13:00:00Z",
+      "/actions/workflows/platform-production.yml/runs?per_page=50&page=1&created=2026-09-07T13:00:00Z..2026-10-19T13:00:00Z",
+      "/actions/workflows/platform-production.yml/runs?per_page=100&page=1&created=2026-09-07..2026-10-19",
+      "/actions/workflows/platform-production.yml/runs?per_page=100&page=1&created=2026-09-07T13:00:00Z..2026-10-19T13:00:00Z&status=completed",
+      "/actions/workflows/platform-production.yml/runs?per_page=100&page=1&created=2026-09-07T13:00:00Z..2026-10-19T13:00:00Z&branch=main",
+      "/actions/workflows/platform-production.yml/runs?branch=main&status=completed&per_page=100&page=1",
+      "/actions/workflows/platform-productionXyml/runs?per_page=100&page=1&created=2026-09-07T13:00:00Z..2026-10-19T13:00:00Z",
+      "/actions/workflows/ci.yml/runs?per_page=100&page=1&created=2026-09-07T13:00:00Z..2026-10-19T13:00:00Z",
+      "/actions/workflows/274293633/runs?per_page=100&page=1&created=2026-09-07T13:00:00Z..2026-10-19T13:00:00Z",
+      "/actions/workflows/platform-production.yml/runs/1/jobs?per_page=100&page=1",
+      "/actions/runs/39135494514/jobs?per_page=100&page=1&filter=latest",
+    ])
+      await expect(client.json(path)).rejects.toThrow(refusal);
+    expect(transport).toHaveBeenCalledTimes(3);
+  });
+
   it("reads a head-bound workflow definition raw at an exact commit only", async () => {
     const transport = vi.fn(async () => new Response("name: synthetic\n"));
     const client = reader(transport);

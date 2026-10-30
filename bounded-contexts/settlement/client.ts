@@ -13,6 +13,7 @@ import type {
   SettlementProviderIdempotencyKeyRow,
   SettlementReconciliationRunRow,
 } from "./features/payouts/read-model/queries";
+import type { SettlementPayoutSummary } from "./features/payouts/read-model/payout-summary";
 import type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
 import type { PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
 import type { PayoutReviewHoldView } from "./features/wallets/domain/payout-review-hold";
@@ -78,6 +79,13 @@ export type SettlementPayoutPreview = Readonly<{
     code: string;
     message: string;
   }>[];
+}>;
+
+export type SettlementPayoutQuickAmounts = Readonly<{
+  currency_code: string;
+  minimum_amount: string;
+  maximum_amount: string;
+  full_available_amount: string;
 }>;
 
 export type SettlementPayoutEmbeddedSession = Readonly<{
@@ -194,7 +202,7 @@ export function createSettlementApiClient({
         }),
       );
     },
-    async listPayouts(query = ""): Promise<ListResponse<SettlementPayoutRow>> {
+    async listPayouts(query = ""): Promise<SettlementPayoutSummary> {
       return parseJsonResponse(
         await client.payouts.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -204,6 +212,9 @@ export function createSettlementApiClient({
     },
     async getPayoutReadiness(): Promise<SettlementPayoutReadinessRow> {
       return parseJsonResponse(await client["payout-readiness"].$get({ header: headers }));
+    },
+    async getPayoutQuickAmounts(): Promise<SettlementPayoutQuickAmounts> {
+      return parseJsonResponse(await client.payouts["quick-amounts"].$get({ header: headers }));
     },
     async getPayoutSetupProgress(): Promise<PayoutSetupProgress> {
       return parseJsonResponse(await client["payout-setup"].progress.$get({ header: headers }));
@@ -455,6 +466,7 @@ export type {
   SettlementProviderIdempotencyKeyRow,
   SettlementReconciliationRunRow,
 } from "./features/payouts/read-model/queries";
+export type { SettlementPayoutSummary } from "./features/payouts/read-model/payout-summary";
 export type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
 export type { PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
 export const settlementApi = createSettlementApiClient();

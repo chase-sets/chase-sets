@@ -11,6 +11,7 @@ import {
   VERIFY_STATIC_GUARD_TEST_SURFACES,
   VERIFY_STATIC_SCOPED_EXCLUSIONS,
   VERIFY_STATIC_SURFACES,
+  deriveBrandFoilProofStepSurface,
   linkSurfaceMatches,
 } from "./verify-static-surfaces.mjs";
 
@@ -157,7 +158,10 @@ export function parseVerifyStaticChain(packageJson) {
   return chain.split(/\s*&&\s*/).map((command) => {
     const match = /^pnpm run ([^\s]+)(?:\s+(.*))?$/.exec(command.trim());
     if (!match) throw new Error(`Unsupported verify:static link: ${command}`);
-    return { name: match[1], command: command.trim(), forwarded: match[2] ?? "" };
+    const link = { name: match[1], command: command.trim(), forwarded: match[2] ?? "" };
+    // Keep the authoritative link shape; script bytes are execution metadata.
+    Object.defineProperty(link, "script", { value: packageJson.scripts[match[1]], enumerable: false });
+    return link;
   });
 }
 
@@ -237,6 +241,57 @@ function allWorkspacesAffected(changedFiles, repoRoot, dependencies) {
   return scope.affectedWorkspaces.length === workspaces.length;
 }
 
+function validateScopedStepMap(chain, surfaces) {
+  for (const link of chain) {
+    const scopedSteps = surfaces[link.name]?.scopedSteps;
+    if (scopedSteps === undefined) continue;
+    if (link.name !== "check:structure" || !Array.isArray(scopedSteps) || scopedSteps.length === 0) {
+      throw new StaticScopeDerivationError(
+        "STATIC_SCOPE_STEPS_MAP_INVALID",
+        `scopedSteps is only supported as a non-empty array on check:structure: ${link.name}`,
+      );
+    }
+    for (const step of scopedSteps) {
+      if (
+        typeof step?.name !== "string" ||
+        typeof step.command !== "string" ||
+        ![ALWAYS_RUN, MAY_NARROW].includes(step.classification) ||
+        (step.classification === MAY_NARROW &&
+          (!Array.isArray(step.include) || step.include.length === 0 || typeof step.rule !== "string"))
+      ) {
+        throw new StaticScopeDerivationError("STATIC_SCOPE_STEPS_MAP_INVALID", `invalid scoped step in ${link.name}`);
+      }
+    }
+  }
+}
+
+function withScopedDetails(link, details) {
+  const enriched = { ...link };
+  for (const [key, value] of Object.entries(details)) {
+    // Execution metadata is intentionally non-enumerable so plans retain the
+    // authoritative package-script link shape when serialized or compared.
+    Object.defineProperty(enriched, key, { value, enumerable: false, configurable: true });
+  }
+  return enriched;
+}
+
+function selectScopedSteps(link, entry, changedFiles) {
+  const expectedCommand = entry.scopedSteps.map((step) => step.command).join(" && ");
+  if (expectedCommand !== (link.script ?? link.command)) {
+    return { link: withScopedDetails(link, { scopedStepsStale: true }), skippedSteps: [] };
+  }
+  const selectedSteps = [];
+  const skippedSteps = [];
+  for (const step of entry.scopedSteps) {
+    if (step.classification === ALWAYS_RUN || linkSurfaceMatches(step, changedFiles)) {
+      selectedSteps.push(step);
+    } else {
+      skippedSteps.push(step);
+    }
+  }
+  return { link: withScopedDetails(link, { selectedSteps, skippedSteps }), skippedSteps };
+}
+
 export function selectVerifyStaticLinks({
   chain,
   changedFiles,
@@ -248,6 +303,7 @@ export function selectVerifyStaticLinks({
   forceFull = false,
   dependencies = { classifyChanges, listWorkspacePackages },
 } = {}) {
+  validateScopedStepMap(chain, surfaces);
   const guardTests = selectVerifyStaticGuardTests({
     changedFiles,
     repoRoot,
@@ -267,6 +323,7 @@ export function selectVerifyStaticLinks({
       excluded,
       fullReason: null,
       guardTests,
+      stepSkips: [],
     };
   }
 
@@ -280,14 +337,53 @@ export function selectVerifyStaticLinks({
       : allWorkspacesAffected(changedFiles, repoRoot, dependencies)
         ? "classifyChanges affected every workspace (derived root-runtime fanout)"
         : null;
-  if (fullReason) return { selected: scopedChain, skipped: [], excluded, fullReason, guardTests };
+  let planningSurfaces = surfaces;
+  if (!forceFull && scopedChain.some((link) => Array.isArray(surfaces[link.name]?.scopedSteps))) {
+    try {
+      const collect = dependencies.collectBrandFoilProofStaticImportPaths;
+      const derivedSteps = deriveBrandFoilProofStepSurface(repoRoot, collect);
+      planningSurfaces = {
+        ...surfaces,
+        "check:structure": {
+          ...surfaces["check:structure"],
+          scopedSteps: surfaces["check:structure"]?.scopedSteps?.map((step) =>
+            step.name === "brand-foil-proof" ? { ...step, include: derivedSteps } : step,
+          ),
+        },
+      };
+    } catch (error) {
+      if (error instanceof StaticScopeDerivationError) throw error;
+      throw new StaticScopeDerivationError(
+        "STATIC_SCOPE_BRAND_FOIL_DERIVATION_FAILED",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  if (fullReason) {
+    const selected = scopedChain.map((link) => {
+      const entry = planningSurfaces[link.name];
+      if (forceFull || !Array.isArray(entry?.scopedSteps)) return link;
+      return selectScopedSteps(link, entry, changedFiles).link;
+    });
+    const fullStepSkips = selected.flatMap((link) =>
+      Array.isArray(link.skippedSteps) ? link.skippedSteps.map((step) => ({ link, step, rule: step.rule })) : [],
+    );
+    return { selected, skipped: [], excluded, fullReason, guardTests, stepSkips: fullStepSkips };
+  }
 
   const selected = [];
   const skipped = [];
+  const stepSkips = [];
   for (const link of scopedChain) {
-    const entry = surfaces[link.name];
+    const entry = planningSurfaces[link.name];
     if (!entry) {
       selected.push(link);
+      continue;
+    }
+    if (Array.isArray(entry.scopedSteps)) {
+      const scoped = selectScopedSteps(link, entry, changedFiles);
+      selected.push(scoped.link);
+      for (const step of scoped.skippedSteps) stepSkips.push({ link, step, rule: step.rule });
       continue;
     }
     if (
@@ -302,7 +398,7 @@ export function selectVerifyStaticLinks({
       skipped.push({ link, rule: entry.rule });
     }
   }
-  return { selected, skipped, excluded, fullReason: null, guardTests };
+  return { selected, skipped, excluded, fullReason: null, guardTests, stepSkips };
 }
 
 export function resolvePnpmInvocation({ env = process.env, platform = process.platform } = {}) {
@@ -327,7 +423,27 @@ function runPnpm(args, repoRoot) {
   return result.status ?? 1;
 }
 
-function defaultRunLink(link, repoRoot) {
+function defaultRunStep(step, repoRoot) {
+  const match = /^node\s+(.+)$/.exec(step.command.trim());
+  if (!match) throw new Error(`Unsupported scoped step command: ${step.command}`);
+  const result = spawnSync(process.execPath, [path.resolve(repoRoot, match[1])], {
+    cwd: repoRoot,
+    stdio: "inherit",
+    windowsHide: true,
+    shell: false,
+  });
+  if (result.error) throw result.error;
+  return result.status ?? 1;
+}
+
+function defaultRunLink(link, repoRoot, runStep) {
+  if (Array.isArray(link.selectedSteps)) {
+    for (const step of link.selectedSteps) {
+      const status = runStep(step);
+      if (status !== 0) return status;
+    }
+    return 0;
+  }
   const args = ["run", link.name];
   if (link.forwarded) args.push(...link.forwarded.split(/\s+/));
   return runPnpm(args, repoRoot);
@@ -338,7 +454,8 @@ export async function runVerifyStaticScoped({
   env = process.env,
   execGit,
   readPackageJson = () => JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8")),
-  runLink = (link) => defaultRunLink(link, repoRoot),
+  runLink,
+  runStep = (step) => defaultRunStep(step, repoRoot),
   runGuardTests = (files) =>
     runPnpm(["exec", "vitest", "run", "--config", "./vitest.scripts.config.mjs", ...files], repoRoot),
   stdout = console.log,
@@ -350,6 +467,7 @@ export async function runVerifyStaticScoped({
   acquireSlot = () => false,
   dependencies = { classifyChanges, listWorkspacePackages },
 } = {}) {
+  const executeLink = runLink ?? ((link) => defaultRunLink(link, repoRoot, runStep));
   const chain = parseVerifyStaticChain(readPackageJson());
   let derived;
   let forceFull = false;
@@ -380,6 +498,10 @@ export async function runVerifyStaticScoped({
       stderr(`[${error.code}] ${error.message}.`);
       return 1;
     }
+    if (error.code === "STATIC_SCOPE_STEPS_MAP_INVALID") {
+      stderr(`[${error.code}] ${error.message}.`);
+      return 1;
+    }
     stderr(`[STATIC_SCOPE_CLASSIFICATION_FAILED] ${error.message}. Running the full local static link set.`);
     plan = selectVerifyStaticLinks({
       chain,
@@ -400,6 +522,9 @@ export async function runVerifyStaticScoped({
   for (const { link, rule } of plan.skipped) {
     stdout(`[SKIPPED-BY-SCOPE] ${link.name}: ${rule}`);
   }
+  for (const { link, step, rule } of plan.stepSkips) {
+    stdout(`[SKIPPED-BY-SCOPE] ${link.name} > ${step.name}: ${rule}`);
+  }
   stdout(
     `[VERIFY_STATIC_SCOPE] scanned=${plan.selected.length}/${plan.selected.length + plan.skipped.length}; ` +
       `skipped=${plan.skipped.length}; excluded=${plan.excluded.length}; ` +
@@ -410,7 +535,8 @@ export async function runVerifyStaticScoped({
   if (plan.selected.length > 0 || plan.guardTests.length > 0) acquireSlot();
   for (const link of plan.selected) {
     stdout(`[VERIFY_STATIC_RUN] ${link.name}`);
-    const status = await runLink(link);
+    if (link.scopedStepsStale) stdout(`[STATIC_SCOPE_STEPS_STALE] ${link.name}`);
+    const status = await executeLink(link);
     if (status !== 0) return status;
   }
   if (plan.guardTests.length > 0) {

@@ -1,7 +1,9 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { RepricingPolicyScope, RepricingPolicyStatus, RepricingRule } from "../domain/domain";
+import type { RepricingAuthoringIntent } from "../domain/authoring-intent";
 
 export type RepricingPolicyRecord = Readonly<{
+  authoringIntent?: RepricingAuthoringIntent | null;
   policyId: string;
   sellerAccountId: string;
   name: string;
@@ -15,6 +17,7 @@ export type RepricingPolicyRecord = Readonly<{
 }>;
 
 type RepricingPolicyRow = Readonly<{
+  authoring_intent?: RepricingAuthoringIntent | null;
   policy_id: string;
   seller_account_id: string;
   name: string;
@@ -45,6 +48,7 @@ function scopeFromRow(row: RepricingPolicyRow): RepricingPolicyScope {
 function toRepricingPolicyRecord(row: RepricingPolicyRow): RepricingPolicyRecord {
   return {
     policyId: row.policy_id,
+    authoringIntent: row.authoring_intent ?? null,
     sellerAccountId: row.seller_account_id,
     name: row.name,
     status: row.status,
@@ -58,6 +62,7 @@ function toRepricingPolicyRecord(row: RepricingPolicyRow): RepricingPolicyRecord
 }
 
 const repricingPolicySelectColumns = `
+  authoring_intent,
   policy_id,
   seller_account_id,
   name,
