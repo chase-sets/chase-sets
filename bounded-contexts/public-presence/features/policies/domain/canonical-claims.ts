@@ -94,14 +94,14 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
     description:
       "Chargeback/dispute recovery runs through Settlement's automated Chargeback Clawback hold/recovery/" +
       "release mechanism, distinct from the operator-directed Wallet Adjustment path.",
-    productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:127-135"],
+    productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:131-139"],
     requiredEvidenceKeywords: ["Chargeback Clawback"],
   },
   "payout-release-hold-mechanism": {
     status: "settled",
     description:
       "Chase Sets models a Settlement-owned Payout Release Hold distinct from Stripe's own processor-level " + "holds.",
-    productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:117-125"],
+    productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:121-129"],
     requiredEvidenceKeywords: ["Payout Release Hold"],
   },
   "wallet-no-interest": {
