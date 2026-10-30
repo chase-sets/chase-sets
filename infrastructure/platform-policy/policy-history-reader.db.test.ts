@@ -103,6 +103,12 @@ describeDb("gap-safe policy history reader", () => {
         context,
       );
 
+      const oldPageAfterAppend = await reader.readPage(oldStart.continuation);
+      expect(oldPageAfterAppend.records).toHaveLength(2);
+      expect(oldPageAfterAppend.records.every((record) => record.documentId !== "doc-later")).toBe(true);
+      expect(oldPageAfterAppend.complete).toBe(true);
+      expect(oldPageAfterAppend.horizon).toBe(oldStart.horizon);
+
       const newStart = await reader.start(policy.policyKey);
       expect(newStart.horizon).toBe("4");
       expect((await reader.readPage(newStart.continuation)).records).toHaveLength(3);

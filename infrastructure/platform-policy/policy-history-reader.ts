@@ -81,7 +81,7 @@ export function createPolicyHistoryReader(deps: PolicyHistoryReaderDeps): Policy
       const policyKey = input.policyKey;
       assertPolicyKey(policyKey);
       const horizon = parsePosition(input.horizon, "horizon");
-      const afterGlobalPosition = parsePosition(input.afterGlobalPosition ?? "0", "continuation");
+      const afterGlobalPosition = parsePosition(input.afterGlobalPosition, "continuation");
       if (compareGlobalPosition(afterGlobalPosition, horizon) > 0) {
         throw new PolicyHistoryReaderError("Policy history continuation is outside its fixed horizon.");
       }

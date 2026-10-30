@@ -74,7 +74,7 @@ function readerFor(events: readonly StoredEvent[], options: ReaderOptions = {}) 
 
 describe("bounded policy history reader", () => {
   it("returns every immutable AC1 field, including revisions, inactive and expired windows, in numeric order", async () => {
-    const { reader } = readerFor([
+    const { reader, reads } = readerFor([
       event(9, policyKey, { value: { cents: 9 }, effectiveFrom: "2026-01-01T00:00:00.000Z" }, undefined, {
         documentId: "doc-history",
         streamVersion: 1,
@@ -99,6 +99,14 @@ describe("bounded policy history reader", () => {
 
     const start = await reader.start(policyKey);
     const page = await reader.readPage(start.continuation);
+
+    expect(reads[0]).toMatchObject({
+      afterGlobalPosition: "0",
+      atOrBeforeGlobalPosition: start.horizon,
+      eventTypes: ["platform-policy.document.created", "platform-policy.document.revised"],
+      streamPrefixes: ["platform-policy.document-"],
+      limit: 500,
+    });
 
     expect(page.records).toEqual([
       {
@@ -217,6 +225,37 @@ describe("bounded policy history reader", () => {
       const start = await reader.start(policyKey);
       await expect(reader.readPage(start.continuation), label).rejects.toThrow();
     }
+
+    const mismatchedIdentity = readerFor([event(1, policyKey, { documentId: "wrong-document" })]);
+    const mismatchedStart = await mismatchedIdentity.reader.start(policyKey);
+    await expect(mismatchedIdentity.reader.readPage(mismatchedStart.continuation)).rejects.toThrow(
+      "does not match its stream",
+    );
+
+    const nonCanonical = readerFor([event(1)]);
+    const nonCanonicalStart = await nonCanonical.reader.start(policyKey);
+    await expect(
+      nonCanonical.reader.readPage({ ...nonCanonicalStart.continuation, afterGlobalPosition: "01" as GlobalPosition }),
+    ).rejects.toThrow("canonical global position");
+
+    const outOfHorizon = readerFor([event(1)], { horizon: "2" as GlobalPosition });
+    const outOfHorizonStart = await outOfHorizon.reader.start(policyKey);
+    await expect(
+      outOfHorizon.reader.readPage({ ...outOfHorizonStart.continuation, afterGlobalPosition: "503" as GlobalPosition }),
+    ).rejects.toThrow("outside its fixed horizon");
+
+    const missingPosition = readerFor([event(1)]);
+    const missingPositionStart = await missingPosition.reader.start(policyKey);
+    const missingPositionPage = await missingPosition.reader.readPage(missingPositionStart.continuation);
+    const missingPositionContinuation = { ...missingPositionPage.continuation } as {
+      policyKey: string;
+      horizon: GlobalPosition;
+      afterGlobalPosition?: GlobalPosition;
+    };
+    delete missingPositionContinuation.afterGlobalPosition;
+    await expect(
+      missingPosition.reader.readPage(missingPositionContinuation as typeof missingPositionPage.continuation),
+    ).rejects.toThrow("canonical global position");
 
     const nonAdvancing = readerFor([], {
       horizon: "2" as GlobalPosition,
