@@ -443,7 +443,10 @@ fn WebhookForm<'a>(t: AgentsMsg, p: Pilot, screen: &'a GrantScreen) -> impl Rend
         <section class={Part} aria-labelledby="webhook-title">
             <h2 id="webhook-title" class={PartTitle}>{t.detail_webhook()}</h2>
             <p class={Muted}>{t.detail_webhook_description()}</p>
-            <form class={Form} method="post" action={url::AgentWebhook { id }}>
+            // Sent by the runtime when it runs (`data-patch`): the answer, with the new secret, replaces
+            // the page and the address stays the grant's, so a reload reads it again instead of posting
+            // the save again, which would rotate the secret.
+            <form class={Form} method="post" action={url::AgentWebhook { id }} data-patch>
                 if posted.is_some() {
                     <p id={WebhookErrorId} class={Error} tabindex="-1" autofocus>{p.agents_webhook_invalid()}</p>
                 }

@@ -81,9 +81,11 @@
 .decisions {
   margin-block-end: var(--space-3);
 }
-.decisions form,
-.decisions button {
+.decisions form {
   flex: 1 1 100%;
+}
+.decisions button {
+  width: 100%;
 }
 .button {
   display: inline-flex;
@@ -313,9 +315,11 @@ a.card:hover {
   .fields {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .decisions form,
-  .decisions button {
+  .decisions form {
     flex: 0 0 auto;
+  }
+  .decisions button {
+    width: auto;
   }
   .actions {
     display: flex;

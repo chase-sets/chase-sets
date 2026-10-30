@@ -7287,8 +7287,14 @@ fn ucp_oauth(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opt
             .into_response(),
         ("POST", "/authorize") => {
             let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
+            // The API reads its origin from `Host` where it does not trust `X-Forwarded-Host`.
+            let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
             let forwarded = headers.get("x-forwarded-host").and_then(|v| v.to_str().ok());
-            if origin != Some("http://localhost:7791") || forwarded != Some("localhost:7791") || headers.get("sec-fetch-site").is_none() {
+            if origin != Some("http://localhost:7791")
+                || host != Some("localhost:7791")
+                || forwarded != Some("localhost:7791")
+                || headers.get("sec-fetch-site").is_none()
+            {
                 return Some(error(StatusCode::FORBIDDEN, "invalid_request"));
             }
             let to = if body.contains("decision=approve") && body.contains("consent_token=tok_ok") {
@@ -7499,6 +7505,18 @@ async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
     assert_eq!(ucp_writes(&pilot)[0].2, json!({ "callback_url": "https://agent.example/new" }));
     let (_, _, html) = pilot.send(get(&format!("{AGENTS}/lpa_one"), Some("buyer"))).await;
     assert!(!html.contains("whsec_synthetic_new_secret"), "the page read again never has the secret");
+    assert!(
+        html.contains(r#"action="/account/agents/lpa_one/webhook" data-patch"#),
+        "the runtime sends it: a reload does not post it again"
+    );
+    let (status, headers, html) =
+        pilot.send(post(&webhook, "buyer", "callback_url=https%3A%2F%2Fagent.example%2Fnew", true)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        headers.contains_key("corten-page") && headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"),
+        "{headers:?}"
+    );
+    assert!(html.contains("whsec_synthetic_new_secret"), "the page with its secret replaces this one");
 
     let (status, _, html) = pilot.send(post(&webhook, "buyer", "callback_url=http%3A%2F%2Fagent.example", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -7509,7 +7527,7 @@ async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
         pilot.send(post(&format!("{webhook}/disable"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "webhook-disabled");
     let writes = ucp_writes(&pilot);
-    assert_eq!((writes[2].2.clone(), writes[3].2.clone()), (json!({ "callback_url": null }), json!({ "callback_url": null })));
+    assert_eq!((writes[3].2.clone(), writes[4].2.clone()), (json!({ "callback_url": null }), json!({ "callback_url": null })));
     let (_, headers, _) =
         pilot.send(post(&format!("{AGENTS}/lpa_old/webhook"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "grant-revoked");

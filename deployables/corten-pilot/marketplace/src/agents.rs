@@ -596,7 +596,17 @@ pub(crate) async fn authorize(State(config): State<Shared>, headers: HeaderMap, 
         None => "/ucp/oauth/authorize".to_owned(),
     };
     let caller = config.platform.caller(&headers, config.proto, None);
-    relay(caller.request_unfollowed(Method::GET, &path, "auth")).await
+    relay(as_sent(caller.request_unfollowed(Method::GET, &path, "auth"), &headers)).await
+}
+
+/// The request with the browser's `Host`, as the ingress passes it on: the API reads its public
+/// origin from `Host` where it does not trust `X-Forwarded-Host` (locally), and checks Approve's
+/// `Origin` against it.
+fn as_sent(sent: platform::api::RequestBuilder, headers: &HeaderMap) -> platform::api::RequestBuilder {
+    match headers.get(header::HOST).and_then(|v| v.to_str().ok()) {
+        Some(host) => sent.header(header::HOST.as_str(), host),
+        None => sent,
+    }
 }
 
 /// Approve or Deny, sent to the API with the browser's `Origin` and `Sec-Fetch-Site`, which it
@@ -608,7 +618,7 @@ pub(crate) async fn decide(
 ) -> corten::Result<Relay> {
     let caller = config.platform.caller(&headers, config.proto, None);
     let fields = [("consent_token", input.consent_token.as_str()), ("decision", input.decision.as_str())];
-    let mut sent = caller.request_unfollowed(Method::POST, "/ucp/oauth/authorize", "auth").form(&fields);
+    let mut sent = as_sent(caller.request_unfollowed(Method::POST, "/ucp/oauth/authorize", "auth"), &headers).form(&fields);
     for name in [header::ORIGIN.as_str(), "sec-fetch-site"] {
         if let Some(value) = headers.get(name).and_then(|v| v.to_str().ok()) {
             sent = sent.header(name, value);
