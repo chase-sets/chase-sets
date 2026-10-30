@@ -9,8 +9,8 @@ import { createClearancePolicyRoutes } from "./features/wallets/api/clearance-po
 import { createMoneyMovementWebhookRoutes, createPayoutRoutes } from "./features/payouts/api/route";
 import { createPayoutBoundsPolicyRoutes } from "./features/payouts/api/payout-bounds-policy-route";
 import { createPayoutReadinessRoutes } from "./features/payout-readiness/api/route";
-import { payoutUnavailableReasonLabel } from "./features/payouts/domain/reason-codes";
 import { buildPayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
+import { buildPayoutAvailability } from "./features/payouts/read-model/payout-summary";
 
 export type SettlementApiEnv = AuthenticatedApiEnv;
 
@@ -48,14 +48,15 @@ export function buildSettlementApi(services: SettlementServices) {
     ]);
     const hasAvailableBalance = compareMoneyAmounts(wallet.available_balance_amount, "0.00") > 0;
     const setupReady = payoutReadiness.status === "ready";
-    const setupStale =
-      !payoutReadiness.updated_at || Date.now() - Date.parse(payoutReadiness.updated_at) > 24 * 60 * 60 * 1000;
-    const restrictions = [
-      ...(setupReady ? [] : ["payout-setup-incomplete"]),
-      ...(setupReady && setupStale ? ["payout-setup-refresh-required"] : []),
-      ...(payoutReadiness.missing_requirements.length > 0 ? ["provider-requirements-open"] : []),
-      ...(hasAvailableBalance ? [] : ["no-available-wallet-balance"]),
-    ];
+    const availability = buildPayoutAvailability({
+      wallet,
+      readiness: payoutReadiness,
+      canRequestPayouts: actor.permissions.includes("payouts.request"),
+      freshness: "account-status",
+      includeNegativeBalance: false,
+      requireProviderReference: false,
+    });
+    const restrictions = availability.unavailable_reasons;
     const payoutSetupProgress = buildPayoutSetupProgress(payoutReadiness);
 
     return c.json({
@@ -81,17 +82,14 @@ export function buildSettlementApi(services: SettlementServices) {
         steps: payoutSetupProgress.steps,
       },
       payouts: {
-        can_request: setupReady && !setupStale && hasAvailableBalance,
+        can_request: availability.can_request,
         unavailable_reasons: restrictions,
-        unavailable_reason_details: restrictions.map((code) => ({
-          code,
-          message: payoutUnavailableReasonLabel(code),
-        })),
+        unavailable_reason_details: availability.unavailable_reason_details,
       },
       restrictions,
       next_actions: [
         ...(!setupReady ? ["finish-payout-setup"] : []),
-        ...(setupReady && hasAvailableBalance ? ["request-payout"] : []),
+        ...(availability.can_request ? ["request-payout"] : []),
       ],
     });
   });

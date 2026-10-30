@@ -105,9 +105,15 @@ describe("payout setup page", () => {
     "matrix-row-tests: preserves setup, support and locale copy for $name",
     ({ projection, expected, title }) => {
       const html = renderPage({ ...projection, ...expected });
-      if (title) expect(html).toContain(title);
+      if (title) {
+        expect(html).toContain(title);
+      } else {
+        for (const { title: recoveryTitle } of payoutSetupMatrix) {
+          if (recoveryTitle) expect(html).not.toContain(recoveryTitle);
+        }
+      }
       expect(html.includes("Loading secure payout setup")).toBe(expected.provider_setup_available);
-      expect(html.includes('href="/account/support"')).toBe(expected.support_recommended);
+      expect(html.includes('href="/account/support"')).toBe(expected.support_recommended && title !== null);
       expect(html.includes("Manage details")).toBe(expected.provider_management_available);
       expect(html).toContain("Refresh setup status");
     },
@@ -125,7 +131,9 @@ describe("payout setup page", () => {
     expect(html).not.toContain("Loading secure payout setup");
     expect(html).not.toContain('href="/account/support"');
     expect(html).not.toContain("Manage details");
-    expect(renderPage(row, { providerErrorMessage: "Provider session expired." })).toContain('href="/account/support"');
+    const rendered = document.createElement("div");
+    rendered.innerHTML = renderPage(row, { providerErrorMessage: "Provider session expired." });
+    expect(rendered.querySelectorAll('a[href="/account/support"]')).toHaveLength(2);
     expect(renderPage({ ...row, status: "ready", provider_setup_available: true })).toContain(
       "Loading secure payout setup",
     );

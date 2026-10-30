@@ -369,6 +369,15 @@ describe("Seller Desk full-journey acceptance gate @seller-desk-journey", () => 
       },
       payouts: {
         listPayouts: vi.fn(async () => ({ items: [payout], total: 1 })),
+        getPayoutSummary: vi.fn(async () => ({
+          items: [payout],
+          total: 1,
+          count: 1,
+          completeness: { kind: "complete", total: 1 },
+          next_payout: null,
+          blocked_payouts: [],
+          availability: { can_request: false, unavailable_reasons: [], unavailable_reason_details: [] },
+        })),
         getPayout: vi.fn(async () => payout),
         requestPayout: vi.fn(async () => {
           // Requesting the payout resolves the blocked-payout blocker, so the next

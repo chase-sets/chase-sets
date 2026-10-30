@@ -65,6 +65,72 @@ async function seedAcceptance(store: EventStore, id: string) {
   });
 }
 export function participantStoreMatrix(makeStore: () => EventStore) {
+  for (const explicit of [true, false]) {
+    it(`record-response v1 compatibility: ${explicit ? "old explicit" : "omitted"} receipt replays after restart and changed form conflicts`, async () => {
+      const store = makeStore();
+      const id = `sup_v1_${explicit}`;
+      await seedCase(store, id);
+      const f = participantFixture(store);
+      const body = {
+        responseType: "offer-partial-refund",
+        summary: "Offer",
+        refundAmount: "6.00",
+        ...(explicit ? { offerResolutionType: "partial-refund" } : {}),
+      };
+      const result = await f.executeParticipant("record-response", body, id, attemptId, seller);
+      const history = await readCompleteStream(store, { streamId: `support.support-request-${id}` });
+      const restarted = participantFixture(store);
+      expect(await restarted.lookup("record-response", body, id, attemptId, seller)).toMatchObject({
+        outcome: "confirming",
+        result,
+      });
+      expect(await restarted.executeParticipant("record-response", body, id, attemptId, seller)).toEqual(result);
+      const changed = {
+        responseType: "offer-partial-refund",
+        summary: "Offer",
+        refundAmount: "6.00",
+        ...(explicit ? {} : { offerResolutionType: "partial-refund" }),
+      };
+      await expect(
+        restarted.executeParticipant("record-response", changed, id, attemptId, seller),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(await readCompleteStream(store, { streamId: `support.support-request-${id}` })).toEqual(history);
+      expect(validateParticipantHistory(history, id).receipts).toHaveLength(1);
+      expect(history.filter((event) => event.eventType.endsWith(".response-recorded"))).toHaveLength(1);
+    });
+  }
+  it("participant response derives resolution after hashing", async () => {
+    const store = makeStore();
+    const f = participantFixture(store);
+    const resolutions = [
+      ["accept-return", "return-for-refund"],
+      ["offer-partial-refund", "partial-refund"],
+      ["offer-replacement", "replacement"],
+    ] as const;
+
+    for (const [responseType, resolutionType] of resolutions) {
+      const id = `sup_derived_${responseType}`;
+      await seedCase(store, id);
+      const result = await f.executeParticipant(
+        "record-response",
+        {
+          responseType,
+          summary: "Offer",
+          ...(responseType === "offer-partial-refund" ? { refundAmount: "6.00" } : {}),
+        },
+        id,
+        `${attemptId}_${responseType}`,
+        seller,
+      );
+      const history = await readCompleteStream(store, { streamId: `support.support-request-${id}` });
+      expect(history.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toMatchObject({
+        responseType,
+        resolutionType,
+      });
+      expect(result.offerId).toBeTruthy();
+    }
+  });
+
   it("equivalent currency form amounts replay one response and offer with a canonical receipt hash", async () => {
     const store = makeStore();
     const id = "sup_money_form";

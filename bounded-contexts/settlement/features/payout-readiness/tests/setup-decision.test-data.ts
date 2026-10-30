@@ -57,6 +57,36 @@ export const payoutSetupMatrix: readonly MatrixRow[] = [
     title: null,
   },
   {
+    name: "restricted precedes ordinary groups",
+    projection: payoutReadinessFixture({ status: "restricted", missing_requirements: ["external_account"] }),
+    expected: { ...restricted, next_step: "restricted" },
+    title: "Payout setup is restricted",
+  },
+  {
+    name: "groups precede missing destination",
+    projection: payoutReadinessFixture({
+      missing_requirements: ["external_account"],
+      payout_destination_status: "missing",
+    }),
+    expected: { ...restricted, next_step: "complete_requirements" },
+    title: "Payout setup details need attention",
+  },
+  {
+    name: "restricted precedes platform-only groups without enabling setup",
+    projection: payoutReadinessFixture({
+      status: "restricted",
+      missing_requirements: ["provider_dashboard_posture"],
+    }),
+    expected: { ...restricted, next_step: "restricted", provider_setup_available: false },
+    title: "Payout setup is restricted",
+  },
+  {
+    name: "ready precedes groups while recommending support without recovery",
+    projection: payoutReadinessFixture({ status: "ready", missing_requirements: ["external_account"] }),
+    expected: { ...restricted, next_step: "none", provider_setup_available: false },
+    title: null,
+  },
+  {
     name: "past due wins all reason matches",
     projection: payoutReadinessFixture({ status: "restricted", disabled_reason: "past_due.review.rejected.paused" }),
     expected: { ...restricted, next_step: "restricted_past_due" },

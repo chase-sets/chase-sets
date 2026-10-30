@@ -58,6 +58,20 @@ const forms = readFileSync(new URL("../ui/support-request-detail-page.tsx", impo
 const context = JSON.parse(readFileSync(new URL("../../../context.json", import.meta.url), "utf8"));
 
 describe("support participant mutation inventory", () => {
+  it("keeps offer derivation participant-only and after the v1 hash check", () => {
+    const runtime = readFileSync(new URL("./participant-runtime.ts", import.meta.url), "utf8");
+    const domain = readFileSync(new URL("../domain/domain.ts", import.meta.url), "utf8");
+    const operations = readFileSync(new URL("./runtime.ts", import.meta.url), "utf8");
+    const derivation = "offerResolutionType: b.offerResolutionType ?? expectedOfferResolution(b.responseType)";
+    expect(runtime.indexOf(derivation)).toBeGreaterThan(runtime.indexOf("digest(canonical) !== attempt.requestHash"));
+    expect(runtime).toContain("canonicalParticipantRequest(input.actionKind, input.body)");
+    expect(domain.match(/function expectedOfferResolution\(/g)).toHaveLength(1);
+    expect(domain).toContain(
+      'assert(expectedResolution === resolutionType, "Offer resolution does not match the response type.")',
+    );
+    expect(operations).not.toContain("expectedOfferResolution");
+    expect(route).toContain('typeof body.offerResolutionType === "string" ? body.offerResolutionType : null');
+  });
   it("derives nine routes, client commands, form intents and the owning context row", () => {
     expect(
       partition(route)

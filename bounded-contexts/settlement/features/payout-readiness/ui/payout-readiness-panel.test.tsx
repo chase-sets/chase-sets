@@ -63,8 +63,14 @@ describe("payout readiness panel recovery paths", () => {
 
   it.each(payoutSetupMatrix)("matrix-row-tests: locale-key-snapshot $name", ({ projection, expected, title }) => {
     const html = renderToStaticMarkup(<PayoutReadinessPanel payoutReadiness={{ ...projection, ...expected }} />);
-    if (title) expect(html).toContain(title);
-    expect(html.includes('href="/account/support"')).toBe(expected.support_recommended);
+    if (title) {
+      expect(html).toContain(title);
+    } else {
+      for (const { title: recoveryTitle } of payoutSetupMatrix) {
+        if (recoveryTitle) expect(html).not.toContain(recoveryTitle);
+      }
+    }
+    expect(html.includes('href="/account/support"')).toBe(expected.support_recommended && title !== null);
     expect(html).not.toContain("requirements.review");
   });
 
