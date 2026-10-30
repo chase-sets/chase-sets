@@ -714,6 +714,9 @@
       "@chase-sets/platform-policy/domain": [
         "./infrastructure/platform-policy/domain.ts"
       ],
+      "@chase-sets/platform-policy/policy-history-reader": [
+        "./infrastructure/platform-policy/policy-history-reader.ts"
+      ],
       "@chase-sets/platform-policy/projection": [
         "./infrastructure/platform-policy/projection.ts"
       ],
