@@ -3,10 +3,10 @@
 //   marketplace's does, and the packing page says Ready to start; at 390 px nothing scrolls
 //   sideways and every control is at least 40 px tall.
 // - Start packing, with JavaScript. The sandbox's API refuses every packing write on the seeded
-//   shipments and cannot say what came of them (chase-sets/chase-sets#10645), so while it does the
+//   shipments and cannot say what came of them, so while it does the
 //   page must say it could not confirm the write, with every write off; Discard forgets the
 //   browser's record and the page's writes are on again. Nothing is applied.
-// - Once the API applies a start (after #10645), the rest WRITES and cannot be undone, using up
+// - Once the API applies a start, the rest WRITES and cannot be undone, using up
 //   the sandbox's shipments that await their package: checking the line, unchecking it and
 //   scanning its title change the line, the progress and Finish in place with no navigation;
 //   Finish records one package and loads the shipment's page. Without JavaScript, on another

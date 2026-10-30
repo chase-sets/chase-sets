@@ -2,7 +2,7 @@
 // marketplace's own (reads only).
 // - Without JavaScript: the set's name, what is known of it and its cards, in marketplace's order
 //   and with its links; an unknown set is a 404 kept out of search engines (marketplace answers
-//   200: chase-sets/chase-sets#10612).
+//   200).
 // - At 1280 px two columns of cards; at 390 px one, nothing scrolls sideways and every control is
 //   at least 40 px tall.
 // Usage: node scripts/smoke-market-set.mjs [pilot-url] [marketplace-url] [set slug]

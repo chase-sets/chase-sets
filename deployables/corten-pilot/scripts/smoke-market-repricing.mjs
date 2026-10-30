@@ -127,7 +127,7 @@ for (const javaScriptEnabled of [true, false]) {
   );
 
   // A strategy chosen applies at once with a script, and by Apply without one. With a script the
-  // GET swaps the page in place (todd-skelton/corten#190): the window that chose it is still there.
+  // GET swaps the page in place: the window that chose it is still there.
   if (javaScriptEnabled)
     await page.evaluate(() => {
       /** @type {any} */ (window).__smokeSameWindow = true;

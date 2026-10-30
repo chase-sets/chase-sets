@@ -10,7 +10,7 @@
 //   its row stays Open; the offer then stays open, and the next run reuses it.
 // - The row's price is drawn again live when the offer's price changes, without a reload.
 // - Without JavaScript: Resume works as a form, and Withdraw from its dialog.
-// - The collector, who may read offers but not change them (chase-sets/chase-sets#10660), sees no
+// - The collector, who may read offers but not change them, sees no
 //   boxes or buttons.
 // - No console errors.
 // Usage: node scripts/smoke-market-submitted-offers.mjs [pilot-url] [seller-state] [collector-state] [api-url]

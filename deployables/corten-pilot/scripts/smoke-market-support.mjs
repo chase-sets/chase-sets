@@ -1,7 +1,7 @@
 // Reads the Support Request participant page pilot in a browser as marketplace's seed seller, with
 // JavaScript and without it, against the real platform API, and compares it with Platform
 // Operations' own answer and with marketplace's page: the case's reference, who acts next (the detail
-// read's participantPolicy, chase-sets/chase-sets#10715), one timeline entry per moment the API holds, and
+// read's participantPolicy), one timeline entry per moment the API holds, and
 // which of the viewer's forms are shown. A case the seller is not on answers 404. Then the page at
 // 390 px. It reads only: it never submits a form.
 // Usage: node scripts/smoke-market-support.mjs [pilot-url] [state-file] [marketplace-url] [api-url]

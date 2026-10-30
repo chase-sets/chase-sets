@@ -1,7 +1,7 @@
 // Uses an account's public page in a browser, against the real platform API, beside marketplace's.
 // - Without JavaScript, as a visitor: the account's name, badges, feedback and listings as
 //   marketplace shows them; an unknown account is a 404 kept out of search engines (marketplace
-//   answers 200, chase-sets/chase-sets#10619); the account's id moves to its slug; the role links
+//   answers 200); the account's id moves to its slug; the role links
 //   read the reviews again.
 // - A report with no reason is refused by the pilot before anything is sent, with the review's
 //   dialog drawn open (no write).

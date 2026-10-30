@@ -8,10 +8,10 @@ ready.then(() => {
 
 /**
  * Marks the nav's entry for this page again after a client navigation, which keeps the header as
- * it was (todd-skelton/corten#341: `req.nav` takes only a typed route and has no "deepest entry
+ * it was (`req.nav` takes only a typed route and has no "deepest entry
  * wins" rule). A link with `data-nav-path` is current when that path is this page or holds it; in
  * a nav marked `data-nav-rule="deepest"` only the deepest of those is, the rule the server applied.
- * Remove when #341 lands.
+ * Remove when Corten's `req.nav_of` replaces it (the README's Corten table).
  */
 function markNav() {
   const here = location.pathname;

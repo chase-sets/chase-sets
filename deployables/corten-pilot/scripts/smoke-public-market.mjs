@@ -2,7 +2,7 @@
 // - Signed out: the title, description, canonical and social tags, the h1 and subtitle, the stats
 //   (each label and value), the lowest asks, the sell-through and the three marketplace links read
 //   as public-web's do; the page's headings are the title and its three sections
-//   (public-web's stat values are headings too: chase-sets/chase-sets#10629).
+//   (public-web's stat values are headings too).
 // - What caches may keep: without a cookie a browser keeps it a minute and a shared cache for the
 //   s-maxage Pricing's own answer carries (a day by default), an hour stale; private with one; the
 //   API is not sent the cookie.

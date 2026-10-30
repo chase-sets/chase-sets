@@ -2,8 +2,8 @@
 // seed's demo user (the demo account's owner). WRITES: each run changes the demo account's
 // manager (`mbr_seed_support_membership`) to Viewer and back to Manager; the end restores the
 // role through the API whatever happened. No invitation is sent.
-// - Read: the account's members and invitations, only its own (the workaround for
-//   chase-sets#10704), each with its role and status; at 390 px nothing scrolls sideways and every
+// - Read: the account's members and invitations, only its own (the pilot's
+//   workaround), each with its role and status; at 390 px nothing scrolls sideways and every
 //   control is at least 44 px tall; Revoke asks first in a dialog that Cancel closes.
 // - With JavaScript: Change Role to Viewer, then the page says it was saved and shows Viewer.
 // - Without JavaScript: Change Role back to Manager, the same.

@@ -915,7 +915,7 @@ fn payment_methods(session: &str, method: &Method, path: &str, body: &str) -> Op
     if rest == "/setup-sessions" {
         let setup = json!({
             "setup_reference_id": "spr_1", "processor_setup_reference": "seti_1", "processor_client_secret": "seti_1_secret_x",
-            "processor_redirect_url": null, "processor_status": "requires_payment_method", "processor_publishable_key": "pk_test_1",
+            "processor_redirect_url": null, "processor_status": "requires_payment_method", "processor_publishable_key": "pk_stand_in_1",
         });
         return Some((StatusCode::CREATED, Json(setup)).into_response());
     }
@@ -967,7 +967,7 @@ fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<R
         "payment_method_category": "card", "currency_code": "usd", "processor_name": "stripe",
         "processor_payment_reference": "pi_1", "processor_client_secret": "pi_1_secret_abc",
         "processor_redirect_url": null, "processor_status": "requires_payment_method",
-        "processor_publishable_key": "pk_test_1", "source_context": "checkout", "source_reference_id": "chk_paid",
+        "processor_publishable_key": "pk_stand_in_1", "source_context": "checkout", "source_reference_id": "chk_paid",
         "status": "pending-confirmation", "failure_code": null, "failure_message": null,
         "created_at": "2026-10-28T17:00:00.000Z", "updated_at": "2026-10-28T17:00:00.000Z",
         "captured_at": null, "failed_at": null, "cancelled_at": null, "provider_events": [],
@@ -1884,9 +1884,12 @@ impl Pilot {
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let stand_in = Router::new().fallback(platform).with_state(stand.clone());
         tokio::spawn(async move { corten::axum::serve(listener, stand_in).await.unwrap() });
-        let router =
-            app(Config { platform: Platform::new(&origin), proto: "http", stripe_publishable_key: Some("pk_test_pilot".into()) })
-                .router();
+        let router = app(Config {
+            platform: Platform::new(&origin),
+            proto: "http",
+            stripe_publishable_key: Some("pk_stand_in_pilot".into()),
+        })
+        .router();
         Pilot { router, stand }
     }
 
@@ -10845,7 +10848,7 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     assert!(!page.contains("Support Details"), "a buyer is not staff: {page}");
     // Stripe's step: the key, the secret and the buyer's details for the script, Confirm off until
     // the fields are ready (in the step and in the phone's bar), and words for a browser without one.
-    assert!(html.contains("pk_test_1") && html.contains("pi_1_secret_abc"), "{html}");
+    assert!(html.contains("pk_stand_in_1") && html.contains("pi_1_secret_abc"), "{html}");
     assert!(html.contains("collector@chasesets.test") && html.contains("60201"), "the billing details: {html}");
     assert_eq!(html.matches("data-payment-confirm").count(), 2, "{html}");
     assert!(page.contains("Stripe can only load in the browser."), "{page}");
@@ -14288,7 +14291,10 @@ async fn add_answers_with_stripes_secure_step_and_the_answer_is_never_kept() {
     let (status, headers, html) = pilot.send(post(PAYMENT_METHODS, "payer", &method_form("add", "", PM_OK), false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert_eq!(headers[header::CACHE_CONTROL], "no-store", "the setup's secret is in the answer");
-    assert!(html.contains("payment_setup.mount(") && html.contains("seti_1_secret_x") && html.contains("pk_test_1"), "{html}");
+    assert!(
+        html.contains("payment_setup.mount(") && html.contains("seti_1_secret_x") && html.contains("pk_stand_in_1"),
+        "{html}"
+    );
     assert!(html.contains("payment_setup.save(") && html.contains("/account/payment-methods?setupReferenceId=spr_1"), "{html}");
     assert!(html.contains("Save payment method"), "{html}");
     let sent = payment_method_calls(&pilot).into_iter().find(|c| c.path.ends_with("/setup-sessions")).expect("a setup started");

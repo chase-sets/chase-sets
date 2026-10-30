@@ -1,7 +1,7 @@
 // Uses the notification center in a browser, against the real platform API, beside marketplace's.
 // - Without JavaScript, as the auth seed's collector: the feed's heading, unread count and first
 //   notification as marketplace shows them; Settings lists the channels the page has words for
-//   (marketplace also shows bare "sms" and "rcs", chase-sets/chase-sets#10625) and the alerts.
+//   (marketplace also shows bare "sms" and "rcs") and the alerts.
 // - A channel's switch, with and without JavaScript: Email notifications off then on again, each
 //   time the API agreeing (two writes that leave it as it was).
 // - An alert made through the API for the smoke: Pause, Resume and Delete with JavaScript, each

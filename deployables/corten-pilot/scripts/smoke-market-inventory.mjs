@@ -48,7 +48,7 @@ async function context(javaScriptEnabled, viewport) {
   // The pilot's own pages only.
   const ours = () => page.url().startsWith(base);
   // A 409 document is the page that says a write could not be verified (the read after its
-  // receipt timed out, chase-sets/chase-sets#10672); Chromium logs each as a failed load.
+  // receipt timed out); Chromium logs each as a failed load.
   page.on("console", (m) => {
     if (m.type() !== "error" || !ours()) return;
     if (/status of 409 \(Conflict\)/.test(m.text()) && m.location().url.startsWith(`${base}/account/inventory`)) return;
@@ -79,7 +79,7 @@ async function until(page, id, ok) {
 }
 /**
  * The item page after a write the pilot redirected to: it confirms the attempt and reads the item
- * after the write's receipt. When the API times that read out (chase-sets/chase-sets#10672) the
+ * after the write's receipt. When the API times that read out the
  * page says it could not verify the update; then the smoke asks the API with the same receipt, and
  * checks the page again without it once the API has caught up (`ok`).
  */
@@ -150,7 +150,7 @@ let catalogTitle;
   await page.locator(`input[name="catalogItemId"][value="${catalogId}"]`).waitFor({ state: "attached" });
   check(true, "choosing a match shows the chosen item");
   // A raw card, so the run needs no grading company or grade (a graded one's are worked out from
-  // its options, chase-sets/chase-sets#10789), and an item's schema can start on Graded. Then each option still open, one at a time, since a choice
+  // its options), and an item's schema can start on Graded. Then each option still open, one at a time, since a choice
   // can change what the next offers.
   const formOption = form
     .locator('select[name^="option."]')
@@ -270,7 +270,7 @@ let catalogTitle;
   await Promise.all([page.waitForURL(/offlineSaleItemId=/), dialog.locator('button[type="submit"]').click()]);
   await settled(page);
   // The list reads the item again after the sale's receipt. The API can time that read out for
-  // ~30 s while other Inventory projections catch up (chase-sets/chase-sets#10672), longer than a
+  // ~30 s while other Inventory projections catch up, longer than a
   // receipt is kept (30 s, as marketplace keeps it); then the page says it could not verify the
   // result, as marketplace does. That is right only while the API refuses the read itself, so ask
   // it at once with the same receipt.

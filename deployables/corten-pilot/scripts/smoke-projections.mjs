@@ -3,7 +3,7 @@
 // same repair queue in the same order, eight counts, the filters (a GET form, so they work without
 // JavaScript), a group's sheet with Rebuild and Rebuild context (each opens its confirm dialog,
 // which is cancelled), the group's blocked streams and poison events (read from the projection's
-// own read, chase-sets/chase-sets#10710) and a poison event's sheet with Retry (not pressed), the
+// own read) and a poison event's sheet with Retry (not pressed), the
 // sheet closed by Escape (with JavaScript) or its link, Refresh status (the API reads the groups'
 // status again; no projection data changes), and a phone's width with no sideways scroll and every
 // button at least 40 px tall. It retries, rebuilds and cancels nothing.

@@ -1,9 +1,9 @@
 // Reads the Seller Desk home pilot in a browser as marketplace's seed seller, with JavaScript and
 // without it, against the real platform API, and compares it with the API's own answers: the queue's
 // count and one row per item in the API's order, each row's link (the pilot's own page for a
-// listing, shipment or sale, as the queue now links them (chase-sets/chase-sets#10676); marketplace's
+// listing, shipment or sale, as the queue now links them; marketplace's
 // otherwise), the sources the
-// API could not read named without its internal reason (chase-sets/chase-sets#8766), and the
+// API could not read named without its internal reason, and the
 // active listings and open orders tiles. Then the page at 390 px. Only reads.
 // Usage: node scripts/smoke-market-desk.mjs [pilot-url] [state-file] [api-url]   (state from scripts/sign-in.mjs)
 import { chromium } from "@playwright/test";

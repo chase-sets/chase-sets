@@ -1,8 +1,8 @@
 // Uses the Operations Attention queue (/platform/operations-attention) in a browser as a signed-in
 // platform admin, with JavaScript and without it, against the real platform API, beside admin-web's
 // own page: the same counts, the same items in the same order, each Open answering a page on
-// admin-web (admin-web's own links answer 404 until chase-sets/chase-sets#10606 lands), the live
-// stream (it ends while the API refuses the topic, chase-sets/chase-sets#10607), and a phone's
+// admin-web (admin-web's own links answer 404 until its fix lands), the live
+// stream (it ends while the API refuses the topic), and a phone's
 // width with no sideways scroll and Open at least 40 px tall. It changes no data.
 // Usage: node scripts/smoke-operations-attention.mjs [pilot-url] [admin-web-url] [state-file]   (state from scripts/sign-in.mjs)
 import { chromium } from "@playwright/test";

@@ -2,7 +2,7 @@
 // JavaScript, it checks four things:
 // - the Sell rail shows the best offer's total and what accepting it pays under the public standard
 //   terms, as the Marketplace API quotes them;
-// - Add offer to Sell List shows the API's refusal (chase-sets/chase-sets#8830);
+// - Add offer to Sell List shows the API's refusal;
 // - Add product to Sell List saves the product to a guest sell list and lands on marketplace's sell
 //   list, which shows it;
 // - the line has the catalog's words.

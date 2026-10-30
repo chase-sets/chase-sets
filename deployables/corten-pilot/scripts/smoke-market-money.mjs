@@ -1,7 +1,7 @@
 // Reads the Seller Desk money page pilot in a browser as marketplace's seed seller, with JavaScript
 // and without it, against the real platform API, and compares it with Settlement's own answers and
-// with marketplace's page: the wallet's balance, the blocked payouts (the rule the pilot copies,
-// chase-sets/chase-sets#10712), one row per payout and per wallet movement in the API's order, and
+// with marketplace's page: the wallet's balance, the blocked payouts (the rule the pilot copies
+// from marketplace), one row per payout and per wallet movement in the API's order, and
 // Request a payout off while payout setup is unfinished. It previews a typed $5.00 (a preview writes
 // nothing) and checks Settlement's reasons and Confirm off; opens a payout's breakdown and closes it
 // with Escape; and asks for an adjustment the account does not have. Then the page at 390 px.

@@ -108,6 +108,9 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "admin-web": "runtime",
     marketplace: "runtime",
     "marketplace-seed-testing": "seed-machinery",
+    // Not deployed (deployables/corten-pilot/AGENTS.md). `runtime` keeps a pilot change in the
+    // isolated lane, the least the registry asks of a deployable, instead of failing closed.
+    "corten-pilot": "runtime",
     "platform-api": "runtime",
     "platform-worker": "runtime",
     "public-web": "runtime",
@@ -278,6 +281,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "checkout-order-readiness-trace.yml": "ci",
     "collections-anonymous-owner-redaction.yml": "release",
     "collections-cutover-authority-capture.yml": "ci",
+    "corten-pilot.yml": "ci",
     "ci-image-mirrors.yml": "release",
     "issue-form-labels.yml": "ci",
     "issue-readiness.yml": "ci",

@@ -387,7 +387,7 @@ export function selected(input) {
 
 /**
  * The referral link was copied: corten-ui's CopyButton reports each write the browser made
- * (`Copied`, todd-skelton/corten#294), and the copy is counted.
+ * (`Copied`), and the copy is counted.
  * @param {Event} _event
  */
 export function counted(_event) {
@@ -454,7 +454,7 @@ export function calculate(event) {
 
 /**
  * Copy share link: the button's `data-value`, and Link copied beside it for two seconds. Its own,
- * not CopyButton, for the same reason as `copy` (todd-skelton/corten#294).
+ * not CopyButton, for the same reason as `copy`.
  * @param {HTMLButtonElement} button
  */
 export async function share(button) {

@@ -11,8 +11,8 @@
 //   items (two columns) in place of the results; words searched there stay at `/`; at 390 px one
 //   column, nothing sideways and 40 px controls.
 // Load more needs more than 24 results, which the sandbox's seed does not have; the router tests
-// cover it. The first search after a quiet minute fails in the sandbox
-// (chase-sets/chase-sets#10609), so the smoke reads once before it starts.
+// cover it. The first search after a quiet minute fails in the sandbox,
+// so the smoke reads once before it starts.
 // Usage: node scripts/smoke-market-search.mjs [pilot-url]
 import { chromium } from "@playwright/test";
 
@@ -24,7 +24,7 @@ function check(ok, what) {
   if (!ok) failures += 1;
 }
 
-// Wake the search read (chase-sets/chase-sets#10609).
+// Wake the search read.
 for (let i = 0; i < 3 && (await fetch(`${base}/search?q=warm`)).status !== 200; i += 1);
 
 const browser = await chromium.launch();

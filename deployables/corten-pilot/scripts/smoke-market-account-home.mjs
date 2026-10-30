@@ -6,8 +6,8 @@
 //   status) and who is signed in (the role, the email); the account screens it links are the
 //   pilot's; at 390 px nothing scrolls sideways and every control is at least 44 px tall.
 // - With JavaScript: Update Profile, then the page says it was saved and shows the new name (read
-//   after the write); a name of spaces is not sent (the input's pattern, the workaround for
-//   chase-sets#10688).
+//   after the write); a name of spaces is not sent (the input's pattern, the pilot's
+//   workaround).
 // - Without JavaScript: Update Profile puts the name back.
 // - A visitor is sent to the pilot's sign-in, back to /account.
 // - No console errors.

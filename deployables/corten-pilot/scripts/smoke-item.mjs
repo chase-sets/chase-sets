@@ -81,7 +81,7 @@ async function context(javaScriptEnabled, viewport = { width: 1280, height: 900 
 /**
  * Whether `shown` holds on the page, reloading for up to a minute. A local catalog projection can
  * take longer than a receipt's 30 seconds to show a write (the item read waits on every catalog
- * projection: chase-sets#10549), and then the page is drawn from the read before it.
+ * projection), and then the page is drawn from the read before it.
  */
 async function eventually(page, shown) {
   const start = Date.now();
@@ -238,7 +238,7 @@ let id = "";
     (i) => i.description === `Smoke ${stamp} described`,
   );
 
-  // Tags, and image URLs on two lines (admin-web's input keeps one: chase-sets#10537).
+  // Tags, and image URLs on two lines (admin-web's input keeps one).
   await page.locator("summary", { hasText: "Tags" }).click();
   await dialog(page, "item-tags-dialog", "Set Tags", [["Tags", ` smoke , ${stamp} `]], "Save");
   await done(page, "tags_updated");

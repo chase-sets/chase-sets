@@ -136,8 +136,8 @@ let dimensionUrl = "";
   const codes = async () => page.locator("table[aria-label^='Options of'] tbody tr td:first-child").allTextContents();
   check(JSON.stringify(await codes()) === '["nm","lp"]', `both options are listed (${await codes()})`);
 
-  // Reorder. A refusal is the dialog form's message; the Catalog API takes a reorder since
-  // chase-sets/chase-sets#10520, so a refusal here fails the run.
+  // Reorder. A refusal is the dialog form's message; the Catalog API takes a reorder,
+  // so a refusal here fails the run.
   await page.getByRole("button", { name: "Reorder" }).click();
   const reorder = page.locator("#catalog-reorder-dialog");
   const ids = (await reorder.getByLabel("Option IDs").inputValue()).split(", ");

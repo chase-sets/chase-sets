@@ -1,7 +1,7 @@
 // The seller's offer matches in a browser, against the real platform API, as the auth seed's
 // demo seller, with the seed collector making the offer the run watches. WRITES: one synthetic
 // offer from the collector on the seller's Pikachu (11.11 or 11.12 USD, one card), reused by every
-// run since the collector cannot withdraw it (chase-sets/chase-sets#10660); its price moves
+// run since the collector cannot withdraw it; its price moves
 // between the two to see the list redraw live. Add selected offer to Sell List adds it to the
 // seller's sell list, and the run removes that line. With "decline", a second synthetic offer is
 // made and declined through the page, which cannot be undone: it stays the collector's open offer.

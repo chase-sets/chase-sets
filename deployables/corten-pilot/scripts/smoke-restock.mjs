@@ -5,7 +5,7 @@
 // discarded), and the page at 390 px. It records no decision: the sandbox has one pending decision
 // (the seed's returned shipment), which a restock or write-off would use up. The router tests
 // check an applied decision against a stand-in API. Today the API refuses every decision on the
-// seeded one ("Restock decision not found.", chase-sets/chase-sets#10572), so the stale-version
+// seeded one ("Restock decision not found."), so the stale-version
 // steps check the refusal the API sends, whichever it is.
 // Usage: node scripts/smoke-restock.mjs [pilot-url] [state-file]   (state from scripts/sign-in.mjs)
 import { chromium } from "@playwright/test";

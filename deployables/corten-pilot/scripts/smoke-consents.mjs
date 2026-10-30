@@ -2,7 +2,7 @@
 // as the auth seed's collector. Only reads: the sandbox records no consents, so Withdraw is tested
 // against the stand-in API only (marketplace/src/tests.rs).
 // - Read: the title and what the page is for; each consent Identity lists for the user on the
-//   account and no other (the workaround for chase-sets#10707), or the page's words for none; a
+//   account and no other (the pilot's workaround), or the page's words for none; a
 //   Withdraw only on a recorded, current one; at 390 px nothing scrolls sideways and every control
 //   is at least 44 px tall.
 // - Without JavaScript: the same page.

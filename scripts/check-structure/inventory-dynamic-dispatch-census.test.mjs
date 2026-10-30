@@ -993,7 +993,7 @@ describe("issue-7169-type-resolved-census-corpus", () => {
       unrelated: partition.callers.length - retained.length,
     });
     expect([partition.callers.length, retained.length, partition.callers.length - retained.length]).toEqual([
-      147, 137, 10,
+      151, 137, 14,
     ]);
     expect(built.diagnostics).toEqual(result.diagnostics);
     expect(built.scanned).toEqual(result.scanned);
