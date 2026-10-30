@@ -1,0 +1,290 @@
+name: Hosted AC4 AC5 Probe (never merge)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  account-appeal-hosted-proof:
+    name: AC4 AC5 hosted proof (never merge)
+    if: >-
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.ref == 'codex/10692-hosted-proof-g1' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      CHASE_SETS_LANE_MODE: "1"
+      PROBE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PROBE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PROBE_GITHUB_SHA: ${{ github.sha }}
+      PROBE_RUN_ID: ${{ github.run_id }}
+      PROBE_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Run AC4 and AC5 hosted probe
+        shell: bash
+        run: |
+          set -u -o pipefail
+
+          log_dir="$RUNNER_TEMP/10692-hosted-proof-g1"
+          mkdir -p "$log_dir"
+          exec > >(tee "$log_dir/probe-console.log") 2>&1
+
+          focused_test='features/account-appeals/tests/account-appeal-aggregate.db.test.ts'
+          focused_title='runtime commands use the typed reader, expected versions, and terminal idempotency'
+          focused_args=(
+            --filter @chase-sets/platform-operations exec vitest run
+            --config ./tests/vitest.config.mjs
+            "$focused_test"
+            -t "$focused_title"
+            --maxWorkers=1
+            --no-file-parallelism
+          )
+
+          echo "head=$PROBE_HEAD_SHA"
+          echo "base=$PROBE_BASE_SHA"
+          echo "merge_ref=$PROBE_GITHUB_SHA"
+          git status --short
+          git diff --exit-code
+
+          run_focused() {
+            local output="$1"
+            local budget_seconds="$2"
+            set +e
+            timeout --foreground "${budget_seconds}s" pnpm "${focused_args[@]}" >"$output" 2>&1
+            local status=$?
+            set -e
+            printf '%s\n' "$status"
+            return 0
+          }
+
+          extract_assertion() {
+            local input="$1"
+            local output="$2"
+            grep -E -m 8 'AssertionError|expected|❯|FAIL|toHaveLength|toMatchObject|toBe' "$input" >"$output" || true
+            if [ ! -s "$output" ]; then
+              printf '%s\n' 'NO_ASSERTION_LINE_FOUND' >"$output"
+            fi
+          }
+
+          overall=0
+          repeat_status="$log_dir/repeat-status.tsv"
+          : >"$repeat_status"
+          repeat_count=0
+          repeat_started="$(date +%s)"
+          repeat_deadline=$((repeat_started + 600))
+          repeat_stop_reason='twenty_green'
+          for attempt in $(seq 1 20); do
+            now="$(date +%s)"
+            remaining=$((repeat_deadline - now))
+            if [ "$remaining" -le 0 ]; then
+              repeat_stop_reason='maximum_completed_in_600_seconds'
+              break
+            fi
+            attempt_log="$log_dir/repeat-$(printf '%02d' "$attempt").log"
+            status="$(run_focused "$attempt_log" "$remaining")"
+            repeat_count=$((repeat_count + 1))
+            printf '%s\t%s\t%s\n' "$attempt" "$status" "$(basename "$attempt_log")" >>"$repeat_status"
+            echo "repeat attempt=$attempt exit=$status log=$(basename "$attempt_log")"
+            if [ "$status" -ne 0 ]; then
+              repeat_stop_reason="first_red_attempt_$attempt"
+              overall=1
+              break
+            fi
+          done
+
+          hash_head_blob() {
+            git show "HEAD:$1" | sha256sum | awk '{print $1}'
+          }
+
+          apply_mutant() {
+            local mutant="$1"
+            node --input-type=module - "$mutant" <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          const mutant = process.argv[2];
+          const specs = {
+            guard: {
+              file: 'infrastructure/event-core-postgres/event-store.ts',
+              find: `throw createEventStoreError("concurrency_conflict", "Expected no stream but stream already exists.", {
+                streamId,
+                expectedVersion,
+                currentVersion,
+              });`,
+              replace: 'return; // probe mutant: expected-version/no-stream guard removed',
+            },
+            stream_id: {
+              file: 'bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts',
+              find: `streamId: appealStreamId(action.appealableActionId),
+                expectedVersion: "no_stream",`,
+              replace: 'streamId: `${appealStreamId(action.appealableActionId)}-probe-mutant`,\n                expectedVersion: "no_stream",',
+            },
+            unscoped_query: {
+              file: 'bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts',
+              find: `          \`SELECT stream_version, event_type
+             FROM event_store_events
+            WHERE stream_id = $1
+            ORDER BY stream_version ASC\`,
+          [streamId],`,
+              replace: `          \`SELECT stream_version, event_type
+             FROM event_store_events
+            ORDER BY stream_version ASC\`,
+          [],`,
+            },
+          };
+          const spec = specs[mutant];
+          if (!spec) throw new Error(`unknown mutant ${mutant}`);
+          const source = readFileSync(spec.file, 'utf8');
+          const occurrences = source.split(spec.find).length - 1;
+          if (occurrences !== 1) throw new Error(`${mutant}: expected one source match, found ${occurrences}`);
+          writeFileSync(spec.file, source.replace(spec.find, spec.replace));
+          NODE
+          }
+
+          run_mutant() {
+            local mutant="$1"
+            local file="$2"
+            local log="$log_dir/mutant-$mutant.log"
+            local assertion="$log_dir/mutant-$mutant.assertion.txt"
+            local diff="$log_dir/mutant-$mutant.diff"
+            local head_hash
+            head_hash="$(hash_head_blob "$file")"
+            echo "mutant=$mutant file=$file head_blob_sha256=$head_hash"
+            set +e
+            apply_mutant "$mutant" >"$log_dir/mutant-$mutant-apply.log" 2>&1
+            local apply_status=$?
+            set -e
+            git diff --no-ext-diff -- "$file" >"$diff" || true
+            if [ "$apply_status" -eq 0 ]; then
+              local status
+              status="$(run_focused "$log" 600)"
+              extract_assertion "$log" "$assertion"
+              printf '%s\t%s\t%s\t%s\t%s\n' "$mutant" "$file" "$status" "$head_hash" "$(head -n 1 "$assertion")" >>"$log_dir/mutant-results.tsv"
+              echo "mutant=$mutant exit=$status assertion=$(head -n 1 "$assertion")"
+              if [ "$status" -eq 0 ] || [ "$(head -n 1 "$assertion")" = 'NO_ASSERTION_LINE_FOUND' ]; then overall=1; fi
+            else
+              printf '%s\t%s\t%s\t%s\t%s\n' "$mutant" "$file" "apply_$apply_status" "$head_hash" "$(head -n 1 "$log_dir/mutant-$mutant-apply.log")" >>"$log_dir/mutant-results.tsv"
+              overall=1
+            fi
+            git restore --source=HEAD --worktree -- "$file"
+            local restored_hash
+            restored_hash="$(sha256sum "$file" | awk '{print $1}')"
+            printf '%s\t%s\n' "$mutant" "$restored_hash" >>"$log_dir/restored-hashes.tsv"
+            if [ "$restored_hash" != "$head_hash" ]; then
+              echo "mutant=$mutant restored hash mismatch: $restored_hash != $head_hash"
+              overall=1
+            fi
+          }
+
+          : >"$log_dir/mutant-results.tsv"
+          : >"$log_dir/restored-hashes.tsv"
+          run_mutant guard infrastructure/event-core-postgres/event-store.ts
+          run_mutant stream_id bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts
+          run_mutant unscoped_query bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts
+
+          control_log="$log_dir/restored-control.log"
+          control_status="$(run_focused "$control_log" 600)"
+          echo "restored control exit=$control_status"
+          if [ "$control_status" -ne 0 ]; then overall=1; fi
+          if ! git diff --exit-code; then
+            echo 'workspace is not restored to HEAD'
+            overall=1
+          fi
+          git status --short >"$log_dir/final-status.txt"
+
+          find "$log_dir" -maxdepth 1 -type f ! -name manifest.sha256 ! -name receipt.json -printf '%f\0' |
+            sort -z |
+            xargs -0 -r sha256sum >"$log_dir/manifest.sha256"
+          manifest_hash="$(sha256sum "$log_dir/manifest.sha256" | awk '{print $1}')"
+
+          PROBE_LOG_DIR="$log_dir" \
+          PROBE_MANIFEST_HASH="$manifest_hash" \
+          PROBE_REPEAT_COUNT="$repeat_count" \
+          PROBE_REPEAT_STOP_REASON="$repeat_stop_reason" \
+          PROBE_CONTROL_STATUS="$control_status" \
+          PROBE_OVERALL="$overall" \
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const dir = process.env.PROBE_LOG_DIR;
+          const lines = (name) => {
+            try { return readFileSync(`${dir}/${name}`, 'utf8').trim().split('\n').filter(Boolean); }
+            catch { return []; }
+          };
+          const repeats = lines('repeat-status.tsv').map((line) => {
+            const [attempt, exitStatus, log] = line.split('\t');
+            return { attempt: Number(attempt), exit_status: Number(exitStatus), log };
+          });
+          const restored = new Map(lines('restored-hashes.tsv').map((line) => line.split('\t')));
+          const mutants = lines('mutant-results.tsv').map((line) => {
+            const [name, file, exitStatus, headBlobSha256, assertionLine] = line.split('\t');
+            return {
+              name,
+              file,
+              outcome: exitStatus === '0' ? 'green_unexpected' : 'red',
+              exit_status: Number.isNaN(Number(exitStatus)) ? exitStatus : Number(exitStatus),
+              assertion_line: assertionLine,
+              mutation_diff: `mutant-${name}.diff`,
+              head_blob_sha256: headBlobSha256,
+              restored_byte_sha256: restored.get(name) ?? null,
+            };
+          });
+          const receipt = {
+            schema_version: 1,
+            issue: 10692,
+            head: process.env.PROBE_HEAD_SHA,
+            base: process.env.PROBE_BASE_SHA,
+            merge_ref_github_sha: process.env.PROBE_GITHUB_SHA,
+            run_id: Number(process.env.PROBE_RUN_ID),
+            run_attempt: Number(process.env.PROBE_RUN_ATTEMPT),
+            job_id: 'account-appeal-hosted-proof',
+            repeat_count: Number(process.env.PROBE_REPEAT_COUNT),
+            repeat_stop_reason: process.env.PROBE_REPEAT_STOP_REASON,
+            repeat_results: repeats,
+            mutants,
+            restored_control: { exit_status: Number(process.env.PROBE_CONTROL_STATUS), log: 'restored-control.log' },
+            manifest_sha256: process.env.PROBE_MANIFEST_HASH,
+            manifest_scope: 'all probe files except receipt.json and manifest.sha256',
+            final: process.env.PROBE_OVERALL === '0' ? 'AC4_AC5_PASS' : 'AC4_AC5_FAIL',
+          };
+          writeFileSync(`${dir}/receipt.json`, `${JSON.stringify(receipt, null, 2)}\n`);
+          NODE
+
+          echo "receipt=$log_dir/receipt.json"
+          cat "$log_dir/receipt.json"
+          exit "$overall"
+
+      - name: Upload AC4 AC5 probe evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 10692-hosted-proof-g1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/10692-hosted-proof-g1
+          if-no-files-found: error
+          retention-days: 14
