@@ -9,7 +9,7 @@ import { readGapSafeEventStoreHead, type PgTransactionalPool } from "@chase-sets
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { isPolicyKey } from "./define-policy";
 import { normalizePolicyEffectiveWindow, type PolicyDocumentStatus } from "./domain";
-import { POLICY_DOCUMENT_STREAM_PREFIX, policyDocumentIdFromStreamId } from "./policy-document-stream";
+import { POLICY_DOCUMENT_STREAM_PREFIX } from "./runtime";
 
 const POLICY_HISTORY_PAGE_SIZE = 500;
 const POLICY_EVENT_TYPES = ["platform-policy.document.created", "platform-policy.document.revised"] as const;
@@ -145,7 +145,9 @@ function decodePolicyHistoryEvent(
   event: StoredEvent,
   full = true,
 ): PolicyHistoryRecord | Readonly<{ policyKey: string }> {
-  const documentId = policyDocumentIdFromStreamId(event.streamId);
+  const documentId = event.streamId.startsWith(POLICY_DOCUMENT_STREAM_PREFIX)
+    ? event.streamId.slice(POLICY_DOCUMENT_STREAM_PREFIX.length) || null
+    : null;
   if (documentId === null) {
     throw new PolicyHistoryReaderError("Policy history event has an invalid document stream identity.");
   }

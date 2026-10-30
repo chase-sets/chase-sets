@@ -46,7 +46,12 @@ import {
   listPolicyRegistry,
 } from "./queries";
 import { createPolicyResolver, type ResolvedPolicy } from "./resolver";
-import { POLICY_DOCUMENT_STREAM_PREFIX, policyDocumentStreamId } from "./policy-document-stream";
+
+export const POLICY_DOCUMENT_STREAM_PREFIX = "platform-policy.document-";
+
+function policyDocumentStreamId(documentId: string): string {
+  return `${POLICY_DOCUMENT_STREAM_PREFIX}${documentId}`;
+}
 
 /**
  * Policy document streams are keyed by document id under this fixed,
