@@ -17,6 +17,10 @@ inputs:
     description: Direct cluster connections or transaction-pooled connections.
     required: false
     default: ""
+  selection-mode:
+    description: Context selection policy for URL export.
+    required: false
+    default: ""
   namespace:
     description: Kubernetes namespace required only by trust-only-kubernetes-secret mode.
     required: false
@@ -31,6 +35,10 @@ inputs:
     default: "0"
   failure-output-path:
     description: Optional support-safe JSON path for a failed URL-export authority request.
+    required: false
+    default: ""
+  inventory-output-path:
+    description: Optional support-safe JSON path for the pooled context and pool inventory.
     required: false
     default: ""
 
@@ -50,10 +58,12 @@ runs:
         AUTHORITY_MODE: ${{ inputs.mode }}
         AUTHORITY_CONTEXTS: ${{ inputs.contexts }}
         AUTHORITY_CONNECTION_MODE: ${{ inputs.connection-mode }}
+        AUTHORITY_SELECTION_MODE: ${{ inputs.selection-mode }}
         AUTHORITY_NAMESPACE: ${{ inputs.namespace }}
         AUTHORITY_RETRY_ATTEMPTS: ${{ inputs.retry-attempts }}
         AUTHORITY_RETRY_BACKOFF_MS: ${{ inputs.retry-backoff-ms }}
         AUTHORITY_FAILURE_OUTPUT: ${{ inputs.failure-output-path }}
+        AUTHORITY_INVENTORY_OUTPUT: ${{ inputs.inventory-output-path }}
       run: |
         set -euo pipefail
         case "$AUTHORITY_ENVIRONMENT" in
@@ -66,7 +76,7 @@ runs:
         case "$AUTHORITY_MODE" in
           url-export) ;;
           trust-only-kubernetes-secret)
-            if [ -n "$AUTHORITY_CONTEXTS" ] || [ -n "$AUTHORITY_CONNECTION_MODE" ] || [ -z "$AUTHORITY_NAMESPACE" ]; then
+            if [ -n "$AUTHORITY_CONTEXTS" ] || [ -n "$AUTHORITY_CONNECTION_MODE" ] || [ -n "$AUTHORITY_SELECTION_MODE" ] || [ -z "$AUTHORITY_NAMESPACE" ]; then
               echo "Trust-only managed Postgres authority inputs were invalid." >&2
               exit 1
             fi
@@ -97,9 +107,11 @@ runs:
         AUTHORITY_ENVIRONMENT: ${{ inputs.environment }}
         AUTHORITY_CONTEXTS: ${{ inputs.contexts || 'all' }}
         AUTHORITY_CONNECTION_MODE: ${{ inputs.connection-mode || 'direct' }}
+        AUTHORITY_SELECTION_MODE: ${{ inputs.selection-mode || 'all' }}
         AUTHORITY_RETRY_ATTEMPTS: ${{ inputs.retry-attempts }}
         AUTHORITY_RETRY_BACKOFF_MS: ${{ inputs.retry-backoff-ms }}
         AUTHORITY_FAILURE_OUTPUT: ${{ inputs.failure-output-path }}
+        AUTHORITY_INVENTORY_OUTPUT: ${{ inputs.inventory-output-path }}
         MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
       run: |
         set -euo pipefail
@@ -108,12 +120,16 @@ runs:
         if [ -n "$AUTHORITY_FAILURE_OUTPUT" ]; then
           extra_args+=(--failure-output "$AUTHORITY_FAILURE_OUTPUT")
         fi
+        if [ -n "$AUTHORITY_INVENTORY_OUTPUT" ]; then
+          extra_args+=(--inventory-output "$AUTHORITY_INVENTORY_OUTPUT")
+        fi
         terraform state pull > "$state_path"
         node ../../../scripts/terraform-state-database-urls.mjs \
           --state "$state_path" \
           --environment "$AUTHORITY_ENVIRONMENT" \
           --contexts "$AUTHORITY_CONTEXTS" \
           --connection-mode "$AUTHORITY_CONNECTION_MODE" \
+          --selection-mode "$AUTHORITY_SELECTION_MODE" \
           --ca-path "$MANAGED_POSTGRES_CA_PATH" \
           --github-env "$GITHUB_ENV" \
           --retry-attempts "$AUTHORITY_RETRY_ATTEMPTS" \

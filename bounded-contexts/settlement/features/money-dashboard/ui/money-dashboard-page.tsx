@@ -22,10 +22,8 @@ import {
   type Tone,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutPreview, SettlementPayoutQuickAmounts } from "../../../client";
-import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
+import type { SettlementPayoutSummary } from "../../payouts/read-model/payout-summary";
 import { payoutUnavailableReasonLabel } from "../../payouts/domain/reason-codes";
-import type { SettlementPayoutRow } from "../../payouts/read-model/queries";
-import { selectBlockedPayoutAttentionRows } from "../../payouts/read-model/seller-attention-source";
 import { SettlementPayoutRequestPanel } from "../../payouts/ui/payout-request-panel";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../../wallets/read-model/queries";
 import type { SettlementWalletAdjustmentAccountDetailRow } from "../../wallets/read-model/wallet-adjustment-queries";
@@ -37,7 +35,6 @@ import {
   walletAdjustmentAccountStatusLabel,
   walletAdjustmentAccountStatusTone,
 } from "../../wallets/ui/wallet-adjustment-account-copy";
-import { selectNextPayout } from "../domain/dashboard-model";
 
 function payoutStatusLabel(status: string) {
   switch (status) {
@@ -79,11 +76,8 @@ export type MoneyDashboardActionState = Readonly<{
 export function SettlementMoneyDashboardPage({
   wallet,
   entries,
-  payouts,
-  payoutReadiness,
+  payoutSummary,
   quickAmounts,
-  evaluatedAt,
-  canRequestPayouts,
   canSetupPayouts,
   canReconcilePayouts,
   selectedWalletAdjustment = null,
@@ -91,22 +85,25 @@ export function SettlementMoneyDashboardPage({
 }: {
   wallet: SettlementWalletRow;
   entries: readonly SettlementLedgerEntryRow[];
-  payouts: readonly SettlementPayoutRow[];
-  payoutReadiness: SettlementPayoutReadinessRow;
+  payoutSummary: SettlementPayoutSummary;
   quickAmounts: SettlementPayoutQuickAmounts;
-  evaluatedAt: string;
-  canRequestPayouts: boolean;
   canSetupPayouts: boolean;
   canReconcilePayouts: boolean;
   selectedWalletAdjustment?: SettlementWalletAdjustmentAccountDetailRow | null;
   actionState?: MoneyDashboardActionState;
 }) {
-  const nextPayout = selectNextPayout(payouts);
-  const attention = selectBlockedPayoutAttentionRows(payouts, {
-    accountId: wallet.account_id,
-    now: evaluatedAt,
-  });
-  const setupIncomplete = payoutReadiness.status !== "ready" || !payoutReadiness.provider_reference;
+  const payouts = payoutSummary.items;
+  const nextPayout = payoutSummary.next_payout;
+  const attention = payoutSummary.blocked_payouts.map((row) => ({
+    payoutId: row.payout_id,
+    reference: row.reference,
+    blockReason: row.block_reason,
+    kind: row.kind,
+    nextAction: row.next_action,
+    observedAt: row.observed_at,
+  }));
+  const setupIncomplete = payoutSummary.availability.unavailable_reasons.includes("payout-setup-incomplete");
+  const summaryIncomplete = payoutSummary.completeness.kind !== "complete";
 
   return (
     <Page>
@@ -135,26 +132,34 @@ export function SettlementMoneyDashboardPage({
           },
           {
             label: t("settlement.features.moneyDashboard.ui.nextPayout"),
-            value: nextPayout ? (
-              <NumericValue>{formatMoney(nextPayout.amount, nextPayout.currencyCode)}</NumericValue>
+            value: summaryIncomplete ? (
+              payoutUnavailableReasonLabel("payout-summary-incomplete")
+            ) : nextPayout ? (
+              <NumericValue>{formatMoney(nextPayout.amount, nextPayout.currency_code)}</NumericValue>
             ) : (
               t("settlement.features.moneyDashboard.ui.noneScheduled")
             ),
-            detail: nextPayout
-              ? t("settlement.features.moneyDashboard.ui.estimatedBy", {
-                  date: formatDate(nextPayout.estimatedArrivalAt),
-                })
-              : t("settlement.features.moneyDashboard.ui.requestWhenReady"),
+            detail: summaryIncomplete
+              ? payoutUnavailableReasonLabel("payout-summary-incomplete")
+              : nextPayout
+                ? t("settlement.features.moneyDashboard.ui.estimatedBy", {
+                    date: formatDate(nextPayout.estimated_arrival_at),
+                  })
+                : t("settlement.features.moneyDashboard.ui.requestWhenReady"),
           },
           {
             label: t("settlement.features.moneyDashboard.ui.blocked"),
-            value: t(
-              attention.length === 1
-                ? "settlement.features.moneyDashboard.ui.oneNeedsAttention"
-                : "settlement.features.moneyDashboard.ui.manyNeedAttention",
-              { count: attention.length },
-            ),
-            detail: t("settlement.features.moneyDashboard.ui.blockedDetail"),
+            value: summaryIncomplete
+              ? payoutUnavailableReasonLabel("payout-summary-incomplete")
+              : t(
+                  attention.length === 1
+                    ? "settlement.features.moneyDashboard.ui.oneNeedsAttention"
+                    : "settlement.features.moneyDashboard.ui.manyNeedAttention",
+                  { count: attention.length },
+                ),
+            detail: summaryIncomplete
+              ? payoutUnavailableReasonLabel("payout-summary-incomplete")
+              : t("settlement.features.moneyDashboard.ui.blockedDetail"),
           },
         ]}
       />
@@ -247,6 +252,13 @@ export function SettlementMoneyDashboardPage({
           description={actionState.reconciliationStatus}
         />
       ) : null}
+      {summaryIncomplete ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("settlement.features.moneyDashboard.ui.payoutAttention")}
+          description={payoutUnavailableReasonLabel("payout-summary-incomplete")}
+        />
+      ) : null}
 
       {setupIncomplete ? (
         <PageSection title={t("settlement.features.moneyDashboard.ui.needsAttention")}>
@@ -269,9 +281,8 @@ export function SettlementMoneyDashboardPage({
         <Card data-testid="payout-request-entity" elevation="elevated">
           <SettlementPayoutRequestPanel
             wallet={wallet}
-            payoutReadiness={payoutReadiness}
+            availability={payoutSummary.availability}
             quickAmounts={quickAmounts}
-            canRequestPayouts={canRequestPayouts}
             draft={actionState?.draft}
             confirmation={actionState?.confirmation}
           />
@@ -322,8 +333,16 @@ export function SettlementMoneyDashboardPage({
               ),
             },
           ]}
-          emptyTitle={t("settlement.features.moneyDashboard.ui.noBlockedPayouts")}
-          emptyDescription={t("settlement.features.moneyDashboard.ui.noBlockedPayoutsDetail")}
+          emptyTitle={
+            summaryIncomplete
+              ? payoutUnavailableReasonLabel("payout-summary-incomplete")
+              : t("settlement.features.moneyDashboard.ui.noBlockedPayouts")
+          }
+          emptyDescription={
+            summaryIncomplete
+              ? payoutUnavailableReasonLabel("payout-summary-incomplete")
+              : t("settlement.features.moneyDashboard.ui.noBlockedPayoutsDetail")
+          }
         />
       </PageSection>
 
