@@ -1,5 +1,5 @@
 //! The screens' text. `Msg` is admin-web's own catalog for the postage screen and `Cat` its
-//! catalog area's, `Ops` the Operations Attention queue's, `Acc` the access section's (all exported from contracts/localization
+//! catalog area's, `Ops` the Operations Attention queue's, `Acc` the access section's, `Sup` the support section's (all exported from contracts/localization
 //! by scripts/export.mjs, so the copy cannot drift); `Pilot` is the pilot's shell and input checks. `messages!` checks every call
 //! against the catalogs when the crate compiles.
 pub use access::Acc;
@@ -7,6 +7,7 @@ pub use catalog::Cat;
 pub use operations::Ops;
 pub use ordering::Msg;
 pub use pilot::Pilot;
+pub use support::Sup;
 
 /// A name as `export.mjs` writes a key's segment: `aliasCandidate` is `alias_candidate`.
 pub fn snake_case(name: &str) -> String {
@@ -43,6 +44,12 @@ mod catalog {
 mod operations {
     corten::i18n::messages! {
         pub struct Ops { "en" => "locales/operations.en.json" }
+    }
+}
+
+mod support {
+    corten::i18n::messages! {
+        pub struct Sup { "en" => "locales/support.en.json" }
     }
 }
 

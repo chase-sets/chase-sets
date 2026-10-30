@@ -1,0 +1,22 @@
+{
+  "lookup.title": "Reference lookup",
+  "lookup.description": "Paste any order, shipment, payout, support-case, or checkout reference to find the record it belongs to.",
+  "lookup.search.title": "Look up a reference",
+  "lookup.search.description": "Accepts ORD-, SHP-, PYO-, SUP-, CSG-, and CS-SL- references, and raw order, shipment, payout, or support-case ids.",
+  "lookup.search.label": "Reference",
+  "lookup.search.placeholder": "e.g. ORD-A1B2C3D4",
+  "lookup.search.submit": "Look up",
+  "lookup.error": "Error",
+  "lookup.result.title": "Result",
+  "lookup.result.summary": "Summary",
+  "lookup.result.context": "Owning context",
+  "lookup.result.entity_type": "Record type",
+  "lookup.result.display_reference": "Reference",
+  "lookup.result.not_applicable": "Not applicable",
+  "lookup.result.status": "Status",
+  "lookup.result.open": "Open record",
+  "lookup.not_found.title": "No record found",
+  "lookup.not_found.description": "“{query}” did not match an order, shipment, payout, or checkout reference.",
+  "lookup_route.meta.title": "Reference lookup | Admin",
+  "lookup_route.request.failed": "Reference lookup request failed."
+}

@@ -1,6 +1,6 @@
 //! admin-web screens on Corten, reading and writing through the platform API as the signed-in
 //! staff member: Commerce > Postage policies (`/commerce/postage-policies`) and the catalog
-//! area's dimensions and fields (`/catalog`), Access, and Support > Reported Content, each an area with its own
+//! area's dimensions and fields (`/catalog`), Access, and Support, each an area with its own
 //! stylesheet and the caller its handlers take.
 //! See README.md.
 mod access;
@@ -12,6 +12,7 @@ mod form;
 mod operations;
 mod projections;
 mod reported;
+mod support;
 mod text;
 mod views;
 

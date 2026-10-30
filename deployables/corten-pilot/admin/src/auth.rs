@@ -92,6 +92,8 @@ rules! {
     MembershipsView => "memberships.view";
     /// Support > Reported Content (its moderation actions too: the API asks for the same).
     ReportedContentView => "reported-content.view";
+    /// Support > Reference Lookup (and Support's other operator pages).
+    SupportManage => "support.manage";
 }
 
 /// The catalog area: reading needs `catalog.view`, writing `catalog.manage` (admin-web's

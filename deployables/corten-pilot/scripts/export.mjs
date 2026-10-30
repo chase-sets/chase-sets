@@ -17,6 +17,9 @@
 //   the routes' titles; and Auth's sessions list and session page (auth.features.sessions.ui.* as
 //   sessions.* and session_detail.*, Auth's value labels as auth_value.*, and their titles from
 //   adminAuthHostConfig as route.sessions and route.session).
+// - admin/locales/support.en.json: the support section's English catalog: Reference Lookup's page
+//   (support.features.supportReferenceLookup.ui.supportReferenceLookupPage.* as lookup.*) and its
+//   route's text (support.routes.admin.supportReferenceLookup.* as lookup_route.*).
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
@@ -614,6 +617,15 @@ const outputs = [
         ["platformOperations.projectionOperations.", "projections"],
         ["platformOperations.reportedContent.", "reported"],
         ["platformOperations.riskAlerts.", "risk"],
+      ]),
+    ),
+  ],
+  [
+    "admin/locales/support.en.json",
+    json(
+      await catalog("support.ts", "supportEnglishTranslations", [
+        ["support.features.supportReferenceLookup.ui.supportReferenceLookupPage.", "lookup"],
+        ["support.routes.admin.supportReferenceLookup.", "lookup_route"],
       ]),
     ),
   ],

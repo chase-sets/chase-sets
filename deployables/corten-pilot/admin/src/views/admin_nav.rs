@@ -5,7 +5,7 @@ use crate::{
     access,
     app::url,
     auth::{self, NavItem, Viewer},
-    catalog, operations, projections, reported,
+    catalog, operations, projections, reported, support,
     text::Pilot,
 };
 
@@ -39,6 +39,7 @@ fn served(path: &str) -> Option<String> {
         (<projections::url::Projections as Route>::PATH, projections::url::Projections::default().href()),
         (<reported::url::Reported as Route>::PATH, reported::url::Reported::default().href()),
         (<reported::risk::url::Risks as Route>::PATH, reported::risk::url::Risks::default().href()),
+        (<support::url::Lookup as Route>::PATH, support::url::Lookup::default().href()),
     ];
     pages.into_iter().find(|(at, _)| *at == path).map(|(_, href)| href)
 }
@@ -80,7 +81,7 @@ fn section_label(p: Pilot, section: &str) -> &'static str {
 /// admin-web's frame: the sections the viewer can open, and the pages of the one the page is in
 /// (catalog or commerce). The pilot serves postage policies, the catalog's dimensions, fields,
 /// items list and scopes list, Access's home, lists and sessions, the platform's Operations Attention queue and Projection
-/// Operations, and Support's Reported Content and Risk Alerts; every other entry links to admin-web.
+/// Operations, and Support's Reported Content, Risk Alerts and Reference Lookup; every other entry links to admin-web.
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render {
     let sections = auth::sections(viewer);

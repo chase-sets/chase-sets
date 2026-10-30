@@ -101,6 +101,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             ])
         } else if cookie.contains("chase_sets_session=ops") || cookie.contains("chase_sets_session=projections-") {
             actor(&["projection-operations.view"])
+        } else if cookie.contains("chase_sets_session=support-agent") {
+            actor(&["support.manage"])
         } else if cookie.contains("chase_sets_session=moderator") {
             actor(&["reported-content.view"])
         } else if cookie.contains("chase_sets_session=reader") {
@@ -131,6 +133,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if let Some(rest) = uri.path().strip_prefix("/api/auth/sessions") {
         return auth_sessions(&method, rest, &body);
+    }
+    if let Some(reference) = uri.path().strip_prefix("/api/platform/support-reference-lookup/") {
+        return support_lookup(reference);
     }
     if let Some(rest) = uri.path().strip_prefix("/api/experience/risk-alerts") {
         return risk_alerts(&method, rest);
@@ -351,6 +356,24 @@ fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
         }
         (Method::POST, "/listing/lst_1/actions" | "/review/rev_1/actions") => written(StatusCode::OK, "act_1"),
         _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Support's reference lookup: an order, a record whose link is not a path here, a failure, and
+/// nothing else.
+fn support_lookup(reference: &str) -> Response {
+    let found = |href: &str| {
+        Json(json!({ "result": {
+            "contextName": "ordering", "entityType": "order", "displayReference": "ORD-A1B2C3D4",
+            "status": "paid", "summary": "Order for 2 items, $41.50", "adminHref": href,
+        } }))
+        .into_response()
+    };
+    match reference {
+        "ORD-A1B2C3D4" => found("/commerce/orders/ord_1"),
+        "ORD-OFFSITE" => found("//elsewhere.example/orders"),
+        "ORD-DOWN" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        _ => refusal(StatusCode::NOT_FOUND, "support_reference_not_found", "No record was found for that reference."),
     }
 }
 
@@ -3798,4 +3821,35 @@ async fn a_risk_alert_response_is_sent_and_the_page_says_it_is_being_applied_unt
     assert_eq!(pilot.send(post_as("staff", at, "action=acknowledge", false)).await.0, StatusCode::FORBIDDEN);
     let writes = pilot.calls_to(RISK).into_iter().filter(|c| c.method == Method::POST).count();
     assert_eq!(writes, 1, "the unknown response and the forbidden one write nothing");
+}
+
+const LOOKUP: &str = "/api/platform/support-reference-lookup";
+
+#[tokio::test]
+async fn reference_lookup_finds_the_record_a_reference_names_and_links_its_admin_page() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/reference-lookup", Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(pilot.calls_to(LOOKUP).is_empty(), "nothing is looked up before a search");
+    assert!(!html.contains("No record found") && !html.contains("Result"), "{html}");
+    assert!(html.contains(r#"href="/support/reference-lookup" aria-current="page""#), "the nav serves it: {html}");
+
+    let (status, _, html) = pilot.send(get("/support/reference-lookup?reference=+ORD-A1B2C3D4+", Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(pilot.calls_to(LOOKUP).last().unwrap().path, format!("{LOOKUP}/ORD-A1B2C3D4"));
+    for text in
+        ["Order for 2 items, $41.50", "ordering", "paid", r#"value="ORD-A1B2C3D4""#, "/commerce/orders/ord_1\">Open record"]
+    {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    let (_, _, html) = pilot.send(get("/support/reference-lookup?reference=ORD-OFFSITE", Some("support-agent"))).await;
+    assert!(html.contains("Order for 2 items") && !html.contains("Open record"), "a link off this site is not drawn: {html}");
+
+    let (status, _, html) = pilot.send(get("/support/reference-lookup?reference=ORD-NONE", Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("No record found") && html.contains("ORD-NONE"), "{html}");
+    let (status, _, html) = pilot.send(get("/support/reference-lookup?reference=ORD-DOWN", Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains(r#"role="alert""#) && html.contains("Reference lookup request failed."), "{html}");
+    assert_eq!(pilot.send(get("/support/reference-lookup", Some("moderator"))).await.0, StatusCode::FORBIDDEN);
 }
