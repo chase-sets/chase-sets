@@ -113,6 +113,7 @@ import {
   type WholeGameStartInput,
 } from "./support/whole-game-rehearsal";
 
+// Intentionally typed here; paired contract tests in scripts/catalog-admin-origin-generate-receipt.test.mjs pin drift.
 const catalogAdminOriginGenerateJourneyScope = "admin-origin-generate-probe";
 const catalogAdminOriginGeneratePath = "/api/catalog/source-observations/merge-candidates/generate";
 const catalogAdminOriginGeneratePagePath = "/catalog/integrations";
@@ -134,6 +135,7 @@ function catalogAdminOriginGenerateRequestBody(scratchParent: string): string {
 
 type AdminOriginGenerateGuardInput = Readonly<{
   retry: number;
+  runAttempt: string;
   adminWebUrl: string;
   expectedSha: string;
   scratchParent: string;
@@ -143,6 +145,7 @@ type AdminOriginGenerateGuardInput = Readonly<{
 
 function catalogAdminOriginGenerateGuard(input: AdminOriginGenerateGuardInput): string | null {
   if (input.retry !== 0) return "automatic-retry-refused";
+  if (input.runAttempt !== "1") return "run-attempt-refused";
   if (input.adminWebUrl !== "https://admin.staging.chasesets.com") return "origin-mismatch";
   if (!/^[a-f0-9]{40}$/.test(input.expectedSha)) return "expected-sha-missing-or-invalid";
   if (!isCatalogAdminOriginGenerateScratchParent(input.scratchParent)) return "scratch-parent-invalid-or-reserved";
@@ -223,7 +226,10 @@ function buildCatalogAdminOriginGenerateReceipt(input: AdminOriginGenerateReceip
     clientTiming: { performanceElapsedMs: input.performanceElapsedMs },
     url: input.url,
     status: input.status,
-    headers: input.headers,
+    headers: input.headers.map(({ name, value }) => ({
+      name,
+      value: /(?:authorization|cookie|set-cookie|token|secret|password|api[-_]key)/i.test(value) ? "[redacted]" : value,
+    })),
     bodyBytes: Buffer.byteLength(input.body, "utf8"),
     bodySha256: createHash("sha256").update(input.body, "utf8").digest("hex"),
     body: input.body,
@@ -3153,6 +3159,33 @@ function adminOriginGenerateError(error: unknown): string {
   return "request-failed:unknown";
 }
 
+function buildAdminOriginGenerateFailureReceipt(
+  input: Pick<AdminOriginGenerateReceiptInput, "runId" | "expectedSha" | "adminWebUrl" | "scratchParent"> & {
+    startedAt: string;
+    now: string;
+    requestCount: number;
+    error: string;
+  },
+) {
+  return buildCatalogAdminOriginGenerateReceipt({
+    runId: input.runId,
+    expectedSha: input.expectedSha,
+    adminWebUrl: input.adminWebUrl,
+    origin: input.adminWebUrl,
+    scratchParent: input.scratchParent,
+    hostClockBeforeEvaluate: input.startedAt,
+    requestStartedAt: input.now,
+    responseCompletedAt: input.now,
+    hostClockAfterEvaluate: input.now,
+    performanceElapsedMs: 0,
+    url: `${input.adminWebUrl}${catalogAdminOriginGeneratePath}`,
+    status: null,
+    headers: [],
+    body: "",
+    error: input.requestCount === 0 ? `not-sent:${input.error}` : input.error,
+  });
+}
+
 async function runAdminOriginGenerateProbe(page: Page, testInfo: { retry: number }): Promise<void> {
   const startedAt = new Date().toISOString();
   const adminWebUrl = process.env.ADMIN_WEB_URL ?? "";
@@ -3160,27 +3193,21 @@ async function runAdminOriginGenerateProbe(page: Page, testInfo: { retry: number
   const runId = process.env.GITHUB_RUN_ID?.trim() || "local-admin-origin-generate";
   const scratchParent = adminOriginGenerateScratchParent;
   const requestBody = catalogAdminOriginGenerateRequestBody(scratchParent);
-  const baseReceipt = (error: string | null) =>
-    buildCatalogAdminOriginGenerateReceipt({
+  const requests: { method: string; body: string | null }[] = [];
+  const failureReceipt = (error: string) =>
+    buildAdminOriginGenerateFailureReceipt({
       runId,
       expectedSha,
       adminWebUrl,
-      origin: adminWebUrl,
       scratchParent,
-      hostClockBeforeEvaluate: startedAt,
-      requestStartedAt: startedAt,
-      responseCompletedAt: new Date().toISOString(),
-      hostClockAfterEvaluate: new Date().toISOString(),
-      performanceElapsedMs: 0,
-      url: `${adminWebUrl}${catalogAdminOriginGeneratePath}`,
-      status: null,
-      headers: [],
-      body: "",
+      startedAt,
+      now: new Date().toISOString(),
+      requestCount: requests.length,
       error,
     });
 
   const refuse = (reason: string): never => {
-    writeAdminOriginGenerateReceipt(baseReceipt(reason));
+    writeAdminOriginGenerateReceipt(failureReceipt(reason));
     throw new Error(`Admin-origin generate probe refused: ${reason}.`);
   };
 
@@ -3189,6 +3216,7 @@ async function runAdminOriginGenerateProbe(page: Page, testInfo: { retry: number
     throw new Error("Admin-origin generate probe receipt already exists; no request sent.");
   const guard = catalogAdminOriginGenerateGuard({
     retry: testInfo.retry,
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? "",
     adminWebUrl,
     expectedSha,
     scratchParent,
@@ -3197,7 +3225,6 @@ async function runAdminOriginGenerateProbe(page: Page, testInfo: { retry: number
   });
   if (guard) refuse(guard);
 
-  const requests: { method: string; body: string | null }[] = [];
   const providerViolations: string[] = [];
   let phase: "sign-in" | "generate" = "sign-in";
   let unsafeReceipt = false;
@@ -3221,9 +3248,9 @@ async function runAdminOriginGenerateProbe(page: Page, testInfo: { retry: number
     if (url.pathname === catalogAdminOriginGeneratePath) requests.push({ method, body: request.postData() });
     await route.continue();
   };
-  await page.context().route("**/*", fence);
-  await page.context().routeWebSocket("**/*", (socket) => socket.close());
   try {
+    await page.context().route("**/*", fence);
+    await page.context().routeWebSocket("**/*", (socket) => socket.close());
     await signInThroughVisibleForm(
       page,
       (url) => {
@@ -3240,81 +3267,66 @@ async function runAdminOriginGenerateProbe(page: Page, testInfo: { retry: number
     phase = "generate";
 
     const hostClockBeforeEvaluate = new Date().toISOString();
-    let result: AdminOriginGeneratePageResult;
-    try {
-      result = await page.evaluate(
-        async ({ expectedOrigin, pagePath, path, body }): Promise<AdminOriginGeneratePageResult> => {
-          if (location.origin !== expectedOrigin || location.pathname !== pagePath)
-            throw new Error("admin-origin-generate-page-guard");
-          const requestStartedAt = new Date().toISOString();
-          const started = performance.now();
-          const controller = new AbortController();
-          const timeout = window.setTimeout(() => controller.abort(), 120_000);
-          let status: number | null = null;
-          let responseUrl = `${expectedOrigin}${path}`;
-          let headers: { name: string; value: string }[] = [];
-          try {
-            const response = await fetch(path, {
-              method: "POST",
-              credentials: "same-origin",
-              headers: { "content-type": "application/json" },
-              body,
-              redirect: "error",
-              cache: "no-store",
-              signal: controller.signal,
-            });
-            status = response.status;
-            responseUrl = response.url || responseUrl;
-            headers = [...response.headers.entries()]
-              .filter(([name]) => !/(authorization|cookie|set-cookie|token|secret|password|api[-_]key)/i.test(name))
-              .map(([name, value]) => ({ name: name.toLowerCase(), value }))
-              .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-            const responseBody = await response.text();
-            return {
-              requestStartedAt,
-              responseCompletedAt: new Date().toISOString(),
-              performanceElapsedMs: performance.now() - started,
-              url: responseUrl,
-              status,
-              headers,
-              body: responseBody,
-              error: response.ok ? null : `http-${response.status}`,
-            };
-          } catch (error) {
-            return {
-              requestStartedAt,
-              responseCompletedAt: new Date().toISOString(),
-              performanceElapsedMs: performance.now() - started,
-              url: responseUrl,
-              status,
-              headers,
-              body: "",
-              error:
-                error instanceof DOMException && error.name === "AbortError" ? "request-timeout" : "request-failed",
-            };
-          } finally {
-            window.clearTimeout(timeout);
-          }
-        },
-        {
-          expectedOrigin: adminWebUrl,
-          pagePath: catalogAdminOriginGeneratePagePath,
-          path: catalogAdminOriginGeneratePath,
-          body: requestBody,
-        },
-      );
-    } catch (error) {
-      result = {
-        requestStartedAt: new Date().toISOString(),
-        responseCompletedAt: new Date().toISOString(),
-        performanceElapsedMs: 0,
-        url: `${adminWebUrl}${catalogAdminOriginGeneratePath}`,
-        status: null,
-        headers: [],
-        body: "",
-        error: adminOriginGenerateError(error),
-      };
-    }
+    const result: AdminOriginGeneratePageResult = await page.evaluate(
+      async ({ expectedOrigin, pagePath, path, body }): Promise<AdminOriginGeneratePageResult> => {
+        if (location.origin !== expectedOrigin || location.pathname !== pagePath)
+          throw new Error("admin-origin-generate-page-guard");
+        const requestStartedAt = new Date().toISOString();
+        const started = performance.now();
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 120_000);
+        let status: number | null = null;
+        let responseUrl = `${expectedOrigin}${path}`;
+        let headers: { name: string; value: string }[] = [];
+        try {
+          const response = await fetch(path, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "content-type": "application/json" },
+            body,
+            redirect: "error",
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          status = response.status;
+          responseUrl = response.url || responseUrl;
+          headers = [...response.headers.entries()]
+            .filter(([name]) => !/(authorization|cookie|set-cookie|token|secret|password|api[-_]key)/i.test(name))
+            .map(([name, value]) => ({ name: name.toLowerCase(), value }))
+            .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+          const responseBody = await response.text();
+          return {
+            requestStartedAt,
+            responseCompletedAt: new Date().toISOString(),
+            performanceElapsedMs: performance.now() - started,
+            url: responseUrl,
+            status,
+            headers,
+            body: responseBody,
+            error: response.ok ? null : `http-${response.status}`,
+          };
+        } catch (error) {
+          return {
+            requestStartedAt,
+            responseCompletedAt: new Date().toISOString(),
+            performanceElapsedMs: performance.now() - started,
+            url: responseUrl,
+            status,
+            headers,
+            body: "",
+            error: error instanceof DOMException && error.name === "AbortError" ? "request-timeout" : "request-failed",
+          };
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      },
+      {
+        expectedOrigin: adminWebUrl,
+        pagePath: catalogAdminOriginGeneratePagePath,
+        path: catalogAdminOriginGeneratePath,
+        body: requestBody,
+      },
+    );
     const hostClockAfterEvaluate = new Date().toISOString();
     const receipt = buildCatalogAdminOriginGenerateReceipt({
       runId,
@@ -3366,27 +3378,8 @@ async function runAdminOriginGenerateProbe(page: Page, testInfo: { retry: number
     expect(receipt.observationCount).not.toBeNull();
     expect(receipt.candidateCount).not.toBeNull();
   } catch (error) {
-    const completedAt = new Date().toISOString();
     if (!unsafeReceipt && !existsSync(catalogAdminOriginGenerateArtifactPath)) {
-      writeAdminOriginGenerateReceipt(
-        buildCatalogAdminOriginGenerateReceipt({
-          runId,
-          expectedSha,
-          adminWebUrl,
-          origin: adminWebUrl,
-          scratchParent,
-          hostClockBeforeEvaluate: startedAt,
-          requestStartedAt: startedAt,
-          responseCompletedAt: completedAt,
-          hostClockAfterEvaluate: completedAt,
-          performanceElapsedMs: 0,
-          url: `${adminWebUrl}${catalogAdminOriginGeneratePath}`,
-          status: null,
-          headers: [],
-          body: "",
-          error: adminOriginGenerateError(error),
-        }),
-      );
+      writeAdminOriginGenerateReceipt(failureReceipt(adminOriginGenerateError(error)));
     }
     throw error;
   } finally {
@@ -3398,6 +3391,7 @@ test.describe("catalog staging provider sync UAT", () => {
   test("admin-origin generate guards refuse every reserved parent before navigation", () => {
     const input: AdminOriginGenerateGuardInput = {
       retry: 0,
+      runAttempt: "1",
       adminWebUrl: "https://admin.staging.chasesets.com",
       expectedSha: "a".repeat(40),
       scratchParent: "job_01M5N5MCJ3JET0GSZ32EJ63BA1",
@@ -3414,6 +3408,8 @@ test.describe("catalog staging provider sync UAT", () => {
       expect(catalogAdminOriginGenerateGuard({ ...input, scratchParent })).toBe("scratch-parent-invalid-or-reserved");
     for (const change of [
       { retry: 1 },
+      { runAttempt: "2" },
+      { runAttempt: "" },
       { admitted: false },
       { expectedSha: "main" },
       { adminWebUrl: `${input.adminWebUrl}/` },
@@ -3465,12 +3461,13 @@ test.describe("catalog staging provider sync UAT", () => {
         hostClockAfterEvaluate: "2026-10-29T18:00:00.011Z",
         performanceElapsedMs: 9,
         url: `https://admin.staging.chasesets.com${catalogAdminOriginGeneratePath}`,
-        headers: [],
+        headers: [{ name: "vary", value: "Cookie" }],
         ...response,
       });
       expect(receipt.body).toBe(response.body);
       expect(receipt.bodyBytes).toBe(Buffer.byteLength(response.body, "utf8"));
       expect(receipt.creditedProviderSpend).toBe(0);
+      expect(receipt.headers).toEqual([{ name: "vary", value: "[redacted]" }]);
       const file = testInfo.outputPath(`synthetic-generate-receipt-${index}.json`);
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, JSON.stringify(receipt), "utf8");
@@ -3484,6 +3481,7 @@ test.describe("catalog staging provider sync UAT", () => {
             ...process.env,
             EXPECTED_SHA: receipt.expectedSha,
             GITHUB_RUN_ID: receipt.runId,
+            GITHUB_RUN_ATTEMPT: "1",
             ADMIN_WEB_URL: receipt.adminWebUrl,
             CATALOG_STAGING_PROVIDER_UAT_SCOPE: receipt.journeyScope,
             CATALOG_ADMIN_ORIGIN_GENERATE_SCRATCH_PARENT: scratchParent,
@@ -3492,6 +3490,51 @@ test.describe("catalog staging provider sync UAT", () => {
       );
       expect(JSON.parse(output).ok).toBe(true);
     }
+    const failureInput = {
+      runId: "synthetic-generate-run",
+      expectedSha: "a".repeat(40),
+      adminWebUrl: "https://admin.staging.chasesets.com",
+      scratchParent,
+      startedAt: "2026-10-29T18:00:00.000Z",
+      now: "2026-10-29T18:00:45.000Z",
+      requestCount: 0,
+      error: "request-failed:TimeoutError",
+    };
+    const unsent = buildAdminOriginGenerateFailureReceipt(failureInput);
+    expect(unsent.requestStartedAt).toBe(failureInput.now);
+    expect(unsent.responseCompletedAt).toBe(failureInput.now);
+    expect(unsent.hostClockBeforeEvaluate).toBe(failureInput.startedAt);
+    expect(unsent.hostClockAfterEvaluate).toBe(failureInput.now);
+    expect(unsent.clientTiming.performanceElapsedMs).toBe(0);
+    expect(unsent.status).toBeNull();
+    expect(unsent.error).toBe("not-sent:request-failed:TimeoutError");
+    expect(buildAdminOriginGenerateFailureReceipt({ ...failureInput, requestCount: 1 }).error).toBe(
+      "request-failed:TimeoutError",
+    );
+    const file = testInfo.outputPath("synthetic-unsent-receipt.json");
+    mkdirSync(dirname(file), { recursive: true });
+    const validate = (receipt: typeof unsent) => {
+      writeFileSync(file, JSON.stringify(receipt), "utf8");
+      return execFileSync(
+        process.execPath,
+        ["scripts/catalog-admin-origin-generate-receipt.mjs", "validate", "--file", file],
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          env: {
+            ...process.env,
+            EXPECTED_SHA: unsent.expectedSha,
+            GITHUB_RUN_ID: unsent.runId,
+            GITHUB_RUN_ATTEMPT: "1",
+            ADMIN_WEB_URL: unsent.adminWebUrl,
+            CATALOG_STAGING_PROVIDER_UAT_SCOPE: unsent.journeyScope,
+            CATALOG_ADMIN_ORIGIN_GENERATE_SCRATCH_PARENT: scratchParent,
+          },
+        },
+      );
+    };
+    expect(JSON.parse(validate(unsent)).ok).toBe(true);
+    expect(() => validate({ ...unsent, requestStartedAt: failureInput.startedAt })).toThrow();
   });
 
   test("admin-origin generate receipt and workflow reject unsafe evidence", async () => {

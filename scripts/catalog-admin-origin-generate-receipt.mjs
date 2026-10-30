@@ -190,6 +190,16 @@ export function validateCatalogAdminOriginGenerateReceipt(receipt, overrides = {
   if (receipt.status !== null && receipt.error === null && receipt.status >= 400)
     errors.push("HTTP failure must be disclosed in error");
   if (
+    typeof receipt.error === "string" &&
+    receipt.error.startsWith("not-sent:") &&
+    (receipt.status !== null ||
+      receipt.body !== "" ||
+      receipt.headers?.length !== 0 ||
+      receipt.requestStartedAt !== receipt.responseCompletedAt ||
+      receipt.clientTiming?.performanceElapsedMs !== 0)
+  )
+    errors.push("not-sent receipt must have no response and a zero request interval");
+  if (
     isRecord(receipt.clientTiming) &&
     isIsoDate(receipt.requestStartedAt) &&
     isIsoDate(receipt.responseCompletedAt) &&
@@ -361,6 +371,33 @@ export async function testCatalogAdminOriginGenerateContract() {
     error: "request-timeout",
   });
   assert.deepEqual(validate(network), []);
+  const failureInstant = "2026-10-29T18:00:45.000Z";
+  const unsent = buildCatalogAdminOriginGenerateReceipt({
+    ...receipt,
+    hostClockBeforeEvaluate: "2026-10-29T18:00:00.000Z",
+    requestStartedAt: failureInstant,
+    responseCompletedAt: failureInstant,
+    hostClockAfterEvaluate: failureInstant,
+    performanceElapsedMs: 0,
+    status: null,
+    headers: [],
+    body: "",
+    error: "not-sent:request-failed:TimeoutError",
+  });
+  assert.deepEqual(validate(unsent), [], "45-second host bracket with zero unsent interval validates");
+  assert.equal(Date.parse(unsent.hostClockAfterEvaluate) - Date.parse(unsent.hostClockBeforeEvaluate), 45_000);
+  assert.notDeepEqual(validate({ ...unsent, requestStartedAt: unsent.hostClockBeforeEvaluate }), [], "old fallback");
+  assert.notDeepEqual(validate({ ...network, error: `not-sent:${network.error}` }), [], "sent interval is not unsent");
+  assert.notDeepEqual(validate({ ...receipt, error: "not-sent:request-failed" }), [], "response is not unsent");
+  assert.deepEqual(validate({ ...receipt, headers: [{ name: "vary", value: "[redacted]" }] }), []);
+  assert.notDeepEqual(validate({ ...receipt, headers: [{ name: "vary", value: "Cookie" }] }), []);
+  assert.notDeepEqual(
+    validateCatalogAdminOriginGenerateReceipt(
+      { ...receipt, headers: [{ name: "vary", value: "synthetic-session-marker" }] },
+      { ...identity, forbiddenValues: ["synthetic-session-marker"] },
+    ),
+    [],
+  );
   assert.notDeepEqual(
     validateCatalogAdminOriginGenerateReceipt(receipt, { ...identity, forbiddenValues: [receipt.body] }),
     [],
