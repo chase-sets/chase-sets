@@ -1610,6 +1610,9 @@ pub struct SessionLine {
     pub cart_line_id: Option<String>,
     #[serde(default)]
     pub listing_id: Option<String>,
+    /// A purchase intent's offer for the line (`offerPriceAmount`).
+    #[serde(default)]
+    pub offer_price_amount: Option<String>,
 }
 
 /// The fulfillment preview the session recorded (`CheckoutFulfillmentPreview`): what each seller

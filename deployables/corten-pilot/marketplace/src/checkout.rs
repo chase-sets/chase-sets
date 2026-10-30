@@ -4,7 +4,15 @@
 //! methods, the wallet, and Payments' quote for the payable total; Update totals (the review
 //! writes) and Pay now. A guest has no saved address, payment method or wallet, so every step is a
 //! form and Pay now refuses a saved method (`GUEST_SAVED_PAYMENT_UNAVAILABLE`); its payment page is
-//! `/checkout/payments/{id}`. A purchase intent (an offer's checkout) is marketplace's page.
+//! `/checkout/payments/{id}`.
+//!
+//! A purchase intent (an offer's checkout, `source_type` `offer-intent`, marketplace's
+//! `isOfferIntent`) makes no order and takes no payment: every step but payment is a form (it is
+//! neither a signed-in buy checkout nor a guest's, so nothing collapses into a row), the email is
+//! optional, the summary prices each line at its offer and says No payment today, and Submit offer
+//! confirms it. The Checkout API submits the offer; the page then shows it, read after the write.
+//! The wallet, saved addresses, saved methods and Payments' quote are not read for it, as
+//! marketplace's page shows none of them.
 //!
 //! A guest's contact is not read: marketplace's loader asks Auth for it without the internal
 //! capability the call needs, so it is always empty there too, and no host binds one yet
@@ -35,7 +43,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::{
         ApiError, CheckoutSession, CheckoutSessions as _, ConfirmBody, FulfillmentPreview, PaymentPreview, PaymentSummary,
-        SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet, segment,
+        SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet,
     },
     app::{ACCOUNTS_VIEW, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
     auth::{CheckoutBuyer, Viewer},
@@ -305,6 +313,8 @@ impl Steps {
 /// The page, worked out from the reads (`useCheckoutSessionModel` for a signed-in buyer).
 pub struct Screen {
     pub session: CheckoutSession,
+    /// A purchase intent: an offer for sellers to accept, not orders and a payment.
+    pub offer: bool,
     pub preview: Option<FulfillmentPreview>,
     /// A session that creates orders but recorded no preview yet.
     pub preview_missing: bool,
@@ -367,9 +377,11 @@ fn asked_method(place: &Place, instruments: &[SavedInstrument]) -> String {
 impl Screen {
     pub fn new(reads: Reads, place: Place, error: Option<String>) -> Screen {
         let Reads { session, wallet, addresses, instruments, payment, can_save_payment, guest, expired } = reads;
-        let creates_orders = session.source_type != "offer-intent";
+        let offer = session.source_type == "offer-intent";
+        let creates_orders = !offer;
         let preview = if expired || !creates_orders { None } else { session.fulfillment_preview_snapshot.clone() };
         let preview_missing = !expired && creates_orders && preview.is_none();
+        let (addresses, instruments) = if offer { (Vec::new(), Vec::new()) } else { (addresses, instruments) };
         let wallet_unavailable = matches!(wallet, WalletRead::Unavailable);
         let wallet = match wallet {
             WalletRead::Read(wallet) => Some(wallet),
@@ -418,11 +430,13 @@ impl Screen {
         let edit = place.edit();
         let first_group = preview.as_ref().and_then(|p| p.seller_groups.first()).is_some();
         // A guest's steps other than its contact are never rows (`signedInBuyCheckout`), and its
-        // contact cannot be opened again (`canEditCollapsedContact`).
-        let contact = address.email.as_deref().is_some_and(|e| !e.trim().is_empty());
-        let delivery = !guest && complete(&address);
-        let first_group = !guest && first_group;
-        let payment_ready = !guest && instrument.is_some();
+        // contact cannot be opened again (`canEditCollapsedContact`). A purchase intent's steps are
+        // all forms, and it has no payment step.
+        let rows = !guest && !offer;
+        let contact = !offer && address.email.as_deref().is_some_and(|e| !e.trim().is_empty());
+        let delivery = rows && complete(&address);
+        let first_group = rows && first_group;
+        let payment_ready = rows && instrument.is_some();
         let steps = Steps {
             contact,
             delivery,
@@ -431,28 +445,30 @@ impl Screen {
             show_contact: !contact || (!guest && edit == Some(Edit::Contact)),
             show_delivery: !delivery || edit == Some(Edit::Delivery),
             show_shipping: !first_group || edit == Some(Edit::Shipping),
-            show_payment: !payment_ready || edit == Some(Edit::Payment),
+            show_payment: !offer && (!payment_ready || edit == Some(Edit::Payment)),
         };
 
         let lines = session.lines.len();
         let ready_count = preview.as_ref().map_or(lines, |p| p.ready_line_keys.len());
         let unavailable = preview.as_ref().map_or(0, |p| p.unavailable_lines.len().max(p.unavailable_line_keys.len()));
-        let can_confirm = ready_count > 0 && unavailable == 0;
-        let needs_quote = !has_payment && payment.is_none();
+        let can_confirm = if offer { lines > 0 } else { ready_count > 0 && unavailable == 0 };
+        let needs_quote = !offer && !has_payment && payment.is_none();
         let changed = match (&preview, &session.fulfillment_preview_revision) {
             (Some(p), Some(recorded)) => p.revision.as_ref().is_some_and(|r| r != recorded),
             _ => false,
         };
         let reasons = preview.as_ref().map(|p| p.material_change_reasons.join(" ")).filter(|r| !r.is_empty());
         let acknowledged = reasons.is_some() || changed;
-        let fast = saved.is_some() && instrument.is_some() && !has_payment;
+        let fast = !offer && saved.is_some() && instrument.is_some() && !has_payment;
         let accelerated = fast
             && !wallet_unavailable
             && payment.is_some()
             && instrument.as_ref().is_some_and(|i| i.confirmation_experience == "off-session-token");
         let label = saved.map(|a| a.label.clone()).unwrap_or_default();
         let method_label = instrument.as_ref().map_or_else(|| method.replace('-', " "), |i| i.display_label.clone());
-        let notice = if unavailable > 0 {
+        let notice = if offer {
+            None
+        } else if unavailable > 0 {
             Some(Notice::CartReview(unavailable))
         } else if acknowledged {
             Some(Notice::FulfillmentChanged(reasons))
@@ -474,6 +490,7 @@ impl Screen {
 
         Screen {
             session,
+            offer,
             preview,
             preview_missing,
             payment,
@@ -580,7 +597,6 @@ async fn render(
     place: Place,
     refused: Option<(StatusCode, String)>,
 ) -> HtmlResult {
-    let here = url::BuyCheckout { id, place: place.clone() }.href();
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
     let caller = config.platform.caller(headers, config.proto, None);
@@ -602,17 +618,14 @@ async fn render(
         }
     };
     if let Some(offer) = &session.submitted_offer_id {
-        return marketplace(req, &format!("/account/offers/submitted/{}", segment(offer)));
+        return req.redirect(&submitted_offer(offer, receipt.as_ref()));
     }
-    if session.source_type == "offer-intent" {
-        // A purchase intent's checkout is not ported: marketplace's page, at the same address.
-        return marketplace(req, &here);
-    }
+    let offer = session.source_type == "offer-intent";
     let expired = expired(&session, SystemTime::now());
     let actor = &viewer.actor;
     let guest = viewer.guest();
     let wallet = async {
-        if guest || !actor.can(PAYOUTS_VIEW) {
+        if offer || guest || !actor.can(PAYOUTS_VIEW) {
             return WalletRead::NotAsked;
         }
         match caller.wallet().await {
@@ -627,7 +640,7 @@ async fn render(
         }
     };
     let addresses = async {
-        if guest || !actor.can(ACCOUNTS_VIEW) {
+        if offer || guest || !actor.can(ACCOUNTS_VIEW) {
             return Vec::new();
         }
         caller.checkout_addresses().await.unwrap_or_else(|error| {
@@ -636,7 +649,7 @@ async fn render(
         })
     };
     let instruments = async {
-        if guest {
+        if offer || guest {
             return Vec::new();
         }
         caller.checkout_instruments().await.unwrap_or_else(|error| {
@@ -662,13 +675,18 @@ async fn render(
                 .ok()
         }
     };
-    let can_save_payment = !guest && actor.can(ORDERS_MANAGE);
+    let can_save_payment = !offer && !guest && actor.can(ORDERS_MANAGE);
     let reads = Reads { session, wallet, addresses, instruments, payment, can_save_payment, guest, expired };
     let (status, error) = refused.map_or((StatusCode::OK, None), |(status, error)| (status, Some(error)));
     let screen = Screen::new(reads, place, error);
     let t: CheckoutMsg = req.t();
+    let description = if screen.offer {
+        t.page_confirm_shipping_place_purchase_intent()
+    } else {
+        t.route_enter_contact_delivery_shipping_payment()
+    };
     let head = html! {
-        <meta name="description" content={t.route_enter_contact_delivery_shipping_payment()}>
+        <meta name="description" content={description}>
         <meta name="robots" content="noindex">
     };
     let page = html! {
@@ -727,7 +745,7 @@ pub(crate) async fn confirmation(
         }
     };
     if let Some(offer) = &session.submitted_offer_id {
-        return marketplace(&req, &format!("/account/offers/submitted/{}", segment(offer)));
+        return req.redirect(&submitted_offer(offer, receipt.as_ref()));
     }
     let Some(payment_id) = session.payment_id.clone() else {
         return req.redirect(&url::BuyCheckout { id: &id, place: Place::default() });
@@ -764,12 +782,9 @@ pub fn payment_href(guest: bool, id: &str, after_write: Option<String>) -> Strin
     }
 }
 
-/// Marketplace's own page at `path`.
-fn marketplace(req: &Req, path: &str) -> HtmlResult {
-    match views::marketplace(path) {
-        Some(to) => req.redirect(&to),
-        None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
-    }
+/// The offer a purchase intent became, read after `receipt`.
+fn submitted_offer<'a>(id: &'a str, receipt: Option<&Receipt>) -> url::SubmittedOffer<'a> {
+    url::SubmittedOffer { id, place: crate::submitted_offers::OfferPlace { after_write: receipt.map(Receipt::param) } }
 }
 
 pub(crate) async fn page(
@@ -857,7 +872,7 @@ pub(crate) async fn write(
             let writes = async {
                 let a = caller.select_shipping_option(&id, &option).await?;
                 let b = caller.select_shipping_address(&id, &address).await?;
-                let c = caller.select_authenticity_check(&id, form.opted_in(), form.quote()).await?;
+                let c = select_authenticity_check(&caller, &session, &form).await?;
                 Ok::<_, ApiError>([a, b, c])
             };
             match writes.await {
@@ -891,7 +906,7 @@ pub(crate) async fn write(
             if !committed {
                 let writes = async {
                     let a = caller.select_shipping_option(&id, &option).await?;
-                    let b = caller.select_authenticity_check(&id, form.opted_in(), form.quote()).await?;
+                    let b = select_authenticity_check(&caller, &session, &form).await?;
                     Ok::<_, ApiError>([a, b])
                 };
                 match writes.await {
@@ -899,15 +914,15 @@ pub(crate) async fn write(
                     Err(error) => return refused(error, here).await,
                 }
             }
-            let review_changed = visible != quoted
-                || reviewed(&form.reviewed_shipping_option).is_some_and(|o| o != option)
-                || reviewed(&form.reviewed_shipping_address_signature).is_some_and(|s| s != signature(&address));
+            // A purchase intent has no totals to refresh first (`shouldRefreshReviewBeforeConfirm`).
+            let offer = session.source_type == "offer-intent";
+            let review_changed = !offer
+                && (visible != quoted
+                    || reviewed(&form.reviewed_shipping_option).is_some_and(|o| o != option)
+                    || reviewed(&form.reviewed_shipping_address_signature).is_some_and(|s| s != signature(&address)));
             let fingerprint = reviewed(&form.marketplace_checkout_fee_quote_fingerprint).map(str::to_owned);
-            let needs_quote = !session.source_type.is_empty()
-                && session.source_type != "offer-intent"
-                && fingerprint.is_none()
-                && session.payment_id.is_none()
-                && !committed;
+            let needs_quote =
+                !session.source_type.is_empty() && !offer && fingerprint.is_none() && session.payment_id.is_none() && !committed;
             if (review_changed && !committed) || needs_quote {
                 match caller.select_shipping_address(&id, &address).await {
                     Ok(receipt) => receipts.push(receipt),
@@ -931,7 +946,7 @@ pub(crate) async fn write(
                 Ok((confirmed, receipt)) => {
                     receipts.push(receipt);
                     match (confirmed.offer_id, confirmed.payment_id) {
-                        (Some(offer), _) => marketplace(&req, &format!("/account/offers/submitted/{}", segment(&offer))),
+                        (Some(offer), _) => req.redirect(&submitted_offer(&offer, latest(receipts).as_ref())),
                         (None, Some(_)) if form.accelerated_saved_payment == "true" => {
                             let place = ConfirmationPlace { after_write: latest(receipts).as_ref().map(Receipt::param) };
                             req.redirect(&url::BuyConfirmation { id: &id, place })
@@ -971,6 +986,20 @@ pub(crate) async fn write(
         }
         _ => back(here),
     }
+}
+
+/// Writes the authenticity check choice, except for a purchase intent, which Checkout refuses it
+/// for. Marketplace's action writes it for one too, so its Submit offer always fails
+/// (chase-sets/chase-sets#10821); the pilot skips it until the action stops sending it.
+async fn select_authenticity_check(
+    caller: &crate::api::Caller<'_>,
+    session: &CheckoutSession,
+    form: &CheckoutForm,
+) -> Result<Option<Receipt>, ApiError> {
+    if session.source_type == "offer-intent" {
+        return Ok(None);
+    }
+    caller.select_authenticity_check(&session.session_id, form.opted_in(), form.quote()).await
 }
 
 /// Records the preview the buyer reviewed (`recordReviewedFulfillmentPreview`), for a session

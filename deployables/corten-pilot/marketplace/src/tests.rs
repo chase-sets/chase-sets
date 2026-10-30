@@ -752,7 +752,18 @@ fn checkout_session(id: &str) -> Value {
     let mut session: Value = serde_json::from_str(CHECKOUT_SESSION).unwrap();
     session["session_id"] = json!(id);
     match id {
-        "chk_offer" => session["source_type"] = json!("offer-intent"),
+        // A purchase intent: an offer of $24.50, and no preview (it makes no order).
+        "chk_offer" => {
+            session["source_type"] = json!("offer-intent");
+            session["fulfillment_preview_snapshot"] = Value::Null;
+            session["fulfillment_preview_revision"] = Value::Null;
+            session["lines"][0]["offerPriceAmount"] = json!("24.50");
+            session["lines"][0]["offerPriceCurrencyCode"] = json!("USD");
+        }
+        "chk_offered" => {
+            session["source_type"] = json!("offer-intent");
+            session["submitted_offer_id"] = json!("ofr_1");
+        }
         "chk_paid" => session["payment_id"] = json!("pay_1"),
         "chk_paydown" => session["payment_id"] = json!("pay_down"),
         _ => {}
@@ -768,7 +779,8 @@ const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions/";
 /// `chk_theirs` is another account's, `chk_down` fails and `chk_slow` has not caught up with
 /// any write; `chk_offer` is a purchase intent and `chk_paid`'s payment has started. Each review
 /// write applies with a receipt (an address in 00000 is one the API cannot deliver to); Pay now
-/// starts `pay_1`, but `chk_stale`'s quote is stale. Payments quotes $620.00 as the sandbox
+/// starts `pay_1`, but `chk_stale`'s quote is stale, and `chk_offer`'s Submit offer becomes the
+/// offer `ofr_1` (`chk_offered` already did). Payments quotes $620.00 as the sandbox
 /// does; the wallet holds $25.00. `pay_1`'s summary is $638.83 ready for payment; `pay_down`'s
 /// read fails (`chk_paydown` started it).
 fn checkout_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
@@ -855,9 +867,18 @@ fn checkout_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str
         }
         "shipping-option" => committed(StatusCode::OK, "checkout", "11", json!({})),
         "shipping-address" => committed(StatusCode::OK, "checkout", "12", json!({})),
+        // As Checkout refuses it for a purchase intent (chase-sets/chase-sets#10821).
+        "authenticity-check-opt-in" if id == "chk_offer" => refusal(
+            StatusCode::BAD_REQUEST,
+            "validation_failed",
+            "Purchase intent checkout does not offer the authenticity check.",
+        ),
         "authenticity-check-opt-in" => committed(StatusCode::OK, "checkout", "13", json!({})),
         "fulfillment-preview" => committed(StatusCode::OK, "checkout", "14", json!({})),
         "confirm" if id == "chk_stale" => refusal(StatusCode::CONFLICT, "fee_quote_stale", "The checkout fee changed."),
+        "confirm" if id == "chk_offer" => {
+            committed(StatusCode::OK, "checkout", "16", json!({ "offer_id": "ofr_1", "status": "purchase-intent-submitted" }))
+        }
         "confirm" => committed(StatusCode::OK, "checkout", "15", json!({ "payment_id": "pay_1" })),
         _ => return None,
     })
@@ -11302,13 +11323,9 @@ async fn a_session_that_is_not_the_buyers_checkout_says_what_it_is() {
     assert_eq!(status, StatusCode::ACCEPTED, "{html}");
     assert!(text(&html).contains("Preparing checkout"), "{html}");
     assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "{html}");
-    // A purchase intent's checkout is marketplace's, a guest's is the page (see
-    // `a_guest_checkout_is_the_pilots_page_with_every_step_a_form`); signed out goes to sign-in.
-    let (status, headers, _) = pilot.send(get("/checkout/buy/session/chk_offer", Some("payer"))).await;
-    assert_eq!(
-        (status, headers[header::LOCATION].to_str().unwrap()),
-        (StatusCode::SEE_OTHER, "http://localhost:7753/checkout/buy/session/chk_offer")
-    );
+    // A guest's checkout is the page (see `a_guest_checkout_is_the_pilots_page_with_every_step_a_form`),
+    // as a purchase intent's is (`a_purchase_intent_is_the_pilots_page_and_submit_offer_shows_the_offer`);
+    // signed out goes to sign-in.
     let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("guest"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let (status, headers, _) = pilot.send(get(CHECKOUT_SCREEN, None)).await;
@@ -16710,6 +16727,67 @@ async fn a_guest_checkout_is_the_pilots_page_with_every_step_a_form() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Saved payment methods are available after sign-in."), "{html}");
     assert!(checkout_writes(&pilot).is_empty(), "nothing is written");
+}
+
+#[tokio::test]
+async fn a_purchase_intent_is_the_pilots_page_and_submit_offer_shows_the_offer() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_offer", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Confirm shipping details and submit an offer for sellers to review."), "{page}");
+    assert!(page.contains("Delivery address is required so sellers know where the offer would ship if accepted."), "{page}");
+    // The line at its offer, and No payment today: no shipping, tax, fee or wallet.
+    assert!(page.contains("$24.50"), "{page}");
+    assert!(page.contains("No payment today") && page.contains("Not applicable"), "{page}");
+    assert!(page.contains("Sellers can accept your offer before an order and payment are created."), "{page}");
+    assert!(page.contains("Shipping is saved for seller acceptance."), "{page}");
+    for absent in ["Checkout service fee", "Payable total", "Pay now", "Totals need refresh", "Available balance"] {
+        assert!(!page.contains(absent), "{absent}: {page}");
+    }
+    // Every step but payment is a form, and there is no payment step; the email is optional.
+    assert!(html.contains(r#"data-step="delivery""#) && html.contains(r#"data-step="shipping""#), "{html}");
+    assert!(!html.contains(r#"data-step="payment""#) && !html.contains("?edit="), "{html}");
+    let email = &html[html.find(r#"type="email""#).unwrap()..];
+    assert!(!email[..email.find('>').unwrap()].contains("required"), "{email}");
+    assert!(html.contains(r#"data-commit="offer""#) && !html.contains(r#"data-commit="pay""#), "{html}");
+    assert!(page.contains("Submit offer"), "{page}");
+    // Nothing the page does not show is read.
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    for read in ["/api/settlement/wallet", "ship-from-addresses", "checkout-payment-affordances", "preview-status"] {
+        assert!(!calls.iter().any(|c| c.path.contains(read)), "{read} was read");
+    }
+
+    // Submit offer confirms at once, even with the review changed (there are no totals to
+    // refresh), without the authenticity check Checkout refuses a purchase intent, and goes to the
+    // pilot's page for the offer, read after the write.
+    let body = [
+        "intent=confirm-checkout",
+        "shippingAddressId=__manual",
+        "shippingName=Demo+Collector",
+        "shippingLine1=42+Binder+Lane",
+        "shippingCity=Evanston",
+        "shippingState=IL",
+        "shippingPostalCode=60201",
+        "shippingCountry=US",
+        "shippingOption=standard",
+        "reviewedShippingOption=priority",
+        "paymentMethodCategory=card",
+        "previewPaymentMethodCategory=card",
+    ]
+    .join("&");
+    let (status, headers, html) = pilot.send(post("/checkout/buy/session/chk_offer", "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/offers/submitted/ofr_1?after_write="), "{to}");
+    let writes: Vec<String> = checkout_writes(&pilot).into_iter().map(|(write, _)| write).collect();
+    assert_eq!(writes, ["shipping-option", "confirm"], "{writes:?}");
+    let (_, confirm) = checkout_writes(&pilot).pop().unwrap();
+    assert_eq!(confirm["shippingAddress"]["line1"], "42 Binder Lane", "{confirm}");
+
+    // A session whose offer was submitted is the offer's page.
+    let (status, headers, _) = pilot.send(get("/checkout/buy/session/chk_offered", Some("payer"))).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/offers/submitted/ofr_1"));
 }
 
 #[tokio::test]

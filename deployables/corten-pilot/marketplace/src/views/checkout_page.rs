@@ -9,6 +9,9 @@
 //! since the totals were drawn, and the page says so. The page's script only says it sooner: a
 //! change to a delivery, shipping or payment field marks the page, whose stylesheet then shows
 //! "Totals need refresh" and Update totals in place of Pay now (marketplace's `markReviewStale`).
+//!
+//! A purchase intent's page has no payment step, totals to refresh or notices: its summary prices
+//! each line at the offer and says No payment today, and its one control is Submit offer.
 use corten::{i18n::Currency, prelude::*, view::AttrValue};
 
 use super::{cart_item::options, on_marketplace, order_page::display_reference};
@@ -76,10 +79,20 @@ fn line_amount<'a>(line: &SessionLine, preview: Option<&'a FulfillmentPreview>) 
     found.and_then(|p| p.estimated_line_total_amount.as_deref())
 }
 
+/// A line's price on the summary: a purchase intent's offer (`offerPriceAmount`), else the
+/// preview's.
+fn line_price(t: CheckoutMsg, screen: &Screen, line: &SessionLine) -> String {
+    if screen.offer {
+        money_or_pending(t, line.offer_price_amount.as_deref())
+    } else {
+        money_or_pending(t, line_amount(line, screen.preview.as_ref()))
+    }
+}
+
 /// Each step's status (`buildCheckoutStepperItems`): complete once collected and collapsed,
 /// current for the first still open, upcoming after it; Review is blocked while a line cannot be
 /// bought.
-fn steps(t: CheckoutMsg, screen: &Screen) -> [(&'static str, &'static str, &'static str); 5] {
+fn steps(t: CheckoutMsg, screen: &Screen) -> Vec<(&'static str, &'static str, &'static str)> {
     let s = &screen.steps;
     let status = |ready: bool, open: bool, reached: bool| {
         if ready && !open {
@@ -93,7 +106,8 @@ fn steps(t: CheckoutMsg, screen: &Screen) -> [(&'static str, &'static str, &'sta
     let contact = status(s.contact, s.show_contact, true);
     let delivery = status(s.delivery, s.show_delivery, contact == "complete");
     let shipping = status(s.shipping, s.show_shipping, delivery == "complete");
-    let payment = status(s.payment, s.show_payment, shipping == "complete");
+    // A purchase intent has no payment step (`buildCheckoutStepperItems`).
+    let payment = if screen.offer { "complete" } else { status(s.payment, s.show_payment, shipping == "complete") };
     let all = [contact, delivery, shipping, payment].iter().all(|s| *s == "complete");
     let review = if screen.session.payment_id.is_some() {
         "complete"
@@ -104,13 +118,17 @@ fn steps(t: CheckoutMsg, screen: &Screen) -> [(&'static str, &'static str, &'sta
     } else {
         "upcoming"
     };
-    [
+    let mut steps = vec![
         (t.page_step_contact(), t.page_step_contact_description(), contact),
         (t.page_step_delivery(), t.page_step_delivery_description(), delivery),
         (t.page_step_shipping(), t.page_step_shipping_description(), shipping),
         (t.page_step_payment(), t.page_step_payment_description(), payment),
         (t.page_step_review(), t.page_step_review_description(), review),
-    ]
+    ];
+    if screen.offer {
+        steps.remove(3);
+    }
+    steps
 }
 
 /// A page that is not the checkout (marketplace's `CheckoutSessionRecoveryPage`).
@@ -147,7 +165,13 @@ pub fn CheckoutPage<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                     <p class={Eyebrow}>{t.page_secure_checkout()}</p>
                     <h1 class={Title}>{t.page_checkout()}</h1>
                     <p class={Muted}>
-                        {if screen.guest { t.page_simple_checkout_description() } else { t.page_signed_in_checkout_description() }}
+                        {if screen.offer {
+                            t.page_confirm_shipping_place_purchase_intent()
+                        } else if screen.guest {
+                            t.page_simple_checkout_description()
+                        } else {
+                            t.page_signed_in_checkout_description()
+                        }}
                     </p>
                 </div>
                 <a class={(Button, Secondary)} href={url::Cart::default()}>{t.page_back_to_cart()}</a>
@@ -163,7 +187,7 @@ pub fn CheckoutPage<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                     <summary class={MobileSummaryBar}>
                         <span class={Strong}>{t.page_order_summary()}</span>
                         <span class={Muted}>{t.page_item_count(&lines(screen).to_string())}</span>
-                        <span class={Amount}>{total(t, screen)}</span>
+                        <span class={Amount}>{shown_total(t, screen)}</span>
                     </summary>
                     <Summary t={t} screen={screen} />
                 </details>
@@ -213,6 +237,16 @@ fn lines(screen: &Screen) -> u64 {
 
 fn total(t: CheckoutMsg, screen: &Screen) -> String {
     money_or_pending(t, screen.total())
+}
+
+/// The total the summary and the bar show: No payment today for a purchase intent.
+fn shown_total(t: CheckoutMsg, screen: &Screen) -> String {
+    if screen.offer { t.page_no_payment_today().to_owned() } else { total(t, screen) }
+}
+
+/// The total's label (`totalsTotalLabel`).
+fn total_label(t: CheckoutMsg, screen: &Screen) -> &'static str {
+    if screen.offer { t.page_total() } else { t.page_payable_total() }
 }
 
 #[component(css = CheckoutPage)]
@@ -271,10 +305,12 @@ fn PageNotice<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 }
             </div>
         }
-        <div class={(Banner, StaleOnly)} data-tone="warning" role="status" data-checkout-stale>
-            <p class={Strong}>{t.page_totals_need_refresh()}</p>
-            <p>{t.page_totals_need_refresh_description()}</p>
-        </div>
+        if !screen.offer {
+            <div class={(Banner, StaleOnly)} data-tone="warning" role="status" data-checkout-stale>
+                <p class={Strong}>{t.page_totals_need_refresh()}</p>
+                <p>{t.page_totals_need_refresh_description()}</p>
+            </div>
+        }
     }
 }
 
@@ -340,7 +376,7 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                             name={f.shipping_email}
                             value={text(&a.email)}
                             autocomplete="email"
-                            required
+                            required={!screen.offer}
                         >
                     </label>
                 </fieldset>
@@ -350,7 +386,13 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
             if steps.show_delivery {
                 <fieldset class={Part} data-step="delivery">
                     <legend class={PartTitle}>{t.page_delivery()}</legend>
-                    <p class={Muted}>{t.page_destination_required_for_sales_tax()}</p>
+                    <p class={Muted}>
+                        {if screen.offer {
+                            t.page_destination_required_for_purchase_intent()
+                        } else {
+                            t.page_destination_required_for_sales_tax()
+                        }}
+                    </p>
                     if !screen.addresses.is_empty() {
                         <label class={Field}>
                             <span class={Label}>{t.page_saved_shipping_address()}</span>
@@ -731,7 +773,11 @@ fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render 
         t.page_pay_now().to_owned()
     };
     html! {
-        if !screen.can_confirm {
+        if screen.offer {
+            <button type="submit" class={(Button, Wide)} form={form} name={f.intent} value="confirm-checkout" data-commit="offer">
+                {t.page_place_purchase_intent()}
+            </button>
+        } else if !screen.can_confirm {
             <a class={(Button, Wide)} href={url::Cart::default()}>{t.page_review_buy_cart()}</a>
         } else if screen.needs_quote {
             <button
@@ -776,9 +822,11 @@ fn StickyBar<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
     html! {
         <section class={Bar} aria-label={t.page_checkout_summary()}>
             <div class={BarTotal}>
-                <p class={Label}>{t.page_payable_total()}</p>
-                <p class={Amount}>{if paid { t.page_payment_ready().to_owned() } else { total(t, screen) }}</p>
-                <p class={StepDescription}>{t.page_secure_checkout_context()}</p>
+                <p class={Label}>{total_label(t, screen)}</p>
+                <p class={Amount}>{if paid { t.page_payment_ready().to_owned() } else { shown_total(t, screen) }}</p>
+                <p class={StepDescription}>
+                    {if screen.offer { t.page_shipping_saved_for_seller_acceptance() } else { t.page_secure_checkout_context() }}
+                </p>
             </div>
             if let Some(payment) = &screen.session.payment_id {
                 <a class={(Button, Wide)} href={crate::checkout::payment_href(screen.guest, payment, None)}>
@@ -965,7 +1013,8 @@ fn Summary<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
     let payment = screen.payment.as_ref();
     let (_, authenticity) = screen.authenticity();
     let offer = preview.and_then(|p| p.authenticity_check_offer.as_ref());
-    let pending = screen.total().is_none();
+    let pending = !screen.offer && screen.total().is_none();
+    let intent = screen.offer;
     html! {
         <section class={(Panel, SummaryPanel)} aria-label={t.page_order_summary()}>
             <div class={SummaryHead}>
@@ -989,7 +1038,7 @@ fn Summary<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                             }
                             <p class={StepDescription}>{t.page_quantity_summary(&line.quantity.to_string())}</p>
                         </div>
-                        <p class={Price} data-line-price>{money_or_pending(t, line_amount(line, preview))}</p>
+                        <p class={Price} data-line-price>{line_price(t, screen, line)}</p>
                     </li>
                 }
             </ul>
@@ -1000,21 +1049,35 @@ fn Summary<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 </div>
                 <div class={Quiet}>
                     <dt>{t.page_shipping_2()}</dt>
-                    <dd>{money_or_pending(t, totals.and_then(|x| x.shipping_amount.as_deref()))}</dd>
+                    <dd>
+                        {if intent {
+                            t.page_no_payment_today().to_owned()
+                        } else {
+                            money_or_pending(t, totals.and_then(|x| x.shipping_amount.as_deref()))
+                        }}
+                    </dd>
                 </div>
                 <div class={Quiet}>
                     <dt>{t.page_estimated_tax()}</dt>
-                    <dd>{money_or_pending(t, totals.and_then(|x| x.sales_tax_amount.as_deref()))}</dd>
-                </div>
-                <div class={(payment.is_none()).then_some(Quiet)}>
-                    <dt>{t.page_marketplace_checkout_fee()}</dt>
-                    <dd data-fee>
-                        match payment {
-                            Some(p) => { {money(t, &p.marketplace_checkout_fee.marketplace_checkout_fee_amount)} }
-                            None => { {t.page_calculated_before_payment()} }
-                        }
+                    <dd>
+                        {if intent {
+                            t.page_not_applicable().to_owned()
+                        } else {
+                            money_or_pending(t, totals.and_then(|x| x.sales_tax_amount.as_deref()))
+                        }}
                     </dd>
                 </div>
+                if !intent {
+                    <div class={(payment.is_none()).then_some(Quiet)}>
+                        <dt>{t.page_marketplace_checkout_fee()}</dt>
+                        <dd data-fee>
+                            match payment {
+                                Some(p) => { {money(t, &p.marketplace_checkout_fee.marketplace_checkout_fee_amount)} }
+                                None => { {t.page_calculated_before_payment()} }
+                            }
+                        </dd>
+                    </div>
+                }
                 if let (Some(_), Some(p)) = (&screen.wallet, payment) {
                     <div>
                         <dt>{t.page_wallet_credit()}</dt>
@@ -1034,11 +1097,13 @@ fn Summary<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                     </div>
                 }
                 <div class={Total}>
-                    <dt>{t.page_payable_total()}</dt>
-                    <dd class={(pending.then_some(Quiet), (!pending).then_some(Amount))} data-total>{total(t, screen)}</dd>
+                    <dt>{total_label(t, screen)}</dt>
+                    <dd class={(pending.then_some(Quiet), (!pending).then_some(Amount))} data-total>{shown_total(t, screen)}</dd>
                 </div>
             </dl>
-            <p class={StepDescription}>{t.page_secure_payment_confirmed_caption()}</p>
+            <p class={StepDescription}>
+                {if intent { t.page_sellers_can_accept_purchase_intent_before_order() } else { t.page_secure_payment_confirmed_caption() }}
+            </p>
             <ul class={Protections}>
                 <li>
                     <p class={Strong}>{t.page_buyer_protection()}</p>
@@ -1048,12 +1113,23 @@ fn Summary<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                     </p>
                 </li>
                 <li>
-                    <p class={Strong}>{t.page_secure_payment()}</p>
-                    <p class={Muted}>{t.page_payment_starts_only_after_orders_are()}</p>
+                    if intent {
+                        <p class={Strong}>{t.page_no_payment_today()}</p>
+                        <p class={Muted}>{t.page_sellers_can_accept_purchase_intent_before_order()}</p>
+                    } else {
+                        <p class={Strong}>{t.page_secure_payment()}</p>
+                        <p class={Muted}>{t.page_payment_starts_only_after_orders_are()}</p>
+                    }
                 </li>
                 <li>
                     <p class={Strong}>{t.page_fulfillment_ready()}</p>
-                    <p class={Muted}>{t.page_fulfillment_resolved_before_checkout()}</p>
+                    <p class={Muted}>
+                        {if intent {
+                            t.page_shipping_preference_is_captured_for_purchase_intent()
+                        } else {
+                            t.page_fulfillment_resolved_before_checkout()
+                        }}
+                    </p>
                 </li>
                 if authenticity {
                     <li>
