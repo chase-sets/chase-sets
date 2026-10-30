@@ -61,6 +61,11 @@ import {
 import { createMarketplaceProductDescriptor, type MarketplaceVersionSchema } from "../domain/versioning";
 import { createManagedOfferAuthority, ManagedOfferConflictError, type ManagedOfferTarget } from "./managed-authority";
 import { BuyerOfferPolicyError } from "../../offer-policy/domain/domain";
+import { createMarketplaceAttempt } from "../../mutation-recovery/api/attempt";
+import { offerAttemptResultSchema, offerAcceptanceResultSchema, offerPriceAttemptResultSchema } from "./attempt-result";
+import { marketplaceRecoveryLoader } from "../../mutation-recovery/api/repository";
+import { marketplaceOfferRecoveryCodec } from "../domain/recovery-codec";
+import type { RepresentativeMarketplaceServices } from "@chase-sets/catalog-seed";
 import { MarketplaceOfferLifecycleClosedError } from "./lifecycle-admission";
 
 export class MarketplaceOfferFeeQuoteStaleError extends Error {
@@ -156,24 +161,13 @@ export type MarketplaceOfferServices = Readonly<{
     MarketplaceOfferSellerControlEvent
   >;
   submitOffer: (
-    params: Readonly<{
-      offerId?: OfferId;
-      buyerAccountId: AccountId;
-      catalogItemId: string;
-      productId: string;
-      itemTitle: string;
-      itemSubtitle: string | null;
-      selectedOptions: readonly { dimensionId: string; optionId: string }[];
-      productSummary: string | null;
-      shippingDestinationSnapshot: AddressSnapshot;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      quantityRequested: number;
-    }>,
+    params: Parameters<RepresentativeMarketplaceServices["offers"]["submitOffer"]>[0],
     context: EventStoreContext,
   ) => Promise<{ offerId: OfferId; version: number }>;
   updateOfferPrice: (
     params: Readonly<{
+      attemptId: string;
+      requestHash?: string;
       offerId: OfferId;
       buyerAccountId: AccountId;
       priceAmount: string;
@@ -190,19 +184,13 @@ export type MarketplaceOfferServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<readonly MarketplaceOfferLifecycleOutcome[]>;
   acceptOffer: (
-    params: Readonly<{
-      offerId: OfferId;
-      sellerAccountId: AccountId;
-      listingId: string;
-      feeQuoteFingerprint?: string | null;
-      sourceActionKey?: string | null;
-      acceptanceBatchId?: string | null;
-      acceptanceBatchSize?: number | null;
-    }>,
+    params: Parameters<RepresentativeMarketplaceServices["offers"]["acceptOffer"]>[0],
     context: EventStoreContext,
   ) => Promise<MarketplaceOfferAcceptanceResult>;
   declineOfferMatch: (
     params: Readonly<{
+      attemptId: string;
+      requestHash?: string;
       offerId: OfferId;
       sellerAccountId: AccountId;
     }>,
@@ -228,34 +216,70 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
   const offerCodec = createPassthroughDomainEventCodec<MarketplaceOfferEvent>();
   const listingCodec = createPassthroughDomainEventCodec<MarketplaceListingEvent>();
   const sellerAvailabilityCodec = createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>();
-  const { commandHandler, repository } = createAggregateCommandHandler({
+  const { commandHandler, repository: offerRepository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: offerCodec,
     initialState: () => initialMarketplaceOfferState,
     evolve: evolveMarketplaceOffer,
     decide: decideMarketplaceOffer,
   });
-  const { commandHandler: sellerControlCommandHandler } = createAggregateCommandHandler({
+  const { commandHandler: sellerControlCommandHandler, repository: controlRepository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<MarketplaceOfferSellerControlEvent>(),
     initialState: () => initialMarketplaceOfferSellerControlState,
     evolve: evolveMarketplaceOfferSellerControl,
     decide: decideMarketplaceOfferSellerControl,
   });
-  const { repository: listingRepository } = createAggregateCommandHandler({
+  const { repository: rawListingRepository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: listingCodec,
     initialState: () => initialMarketplaceListingState,
     evolve: evolveMarketplaceListing,
     decide: decideMarketplaceListing,
   });
-  const { repository: sellerAvailabilityRepository } = createAggregateCommandHandler({
+  const { repository: rawSellerAvailabilityRepository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: sellerAvailabilityCodec,
     initialState: () => initialSellerListingAvailabilityState,
     evolve: evolveSellerListingAvailability,
     decide: decideSellerListingAvailability,
   });
+  const repository = {
+    ...offerRepository,
+    load: marketplaceRecoveryLoader(
+      deps.eventStore,
+      initialMarketplaceOfferState,
+      marketplaceOfferRecoveryCodec,
+      evolveMarketplaceOffer,
+    ),
+  };
+  const sellerControlRepository = {
+    ...controlRepository,
+    load: marketplaceRecoveryLoader(
+      deps.eventStore,
+      initialMarketplaceOfferSellerControlState,
+      createPassthroughDomainEventCodec<MarketplaceOfferSellerControlEvent>(),
+      evolveMarketplaceOfferSellerControl,
+    ),
+  };
+  const listingRepository = {
+    ...rawListingRepository,
+    load: marketplaceRecoveryLoader(
+      deps.eventStore,
+      initialMarketplaceListingState,
+      listingCodec,
+      evolveMarketplaceListing,
+    ),
+  };
+  const sellerAvailabilityRepository = {
+    ...rawSellerAvailabilityRepository,
+    load: marketplaceRecoveryLoader(
+      deps.eventStore,
+      initialSellerListingAvailabilityState,
+      sellerAvailabilityCodec,
+      evolveSellerListingAvailability,
+    ),
+  };
 
   async function getCatalogItemSnapshot(catalogItemId: string) {
     const result = await deps.db.query<{
@@ -494,6 +518,22 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     commandHandler,
     sellerControlCommandHandler,
     submitOffer: async (params, context) => {
+      const { attemptId, requestHash, ...request } = params;
+      if (context.audit.forAccountId !== params.buyerAccountId) throw new Error("Offer actor account mismatch.");
+      const attempt = createMarketplaceAttempt(
+        deps.eventStore,
+        {
+          attemptId,
+          requestHash,
+          request,
+          mutationKind: "offer.submit",
+          accountId: params.buyerAccountId,
+          target: { kind: "product", id: params.productId },
+        },
+        offerAttemptResultSchema,
+      );
+      const first = await attempt.read();
+      if (first) return first;
       const priceCurrencyCode = normalizeOfferPriceCurrencyCode(params.priceCurrencyCode);
       const catalogItem = await getCatalogItemSnapshot(params.catalogItemId);
       if (!catalogItem) {
@@ -523,30 +563,55 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       await loadSubmissionGuard(params.buyerAccountId);
 
       const offerId = params.offerId ?? (createId("off") as OfferId);
-      const result = await commandHandler({
-        streamId: `marketplace.offer-${offerId}`,
-        command: {
-          type: "SubmitOffer",
-          offerId,
-          buyerAccountId: params.buyerAccountId,
-          sellerAccountId: null,
-          catalogItemId: params.catalogItemId as CatalogItemId,
-          productId: catalogVersion.productId,
-          itemTitle: params.itemTitle,
-          itemSubtitle: params.itemSubtitle,
-          selectedOptions: catalogVersion.selection,
-          productSummary: params.productSummary,
-          shippingDestinationSnapshot: params.shippingDestinationSnapshot,
-          priceAmount: params.priceAmount,
-          priceCurrencyCode,
-          quantityRequested: params.quantityRequested,
-        },
-        context,
+      const current = await repository.load(`marketplace.offer-${offerId}`);
+      const events = decideMarketplaceOffer(current.state, {
+        type: "SubmitOffer",
+        offerId,
+        buyerAccountId: params.buyerAccountId,
+        sellerAccountId: null,
+        catalogItemId: params.catalogItemId as CatalogItemId,
+        productId: catalogVersion.productId,
+        itemTitle: params.itemTitle,
+        itemSubtitle: params.itemSubtitle,
+        selectedOptions: catalogVersion.selection,
+        productSummary: params.productSummary,
+        shippingDestinationSnapshot: params.shippingDestinationSnapshot,
+        priceAmount: params.priceAmount,
+        priceCurrencyCode,
+        quantityRequested: params.quantityRequested,
       });
-
-      return { offerId, version: result.version };
+      const result = { offerId, version: current.version + events.length };
+      return attempt.commit(
+        [
+          {
+            streamId: `marketplace.offer-${offerId}`,
+            expectedVersion: current.version,
+            events: events.map(offerCodec.encode),
+            context,
+          },
+        ],
+        result,
+        { id: offerId, version: result.version },
+        context,
+      );
     },
     updateOfferPrice: async (params, context) => {
+      const { attemptId, requestHash, ...request } = params;
+      if (context.audit.forAccountId !== params.buyerAccountId) throw new Error("Offer actor account mismatch.");
+      const attempt = createMarketplaceAttempt(
+        deps.eventStore,
+        {
+          attemptId,
+          requestHash,
+          request,
+          mutationKind: "offer.update-price",
+          accountId: params.buyerAccountId,
+          target: { kind: "offer", id: params.offerId },
+        },
+        offerPriceAttemptResultSchema,
+      );
+      const first = await attempt.read();
+      if (first) return first;
       const current = await repository.load(`marketplace.offer-${params.offerId}`);
       if (current.state.buyerOfferPolicyId) {
         const policy = await managed.load(current.state);
@@ -574,34 +639,50 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         if (!deps.eventStore.appendToStreams)
           throw new Error("Managed Offers require atomic multi-stream append support.");
         try {
-          const results = await deps.eventStore.appendToStreams([
-            managed.guard(policy, context),
-            {
-              streamId: `marketplace.offer-${params.offerId}`,
-              expectedVersion: current.version,
-              events: events.map(offerCodec.encode),
-              context,
-            },
-          ]);
-          recordCommittedEvents(results.flatMap((result) => result.storedEvents));
+          return await attempt.commit(
+            [
+              managed.guard(policy, context),
+              {
+                streamId: `marketplace.offer-${params.offerId}`,
+                expectedVersion: current.version,
+                events: events.map(offerCodec.encode),
+                context,
+              },
+            ],
+            { offerId: params.offerId, version: current.version + events.length, status: current.state.status },
+            { id: params.offerId, version: current.version + events.length },
+            context,
+          );
         } catch (error) {
           if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict")
             throw new ManagedOfferConflictError("managed_offer_conflict");
           throw error;
         }
-        return { offerId: params.offerId, version: current.version + events.length, status: current.state.status };
       }
-      const result = await commandHandler({
-        streamId: `marketplace.offer-${params.offerId}`,
-        command: {
-          type: "UpdateOfferPrice",
-          buyerAccountId: params.buyerAccountId,
-          priceAmount: params.priceAmount,
-          priceCurrencyCode: params.priceCurrencyCode,
-        },
-        context,
+      const events = decideMarketplaceOffer(current.state, {
+        type: "UpdateOfferPrice",
+        buyerAccountId: params.buyerAccountId,
+        priceAmount: params.priceAmount,
+        priceCurrencyCode: params.priceCurrencyCode,
       });
-      return { offerId: params.offerId, version: result.version, status: result.state.status };
+      const result = {
+        offerId: params.offerId,
+        version: current.version + events.length,
+        status: current.state.status,
+      };
+      return attempt.commit(
+        [
+          {
+            streamId: `marketplace.offer-${params.offerId}`,
+            expectedVersion: current.version,
+            events: events.map(offerCodec.encode),
+            context,
+          },
+        ],
+        result,
+        { id: params.offerId, version: result.version },
+        context,
+      );
     },
     changeOfferLifecycle: async (params, context) => {
       await assertOfferLifecycleAdmitted();
@@ -628,33 +709,75 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       return outcomes;
     },
     declineOfferMatch: async (params, context) => {
+      const { attemptId, requestHash, ...request } = params;
+      if (context.audit.forAccountId !== params.sellerAccountId) throw new Error("Offer actor account mismatch.");
+      const attempt = createMarketplaceAttempt(
+        deps.eventStore,
+        {
+          attemptId,
+          requestHash,
+          request,
+          mutationKind: "offer.decline",
+          accountId: params.sellerAccountId,
+          target: { kind: "offer", id: params.offerId },
+        },
+        offerAttemptResultSchema,
+      );
+      const first = await attempt.read();
+      if (first) return first;
       const offer = await getOfferMatch(deps.db, params.offerId, params.sellerAccountId);
       if (!offer) {
         throw new Error("Offer not found.");
       }
-      const result = await sellerControlCommandHandler({
-        streamId: `marketplace.offer-seller-control-${params.sellerAccountId}-${offer.buyer_account_id}-${offer.listing_id}`,
-        command: {
-          type: "DeclineOfferMatch",
-          sellerAccountId: params.sellerAccountId,
-          buyerAccountId: offer.buyer_account_id as AccountId,
-          listingId: offer.listing_id,
-          productId: offer.product_id,
-          offerId: params.offerId,
-          offerPriceAmount: offer.price_amount,
-          offerPriceCurrencyCode: offer.price_currency_code!,
-          listingPriceAmount: offer.listing_price_amount,
-          listingPriceCurrencyCode: offer.listing_price_currency_code,
-          declinedAt: new Date().toISOString(),
-        },
-        context,
+      const streamId = `marketplace.offer-seller-control-${params.sellerAccountId}-${offer.buyer_account_id}-${offer.listing_id}`;
+      const current = await sellerControlRepository.load(streamId);
+      const events = decideMarketplaceOfferSellerControl(current.state, {
+        type: "DeclineOfferMatch",
+        sellerAccountId: params.sellerAccountId,
+        buyerAccountId: offer.buyer_account_id as AccountId,
+        listingId: offer.listing_id,
+        productId: offer.product_id,
+        offerId: params.offerId,
+        offerPriceAmount: offer.price_amount,
+        offerPriceCurrencyCode: offer.price_currency_code!,
+        listingPriceAmount: offer.listing_price_amount,
+        listingPriceCurrencyCode: offer.listing_price_currency_code,
+        declinedAt: new Date().toISOString(),
       });
-
-      return { offerId: params.offerId, version: result.version };
+      const result = { offerId: params.offerId, version: current.version + events.length };
+      return attempt.commit(
+        [
+          {
+            streamId,
+            expectedVersion: current.version,
+            events: events.map(createPassthroughDomainEventCodec<MarketplaceOfferSellerControlEvent>().encode),
+            context,
+          },
+        ],
+        result,
+        { id: params.offerId, version: result.version },
+        context,
+      );
     },
     previewOfferAcceptanceTerms: async (params) =>
       quoteOfferAcceptanceTerms(params.offerId, params.sellerAccountId, params.listingId),
     acceptOffer: async (params, context) => {
+      const { sourceActionKey, requestHash, ...request } = params;
+      if (context.audit.forAccountId !== params.sellerAccountId) throw new Error("Offer actor account mismatch.");
+      const attempt = createMarketplaceAttempt(
+        deps.eventStore,
+        {
+          attemptId: sourceActionKey,
+          requestHash,
+          request,
+          mutationKind: "offer.accept",
+          accountId: params.sellerAccountId,
+          target: { kind: "offer", id: params.offerId },
+        },
+        offerAcceptanceResultSchema,
+      );
+      const first = await attempt.read();
+      if (first) return first;
       const offerStreamId = `marketplace.offer-${params.offerId}`;
       const current = await repository.load(offerStreamId);
       if (current.state.status === "accepted") {
@@ -732,6 +855,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       if (!exactListing.inventoryItemId || !offer.can_fulfill) {
         throw new Error("Seller does not have enough active supply to accept this offer.");
       }
+      const inventoryItemId = exactListing.inventoryItemId;
       const acceptedAt = new Date().toISOString();
       let evidenceRequirements;
       try {
@@ -790,7 +914,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         type: "AcceptOffer",
         sellerAccountId: params.sellerAccountId,
         listingId: params.listingId,
-        inventoryItemId: exactListing.inventoryItemId,
+        inventoryItemId,
         listingVersion: listing.version + requirementEvents.length,
         listingEvidencePolicyId: evidenceRequirements.policyId,
         listingEvidencePolicyVersion: evidenceRequirements.policyVersion,
@@ -840,28 +964,38 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       }
 
       try {
-        const results = await appendToStreams([
-          ...(managedAcceptance ? [managedAcceptance.append] : []),
+        return await attempt.commit(
+          [
+            ...(managedAcceptance ? [managedAcceptance.append] : []),
+            {
+              streamId: offerStreamId,
+              expectedVersion: current.version,
+              events: [offerCodec.encode(acceptedEvent)],
+              context,
+            },
+            {
+              streamId: listingStreamId,
+              expectedVersion: listing.version,
+              events: [...requirementEvents, listingCommitmentEvent].map((event) => listingCodec.encode(event)),
+              context,
+            },
+            {
+              streamId: availabilityStreamId,
+              expectedVersion: sellerAvailability.version === 0 ? "no_stream" : sellerAvailability.version,
+              events: [sellerAvailabilityCodec.encode(availabilityCheckEvent)],
+              context,
+            },
+          ],
           {
-            streamId: offerStreamId,
-            expectedVersion: current.version,
-            events: [offerCodec.encode(acceptedEvent)],
-            context,
+            offerId: params.offerId,
+            listingId: params.listingId,
+            inventoryItemId,
+            listingEvidenceSnapshot,
+            version: current.version + 1,
           },
-          {
-            streamId: listingStreamId,
-            expectedVersion: listing.version,
-            events: [...requirementEvents, listingCommitmentEvent].map((event) => listingCodec.encode(event)),
-            context,
-          },
-          {
-            streamId: availabilityStreamId,
-            expectedVersion: sellerAvailability.version === 0 ? "no_stream" : sellerAvailability.version,
-            events: [sellerAvailabilityCodec.encode(availabilityCheckEvent)],
-            context,
-          },
-        ]);
-        recordCommittedEvents(results.flatMap((result) => result.storedEvents));
+          { id: params.offerId, version: current.version + 1 },
+          context,
+        );
       } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict") {
           const latest = await repository.load(offerStreamId);
@@ -890,14 +1024,6 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         }
         throw error;
       }
-
-      return {
-        offerId: params.offerId,
-        listingId: params.listingId,
-        inventoryItemId: exactListing.inventoryItemId,
-        listingEvidenceSnapshot,
-        version: current.version + 1,
-      };
     },
     listSubmittedOffers: (params) => listSubmittedOffers(deps.db, params),
     getSubmittedOffer: (offerId, buyerAccountId) => getSubmittedOffer(deps.db, offerId, buyerAccountId),

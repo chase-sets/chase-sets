@@ -357,13 +357,19 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     });
     await services.buyerOfferPolicies.execute(
       "bop_worker",
-      { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+      {
+        type: "CreateBuyerOfferPolicy",
+        expectedVersion: 0,
+        operationId: "create",
+        attemptId: "worker_policy_create_attempt",
+      },
       context,
     );
     const preview = await services.buyerOfferPolicies.execute(
       "bop_worker",
       {
         type: "PreviewBuyerOfferPolicy",
+        attemptId: "worker_policy_preview_attempt",
         expectedVersion: 1,
         operationId: "preview",
         terms: {
@@ -388,6 +394,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       "bop_worker",
       {
         type: "AuthorizeBuyerOfferPolicy",
+        attemptId: "worker_policy_authorize_attempt",
         expectedVersion: 2,
         operationId: "authorize",
         previewId: preview.preview!.previewId,
