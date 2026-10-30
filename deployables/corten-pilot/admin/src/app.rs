@@ -134,6 +134,7 @@ pub fn app(config: Config) -> App {
         .area(|area| catalog::area(area, shared.clone()))
         .area(|area| crate::access::area(area, shared.clone()))
         .area(|area| crate::reported::area(area, shared.clone()))
+        .area(|area| crate::reported::risk::area(area, shared.clone()))
         .error_page(views::error_page, shared)
 }
 

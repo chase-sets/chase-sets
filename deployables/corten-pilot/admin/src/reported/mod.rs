@@ -14,6 +14,9 @@
 //! (`platformOperationsReportedContentActionsByTargetType`, exported to
 //! `reported-content-actions.json`); the API checks it again, and that a note is there when the
 //! action needs one.
+//!
+//! Support > Risk Alerts ([`risk`]) is its own area with the same permission and this area's
+//! stylesheet.
 use std::{collections::BTreeMap, sync::LazyLock};
 
 use corten::{
@@ -24,6 +27,7 @@ use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+pub mod risk;
 pub mod views;
 
 use crate::{
@@ -260,6 +264,22 @@ struct After<'a> {
     recorded: Option<&'a str>,
 }
 
+/// Whether a page read after an action that answered no receipt, recorded at `recorded`, shows
+/// a latest action older than it.
+fn behind(recorded: Option<&str>, last_action_at: Option<&str>) -> bool {
+    let Some(at) = recorded.and_then(corten::i18n::parse_timestamp) else { return false };
+    last_action_at.and_then(corten::i18n::parse_timestamp).is_none_or(|last| last < at)
+}
+
+/// Where an action's page goes after it: with its receipt, or with the time the API says it
+/// recorded the action when it answered no receipt.
+fn after_action(answer: &serde_json::Value, receipt: Option<&Receipt>) -> (Option<String>, Option<String>) {
+    match receipt {
+        Some(receipt) => (Some(receipt.param()), None),
+        None => (None, answer["recordedAt"].as_str().map(str::to_owned)),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn draw(
     req: &Req,
@@ -287,10 +307,7 @@ async fn draw(
     };
     // An action answers no receipt (chase-sets/chase-sets#10833): until the target shows an
     // action as late as it, the page says the action is still being applied.
-    if let Some(at) = recorded.and_then(corten::i18n::parse_timestamp) {
-        let last = item.last_action_at.as_deref().and_then(corten::i18n::parse_timestamp);
-        catching_up |= last.is_none_or(|last| last < at);
-    }
+    catching_up |= behind(recorded, item.last_action_at.as_deref());
     let marketplace_href = (item.target_type == "listing")
         .then(marketplace_origin)
         .flatten()
@@ -338,12 +355,10 @@ async fn act(
     let body = json!({ "action": form.action, "note": note });
     match caller.write::<serde_json::Value>(caller.request(Method::POST, &path, CONTEXT).json(&body)).await {
         // admin-web drops the section here (chase-sets/chase-sets#10832); the pilot does not.
-        Ok((answer, receipt)) => req.redirect(&url::Item {
-            target_type: target.0,
-            target_id: target.1,
-            recorded: receipt.is_none().then(|| answer["recordedAt"].as_str().map(str::to_owned)).flatten(),
-            after_write: receipt.as_ref().map(Receipt::param),
-        }),
+        Ok((answer, receipt)) => {
+            let (after_write, recorded) = after_action(&answer, receipt.as_ref());
+            req.redirect(&url::Item { target_type: target.0, target_id: target.1, after_write, recorded })
+        }
         Err(error) => {
             let status = match error.status() {
                 Some(StatusCode::UNAUTHORIZED) => return sign_in(&req),

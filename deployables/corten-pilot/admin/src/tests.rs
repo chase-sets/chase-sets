@@ -132,6 +132,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(rest) = uri.path().strip_prefix("/api/auth/sessions") {
         return auth_sessions(&method, rest, &body);
     }
+    if let Some(rest) = uri.path().strip_prefix("/api/experience/risk-alerts") {
+        return risk_alerts(&method, rest);
+    }
     if let Some(rest) = uri.path().strip_prefix("/api/experience/reported-content") {
         if cookie.contains("moderator-lag") && headers.contains_key("chase-sets-read-after-write") {
             return refusal(
@@ -347,6 +350,39 @@ fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
             Json(json!({ "id": "rca_1", "recordedAt": "2026-10-30T12:00:00.000Z" })).into_response()
         }
         (Method::POST, "/listing/lst_1/actions" | "/review/rev_1/actions") => written(StatusCode::OK, "act_1"),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Platform Operations' risk alerts: a candidate with evidence and a threshold, and an
+/// acknowledged one that is not a candidate. Actions answer no receipt, as the API does
+/// (chase-sets/chase-sets#10835).
+fn risk_alerts(method: &Method, rest: &str) -> Response {
+    let alert = |id: &str, status: &str, candidate: bool| {
+        json!({
+            "alert_id": id, "account_id": "acc_seller", "alert_kind": "chargeback-velocity", "status": status,
+            "severity": "high", "manual_payout_review_candidate": candidate,
+            "evidence": { "chargebackCount": 3, "windowDays": "30" }, "threshold": { "minChargebacks": 3 },
+            "first_triggered_at": "2026-10-28T12:00:00.000Z", "last_triggered_at": "2026-10-29T12:00:00.000Z",
+            "last_action": null, "last_action_at": null, "last_action_note": null, "last_action_by_user_id": null,
+            "updated_at": "2026-10-29T12:00:00.000Z",
+        })
+    };
+    match (method.clone(), rest) {
+        (Method::GET, "") => Json(json!({
+            "items": [alert("ral_1", "needs-review", true), alert("ral_2", "acknowledged", false)],
+            "total": 2, "count": 2,
+        }))
+        .into_response(),
+        (Method::GET, "/metrics") => Json(json!({
+            "total_count": 2, "needs_review_count": 1, "manual_payout_review_candidate_count": 1,
+        }))
+        .into_response(),
+        (Method::GET, "/ral_1") => Json(alert("ral_1", "needs-review", true)).into_response(),
+        (Method::GET, "/ral_2") => Json(alert("ral_2", "acknowledged", false)).into_response(),
+        (Method::POST, "/ral_1/actions" | "/ral_2/actions") => {
+            Json(json!({ "id": "raa_1", "recordedAt": "2026-10-30T12:00:00.000Z" })).into_response()
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -3713,4 +3749,53 @@ async fn an_action_answered_without_a_receipt_carries_its_time_and_the_page_says
     let caught_up = "/support/reported-content/review/rev_1?recorded=2026-10-29T13%3A00%3A00.000Z";
     let (_, _, html) = pilot.send(get(caught_up, Some("moderator"))).await;
     assert!(!html.contains("Refresh in a moment"), "the target shows the action: {html}");
+}
+
+const RISK: &str = "/api/experience/risk-alerts";
+
+#[tokio::test]
+async fn risk_alerts_read_the_queue_and_an_alerts_page_as_admin_web_does() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/risk-alerts?status=all&alertKind=review-velocity", Some("moderator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let mut paths: Vec<String> = pilot.calls_to(RISK).into_iter().map(|c| c.path).collect();
+    paths.sort();
+    assert_eq!(paths, [format!("{RISK}/metrics"), format!("{RISK}?limit=100&offset=0&alertKind=review-velocity")]);
+    for text in
+        ["Chargeback velocity", "chargebackCount: 3, windowDays: 30", "Showing 2 of 2", r#"href="/support/risk-alerts/ral_1""#]
+    {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"<option value="review-velocity" selected>Review velocity</option>"#), "{html}");
+    assert!(html.contains(r#"href="/support/risk-alerts" aria-current="page""#), "the nav serves it: {html}");
+    assert_eq!(pilot.send(get("/support/risk-alerts", Some("staff"))).await.0, StatusCode::FORBIDDEN);
+
+    let (status, _, html) = pilot.send(get("/support/risk-alerts/ral_1", Some("moderator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"value="request-manual-payout-review""#) && html.contains(r#"value="acknowledge""#), "{html}");
+    assert!(html.contains("<dt>minChargebacks</dt>") && html.contains("<dt>windowDays</dt>"), "{html}");
+    let (_, _, html) = pilot.send(get("/support/risk-alerts/ral_2", Some("moderator"))).await;
+    assert!(!html.contains(r#"value="request-manual-payout-review""#), "only a candidate is offered it: {html}");
+    assert_eq!(pilot.send(get("/support/risk-alerts/ral_none", Some("moderator"))).await.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_risk_alert_response_is_sent_and_the_page_says_it_is_being_applied_until_it_shows() {
+    let pilot = Pilot::new().await;
+    let at = "/support/risk-alerts/ral_1";
+    let (status, headers, _) = pilot.send(post_as("moderator", at, "action=acknowledge&note=+Known+seller+", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(to, "/support/risk-alerts/ral_1?recorded=2026-10-30T12%3A00%3A00.000Z");
+    let write = pilot.calls_to(RISK).into_iter().last().unwrap();
+    assert_eq!(
+        (write.method, write.path.as_str(), write.body.as_str()),
+        (Method::POST, &*format!("{RISK}/ral_1/actions"), r#"{"action":"acknowledge","note":"Known seller"}"#)
+    );
+    let (_, _, html) = pilot.send(get(&to, Some("moderator"))).await;
+    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+    assert_eq!(pilot.send(post_as("moderator", at, "action=unlist", false)).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(pilot.send(post_as("staff", at, "action=acknowledge", false)).await.0, StatusCode::FORBIDDEN);
+    let writes = pilot.calls_to(RISK).into_iter().filter(|c| c.method == Method::POST).count();
+    assert_eq!(writes, 1, "the unknown response and the forbidden one write nothing");
 }
