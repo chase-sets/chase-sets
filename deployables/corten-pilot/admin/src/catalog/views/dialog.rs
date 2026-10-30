@@ -8,7 +8,7 @@ use corten_ui::{Toast, Toaster};
 use crate::{
     catalog::form::{
         AttachInput, BlueprintInput, CategoryInput, ComponentInput, DimensionInput, DimensionRuleInput, DimensionRulesInput,
-        FieldInput, FieldRuleInput, FieldRulesInput, OptionInput, OrderInput, ReorderInput,
+        FieldInput, FieldRuleInput, FieldRulesInput, OptionInput, OrderInput, ReorderInput, TemplateInput,
     },
     text::{Cat, Pilot},
     views::Draft,
@@ -69,6 +69,19 @@ pub fn Input<'a, I: Id>(label: &'a str, name: FieldName, value: &'a str, errors:
     }
 }
 
+/// A labelled text area (three rows), its error next to it.
+#[component(css = Dialog)]
+pub fn TextArea<'a, I: Id>(label: &'a str, name: FieldName, value: &'a str, errors: &'a Within<'a, I>) -> impl Render {
+    html! {
+        <div class={Field}>
+            <label class={Field}>
+                <span class={Label}>{label}</span>
+                <textarea name={name} rows="3" {..errors.aria(name)}>{value}</textarea>
+            </label>
+            {errors.message(name)}
+        </div>
+    }
+}
 /// A labelled select.
 #[component(css = Dialog)]
 pub fn Choice<'a, I: Id>(
@@ -304,6 +317,65 @@ pub fn DimensionRuleForm<'a, I: Id + AttrValue + Copy>(
             />
             <div class={Footer}>
                 <button type="submit">{t.component_add_2()}</button>
+            </div>
+        </form>
+    }
+}
+/// What a display template targets (`targetKindOptions`).
+pub fn target_kinds(t: Cat) -> [(&'static str, &'static str); 5] {
+    [
+        ("global", t.target_global()),
+        ("blueprint", t.target_blueprint()),
+        ("category", t.target_category()),
+        ("reference-record", t.target_reference_record()),
+        ("catalog-item", t.target_catalog_item()),
+    ]
+}
+
+/// A display template's target as admin-web shows it (`formatTarget`): the kind, and the id
+/// unless it is global.
+pub fn format_target(t: Cat, kind: &str, id: Option<&str>) -> String {
+    let label = target_kinds(t).into_iter().find(|(k, _)| *k == kind).map_or(kind, |(_, label)| label);
+    if kind == "global" { label.to_owned() } else { format!("{label}: {}", id.unwrap_or("\u{2014}")) }
+}
+
+/// A display template's create form or its edit form. admin-web hides Target ID for a global
+/// target; here the stylesheet does (`:has`), so it needs no script: a global target's id is
+/// not sent either way.
+#[component(css = Dialog)]
+pub fn TemplateForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    create: bool,
+    form: &'a Draft<TemplateInput>,
+) -> impl Patch {
+    let f = TemplateInput::FIELDS;
+    let (i, e) = (&form.input, form.errors.within(id));
+    let kinds = target_kinds(t);
+    html! {
+        <form class={(Form, Template)} id={id} method="post" action={action} data-patch>
+            {form.errors.form_message()}
+            if create {
+                <input type="hidden" name={f.display_template_id} value={&i.display_template_id}>
+            }
+            <Input label={t.template_key()} name={f.key} value={&i.key} errors={&e} />
+            <Input label={t.template_name()} name={f.name} value={&i.name} errors={&e} />
+            <Input label={t.template_description()} name={f.description} value={&i.description} errors={&e} />
+            <Choice label={t.template_target_kind()} name={f.target_kind} options={&kinds} value={&i.target_kind} errors={&e} />
+            <div class={TargetId}>
+                <Input label={t.template_target_id()} name={f.target_id} value={&i.target_id} errors={&e} />
+            </div>
+            <Input label={t.template_priority()} name={f.priority} value={&i.priority} errors={&e} />
+            <TextArea label={t.template_title_template()} name={f.title_template} value={&i.title_template} errors={&e} />
+            <TextArea
+                label={t.template_subtitle_template()}
+                name={f.subtitle_template}
+                value={&i.subtitle_template}
+                errors={&e}
+            />
+            <div class={Footer}>
+                <button type="submit">{if create { t.template_list_create() } else { t.template_save() }}</button>
             </div>
         </form>
     }

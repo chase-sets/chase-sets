@@ -7,8 +7,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::api::{
-    BlueprintDetail, Category, ComponentDetail, ComponentRules, ContentLine, Dimension, DimensionOption, DimensionRuleIds, Field,
-    FieldRuleIds, ItemDetail, SelectedOption,
+    BlueprintDetail, Category, ComponentDetail, ComponentRules, ContentLine, Dimension, DimensionOption, DimensionRuleIds,
+    DisplayTemplate, Field, FieldRuleIds, ItemDetail, SelectedOption,
 };
 use crate::text::Pilot;
 
@@ -238,6 +238,85 @@ impl ComponentInput {
     }
 }
 
+/// A display template's create and edit form (`DisplayTemplateInput`): its key, name and
+/// description, its target (a kind, and the record's id unless it is global), its priority, and
+/// its title and subtitle templates.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct TemplateInput {
+    /// The id a create was drawn with (empty for an edit).
+    pub display_template_id: String,
+    pub key: String,
+    pub name: String,
+    pub description: String,
+    pub target_kind: String,
+    pub target_id: String,
+    pub priority: String,
+    pub title_template: String,
+    pub subtitle_template: String,
+}
+
+impl TemplateInput {
+    /// admin-web's create dialog: a blueprint target, priority 10.
+    pub fn blank() -> Self {
+        TemplateInput {
+            display_template_id: new_id("dtp"),
+            target_kind: "blueprint".into(),
+            priority: "10".into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn of(t: &DisplayTemplate) -> Self {
+        TemplateInput {
+            display_template_id: String::new(),
+            key: t.key.clone(),
+            name: t.name.clone(),
+            description: t.description.clone().unwrap_or_default(),
+            target_kind: t.target_kind.clone(),
+            target_id: t.target_id.clone().unwrap_or_default(),
+            priority: display_order(t.priority),
+            title_template: t.title_template.clone(),
+            subtitle_template: t.subtitle_template.clone().unwrap_or_default(),
+        }
+    }
+
+    /// `createDisplayTemplate`'s body (with the id) or `reviseDisplayTemplate`'s. A global target
+    /// has no id; an empty subtitle is none. The priority is a whole number (admin-web reads one
+    /// that is not as 0; the pilot asks again rather than save a priority that was not typed).
+    pub fn body(&self, p: Pilot, create: bool) -> Result<Value, Errors> {
+        let priority = self.priority.trim();
+        let priority = if priority.is_empty() {
+            0
+        } else {
+            match priority.parse::<i64>() {
+                Ok(n) => n,
+                Err(_) => {
+                    let mut errors = Errors::new();
+                    errors.add(Self::FIELDS.priority, p.check_number());
+                    return Err(errors);
+                }
+            }
+        };
+        let kind = self.target_kind.trim();
+        let target =
+            if kind == "global" { json!({ "kind": "global" }) } else { json!({ "kind": kind, "id": self.target_id.trim() }) };
+        let subtitle = self.subtitle_template.trim();
+        let mut body = json!({
+            "key": self.key,
+            "name": english(&self.name),
+            "description": english(&self.description),
+            "target": target,
+            "priority": priority,
+            "titleTemplate": self.title_template,
+            "subtitleTemplate": if subtitle.is_empty() { Value::Null } else { json!(self.subtitle_template) },
+        });
+        if create {
+            body["displayTemplateId"] = json!(self.display_template_id);
+        }
+        Ok(body)
+    }
+}
 /// A blueprint's create and edit form: its key, name and description.
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]

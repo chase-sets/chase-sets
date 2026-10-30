@@ -16,6 +16,10 @@ fn served(path: &str) -> Option<String> {
         (<catalog::url::Fields as Route>::PATH, catalog::url::Fields::default().href()),
         (<catalog::components::url::Components as Route>::PATH, catalog::components::url::Components::default().href()),
         (<catalog::blueprints::url::Blueprints as Route>::PATH, catalog::blueprints::url::Blueprints::default().href()),
+        (
+            <catalog::display_templates::url::Templates as Route>::PATH,
+            catalog::display_templates::url::Templates::default().href(),
+        ),
         (<catalog::categories::url::Categories as Route>::PATH, catalog::categories::url::Categories::default().href()),
         (<catalog::url::Items as Route>::PATH, catalog::url::Items::default().href()),
         (<catalog::url::Scopes as Route>::PATH, catalog::url::Scopes::default().href()),

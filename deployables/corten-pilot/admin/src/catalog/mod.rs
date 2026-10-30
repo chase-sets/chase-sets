@@ -26,6 +26,7 @@
 //! | `GET /catalog/categories?...` and its writes | the categories list and a category's page (`categories`) |
 //! | `GET /catalog/components?...` and its writes | the components list and a component's page with its rules (`components`) |
 //! | `GET /catalog/blueprints?...` and its writes | the blueprints list and a blueprint's page with its components and rules (`blueprints`) |
+//! | `GET /catalog/display-templates?...` and its writes | the display templates list and a template's page (`display_templates`) |
 //!
 //! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
 //! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
@@ -45,6 +46,7 @@ pub mod attention;
 pub mod blueprints;
 pub mod categories;
 pub mod components;
+pub mod display_templates;
 pub mod form;
 pub mod item;
 pub mod items;
@@ -382,6 +384,18 @@ impl Done {
             _ => t.blueprint_blueprint_revised().into(),
         }
     }
+
+    /// The toast on a display template's pages.
+    pub fn template(self, t: Cat) -> String {
+        let lifecycle = |action: &str| t.template_lifecycle_completed(action).to_string();
+        match self {
+            Done::Created => t.template_list_display_template_created().into(),
+            Done::Activated | Done::Published => lifecycle(t.template_published()),
+            Done::Deprecated => lifecycle(t.template_deprecated()),
+            Done::Archived => lifecycle(t.template_archived()),
+            _ => t.template_display_template_revised().into(),
+        }
+    }
 }
 
 /// The area: each screen's routes module (all in `/catalog`, each holding its handlers to the
@@ -394,6 +408,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = categories::url::area(area, shared.clone());
     let area = components::url::area(area, shared.clone());
     let area = blueprints::url::area(area, shared.clone());
+    let area = display_templates::url::area(area, shared.clone());
     let area = items::url::area(area, shared.clone());
     item::url::area(area, shared).components(views::COMPONENTS).components(crate::views::LIVE)
 }
@@ -1103,7 +1118,8 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
             .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })
             .to_vec(),
         // No bulk changes.
-        Kind::ProductContents
+        Kind::DisplayTemplates
+        | Kind::ProductContents
         | Kind::ReferenceRecords
         | Kind::ScopeRecords
         | Kind::AttentionQueue

@@ -1,12 +1,13 @@
 use corten::prelude::*;
 
-use super::{SelectAll, SelectRow, StatusPill};
+use super::{SelectAll, SelectRow, StatusPill, dialog::format_target};
 use crate::{
     catalog::{
-        api::{Blueprint, Category, Component, Dimension, Field},
+        api::{Blueprint, Category, Component, Dimension, DisplayTemplate, Field},
         blueprints::url as blueprints,
         categories::url as categories,
         components::url as components,
+        display_templates::url as templates,
         form::display_order,
         url,
     },
@@ -166,6 +167,27 @@ pub fn ComponentRow<'a>(t: Cat, row: &'a Component, select: Option<Pilot>) -> im
             <td><StatusPill status={&row.status} toned={false} /></td>
             <td>
                 <a class={View} href={components::Component { id: &row.component_id, after_write: None, done: None }}>
+                    {t.list_view()}
+                </a>
+            </td>
+        </tr>
+    }
+}
+
+/// A display template's row: its key, name, target, priority, title template and status (no
+/// bulk changes in admin-web).
+#[component(css = ListPage)]
+pub fn TemplateRow<'a>(t: Cat, row: &'a DisplayTemplate) -> impl Render {
+    html! {
+        <tr>
+            <td>{&row.key}</td>
+            <td>{&row.name}</td>
+            <td>{format_target(t, &row.target_kind, row.target_id.as_deref())}</td>
+            <td>{display_order(row.priority)}</td>
+            <td>{&row.title_template}</td>
+            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <a class={View} href={templates::Template { id: &row.display_template_id, after_write: None, done: None }}>
                     {t.list_view()}
                 </a>
             </td>

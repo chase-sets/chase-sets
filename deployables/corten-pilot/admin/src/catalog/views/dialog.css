@@ -75,6 +75,13 @@
 .rule-row > .field {
   flex: 1 1 12rem;
 }
+/* A display template's Target ID: no id for a global target. */
+.template:has(select option[value="global"]:checked) .target-id {
+  display: none;
+}
+.field textarea {
+  resize: vertical;
+}
 .footer {
   display: flex;
   justify-content: flex-end;

@@ -37,6 +37,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Catalog > Categories, `/catalog/categories` (search, status, hierarchy and parent filters, bulk publish, deprecate and archive), and a category's page, `/catalog/categories/{id}` |
 | `admin/` | Catalog > Components, `/catalog/components` (search, status and has-rules filters, bulk changes), and a component's page, `/catalog/components/{id}`, with its field and dimension rules (add, remove) |
 | `admin/` | Catalog > Blueprints, `/catalog/blueprints` (search, status, has-components and has-rules filters, bulk changes), and a blueprint's page, `/catalog/blueprints/{id}`, with its components (attach, detach) and its field, dimension and product resolution rules (set, from dialogs the server draws when opened) |
+| `admin/` | Catalog > Display Templates, `/catalog/display-templates` (search, status and target kind filters, create), and a display template's page, `/catalog/display-templates/{id}` (edit, publish, deprecate, archive) |
 | `admin/` | Commerce > a postage policy, `/commerce/postage-policies/{id}` |
 | `admin/` | Platform > Projections, `/platform/projections` |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` |

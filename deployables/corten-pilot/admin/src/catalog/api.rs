@@ -512,6 +512,36 @@ pub struct AppliesIds {
     pub option_ids: Vec<String>,
 }
 
+/// `DisplayTemplate` (features/display-templates/ui/contracts.ts), which the detail is too.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct DisplayTemplate {
+    pub display_template_id: String,
+    pub key: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub target_kind: String,
+    #[serde(default)]
+    pub target_id: Option<String>,
+    #[serde(default)]
+    pub priority: f64,
+    pub title_template: String,
+    #[serde(default)]
+    pub subtitle_template: Option<String>,
+    /// The field keys the published title and subtitle need (`parseRequiredFieldKeys`: the
+    /// strings of a list, or none).
+    #[serde(default)]
+    pub required_field_keys: Value,
+    pub status: String,
+    pub updated_at: String,
+}
+
+impl DisplayTemplate {
+    pub fn required_field_keys(&self) -> Vec<&str> {
+        self.required_field_keys.as_array().map(|keys| keys.iter().filter_map(Value::as_str).collect()).unwrap_or_default()
+    }
+}
+
 /// `CatalogItemListItem` (features/catalog-items/ui/contracts.ts), the fields the list shows.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct ItemRow {
@@ -926,6 +956,7 @@ pub enum Kind {
     Categories,
     Components,
     Blueprints,
+    DisplayTemplates,
     Items,
     ProductContents,
     ReferenceRecords,
@@ -944,6 +975,7 @@ impl Kind {
             Kind::Categories => "categories",
             Kind::Components => "components",
             Kind::Blueprints => "blueprints",
+            Kind::DisplayTemplates => "display-templates",
             Kind::Items => "items",
             Kind::ProductContents => "product-contents",
             Kind::ReferenceRecords => "reference-records",

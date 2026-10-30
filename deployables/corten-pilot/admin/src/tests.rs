@@ -466,6 +466,15 @@ fn catalog_blueprints() -> Value {
     })
 }
 
+/// A draft display template for a blueprint (`DisplayTemplate`).
+fn display_template(id: &str) -> Value {
+    json!({
+        "display_template_id": id, "key": "card-title", "name": "Card title", "description": "",
+        "target_kind": "blueprint", "target_id": "bpr_seed", "priority": 10,
+        "title_template": "{field.card-name}", "subtitle_template": null,
+        "required_field_keys": ["card-name"], "status": "draft", "updated_at": "2026-01-01T00:00:00.000Z",
+    })
+}
 fn candidate(id: &str, status: &str, outcome: &str, reason: Option<&str>) -> Value {
     json!({ "id": id, "label": format!("Label {id}"), "status": status, "outcome": outcome, "reason": reason })
 }
@@ -818,6 +827,15 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         (Method::DELETE, "/components/cmp_seed/field-rules/fld_gone") => {
             refusal(StatusCode::CONFLICT, "invalid_transition", "The component has no rule for this field.")
         }
+        (Method::GET, "/display-templates") => {
+            Json(json!({ "items": [display_template("dtp_seed")], "total": 1 })).into_response()
+        }
+        (Method::GET, "/display-templates/dtp_seed") => Json(display_template("dtp_seed")).into_response(),
+        (Method::POST, "/display-templates/dtp_seed/publish") => refusal(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_failed",
+            "Display Template token {field.card-name} references an unknown or inactive field.",
+        ),
         (Method::GET, "/blueprints") => Json(catalog_blueprints()).into_response(),
         (Method::GET, "/blueprints/bpr_seed" | "/blueprints/bpr_other") => {
             Json(catalog_blueprint(rest.trim_start_matches("/blueprints/"))).into_response()
@@ -1422,6 +1440,68 @@ async fn a_set_dialog_the_list_cannot_fill_has_no_form_and_blueprint_refusals_st
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "action": "publish", "selection": { "mode": "filter", "query": { "hasComponents": "false" } } })
     );
+}
+#[tokio::test]
+async fn display_templates_are_listed_created_and_revised_and_a_refused_publish_is_the_forms_message() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/display-templates?target_kind=blueprint", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/display-templates?targetKind=blueprint&limit=50&offset=0");
+    assert!(html.contains("<td>Blueprint: bpr_seed</td>") && html.contains("<td>{field.card-name}</td>"), "{html}");
+    assert!(html.contains(r#"href="/catalog/display-templates/dtp_seed">View</a>"#), "{html}");
+    // The create dialog opens on a blueprint target at priority 10, as admin-web's does.
+    assert!(html.contains(r#"<option value="blueprint" selected>Blueprint</option>"#), "{html}");
+    assert!(html.contains(r#"name="priority" value="10""#), "{html}");
+
+    // A priority that is not a whole number is the pilot's own check: nothing is sent.
+    let (status, _, html) = pilot
+        .send(post(
+            "/catalog/display-templates",
+            "display_template_id=dtp_01JZ&key=k&name=N&target_kind=global&priority=ten",
+            true,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Enter a number."), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
+
+    let posts = [
+        (
+            "/catalog/display-templates",
+            "display_template_id=dtp_01JZ&key=k&name=N&description=&target_kind=global&target_id=ignored&priority=5&title_template=%7Bitem.title%7D&subtitle_template=+",
+        ),
+        (
+            "/catalog/display-templates/dtp_seed/edit",
+            "key=card-title&name=Card+title&description=&target_kind=category&target_id=+ctg_seed+&priority=&title_template=%7Bfield.card-name%7D&subtitle_template=%7Bfield.card-number%7D",
+        ),
+    ];
+    for (uri, body) in posts {
+        let (status, headers, _) = pilot.send(post(uri, body, true)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{uri}");
+        assert!(headers.contains_key("corten-location"), "{uri}");
+    }
+    let sent = pilot.catalog_writes();
+    let body = |i: usize| serde_json::from_str::<Value>(&sent[i].body).unwrap();
+    assert_eq!((&sent[0].method, sent[0].path.as_str()), (&Method::POST, "/api/catalog/display-templates"));
+    assert_eq!(body(0)["displayTemplateId"], "dtp_01JZ");
+    assert_eq!(body(0)["target"], json!({ "kind": "global" }), "a global target sends no id");
+    assert_eq!((body(0)["priority"].clone(), body(0)["subtitleTemplate"].clone()), (json!(5), Value::Null));
+    assert_eq!((&sent[1].method, sent[1].path.as_str()), (&Method::PUT, "/api/catalog/display-templates/dtp_seed"));
+    assert_eq!(body(1)["target"], json!({ "kind": "category", "id": "ctg_seed" }));
+    assert_eq!((body(1)["priority"].clone(), body(1)["subtitleTemplate"].clone()), (json!(0), json!("{field.card-number}")));
+    assert!(body(1).get("displayTemplateId").is_none());
+
+    let (_, _, html) = pilot.send(get("/catalog/display-templates/dtp_seed", Some("staff"))).await;
+    assert!(html.contains("<dd>card-name</dd>") && html.contains("<dd>Blueprint: bpr_seed</dd>"), "{html}");
+    let (status, _, html) =
+        pilot.send(post("/catalog/display-templates/dtp_seed/lifecycle", "action=publish&status=draft", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("references an unknown or inactive field"), "{html}");
+    let (status, _, html) =
+        pilot.send(post("/catalog/display-templates/dtp_seed/lifecycle", "action=activate&status=draft", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This action is not available here."), "{html}");
+    assert_eq!(pilot.catalog_writes().len(), 3, "the create, the edit and the refused publish");
 }
 #[tokio::test]
 async fn a_category_bulk_change_publishes_by_the_lists_filters_and_refuses_activate() {

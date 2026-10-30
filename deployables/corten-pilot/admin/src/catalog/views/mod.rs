@@ -25,6 +25,7 @@ mod categories;
 mod components;
 mod detail_page;
 mod dialog;
+mod display_templates;
 mod item_list;
 mod item_page;
 mod list_page;
@@ -46,9 +47,10 @@ pub use detail_page::{
 };
 pub use dialog::{
     AttachForm, BlueprintForm, CategoryForm, ComponentForm, Dialog, DimensionForm, DimensionRuleForm, DimensionRulesForm,
-    FieldForm, FieldRuleForm, FieldRulesForm, Input, OptionForm, OrderForm, ReorderForm, Toasts, Trigger, value_kinds,
-    value_types,
+    FieldForm, FieldRuleForm, FieldRulesForm, Input, OptionForm, OrderForm, ReorderForm, TemplateForm, Toasts, Trigger,
+    value_kinds, value_types,
 };
+pub use display_templates::{TemplateForms, template_list, template_page, template_rows, template_transitions};
 pub use item_list::{
     DraftsDialog, ItemDialog, ItemForm, ItemJobOutcome, ItemParts, ItemPreview, ItemPreviewDialog, Pending, item_changes,
     item_list, item_live, item_operations, item_rows,
@@ -60,7 +62,7 @@ pub use item_page::{
 };
 pub use list_page::{
     BlueprintRow, CategoryRow, ComponentRow, DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search,
-    Table, TextFilter,
+    Table, TemplateRow, TextFilter,
 };
 pub use scope_list::{ScopeRowView, scope_list};
 pub use scope_page::{ScopePage, scope_page};
