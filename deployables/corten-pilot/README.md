@@ -34,6 +34,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Platform > Attention Queue, `/platform/operations-attention` |
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}`, with its Publish, Set Field Value and Add content line dialogs |
 | `admin/` | Catalog's home, `/catalog`, a dimension's and a field's page, `/catalog/dimensions/{id}`, `/catalog/fields/{id}`, and the scope attention review, `/catalog/scopes/attention/review` |
+| `admin/` | Catalog > Categories, `/catalog/categories` (search, status, hierarchy and parent filters, bulk publish, deprecate and archive), and a category's page, `/catalog/categories/{id}` |
 | `admin/` | Commerce > a postage policy, `/commerce/postage-policies/{id}` |
 | `admin/` | Platform > Projections, `/platform/projections` |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` |

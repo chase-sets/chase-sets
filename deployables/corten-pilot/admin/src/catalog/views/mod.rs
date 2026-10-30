@@ -20,6 +20,7 @@ pub use crate::views::Draft;
 mod attention_panel;
 mod bulk_dialogs;
 mod bulk_rows;
+mod categories;
 mod detail_page;
 mod dialog;
 mod item_list;
@@ -32,8 +33,11 @@ mod status_pill;
 pub use attention_panel::{AttentionBanner, AttentionPanel, AttentionSheet, park_form};
 pub use bulk_dialogs::{Candidates, JobDialog, PreviewDialog, Previewed, job_status};
 pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
+pub use categories::{CategoryForms, category_actions, category_list, category_page, category_rows, category_transitions};
 pub use detail_page::{ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, Transition};
-pub use dialog::{Dialog, DimensionForm, FieldForm, Input, OptionForm, ReorderForm, Toasts, Trigger, value_kinds, value_types};
+pub use dialog::{
+    CategoryForm, Dialog, DimensionForm, FieldForm, Input, OptionForm, ReorderForm, Toasts, Trigger, value_kinds, value_types,
+};
 pub use item_list::{
     DraftsDialog, ItemDialog, ItemForm, ItemJobOutcome, ItemParts, ItemPreview, ItemPreviewDialog, Pending, item_changes,
     item_list, item_live, item_operations, item_rows,
@@ -43,7 +47,9 @@ pub use item_page::{
     ItemPage, ItemScreen, Labels, ListForm, MetadataForm, PublishForm, ReferenceForm, RowForm, choice_label, item_page,
     item_transitions,
 };
-pub use list_page::{DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table, TextFilter};
+pub use list_page::{
+    CategoryRow, DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table, TextFilter,
+};
 pub use scope_list::{ScopeRowView, scope_list};
 pub use scope_page::{ScopePage, scope_page};
 pub use status_pill::{StatusPill, Tone, TonePill};

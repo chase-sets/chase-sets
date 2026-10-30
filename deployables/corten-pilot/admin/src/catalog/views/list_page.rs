@@ -3,7 +3,9 @@ use corten::prelude::*;
 use super::{SelectAll, SelectRow, StatusPill};
 use crate::{
     catalog::{
-        api::{Dimension, Field},
+        api::{Category, Dimension, Field},
+        categories::url as categories,
+        form::display_order,
         url,
     },
     text::{Cat, Pilot},
@@ -119,6 +121,29 @@ pub fn DimensionRow<'a>(t: Cat, row: &'a Dimension, select: Option<Pilot>) -> im
             <td><StatusPill status={&row.status} toned={false} /></td>
             <td>
                 <a class={View} href={url::Dimension { id: &row.dimension_id, after_write: None, done: None }}>
+                    {t.list_view()}
+                </a>
+            </td>
+        </tr>
+    }
+}
+
+/// A category's row: its key, name, parent (or a dash for a root category), display order and
+/// status; with `select`, its box in the bulk form first.
+#[component(css = ListPage)]
+pub fn CategoryRow<'a>(t: Cat, row: &'a Category, select: Option<Pilot>) -> impl Render {
+    html! {
+        <tr>
+            if let Some(p) = select {
+                <td><SelectRow p={p} id={&row.category_id} status={None} /></td>
+            }
+            <td>{&row.key}</td>
+            <td>{&row.name}</td>
+            <td>{row.parent_category.as_ref().map_or("\u{2014}", |parent| parent.name.as_str())}</td>
+            <td class={Number}>{display_order(row.display_order)}</td>
+            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <a class={View} href={categories::Category { id: &row.category_id, after_write: None, done: None }}>
                     {t.list_view()}
                 </a>
             </td>

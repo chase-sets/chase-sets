@@ -6,7 +6,7 @@ use corten::{
 use corten_ui::{Toast, Toaster};
 
 use crate::{
-    catalog::form::{DimensionInput, FieldInput, OptionInput, ReorderInput},
+    catalog::form::{CategoryInput, DimensionInput, FieldInput, OptionInput, ReorderInput},
     text::{Cat, Pilot},
     views::Draft,
 };
@@ -177,6 +177,41 @@ pub fn FieldForm<'a, I: Id + AttrValue + Copy>(
             </div>
             <div class={Footer}>
                 <button type="submit">{if create { t.field_list_create() } else { t.field_save() }}</button>
+            </div>
+        </form>
+    }
+}
+
+/// A category's create form or its edit form (`CategoryListPage`'s and `CategoryDetailPage`'s
+/// dialogs): the parent is an id, optional on create.
+#[component(css = Dialog)]
+pub fn CategoryForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    create: bool,
+    form: &'a Draft<CategoryInput>,
+) -> impl Patch {
+    let f = CategoryInput::FIELDS;
+    let (i, e) = (&form.input, form.errors.within(id));
+    let (parent, save) = if create {
+        (t.category_list_parent_category_id_optional(), t.category_list_create())
+    } else {
+        (t.category_parent_category_id(), t.category_save())
+    };
+    html! {
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            {form.errors.form_message()}
+            if create {
+                <input type="hidden" name={f.category_id} value={&i.category_id}>
+            }
+            <Input label={t.category_key()} name={f.key} value={&i.key} errors={&e} />
+            <Input label={t.category_name()} name={f.name} value={&i.name} errors={&e} />
+            <Input label={t.category_description()} name={f.description} value={&i.description} errors={&e} />
+            <Input label={parent} name={f.parent_category_id} value={&i.parent_category_id} errors={&e} />
+            <Input label={t.category_display_order()} name={f.display_order} value={&i.display_order} errors={&e} />
+            <div class={Footer}>
+                <button type="submit">{save}</button>
             </div>
         </form>
     }

@@ -64,6 +64,11 @@
 .table tr:last-child td {
   border-bottom: 0;
 }
+/* A number column (`align: "right"`): the category list's display order. */
+.table .number {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
 .view {
   display: inline-flex;
   align-items: center;

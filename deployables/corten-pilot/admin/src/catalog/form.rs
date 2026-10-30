@@ -6,7 +6,7 @@ use corten::prelude::*;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use super::api::{ContentLine, Dimension, DimensionOption, Field, ItemDetail, SelectedOption};
+use super::api::{Category, ContentLine, Dimension, DimensionOption, Field, ItemDetail, SelectedOption};
 use crate::text::Pilot;
 
 /// A new id for a form about to be drawn, as `createId(prefix)` makes it: the API takes the id
@@ -116,6 +116,74 @@ impl FieldInput {
         }
         body
     }
+}
+
+/// A category's create and edit form (admin-web's dialogs): the parent is typed as an id, as
+/// there, and the display order as a number.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct CategoryInput {
+    /// The id a create was drawn with (empty for an edit).
+    pub category_id: String,
+    pub key: String,
+    pub name: String,
+    pub description: String,
+    pub parent_category_id: String,
+    pub display_order: String,
+}
+
+impl CategoryInput {
+    pub fn blank() -> Self {
+        CategoryInput { category_id: new_id("ctg"), display_order: "0".into(), ..Default::default() }
+    }
+
+    pub fn of(c: &Category) -> Self {
+        CategoryInput {
+            category_id: String::new(),
+            key: c.key.clone(),
+            name: c.name.clone(),
+            description: c.description.clone().unwrap_or_default(),
+            parent_category_id: c.parent_category.as_ref().map(|p| p.category_id.clone()).unwrap_or_default(),
+            display_order: display_order(c.display_order),
+        }
+    }
+
+    /// `Number(displayOrder) || 0`: a number typed, else 0.
+    fn order(&self) -> Value {
+        let typed = self.display_order.trim();
+        let number = if typed.is_empty() { Some(0.0) } else { typed.parse::<f64>().ok() };
+        match number.filter(|n| n.is_finite()) {
+            Some(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => json!(n as i64),
+            Some(n) => json!(n),
+            None => json!(0),
+        }
+    }
+
+    /// `createCategory`'s body (an empty parent is left out), or `reviseCategory`'s without the
+    /// id (an empty parent is `null`, which makes it a root category).
+    pub fn body(&self, create: bool) -> Value {
+        let parent = self.parent_category_id.trim();
+        let mut body = json!({
+            "key": self.key,
+            "name": english(&self.name),
+            "description": english(&self.description),
+            "displayOrder": self.order(),
+        });
+        if create {
+            body["categoryId"] = json!(self.category_id);
+            if !parent.is_empty() {
+                body["parentCategoryId"] = json!(parent);
+            }
+        } else {
+            body["parentCategoryId"] = if parent.is_empty() { Value::Null } else { json!(parent) };
+        }
+        body
+    }
+}
+
+/// A display order as `String(display_order)` writes it: `3`, not `3.0`.
+pub fn display_order(order: f64) -> String {
+    if order.fract() == 0.0 && order.abs() < 9.0e15 { (order as i64).to_string() } else { order.to_string() }
 }
 
 /// An option's add and edit form: its code, a number, and a label per locale (rows of

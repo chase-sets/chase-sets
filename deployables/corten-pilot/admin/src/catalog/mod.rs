@@ -23,6 +23,7 @@
 //! | `GET /catalog/jobs/{id}/live` | the job's status, again on each change until it is done (`<corten-live>`) |
 //! | `GET /catalog/scopes?search&status&product_domain&language&page` | the scopes list (`scopes`) |
 //! | `GET /catalog/scopes/{id}` and its writes | a scope's page (`scope`) |
+//! | `GET /catalog/categories?...` and its writes | the categories list and a category's page (`categories`) |
 //!
 //! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
 //! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
@@ -39,6 +40,7 @@ use serde_json::{Map, Value};
 
 pub mod api;
 pub mod attention;
+pub mod categories;
 pub mod form;
 pub mod item;
 pub mod items;
@@ -262,6 +264,7 @@ pub enum Done {
     Created,
     Revised,
     Activated,
+    Published,
     Deprecated,
     Archived,
     OptionAdded,
@@ -275,6 +278,7 @@ impl Done {
     fn of(action: &str) -> Done {
         match action {
             "activate" => Done::Activated,
+            "publish" => Done::Published,
             "deprecate" => Done::Deprecated,
             "archive" => Done::Archived,
             "reactivate" => Done::OptionReactivated,
@@ -288,7 +292,7 @@ impl Done {
         match self {
             Done::Created => t.dimension_list_dimension_created().into(),
             Done::Revised => t.dimension_dimension_revised().into(),
-            Done::Activated => lifecycle(t.dimension_activated()),
+            Done::Activated | Done::Published => lifecycle(t.dimension_activated()),
             Done::Deprecated => lifecycle(t.dimension_deprecated()),
             Done::Archived => lifecycle(t.dimension_archived()),
             Done::OptionAdded => t.dimension_option_added().into(),
@@ -304,10 +308,22 @@ impl Done {
         let lifecycle = |action: &str| t.field_lifecycle_completed(action).to_string();
         match self {
             Done::Created => t.field_list_field_created().into(),
-            Done::Activated => lifecycle(t.field_activated()),
+            Done::Activated | Done::Published => lifecycle(t.field_activated()),
             Done::Deprecated => lifecycle(t.field_deprecated()),
             Done::Archived => lifecycle(t.field_archived()),
             _ => t.field_field_configured().into(),
+        }
+    }
+
+    /// The toast on a category's pages.
+    pub fn category(self, t: Cat) -> String {
+        let lifecycle = |action: &str| t.category_lifecycle_completed(action).to_string();
+        match self {
+            Done::Created => t.category_list_category_created().into(),
+            Done::Activated | Done::Published => lifecycle(t.category_published()),
+            Done::Deprecated => lifecycle(t.category_deprecated()),
+            Done::Archived => lifecycle(t.category_archived()),
+            _ => t.category_category_revised().into(),
         }
     }
 }
@@ -319,6 +335,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = scopes::url::area(area, shared.clone());
     let area = scope::url::area(area, shared.clone());
     let area = attention::url::area(area, shared.clone());
+    let area = categories::url::area(area, shared.clone());
     let area = items::url::area(area, shared.clone());
     item::url::area(area, shared).components(views::COMPONENTS).components(crate::views::LIVE)
 }
@@ -976,8 +993,14 @@ async fn field_lifecycle(
 
 // Bulk changes.
 
-/// The actions a bulk change offers (`lifecycleActions` on both lists).
-const BULK_ACTIONS: [&str; 3] = ["activate", "deprecate", "archive"];
+/// The actions a bulk change of `kind` offers (each list's `lifecycleActions`): a category is
+/// published where the others are activated.
+fn bulk_actions_of(kind: Kind) -> [&'static str; 3] {
+    match kind {
+        Kind::Categories => ["publish", "deprecate", "archive"],
+        _ => ["activate", "deprecate", "archive"],
+    }
+}
 
 /// Whether the viewer may change the area's records: the bulk bar is theirs (its posts need
 /// `catalog.manage`, as the API's do).
@@ -990,6 +1013,7 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
     let actions: Vec<(&str, &str)> = match kind {
         Kind::Dimensions => views::bulk_actions(t.dimension_activate(), t.dimension_deprecate(), t.dimension_archive()).to_vec(),
         Kind::Fields => views::bulk_actions(t.field_activate(), t.field_deprecate(), t.field_archive()).to_vec(),
+        Kind::Categories => views::category_actions(t).to_vec(),
         // admin-web labels the archive with the item page's Archive.
         Kind::Items => views::item_operations(t)
             .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })
@@ -1062,9 +1086,9 @@ fn field_filter(query: &url::FieldQuery) -> Value {
 
 /// The form's message when it is not a change the bar offers, or the checked rows when there
 /// are none; the API decides the rest (which records are ready).
-fn bulk_refusal(p: Pilot, input: &BulkInput) -> Option<Errors> {
+fn bulk_refusal(p: Pilot, kind: Kind, input: &BulkInput) -> Option<Errors> {
     let mut errors = Errors::new();
-    if !BULK_ACTIONS.contains(&input.action.as_str()) || !matches!(input.mode.as_str(), "ids" | "filter") {
+    if !bulk_actions_of(kind).contains(&input.action.as_str()) || !matches!(input.mode.as_str(), "ids" | "filter") {
         errors.add_form(p.catalog_action());
     } else if input.mode == "ids" && input.ids.is_empty() {
         errors.add_form(p.bulk_none_selected());
@@ -1080,7 +1104,7 @@ enum Previewing {
 }
 
 async fn preview(req: &Req, caller: &Caller<'_>, kind: Kind, input: &BulkInput, filter: Value) -> Previewing {
-    if let Some(errors) = bulk_refusal(req.t(), input) {
+    if let Some(errors) = bulk_refusal(req.t(), kind, input) {
         return Previewing::Refused(errors);
     }
     match caller.bulk_preview(kind, &input.body(filter)).await {
@@ -1164,7 +1188,7 @@ enum Confirming {
 }
 
 async fn confirm(req: &Req, caller: &Caller<'_>, kind: Kind, input: &BulkInput, filter: Value) -> Confirming {
-    let errors = match bulk_refusal(req.t(), input) {
+    let errors = match bulk_refusal(req.t(), kind, input) {
         Some(errors) => errors,
         None => match caller.bulk_confirm(kind, &input.body(filter.clone())).await {
             Ok(job) => return Confirming::Started(job),

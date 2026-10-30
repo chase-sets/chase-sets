@@ -324,6 +324,23 @@ pub struct Field {
     pub updated_at: String,
 }
 
+/// `CategoryListItem` (features/categories/ui/contracts.ts), which the detail is too; its parent
+/// is a `CategoryRef`.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct Category {
+    pub category_id: String,
+    pub key: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub status: String,
+    #[serde(default)]
+    pub parent_category: Option<CategoryRef>,
+    #[serde(default)]
+    pub display_order: f64,
+    pub updated_at: String,
+}
+
 /// `CatalogItemListItem` (features/catalog-items/ui/contracts.ts), the fields the list shows.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct ItemRow {
@@ -693,6 +710,7 @@ impl<R> Job<R> {
         match self.kind.as_str() {
             "catalog.authoring.dimensions.lifecycle" => Some(Kind::Dimensions),
             "catalog.authoring.fields.lifecycle" => Some(Kind::Fields),
+            "catalog.authoring.categories.lifecycle" => Some(Kind::Categories),
             "catalog.authoring.items.lifecycle" | ITEMS_PUBLISH | ITEMS_EDIT => Some(Kind::Items),
             _ => None,
         }
@@ -732,6 +750,7 @@ pub struct Written {
 pub enum Kind {
     Dimensions,
     Fields,
+    Categories,
     Items,
     ProductContents,
     ReferenceRecords,
@@ -747,6 +766,7 @@ impl Kind {
         match self {
             Kind::Dimensions => "dimensions",
             Kind::Fields => "fields",
+            Kind::Categories => "categories",
             Kind::Items => "items",
             Kind::ProductContents => "product-contents",
             Kind::ReferenceRecords => "reference-records",

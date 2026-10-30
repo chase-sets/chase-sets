@@ -14,6 +14,7 @@ fn served(path: &str) -> Option<String> {
         (<url::Policies as Route>::PATH, url::Policies::default().href()),
         (<catalog::url::Dimensions as Route>::PATH, catalog::url::Dimensions::default().href()),
         (<catalog::url::Fields as Route>::PATH, catalog::url::Fields::default().href()),
+        (<catalog::categories::url::Categories as Route>::PATH, catalog::categories::url::Categories::default().href()),
         (<catalog::url::Items as Route>::PATH, catalog::url::Items::default().href()),
         (<catalog::url::Scopes as Route>::PATH, catalog::url::Scopes::default().href()),
         (<operations::url::Attention as Route>::PATH, operations::url::Attention.href()),

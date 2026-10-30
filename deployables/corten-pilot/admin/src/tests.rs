@@ -408,6 +408,16 @@ fn catalog_field(id: &str) -> Value {
     })
 }
 
+/// A draft child category under `ctg_root` (the API's `CategoryListItem`: snake_case, its parent
+/// a camelCase `CategoryRef`).
+fn catalog_category(id: &str) -> Value {
+    json!({
+        "category_id": id, "key": "fire", "name": "Fire", "description": "", "status": "draft",
+        "parent_category": { "categoryId": "ctg_root", "name": "Energy types" }, "display_order": 3,
+        "updated_at": "2026-01-01T00:00:00.000Z",
+    })
+}
+
 fn candidate(id: &str, status: &str, outcome: &str, reason: Option<&str>) -> Value {
     json!({ "id": id, "label": format!("Label {id}"), "status": status, "outcome": outcome, "reason": reason })
 }
@@ -690,7 +700,10 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         }
         (
             Method::POST,
-            "/dimensions/bulk-lifecycle/preview" | "/fields/bulk-lifecycle/preview" | "/items/bulk-lifecycle/preview",
+            "/dimensions/bulk-lifecycle/preview"
+            | "/fields/bulk-lifecycle/preview"
+            | "/categories/bulk-lifecycle/preview"
+            | "/items/bulk-lifecycle/preview",
         ) => {
             let sent: Value = serde_json::from_str(body).unwrap();
             let candidates = [
@@ -706,7 +719,10 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         }
         (
             Method::POST,
-            "/dimensions/bulk-lifecycle/confirm" | "/fields/bulk-lifecycle/confirm" | "/items/bulk-lifecycle/confirm",
+            "/dimensions/bulk-lifecycle/confirm"
+            | "/fields/bulk-lifecycle/confirm"
+            | "/categories/bulk-lifecycle/confirm"
+            | "/items/bulk-lifecycle/confirm",
         ) => (StatusCode::ACCEPTED, Json(job("job_1", false))).into_response(),
         (Method::GET, "/bulk-authoring-jobs/job_1") => Json(job("job_1", false)).into_response(),
         (Method::GET, "/bulk-authoring-jobs/job_done") => Json(job("job_done", true)).into_response(),
@@ -734,6 +750,8 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         }
         (Method::GET, "/fields") => Json(json!({ "items": [catalog_field("fld_seed")], "total": 1 })).into_response(),
         (Method::GET, "/fields/fld_seed") => Json(catalog_field("fld_seed")).into_response(),
+        (Method::GET, "/categories") => Json(json!({ "items": [catalog_category("ctg_seed")], "total": 1 })).into_response(),
+        (Method::GET, "/categories/ctg_seed") => Json(catalog_category("ctg_seed")).into_response(),
         (Method::POST | Method::PUT | Method::DELETE, _) => written(StatusCode::OK, "cmd"),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
@@ -1035,6 +1053,81 @@ async fn fields_are_created_configured_and_activated() {
     assert!(html.contains("<dt>Filterable</dt>") && html.contains("<dd>Yes</dd>") && html.contains("<dd>No</dd>"), "{html}");
     assert!(html.contains(r#"name="action" value="activate">Activate</button>"#), "a draft is activated: {html}");
     assert!(html.contains(r#"name="filterable" checked"#), "the configure form starts from the field: {html}");
+}
+
+#[tokio::test]
+async fn categories_are_created_revised_and_published_not_activated() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/catalog/categories?hierarchy=child&parent_category_id=ctg_root", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        pilot.catalog_calls()[0].path,
+        "/api/catalog/categories?parentCategoryId=ctg_root&hierarchy=child&limit=50&offset=0"
+    );
+    assert!(html.contains(r#"href="/catalog/categories/ctg_seed">View</a>"#), "{html}");
+    assert!(html.contains("<td>Energy types</td>"), "a child shows its parent's name: {html}");
+    assert!(html.contains(r#"<option value="child" selected>Child Categories</option>"#), "{html}");
+
+    // A create leaves an empty parent out; an edit sends it as null (a root category).
+    let body = "category_id=ctg_01JZ&key=fire&name=Fire&description=&parent_category_id=&display_order=2";
+    let (status, headers, _) = pilot.send(post("/catalog/categories", body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().ends_with("&done=created"));
+    let body = "key=fire&name=Fire&description=&parent_category_id=&display_order=next";
+    let (status, _, _) = pilot.send(post("/catalog/categories/ctg_seed/edit", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "without JavaScript a write is a redirect");
+    let (status, _, _) = pilot.send(post("/catalog/categories/ctg_seed/lifecycle", "action=publish&status=draft", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let sent = pilot.catalog_writes();
+    let body = |i: usize| serde_json::from_str::<Value>(&sent[i].body).unwrap();
+    assert_eq!((&sent[0].method, sent[0].path.as_str()), (&Method::POST, "/api/catalog/categories"));
+    assert_eq!((body(0)["categoryId"].clone(), body(0)["displayOrder"].clone()), (json!("ctg_01JZ"), json!(2)));
+    assert!(body(0).get("parentCategoryId").is_none(), "{:?}", body(0));
+    assert_eq!((&sent[1].method, sent[1].path.as_str()), (&Method::PUT, "/api/catalog/categories/ctg_seed"));
+    assert_eq!((body(1)["parentCategoryId"].clone(), body(1)["displayOrder"].clone()), (Value::Null, json!(0)));
+    assert!(body(1).get("categoryId").is_none(), "{:?}", body(1));
+    assert_eq!(sent[2].path, "/api/catalog/categories/ctg_seed/publish");
+    assert_eq!(sent.len(), 3);
+
+    // A category is published, never activated: the page offers Publish, and Activate is refused.
+    let (_, _, html) = pilot.send(get("/catalog/categories/ctg_seed", Some("staff"))).await;
+    assert!(html.contains("<dt>Parent Category</dt>") && html.contains("<dd>Energy types</dd>"), "{html}");
+    assert!(html.contains(r#"name="action" value="publish">Publish</button>"#), "a draft is published: {html}");
+    assert!(html.contains(r#"value="ctg_root""#), "the edit form starts from the category: {html}");
+    let (status, _, html) =
+        pilot.send(post("/catalog/categories/ctg_seed/lifecycle", "action=activate&status=draft", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This action is not available here."), "{html}");
+    assert_eq!(pilot.catalog_writes().len(), 3, "nothing more sent");
+}
+
+#[tokio::test]
+async fn a_category_bulk_change_publishes_by_the_lists_filters_and_refuses_activate() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post("/catalog/categories/bulk?hierarchy=root&search=gen", "action=publish&mode=filter", true)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Bulk Publish Preview"), "{html}");
+    assert!(html.contains(r#"action="/catalog/categories/bulk/confirm?search=gen&amp;hierarchy=root""#), "{html}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/categories/bulk-lifecycle/preview");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "action": "publish", "selection": { "mode": "filter", "query": { "search": "gen", "hierarchy": "root" } } })
+    );
+
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post("/catalog/categories/bulk", "action=activate&mode=filter", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This action is not available here."), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
+
+    let (status, headers, _) =
+        pilot.send(post("/catalog/categories/bulk/confirm?hierarchy=root", "action=publish&mode=filter", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().contains("job=job_1"), "{headers:?}");
 }
 
 #[tokio::test]
