@@ -39,7 +39,13 @@ impl ColorMode {
 /// What the session lookup forwards, owned so an `Identify` lookup's future can keep it: the cookies
 /// and the host, or `None` without a session cookie (no lookup, no one signed in).
 pub fn forwarded(headers: &HeaderMap) -> Option<HeaderMap> {
-    cookie::get(headers, SESSION_COOKIE)?;
+    forwarded_for(headers, &[SESSION_COOKIE])
+}
+
+/// [`forwarded`], for a lookup any of `cookies` starts: marketplace's actor is a guest checkout's
+/// when the request has its cookie and no session (`resolveActorFromRequest`).
+pub fn forwarded_for(headers: &HeaderMap, cookies: &[&str]) -> Option<HeaderMap> {
+    cookies.iter().find_map(|name| cookie::get(headers, name))?;
     let mut forward = HeaderMap::new();
     for name in [header::COOKIE, header::HOST] {
         if let Some(value) = headers.get(&name) {

@@ -42,6 +42,16 @@
   background: var(--color-surface-2);
   color: var(--color-text);
 }
+/* A guest's Exit guest checkout, at the bar's end: a button that looks like the entries. */
+.exit {
+  margin: 0 0 0 auto;
+}
+.exit .item {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+}
 .item[aria-current="page"] {
   background: var(--color-primary-soft);
   color: var(--color-primary);

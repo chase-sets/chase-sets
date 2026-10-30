@@ -1,8 +1,14 @@
 //! The buy checkout page (marketplace's `checkout/buy/session/:sessionId`: `checkout-session.tsx`'s
-//! loader and action, and `features/sessions/ui/*`'s model and sections) for a signed-in buyer:
-//! the session the Checkout API keeps, the buyer's saved addresses and payment methods, the
-//! wallet, and Payments' quote for the payable total; Update totals (the review writes) and Pay
-//! now. A guest checkout and a purchase intent (an offer's checkout) are marketplace's page.
+//! loader and action, and `features/sessions/ui/*`'s model and sections) for a signed-in buyer or
+//! a guest checkout: the session the Checkout API keeps, the buyer's saved addresses and payment
+//! methods, the wallet, and Payments' quote for the payable total; Update totals (the review
+//! writes) and Pay now. A guest has no saved address, payment method or wallet, so every step is a
+//! form and Pay now refuses a saved method (`GUEST_SAVED_PAYMENT_UNAVAILABLE`); its payment page is
+//! `/checkout/payments/{id}`. A purchase intent (an offer's checkout) is marketplace's page.
+//!
+//! A guest's contact is not read: marketplace's loader asks Auth for it without the internal
+//! capability the call needs, so it is always empty there too, and no host binds one yet
+//! (chase-sets/chase-sets#5736).
 //!
 //! Every step is a form field of one POST form, so the page works without a script; a step that
 //! is ready shows as a row whose Edit is a link (`?edit=delivery`, marketplace's `edit`). The
@@ -33,7 +39,7 @@ use crate::{
     },
     app::{ACCOUNTS_VIEW, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
     auth::{CheckoutBuyer, Viewer},
-    text::CheckoutMsg,
+    text::{CheckoutMsg, Pilot},
     views::{self, Layout},
 };
 
@@ -312,6 +318,8 @@ pub struct Screen {
     pub instrument: Option<SavedInstrument>,
     pub instruments: Vec<SavedInstrument>,
     pub can_save_payment: bool,
+    /// A guest checkout, not an account.
+    pub guest: bool,
     pub accelerated: bool,
     pub steps: Steps,
     pub can_confirm: bool,
@@ -331,6 +339,7 @@ pub struct Reads {
     pub instruments: Vec<SavedInstrument>,
     pub payment: Option<PaymentPreview>,
     pub can_save_payment: bool,
+    pub guest: bool,
     pub expired: bool,
 }
 
@@ -357,7 +366,7 @@ fn asked_method(place: &Place, instruments: &[SavedInstrument]) -> String {
 
 impl Screen {
     pub fn new(reads: Reads, place: Place, error: Option<String>) -> Screen {
-        let Reads { session, wallet, addresses, instruments, payment, can_save_payment, expired } = reads;
+        let Reads { session, wallet, addresses, instruments, payment, can_save_payment, guest, expired } = reads;
         let creates_orders = session.source_type != "offer-intent";
         let preview = if expired || !creates_orders { None } else { session.fulfillment_preview_snapshot.clone() };
         let preview_missing = !expired && creates_orders && preview.is_none();
@@ -408,15 +417,18 @@ impl Screen {
 
         let edit = place.edit();
         let first_group = preview.as_ref().and_then(|p| p.seller_groups.first()).is_some();
+        // A guest's steps other than its contact are never rows (`signedInBuyCheckout`), and its
+        // contact cannot be opened again (`canEditCollapsedContact`).
         let contact = address.email.as_deref().is_some_and(|e| !e.trim().is_empty());
-        let delivery = complete(&address);
-        let payment_ready = instrument.is_some();
+        let delivery = !guest && complete(&address);
+        let first_group = !guest && first_group;
+        let payment_ready = !guest && instrument.is_some();
         let steps = Steps {
             contact,
             delivery,
             shipping: first_group,
             payment: payment_ready,
-            show_contact: !contact || edit == Some(Edit::Contact),
+            show_contact: !contact || (!guest && edit == Some(Edit::Contact)),
             show_delivery: !delivery || edit == Some(Edit::Delivery),
             show_shipping: !first_group || edit == Some(Edit::Shipping),
             show_payment: !payment_ready || edit == Some(Edit::Payment),
@@ -474,6 +486,7 @@ impl Screen {
             instrument,
             instruments,
             can_save_payment,
+            guest,
             accelerated,
             steps,
             can_confirm,
@@ -576,6 +589,10 @@ async fn render(
         Err(error) if ended(&error) => return sign_in(req),
         Err(error) if receipt.is_some() && error.catching_up() => return recovery(req, viewer, Recovery::Preparing).await,
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => return recovery(req, viewer, Recovery::NotFound).await,
+        // A guest whose checkout is no longer its own starts again (the loader's 403 for a guest).
+        Err(error) if error.status() == Some(StatusCode::FORBIDDEN) && viewer.guest() => {
+            return req.redirect(&url::CheckoutStart);
+        }
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
             return recovery(req, viewer, Recovery::WrongAccount).await;
         }
@@ -593,8 +610,9 @@ async fn render(
     }
     let expired = expired(&session, SystemTime::now());
     let actor = &viewer.actor;
+    let guest = viewer.guest();
     let wallet = async {
-        if !actor.can(PAYOUTS_VIEW) {
+        if guest || !actor.can(PAYOUTS_VIEW) {
             return WalletRead::NotAsked;
         }
         match caller.wallet().await {
@@ -609,7 +627,7 @@ async fn render(
         }
     };
     let addresses = async {
-        if !actor.can(ACCOUNTS_VIEW) {
+        if guest || !actor.can(ACCOUNTS_VIEW) {
             return Vec::new();
         }
         caller.checkout_addresses().await.unwrap_or_else(|error| {
@@ -618,6 +636,9 @@ async fn render(
         })
     };
     let instruments = async {
+        if guest {
+            return Vec::new();
+        }
         caller.checkout_instruments().await.unwrap_or_else(|error| {
             tracing::warn!("the saved payment methods could not be read: {error}");
             Vec::new()
@@ -641,7 +662,8 @@ async fn render(
                 .ok()
         }
     };
-    let reads = Reads { session, wallet, addresses, instruments, payment, can_save_payment: actor.can(ORDERS_MANAGE), expired };
+    let can_save_payment = !guest && actor.can(ORDERS_MANAGE);
+    let reads = Reads { session, wallet, addresses, instruments, payment, can_save_payment, guest, expired };
     let (status, error) = refused.map_or((StatusCode::OK, None), |(status, error)| (status, Some(error)));
     let screen = Screen::new(reads, place, error);
     let t: CheckoutMsg = req.t();
@@ -714,7 +736,7 @@ pub(crate) async fn confirmation(
     let caller = config.platform.caller(&headers, config.proto, None);
     let payment = caller.checkout_payment_summary(&payment_id).await.ok();
     let after_write = place.after_write.clone().filter(|a| !a.is_empty());
-    let payment_href = url::BuyerPayment { id: &payment_id, place: crate::payment::Place { after_write } }.href();
+    let payment_href = payment_href(viewer.guest(), &payment_id, after_write);
     let screen = ConfirmationScreen {
         support_reference: support_reference(&session),
         session_id: session.session_id,
@@ -730,6 +752,16 @@ pub(crate) async fn confirmation(
         &screen,
         html! { <Layout req={&req} viewer={Some(&viewer)} title={t.confirmation_route_title()} head={head}>{view}</Layout> },
     )
+}
+
+/// The payment's page, read after `after_write`: an account's, or a guest checkout's
+/// (`paymentPathForActor`).
+pub fn payment_href(guest: bool, id: &str, after_write: Option<String>) -> String {
+    if guest {
+        url::GuestPayment { id, place: crate::payment::GuestPlace { after_write, ..Default::default() } }.href()
+    } else {
+        url::BuyerPayment { id, place: crate::payment::Place { after_write } }.href()
+    }
 }
 
 /// Marketplace's own page at `path`.
@@ -835,6 +867,15 @@ pub(crate) async fn write(
                 }
                 Err(error) => refused(error, here).await,
             }
+        }
+        // A guest has no saved payment method and cannot save one (`GUEST_SAVED_PAYMENT_UNAVAILABLE`).
+        "confirm-checkout"
+            if viewer.guest()
+                && (reviewed(&form.saved_checkout_instrument_id).is_some() || form.save_payment_method_for_future == "true") =>
+        {
+            let p: Pilot = req.t();
+            let refused = (StatusCode::UNPROCESSABLE_ENTITY, p.guest_saved_payment_unavailable().to_owned());
+            render(&req, &viewer, &config, &headers, &id, here, Some(refused)).await
         }
         "confirm-checkout" => {
             let session = match caller.checkout_session(&id).await {
@@ -1017,6 +1058,7 @@ mod tests {
                 ..Default::default()
             }),
             can_save_payment: true,
+            guest: false,
             expired: false,
         }
     }

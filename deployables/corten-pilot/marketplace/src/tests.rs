@@ -353,6 +353,13 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     });
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
     let session = cookie.split(';').find_map(|pair| pair.trim().strip_prefix("chase_sets_session=")).unwrap_or_default();
+    // A guest checkout as the browser has one: its cookie and no session (`resolveGuestCheckoutActor`).
+    let guest_token = cookie.split(';').find_map(|pair| pair.trim().strip_prefix("chase_sets_guest_checkout="));
+    if uri.path() == "/api/auth/session" && session.is_empty() && guest_token.is_some_and(|t| t.starts_with("gst_")) {
+        let permissions = ["guest-checkout.manage"];
+        return Json(json!({ "actor": { "userId": "usr_guest", "accountId": "acc_guest", "roleKey": "guest-buyer", "permissions": permissions } }))
+            .into_response();
+    }
     if uri.path() == "/api/auth/session" && session == "payment_staff" {
         // Platform staff who may see a payment's provider details.
         let permissions = ["orders.view", "support.manage"];
@@ -942,8 +949,21 @@ fn payment_methods(session: &str, method: &Method, path: &str, body: &str) -> Op
 /// write and `pay_broken` fails. Any other is not the account's. The orders: `ord_pay` ships to
 /// the checkout's address and is due 2026-10-29, `ord_noemail` has no email.
 fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    // Retry payment: a new payment for the orders, at the quote Payments gives for them again.
+    if *method == Method::POST && uri.path() == "/api/marketplace/account/checkout/recover" {
+        let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+        let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
+        return Some(
+            (StatusCode::CREATED, headers, Json(json!({ "payment_id": "pay_retry", "status": "pending-confirmation" })))
+                .into_response(),
+        );
+    }
     if *method != Method::GET {
         return None;
+    }
+    if uri.path() == "/api/marketplace/account/checkout/status" {
+        let quote = json!({ "payment_method_category": "card", "total_amount": "638.83", "quote_fingerprint": "fp-retry" });
+        return Some(Json(json!({ "marketplace_checkout_fee": quote, "payment_method_quotes": [quote] })).into_response());
     }
     if uri.path() == "/api/marketplace/account/order-inputs" {
         let asked = uri.query().unwrap_or_default();
@@ -1007,6 +1027,8 @@ fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<R
             ));
         }
         "pay_broken" => return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        // A guest's payment its guest checkout no longer reaches.
+        "pay_gone" => return Some(refusal(StatusCode::FORBIDDEN, "forbidden", "Forbidden.")),
         _ => return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Payment not found.")),
     }
     Some(Json(payment).into_response())
@@ -3574,7 +3596,7 @@ async fn buy_this_listing_starts_a_checkout_session_once_per_form() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Your selection changed after you chose Buy now."), "{html}");
     // A visitor's is checkout start's Continue: a guest checkout under a new guest identity, with
-    // the form's key, then the guest's checkout.
+    // the form's key, then the guest's checkout, the pilot's page.
     let req = Request::post(ITEM_BUY)
         .header(header::HOST, "localhost:7791")
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
@@ -3582,7 +3604,7 @@ async fn buy_this_listing_starts_a_checkout_session_once_per_form() {
         .unwrap();
     let (status, headers, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
-    assert_eq!(headers[header::LOCATION], "http://localhost:7753/checkout/buy/session/chk_1");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1"), "{headers:?}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     assert_eq!(calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
     let sessions: Vec<_> = calls.iter().filter(|c| c.path.ends_with("/checkout-sessions")).collect();
@@ -4999,11 +5021,11 @@ async fn buy_this_listing_starts_a_checkout_for_an_account_and_sends_a_guest_to_
         (&sent["source"]["type"], &sent["source"]["lockedListingId"], &sent["source"]["quantity"]),
         (&json!("buy-now"), &json!("lst_psa_8"), &json!(1))
     );
-    // A guest checkout: checkout start's Continue under the guest's own access, then marketplace's
-    // guest checkout page.
+    // A guest checkout: checkout start's Continue under the guest's own access, then the pilot's
+    // checkout page.
     let (status, headers, html) = pilot.send(post("/listings/psa-8/buy", "guest", &format!("attempt={KEY}"), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
-    assert_eq!(headers["location"], "http://localhost:7753/checkout/buy/session/chk_1");
+    assert!(headers["location"].to_str().unwrap().starts_with("/checkout/buy/session/chk_1"), "{headers:?}");
     let call = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/checkout-sessions")).cloned().unwrap();
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(
@@ -11223,17 +11245,15 @@ async fn a_session_that_is_not_the_buyers_checkout_says_what_it_is() {
     assert_eq!(status, StatusCode::ACCEPTED, "{html}");
     assert!(text(&html).contains("Preparing checkout"), "{html}");
     assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "{html}");
-    // A purchase intent's checkout and a guest's are marketplace's; signed out goes to sign-in.
+    // A purchase intent's checkout is marketplace's, a guest's is the page (see
+    // `a_guest_checkout_is_the_pilots_page_with_every_step_a_form`); signed out goes to sign-in.
     let (status, headers, _) = pilot.send(get("/checkout/buy/session/chk_offer", Some("payer"))).await;
     assert_eq!(
         (status, headers[header::LOCATION].to_str().unwrap()),
         (StatusCode::SEE_OTHER, "http://localhost:7753/checkout/buy/session/chk_offer")
     );
-    let (status, headers, _) = pilot.send(get(CHECKOUT_SCREEN, Some("guest"))).await;
-    assert_eq!(
-        (status, headers[header::LOCATION].to_str().unwrap()),
-        (StatusCode::SEE_OTHER, "http://localhost:7753/checkout/buy/session/chk_1")
-    );
+    let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("guest"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
     let (status, headers, _) = pilot.send(get(CHECKOUT_SCREEN, None)).await;
     assert_eq!(
         (status, headers[header::LOCATION].to_str().unwrap()),
@@ -11421,15 +11441,12 @@ async fn a_payment_that_is_not_the_accounts_or_not_ready_says_so() {
     assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "{html}");
     let (status, _, html) = pilot.send(get("/account/payments/pay_broken", Some("payer"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
-    // Who may see it: a buyer without orders.view may not, a guest's is marketplace's, and signed
-    // out signs in and comes back.
+    // Who may see it: a buyer without orders.view may not, nor a guest (whose payment is
+    // `/checkout/payments/{id}`), and signed out signs in and comes back.
     let (status, _, _) = pilot.send(get("/account/payments/pay_1", Some("buyer"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    let (status, headers, _) = pilot.send(get("/account/payments/pay_1", Some("guest"))).await;
-    assert_eq!(
-        (status, headers[header::LOCATION].to_str().unwrap()),
-        (StatusCode::SEE_OTHER, "http://localhost:7753/account/payments/pay_1")
-    );
+    let (status, _, _) = pilot.send(get("/account/payments/pay_1", Some("guest"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, headers, _) = pilot.send(get("/account/payments/pay_1", None)).await;
     assert_eq!(
         (status, headers[header::LOCATION].to_str().unwrap()),
@@ -14971,11 +14988,8 @@ async fn the_payment_methods_are_an_accounts_with_orders_view() {
     assert!(headers[header::LOCATION].to_str().unwrap().contains("payment-methods"), "sign in and back");
     let (status, _, _) = pilot.send(get(PAYMENT_METHODS, Some("buyer"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    let (status, headers, _) = pilot.send(get(PAYMENT_METHODS, Some("guest"))).await;
-    assert_eq!(
-        (status, headers[header::LOCATION].to_str().unwrap()),
-        (StatusCode::SEE_OTHER, "http://localhost:7753/account/payment-methods")
-    );
+    let (status, _, _) = pilot.send(get(PAYMENT_METHODS, Some("guest"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a guest checkout has no saved payment methods");
 }
 
 const IMPORT_BATCHES: &str = "/api/inventory/import-batches";
@@ -16468,7 +16482,7 @@ async fn checkout_start_for_a_visitor_starts_a_guest_checkout_and_keeps_its_toke
     let cookie = "chase_sets_anonymous_cart=anon_full";
     let (status, headers, html) = pilot.send(visitor_post(START_LISTING, Some(cookie), "entryAttemptKey=chkentry_01GUEST")).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
-    assert_eq!(headers[header::LOCATION], "http://localhost:7753/checkout/buy/session/chk_1");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1"), "{headers:?}");
     let set: Vec<_> = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
     assert!(set.iter().any(|c| c.starts_with("chase_sets_guest_checkout=gst_new;") && c.contains("Max-Age=")), "{set:?}");
     assert!(set.iter().any(|c| c.starts_with("chase_sets_anonymous_cart=;")), "the guest cart is forgotten: {set:?}");
@@ -16489,4 +16503,117 @@ async fn checkout_start_for_a_visitor_starts_a_guest_checkout_and_keeps_its_toke
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Your Buy Cart is empty"), "{html}");
     assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
+}
+
+/// A request as a guest checkout's browser sends it: the guest checkout's cookie and no session.
+fn as_guest(method: Method, uri: &str, body: &str) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::HOST, "localhost:7791")
+        .header(header::COOKIE, "chase_sets_guest_checkout=gst_1")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(body.to_owned()))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_guest_checkout_is_the_pilots_page_with_every_step_a_form() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(as_guest(Method::GET, CHECKOUT_SCREEN, "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Enter contact, delivery, shipping, and payment details before secure payment starts."), "{page}");
+    assert!(page.contains("Guest checkout contact and shipping details are used for this checkout"), "{page}");
+    // The bar ends with Exit guest checkout, as marketplace's does.
+    assert!(html.contains(r#"action="/guest-checkout/exit""#), "{html}");
+    assert!(page.contains("Exit guest checkout"), "{page}");
+    // No saved addresses or payment methods are read, and every step is a form.
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(!calls.iter().any(|c| c.path.contains("ship-from-addresses")), "no address book for a guest");
+    assert!(!calls.iter().any(|c| c.path.contains("checkout-payment-affordances")), "no saved methods for a guest");
+    assert!(html.contains(r#"data-step="delivery""#), "{html}");
+    assert!(!html.contains("?edit=contact"), "a guest's contact is not opened again: {html}");
+    // A saved payment method needs an account.
+    let body = "intent=confirm-checkout&savedCheckoutInstrumentId=ins_1&shippingEmail=g%40example.test";
+    let (status, _, html) = pilot.send(as_guest(Method::POST, CHECKOUT_SCREEN, body)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Saved payment methods are available after sign-in."), "{html}");
+    assert!(checkout_writes(&pilot).is_empty(), "nothing is written");
+}
+
+#[tokio::test]
+async fn a_guest_payment_is_the_pilots_page_with_retry_and_save() {
+    let pilot = Pilot::new().await;
+    // Waiting for the guest: Stripe's step and the watch, read at the guest's address, and no
+    // account links.
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_1", "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("/checkout/payments/pay_1/status?since=pending-confirmation&amp;until="), "{html}");
+    assert!(!html.contains(r#"href="/account/purchases""#), "no Back to purchases: {html}");
+    assert!(!html.contains(r#"href="/account/purchases/ord_pay""#), "no Open purchase: {html}");
+    let until = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 60;
+    let mut part =
+        as_guest(Method::GET, &format!("/checkout/payments/pay_1/status?since=pending-confirmation&until={until}"), "");
+    part.headers_mut().insert("corten", "action".parse().unwrap());
+    let (status, _, html) = pilot.send(part).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-from="/checkout/payments/pay_1/status?since=pending-confirmation"#), "{html}");
+
+    // A failed payment: Retry payment is a form; it asks Payments for the orders' quote again and
+    // a new payment at it, then goes to the new payment, read after it.
+    let (_, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_failed", "")).await;
+    assert!(html.contains(r#"action="/checkout/payments/pay_failed""#) && html.contains(r#"value="retry-payment""#), "{html}");
+    assert!(!html.contains("/account/payments/new"), "{html}");
+    let (status, headers, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_failed", "intent=retry-payment")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/payments/pay_retry?afterWrite="), "{headers:?}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let quoted = calls.iter().find(|c| c.path.starts_with("/api/marketplace/account/checkout/status")).unwrap();
+    assert!(
+        quoted.path.contains("orderIds=ord_pay") && quoted.path.contains("requestedBalanceCreditAmount=25.00"),
+        "{}",
+        quoted.path
+    );
+    let recover = calls.iter().find(|c| c.path == "/api/marketplace/account/checkout/recover").unwrap();
+    let sent: Value = serde_json::from_str(&recover.body).unwrap();
+    assert_eq!(sent["marketplaceCheckoutFeeQuoteFingerprint"], "fp-retry");
+    assert_eq!(sent["returnUrlPath"], "/checkout/payments/:paymentId");
+    assert_eq!(sent["orderIds"], json!(["ord_pay"]));
+    assert_eq!(sent["paymentMethodCategory"], "card");
+    // A payment that is still open cannot be retried.
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_1", "intent=retry-payment")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("This payment cannot be retried."), "{html}");
+
+    // Paid: Save this order, marketplace's page at the same address.
+    let (_, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid", "")).await;
+    assert!(text(&html).contains("Save this order"), "{html}");
+    assert!(html.contains(r#"href="http://localhost:7753/checkout/payments/pay_paid""#), "{html}");
+    // A claim link's landing goes on to marketplace's page with it.
+    let (status, headers, _) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid?claimContinuation=cc_1", "")).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "http://localhost:7753/checkout/payments/pay_paid?claimContinuation=cc_1")
+    );
+
+    // An account goes to its own payment page; no guest checkout, or one Payments refuses, is told
+    // the link is no longer good.
+    let (status, headers, _) = pilot.send(get("/checkout/payments/pay_1", Some("payer"))).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/payments/pay_1"));
+    let (status, _, html) = pilot.send(get("/checkout/payments/pay_1", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    assert!(text(&html).contains("This guest checkout payment link is invalid or expired."), "{html}");
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_gone", "")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+}
+
+#[tokio::test]
+async fn a_guests_started_payment_continues_on_the_guest_payment_page() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/buy/session/chk_paid", "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"href="/checkout/payments/pay_1""#), "{html}");
+    assert!(!html.contains(r#"href="/account/payments/pay_1""#), "{html}");
 }

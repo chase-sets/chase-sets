@@ -146,7 +146,9 @@ pub fn CheckoutPage<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 <div class={HeaderText}>
                     <p class={Eyebrow}>{t.page_secure_checkout()}</p>
                     <h1 class={Title}>{t.page_checkout()}</h1>
-                    <p class={Muted}>{t.page_signed_in_checkout_description()}</p>
+                    <p class={Muted}>
+                        {if screen.guest { t.page_simple_checkout_description() } else { t.page_signed_in_checkout_description() }}
+                    </p>
                 </div>
                 <a class={(Button, Secondary)} href={url::Cart::default()}>{t.page_back_to_cart()}</a>
             </header>
@@ -513,6 +515,9 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                     <a href={on_marketplace("/refunds-and-returns")}>{t.policy_refunds()}</a>
                 </p>
                 <p class={Muted}>{t.policy_description()}</p>
+                if screen.guest {
+                    <p class={Muted}>{t.page_guest_data_description()}</p>
+                }
             </section>
         </form>
     }
@@ -648,7 +653,7 @@ fn SavedRows<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                         detail={&contact_text}
                         ready={t.page_ready()}
                         status="success"
-                        edit={(!s.show_contact).then(|| (edit(Edit::Contact).href(), t.page_edit_contact()))}
+                        edit={(!s.show_contact && !screen.guest).then(|| (edit(Edit::Contact).href(), t.page_edit_contact()))}
                     />
                 }
                 if s.delivery {
@@ -776,7 +781,7 @@ fn StickyBar<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 <p class={StepDescription}>{t.page_secure_checkout_context()}</p>
             </div>
             if let Some(payment) = &screen.session.payment_id {
-                <a class={(Button, Wide)} href={url::BuyerPayment { id: payment, place: Default::default() }}>
+                <a class={(Button, Wide)} href={crate::checkout::payment_href(screen.guest, payment, None)}>
                     {t.page_continue_to_payment()}
                 </a>
             } else {
@@ -787,7 +792,7 @@ fn StickyBar<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
 }
 
 /// Once Pay now started the payment (`CheckoutConfirmationSection`): the references, the total
-/// and the next steps, and Continue to payment, marketplace's payment page (not ported).
+/// and the next steps, and Continue to payment: the payment's page, an account's or a guest's.
 #[component(css = CheckoutPage)]
 fn Confirmation<'a>(t: CheckoutMsg, screen: &'a Screen, payment: &'a str) -> impl Render {
     let s = &screen.session;
@@ -829,7 +834,7 @@ fn Confirmation<'a>(t: CheckoutMsg, screen: &'a Screen, payment: &'a str) -> imp
                 }
             </ul>
             <p>
-                <a class={Button} href={url::BuyerPayment { id: payment, place: Default::default() }}>
+                <a class={Button} href={crate::checkout::payment_href(screen.guest, payment, None)}>
                     {t.page_continue_to_payment()}
                 </a>
             </p>

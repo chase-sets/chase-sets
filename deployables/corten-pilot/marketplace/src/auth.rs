@@ -51,8 +51,11 @@ enum Found {
     Unknown,
 }
 
+/// Whose the request is: its session, else its guest checkout (a guest has only the guest
+/// checkout's cookie, and the API answers with the guest's actor, as marketplace resolves it).
 async fn find(parts: &Parts, config: &Shared) -> Found {
-    let Some(forward) = session::forwarded(&parts.headers) else { return Found::SignedOut };
+    let cookies = [session::SESSION_COOKIE, crate::sign_in::GUEST_CHECKOUT_COOKIE];
+    let Some(forward) = session::forwarded_for(&parts.headers, &cookies) else { return Found::SignedOut };
     let color_mode = ColorMode::from_headers(&parts.headers);
     // A session the write just started is read after that write, as marketplace's
     // `resolveActorFromAuthContext` reads it with the address's receipt: an invitation's
@@ -218,17 +221,15 @@ impl Identify<Shared> for Buyer {
     }
 }
 
-/// A buyer on the buy checkout page: an account. A guest checkout's session is marketplace's page
-/// at the same address (the guest checkout is not ported); anyone not signed in signs in and comes
-/// back to the page.
+/// A buyer on the buy checkout page: an account, or a guest checkout (`Viewer::guest`), as
+/// marketplace's loader reads either; anyone else signs in and comes back to the page.
 #[derive(Clone, Debug, Hash)]
 pub struct CheckoutBuyer(pub Viewer);
 
 impl Identify<Shared> for CheckoutBuyer {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
         match find(parts, config).await {
-            Found::Account(viewer) if !viewer.actor.can(GUEST_CHECKOUT) => Ok(CheckoutBuyer(viewer)),
-            Found::Account(_) => Err(sign_in(views::marketplace(parts.uri.path_and_query().map_or("/", |p| p.as_str())))),
+            Found::Account(viewer) => Ok(CheckoutBuyer(viewer)),
             Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
         }
@@ -237,18 +238,16 @@ impl Identify<Shared> for CheckoutBuyer {
 
 /// A buyer on its payment's page (Payments' `account-payment`): an account with `orders.view`, as
 /// marketplace's loader requires (the API checks again and answers only the account's own
-/// payment). A guest's payment is marketplace's page at the same address (the guest payment page is
-/// not ported); anyone not signed in signs in and comes back to the page.
+/// payment). A guest checkout has no `orders.view`, so it is refused, as marketplace refuses it: a
+/// guest's payment is `/checkout/payments/{id}` (see `payment`). Anyone not signed in signs in and
+/// comes back to the page.
 #[derive(Clone, Debug, Hash)]
 pub struct PaymentBuyer(pub Viewer);
 
 impl Identify<Shared> for PaymentBuyer {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
         match find(parts, config).await {
-            Found::Account(viewer) if viewer.actor.can(GUEST_CHECKOUT) => {
-                Err(sign_in(views::marketplace(parts.uri.path_and_query().map_or("/", |p| p.as_str()))))
-            }
-            Found::Account(viewer) if viewer.actor.can(ORDERS_VIEW) => Ok(PaymentBuyer(viewer)),
+            Found::Account(viewer) if viewer.actor.can(ORDERS_VIEW) && !viewer.guest() => Ok(PaymentBuyer(viewer)),
             Found::Account(_) => Err(Refused::forbidden()),
             Found::SignedOut => Err(sign_in(back_to(parts))),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
@@ -614,6 +613,14 @@ impl Identify<Shared> for OfferBuyer {
 pub struct Viewer {
     pub actor: Actor,
     pub color_mode: ColorMode,
+}
+
+impl Viewer {
+    /// A guest checkout, not an account (marketplace's `guest-buyer` role, with
+    /// `guest-checkout.manage`).
+    pub fn guest(&self) -> bool {
+        self.actor.can(GUEST_CHECKOUT) || self.actor.role_key == "guest-buyer"
+    }
 }
 
 impl nav::Reader for Viewer {

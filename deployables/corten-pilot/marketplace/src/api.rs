@@ -7178,6 +7178,17 @@ pub trait PaymentCalls {
     async fn account_payment(&self, id: &str) -> Result<Option<AccountPayment>, ApiError>;
     /// The payment's orders (`GET /account/order-inputs?orderIds=..`).
     async fn payment_orders(&self, ids: &[String]) -> Result<Vec<PaymentOrder>, ApiError>;
+    /// What Payments quotes for paying a payment's orders again (`GET /account/checkout/status`),
+    /// with its wallet credit and method.
+    async fn checkout_status(&self, payment: &AccountPayment) -> Result<PaymentPreview, ApiError>;
+    /// A new payment for a failed or closed one's orders at the quote `fingerprint`
+    /// (`POST /account/checkout/recover`), the provider sent back to `return_path`.
+    async fn recover_payment(
+        &self,
+        payment: &AccountPayment,
+        fingerprint: &str,
+        return_path: &str,
+    ) -> Result<(AccountPayment, Option<Receipt>), ApiError>;
 }
 
 impl PaymentCalls for Caller<'_> {
@@ -7196,6 +7207,34 @@ impl PaymentCalls for Caller<'_> {
         let ids = ids.iter().map(|id| segment(id)).collect::<Vec<_>>().join(",");
         let orders: PaymentOrders = self.read(&format!("/api/marketplace/account/order-inputs?orderIds={ids}"), PAYMENTS).await?;
         Ok(orders.orders)
+    }
+
+    async fn checkout_status(&self, payment: &AccountPayment) -> Result<PaymentPreview, ApiError> {
+        let ids = payment.order_ids.iter().map(|id| segment(id)).collect::<Vec<_>>().join(",");
+        let path = format!(
+            "/api/marketplace/account/checkout/status?orderIds={ids}&currencyCode={}&requestedBalanceCreditAmount={}&paymentMethodCategory={}",
+            segment(&payment.currency_code),
+            segment(&payment.balance_credit_amount),
+            segment(payment.payment_method_category.as_deref().unwrap_or("card"))
+        );
+        self.read(&path, PAYMENTS).await
+    }
+
+    async fn recover_payment(
+        &self,
+        payment: &AccountPayment,
+        fingerprint: &str,
+        return_path: &str,
+    ) -> Result<(AccountPayment, Option<Receipt>), ApiError> {
+        let body = serde_json::json!({
+            "orderIds": payment.order_ids,
+            "currencyCode": payment.currency_code,
+            "requestedBalanceCreditAmount": payment.balance_credit_amount,
+            "paymentMethodCategory": payment.payment_method_category.as_deref().unwrap_or("card"),
+            "marketplaceCheckoutFeeQuoteFingerprint": fingerprint,
+            "returnUrlPath": return_path,
+        });
+        self.write(self.request(Method::POST, "/api/marketplace/account/checkout/recover", PAYMENTS).json(&body)).await
     }
 }
 

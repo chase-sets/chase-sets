@@ -2,7 +2,13 @@
   "shell": {
     "marketplace": "Chase Sets Marketplace",
     "navigation": "Marketplace",
-    "pilot": "Corten pilot"
+    "pilot": "Corten pilot",
+    "exit_guest_checkout": "Exit guest checkout"
+  },
+  "guest": {
+    "saved_payment_unavailable": "Saved payment methods are available after sign-in. Continue with card payment.",
+    "payment_link_expired_title": "Guest checkout link expired",
+    "payment_link_expired": "This guest checkout payment link is invalid or expired."
   },
   "check": {
     "required": "Enter a value.",

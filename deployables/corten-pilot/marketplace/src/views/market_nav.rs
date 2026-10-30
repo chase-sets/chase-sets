@@ -53,8 +53,9 @@ fn active<'a>(items: &[(&'a NavItem, Vec<&'a NavItem>)], path: &str) -> Option<&
 }
 
 /// marketplace's top bar: the entries the seller can open, groups as menus. An entry the pilot
-/// serves (`OWN`) links to the pilot; every other one to marketplace. (Not ported: the bottom bar, the
-/// account menu and the cart count.)
+/// serves (`OWN`) links to the pilot; every other one to marketplace. A guest checkout's bar ends with Exit
+/// guest checkout, as marketplace's does. (Not ported: the bottom bar, the account menu and the
+/// cart count.)
 #[component(css)]
 pub fn MarketNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render {
     let items = auth::top_nav(viewer);
@@ -99,6 +100,11 @@ pub fn MarketNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render
                     }
                 </ul>
             </nav>
+            if viewer.guest() {
+                <form class={Exit} method="post" action={url::home::GuestCheckoutExit}>
+                    <button type="submit" class={Item}>{p.shell_exit_guest_checkout()}</button>
+                </form>
+            }
         </header>
     }
 }

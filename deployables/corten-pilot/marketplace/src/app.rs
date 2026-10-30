@@ -21,6 +21,7 @@
 //! | `POST /account/cart/lock` | lock a line to its preferred listing |
 //! | `POST /account/cart/checkout` | start a checkout session, then marketplace's checkout |
 //! | `GET /checkout/buy/readiness?<entry>`, `POST ..` | checkout start for a listing, an offer or the cart, and Continue (see `checkout_start`) |
+//! | `GET /checkout/payments/{id}?<place>`, `POST ..`, `../status?<watch>` | a guest checkout's payment, its Retry payment and its status part (see `payment`) |
 //! | `GET /items/{slug}?<choice>` | an item, its product options and its market book, to anyone |
 //! | `POST /items/{slug}/cart`, `/buy`, `/offer`, `/sell-list`, `/watch` | the rail's buy, sell and watch forms |
 //! | `POST /items/{slug}/save` | Add to List: add the product to a Saved List, or a guest's intent |
@@ -170,6 +171,7 @@ pub mod url {
     pub use consents::Consents;
     pub use desk::Desk;
     pub use desk_offers::DeskOffers;
+    pub use guest_payments::{GuestPayment, GuestPaymentStatus};
     pub use home::Home;
     pub use inventory::{
         Archive, ImportBatch, ImportCommit, ImportExport, ImportResolve, ImportTemplate, Imports, Inventory, Location, Locations,
@@ -1054,6 +1056,35 @@ pub mod url {
         }
     }
 
+    /// A guest checkout's payment (Payments' `checkout-payment`, the same page as an account's, see
+    /// `payment`): the page and its Retry payment, and its status part. Its handlers take who is
+    /// asking, if anyone: an account is sent to its own payment page, and anyone else is told the
+    /// link is no longer good.
+    #[corten::routes(state = crate::app::Shared, area = GuestPaymentsArea)]
+    pub mod guest_payments {
+        /// The prefix, with no page: a guest reaches its payment from its checkout.
+        #[route("/checkout/payments")]
+        pub struct GuestPaymentsArea;
+
+        /// The payment, read after the write whose receipt it carries; Retry payment posts to it.
+        #[derive(Clone, Debug)]
+        #[route("/checkout/payments/{id}", get = crate::payment::guest_page, post = crate::payment::guest_retry)]
+        pub struct GuestPayment<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub place: crate::payment::GuestPlace,
+        }
+
+        /// The payment's status part, read again while the payment waits for the guest.
+        #[derive(Clone, Debug)]
+        #[route("/checkout/payments/{id}/status", get = crate::payment::guest_status)]
+        pub struct GuestPaymentStatus<'a> {
+            pub id: &'a str,
+            #[route(query)]
+            pub watch: crate::payment::Watch,
+        }
+    }
+
     /// The account's saved payment methods (Payments' `account-payment-methods`, see
     /// `payment_methods`): the page, and its writes, which post to it as marketplace's form does.
     /// Every handler takes a `PaymentBuyer` (`orders.view`; Payments needs `orders.manage` to write).
@@ -1743,6 +1774,7 @@ pub fn app(config: Config) -> App {
         // Stripe.js and its fields are allowed on the payment pages and the saved payment methods
         // only (todd-skelton/corten#275).
         .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
+        .area(|area| url::guest_payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
         .area(|area| url::payment_methods::area(area, shared.clone()).components(views::PAYMENT_METHODS).policy(stripe))
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))

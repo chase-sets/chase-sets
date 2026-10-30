@@ -20,8 +20,8 @@
 //! A refusal is the page with marketplace's recovery for it (`checkoutRecoveryForError`). The
 //! item and listing pages' Buy for a guest or a visitor is this Continue (`buy_as_guest`):
 //! marketplace's action re-sends the form here with a 307, and the pilot calls it instead, since a
-//! Corten redirect is a 303 (a GET). A guest's checkout page is still marketplace's, so a guest
-//! goes on to it.
+//! Corten redirect is a 303 (a GET). Either goes on to the pilot's checkout page, which a guest
+//! checkout's session reads too.
 use std::collections::BTreeMap;
 
 use corten::{
@@ -430,7 +430,7 @@ async fn begin_as_guest(
     source: Option<&Source>,
     entry: &str,
     anonymous: Option<&str>,
-) -> Result<(Started, GuestCheckout), ApiError> {
+) -> Result<(Started, Option<Receipt>, GuestCheckout), ApiError> {
     let guest = config.platform.caller(headers, config.proto, None).start_guest_checkout().await?;
     let mut as_guest = HeaderMap::new();
     if let Some(host) = headers.get(header::HOST) {
@@ -446,8 +446,8 @@ async fn begin_as_guest(
         })?,
     );
     let caller = config.platform.caller(&as_guest, config.proto, None);
-    let (started, _) = begin(&caller, source, entry, anonymous).await?;
-    Ok((started, guest))
+    let (started, receipt) = begin(&caller, source, entry, anonymous).await?;
+    Ok((started, receipt, guest))
 }
 
 /// A cookie as this deployment sends them: `Secure` only over HTTPS.
@@ -464,18 +464,17 @@ fn guest_seconds(expires_at: &str) -> i64 {
     }
 }
 
-/// A guest's checkout page, marketplace's (the guest checkout page is not ported).
-fn guest_session(id: &str) -> Result<Uri, corten::Error> {
-    views::marketplace(&format!("/checkout/buy/session/{}", segment(id)))
-        .ok_or_else(|| corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR))
+/// The checkout page of a session that started, read after the start's receipt.
+fn session_page<'a>(started: &'a Started, receipt: Option<&Receipt>) -> url::BuyCheckout<'a> {
+    url::BuyCheckout { id: &started.session_id, place: crate::checkout::Place::started(receipt) }
 }
 
 /// Sends a guest whose session started to its checkout, keeping the guest's token and forgetting
 /// the guest cart.
-fn guest_started(req: &Req, config: &Shared, started: &Started, guest: &GuestCheckout) -> HtmlResult {
+fn guest_started(req: &Req, config: &Shared, started: &Started, receipt: Option<&Receipt>, guest: &GuestCheckout) -> HtmlResult {
     let keep = cookie::SetCookie::new(GUEST_CHECKOUT_COOKIE, &guest.guest_token).max_age(guest_seconds(&guest.expires_at));
     Ok(req
-        .redirect(&guest_session(&started.session_id)?)?
+        .redirect(&session_page(started, receipt))?
         .with_cookie(secure(config, keep))
         .with_cookie(secure(config, cookie::SetCookie::remove(ANONYMOUS_CART_COOKIE))))
 }
@@ -555,18 +554,13 @@ async fn start_at(
     if who != Who::Visitor {
         let caller = config.platform.caller(headers, config.proto, None);
         return match begin(&caller, source.as_ref(), &entry, anonymous).await {
-            Ok((started, receipt)) if who == Who::Account => {
-                let place = crate::checkout::Place::started(receipt.as_ref());
-                let res = req.redirect(&url::BuyCheckout { id: &started.session_id, place })?;
-                Ok(forget_cart(res, config, anonymous))
-            }
-            Ok((started, _)) => {
-                let res = req.redirect(&guest_session(&started.session_id)?)?;
+            Ok((started, receipt)) => {
+                let res = req.redirect(&session_page(&started, receipt.as_ref()))?;
                 Ok(forget_cart(res, config, anonymous))
             }
             Err(error) if who == Who::Guest && forbidden(&error) && may_start_again(source.as_ref(), anonymous) => {
                 match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous).await {
-                    Ok((started, guest)) => guest_started(req, config, &started, &guest),
+                    Ok((started, receipt, guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
                     Err(again) if forbidden(&again) => refuse(who, error).await,
                     Err(again) => refuse(who, again).await,
                 }
@@ -589,10 +583,10 @@ async fn start_at(
         }
     }
     match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous).await {
-        Ok((started, guest)) => guest_started(req, config, &started, &guest),
+        Ok((started, receipt, guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
         Err(error) if forbidden(&error) && may_start_again(source.as_ref(), anonymous) => {
             match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous).await {
-                Ok((started, guest)) => guest_started(req, config, &started, &guest),
+                Ok((started, receipt, guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
                 Err(again) => refuse(Who::Visitor, again).await,
             }
         }

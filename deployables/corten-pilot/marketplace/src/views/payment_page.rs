@@ -2,7 +2,9 @@
 //! `account-payment-display`): the header with Back to purchases, the payment summary (folded
 //! above the page on a phone, beside it from 64rem), a failed or closed payment's notice with Retry
 //! payment, the deadline while it waits, the secure payment step, the status, the event timeline,
-//! staff's support details, the wallet's cover, and the purchases.
+//! staff's support details, the wallet's cover, and the purchases. A guest checkout's page has no
+//! Back to purchases or Open purchase; its Retry payment is a form (see `payment`), and a paid
+//! guest order offers Save this order, marketplace's page at the same address.
 //!
 //! The secure payment step is Stripe's: the step's script (`payment_entry.js`) loads Stripe.js,
 //! mounts the payment fields in the step and turns Confirm payment on once they are ready; Confirm
@@ -22,7 +24,7 @@ use super::on_marketplace;
 use crate::{
     api::{AccountPayment, PaymentOrder},
     app::url,
-    payment::PaymentScreen,
+    payment::{PaymentScreen, RetryForm, WatchRoute},
     text::PaymentMsg,
 };
 
@@ -115,7 +117,9 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
                     <h1 class={Title}>{t.payment_title(&payment.payment_id)}</h1>
                     <p class={Muted}>{t.track_payment_state_purchase_coverage_marketplace()}</p>
                 </div>
-                <a class={(Button, Secondary)} href={url::Purchases::default()}>{t.back_to_purchases()}</a>
+                if !screen.guest {
+                    <a class={(Button, Secondary)} href={url::Purchases::default()}>{t.back_to_purchases()}</a>
+                }
             </header>
             <details class={MobileSummary}>
                 <summary class={MobileSummaryBar}>
@@ -127,6 +131,14 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
             </details>
             <div class={Flow}>
                 <div class={Main}>
+                    // Why Retry payment did not start one, even when the payment is no longer one to
+                    // retry (a form drawn before it changed).
+                    if let Some(error) = &screen.retry_error {
+                        <div class={Banner} data-tone="danger" role="alert">
+                            <p class={Strong}>{t.could_not_retry_payment()}</p>
+                            <p>{error}</p>
+                        </div>
+                    }
                     if closed {
                         <div class={Banner} data-tone="warning" role="status">
                             <p class={Strong}>
@@ -140,7 +152,15 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
                                 })}
                             </p>
                         </div>
-                        <p><a class={Button} href={&retry}>{t.retry_payment()}</a></p>
+                        if screen.guest {
+                            <form method="post" action={url::GuestPayment { id: &payment.payment_id, place: Default::default() }}>
+                                <button type="submit" class={Button} name={RetryForm::FIELDS.intent} value="retry-payment">
+                                    {t.retry_payment()}
+                                </button>
+                            </form>
+                        } else {
+                            <p><a class={Button} href={&retry}>{t.retry_payment()}</a></p>
+                        }
                     }
                     if let Some(deadline) = deadline {
                         <div class={Banner} data-tone="info" role="status">
@@ -158,6 +178,9 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
                             <p>{says}</p>
                         </div>
                     </section>
+                    if screen.guest && payment.status == "captured" {
+                        <SaveOrder t={t} id={&payment.payment_id} />
+                    }
                     <section class={Section} aria-labelledby="payment-timeline-title">
                         <h2 id="payment-timeline-title" class={PartTitle}>{t.event_timeline()}</h2>
                         <ol class={(Card, Timeline)}>
@@ -193,7 +216,7 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
                         <h2 id="payment-purchases-title" class={PartTitle}>{t.purchases()}</h2>
                         <ul class={Rows}>
                             for order in &screen.orders {
-                                <Purchase t={t} order={order} currency={&payment.currency_code} />
+                                <Purchase t={t} order={order} currency={&payment.currency_code} guest={screen.guest} />
                             }
                         </ul>
                     </section>
@@ -419,7 +442,7 @@ fn SupportDetails<'a>(t: PaymentMsg, payment: &'a AccountPayment) -> impl Render
 /// One of the payment's purchases: its reference and status, its total, and Open purchase (the
 /// pilot's purchase page).
 #[component(css = PaymentPage)]
-fn Purchase<'a>(t: PaymentMsg, order: &'a PaymentOrder, currency: &'a str) -> impl Render {
+fn Purchase<'a>(t: PaymentMsg, order: &'a PaymentOrder, currency: &'a str, guest: bool) -> impl Render {
     html! {
         <li class={(Card, Line)}>
             <div class={Tight}>
@@ -430,11 +453,13 @@ fn Purchase<'a>(t: PaymentMsg, order: &'a PaymentOrder, currency: &'a str) -> im
                 <p class={Muted}>{t.total()}</p>
                 <p class={Strong}>{money(t, &order.total_amount, currency)}</p>
             </div>
-            <p>
-                <a class={(Button, Secondary)} href={url::Purchase { id: &order.order_id, after: Default::default() }}>
-                    {t.open_purchase()}
-                </a>
-            </p>
+            if !guest {
+                <p>
+                    <a class={(Button, Secondary)} href={url::Purchase { id: &order.order_id, after: Default::default() }}>
+                        {t.open_purchase()}
+                    </a>
+                </p>
+            }
         </li>
     }
 }
@@ -442,18 +467,38 @@ fn Purchase<'a>(t: PaymentMsg, order: &'a PaymentOrder, currency: &'a str) -> im
 /// The status part while the status is unchanged: the watch, empty, and while it has time left a
 /// read of the part again in two seconds.
 #[component]
-pub fn PaymentWatch<'a>(again: Option<&'a url::BuyerPaymentStatus<'a>>) -> impl Patch {
+pub fn PaymentWatch<'a>(again: Option<&'a WatchRoute<'a>>) -> impl Patch {
+    let read = ReadAgain { after: Duration::from_secs(2) };
     html! {
         <p id={PaymentWatchId} hidden></p>
-        if let Some(from) = again {
-            {ReadAgain { after: Duration::from_secs(2) }.from(from)}
+        match again {
+            Some(WatchRoute::Account(from)) => { {read.from(from)} }
+            Some(WatchRoute::Guest(from)) => { {read.from(from)} }
+            None => {}
         }
+    }
+}
+
+/// A paid guest order's Save this order (`GuestClaimPrompt`): marketplace's page at the same
+/// address, which saves it with a passkey or an emailed claim link (see `payment`).
+#[component(css = PaymentPage)]
+fn SaveOrder<'a>(t: PaymentMsg, id: &'a str) -> impl Render {
+    let save = on_marketplace(&url::GuestPayment { id, place: Default::default() }.href());
+    html! {
+        <section class={Section} aria-labelledby="payment-save-title">
+            <h2 id="payment-save-title" class={PartTitle}>{t.save_this_order()}</h2>
+            <div class={Card}>
+                <p><span class={Badge} data-tone="accent">{t.recommended()}</span></p>
+                <p class={Muted}>{t.save_this_order_after_payment_with_a_passkey()}</p>
+                <p><a class={Button} href={&save}>{t.save_this_order()}</a></p>
+            </div>
+        </section>
     }
 }
 
 /// A payment the page cannot show: not found, or still being prepared.
 #[component(css = PaymentPage)]
-pub fn PaymentNotice(t: PaymentMsg, title: &'static str, says: &'static str) -> impl Render {
+pub fn PaymentNotice(t: PaymentMsg, title: &'static str, says: &'static str, guest: bool) -> impl Render {
     html! {
         <div class={Page}>
             <header class={Header}>
@@ -461,7 +506,9 @@ pub fn PaymentNotice(t: PaymentMsg, title: &'static str, says: &'static str) -> 
                     <p class={Eyebrow}>{t.secure_checkout()}</p>
                     <h1 class={Title}>{title}</h1>
                 </div>
-                <a class={(Button, Secondary)} href={url::Purchases::default()}>{t.back_to_purchases()}</a>
+                if !guest {
+                    <a class={(Button, Secondary)} href={url::Purchases::default()}>{t.back_to_purchases()}</a>
+                }
             </header>
             <div class={Banner} data-tone="info" role="status">
                 <p class={Strong}>{title}</p>
