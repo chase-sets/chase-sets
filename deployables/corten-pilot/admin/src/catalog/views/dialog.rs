@@ -7,7 +7,8 @@ use corten_ui::{Toast, Toaster};
 
 use crate::{
     catalog::form::{
-        CategoryInput, ComponentInput, DimensionInput, DimensionRuleInput, FieldInput, FieldRuleInput, OptionInput, ReorderInput,
+        AttachInput, BlueprintInput, CategoryInput, ComponentInput, DimensionInput, DimensionRuleInput, DimensionRulesInput,
+        FieldInput, FieldRuleInput, FieldRulesInput, OptionInput, OrderInput, ReorderInput,
     },
     text::{Cat, Pilot},
     views::Draft,
@@ -303,6 +304,163 @@ pub fn DimensionRuleForm<'a, I: Id + AttrValue + Copy>(
             />
             <div class={Footer}>
                 <button type="submit">{t.component_add_2()}</button>
+            </div>
+        </form>
+    }
+}
+/// A blueprint's create form or its edit form.
+#[component(css = Dialog)]
+pub fn BlueprintForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    create: bool,
+    form: &'a Draft<BlueprintInput>,
+) -> impl Patch {
+    let f = BlueprintInput::FIELDS;
+    let (i, e) = (&form.input, form.errors.within(id));
+    html! {
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            {form.errors.form_message()}
+            if create {
+                <input type="hidden" name={f.blueprint_id} value={&i.blueprint_id}>
+            }
+            <Input label={t.blueprint_key()} name={f.key} value={&i.key} errors={&e} />
+            <Input label={t.blueprint_name()} name={f.name} value={&i.name} errors={&e} />
+            <Input label={t.blueprint_description()} name={f.description} value={&i.description} errors={&e} />
+            <div class={Footer}>
+                <button type="submit">{if create { t.blueprint_list_create() } else { t.blueprint_save() }}</button>
+            </div>
+        </form>
+    }
+}
+
+/// A blueprint's Attach Component form: the component's id, typed as in admin-web.
+#[component(css = Dialog)]
+pub fn AttachForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<AttachInput>) -> impl Patch {
+    let f = AttachInput::FIELDS;
+    let (i, e) = (&form.input, form.errors.within(id));
+    html! {
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            {form.errors.form_message()}
+            <Input label={t.blueprint_component_id()} name={f.component_id} value={&i.component_id} errors={&e} />
+            <div class={Footer}>
+                <button type="submit">{t.blueprint_attach()}</button>
+            </div>
+        </form>
+    }
+}
+
+/// A blueprint's Set Product Resolution Rules form: the canonical dimension order as ids.
+#[component(css = Dialog)]
+pub fn OrderForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<OrderInput>) -> impl Patch {
+    let f = OrderInput::FIELDS;
+    let (i, e) = (&form.input, form.errors.within(id));
+    html! {
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            {form.errors.form_message()}
+            <Input
+                label={t.blueprint_canonical_dimension_order()}
+                name={f.canonical_dimension_order}
+                value={&i.canonical_dimension_order}
+                errors={&e}
+            />
+            <div class={Footer}>
+                <button type="submit">{t.blueprint_save_2()}</button>
+            </div>
+        </form>
+    }
+}
+
+/// A blueprint's Set Field Rules form: a row per rule. Add Rule and Remove post the form back to
+/// be drawn with a row more or less (nothing written); the hidden first button is the form's
+/// default, so Enter saves.
+#[component(css = Dialog)]
+pub fn FieldRulesForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    form: &'a Draft<FieldRulesInput>,
+) -> impl Patch {
+    let f = FieldRulesInput::FIELDS;
+    let rows = form.input.rows();
+    html! {
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            <button type="submit" class={Default} tabindex="-1" aria-hidden="true">{t.blueprint_save_3()}</button>
+            {form.errors.form_message()}
+            for (row, (field, required)) in rows.iter().enumerate() {
+                <div class={(Row, RuleRow)}>
+                    <label class={Field}>
+                        <span class={Label}>{t.blueprint_field_id()}</span>
+                        <input type="text" name={f.field_id} value={*field}>
+                    </label>
+                    <label class={Check}>
+                        <input type="checkbox" name={f.required} value={row} checked={*required}>
+                        {t.blueprint_required_3()}
+                    </label>
+                    <button type="submit" class={(Small, Danger)} name={f.rerow} value={row} formnovalidate>
+                        {t.blueprint_remove()}
+                    </button>
+                </div>
+            }
+            <div>
+                <button type="submit" class={(Small, Secondary)} name={f.rerow} value="add" formnovalidate>
+                    {t.blueprint_add_rule()}
+                </button>
+            </div>
+            <div class={Footer}>
+                <button type="submit">{t.blueprint_save_3()}</button>
+            </div>
+        </form>
+    }
+}
+
+/// A blueprint's Set Dimension Rules form: a row per rule, as [`FieldRulesForm`].
+#[component(css = Dialog)]
+pub fn DimensionRulesForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    form: &'a Draft<DimensionRulesInput>,
+) -> impl Patch {
+    let f = DimensionRulesInput::FIELDS;
+    let rows = form.input.rows();
+    html! {
+        <form class={Form} id={id} method="post" action={action} data-patch>
+            <button type="submit" class={Default} tabindex="-1" aria-hidden="true">{t.blueprint_save_4()}</button>
+            {form.errors.form_message()}
+            for (row, rule) in rows.iter().enumerate() {
+                <fieldset class={Labels}>
+                    <div class={(Row, RuleRow)}>
+                        <label class={Field}>
+                            <span class={Label}>{t.blueprint_dimension_id()}</span>
+                            <input type="text" name={f.dimension_id} value={&rule.dimension_id}>
+                        </label>
+                        <label class={Check}>
+                            <input type="checkbox" name={f.required} value={row} checked={rule.required}>
+                            {t.blueprint_required_4()}
+                        </label>
+                        <button type="submit" class={(Small, Danger)} name={f.rerow} value={row} formnovalidate>
+                            {t.blueprint_remove_2()}
+                        </button>
+                    </div>
+                    <label class={Field}>
+                        <span class={Label}>{t.blueprint_allowed_option_ids_comma_separated_leave()}</span>
+                        <input type="text" name={f.allowed_option_ids} value={&rule.allowed_option_ids}>
+                    </label>
+                    <label class={Field}>
+                        <span class={Label}>{t.blueprint_applies_when_dimensionid_optionid_optionid_comma()}</span>
+                        <input type="text" name={f.applies_when} value={&rule.applies_when}>
+                    </label>
+                </fieldset>
+            }
+            <div>
+                <button type="submit" class={(Small, Secondary)} name={f.rerow} value="add" formnovalidate>
+                    {t.blueprint_add_rule_2()}
+                </button>
+            </div>
+            <div class={Footer}>
+                <button type="submit">{t.blueprint_save_4()}</button>
             </div>
         </form>
     }

@@ -153,6 +153,22 @@ pub fn RemoveForm<'a, I: Id + AttrValue + Copy>(id: I, action: &'a str, label: &
         </form>
     }
 }
+/// The button that opens a dialog the server draws (a blueprint's Set dialogs): a `GET` answered
+/// with the dialog (no script needed; without JavaScript it is the page with the dialog open).
+/// `after_write` is the page's receipt, so what the dialog starts from includes the write the
+/// page shows.
+#[component(css = DetailPage)]
+pub fn Opener<'a>(action: &'a str, after_write: Option<&'a str>, label: &'a str) -> impl Render {
+    let f = crate::catalog::blueprints::url::Opened::FIELDS;
+    html! {
+        <form class={Inline} method="get" action={action} data-patch>
+            if let Some(after_write) = after_write {
+                <input type="hidden" name={f.after_write} value={after_write}>
+            }
+            <button type="submit" class={Small}>{label}</button>
+        </form>
+    }
+}
 /// A dimension's options: each row's values, its edit dialog and its status change.
 #[component(css = DetailPage)]
 pub fn OptionTable<'a>(

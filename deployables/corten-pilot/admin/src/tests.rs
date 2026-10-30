@@ -433,6 +433,39 @@ fn catalog_component(id: &str) -> Value {
     })
 }
 
+/// A draft blueprint as its page reads it (`BlueprintDetail`): one component, a required field
+/// rule, a dimension rule, and a canonical order. The admin page's read misses the field rule
+/// the list has (`fld_more`), as chase-sets/chase-sets#10823 can.
+fn catalog_blueprint(id: &str) -> Value {
+    json!({
+        "blueprint_id": id, "key": "single", "name": "Card single", "description": "", "status": "draft",
+        "components": [{ "componentId": "cmp_seed", "name": "Card face" }],
+        "field_rules": [{ "fieldId": "fld_seed", "fieldName": "Language", "required": true }],
+        "dimension_rules": [{
+            "dimensionId": "dim_seed", "dimensionName": "Condition", "required": true,
+            "allowedOptions": [{ "optionId": "chc_a", "code": "nm" }],
+            "appliesWhen": [{ "dimensionId": "dim_b", "dimensionName": "Finish", "optionIds": ["chc_x"], "options": [{ "optionId": "chc_x", "code": "holo" }] }],
+        }],
+        "canonical_dimension_order": [{ "dimensionId": "dim_seed", "dimensionName": "Condition" }],
+        "updated_at": "2026-01-01T00:00:00.000Z",
+    })
+}
+
+/// The blueprints list (`Blueprint`): the blueprint's own table, with every rule.
+fn catalog_blueprints() -> Value {
+    json!({
+        "items": [{
+            "blueprint_id": "bpr_seed", "key": "single", "name": "Card single", "status": "draft",
+            "component_ids": ["cmp_seed"],
+            "field_rules": [{ "fieldId": "fld_seed", "required": true }, { "fieldId": "fld_more", "required": false }],
+            "dimension_rules": [{ "dimensionId": "dim_seed", "required": true, "allowedOptionIds": ["chc_a"],
+                                  "appliesWhen": [{ "dimensionId": "dim_b", "optionIds": ["chc_x", "chc_y"] }] }],
+            "canonical_dimension_order": ["dim_seed", "dim_b"],
+        }],
+        "total": 1,
+    })
+}
+
 fn candidate(id: &str, status: &str, outcome: &str, reason: Option<&str>) -> Value {
     json!({ "id": id, "label": format!("Label {id}"), "status": status, "outcome": outcome, "reason": reason })
 }
@@ -719,6 +752,7 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
             | "/fields/bulk-lifecycle/preview"
             | "/categories/bulk-lifecycle/preview"
             | "/components/bulk-lifecycle/preview"
+            | "/blueprints/bulk-lifecycle/preview"
             | "/items/bulk-lifecycle/preview",
         ) => {
             let sent: Value = serde_json::from_str(body).unwrap();
@@ -739,6 +773,7 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
             | "/fields/bulk-lifecycle/confirm"
             | "/categories/bulk-lifecycle/confirm"
             | "/components/bulk-lifecycle/confirm"
+            | "/blueprints/bulk-lifecycle/confirm"
             | "/items/bulk-lifecycle/confirm",
         ) => (StatusCode::ACCEPTED, Json(job("job_1", false))).into_response(),
         (Method::GET, "/bulk-authoring-jobs/job_1") => Json(job("job_1", false)).into_response(),
@@ -782,6 +817,13 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         (Method::GET, "/components/cmp_seed") => Json(catalog_component("cmp_seed")).into_response(),
         (Method::DELETE, "/components/cmp_seed/field-rules/fld_gone") => {
             refusal(StatusCode::CONFLICT, "invalid_transition", "The component has no rule for this field.")
+        }
+        (Method::GET, "/blueprints") => Json(catalog_blueprints()).into_response(),
+        (Method::GET, "/blueprints/bpr_seed" | "/blueprints/bpr_other") => {
+            Json(catalog_blueprint(rest.trim_start_matches("/blueprints/"))).into_response()
+        }
+        (Method::DELETE, "/blueprints/bpr_seed/components/cmp_gone") => {
+            refusal(StatusCode::CONFLICT, "invalid_transition", "The component is not attached to this blueprint.")
         }
         (Method::POST | Method::PUT | Method::DELETE, _) => written(StatusCode::OK, "cmd"),
         _ => StatusCode::NOT_FOUND.into_response(),
@@ -1244,6 +1286,143 @@ async fn a_refused_rule_removal_is_its_rows_message_and_a_component_bulk_change_
     );
 }
 
+/// A `GET` as the runtime sends it from a `data-patch` form (`corten: action`): a dialog opened.
+fn opened(uri: &str) -> Request<Body> {
+    let mut req = get(uri, Some("staff"));
+    req.headers_mut().insert("corten", "action".parse().unwrap());
+    req
+}
+
+#[tokio::test]
+async fn blueprints_are_created_and_their_components_attached_and_rules_set() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/blueprints?has_components=true", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/blueprints?hasComponents=true&limit=50&offset=0");
+    assert!(html.contains(r#"href="/catalog/blueprints/bpr_seed">View</a>"#), "{html}");
+
+    let (status, headers, _) =
+        pilot.send(post("/catalog/blueprints", "blueprint_id=bpr_01JZ&key=lot&name=Lot&description=", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().ends_with("&done=created"));
+
+    // The page: its components, its rules folded with what they name, and a draft's openers,
+    // which carry the page's receipt.
+    let receipt = fresh_receipt();
+    let (_, _, html) = pilot.send(get(&format!("/catalog/blueprints/bpr_seed?after_write={receipt}"), Some("staff"))).await;
+    assert!(html.contains("<td>Card face</td>") && html.contains("<td>Language</td>"), "{html}");
+    assert!(html.contains("<td>nm</td>") && html.contains("<td>Finish = holo</td>"), "{html}");
+    assert!(html.contains("1 field rules") && html.contains("<dd>Condition</dd>"), "{html}");
+    assert!(html.contains(r#"action="/catalog/blueprints/bpr_seed/components/cmp_seed/detach""#), "{html}");
+    assert!(html.contains(r#"action="/catalog/blueprints/bpr_seed/field-rules" data-patch"#), "{html}");
+    assert!(html.contains(r#"name="after_write" value=""#), "{html}");
+    assert!(html.contains(r#"name="action" value="publish">Publish</button>"#), "{html}");
+
+    // A Set dialog starts from the list's rules (two field rules), not the page's (one).
+    let (status, headers, html) =
+        pilot.send(opened(&format!("/catalog/blueprints/bpr_seed/field-rules?after_write={receipt}"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.contains(r#"value="fld_seed""#) && html.contains(r#"value="fld_more""#), "{html}");
+    assert!(html.contains(r#"name="required" value="0" checked"#) && !html.contains(r#"value="1" checked"#), "{html}");
+    let list_read = pilot.catalog_calls().into_iter().last().unwrap();
+    assert_eq!(list_read.path, "/api/catalog/blueprints?limit=50&offset=0");
+    assert!(list_read.headers.contains_key("chase-sets-read-after-write"), "the list read waits for the page's write");
+    let (_, _, html) = pilot.send(opened("/catalog/blueprints/bpr_seed/dimension-rules")).await;
+    assert!(html.contains(r#"value="dim_seed""#) && html.contains(r#"value="chc_a""#), "{html}");
+    assert!(html.contains(r#"value="dim_b=chc_x|chc_y""#), "{html}");
+    let (_, _, html) = pilot.send(opened("/catalog/blueprints/bpr_seed/product-resolution-rules")).await;
+    assert!(html.contains(r#"value="dim_seed, dim_b""#), "{html}");
+
+    // Add Rule draws the form again with a row more, and writes nothing.
+    let (status, _, html) =
+        pilot.send(post("/catalog/blueprints/bpr_seed/field-rules", "field_id=fld_seed&required=0&rerow=add", true)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(html.matches(r#"name="field_id""#).count(), 2, "{html}");
+    assert!(pilot.catalog_writes().iter().all(|w| !w.path.ends_with("/fields")));
+
+    let posts = [
+        ("/catalog/blueprints/bpr_seed/edit", "key=single&name=Card+single+v2&description="),
+        ("/catalog/blueprints/bpr_seed/field-rules", "field_id=fld_seed&required=0&field_id=+fld_x+&field_id="),
+        (
+            "/catalog/blueprints/bpr_seed/dimension-rules",
+            "dimension_id=dim_x&required=0&allowed_option_ids=chc_1%2C+chc_2&applies_when=dim_b%3Dchc_x%7Cchc_y%2C+bad",
+        ),
+        ("/catalog/blueprints/bpr_seed/product-resolution-rules", "canonical_dimension_order=dim_b%2C+dim_seed%2C"),
+        ("/catalog/blueprints/bpr_seed/components", "component_id=+cmp_x+"),
+        ("/catalog/blueprints/bpr_seed/components/cmp_seed/detach", ""),
+    ];
+    for (uri, body) in posts {
+        let (status, headers, _) = pilot.send(post(uri, body, true)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{uri}");
+        assert!(headers["corten-location"].to_str().unwrap().starts_with("/catalog/blueprints/bpr_seed?"), "{uri}");
+    }
+    let sent = pilot.catalog_writes();
+    let body = |i: usize| serde_json::from_str::<Value>(&sent[i].body).unwrap();
+    assert_eq!((&sent[0].method, sent[0].path.as_str()), (&Method::POST, "/api/catalog/blueprints"));
+    assert_eq!(body(0)["blueprintId"], "bpr_01JZ");
+    // The revise sends the key, name and description only.
+    assert_eq!((&sent[1].method, sent[1].path.as_str()), (&Method::PUT, "/api/catalog/blueprints/bpr_seed"));
+    assert_eq!(body(1)["key"], "single");
+    assert!(body(1).get("fieldRules").is_none(), "{}", body(1));
+    assert_eq!((&sent[2].method, sent[2].path.as_str()), (&Method::PUT, "/api/catalog/blueprints/bpr_seed/fields"));
+    assert_eq!(
+        body(2),
+        json!({ "fieldRules": [{ "fieldId": "fld_seed", "required": true }, { "fieldId": "fld_x", "required": false }] })
+    );
+    assert_eq!(sent[3].path, "/api/catalog/blueprints/bpr_seed/dimensions");
+    assert_eq!(
+        body(3),
+        json!({ "dimensionRules": [{ "dimensionId": "dim_x", "required": true, "allowedOptionIds": ["chc_1", "chc_2"],
+                                     "appliesWhen": [{ "dimensionId": "dim_b", "optionIds": ["chc_x", "chc_y"] }] }] })
+    );
+    assert_eq!(sent[4].path, "/api/catalog/blueprints/bpr_seed/product-resolution-rules");
+    assert_eq!(body(4), json!({ "canonicalDimensionOrder": ["dim_b", "dim_seed"] }));
+    assert_eq!((&sent[5].method, sent[5].path.as_str()), (&Method::POST, "/api/catalog/blueprints/bpr_seed/components/cmp_x"));
+    assert_eq!(
+        (&sent[6].method, sent[6].path.as_str()),
+        (&Method::DELETE, "/api/catalog/blueprints/bpr_seed/components/cmp_seed")
+    );
+    assert_eq!(sent.len(), 7);
+}
+
+#[tokio::test]
+async fn a_set_dialog_the_list_cannot_fill_has_no_form_and_blueprint_refusals_stay_on_the_page() {
+    let pilot = Pilot::new().await;
+    // The list does not have bpr_other: its rules are not known, so there is nothing to save.
+    let (status, _, html) = pilot.send(opened("/catalog/blueprints/bpr_other/field-rules")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("rules could not be read") && !html.contains(r#"name="field_id""#), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/blueprints/bpr_other/dimension-rules", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("rules could not be read"), "{html}");
+
+    // Without a component id there is no command to send.
+    let (status, _, html) = pilot.send(post("/catalog/blueprints/bpr_seed/components", "component_id=+", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Enter a value."), "{html}");
+    // A refused Detach is its row's message; activate is not a blueprint's.
+    let (status, _, html) = pilot.send(post("/catalog/blueprints/bpr_seed/components/cmp_gone/detach", "", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("The component is not attached to this blueprint."), "{html}");
+    let (status, _, html) =
+        pilot.send(post("/catalog/blueprints/bpr_seed/lifecycle", "action=activate&status=draft", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This action is not available here."), "{html}");
+    assert_eq!(pilot.catalog_writes().len(), 1, "only the Detach was sent");
+
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post("/catalog/blueprints/bulk?has_components=false", "action=publish&mode=filter", true)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Bulk Publish Preview"), "{html}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/blueprints/bulk-lifecycle/preview");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "action": "publish", "selection": { "mode": "filter", "query": { "hasComponents": "false" } } })
+    );
+}
 #[tokio::test]
 async fn a_category_bulk_change_publishes_by_the_lists_filters_and_refuses_activate() {
     let pilot = Pilot::new().await;

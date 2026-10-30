@@ -66,6 +66,15 @@
   gap: var(--space-2);
   align-items: end;
 }
+/* A Set dialog's rule row: the id takes the room, Required and Remove only what they need; on a
+   narrow screen the id has the row to itself and they go under it. */
+.rule-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+.rule-row > .field {
+  flex: 1 1 12rem;
+}
 .footer {
   display: flex;
   justify-content: flex-end;

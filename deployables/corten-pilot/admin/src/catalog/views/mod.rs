@@ -18,6 +18,7 @@ use crate::text::{Cat, Pilot};
 pub use crate::views::Draft;
 
 mod attention_panel;
+mod blueprints;
 mod bulk_dialogs;
 mod bulk_rows;
 mod categories;
@@ -32,6 +33,10 @@ mod scope_page;
 mod status_pill;
 
 pub use attention_panel::{AttentionBanner, AttentionPanel, AttentionSheet, park_form};
+pub use blueprints::{
+    BlueprintForms, DimensionRulesDialog, FieldRulesDialog, OrderDialog, Set, SetRules, blueprint_actions, blueprint_list,
+    blueprint_page, blueprint_rows, blueprint_transitions,
+};
 pub use bulk_dialogs::{Candidates, JobDialog, PreviewDialog, Previewed, job_status};
 pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
 pub use categories::{CategoryForms, category_actions, category_list, category_page, category_rows, category_transitions};
@@ -40,8 +45,9 @@ pub use detail_page::{
     ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, RemoveForm, Transition,
 };
 pub use dialog::{
-    CategoryForm, ComponentForm, Dialog, DimensionForm, DimensionRuleForm, FieldForm, FieldRuleForm, Input, OptionForm,
-    ReorderForm, Toasts, Trigger, value_kinds, value_types,
+    AttachForm, BlueprintForm, CategoryForm, ComponentForm, Dialog, DimensionForm, DimensionRuleForm, DimensionRulesForm,
+    FieldForm, FieldRuleForm, FieldRulesForm, Input, OptionForm, OrderForm, ReorderForm, Toasts, Trigger, value_kinds,
+    value_types,
 };
 pub use item_list::{
     DraftsDialog, ItemDialog, ItemForm, ItemJobOutcome, ItemParts, ItemPreview, ItemPreviewDialog, Pending, item_changes,
@@ -53,8 +59,8 @@ pub use item_page::{
     item_transitions,
 };
 pub use list_page::{
-    CategoryRow, ComponentRow, DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table,
-    TextFilter,
+    BlueprintRow, CategoryRow, ComponentRow, DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search,
+    Table, TextFilter,
 };
 pub use scope_list::{ScopeRowView, scope_list};
 pub use scope_page::{ScopePage, scope_page};
@@ -287,7 +293,37 @@ pub mod ids {
     pub struct CatalogAddDimensionRuleDialogId;
     pub const ADD_DIMENSION_RULE_DIALOG: CatalogAddDimensionRuleDialogId = CatalogAddDimensionRuleDialogId;
 
-    /// A rule's Remove form: `rule-{kind}-{id}` (`field` or `dimension`).
+    /// A blueprint's Attach Component form, and its dialog.
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogAttachId;
+    pub const ATTACH: CatalogAttachId = CatalogAttachId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogAttachDialogId;
+    pub const ATTACH_DIALOG: CatalogAttachDialogId = CatalogAttachDialogId;
+
+    /// A blueprint's Set Field Rules, Set Dimension Rules and Set Product Resolution Rules
+    /// forms, and their dialogs (drawn by the server when opened).
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogSetFieldsId;
+    pub const SET_FIELDS: CatalogSetFieldsId = CatalogSetFieldsId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogSetFieldsDialogId;
+    pub const SET_FIELDS_DIALOG: CatalogSetFieldsDialogId = CatalogSetFieldsDialogId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogSetDimensionsId;
+    pub const SET_DIMENSIONS: CatalogSetDimensionsId = CatalogSetDimensionsId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogSetDimensionsDialogId;
+    pub const SET_DIMENSIONS_DIALOG: CatalogSetDimensionsDialogId = CatalogSetDimensionsDialogId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogSetOrderId;
+    pub const SET_ORDER: CatalogSetOrderId = CatalogSetOrderId;
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogSetOrderDialogId;
+    pub const SET_ORDER_DIALOG: CatalogSetOrderDialogId = CatalogSetOrderDialogId;
+
+    /// A row's Remove form: `rule-{kind}-{id}` (`field` or `dimension` rule, or a blueprint's
+    /// `component`).
     #[derive(Id, Clone, Copy)]
     pub struct RuleId<'a>(pub &'a str);
 

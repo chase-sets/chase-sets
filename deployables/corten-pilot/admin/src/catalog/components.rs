@@ -21,11 +21,11 @@ use platform::receipt::Receipt;
 use serde_json::Value;
 
 use super::{
-    Confirming, Done, PAGE_SIZE, Previewing, Sent, action_label, answer_preview,
+    Confirming, Done, Previewing, Sent, action_label, answer_preview,
     api::{Catalog as _, Component, ComponentDetail, ComponentRules, Kind, Written, under},
     bulk, command, confirm, filter_query, follow,
     form::{ActionInput, BulkInput, ComponentInput, DimensionRuleInput, FieldRuleInput},
-    list_query, manages, not_offered, preview, receipt, screen,
+    list_query, listed, manages, not_offered, preview, receipt, screen,
     views::{self, ComponentForms, Draft, Previewed, ids},
 };
 use crate::{
@@ -364,21 +364,10 @@ async fn revise(
     refused_on_page(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, forms).await
 }
 
-/// The component's rules as the list has them (the component's own table), page by page until
-/// its row; none when the list does not have it.
+/// The component's rules as the list has them (the component's own table); none when the list
+/// does not have it.
 async fn current_rules(caller: &Caller<'_>, id: &str) -> Result<Option<ComponentRules>, ApiError> {
-    let mut page = 1;
-    loop {
-        let list = caller.list::<ComponentRules>(Kind::Components, &list_query(&[], page)).await?;
-        let read = list.items.len();
-        if let Some(rules) = list.items.into_iter().find(|row| row.component_id == id) {
-            return Ok(Some(rules));
-        }
-        if read == 0 || page * PAGE_SIZE >= list.total {
-            return Ok(None);
-        }
-        page += 1;
-    }
+    listed(caller, Kind::Components, id, |row: &ComponentRules| row.component_id.as_str()).await
 }
 async fn lifecycle(
     req: Req,

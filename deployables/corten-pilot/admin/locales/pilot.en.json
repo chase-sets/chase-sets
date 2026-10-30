@@ -43,7 +43,8 @@
     "edit_option": "Edit {code}",
     "options_label": "Options of {name}",
     "drafts_only": "Check only draft Catalog Items to remove them.",
-    "rules_unread": "This component's rules could not be read, so it was not saved. Refresh in a moment and save again."
+    "rules_unread": "This component's rules could not be read, so it was not saved. Refresh in a moment and save again.",
+    "blueprint_rules_unread": "This blueprint's rules could not be read, so they cannot be set here yet. Refresh in a moment and open this again."
   },
   "bulk": {
     "label": "Bulk changes",

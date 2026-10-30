@@ -423,6 +423,95 @@ pub struct Applies {
     pub options: Vec<OptionCode>,
 }
 
+/// `Blueprint` (features/blueprints/ui/contracts.ts), the fields the list shows.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct Blueprint {
+    pub blueprint_id: String,
+    pub key: String,
+    pub name: String,
+    pub status: String,
+}
+
+/// `BlueprintDetail`: the blueprint, its components and rules with the names of what they name,
+/// and its canonical dimension order.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct BlueprintDetail {
+    pub blueprint_id: String,
+    pub key: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub status: String,
+    #[serde(default)]
+    pub components: Vec<ComponentName>,
+    #[serde(default)]
+    pub field_rules: Vec<FieldRule>,
+    #[serde(default)]
+    pub dimension_rules: Vec<DimensionRule>,
+    #[serde(default)]
+    pub canonical_dimension_order: Vec<DimensionName>,
+    pub updated_at: String,
+}
+
+/// A component a blueprint holds (`ComponentRef`).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct ComponentName {
+    pub component_id: String,
+    pub name: String,
+}
+
+/// A dimension in a blueprint's canonical order.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct DimensionName {
+    pub dimension_id: String,
+    #[serde(default)]
+    pub dimension_name: String,
+}
+
+/// A blueprint's rules as the list has them (the blueprint's own table, `Blueprint`): what its
+/// Set dialogs start from, since the detail reads the admin page's table, which can miss a change
+/// (chase-sets/chase-sets#10823).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct BlueprintRules {
+    pub blueprint_id: String,
+    #[serde(default)]
+    pub field_rules: Vec<FieldRuleIds>,
+    #[serde(default)]
+    pub dimension_rules: Vec<DimensionRuleIds>,
+    #[serde(default)]
+    pub canonical_dimension_order: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldRuleIds {
+    pub field_id: String,
+    #[serde(default)]
+    pub required: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DimensionRuleIds {
+    pub dimension_id: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub allowed_option_ids: Vec<String>,
+    #[serde(default)]
+    pub applies_when: Vec<AppliesIds>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppliesIds {
+    pub dimension_id: String,
+    #[serde(default)]
+    pub option_ids: Vec<String>,
+}
+
 /// `CatalogItemListItem` (features/catalog-items/ui/contracts.ts), the fields the list shows.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct ItemRow {
@@ -794,6 +883,7 @@ impl<R> Job<R> {
             "catalog.authoring.fields.lifecycle" => Some(Kind::Fields),
             "catalog.authoring.categories.lifecycle" => Some(Kind::Categories),
             "catalog.authoring.components.lifecycle" => Some(Kind::Components),
+            "catalog.authoring.blueprints.lifecycle" => Some(Kind::Blueprints),
             "catalog.authoring.items.lifecycle" | ITEMS_PUBLISH | ITEMS_EDIT => Some(Kind::Items),
             _ => None,
         }
@@ -835,6 +925,7 @@ pub enum Kind {
     Fields,
     Categories,
     Components,
+    Blueprints,
     Items,
     ProductContents,
     ReferenceRecords,
@@ -852,6 +943,7 @@ impl Kind {
             Kind::Fields => "fields",
             Kind::Categories => "categories",
             Kind::Components => "components",
+            Kind::Blueprints => "blueprints",
             Kind::Items => "items",
             Kind::ProductContents => "product-contents",
             Kind::ReferenceRecords => "reference-records",

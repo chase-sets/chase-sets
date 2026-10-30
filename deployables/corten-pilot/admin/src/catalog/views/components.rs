@@ -262,13 +262,13 @@ pub fn component_page<'a>(
 }
 
 /// The refusal of the rule form keyed `key`, if it came back.
-fn refused(removal: Option<&(String, Errors)>, key: &str) -> Errors {
+pub(super) fn refused(removal: Option<&(String, Errors)>, key: &str) -> Errors {
     removal.filter(|(of, _)| of == key).map(|(_, errors)| errors.clone()).unwrap_or_default()
 }
 
 /// A refused Remove of a `kind` rule the page no longer lists (the read after the refusal no
 /// longer has it): its message goes above the table, since there is no row to hold it.
-fn unlisted(removal: Option<&(String, Errors)>, kind: &str, mut keys: impl Iterator<Item = String>) -> Errors {
+pub(super) fn unlisted(removal: Option<&(String, Errors)>, kind: &str, mut keys: impl Iterator<Item = String>) -> Errors {
     removal
         .filter(|(of, _)| of.strip_prefix(kind).is_some_and(|rest| rest.starts_with('-')) && !keys.any(|key| key == *of))
         .map(|(_, errors)| errors.clone())

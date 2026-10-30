@@ -543,7 +543,7 @@ fn PartList<C: Render>(children: C) -> impl Render {
 
 /// A part that folds (\`ProgressiveDisclosure\`): its title, a summary, and what it holds.
 #[component(css = ItemPage)]
-fn Disclosure<'a, C: Render>(title: &'a str, summary: &'a str, tone: &'a str, open: bool, children: C) -> impl Render {
+pub(super) fn Disclosure<'a, C: Render>(title: &'a str, summary: &'a str, tone: &'a str, open: bool, children: C) -> impl Render {
     html! {
         <details class={Fold} data-tone={tone} open={open}>
             <summary>

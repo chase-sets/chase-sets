@@ -3,7 +3,8 @@ use corten::prelude::*;
 use super::{SelectAll, SelectRow, StatusPill};
 use crate::{
     catalog::{
-        api::{Category, Component, Dimension, Field},
+        api::{Blueprint, Category, Component, Dimension, Field},
+        blueprints::url as blueprints,
         categories::url as categories,
         components::url as components,
         form::display_order,
@@ -171,6 +172,27 @@ pub fn ComponentRow<'a>(t: Cat, row: &'a Component, select: Option<Pilot>) -> im
         </tr>
     }
 }
+
+/// A blueprint's row: its key, name and status; with `select`, its box in the bulk form first.
+#[component(css = ListPage)]
+pub fn BlueprintRow<'a>(t: Cat, row: &'a Blueprint, select: Option<Pilot>) -> impl Render {
+    html! {
+        <tr>
+            if let Some(p) = select {
+                <td><SelectRow p={p} id={&row.blueprint_id} status={None} /></td>
+            }
+            <td>{&row.key}</td>
+            <td>{&row.name}</td>
+            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <a class={View} href={blueprints::Blueprint { id: &row.blueprint_id, after_write: None, done: None }}>
+                    {t.list_view()}
+                </a>
+            </td>
+        </tr>
+    }
+}
+
 /// A field's row; with `select`, its box in the bulk form first.
 #[component(css = ListPage)]
 pub fn FieldRow<'a>(t: Cat, row: &'a Field, select: Option<Pilot>) -> impl Render {

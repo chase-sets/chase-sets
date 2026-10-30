@@ -7,7 +7,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::api::{
-    Category, ComponentDetail, ComponentRules, ContentLine, Dimension, DimensionOption, Field, ItemDetail, SelectedOption,
+    BlueprintDetail, Category, ComponentDetail, ComponentRules, ContentLine, Dimension, DimensionOption, DimensionRuleIds, Field,
+    FieldRuleIds, ItemDetail, SelectedOption,
 };
 use crate::text::Pilot;
 
@@ -237,6 +238,247 @@ impl ComponentInput {
     }
 }
 
+/// A blueprint's create and edit form: its key, name and description.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct BlueprintInput {
+    /// The id a create was drawn with (empty for an edit).
+    pub blueprint_id: String,
+    pub key: String,
+    pub name: String,
+    pub description: String,
+}
+
+impl BlueprintInput {
+    pub fn blank() -> Self {
+        BlueprintInput { blueprint_id: new_id("bpr"), ..Default::default() }
+    }
+
+    pub fn of(b: &BlueprintDetail) -> Self {
+        BlueprintInput {
+            blueprint_id: String::new(),
+            key: b.key.clone(),
+            name: b.name.clone(),
+            description: b.description.clone().unwrap_or_default(),
+        }
+    }
+
+    /// `createBlueprint`'s body (with the id) or `reviseBlueprint`'s.
+    pub fn body(&self, create: bool) -> Value {
+        let mut body = json!({ "key": self.key, "name": english(&self.name), "description": english(&self.description) });
+        if create {
+            body["blueprintId"] = json!(self.blueprint_id);
+        }
+        body
+    }
+}
+
+/// A blueprint's Attach Component form.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct AttachInput {
+    pub component_id: String,
+}
+
+/// A blueprint's Set Product Resolution Rules form: dimension ids separated by commas.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct OrderInput {
+    pub canonical_dimension_order: String,
+}
+
+impl OrderInput {
+    /// The dialog's text from the order's ids.
+    pub fn of(order: &[String]) -> Self {
+        OrderInput { canonical_dimension_order: order.join(", ") }
+    }
+
+    pub fn body(&self) -> Value {
+        json!({ "canonicalDimensionOrder": split_ids(&self.canonical_dimension_order) })
+    }
+}
+
+/// Ids separated by commas, trimmed, without empties.
+fn split_ids(text: &str) -> Vec<&str> {
+    text.split(',').map(str::trim).filter(|s| !s.is_empty()).collect()
+}
+
+/// `dimensionId=optionId|optionId` clauses separated by commas, without a clause that names no
+/// dimension or no option (`parseApplicabilityClauses`).
+fn applies_clauses(text: &str) -> Vec<Value> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .filter_map(|entry| {
+            let mut parts = entry.split('=');
+            let dimension = parts.next().unwrap_or("").trim();
+            let options: Vec<&str> = parts.next().unwrap_or("").split('|').map(str::trim).filter(|s| !s.is_empty()).collect();
+            (!dimension.is_empty() && !options.is_empty()).then(|| json!({ "dimensionId": dimension, "optionIds": options }))
+        })
+        .collect()
+}
+
+/// A row list after its `rerow` button: a blank row more (`add`), or row `i` less. `None` for a
+/// submit.
+fn rerowed(rerow: Option<&str>, rows: usize) -> Option<Result<(), usize>> {
+    match rerow? {
+        "add" => Some(Ok(())),
+        index => Some(Err(index.parse::<usize>().ok().filter(|i| *i < rows).unwrap_or(usize::MAX))),
+    }
+}
+
+/// A blueprint's Set Field Rules form: a row per rule, its field id and Required (a checked box
+/// sends its row's index). `rerow` adds or removes a row and writes nothing.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct FieldRulesInput {
+    pub field_id: Vec<String>,
+    pub required: Vec<String>,
+    pub rerow: Option<String>,
+}
+
+impl FieldRulesInput {
+    /// The dialog's rows from the rules, or one blank row (`startSetFieldRules`).
+    pub fn of(rules: &[FieldRuleIds]) -> Self {
+        if rules.is_empty() {
+            return FieldRulesInput { field_id: vec![String::new()], ..Default::default() };
+        }
+        FieldRulesInput {
+            field_id: rules.iter().map(|r| r.field_id.clone()).collect(),
+            required: rules.iter().enumerate().filter(|(_, r)| r.required).map(|(i, _)| i.to_string()).collect(),
+            rerow: None,
+        }
+    }
+
+    pub fn is_required(&self, row: usize) -> bool {
+        self.required.iter().any(|i| i.parse::<usize>().ok() == Some(row))
+    }
+
+    pub fn rows(&self) -> Vec<(&str, bool)> {
+        self.field_id.iter().enumerate().map(|(i, id)| (id.as_str(), self.is_required(i))).collect()
+    }
+
+    pub fn rerowed(&self) -> Option<Self> {
+        let mut rows: Vec<(String, bool)> = self.rows().into_iter().map(|(id, req)| (id.to_owned(), req)).collect();
+        match rerowed(self.rerow.as_deref(), rows.len())? {
+            Ok(()) => rows.push((String::new(), false)),
+            Err(i) if i < rows.len() => {
+                rows.remove(i);
+            }
+            Err(_) => {}
+        }
+        Some(FieldRulesInput {
+            field_id: rows.iter().map(|(id, _)| id.clone()).collect(),
+            required: rows.iter().enumerate().filter(|(_, (_, req))| *req).map(|(i, _)| i.to_string()).collect(),
+            rerow: None,
+        })
+    }
+
+    /// `setBlueprintFields`'s body: the rows with a field id.
+    pub fn body(&self) -> Value {
+        let rules: Vec<Value> = self
+            .rows()
+            .into_iter()
+            .filter(|(id, _)| !id.trim().is_empty())
+            .map(|(id, required)| json!({ "fieldId": id.trim(), "required": required }))
+            .collect();
+        json!({ "fieldRules": rules })
+    }
+}
+
+/// A blueprint's Set Dimension Rules form: a row per rule, its dimension id, Required (a checked
+/// box sends its row's index), allowed option ids and when it applies, as text.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct DimensionRulesInput {
+    pub dimension_id: Vec<String>,
+    pub required: Vec<String>,
+    pub allowed_option_ids: Vec<String>,
+    pub applies_when: Vec<String>,
+    pub rerow: Option<String>,
+}
+
+/// One row of [`DimensionRulesInput`].
+#[derive(Clone, Debug, Default)]
+pub struct DimensionRow {
+    pub dimension_id: String,
+    pub required: bool,
+    pub allowed_option_ids: String,
+    pub applies_when: String,
+}
+
+impl DimensionRulesInput {
+    /// The dialog's rows from the rules (`serializeApplicabilityClauses`), or one blank row.
+    pub fn of(rules: &[DimensionRuleIds]) -> Self {
+        let rows: Vec<DimensionRow> = rules
+            .iter()
+            .map(|r| DimensionRow {
+                dimension_id: r.dimension_id.clone(),
+                required: r.required,
+                allowed_option_ids: r.allowed_option_ids.join(", "),
+                applies_when: r
+                    .applies_when
+                    .iter()
+                    .map(|c| format!("{}={}", c.dimension_id, c.option_ids.join("|")))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            })
+            .collect();
+        Self::from_rows(if rows.is_empty() { vec![DimensionRow::default()] } else { rows })
+    }
+
+    fn from_rows(rows: Vec<DimensionRow>) -> Self {
+        DimensionRulesInput {
+            dimension_id: rows.iter().map(|r| r.dimension_id.clone()).collect(),
+            required: rows.iter().enumerate().filter(|(_, r)| r.required).map(|(i, _)| i.to_string()).collect(),
+            allowed_option_ids: rows.iter().map(|r| r.allowed_option_ids.clone()).collect(),
+            applies_when: rows.iter().map(|r| r.applies_when.clone()).collect(),
+            rerow: None,
+        }
+    }
+
+    pub fn rows(&self) -> Vec<DimensionRow> {
+        let at = |list: &[String], i: usize| list.get(i).cloned().unwrap_or_default();
+        (0..self.dimension_id.len())
+            .map(|i| DimensionRow {
+                dimension_id: at(&self.dimension_id, i),
+                required: self.required.iter().any(|r| r.parse::<usize>().ok() == Some(i)),
+                allowed_option_ids: at(&self.allowed_option_ids, i),
+                applies_when: at(&self.applies_when, i),
+            })
+            .collect()
+    }
+
+    pub fn rerowed(&self) -> Option<Self> {
+        let mut rows = self.rows();
+        match rerowed(self.rerow.as_deref(), rows.len())? {
+            Ok(()) => rows.push(DimensionRow::default()),
+            Err(i) if i < rows.len() => {
+                rows.remove(i);
+            }
+            Err(_) => {}
+        }
+        Some(Self::from_rows(rows))
+    }
+
+    /// `setBlueprintDimensions`'s body: the rows with a dimension id.
+    pub fn body(&self) -> Value {
+        let rules: Vec<Value> = self
+            .rows()
+            .iter()
+            .filter(|r| !r.dimension_id.trim().is_empty())
+            .map(|r| {
+                json!({
+                    "dimensionId": r.dimension_id.trim(),
+                    "required": r.required,
+                    "allowedOptionIds": split_ids(&r.allowed_option_ids),
+                    "appliesWhen": applies_clauses(&r.applies_when),
+                })
+            })
+            .collect();
+        json!({ "dimensionRules": rules })
+    }
+}
 /// A component's Add Field Rule form: a field id, and whether it is required.
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
@@ -267,19 +509,8 @@ impl DimensionRuleInput {
     /// `addDimensionRule`'s body: no allowed ids is left out (every option), and a clause without
     /// a dimension or an option is dropped (`parseApplicabilityClauses`).
     pub fn body(&self) -> Value {
-        let allowed: Vec<&str> = self.allowed_option_ids.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
-        let applies: Vec<Value> = self
-            .applies_when
-            .split(',')
-            .map(str::trim)
-            .filter(|entry| !entry.is_empty())
-            .filter_map(|entry| {
-                let mut parts = entry.split('=');
-                let dimension = parts.next().unwrap_or("").trim();
-                let options: Vec<&str> = parts.next().unwrap_or("").split('|').map(str::trim).filter(|s| !s.is_empty()).collect();
-                (!dimension.is_empty() && !options.is_empty()).then(|| json!({ "dimensionId": dimension, "optionIds": options }))
-            })
-            .collect();
+        let allowed = split_ids(&self.allowed_option_ids);
+        let applies = applies_clauses(&self.applies_when);
         let mut body = json!({ "dimensionId": self.dimension_id.trim(), "required": self.required, "appliesWhen": applies });
         if !allowed.is_empty() {
             body["allowedOptionIds"] = json!(allowed);
