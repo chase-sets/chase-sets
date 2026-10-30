@@ -14,9 +14,11 @@ import type {
   SettlementReconciliationRunRow,
 } from "./features/payouts/read-model/queries";
 import type { SettlementPayoutSummary } from "./features/payouts/read-model/payout-summary";
-import type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
-import type { PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
+import type { SettlementPayoutReadinessRow as PayoutReadinessProjection } from "./features/payout-readiness/read-model/queries";
+import type { PayoutSetupDecision, PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
 import type { PayoutReviewHoldView } from "./features/wallets/domain/payout-review-hold";
+
+export type SettlementPayoutReadinessRow = PayoutReadinessProjection & PayoutSetupDecision;
 
 type SettlementApiApp = ReturnType<typeof buildSettlementApi>;
 
@@ -467,6 +469,5 @@ export type {
   SettlementReconciliationRunRow,
 } from "./features/payouts/read-model/queries";
 export type { SettlementPayoutSummary } from "./features/payouts/read-model/payout-summary";
-export type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
 export type { PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
 export const settlementApi = createSettlementApiClient();

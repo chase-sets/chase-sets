@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createServer, type OutgoingHttpHeaders } from "node:http";
 import { dirname } from "node:path";
@@ -111,6 +113,135 @@ import {
   type WholeGameStartInput,
 } from "./support/whole-game-rehearsal";
 
+// Intentionally typed here; paired contract tests in scripts/catalog-admin-origin-generate-receipt.test.mjs pin drift.
+const catalogAdminOriginGenerateJourneyScope = "admin-origin-generate-probe";
+const catalogAdminOriginGeneratePath = "/api/catalog/source-observations/merge-candidates/generate";
+const catalogAdminOriginGeneratePagePath = "/catalog/integrations";
+const catalogAdminOriginGenerateArtifactPath = "artifacts/catalog-admin-origin-generate/receipt.json";
+const catalogAdminOriginGenerateReservedParents = [
+  "job_01M5N5MCJ3JET0GSZ32EJ63BA0",
+  "job_01M5ZZ47714K5B1MVKSTYB2BNB",
+  "job_01M60J47A1643F0NMN020WC3S3",
+  "ref_seed_set_time_spiral",
+];
+
+function isCatalogAdminOriginGenerateScratchParent(value: string): boolean {
+  return /^job_[A-Z0-9]{26}$/.test(value) && !catalogAdminOriginGenerateReservedParents.includes(value);
+}
+
+function catalogAdminOriginGenerateRequestBody(scratchParent: string): string {
+  return JSON.stringify({ syncRunId: scratchParent });
+}
+
+type AdminOriginGenerateGuardInput = Readonly<{
+  retry: number;
+  runAttempt: string;
+  adminWebUrl: string;
+  expectedSha: string;
+  scratchParent: string;
+  admitted: boolean;
+  credentials: SignInCredentials;
+}>;
+
+function catalogAdminOriginGenerateGuard(input: AdminOriginGenerateGuardInput): string | null {
+  if (input.retry !== 0) return "automatic-retry-refused";
+  if (input.runAttempt !== "1") return "run-attempt-refused";
+  if (input.adminWebUrl !== "https://admin.staging.chasesets.com") return "origin-mismatch";
+  if (!/^[a-f0-9]{40}$/.test(input.expectedSha)) return "expected-sha-missing-or-invalid";
+  if (!isCatalogAdminOriginGenerateScratchParent(input.scratchParent)) return "scratch-parent-invalid-or-reserved";
+  if (!input.admitted) return "uat-admission-missing";
+  if (!input.credentials.email || !input.credentials.password) return "admin-credentials-missing";
+  return null;
+}
+
+type AdminOriginGenerateRequest = Readonly<{
+  url: string;
+  method: string;
+  body: string | null;
+  phase: "sign-in" | "generate";
+  requestCount: number;
+  scratchParent: string;
+}>;
+
+function catalogAdminOriginGenerateRequestAllowed(input: AdminOriginGenerateRequest): boolean {
+  const url = new URL(input.url);
+  if (url.origin !== "https://admin.staging.chasesets.com" || /tcgplayer/i.test(input.url)) return false;
+  if (url.pathname === catalogAdminOriginGeneratePath)
+    return (
+      input.phase === "generate" &&
+      input.method === "POST" &&
+      !url.search &&
+      !url.hash &&
+      input.requestCount === 0 &&
+      isCatalogAdminOriginGenerateScratchParent(input.scratchParent) &&
+      input.body === catalogAdminOriginGenerateRequestBody(input.scratchParent)
+    );
+  if (["GET", "HEAD"].includes(input.method)) return true;
+  return (
+    input.phase === "sign-in" &&
+    input.method === "POST" &&
+    (url.pathname.startsWith("/access/") || url.pathname.startsWith("/api/auth/"))
+  );
+}
+
+type AdminOriginGenerateReceiptInput = AdminOriginGeneratePageResult &
+  Readonly<{
+    runId: string;
+    expectedSha: string;
+    adminWebUrl: string;
+    origin: string;
+    scratchParent: string;
+    hostClockBeforeEvaluate: string;
+    hostClockAfterEvaluate: string;
+  }>;
+
+function buildCatalogAdminOriginGenerateReceipt(input: AdminOriginGenerateReceiptInput) {
+  let json: unknown = null;
+  let jsonParse: "success" | "failure" = "failure";
+  try {
+    json = JSON.parse(input.body) as unknown;
+    jsonParse = "success";
+  } catch {
+    /* Preserve the exact non-JSON body. */
+  }
+  const count = (key: string): number | null => {
+    if (!json || typeof json !== "object" || Array.isArray(json)) return null;
+    const value = (json as Record<string, unknown>)[key];
+    return typeof value === "number" ? value : null;
+  };
+  return {
+    schemaVersion: "catalog-admin-origin-generate/v1",
+    journeyScope: catalogAdminOriginGenerateJourneyScope,
+    runId: input.runId,
+    expectedSha: input.expectedSha,
+    adminWebUrl: input.adminWebUrl,
+    origin: input.origin,
+    pagePath: catalogAdminOriginGeneratePagePath,
+    scratchParent: input.scratchParent,
+    requestBody: catalogAdminOriginGenerateRequestBody(input.scratchParent),
+    hostClockBeforeEvaluate: input.hostClockBeforeEvaluate,
+    requestStartedAt: input.requestStartedAt,
+    responseCompletedAt: input.responseCompletedAt,
+    hostClockAfterEvaluate: input.hostClockAfterEvaluate,
+    clientTiming: { performanceElapsedMs: input.performanceElapsedMs },
+    url: input.url,
+    status: input.status,
+    headers: input.headers.map(({ name, value }) => ({
+      name,
+      value: /(?:authorization|cookie|set-cookie|token|secret|password|api[-_]key)/i.test(value) ? "[redacted]" : value,
+    })),
+    bodyBytes: Buffer.byteLength(input.body, "utf8"),
+    bodySha256: createHash("sha256").update(input.body, "utf8").digest("hex"),
+    body: input.body,
+    jsonParse,
+    json,
+    observationCount: count("observationCount"),
+    candidateCount: count("candidateCount"),
+    creditedProviderSpend: 0,
+    error: input.error,
+  };
+}
+
 const catalogWorkbenchCommand = {
   sync: "scope.sync",
   import: "scope.import",
@@ -133,6 +264,7 @@ const catalogSyncScopeRenderContract = readFileSync(
 
 const runStagingProviderUat = process.env.CATALOG_STAGING_PROVIDER_UAT === "true";
 const providerUatJourneyScope = process.env.CATALOG_STAGING_PROVIDER_UAT_SCOPE?.trim() || "one-piece-launch";
+const adminOriginGenerateScratchParent = process.env.CATALOG_ADMIN_ORIGIN_GENERATE_SCRATCH_PARENT ?? "";
 const catalogAdminEmail = process.env.CATALOG_ADMIN_E2E_EMAIL?.trim() ?? "";
 const catalogAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() ?? "";
 const pageReadyTimeoutMs = 90_000;
@@ -155,6 +287,7 @@ const supportedProviderUatJourneyScopes = [
   "one-piece-matrix",
   "lorcana-matrix",
   "full-matrix-uat",
+  catalogAdminOriginGenerateJourneyScope,
   ...wholeGameJourneyScopes,
 ] as const;
 
@@ -3004,7 +3137,424 @@ test.describe("catalog staging provider sync UAT helpers", () => {
   });
 });
 
+type AdminOriginGeneratePageResult = Readonly<{
+  requestStartedAt: string;
+  responseCompletedAt: string;
+  performanceElapsedMs: number;
+  url: string;
+  status: number | null;
+  headers: readonly { name: string; value: string }[];
+  body: string;
+  error: string | null;
+}>;
+
+function writeAdminOriginGenerateReceipt(receipt: ReturnType<typeof buildCatalogAdminOriginGenerateReceipt>): void {
+  mkdirSync(dirname(catalogAdminOriginGenerateArtifactPath), { recursive: true });
+  writeFileSync(catalogAdminOriginGenerateArtifactPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+}
+
+function adminOriginGenerateError(error: unknown): string {
+  if (error instanceof Error && error.name === "AbortError") return "request-timeout";
+  if (error instanceof Error && error.name) return `request-failed:${error.name}`;
+  return "request-failed:unknown";
+}
+
+function buildAdminOriginGenerateFailureReceipt(
+  input: Pick<AdminOriginGenerateReceiptInput, "runId" | "expectedSha" | "adminWebUrl" | "scratchParent"> & {
+    startedAt: string;
+    now: string;
+    requestCount: number;
+    error: string;
+  },
+) {
+  return buildCatalogAdminOriginGenerateReceipt({
+    runId: input.runId,
+    expectedSha: input.expectedSha,
+    adminWebUrl: input.adminWebUrl,
+    origin: input.adminWebUrl,
+    scratchParent: input.scratchParent,
+    hostClockBeforeEvaluate: input.startedAt,
+    requestStartedAt: input.now,
+    responseCompletedAt: input.now,
+    hostClockAfterEvaluate: input.now,
+    performanceElapsedMs: 0,
+    url: `${input.adminWebUrl}${catalogAdminOriginGeneratePath}`,
+    status: null,
+    headers: [],
+    body: "",
+    error: input.requestCount === 0 ? `not-sent:${input.error}` : input.error,
+  });
+}
+
+async function runAdminOriginGenerateProbe(page: Page, testInfo: { retry: number }): Promise<void> {
+  const startedAt = new Date().toISOString();
+  const adminWebUrl = process.env.ADMIN_WEB_URL ?? "";
+  const expectedSha = (process.env.EXPECTED_SHA?.trim() || process.env.GITHUB_SHA?.trim() || "").toLowerCase();
+  const runId = process.env.GITHUB_RUN_ID?.trim() || "local-admin-origin-generate";
+  const scratchParent = adminOriginGenerateScratchParent;
+  const requestBody = catalogAdminOriginGenerateRequestBody(scratchParent);
+  const requests: { method: string; body: string | null }[] = [];
+  const failureReceipt = (error: string) =>
+    buildAdminOriginGenerateFailureReceipt({
+      runId,
+      expectedSha,
+      adminWebUrl,
+      scratchParent,
+      startedAt,
+      now: new Date().toISOString(),
+      requestCount: requests.length,
+      error,
+    });
+
+  const refuse = (reason: string): never => {
+    writeAdminOriginGenerateReceipt(failureReceipt(reason));
+    throw new Error(`Admin-origin generate probe refused: ${reason}.`);
+  };
+
+  if (testInfo.retry > 0) throw new Error("Admin-origin generate probe refuses automatic retries.");
+  if (existsSync(catalogAdminOriginGenerateArtifactPath))
+    throw new Error("Admin-origin generate probe receipt already exists; no request sent.");
+  const guard = catalogAdminOriginGenerateGuard({
+    retry: testInfo.retry,
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? "",
+    adminWebUrl,
+    expectedSha,
+    scratchParent,
+    admitted: process.env.CATALOG_STAGING_PROVIDER_UAT === "true",
+    credentials: { email: catalogAdminEmail, password: catalogAdminPassword },
+  });
+  if (guard) refuse(guard);
+
+  const providerViolations: string[] = [];
+  let phase: "sign-in" | "generate" = "sign-in";
+  let unsafeReceipt = false;
+  const fence = async (route: Route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    const allowed = catalogAdminOriginGenerateRequestAllowed({
+      url: request.url(),
+      method,
+      body: request.postData(),
+      phase,
+      requestCount: requests.length,
+      scratchParent,
+    });
+    if (!allowed) {
+      providerViolations.push("request-fence-refused");
+      await route.abort("blockedbyclient");
+      return;
+    }
+    if (url.pathname === catalogAdminOriginGeneratePath) requests.push({ method, body: request.postData() });
+    await route.continue();
+  };
+  try {
+    await page.context().route("**/*", fence);
+    await page.context().routeWebSocket("**/*", (socket) => socket.close());
+    await signInThroughVisibleForm(
+      page,
+      (url) => {
+        const current = new URL(url);
+        if (current.origin !== adminWebUrl) throw new Error("admin-origin-generate-origin-drift");
+      },
+      undefined,
+      adminWebUrl,
+    );
+    const current = new URL(page.url());
+    expect(current.origin).toBe(adminWebUrl);
+    expect(current.pathname).toBe(catalogAdminOriginGeneratePagePath);
+    if (providerViolations.length) throw new Error("admin-origin-generate-sign-in-fence-refused");
+    phase = "generate";
+
+    const hostClockBeforeEvaluate = new Date().toISOString();
+    const result: AdminOriginGeneratePageResult = await page.evaluate(
+      async ({ expectedOrigin, pagePath, path, body }): Promise<AdminOriginGeneratePageResult> => {
+        if (location.origin !== expectedOrigin || location.pathname !== pagePath)
+          throw new Error("admin-origin-generate-page-guard");
+        const requestStartedAt = new Date().toISOString();
+        const started = performance.now();
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 120_000);
+        let status: number | null = null;
+        let responseUrl = `${expectedOrigin}${path}`;
+        let headers: { name: string; value: string }[] = [];
+        try {
+          const response = await fetch(path, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "content-type": "application/json" },
+            body,
+            redirect: "error",
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          status = response.status;
+          responseUrl = response.url || responseUrl;
+          headers = [...response.headers.entries()]
+            .filter(([name]) => !/(authorization|cookie|set-cookie|token|secret|password|api[-_]key)/i.test(name))
+            .map(([name, value]) => ({ name: name.toLowerCase(), value }))
+            .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+          const responseBody = await response.text();
+          return {
+            requestStartedAt,
+            responseCompletedAt: new Date().toISOString(),
+            performanceElapsedMs: performance.now() - started,
+            url: responseUrl,
+            status,
+            headers,
+            body: responseBody,
+            error: response.ok ? null : `http-${response.status}`,
+          };
+        } catch (error) {
+          return {
+            requestStartedAt,
+            responseCompletedAt: new Date().toISOString(),
+            performanceElapsedMs: performance.now() - started,
+            url: responseUrl,
+            status,
+            headers,
+            body: "",
+            error: error instanceof DOMException && error.name === "AbortError" ? "request-timeout" : "request-failed",
+          };
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      },
+      {
+        expectedOrigin: adminWebUrl,
+        pagePath: catalogAdminOriginGeneratePagePath,
+        path: catalogAdminOriginGeneratePath,
+        body: requestBody,
+      },
+    );
+    const hostClockAfterEvaluate = new Date().toISOString();
+    const receipt = buildCatalogAdminOriginGenerateReceipt({
+      runId,
+      expectedSha,
+      adminWebUrl,
+      origin: current.origin,
+      scratchParent,
+      hostClockBeforeEvaluate,
+      requestStartedAt: result.requestStartedAt,
+      responseCompletedAt: result.responseCompletedAt,
+      hostClockAfterEvaluate,
+      performanceElapsedMs: result.performanceElapsedMs,
+      url: result.url,
+      status: result.status,
+      headers: result.headers,
+      body: result.body,
+      error: result.error,
+    });
+    const forbiddenValues = [
+      catalogAdminEmail,
+      catalogAdminPassword,
+      ...(await page.context().cookies()).map((cookie) => cookie.value),
+    ].filter(Boolean);
+    const serialized = JSON.stringify(receipt);
+    if (
+      forbiddenValues.some(
+        (marker) => serialized.includes(marker) || serialized.includes(JSON.stringify(marker).slice(1, -1)),
+      )
+    ) {
+      unsafeReceipt = true;
+      throw new Error("admin-origin-generate-receipt-unsafe; upload refused");
+    }
+    writeAdminOriginGenerateReceipt(receipt);
+    execFileSync(
+      process.execPath,
+      [
+        "scripts/catalog-admin-origin-generate-receipt.mjs",
+        "validate",
+        "--file",
+        catalogAdminOriginGenerateArtifactPath,
+      ],
+      { encoding: "utf8", timeout: 30_000 },
+    );
+    console.log("[catalog-admin-origin-generate] database-only creditedProviderSpend=0");
+    expect(providerViolations).toEqual([]);
+    expect(requests).toEqual([{ method: "POST", body: requestBody }]);
+    if (result.error) throw new Error(`Admin-origin generate request failed: ${result.error}.`);
+    expect(receipt.jsonParse).toBe("success");
+    expect(receipt.observationCount).not.toBeNull();
+    expect(receipt.candidateCount).not.toBeNull();
+  } catch (error) {
+    if (!unsafeReceipt && !existsSync(catalogAdminOriginGenerateArtifactPath)) {
+      writeAdminOriginGenerateReceipt(failureReceipt(adminOriginGenerateError(error)));
+    }
+    throw error;
+  } finally {
+    await page.context().unroute("**/*", fence);
+  }
+}
+
 test.describe("catalog staging provider sync UAT", () => {
+  test("admin-origin generate guards refuse every reserved parent before navigation", () => {
+    const input: AdminOriginGenerateGuardInput = {
+      retry: 0,
+      runAttempt: "1",
+      adminWebUrl: "https://admin.staging.chasesets.com",
+      expectedSha: "a".repeat(40),
+      scratchParent: "job_01M5N5MCJ3JET0GSZ32EJ63BA1",
+      admitted: true,
+      credentials: { email: "synthetic-admin@example.invalid", password: "synthetic-password-marker" },
+    };
+    expect(catalogAdminOriginGenerateGuard(input)).toBeNull();
+    for (const scratchParent of [
+      ...catalogAdminOriginGenerateReservedParents,
+      "",
+      `${input.scratchParent} `,
+      "job_lowercase00000000000000000",
+    ])
+      expect(catalogAdminOriginGenerateGuard({ ...input, scratchParent })).toBe("scratch-parent-invalid-or-reserved");
+    for (const change of [
+      { retry: 1 },
+      { runAttempt: "2" },
+      { runAttempt: "" },
+      { admitted: false },
+      { expectedSha: "main" },
+      { adminWebUrl: `${input.adminWebUrl}/` },
+      { credentials: { email: "", password: "" } },
+    ])
+      expect(catalogAdminOriginGenerateGuard({ ...input, ...change })).not.toBeNull();
+  });
+
+  test("admin-origin generate transport admits one exact request and blocks provider and unrelated mutations", () => {
+    const scratchParent = "job_01M5N5MCJ3JET0GSZ32EJ63BA1";
+    const input: AdminOriginGenerateRequest = {
+      url: `https://admin.staging.chasesets.com${catalogAdminOriginGeneratePath}`,
+      method: "POST",
+      body: catalogAdminOriginGenerateRequestBody(scratchParent),
+      phase: "generate",
+      requestCount: 0,
+      scratchParent,
+    };
+    expect(catalogAdminOriginGenerateRequestAllowed(input)).toBe(true);
+    for (const change of [
+      { requestCount: 1 },
+      { method: "GET" },
+      { body: '{"scope":{}}' },
+      { url: `${input.url}?scope=all` },
+      { url: "https://tcgplayer.com" },
+      { url: "https://admin.staging.chasesets.com/api/catalog/providers/tcgplayer" },
+      { url: "https://admin.staging.chasesets.com/api/catalog/scope-sync-batches" },
+    ])
+      expect(catalogAdminOriginGenerateRequestAllowed({ ...input, ...change })).toBe(false);
+    expect(catalogAdminOriginGenerateRequestAllowed({ ...input, phase: "sign-in" })).toBe(false);
+  });
+
+  test("admin-origin generate producer retains exact UTF-8 responses and failure receipts", ({}, testInfo) => {
+    const scratchParent = "job_01M5N5MCJ3JET0GSZ32EJ63BA1";
+    for (const [index, response] of [
+      { status: 202, body: '{"observationCount":4,"candidateCount":2,"label":"\u00e9\ud83c\udfb4"}', error: null },
+      { status: 502, body: "gateway failure", error: "http-502" },
+      { status: null, body: "", error: "request-timeout" },
+    ].entries()) {
+      const receipt = buildCatalogAdminOriginGenerateReceipt({
+        runId: "synthetic-generate-run",
+        expectedSha: "a".repeat(40),
+        adminWebUrl: "https://admin.staging.chasesets.com",
+        origin: "https://admin.staging.chasesets.com",
+        scratchParent,
+        hostClockBeforeEvaluate: "2026-10-29T18:00:00.000Z",
+        requestStartedAt: "2026-10-29T18:00:00.001Z",
+        responseCompletedAt: "2026-10-29T18:00:00.010Z",
+        hostClockAfterEvaluate: "2026-10-29T18:00:00.011Z",
+        performanceElapsedMs: 9,
+        url: `https://admin.staging.chasesets.com${catalogAdminOriginGeneratePath}`,
+        headers: [{ name: "vary", value: "Cookie" }],
+        ...response,
+      });
+      expect(receipt.body).toBe(response.body);
+      expect(receipt.bodyBytes).toBe(Buffer.byteLength(response.body, "utf8"));
+      expect(receipt.creditedProviderSpend).toBe(0);
+      expect(receipt.headers).toEqual([{ name: "vary", value: "[redacted]" }]);
+      const file = testInfo.outputPath(`synthetic-generate-receipt-${index}.json`);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify(receipt), "utf8");
+      const output = execFileSync(
+        process.execPath,
+        ["scripts/catalog-admin-origin-generate-receipt.mjs", "validate", "--file", file],
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          env: {
+            ...process.env,
+            EXPECTED_SHA: receipt.expectedSha,
+            GITHUB_RUN_ID: receipt.runId,
+            GITHUB_RUN_ATTEMPT: "1",
+            ADMIN_WEB_URL: receipt.adminWebUrl,
+            CATALOG_STAGING_PROVIDER_UAT_SCOPE: receipt.journeyScope,
+            CATALOG_ADMIN_ORIGIN_GENERATE_SCRATCH_PARENT: scratchParent,
+          },
+        },
+      );
+      expect(JSON.parse(output).ok).toBe(true);
+    }
+    const failureInput = {
+      runId: "synthetic-generate-run",
+      expectedSha: "a".repeat(40),
+      adminWebUrl: "https://admin.staging.chasesets.com",
+      scratchParent,
+      startedAt: "2026-10-29T18:00:00.000Z",
+      now: "2026-10-29T18:00:45.000Z",
+      requestCount: 0,
+      error: "request-failed:TimeoutError",
+    };
+    const unsent = buildAdminOriginGenerateFailureReceipt(failureInput);
+    expect(unsent.requestStartedAt).toBe(failureInput.now);
+    expect(unsent.responseCompletedAt).toBe(failureInput.now);
+    expect(unsent.hostClockBeforeEvaluate).toBe(failureInput.startedAt);
+    expect(unsent.hostClockAfterEvaluate).toBe(failureInput.now);
+    expect(unsent.clientTiming.performanceElapsedMs).toBe(0);
+    expect(unsent.status).toBeNull();
+    expect(unsent.error).toBe("not-sent:request-failed:TimeoutError");
+    expect(buildAdminOriginGenerateFailureReceipt({ ...failureInput, requestCount: 1 }).error).toBe(
+      "request-failed:TimeoutError",
+    );
+    const file = testInfo.outputPath("synthetic-unsent-receipt.json");
+    mkdirSync(dirname(file), { recursive: true });
+    const validate = (receipt: typeof unsent) => {
+      writeFileSync(file, JSON.stringify(receipt), "utf8");
+      return execFileSync(
+        process.execPath,
+        ["scripts/catalog-admin-origin-generate-receipt.mjs", "validate", "--file", file],
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          env: {
+            ...process.env,
+            EXPECTED_SHA: unsent.expectedSha,
+            GITHUB_RUN_ID: unsent.runId,
+            GITHUB_RUN_ATTEMPT: "1",
+            ADMIN_WEB_URL: unsent.adminWebUrl,
+            CATALOG_STAGING_PROVIDER_UAT_SCOPE: unsent.journeyScope,
+            CATALOG_ADMIN_ORIGIN_GENERATE_SCRATCH_PARENT: scratchParent,
+          },
+        },
+      );
+    };
+    expect(JSON.parse(validate(unsent)).ok).toBe(true);
+    expect(() => validate({ ...unsent, requestStartedAt: failureInput.startedAt })).toThrow();
+  });
+
+  test("admin-origin generate receipt and workflow reject unsafe evidence", async () => {
+    expect(
+      execFileSync(process.execPath, ["scripts/catalog-admin-origin-generate-receipt.mjs", "test"], {
+        encoding: "utf8",
+        timeout: 30_000,
+      }),
+    ).toContain("contract tests passed");
+  });
+  test("admin-origin generate probe contract is admitted and provider-fenced", () => {
+    expect(supportedProviderUatJourneyScopes).toContain(catalogAdminOriginGenerateJourneyScope);
+    expect(catalogAdminOriginGenerateRequestBody("job_01M5N5MCJ3JET0GSZ32EJ63BA1")).toBe(
+      '{"syncRunId":"job_01M5N5MCJ3JET0GSZ32EJ63BA1"}',
+    );
+    expect(catalogAdminOriginGenerateReservedParents).toContain("ref_seed_set_time_spiral");
+    expect(isCatalogAdminOriginGenerateScratchParent("ref_seed_set_time_spiral")).toBe(false);
+    expect(catalogAdminOriginGeneratePath).toBe("/api/catalog/source-observations/merge-candidates/generate");
+  });
+
   test("operator syncs provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({
     page,
   }, testInfo) => {
@@ -3021,6 +3571,10 @@ test.describe("catalog staging provider sync UAT", () => {
       ),
       `Unsupported CATALOG_STAGING_PROVIDER_UAT_SCOPE: ${providerUatJourneyScope}.`,
     );
+    if (providerUatJourneyScope === catalogAdminOriginGenerateJourneyScope) {
+      await runAdminOriginGenerateProbe(page, testInfo);
+      return;
+    }
     test.skip(
       !catalogAdminEmail || !catalogAdminPassword,
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for staging provider sync UAT.",
@@ -5640,6 +6194,10 @@ const previewProbeScopeSelected = providerUatJourneyScope === scopeSyncBatchPrev
 // selected, which skips every other journey in this file.
 if (previewProbeScopeSelected || isWholeGameJourneyScope(providerUatJourneyScope))
   test.use({ trace: "off", video: "off", screenshot: "off" });
+if (providerUatJourneyScope === catalogAdminOriginGenerateJourneyScope) {
+  test.use({ trace: "off", video: "off", screenshot: "off", serviceWorkers: "block" });
+  test.describe.configure({ retries: 0 });
+}
 
 const previewProbeClockSkewToleranceMs = 60_000;
 const previewProbeDeadlineReserveMs = 120_000;
