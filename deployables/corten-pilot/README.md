@@ -51,6 +51,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Seller Desk > payout setup, `/account/desk/settings` (`?mode=manage`) |
 | `marketplace/` | Buy > Cart, `/account/cart` |
 | `marketplace/` | Buy > Checkout, `/checkout/buy/session/{id}`, and its confirmation, `/checkout/buy/session/{id}/confirmation` |
+| `marketplace/` | Checkout start, `/checkout/buy/readiness`, for a listing, an offer or the cart, and a guest's or visitor's Buy (a guest then goes to marketplace's guest checkout page) |
 | `marketplace/` | Buy > a payment, `/account/payments/{id}` |
 | `marketplace/` | Sign in, `/sign-in`, `/sign-in/magic`, `/account/select`, `/sign-out` |
 | `marketplace/` | Create an account, `/register` (`?registrationMethod=`); a passkey stays on marketplace |

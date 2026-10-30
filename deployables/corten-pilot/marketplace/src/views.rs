@@ -29,6 +29,7 @@ mod bulk_reprice_page;
 mod cart_item;
 mod channels_page;
 mod checkout_page;
+mod checkout_start_page;
 mod consents_page;
 mod decision_card;
 mod desk_page;
@@ -82,6 +83,7 @@ pub use cart_item::{
 };
 pub use channels_page::{ChannelConnectionPage, ChannelPublicationPage, ChannelPublicationsPage, ChannelsPage, ChannelsPending};
 pub use checkout_page::{BuyConfirmationPage, CheckoutPage, CheckoutRecovery};
+pub use checkout_start_page::CheckoutStartPage;
 pub use consents_page::ConsentsPage;
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use desk_page::DeskPage;
@@ -150,6 +152,9 @@ pub const CART: &[Component] = &[CartItem];
 /// The buy checkout page (`/checkout/buy/session/{id}`) and the script that says a changed field
 /// needs its totals updated.
 pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMPONENT];
+
+/// Checkout start's components (`/checkout/buy/readiness`).
+pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
 
 /// The item page's components (`/items`): its stylesheet, the Sales tab's chart, and corten-ui's
 /// handler that makes Add to List's dialog modal when the server draws it open.
@@ -638,7 +643,7 @@ pub fn cart_page<'a>(
     // Check out a ready cart as it is; a cart that is not ready continues to checkout to resolve it.
     let check_out = readiness.map(|r| &r.declined).filter(|s| s.status == "ready");
     let lower_price = readiness.and_then(|r| r.accepted.as_ref()).filter(|_| screen.offer());
-    let (search, resolve) = (cart_item::link("/search"), cart_item::link("/checkout/buy/readiness"));
+    let (search, resolve) = (cart_item::link("/search"), url::CheckoutStart.href());
     html! {
         <PageHeader eyebrow={t.page_buy_cart()} title={t.page_your_cart()} description={t.page_simple_cart_description()} />
         <CartHeading title={t.page_items()} description={t.page_review_items_before_checkout()} />

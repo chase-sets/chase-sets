@@ -13,14 +13,14 @@
 //! | Add listing to Buy Cart | `add-listing` | a line locked to the listing | the page, saying it was added |
 //! | Add product to Buy Cart | `add-product` | a line Smart Match fills | the page, saying it was added |
 //! | Buy best match | `buy-best-match` | a line Smart Match fills, once the lowest listing has the quantity | the cart |
-//! | Buy this listing | (its own path) | a checkout session for the listing | marketplace's checkout |
-//! | Make offer | (its own path) | nothing: the price, currency and quantity are checked | marketplace's offer checkout |
+//! | Buy this listing | (its own path) | a checkout session for the listing | the checkout (a guest: checkout start) |
+//! | Make offer | (its own path) | nothing: the price, currency and quantity are checked | checkout start for the offer |
 //!
 //! A cart add is one cart attempt (`cart.add-line`), applied once however often it is sent, and
 //! resolved as the cart's writes are (`cart_attempt`). A guest's add goes to a guest cart whose
 //! id the browser keeps in marketplace's cookie; marketplace's cart reads it, so a guest's View buy
-//! cart is marketplace's (the pilot's cart is for accounts). A guest's Buy this listing is
-//! marketplace's guest checkout, as marketplace sends it there.
+//! cart is marketplace's (the pilot's cart is for accounts). A guest's Buy this listing is checkout
+//! start's Continue for the listing (`checkout_start`), as marketplace re-sends it there.
 use corten::{
     axum::{
         extract::State,
@@ -483,8 +483,8 @@ pub(crate) async fn add(
 
 /// Buy this listing (the action's `buy-this-listing`): a checkout session for the listing shown,
 /// started once per form (its `SubmitKey` is the entry key, so sending it again is the same
-/// session), then marketplace's checkout. A guest goes to marketplace's guest checkout with the
-/// listing, as marketplace sends one.
+/// session), then the checkout. A guest's or a visitor's is checkout start's Continue for the
+/// listing, as marketplace re-sends the form there.
 pub(crate) async fn buy(
     req: Req,
     session: Option<corten::Caller<Session>>,
@@ -532,8 +532,8 @@ pub(crate) async fn buy(
     if is_guest(session) {
         let available =
             t.route_inventory_option_label(summary.as_deref().unwrap_or(&item.title), available(&listing)).to_string();
-        let to = guest_checkout(&source, &listing, &available, t.route_confirmed_at_checkout());
-        return req.redirect(&to.parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?);
+        let entry = guest_checkout(&source, &listing, &available, t.route_confirmed_at_checkout());
+        return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &entry, &input.attempt).await;
     }
     match caller.buy_now(&input.attempt, &source).await {
         Ok((session, receipt)) => {
@@ -566,9 +566,9 @@ pub fn price(t: ItemMsg, text: &str) -> Option<String> {
     Some(format!("{}.{:02}", cents / 100, cents % 100))
 }
 
-/// Make an offer (the action's `submit-offer`): checked as marketplace checks it, then
-/// marketplace's offer checkout with the product and the offer in its query. Nothing is written
-/// here; the offer is placed there.
+/// Make an offer (the action's `submit-offer`): checked as marketplace checks it, then checkout
+/// start with the product and the offer in its query. Nothing is written here; the offer is placed
+/// from there.
 pub(crate) async fn offer(
     req: Req,
     session: Option<corten::Caller<Session>>,
@@ -607,14 +607,16 @@ pub(crate) async fn offer(
         ("quantity", quantity.to_string()),
     ];
     let query = pairs.iter().map(|(k, v)| format!("{k}={}", segment(v))).collect::<Vec<_>>().join("&");
-    match views::marketplace(&format!("/checkout/buy/readiness?{query}")) {
-        Some(to) => req.redirect(&to),
-        None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
-    }
+    req.redirect(&checkout_start(&query).parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?)
 }
 
-/// Marketplace's guest checkout for one listing (`/checkout/buy/readiness`), with the query its
-/// item action builds.
+/// Checkout start (`/checkout/buy/readiness`) with an entry's query.
+fn checkout_start(query: &str) -> String {
+    format!("{}?{query}", crate::app::url::CheckoutStart.href())
+}
+
+/// Checkout start's entry for one listing (`/checkout/buy/readiness`'s query), as marketplace's
+/// item action builds it.
 pub(crate) fn guest_checkout(source: &Value, listing: &Listing, available: &str, fulfillment: &str) -> String {
     let text = |key: &str| match &source[key] {
         Value::String(s) => s.clone(),
@@ -639,7 +641,5 @@ pub(crate) fn guest_checkout(source: &Value, listing: &Listing, available: &str,
         ("availability", available.to_owned()),
         ("fulfillment", fulfillment.to_owned()),
     ];
-    let query = pairs.iter().map(|(k, v)| format!("{k}={}", segment(v))).collect::<Vec<_>>().join("&");
-    let path = format!("/checkout/buy/readiness?{query}");
-    views::marketplace(&path).map(|u| u.to_string()).unwrap_or(path)
+    pairs.iter().map(|(k, v)| format!("{k}={}", segment(v))).collect::<Vec<_>>().join("&")
 }

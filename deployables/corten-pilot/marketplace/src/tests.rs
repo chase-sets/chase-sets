@@ -492,6 +492,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = auth_sessions(&method, &uri, &headers, &body) {
         return answer;
     }
+    if let Some(answer) = checkout_start_api(&method, uri.path(), &headers) {
+        return answer;
+    }
     if let Some(answer) = auth(&method, uri.path(), &body) {
         return answer;
     }
@@ -3570,26 +3573,30 @@ async fn buy_this_listing_starts_a_checkout_session_once_per_form() {
     let (status, _, html) = pilot.send(post(ITEM_BUY, "buyer", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Your selection changed after you chose Buy now."), "{html}");
-    // A guest goes to marketplace's guest checkout with the listing.
+    // A visitor's is checkout start's Continue: a guest checkout under a new guest identity, with
+    // the form's key, then the guest's checkout.
     let req = Request::post(ITEM_BUY)
         .header(header::HOST, "localhost:7791")
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(buy_body("", "1", VAULT, "lst_vault", "")))
         .unwrap();
-    let (status, headers, _) = pilot.send(req).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("http://localhost:7753/checkout/buy/readiness?source=buy-now&listingId=lst_vault&"), "{to}");
-    let q = query(to);
+    let (status, headers, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "http://localhost:7753/checkout/buy/session/chk_1");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert_eq!(calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
+    let sessions: Vec<_> = calls.iter().filter(|c| c.path.ends_with("/checkout-sessions")).collect();
+    assert_eq!(sessions.len(), 3);
+    let sent: Value = serde_json::from_str(&sessions[2].body).unwrap();
+    assert_eq!(sent["entryAttemptKey"], KEY, "the form's attempt is the entry key");
     assert_eq!(
-        (q["quantity"].as_str(), q["sellerName"].as_str(), q["availability"].as_str()),
-        ("1", "Card Vault", "Form: raw - 2 available")
+        (&sent["source"]["quantity"], &sent["source"]["sellerName"], &sent["source"]["availability"]),
+        (&json!(1), &json!("Card Vault"), &json!("Form: raw - 2 available"))
     );
-    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/checkout-sessions")).count(), 2);
 }
 
 #[tokio::test]
-async fn make_offer_is_checked_then_marketplaces_offer_checkout() {
+async fn make_offer_is_checked_then_checkout_start_for_the_offer() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get(ITEM_PAGE, Some("buyer"))).await;
     assert!(html.contains(r#"action="/items/charizard/offer""#), "{html}");
@@ -3601,7 +3608,7 @@ async fn make_offer_is_checked_then_marketplaces_offer_checkout() {
     let (status, headers, html) = pilot.send(post("/items/charizard/offer", "buyer", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("http://localhost:7753/checkout/buy/readiness?source=offer-intent&"), "{to}");
+    assert!(to.starts_with("/checkout/buy/readiness?source=offer-intent&"), "{to}");
     let q = query(to);
     assert_eq!(
         (q["productId"].as_str(), q["offerPriceAmount"].as_str(), q["offerPriceCurrencyCode"].as_str(), q["quantity"].as_str()),
@@ -4992,16 +4999,21 @@ async fn buy_this_listing_starts_a_checkout_for_an_account_and_sends_a_guest_to_
         (&sent["source"]["type"], &sent["source"]["lockedListingId"], &sent["source"]["quantity"]),
         (&json!("buy-now"), &json!("lst_psa_8"), &json!(1))
     );
-    // A guest: marketplace's guest checkout with the listing.
-    let (status, headers, _) = pilot.send(post("/listings/psa-8/buy", "guest", &format!("attempt={KEY}"), false)).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    let to = headers["location"].to_str().unwrap();
-    assert!(to.starts_with("http://localhost:7753/checkout/buy/readiness?source=buy-now&listingId=lst_psa_8"), "{to}");
-    assert!(to.contains("&availability=1%20available&fulfillment=Ships%20from%20Chicago%2C%20IL"), "{to}");
+    // A guest checkout: checkout start's Continue under the guest's own access, then marketplace's
+    // guest checkout page.
+    let (status, headers, html) = pilot.send(post("/listings/psa-8/buy", "guest", &format!("attempt={KEY}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers["location"], "http://localhost:7753/checkout/buy/session/chk_1");
+    let call = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/checkout-sessions")).cloned().unwrap();
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!(
+        (&sent["source"]["availability"], &sent["source"]["fulfillment"], &sent["source"]["listingId"]),
+        (&json!("1 available"), &json!("Ships from Chicago, IL"), &json!("lst_psa_8"))
+    );
     // An attempt that is not one is refused, and nothing is started.
     let (status, _, _) = pilot.send(post("/listings/psa-8/buy", "buyer", "attempt=x", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/checkout-sessions")).count(), 1);
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/checkout-sessions")).count(), 2);
 }
 
 #[tokio::test]
@@ -16345,4 +16357,128 @@ async fn a_connections_manual_sync_shows_channels_panel_and_its_writes() {
         .find(|c| c.path.contains("/manual-sync/ingest"))
         .map(|c| c.headers.clone());
     assert!(sent.unwrap().contains_key("x-channel-export-captured-at"), "the capture time goes to Channels");
+}
+
+/// Checkout start's own calls, as the stand-in answers them: a guest cart holds two lines when the
+/// browser's anonymous cart is `anon_full` and none otherwise, and Auth starts the guest identity
+/// `gst_new`.
+fn checkout_start_api(method: &Method, path: &str, headers: &HeaderMap) -> Option<Response> {
+    match (method.as_str(), path) {
+        ("GET", "/api/marketplace/guest/cart") => {
+            let cart = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok());
+            let count = if cart == Some("anon_full") { 2 } else { 0 };
+            Some(Json(json!({ "items": [], "count": count })).into_response())
+        }
+        ("POST", "/api/auth/guest-checkout/start") => Some(
+            (
+                StatusCode::CREATED,
+                Json(json!({ "accountId": "acc_guest", "guestToken": "gst_new", "expiresAt": "2099-01-01T00:00:00.000Z" })),
+            )
+                .into_response(),
+        ),
+        _ => None,
+    }
+}
+
+const START_LISTING: &str = "/checkout/buy/readiness?source=buy-now&listingId=lst_vault&fulfillmentMode=locked-listing\
+    &lockedListingId=lst_vault&catalogItemId=cat_charizard&productId=prd_vault&itemTitle=Charizard\
+    &itemSubtitle=Base%20Set%204%2F102&selectedOptions=%5B%5D&quantity=2&priceAmount=389.00&priceCurrencyCode=USD\
+    &sellerName=Card%20Vault";
+
+/// A visitor's form post, with the browser's cookies (`cookie`, if any).
+fn visitor_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
+    let mut req = Request::post(uri)
+        .header(header::HOST, "localhost:7791")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+    if let Some(cookie) = cookie {
+        req = req.header(header::COOKIE, cookie);
+    }
+    req.body(Body::from(body.to_owned())).unwrap()
+}
+
+#[tokio::test]
+async fn checkout_start_shows_the_listing_and_continue_for_an_account_and_sign_in_for_a_visitor() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(START_LISTING, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Secure checkout"), "{page}");
+    assert!(page.contains("Charizard Base Set 4/102"), "{page}");
+    assert!(page.contains("$389.00"), "{page}");
+    assert!(page.contains("Card Vault"), "{page}");
+    assert!(html.contains(r#"<meta name="robots" content="noindex" data-corten-head>"#), "{html}");
+    // Continue posts the entry to the page's own address, with a key that starts it once.
+    assert!(page.contains("Account checkout"), "{page}");
+    assert!(html.contains(r#"method="post" action="/checkout/buy/readiness?source=buy-now&amp;listingId=lst_vault"#), "{html}");
+    assert!(html.contains(r#"name="entryAttemptKey" value="chkentry_"#), "{html}");
+    assert!(html.contains(r#"name="listingId" value="lst_vault""#), "{html}");
+    // No API call writes anything for the page.
+    assert!(pilot.stand.calls.lock().unwrap().iter().all(|c| c.method == Method::GET), "a page read writes nothing");
+
+    let (status, _, html) = pilot.send(get(START_LISTING, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(!page.contains("Continue to checkout"), "a visitor has no account checkout: {page}");
+    assert!(html.contains(r#"href="/sign-in?"#), "{html}");
+}
+
+#[tokio::test]
+async fn checkout_start_continue_starts_an_accounts_session_once_per_entry_key() {
+    let pilot = Pilot::new().await;
+    let body = "entryAttemptKey=chkentry_01TEST";
+    let (status, headers, html) = pilot.send(post(START_LISTING, "buyer", body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1?afterWrite="), "{headers:?}");
+    let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/checkout-sessions")).cloned().unwrap();
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!(sent["entryAttemptKey"], "chkentry_01TEST");
+    assert_eq!(
+        (&sent["source"]["type"], &sent["source"]["listingId"], &sent["source"]["quantity"], &sent["source"]["fulfillmentMode"]),
+        (&json!("buy-now"), &json!("lst_vault"), &json!(2), &json!("locked-listing"))
+    );
+    assert_eq!(sent["source"]["selectedOptions"], json!([]));
+    assert_eq!(sent["source"]["priceAmount"], "389.00");
+}
+
+#[tokio::test]
+async fn checkout_start_for_the_cart_reads_its_readiness_and_a_refusal_shows_its_recovery() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/checkout/buy/readiness", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="source" value="cart""#), "{html}");
+    // A cart that changed since its readiness: the API's refusal is the page's recovery.
+    let (status, _, html) = pilot.send(post("/checkout/buy/readiness", "blocked", "source=cart", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Checkout needs attention"), "{page}");
+    assert!(html.contains(r#"href="/account/cart""#), "{html}");
+}
+
+#[tokio::test]
+async fn checkout_start_for_a_visitor_starts_a_guest_checkout_and_keeps_its_token() {
+    let pilot = Pilot::new().await;
+    let cookie = "chase_sets_anonymous_cart=anon_full";
+    let (status, headers, html) = pilot.send(visitor_post(START_LISTING, Some(cookie), "entryAttemptKey=chkentry_01GUEST")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "http://localhost:7753/checkout/buy/session/chk_1");
+    let set: Vec<_> = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
+    assert!(set.iter().any(|c| c.starts_with("chase_sets_guest_checkout=gst_new;") && c.contains("Max-Age=")), "{set:?}");
+    assert!(set.iter().any(|c| c.starts_with("chase_sets_anonymous_cart=;")), "the guest cart is forgotten: {set:?}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert_eq!(calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
+    let started = calls.iter().find(|c| c.path.ends_with("/checkout-sessions")).unwrap();
+    let as_guest = started.headers[header::COOKIE].to_str().unwrap();
+    assert_eq!(as_guest, "chase_sets_guest_checkout=gst_new", "the session starts as the new guest");
+
+    // An offer needs an account: nothing starts.
+    let offer =
+        "/checkout/buy/readiness?source=offer-intent&productId=prd_vault&offerPriceAmount=24.50&offerPriceCurrencyCode=USD";
+    let (status, _, html) = pilot.send(visitor_post(offer, None, "")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    assert!(text(&html).contains("Sign in required"), "{html}");
+    // An empty guest cart: the page says so, and no guest identity is started.
+    let (status, _, html) = pilot.send(visitor_post("/checkout/buy/readiness", None, "source=cart")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Your Buy Cart is empty"), "{html}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
 }

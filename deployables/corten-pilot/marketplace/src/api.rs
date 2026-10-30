@@ -509,6 +509,11 @@ pub struct Snapshot {
     pub status: String,
     pub line_outcomes: Vec<LineOutcome>,
     pub optimization: Optimization,
+    #[serde(default)]
+    pub line_count: u64,
+    /// What the buyer may be told about a cart that is not ready.
+    #[serde(default)]
+    pub customer_safe_facts: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1468,6 +1473,49 @@ impl Checkout for Caller<'_> {
         let body = serde_json::json!({ "entryAttemptKey": entry, "source": source });
         let req = self.request(Method::POST, "/api/marketplace/account/checkout-sessions", CHECKOUT).json(&body);
         self.write(req).await
+    }
+}
+
+/// A guest checkout Auth started (`POST /api/auth/guest-checkout/start`): the guest identity's
+/// token, which the browser keeps as `chase_sets_guest_checkout`, and when it ends.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GuestCheckout {
+    pub guest_token: String,
+    pub expires_at: String,
+}
+
+#[derive(Deserialize)]
+struct GuestCartCount {
+    #[serde(default)]
+    count: u64,
+}
+
+/// Checkout start's calls beyond the cart's (marketplace's `/checkout/buy/readiness`).
+pub trait CheckoutStart {
+    /// How many lines a guest cart holds (`GET /api/marketplace/guest/cart`).
+    async fn guest_cart_count(&self, anonymous_cart: Option<&str>) -> Result<u64, ApiError>;
+    /// A new contact-less guest checkout identity.
+    async fn start_guest_checkout(&self) -> Result<GuestCheckout, ApiError>;
+}
+
+impl CheckoutStart for Caller<'_> {
+    async fn guest_cart_count(&self, anonymous_cart: Option<&str>) -> Result<u64, ApiError> {
+        let mut req = self.request(Method::GET, "/api/marketplace/guest/cart", CHECKOUT);
+        if let Some(id) = anonymous_cart {
+            req = req.header(ANONYMOUS_CART_HEADER, id);
+        }
+        let res = req.send().await?;
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        if !status.is_success() {
+            return Err(ApiError::Status { status, code: None, message: String::new() });
+        }
+        Ok(res.json::<GuestCartCount>().await?.count)
+    }
+
+    async fn start_guest_checkout(&self) -> Result<GuestCheckout, ApiError> {
+        let req = self.request(Method::POST, "/api/auth/guest-checkout/start", "auth").json(&serde_json::json!({}));
+        Ok(self.write(req).await?.0)
     }
 }
 

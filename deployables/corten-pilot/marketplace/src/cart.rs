@@ -1,9 +1,10 @@
 //! Buy > Cart (marketplace's `/account/cart`): the account's cart lines, what each needs before
 //! checkout, the estimated total and the lower-price offer, as the Checkout API's cart read
 //! returns them. Check out and Use lower price start the checkout session here, as marketplace's
-//! `/checkout/buy/readiness` action does, and send the buyer to marketplace's checkout with the
-//! write's receipt (`checkout`). marketplace's action refuses a post from another origin (React
-//! Router's CSRF check), and starting the session is the Checkout API's call, so the pilot makes it.
+//! `/checkout/buy/readiness` action does, and send the buyer to the checkout with the write's
+//! receipt (`checkout`); a cart that is not ready goes to checkout start (`checkout_start`).
+//! marketplace's action refuses a post from another origin (React Router's CSRF check), and
+//! starting the session is the Checkout API's call, so the pilot makes it.
 //!
 //! The API computes the readiness, the totals and the savings
 //! ([chase-sets/chase-sets#10504](https://github.com/chase-sets/chase-sets/issues/10504)). Each

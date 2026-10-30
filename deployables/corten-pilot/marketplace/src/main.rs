@@ -19,6 +19,7 @@ mod cart;
 mod cart_attempt;
 mod channels;
 mod checkout;
+mod checkout_start;
 mod consents;
 mod desk;
 mod form;

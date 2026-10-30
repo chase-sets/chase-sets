@@ -3,7 +3,7 @@
 //!
 //! | Form | Posts to | Then |
 //! |---|---|---|
-//! | Buy this listing | `/listings/{slug}/buy` | a checkout session for the listing, then marketplace's checkout (a guest: marketplace's guest checkout) |
+//! | Buy this listing | `/listings/{slug}/buy` | a checkout session for the listing, then the checkout (a guest: checkout start's Continue) |
 //! | Report listing | `/listings/{slug}/report` | the page, saying the report was received (`?reported=1`) |
 //!
 //! An old slug moves to the listing's own for good, with the address's query. A listing the API
@@ -154,8 +154,8 @@ pub fn can_purchase(listing: &PublicListing) -> bool {
 }
 
 /// Buy this listing: a checkout session for it, started once per form (its `SubmitKey` is the
-/// entry key), then marketplace's checkout; a guest goes to marketplace's guest checkout with the
-/// listing, as marketplace's form does (`checkoutStartHref`).
+/// entry key), then the checkout; a guest's or a visitor's is checkout start's Continue for the
+/// listing, as marketplace's form posts there (`checkoutStartHref`).
 pub(crate) async fn buy(
     req: Req,
     session: Option<corten::Caller<Session>>,
@@ -203,8 +203,8 @@ pub(crate) async fn buy(
             None => quantity,
         };
         let fulfillment = views::fulfillment(t, listing.ship_from_code.as_deref());
-        let to = guest_checkout(&source, l, &availability, &fulfillment);
-        return req.redirect(&to.parse::<Uri>().map_err(corten::Error::new)?);
+        let entry = guest_checkout(&source, l, &availability, &fulfillment);
+        return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &entry, attempt).await;
     }
     match caller.buy_now(attempt, &source).await {
         Ok((started, receipt)) => {

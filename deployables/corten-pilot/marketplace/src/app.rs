@@ -20,6 +20,7 @@
 //! | `POST /account/cart/remove` | remove a line |
 //! | `POST /account/cart/lock` | lock a line to its preferred listing |
 //! | `POST /account/cart/checkout` | start a checkout session, then marketplace's checkout |
+//! | `GET /checkout/buy/readiness?<entry>`, `POST ..` | checkout start for a listing, an offer or the cart, and Continue (see `checkout_start`) |
 //! | `GET /items/{slug}?<choice>` | an item, its product options and its market book, to anyone |
 //! | `POST /items/{slug}/cart`, `/buy`, `/offer`, `/sell-list`, `/watch` | the rail's buy, sell and watch forms |
 //! | `POST /items/{slug}/save` | Add to List: add the product to a Saved List, or a guest's intent |
@@ -165,6 +166,7 @@ pub mod url {
         ChannelPublications, Channels,
     };
     pub use checkout::{BuyCheckout, BuyConfirmation};
+    pub use checkout_start::CheckoutStart;
     pub use consents::Consents;
     pub use desk::Desk;
     pub use desk_offers::DeskOffers;
@@ -421,7 +423,7 @@ pub mod url {
             pub slug: &'a str,
         }
 
-        /// Make an offer for the product the item page shows: checked, then marketplace's offer checkout.
+        /// Make an offer for the product the item page shows: checked, then checkout start for the offer.
         #[route("/items/{slug}/offer", post = crate::buying::offer)]
         pub struct ItemOffer<'a> {
             pub slug: &'a str,
@@ -1498,6 +1500,16 @@ pub mod url {
         }
     }
 
+    /// Checkout start (marketplace's `checkout/buy/readiness`): where a checkout begins for a
+    /// listing, an offer or the cart, to anyone; Continue (and a visitor's Buy) posts to it. Its
+    /// handlers take who is asking, if anyone (see `checkout_start`).
+    #[corten::routes(state = crate::app::Shared, area = CheckoutStart)]
+    pub mod checkout_start {
+        /// The page, for the entry its query names (read as marketplace's `sourceFromUrl` reads it).
+        #[route("/checkout/buy/readiness", get = crate::checkout_start::page, post = crate::checkout_start::start)]
+        pub struct CheckoutStart;
+    }
+
     /// Signing in (see `sign_in`): the page and its writes, and a magic link's landing. Public: no
     /// handler reads who is asking.
     #[corten::routes(state = crate::app::Shared, area = SignIn)]
@@ -1675,6 +1687,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::inventory::area(area, shared.clone()).components(views::INVENTORY))
         .area(|area| url::cart::area(area, shared.clone()).components(views::CART))
         .area(|area| url::checkout::area(area, shared.clone()).components(views::CHECKOUT))
+        .area(|area| url::checkout_start::area(area, shared.clone()).components(views::CHECKOUT_START))
         .area(|area| url::items::area(area, shared.clone()).components(views::ITEM))
         .area(|area| url::search::area(area, shared.clone()))
         .area(|area| url::categories::area(area, shared.clone()))

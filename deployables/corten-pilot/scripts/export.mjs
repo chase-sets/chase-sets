@@ -44,7 +44,8 @@
 //   checkout.routes.sellCheckoutSession.* as route.*, and checkout.shared.policyLinks.* as policy.*).
 // - marketplace/locales/checkout.en.json: the buy checkout page's English catalog
 //   (checkout.features.sessions.ui.checkoutPage.* as page.*, checkout.routes.checkoutSession.* as
-//   route.*, checkout.routes.checkoutRecovery.* as recovery.*, and checkout.shared.policyLinks.* as policy.*).
+//   route.*, checkout.routes.checkoutRecovery.* as recovery.*, checkout.shared.policyLinks.* as policy.*, and checkout
+//   start's checkout.routes.checkoutStart.* as start.*).
 // - marketplace/locales/item.en.json: the item page's English catalog (discovery.features.itemDetail.ui.itemDetailPage.*,
 //   its page view's, product selector's, similar items' and market panel's, discovery.routes.itemDetail.*, the language
 //   labels the details list uses, an item's display identity, and Collections' Add to List words,
@@ -702,6 +703,7 @@ const outputs = [
         ["checkout.shared.policyLinks.", "policy"],
         ["checkout.features.sessions.ui.buyCheckoutConfirmationPage.", "confirmation"],
         ["checkout.routes.buyCheckoutConfirmation.", "confirmation_route"],
+        ["checkout.routes.checkoutStart.", "start"],
       ]),
     ),
   ],
