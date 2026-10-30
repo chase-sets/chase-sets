@@ -18,6 +18,7 @@ import {
 import { participantOpenSupportRequestId, validateParticipantHistory } from "./participant-runtime";
 import { canonicalParticipantRequest } from "../domain/participant-attempt";
 import { supportFlowCatalog } from "../domain/flow-catalog";
+import type { SupportEvidenceType } from "../domain/common";
 import {
   attachmentManifestReferences,
   attachmentOperationStreamId,
@@ -121,9 +122,10 @@ describe("atomic participant intake", () => {
       it(`${flow.flowType}/${role} resolves mandatory photo intake from the catalog, ignoring tampered flags and role`, async () => {
         const f = participantFixture();
         const actor = role === "buyer" ? buyer : { ...buyer, accountId: "acc_seller" };
-        const requiresPhoto = flow.checklist.some(
-          (item) => item.required && item.ownerRole === role && item.evidenceTypes.includes("photo"),
-        );
+        const requiresPhoto = flow.checklist.some((item) => {
+          const evidenceTypes: readonly SupportEvidenceType[] = item.evidenceTypes;
+          return item.required && item.ownerRole === role && evidenceTypes.includes("photo");
+        });
         const command = f.executeParticipant(
           "open-support-request",
           {

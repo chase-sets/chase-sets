@@ -57,7 +57,7 @@ describe("participant intake staging route", () => {
     const keys = new Set<string>();
     const storage = {
       putPrivate: vi.fn(async (input: { key: string }) => {
-        if (uncertain) return { status: "ambiguous" as const, key: input.key, reason: "transport-failed" };
+        if (uncertain) return { status: "ambiguous" as const, key: input.key, reason: "transport-failed" as const };
         keys.add(input.key);
         return { status: "completed" as const, key: input.key };
       }),
