@@ -10,6 +10,35 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("platform operations request API clients", () => {
+  it.each(["whole-order", "explicit-line"] as const)(
+    "stages a %s attempt-bound photo batch with complete multipart binding",
+    async (scope) => {
+      const affectedLineIds = scope === "whole-order" ? undefined : ["line_a", "line_b"];
+      const reference = `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg`;
+      const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ attachments: [{ reference }] }, 201));
+      const client = createSupportRequestApiClient({ baseUrl: "https://api.example.test", fetch: fetchMock });
+      const attemptId = "10724_intake_attempt_0123456789";
+      const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+      await expect(
+        client.stageParticipantIntakeAttachments(
+          { attemptId, orderId: "ord_1", flowType: "product-damaged", ...(affectedLineIds ? { affectedLineIds } : {}) },
+          [new File(["photo"], "card.jpg", { type: "image/jpeg" })],
+          operationId,
+        ),
+      ).resolves.toEqual({ attachments: [{ reference }] });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0]!;
+      expect(url).toBe(`https://api.example.test/support-requests/participant-attempts/${attemptId}/attachments`);
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("x-support-attachment-operation-id")).toBe(operationId);
+      const form = init?.body as FormData;
+      expect(form.get("attemptId")).toBe(attemptId);
+      expect(form.get("orderId")).toBe("ord_1");
+      expect(form.get("flowType")).toBe("product-damaged");
+      expect(form.getAll("affectedLineIds")).toEqual(affectedLineIds ?? []);
+      expect(form.getAll("attachments")).toHaveLength(1);
+    },
+  );
   it("optional explicit response contract remains", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse({ id: "sup_1", version: 3, status: "response-recorded" }),

@@ -20,7 +20,6 @@ import {
 import {
   buildProductOptionSummaries,
   formatUpdatedAt,
-  getBestAccountOfferMatch,
   getListingAvailableQuantity,
   getCommonPriceCurrencyCode,
   itemDetailRailAnalyticsSelection,
@@ -167,7 +166,8 @@ export function useItemDetailPageModel({
           ? matchesSelectedOptions(offer, selections)
           : true,
     );
-  const bestAccountOfferMatch = getBestAccountOfferMatch(matchingAccountOfferMatches);
+  const bestAccountOfferMatch =
+    matchingAccountOfferMatches.find((offer) => offer.status === "submitted" && offer.can_fulfill) ?? null;
   const defaultSellerOffer =
     marketIntent === "sell" && bestAccountOfferMatch
       ? (matchingOffers.find((offer) => offer.offer_id === bestAccountOfferMatch.offer_id) ?? null)
