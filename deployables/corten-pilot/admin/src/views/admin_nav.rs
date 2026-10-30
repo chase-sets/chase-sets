@@ -34,6 +34,7 @@ fn served(path: &str) -> Option<String> {
         (<access::teams::Memberships as Route>::PATH, access::teams::Memberships::default().href()),
         (<access::teams::Invitations as Route>::PATH, access::teams::Invitations::default().href()),
         (<access::people::ApiKeys as Route>::PATH, access::people::ApiKeys::default().href()),
+        (<access::people::Sessions as Route>::PATH, access::people::Sessions::default().href()),
         (<operations::url::Attention as Route>::PATH, operations::url::Attention.href()),
         (<projections::url::Projections as Route>::PATH, projections::url::Projections::default().href()),
     ];
@@ -76,7 +77,7 @@ fn section_label(p: Pilot, section: &str) -> &'static str {
 
 /// admin-web's frame: the sections the viewer can open, and the pages of the one the page is in
 /// (catalog or commerce). The pilot serves postage policies, the catalog's dimensions, fields,
-/// items list and scopes list, Access's home and lists, and the platform's Operations Attention queue and Projection Operations; every other entry
+/// items list and scopes list, Access's home, lists and sessions, and the platform's Operations Attention queue and Projection Operations; every other entry
 /// links to admin-web.
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render {

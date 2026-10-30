@@ -127,6 +127,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(rest) = uri.path().strip_prefix("/api/catalog/attention-queue") {
         return attention_queue(method, rest, cookie, &headers, &body);
     }
+    if let Some(rest) = uri.path().strip_prefix("/api/auth/sessions") {
+        return auth_sessions(&method, rest, &body);
+    }
     if let Some(rest) = uri.path().strip_prefix("/api/identity/") {
         if rest == "access-hub/accounts/acc_1"
             && cookie.contains("lagging")
@@ -264,6 +267,29 @@ fn identity_api(method: &Method, rest: &str, body: &str) -> Response {
         "memberships" => page(membership),
         "invitations" => page(invitation),
         "api-keys" => page(key),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Auth's sessions: one of 120 in the list; `ses_1` active with two accounts, `ses_old` revoked,
+/// and a switch to `acc_gone` refused.
+fn auth_sessions(method: &Method, rest: &str, body: &str) -> Response {
+    let session = |id: &str, status: &str| {
+        json!({
+            "session_id": id, "user_id": "usr_2", "user_display_name": null, "user_primary_email": "dana@example.test",
+            "account_id": "acc_1", "account_display_name": "Acme Cards", "account_name": "Acme Cards LLC",
+            "available_account_ids": ["acc_1", "acc_2"], "authentication_method": "magic-link", "status": status,
+            "expires_at": "2026-11-05T12:00:00.000Z", "updated_at": "2026-10-30T12:00:00.000Z",
+        })
+    };
+    match (method.clone(), rest) {
+        (Method::GET, "") => Json(json!({ "items": [session("ses_1", "active")], "total": 120, "count": 1 })).into_response(),
+        (Method::GET, "/ses_1") => Json(session("ses_1", "active")).into_response(),
+        (Method::GET, "/ses_old") => Json(session("ses_old", "revoked")).into_response(),
+        (Method::POST, "/ses_1/switch-account") if body.contains("acc_gone") => {
+            refusal(StatusCode::CONFLICT, "account_unavailable", "That account is not available to this session.")
+        }
+        (Method::POST, "/ses_1/switch-account" | "/ses_1/revoke") => written(StatusCode::OK, "ses_1"),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -3451,6 +3477,63 @@ async fn a_workspace_whose_write_is_not_readable_yet_is_read_without_it() {
     let reads: Vec<bool> =
         pilot.calls_to("/api/identity/").iter().map(|c| c.headers.contains_key("chase-sets-read-after-write")).collect();
     assert_eq!(reads, [true, false], "the write's read, then the read without it");
+}
+
+#[tokio::test]
+async fn sessions_list_and_page_read_auth_as_admin_web_does() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/access/sessions?search=+dana+&status=revoked&offset=50", Some("access-staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let paths: Vec<String> = pilot.calls_to("/api/auth/sessions").into_iter().map(|c| c.path).collect();
+    assert_eq!(paths, ["/api/auth/sessions?limit=50&offset=50&status=revoked&search=dana"]);
+    assert!(html.contains("dana@example.test") && html.contains("Acme Cards") && html.contains("Magic link"), "{html}");
+    assert!(html.contains(r#"href="/access/sessions/ses_1""#) && html.contains("Status: Revoked"), "{html}");
+    assert!(html.contains(r#"href="/access/sessions" aria-current="page""#), "the nav serves it: {html}");
+    assert_eq!(pilot.send(get("/access/sessions", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(pilot.send(get("/access/sessions/ses_1", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
+
+    let (status, _, html) = pilot.send(get("/access/sessions/ses_1", Some("access-staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("dana@example.test session") && html.contains("acc_1, acc_2"), "{html}");
+    assert!(html.contains(r#"value="switch-account""#) && html.contains(r#"value="revoke""#), "{html}");
+    assert!(html.contains(r#"<option value="acc_1" selected>Acme Cards</option>"#), "{html}");
+    let (_, _, html) = pilot.send(get("/access/sessions/ses_old", Some("access-staff"))).await;
+    assert!(!html.contains(r#"value="revoke""#), "a revoked session has no forms: {html}");
+    assert_eq!(pilot.send(get("/access/sessions/ses_none", Some("access-staff"))).await.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_sessions_switch_or_revoke_writes_to_auth_and_reads_the_page_after_it() {
+    let pilot = Pilot::new().await;
+    for (body, rest, sent) in [
+        ("intent=switch-account&accountId=acc_2", "switch-account", r#"{"accountId":"acc_2"}"#),
+        ("intent=revoke", "revoke", "{}"),
+    ] {
+        let (status, headers, _) = pilot.send(post_as("access-staff", "/access/sessions/ses_1", body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+        let to = headers[header::LOCATION].to_str().unwrap();
+        assert!(to.starts_with("/access/sessions/ses_1?after_write="), "{to}");
+        let write = pilot.calls_to("/api/auth/sessions").into_iter().last().unwrap();
+        assert_eq!(
+            (write.method, write.path.as_str(), write.body.as_str()),
+            (Method::POST, &*format!("/api/auth/sessions/ses_1/{rest}"), sent)
+        );
+    }
+    let (status, headers, _) = pilot.send(post_as("access-staff", "/access/sessions/ses_1", "intent=bogus", false)).await;
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (StatusCode::SEE_OTHER, &"/access/sessions/ses_1".parse::<header::HeaderValue>().unwrap())
+    );
+    let body = "intent=switch-account&accountId=acc_gone";
+    let (status, headers, html) = pilot.send(post_as("access-staff", "/access/sessions/ses_1", body, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(headers.get(header::LOCATION).is_none());
+    assert!(html.contains("That account is not available to this session.") && html.contains(r#"role="alert""#), "{html}");
+    let (status, _, _) = pilot.send(post_as("accounts-only", "/access/sessions/ses_1", "intent=revoke", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let writes = pilot.calls_to("/api/auth/sessions").into_iter().filter(|c| c.method == Method::POST).count();
+    assert_eq!(writes, 3, "the unknown intent and the forbidden one write nothing");
 }
 
 #[tokio::test]

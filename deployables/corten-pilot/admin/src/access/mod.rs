@@ -13,6 +13,8 @@
 //! | `GET /access/api-keys?...` | the API keys | `security.manage` |
 //! | `GET /access/users/{id}`, `GET /access/api-keys/{id}` | its account's workspace (a redirect), else the list searched for it | `security.manage` |
 //! | `GET /access/accounts/{id}?tab&after_write`, `POST` | an account's workspace; its forms | `accounts.view`, and each form what admin-web shows it for |
+//! | `GET /access/sessions?...` | Auth's sessions | `security.manage` |
+//! | `GET /access/sessions/{id}?after_write`, `POST` | a session's page; its switch and revoke (`sessions`) | `security.manage` |
 //!
 //! Each route needs what admin-web's access layout challenges its path for: the nav entry's
 //! permission, else `accounts.view`. A user's, a membership's, an invitation's or an API key's
@@ -22,6 +24,7 @@ use serde::Serialize;
 
 pub mod account;
 pub mod api;
+pub mod sessions;
 pub mod views;
 
 use crate::{
@@ -122,6 +125,22 @@ pub mod people {
     #[route("/access/api-keys/{id}", get = crate::access::account::api_key)]
     pub struct ApiKeyPage<'a> {
         pub id: &'a str,
+    }
+
+    /// Auth's sessions.
+    #[derive(Clone, Debug, Default)]
+    #[route("/access/sessions", get = crate::access::sessions::list)]
+    pub struct Sessions {
+        #[route(query)]
+        pub query: ListQuery,
+    }
+
+    /// A session's page, after the write whose receipt the address carries; a `POST` is one of
+    /// its forms (`intent`).
+    #[route("/access/sessions/{id}", get = crate::access::sessions::page, post = crate::access::sessions::write)]
+    pub struct SessionPage<'a> {
+        pub id: &'a str,
+        pub after_write: Option<String>,
     }
 }
 
@@ -353,7 +372,7 @@ pub fn machine(t: Acc, known: Option<&'static str>, family: &str, value: &str) -
 }
 
 /// A lowercase `kebab-case` token as words (`safeMachineToken`, `humanizeMachineValue`).
-fn humanized(value: &str) -> Option<String> {
+pub(crate) fn humanized(value: &str) -> Option<String> {
     let token = !value.is_empty()
         && value.len() <= 40
         && value.split('-').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()));

@@ -12,7 +12,9 @@
 // - admin/locales/access.en.json: the access section's English catalog: Access's home, the
 //   accounts, users, memberships, invitations and API keys lists, an account's workspace (its
 //   tabs, the detail pages' actions and the API key secret reveal), the identity value labels and
-//   the routes' titles.
+//   the routes' titles; and Auth's sessions list and session page (auth.features.sessions.ui.* as
+//   sessions.* and session_detail.*, Auth's value labels as auth_value.*, and their titles from
+//   adminAuthHostConfig as route.sessions and route.session).
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
@@ -524,6 +526,9 @@ const agentScopes = AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map(({ family, label, scope
   label,
   scopes: scopes.map(({ scope, label, description }) => ({ scope, label, description })),
 }));
+const { adminAuthHostConfig } = await import(
+  pathToFileURL(path.join(repo, "bounded-contexts/auth/support/route-support/host-config.ts")).href
+);
 const { moneyStatusLabels } = await import(pathToFileURL(path.join(repo, "contracts/http/money-status.ts")).href);
 const outputs = [
   [
@@ -605,8 +610,8 @@ const outputs = [
   ],
   [
     "admin/locales/access.en.json",
-    json(
-      await catalog("identity.ts", "identityEnglishTranslations", [
+    json({
+      ...(await catalog("identity.ts", "identityEnglishTranslations", [
         ["identity.features.accessHub.ui.accessHome.", "home"],
         ["identity.features.accounts.ui.accountListPage.", "accounts"],
         ["identity.features.accounts.ui.accountBadges.", "badges"],
@@ -637,8 +642,18 @@ const outputs = [
         ["identity.routes.admin.invitations.invitations.identity.admin", "route.invitations"],
         ["identity.routes.admin.apiKeys.api.keys.identity.admin", "route.api_keys"],
         ["identity.routes.admin.accountsDetail.account.detail.identity.admin", "route.account"],
-      ]),
-    ),
+      ])),
+      ...(await catalog("auth.ts", "authEnglishTranslations", [
+        ["auth.features.sessions.ui.sessionListPage.", "sessions"],
+        ["auth.features.sessions.ui.sessionDetailPage.", "session_detail"],
+        ["auth.values.family.sessionStatus", "auth_value.family_session_status"],
+        ["auth.values.unrecognized.withValue", "auth_value.unrecognized_with_value"],
+        ["auth.values.unrecognized", "auth_value.unrecognized"],
+        ["auth.values.date.unavailable", "auth_value.date_unavailable"],
+      ])),
+      "route.sessions": adminAuthHostConfig.titles.sessions,
+      "route.session": adminAuthHostConfig.titles.sessionDetail,
+    }),
   ],
   ["admin/nav.json", json(adminNav())],
   ["admin/defaults.json", json(defaultPostagePolicy)],

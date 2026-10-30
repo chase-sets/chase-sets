@@ -13,6 +13,7 @@ use crate::{
         account::{Tab, hub},
         api::{Account, ApiKey, Invitation, List, Membership, User},
         people,
+        sessions::{self, SESSION_STATUSES, Session},
         url::{self, ListQuery},
     },
     text::{Acc, Pilot},
@@ -507,6 +508,47 @@ pub fn api_keys<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<ApiKey>) ->
                     <td><code>{&key.key_prefix}</code></td>
                     <td>{access::api_key_status(t, &key.status)}</td>
                     <View p={p} href={&people::ApiKeyPage { id: &key.api_key_id }.href()} />
+                </tr>
+            }
+        </ListFrame>
+    }
+}
+
+pub fn sessions<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<Session>) -> impl Render + 'a {
+    html! {
+        let at = |q: &ListQuery| people::Sessions { query: q.clone() }.href();
+        let states = statuses(SESSION_STATUSES, |s| sessions::status(t, s));
+        let words = Words {
+            title: t.sessions_sessions(),
+            search: t.sessions_search(),
+            placeholder: t.sessions_search_placeholder(),
+            status: t.sessions_status(),
+            all: t.sessions_status_filter_all(),
+            apply: t.sessions_apply_filters(),
+            clear: t.sessions_clear_filters(),
+            filters: t.sessions_filters(),
+            empty: t.sessions_no_sessions_yet(),
+            search_chip: t.sessions_search_filter_chip(&read.search).to_string(),
+            status_chip: read.status.as_deref().map(|s| t.sessions_status_filter_chip(&sessions::status(t, s)).to_string()),
+        };
+        let head = [t.sessions_user(), t.sessions_account(), t.sessions_method(), t.sessions_status()];
+        <ListFrame
+            p={p}
+            words={&words}
+            read={read}
+            at={&at}
+            statuses={&states}
+            head={&head}
+            shown={list.items.len()}
+            total={list.total}
+        >
+            for session in &list.items {
+                <tr>
+                    <td>{session.user_label()}</td>
+                    <td>{session.account_label()}</td>
+                    <td>{access::method(t, &session.authentication_method)}</td>
+                    <td>{sessions::status(t, &session.status)}</td>
+                    <View p={p} href={&people::SessionPage { id: &session.session_id, after_write: None }.href()} />
                 </tr>
             }
         </ListFrame>

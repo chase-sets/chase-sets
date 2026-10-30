@@ -16,6 +16,8 @@ use crate::{
         self,
         account::{self, AUTH_METHODS, CONTACT_METHOD_TYPES, GRANTABLE_ROLES, HubForm, HubScreen, Tab},
         api::{ApiKey, Hub, Invitation, Membership, User},
+        people,
+        sessions::{self, SessionForm, SessionScreen},
         url,
     },
     auth::Viewer,
@@ -785,6 +787,109 @@ fn Audit<'a>(t: Acc, hub: &'a Hub) -> impl Render {
                 }
             </ol>
         }
+    }
+}
+
+/// A session's page (`SessionDetailPage`): its user, its account and how it was signed in to, and
+/// for an active one, the account switch and the revoke (which asks first, in a `<dialog>`).
+/// Drawn with the workspace's styles.
+#[component(css = AccountPage)]
+pub fn SessionPage<'a>(t: Acc, p: Pilot, screen: &'a SessionScreen) -> impl Render {
+    let session = &screen.session;
+    let (user, account) = (session.user_label(), session.account_label());
+    let id = session.session_id.as_str();
+    let action = people::SessionPage { id, after_write: None };
+    let f = SessionForm::FIELDS;
+    let revoke = dialog_id("revoke-session", id);
+    let active = session.status == "active";
+    html! {
+        let title = t.session_detail_title(user).to_string();
+        let confirm_title = t.session_detail_revoke_confirm_title(user).to_string();
+        <nav class={Crumbs} aria-label={p.access_breadcrumbs()}>
+            <a href={people::Sessions::default()}>{t.sessions_sessions()}</a>
+            <span aria-hidden="true">"/"</span>
+            <span aria-current="page">{user}</span>
+        </nav>
+        <div class={Head}>
+            <h1>{&title}</h1>
+        </div>
+        <p class={Pills}>
+            if active {
+                <span class={(Pill, Good)}>{sessions::status(t, &session.status)}</span>
+            } else {
+                <span class={(Pill, Warn)}>{sessions::status(t, &session.status)}</span>
+            }
+        </p>
+        if let Some(refusal) = &screen.refusal {
+            <p class={Alert} role="alert">{refusal}</p>
+        }
+        if screen.catching_up {
+            <p class={Note} role="status">{p.error_pending()}</p>
+        }
+        if active {
+            <section class={Card}>
+                <form class={Row} method="post" action={&action}>
+                    <input type="hidden" name={f.intent} value="switch-account">
+                    <label class={Field}>
+                        <span>{t.session_detail_active_account()}</span>
+                        <select name={f.account_id}>
+                            for option in &session.available_account_ids {
+                                <option value={option} selected={*option == session.account_id}>
+                                    {if *option == session.account_id { account } else { option.as_str() }}
+                                </option>
+                            }
+                        </select>
+                    </label>
+                    <button type="submit" class={(Button, Secondary)}>{t.session_detail_switch_account()}</button>
+                </form>
+                <div class={Actions}>
+                    <button type="button" class={(Button, Danger)} command="show-modal" commandfor={&revoke}>
+                        {t.session_detail_revoke()}
+                    </button>
+                </div>
+                <dialog class={Confirm} id={&revoke} aria-label={&confirm_title}>
+                    <form method="post" action={&action}>
+                        <input type="hidden" name={f.intent} value="revoke">
+                        <h3>{&confirm_title}</h3>
+                        <p>{t.session_detail_revoke_confirm_description(user, account)}</p>
+                        <div class={Buttons}>
+                            <button type="button" class={(Button, Secondary)} command="close" commandfor={&revoke}>
+                                {p.access_close()}
+                            </button>
+                            <button type="submit" class={(Button, Danger)}>{t.session_detail_revoke_confirm_action()}</button>
+                        </div>
+                    </form>
+                </dialog>
+            </section>
+        }
+        <section class={Card}>
+            <dl class={Facts}>
+                <div>
+                    <dt>{t.session_detail_session_id()}</dt>
+                    <dd><code>{id}</code></dd>
+                </div>
+                <div>
+                    <dt>{t.session_detail_user()}</dt>
+                    <dd>{user}</dd>
+                </div>
+                <div>
+                    <dt>{t.session_detail_active_account()}</dt>
+                    <dd>{account}</dd>
+                </div>
+                <div>
+                    <dt>{t.session_detail_available_accounts()}</dt>
+                    <dd>{session.available_account_ids.join(", ")}</dd>
+                </div>
+                <div>
+                    <dt>{t.session_detail_authentication_method()}</dt>
+                    <dd>{access::method(t, &session.authentication_method)}</dd>
+                </div>
+                <div>
+                    <dt>{t.session_detail_expires_at()}</dt>
+                    <dd>{sessions::when(t, session.expires_at.as_deref())}</dd>
+                </div>
+            </dl>
+        </section>
     }
 }
 
