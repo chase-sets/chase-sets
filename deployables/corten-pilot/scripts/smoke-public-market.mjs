@@ -91,7 +91,9 @@ const missing = words(theirs.info.text).filter((w) => !ours.info.text.includes(w
 check(missing.length === 0, `public-web's words are all there (${missing.join(", ") || "all"})`);
 for (const part of ["Last sold", "Median (30 days)", "Median (90 days)", "Active listings"]) {
   const value = (text) =>
-    text.match(new RegExp(part.replace(/[()]/g, "\\$&") + " (.+?) (Median|Active|\\d+% |Buy or sell|$)"))?.[1];
+    text.match(
+      new RegExp(part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + " (.+?) (Median|Active|\\d+% |Buy or sell|$)"),
+    )?.[1];
   check(
     value(ours.info.text) === value(theirs.info.text),
     `${part}: ${value(ours.info.text)} (public-web ${value(theirs.info.text)})`,
