@@ -1,0 +1,13 @@
+name: 9833 Bootstrap DB Input Capture Only
+on:
+  push:
+    branches:
+      - codex/9833-capture-register
+permissions:
+  contents: read
+jobs:
+  register:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo registration only
