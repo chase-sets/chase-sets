@@ -10,6 +10,30 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("platform operations request API clients", () => {
+  it("optional explicit response contract remains", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({ id: "sup_1", version: 3, status: "response-recorded" }),
+    );
+    const client = createSupportRequestApiClient({
+      fetch: fetchMock,
+      participantAttemptId: "10797_explicit_0123456789abcdef",
+    });
+    const body = {
+      responseType: "offer-partial-refund",
+      summary: "Offer",
+      offerResolutionType: "partial-refund",
+      refundAmount: "6.00",
+      submittedByRole: "seller",
+    };
+    await client.recordSupportResponse("sup_1", body);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.body).toBe(JSON.stringify(body));
+    const headers = new Headers(fetchMock.mock.calls[0][1]?.headers);
+    expect(headers.get("Idempotency-Key")).toBe("10797_explicit_0123456789abcdef");
+    expect(headers.get("X-Support-Request-Hash")).toBe(
+      "16f8da6317b6a53ce496c9756890ef921c4ba6f7c3506cdf73f0eb6b81810335",
+    );
+  });
   it.each(["server", "local"] as const)(
     "presents the re-upload Banner message for %s unknown references without lookup or retry (mutant: discard participant reference error)",
     async (source) => {
