@@ -82,3 +82,14 @@ export {
   type ResolvedPolicy,
 } from "./resolver";
 export { createPolicyRuntime, type PolicyRuntime, type PolicyRuntimeDeps } from "./runtime";
+export {
+  createPolicyHistoryReader,
+  createPolicyRevisionTimelineReader,
+  PolicyHistoryReaderError,
+  type PolicyHistoryContinuation,
+  type PolicyHistoryPage,
+  type PolicyHistoryReader,
+  type PolicyHistoryReaderDeps,
+  type PolicyHistoryRecord,
+  type PolicyHistoryStart,
+} from "./policy-history-reader";
