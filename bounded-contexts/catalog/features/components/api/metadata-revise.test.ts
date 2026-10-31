@@ -13,7 +13,9 @@ describe("component metadata revision route", () => {
         description: { defaultLocale: "en", values: { en: "Updated" } },
         status: "draft",
         fieldRules: [{ fieldId: "fld_01M66M1AC783BZKNJ5C2FWCNR3", required: true }],
-        dimensionRules: [{ dimensionId: "dim_01M66M1AC783BZKNJ5C2FWCNR3", required: true, allowedOptionIds: [], appliesWhen: [] }],
+        dimensionRules: [
+          { dimensionId: "dim_01M66M1AC783BZKNJ5C2FWCNR3", required: true, allowedOptionIds: [], appliesWhen: [] },
+        ],
       },
       newEvents: [
         {
@@ -28,10 +30,7 @@ describe("component metadata revision route", () => {
       storedEvents: [],
       receivedCommand: command,
     }));
-    const app = componentRoutes(
-      { commandHandler } as unknown as ComponentServices,
-      {} as never,
-    );
+    const app = componentRoutes({ commandHandler } as unknown as ComponentServices, {} as never);
 
     const response = await app.fetch(
       new Request("http://catalog.test/cmp_01M66M1AC783BZKNJ5C2FWCNR3", {

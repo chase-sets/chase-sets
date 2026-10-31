@@ -430,17 +430,6 @@ describe("Admin page projections", () => {
       name: l10n("Base Card Info V2"),
       description: l10n("Core fields"),
     });
-    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
-      type: "AddFieldRuleToComponent",
-      fieldId,
-      required: true,
-    });
-    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
-      type: "AddDimensionRuleToComponent",
-      dimensionId,
-      required: true,
-      allowedOptionIds: [optionId],
-    });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "ReviseBlueprint",
       key: "raw-pokemon-card",
