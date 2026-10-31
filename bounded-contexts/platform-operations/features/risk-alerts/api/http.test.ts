@@ -108,9 +108,7 @@ describe("risk-alerts HTTP authorization", () => {
 });
 
 describe("risk-alerts HTTP action outcomes", () => {
-  function servicesForAction(
-    recordRiskAlertAction: RiskAlertServices["recordRiskAlertAction"],
-  ): RiskAlertServices {
+  function servicesForAction(recordRiskAlertAction: RiskAlertServices["recordRiskAlertAction"]): RiskAlertServices {
     return {
       listRiskAlertQueue: vi.fn<RiskAlertServices["listRiskAlertQueue"]>().mockResolvedValue({ items: [], total: 0 }),
       getRiskAlertQueueItem: vi.fn<RiskAlertServices["getRiskAlertQueueItem"]>().mockResolvedValue(null),
