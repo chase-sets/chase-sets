@@ -82,5 +82,9 @@
     "stage_current": "Current",
     "stage_upcoming": "Upcoming",
     "stage_blocked": "Blocked"
+  },
+  "support": {
+    "remedy_elsewhere": "Platform-funded remedies are not in the pilot yet. Review and act on this request's remedy on admin-web.",
+    "remedy_open": "Open the remedy on admin-web"
   }
 }

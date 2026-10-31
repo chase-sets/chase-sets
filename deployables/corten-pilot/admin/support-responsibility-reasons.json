@@ -1,0 +1,251 @@
+{
+  "product-not-received": [
+    {
+      "code": "product-not-received.seller-did-not-ship",
+      "responsibility": "seller",
+      "label": "Seller did not ship the order"
+    },
+    {
+      "code": "product-not-received.carrier-loss",
+      "responsibility": "carrier",
+      "label": "Carrier lost the shipment"
+    },
+    {
+      "code": "product-not-received.platform-tracking-error",
+      "responsibility": "platform",
+      "label": "Platform tracking data was incorrect"
+    },
+    {
+      "code": "product-not-received.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "product-not-as-described": [
+    {
+      "code": "product-not-as-described.seller-misdescription",
+      "responsibility": "seller",
+      "label": "Seller materially misdescribed the product"
+    },
+    {
+      "code": "product-not-as-described.buyer-misread-listing",
+      "responsibility": "buyer",
+      "label": "Buyer misread an accurate listing"
+    },
+    {
+      "code": "product-not-as-described.shared-description-ambiguity",
+      "responsibility": "shared",
+      "label": "Both parties contributed to listing ambiguity"
+    },
+    {
+      "code": "product-not-as-described.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "product-damaged": [
+    {
+      "code": "product-damaged.seller-inadequate-packaging",
+      "responsibility": "seller",
+      "label": "Seller packaging was inadequate"
+    },
+    {
+      "code": "product-damaged.buyer-post-delivery-damage",
+      "responsibility": "buyer",
+      "label": "Damage occurred after buyer delivery"
+    },
+    {
+      "code": "product-damaged.carrier-damage",
+      "responsibility": "carrier",
+      "label": "Carrier handling damaged the shipment"
+    },
+    {
+      "code": "product-damaged.shared-packaging-and-handling",
+      "responsibility": "shared",
+      "label": "Seller packaging and carrier handling both contributed"
+    },
+    {
+      "code": "product-damaged.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "wrong-product-received": [
+    {
+      "code": "wrong-product-received.seller-sent-wrong-product",
+      "responsibility": "seller",
+      "label": "Seller sent the wrong product"
+    },
+    {
+      "code": "wrong-product-received.buyer-selected-wrong-product",
+      "responsibility": "buyer",
+      "label": "Buyer selected the wrong product"
+    },
+    {
+      "code": "wrong-product-received.platform-order-routing-error",
+      "responsibility": "platform",
+      "label": "Platform order routing was incorrect"
+    },
+    {
+      "code": "wrong-product-received.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "missing-products": [
+    {
+      "code": "missing-products.seller-omitted-products",
+      "responsibility": "seller",
+      "label": "Seller omitted products from the package"
+    },
+    {
+      "code": "missing-products.buyer-quantity-misunderstanding",
+      "responsibility": "buyer",
+      "label": "Buyer misunderstood the listed quantity"
+    },
+    {
+      "code": "missing-products.carrier-package-loss",
+      "responsibility": "carrier",
+      "label": "Carrier loss affected part of the shipment"
+    },
+    {
+      "code": "missing-products.platform-order-record-error",
+      "responsibility": "platform",
+      "label": "Platform order quantity was incorrect"
+    },
+    {
+      "code": "missing-products.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "authenticity-concern": [
+    {
+      "code": "authenticity-concern.seller-authenticity-misrepresentation",
+      "responsibility": "seller",
+      "label": "Seller misrepresented authenticity"
+    },
+    {
+      "code": "authenticity-concern.platform-verification-error",
+      "responsibility": "platform",
+      "label": "Platform verification was incorrect"
+    },
+    {
+      "code": "authenticity-concern.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "return-request": [
+    {
+      "code": "return-request.buyer-remorse",
+      "responsibility": "buyer",
+      "label": "Buyer changed their mind"
+    },
+    {
+      "code": "return-request.seller-misdescription",
+      "responsibility": "seller",
+      "label": "Seller materially misdescribed the product"
+    },
+    {
+      "code": "return-request.shared-agreed-return",
+      "responsibility": "shared",
+      "label": "Both parties materially contributed and agreed to return"
+    },
+    {
+      "code": "return-request.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "buyer-cancel-request": [
+    {
+      "code": "buyer-cancel-request.buyer-requested-cancellation",
+      "responsibility": "buyer",
+      "label": "Buyer requested cancellation after fulfillment started"
+    },
+    {
+      "code": "buyer-cancel-request.shared-cancellation-cause",
+      "responsibility": "shared",
+      "label": "Both parties materially contributed to cancellation"
+    },
+    {
+      "code": "buyer-cancel-request.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "seller-cannot-fulfill": [
+    {
+      "code": "seller-cannot-fulfill.seller-unable-to-fulfill",
+      "responsibility": "seller",
+      "label": "Seller could not fulfill the order"
+    },
+    {
+      "code": "seller-cannot-fulfill.platform-fulfillment-block",
+      "responsibility": "platform",
+      "label": "A platform failure prevented fulfillment"
+    },
+    {
+      "code": "seller-cannot-fulfill.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "refund-status": [
+    {
+      "code": "refund-status.seller-refund-not-initiated",
+      "responsibility": "seller",
+      "label": "Seller did not initiate the agreed refund"
+    },
+    {
+      "code": "refund-status.platform-refund-processing-delay",
+      "responsibility": "platform",
+      "label": "Platform refund processing was delayed"
+    },
+    {
+      "code": "refund-status.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "shipping-label-or-tracking": [
+    {
+      "code": "shipping-label-or-tracking.seller-shipping-error",
+      "responsibility": "seller",
+      "label": "Seller shipping information was incorrect"
+    },
+    {
+      "code": "shipping-label-or-tracking.carrier-tracking-error",
+      "responsibility": "carrier",
+      "label": "Carrier tracking information was incorrect"
+    },
+    {
+      "code": "shipping-label-or-tracking.platform-label-error",
+      "responsibility": "platform",
+      "label": "Platform label generation was incorrect"
+    },
+    {
+      "code": "shipping-label-or-tracking.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ],
+  "payment-problem": [
+    {
+      "code": "payment-problem.buyer-payment-method-failure",
+      "responsibility": "buyer",
+      "label": "Buyer payment method failed"
+    },
+    {
+      "code": "payment-problem.platform-payment-processing-error",
+      "responsibility": "platform",
+      "label": "Platform payment processing failed"
+    },
+    {
+      "code": "payment-problem.conflicting-evidence",
+      "responsibility": "undetermined",
+      "label": "Evidence conflicts or is insufficient"
+    }
+  ]
+}

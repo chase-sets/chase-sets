@@ -105,7 +105,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"])
         } else if cookie.contains("chase_sets_session=feedback-viewer") {
             actor(&["platform-feedback.view"])
-        } else if cookie.contains("chase_sets_session=support-agent") {
+        } else if cookie.contains("chase_sets_session=support-agent") || cookie.contains("chase_sets_session=support-lag") {
             actor(&["support.manage"])
         } else if cookie.contains("chase_sets_session=moderator") {
             actor(&["reported-content.view"])
@@ -153,6 +153,16 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             );
         }
         return platform_feedback(&method, rest, &body);
+    }
+    if let Some(rest) = uri.path().strip_prefix(SUPPORT_REQUESTS) {
+        if cookie.contains("support-lag") && headers.contains_key("chase-sets-read-after-write") {
+            return refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            );
+        }
+        return support_requests(&method, rest, &body);
     }
     if let Some(rest) = uri.path().strip_prefix("/api/experience/risk-alerts") {
         return risk_alerts(&method, rest);
@@ -426,6 +436,91 @@ fn platform_feedback(method: &Method, rest: &str, body: &str) -> Response {
             written(StatusCode::OK, "pfb_1")
         }
         _ => refusal(StatusCode::NOT_FOUND, "not_found", "Platform feedback not found."),
+    }
+}
+
+const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
+
+/// Support requests' ops API: `req_1`, urgent, contested and ready for support with a photo, a
+/// note, a seller's challenge and a declined offer; `req_done`, resolved with a refund and not yet
+/// closable; the flows' titles; Escalate overdue's counts; a resolve without its summary refused;
+/// and `req_1`'s one photo.
+fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
+    let row = |id: &str, reference: &str, status: &str, priority: &str, due: Option<&str>| {
+        json!({
+            "support_request_id": id, "display_reference": reference, "order_id": "ord_1", "flow_type": "product-damaged",
+            "status": status, "priority": priority, "seller_response_due_at": due, "support_review_due_at": null,
+            "checklist": [
+                { "key": "photos", "label": "Damage photos", "required": true, "satisfiedAt": "2026-05-06T10:00:00.000Z" },
+                { "key": "tracking", "label": "Carrier tracking", "required": true },
+            ],
+            "contested": status == "ready-for-support",
+        })
+    };
+    let photo = format!("support-attachment:v1:sea_abc123:{}:jpg", "b".repeat(64));
+    match (method.clone(), rest) {
+        (Method::GET, "/ops") => Json(json!({
+            "items": [
+                row("req_1", "SUP-1042", "ready-for-support", "urgent", Some("2026-05-07T18:00:00.000Z")),
+                row("req_2", "", "open", "normal", None),
+            ],
+            "total": 3, "count": 2,
+        }))
+        .into_response(),
+        (Method::GET, "/flows") => {
+            Json(json!({ "items": [{ "flowType": "product-damaged", "title": "Damaged product" }] })).into_response()
+        }
+        (Method::GET, "/ops/req_1") => {
+            let mut detail = row("req_1", "SUP-1042", "ready-for-support", "urgent", Some("2026-05-07T18:00:00.000Z"));
+            let more = json!({
+                "buyer_account_id": "acc_buyer", "seller_account_id": "acc_seller",
+                "evidence": [
+                    { "evidenceId": "ev_1", "submittedByRole": "buyer", "evidenceType": "photo", "summary": "Crushed corner.",
+                      "submittedAt": "2026-05-06T10:00:00.000Z", "attachments": [photo, "not-a-reference"] },
+                    { "evidenceId": "ev_2", "submittedByRole": "support", "evidenceType": "support-note", "summary": "Called the carrier.",
+                      "submittedAt": "2026-05-07T09:00:00.000Z" },
+                ],
+                "responses": [
+                    { "responseId": "rsp_1", "responseType": "challenge-with-evidence", "submittedByRole": "seller",
+                      "summary": "Packed in a toploader.", "submittedAt": "2026-05-06T12:00:00.000Z" },
+                ],
+                "offers": [
+                    { "offerId": "off_1", "offeredByRole": "seller", "resolutionType": "partial-refund", "refundAmount": "10.00",
+                      "summary": "Ten back.", "offeredAt": "2026-05-06T13:00:00.000Z", "status": "declined", "decidedByRole": "buyer" },
+                ],
+                "affected_line_items": [{ "amount": "56.83", "currencyCode": "USD" }],
+                "flow": { "allowedResolutions": ["full-refund", "partial-refund", "support-reviewed"] },
+            });
+            detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+            Json(detail).into_response()
+        }
+        (Method::GET, "/ops/req_done") => {
+            let mut detail = row("req_done", "SUP-1001", "resolved", "normal", None);
+            let more = json!({
+                "buyer_account_id": "acc_buyer", "seller_account_id": "acc_seller",
+                "resolution": { "summary": "Refunded five.", "refundAmount": "5.00", "resolvedAt": "2026-05-08T09:00:00.000Z" },
+                "closure_eligible": false, "closure_blocking_reasons": ["Refund still settling"],
+                "flow": { "allowedResolutions": ["full-refund"] },
+            });
+            detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+            Json(detail).into_response()
+        }
+        (Method::POST, "/ops/escalate-overdue") => {
+            let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+            let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
+            (headers, Json(json!({ "escalated": 2, "skipped": 1, "capped": true, "total": 120 }))).into_response()
+        }
+        (Method::POST, "/ops/req_1/resolve") if !body.contains(r#""summary":"Refund"#) => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "A resolution summary is required.")
+        }
+        (
+            Method::POST,
+            "/ops/req_1/evidence" | "/ops/req_1/responses" | "/ops/req_1/escalate" | "/ops/req_1/resolve" | "/ops/req_1/cancel",
+        ) => written(StatusCode::OK, "req_1"),
+        (Method::GET, "/req_1/attachments/sea_abc123") => {
+            ([("content-type", "image/jpeg"), ("cache-control", "private, max-age=300")], "jpeg").into_response()
+        }
+        _ => refusal(StatusCode::NOT_FOUND, "not_found", "Support request not found."),
     }
 }
 
@@ -2914,9 +3009,8 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
     );
     assert!(html.contains("Oct 26, 2026, 12:00 PM UTC") && html.contains("No deadline"), "{html}");
     let origin = crate::app::admin_web_origin();
-    for path in ["/platform/projections?tab=blocked", "/support/requests?requestId=req_1"] {
-        assert!(html.contains(&format!(r#"href="{origin}{path}">Open</a>"#)), "{path}: {html}");
-    }
+    assert!(html.contains(&format!(r#"href="{origin}/platform/projections?tab=blocked">Open</a>"#)), "{html}");
+    assert!(html.contains(r#"href="/support/requests?requestId=req_1">Open</a>"#), "the pilot serves a request's sheet: {html}");
     assert!(html.contains(r#"href="/support/platform-feedback/pfb_1">Open</a>"#), "the pilot serves a feedback's page: {html}");
     assert!(html.contains(r#"id="attention-live" src="/platform/operations-attention/live""#), "{html}");
     assert!(html.contains(r#"<div id="attention-queue">"#), "{html}");
@@ -4147,4 +4241,166 @@ async fn a_feedbacks_writes_are_sent_and_its_page_is_read_after_them() {
     let (status, _, html) = pilot.send(get(&lagging, Some("feedback-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+}
+
+#[tokio::test]
+async fn support_requests_reads_the_queue_with_the_filters_admin_web_offers() {
+    let pilot = Pilot::new().await;
+    let at = "/support/requests?status=ready-for-support&priority=bogus&flowType=product-damaged";
+    let (status, _, html) = pilot.send(get(at, Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let mut paths: Vec<String> = pilot.calls_to(SUPPORT_REQUESTS).into_iter().map(|c| c.path).collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        [
+            format!("{SUPPORT_REQUESTS}/flows"),
+            format!("{SUPPORT_REQUESTS}/ops?limit=50&offset=0&status=ready-for-support&flowType=product-damaged"),
+        ],
+        "an unknown priority is all of them"
+    );
+    for text in ["SUP-1042", "req_2", "Damaged product", "Status: Ready for support", "1/2", "Showing 2 of 3"] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"<option value="product-damaged" selected>Damaged product</option>"#), "{html}");
+    assert!(
+        html.contains(r#"href="/support/requests?status=ready-for-support&amp;flowType=product-damaged&amp;requestId=req_1""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"aria-current="page">Ready for support</a>"#), "the status tab: {html}");
+    assert!(html.contains(r#"href="/support/requests" aria-current="page""#), "the nav serves it: {html}");
+    assert!(!html.contains("<dialog"), "no sheet without a request: {html}");
+    assert_eq!(pilot.send(get("/support/requests", Some("feedback-viewer"))).await.0, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_requests_sheet_shows_the_case_and_recommends_what_admin_web_would() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/requests?requestId=req_1", Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in
+        ["<dialog", "Crushed corner.", "Called the carrier.", "Packed in a toploader.", "Ten back.", "acc_buyer / acc_seller"]
+    {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"name="intent" value="resolve""#), "ready for support recommends Resolve: {html}");
+    assert!(html.contains(r#"value="10.00""#), "the latest offer within the ceiling: {html}");
+    assert!(html.contains("56.83"), "the ceiling: {html}");
+    assert!(html.contains(r#"value="seller|product-damaged.seller-inadequate-packaging""#), "{html}");
+    assert!(html.contains(r#"<option value="partial-refund">"#) && !html.contains(r#"<option value="replacement">"#), "{html}");
+    assert!(html.contains(r#"src="/support/requests/req_1/attachments/sea_abc123""#), "{html}");
+    assert_eq!(
+        html.matches("/attachments/").count(),
+        4,
+        "one photo, twice (trail and position), each an image and a link: {html}"
+    );
+    assert!(html.contains(r#"value="cancel""#) && !html.contains(r#"value="close""#), "an open request: {html}");
+
+    let (status, headers, _) = pilot.send(get("/support/requests/req_1?status=open", Some("support-agent"))).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "/support/requests?status=open&requestId=req_1")
+    );
+
+    let (status, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Refunded five.") && html.contains("Refund still settling"), "{html}");
+    assert!(html.contains(r#"value="close""#) && !html.contains(r#"value="cancel""#), "a resolved request: {html}");
+    let origin = crate::app::admin_web_origin();
+    assert!(html.contains(&format!(r#"href="{origin}/support/requests?requestId=req_done""#)), "the remedy on admin-web: {html}");
+
+    let (status, _, html) = pilot.send(get("/support/requests?requestId=req_none", Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("<dialog") && html.contains(r#"role="alert""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_case_action_is_sent_and_the_sheet_is_read_after_it() {
+    let pilot = Pilot::new().await;
+    let at = "/support/requests/req_1?status=ready-for-support";
+    let form = "intent=resolve&summary=Refund+the+damage&resolutionType=partial-refund&refundAmount=10.00&responsibilityFinding=seller%7Cproduct-damaged.seller-inadequate-packaging&evidenceBasisType=operator-finding";
+    let (status, headers, _) = pilot.send(post_as("support-agent", at, form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/support/requests?status=ready-for-support&requestId=req_1&action=resolve&after_write="), "{to}");
+    let write = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+    assert_eq!(write.path, format!("{SUPPORT_REQUESTS}/ops/req_1/resolve"));
+    assert_eq!(
+        serde_json::from_str::<Value>(&write.body).unwrap(),
+        json!({
+            "resolutionType": "partial-refund", "summary": "Refund the damage", "refundAmount": "10.00",
+            "responsibility": "seller", "responsibilityReasonCode": "product-damaged.seller-inadequate-packaging",
+            "evidenceBasis": { "type": "operator-finding", "reference": "support-workbench.operator-adjudication.v1" },
+        })
+    );
+    let (status, _, html) = pilot.send(get(&to, Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(pilot.calls_to(SUPPORT_REQUESTS).iter().any(|c| c.headers.contains_key("chase-sets-read-after-write")));
+
+    let (_, _, _) = pilot.send(post_as("support-agent", at, "intent=note&summary=Called", false)).await;
+    let write = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+    assert_eq!(write.path, format!("{SUPPORT_REQUESTS}/ops/req_1/evidence"));
+    assert_eq!(
+        serde_json::from_str::<Value>(&write.body).unwrap(),
+        json!({ "evidenceType": "support-note", "summary": "Called" })
+    );
+
+    let (status, headers, html) =
+        pilot.send(post_as("support-agent", at, "intent=resolve&summary=+&resolutionType=full-refund", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(headers.get(header::LOCATION).is_none());
+    assert!(html.contains("A resolution summary is required.") && html.contains("<dialog"), "the sheet says why: {html}");
+    let writes = pilot.calls_to(SUPPORT_REQUESTS).into_iter().filter(|c| c.method == Method::POST).count();
+    let (status, headers, _) = pilot.send(post_as("support-agent", at, "intent=remedy-approve", false)).await;
+    assert_eq!(
+        (status, headers[header::LOCATION].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "/support/requests?status=ready-for-support&requestId=req_1")
+    );
+    assert_eq!(pilot.send(post_as("feedback-viewer", at, "intent=note&summary=x", false)).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        pilot.calls_to(SUPPORT_REQUESTS).into_iter().filter(|c| c.method == Method::POST).count(),
+        writes,
+        "nothing more written"
+    );
+
+    let lagging = format!("/support/requests?requestId=req_1&action=note&after_write={}", fresh_receipt());
+    let (status, _, html) = pilot.send(get(&lagging, Some("support-lag"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Called the carrier.") && html.contains("Refresh in a moment"), "read without the receipt: {html}");
+}
+
+#[tokio::test]
+async fn escalate_overdue_reports_its_counts_on_the_queue() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post_as("support-agent", "/support/requests?status=open", "", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/support/requests?status=open&after_write="), "{to}");
+    assert!(to.ends_with("&escalated=2&skipped=1&capped=true&escalationTotal=120"), "{to}");
+    let write = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+    assert_eq!(
+        (write.path.as_str(), write.body.as_str()),
+        (&*format!("{SUPPORT_REQUESTS}/ops/escalate-overdue"), r#"{"limit":100}"#)
+    );
+    let (status, _, html) = pilot.send(get(&to, Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"role="status""#) && html.contains("120"), "{html}");
+}
+
+#[tokio::test]
+async fn an_evidence_photo_is_relayed_to_staff() {
+    let pilot = Pilot::new().await;
+    let (status, headers, body) = pilot.send(get("/support/requests/req_1/attachments/sea_abc123", Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
+    assert_eq!(headers[header::CACHE_CONTROL], "private, max-age=300");
+    assert_eq!(body, "jpeg");
+    assert_eq!(
+        pilot.send(get("/support/requests/req_1/attachments/sea_none", Some("support-agent"))).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pilot.send(get("/support/requests/req_1/attachments/sea_abc123", Some("feedback-viewer"))).await.0,
+        StatusCode::FORBIDDEN
+    );
 }
