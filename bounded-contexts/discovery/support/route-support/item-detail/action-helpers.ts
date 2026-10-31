@@ -80,7 +80,7 @@ export function normalizeMoneyAmount(
   }
 
   const cents = tryMoneyToCents(normalized);
-  if (cents === null || (allowZero ? cents < 0n : cents <= 0n)) {
+  if (cents === null || (!allowZero && cents === 0n)) {
     throw new Error(invalidMessage);
   }
 
