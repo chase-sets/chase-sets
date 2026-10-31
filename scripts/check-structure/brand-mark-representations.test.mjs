@@ -285,6 +285,8 @@ export const committedCallers = [
   "deployables/admin-web/app/routes/favicon.ts",
   "deployables/admin-web/app/routes/manifest.ts",
   "deployables/admin-web/app/routes/pwa-endpoints.test.ts",
+  "deployables/corten-pilot/admin/src/site.rs",
+  "deployables/corten-pilot/marketplace/src/site.rs",
   "deployables/corten-pilot/public/src/site.rs",
   "deployables/corten-pilot/public/src/tests.rs",
   "deployables/corten-pilot/scripts/export.mjs",
