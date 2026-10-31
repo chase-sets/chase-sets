@@ -114,7 +114,6 @@ describe("runStartupRetry", () => {
     `);
 
     expect(result.status).toBe(0);
-    expect(result.status).not.toBe(13);
     expect(result.stdout).toContain('{"attempts":2,"value":"ready"}');
   });
 
@@ -123,7 +122,7 @@ describe("runStartupRetry", () => {
       import { runStartupRetry } from ${JSON.stringify(startupRetryModuleUrl)};
       await runStartupRetry({
         operationName: "child-exhausted",
-        retryBudgetMs: 300,
+        retryBudgetMs: 1_000,
         retryDelayMs: 250,
         logger: {
           error: (message, fields) => process.stdout.write(JSON.stringify({ message, fields }) + "\\n"),

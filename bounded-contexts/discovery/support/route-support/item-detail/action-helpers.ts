@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import { redirect } from "react-router";
 import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import type { DiscoveryItemDetail } from "../../client-support/contracts";
@@ -68,7 +69,7 @@ export function normalizeMoneyAmount(
     optional?: boolean;
     invalidMessage: string;
   }>,
-) {
+): string | null {
   const normalized = String(value ?? "").trim();
 
   if (!normalized) {
@@ -78,16 +79,12 @@ export function normalizeMoneyAmount(
     throw new Error(invalidMessage);
   }
 
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+  const cents = tryMoneyToCents(normalized);
+  if (cents === null || (!allowZero && cents === 0n)) {
     throw new Error(invalidMessage);
   }
 
-  const amount = Number.parseFloat(normalized);
-  if (!Number.isFinite(amount) || (allowZero ? amount < 0 : amount <= 0)) {
-    throw new Error(invalidMessage);
-  }
-
-  return amount.toFixed(2);
+  return centsToMoneyAmount(cents);
 }
 
 export function getListingAvailableQuantity(listing: DiscoveryItemDetail["market_listings"][number]) {
