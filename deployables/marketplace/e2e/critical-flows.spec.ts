@@ -398,7 +398,6 @@ test.describe("marketplace critical flows", () => {
       name: new RegExp(`^${categoryLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(`),
     });
 
-    await categoryChoice.click();
     await expect(page).toHaveURL((url) => url.pathname.startsWith("/categories/") || url.searchParams.has("category"));
     await expect(selectedCategory).toHaveAttribute("aria-pressed", "true");
     const filteredResultCount = await resultLinks.count();
