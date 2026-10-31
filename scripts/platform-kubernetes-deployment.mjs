@@ -973,6 +973,13 @@ const serializedProductionWriterWorkflows = new Map([
     },
   ],
 ]);
+const productionWriterWorkflowPaths = new Set(
+  [...serializedProductionWriterWorkflows.values()].map(({ path }) => path),
+);
+// Name OR path (union): a writer name at another path, or a renamed run at a writer
+// path, still contends for the writer group. Every other run is evidence only.
+const isProductionWriterCandidate = (run) =>
+  productionHelmWriterWorkflows.has(run.name) || productionWriterWorkflowPaths.has(run.path);
 
 const isMapping = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const isNonEmptyMapping = (value) => isMapping(value) && Object.keys(value).length > 0;
@@ -1047,7 +1054,10 @@ async function readConcurrencyQueuedWriters(runs, currentRunId, readApi) {
     if (!sources.has(run.headSha)) {
       const body = await readApi(`contents/${contract.path}?ref=${run.headSha}`, "workflow source");
       if (body?.type !== "file" || body.encoding !== "base64" || typeof body.content !== "string") {
-        throw new Error("GitHub Actions workflow source census returned an invalid response.");
+        throw censusRefusal(
+          "census-invalid-response",
+          "GitHub Actions workflow source census returned an invalid response.",
+        );
       }
       sources.set(run.headSha, Buffer.from(body.content, "base64").toString("utf8").replaceAll("\r\n", "\n"));
     }
@@ -1072,7 +1082,7 @@ async function readConcurrencyQueuedWriters(runs, currentRunId, readApi) {
       body.total_count < 0 ||
       body.jobs.length !== Math.min(body.total_count, 100)
     ) {
-      throw new Error("GitHub Actions job census returned malformed or incomplete evidence.");
+      throw censusRefusal("census-malformed", "GitHub Actions job census returned malformed or incomplete evidence.");
     }
     // Zero jobs is stronger than zero started jobs and needs no pagination.
     // Even queued/skipped job records remain conflicting, as do prior attempts.
@@ -1192,6 +1202,152 @@ export function assertNoActiveHelmOperation(census) {
 class MovingRunCensusError extends Error {}
 const productionWriterCensusPassLimit = 5;
 const productionWriterCensusRetryDelayMs = 1_000;
+const productionWriterCensusEvidencePrefix = "production-writer-census-evidence ";
+const productionWriterCensusEvidenceMaxBytes = 65_536;
+const productionWriterCensusMessageMaxLength = 512;
+
+// Non-retried refusals carry their class from the throw site; moving passes are
+// classified only after the bounded retry, from every pass's signature.
+function censusRefusal(refusalClass, message) {
+  return Object.assign(new Error(message), { refusalClass });
+}
+
+// Only the request ID and link page numbers leave a response; no other header or body does.
+function censusResponseMetadata(path, response) {
+  const header = (name) => response?.headers?.get?.(name) ?? null;
+  const requestId = header("x-github-request-id");
+  const link = header("link");
+  return {
+    path,
+    httpStatus: Number.isSafeInteger(response?.status) ? response.status : null,
+    requestId: requestId === null ? null : /^[0-9A-Za-z:._-]{1,128}$/.test(requestId) ? requestId : "unrecognized",
+    linkPages:
+      link === null
+        ? null
+        : Object.fromEntries(
+            [...link.matchAll(/<([^>]*)>\s*;\s*rel="(first|prev|next|last)"/g)].flatMap(([, url, rel]) => {
+              const page = Number(URL.canParse(url) ? new URL(url).searchParams.get("page") : NaN);
+              return Number.isSafeInteger(page) && page > 0 ? [[rel, page]] : [];
+            }),
+          ),
+  };
+}
+
+const censusRunIdentity = (run) => ({
+  id: run.id,
+  status: run.status,
+  name: run.name,
+  path: run.path ?? null,
+  event: run.event ?? null,
+  headSha: run.headSha ?? null,
+  headBranch: run.headBranch ?? null,
+  runAttempt: run.runAttempt ?? null,
+  createdAt: run.createdAt ?? null,
+  updatedAt: run.updatedAt ?? null,
+});
+
+// Same per-status total_count sequence and run-ID set in every pass means GitHub
+// repeated one inconsistent answer; any difference means runs moved.
+const censusPassSignature = (pass) =>
+  JSON.stringify(
+    activeActionsRunStatuses.map((status) => {
+      const read = pass.statuses[status];
+      return read ? [read.totalCounts, [...read.runIds].sort((left, right) => left - right)] : null;
+    }),
+  );
+
+// Classified reasons are this module's own text. Any other error (transport, YAML)
+// may quote a response or file, so only its name and system code are kept.
+function censusErrorReason(error) {
+  if (error instanceof MovingRunCensusError || error?.refusalClass) return error.message;
+  const code = error?.cause?.code ?? error?.code;
+  const name = /^[A-Za-z]{1,64}$/.test(error?.name ?? "") ? error.name : "Error";
+  return `${name}${typeof code === "string" && /^[A-Z0-9_]{1,64}$/.test(code) ? ` (${code})` : ""}.`;
+}
+
+function censusRefusalClass(error, passes) {
+  if (error instanceof MovingRunCensusError) {
+    const signatures = new Set(passes.map(censusPassSignature));
+    return signatures.size === 1 ? "census-stable-count-list-drift" : "census-moving";
+  }
+  return error?.refusalClass ?? "census-unclassified";
+}
+
+function censusRefusalMessage(refusalClass, error, passes) {
+  const finalPass = passes.at(-1);
+  const counts = activeActionsRunStatuses
+    .filter((status) => finalPass?.statuses[status]?.totalCounts.length)
+    .map((status) => {
+      const read = finalPass.statuses[status];
+      return `${status} ${read.totalCounts[0]}/${read.runIds.length}`;
+    });
+  const message = `${refusalClass} after ${passes.length} pass${passes.length === 1 ? "" : "es"}: ${censusErrorReason(error)} Final pass per-status total/collected: ${counts.join(", ") || "none"}.`;
+  return message.length <= productionWriterCensusMessageMaxLength
+    ? message
+    : `${message.slice(0, productionWriterCensusMessageMaxLength - 3)}...`;
+}
+
+// Full identity is kept for writer candidates and for runs whose membership,
+// status or identity differs across passes; other runs stay as IDs per status.
+function censusEvidenceRuns(passes) {
+  const observations = new Map();
+  for (const pass of passes) {
+    for (const run of pass.runs.values()) {
+      const identity = censusRunIdentity(run);
+      const key = JSON.stringify(identity);
+      const byIdentity = observations.get(run.id) ?? new Map();
+      observations.set(run.id, byIdentity);
+      byIdentity.set(key, { ...identity, passes: [...(byIdentity.get(key)?.passes ?? []), pass.pass] });
+    }
+  }
+  return [...observations.values()]
+    .filter((byIdentity) => {
+      const [only, ...others] = [...byIdentity.values()];
+      return others.length > 0 || only.passes.length !== passes.length || isProductionWriterCandidate(only);
+    })
+    .flatMap((byIdentity) => [...byIdentity.values()])
+    .sort((left, right) => left.id - right.id);
+}
+
+// Each reduction drops detail in a fixed order until the line fits; the last always fits.
+const censusEvidenceReductions = [
+  (evidence) => evidence,
+  (evidence) => ({ ...evidence, runs: evidence.runs.filter(isProductionWriterCandidate) }),
+  (evidence) => ({
+    ...evidence,
+    passes: evidence.passes.map((pass) => ({
+      ...pass,
+      statuses: Object.fromEntries(
+        Object.entries(pass.statuses).map(([status, { runIds, ...read }]) => [
+          status,
+          { ...read, runIdCount: runIds.length },
+        ]),
+      ),
+    })),
+  }),
+  ({ schemaVersion, outcome, refusalClass, message, passes }) => ({
+    schemaVersion,
+    outcome,
+    refusalClass,
+    message,
+    passCount: passes.length,
+  }),
+];
+
+function writeCensusEvidence(sink, evidence) {
+  let reduced = evidence;
+  for (const [index, reduce] of censusEvidenceReductions.entries()) {
+    reduced = reduce(reduced);
+    const json = JSON.stringify({ ...reduced, truncated: index > 0 }).replace(
+      /[\u2028\u2029]/g,
+      (character) => `\\u${character.charCodeAt(0).toString(16)}`,
+    );
+    if (Buffer.byteLength(json, "utf8") <= productionWriterCensusEvidenceMaxBytes) {
+      sink.write(`${productionWriterCensusEvidencePrefix}${json}\n`);
+      return;
+    }
+  }
+}
 
 function actionsRunRecord(run) {
   return {
@@ -1212,28 +1368,47 @@ function actionsRunRecord(run) {
   };
 }
 
-async function readActiveRunCensusPass(readApi) {
-  const runsById = new Map();
+// Fills `pass` as it reads, so a pass that throws still leaves its evidence.
+async function readActiveRunCensusPass(readApi, pass) {
+  const runsById = pass.runs;
   for (const status of activeActionsRunStatuses) {
+    const read = { readAt: new Date().toISOString(), totalCounts: [], pageLengths: [], runIds: [], requests: [] };
+    pass.statuses[status] = read;
     let page = 1;
     let collected = 0;
     let totalCount = null;
     do {
       if (page > 10) {
-        throw new Error(`GitHub Actions ${status} run census exceeded the bounded 10-page limit.`);
+        throw censusRefusal(
+          "census-page-limit",
+          `GitHub Actions ${status} run census exceeded the bounded 10-page limit.`,
+        );
       }
-      const body = await readApi(`actions/runs?status=${status}&per_page=100&page=${page}`, `${status} run census`);
+      const body = await readApi(
+        `actions/runs?status=${status}&per_page=100&page=${page}`,
+        `${status} run census`,
+        read.requests,
+      );
       if (!Array.isArray(body?.workflow_runs) || !Number.isSafeInteger(body.total_count) || body.total_count < 0) {
-        throw new Error(`GitHub Actions ${status} run census returned an invalid response.`);
+        throw censusRefusal(
+          "census-invalid-response",
+          `GitHub Actions ${status} run census returned an invalid response.`,
+        );
       }
+      read.totalCounts.push(body.total_count);
+      read.pageLengths.push(body.workflow_runs.length);
       totalCount ??= body.total_count;
       if (body.total_count !== totalCount) {
         throw new MovingRunCensusError(`GitHub Actions ${status} run census total moved during pagination.`);
       }
       for (const run of body.workflow_runs) {
         if (!Number.isSafeInteger(run?.id) || run.id <= 0 || typeof run.name !== "string" || !run.name) {
-          throw new Error(`GitHub Actions ${status} run census returned a malformed run identity.`);
+          throw censusRefusal(
+            "census-malformed",
+            `GitHub Actions ${status} run census returned a malformed run identity.`,
+          );
         }
+        read.runIds.push(run.id);
         if (runsById.has(String(run.id))) {
           throw new MovingRunCensusError(`GitHub Actions run census returned duplicate or moving run ${run.id}.`);
         }
@@ -1254,11 +1429,14 @@ async function readActiveRunCensusPass(readApi) {
 }
 
 // Re-reads every status from scratch; only a whole pass with stable pagination is trusted.
-async function readStableActiveRunCensus(readApi, sleep) {
+async function readStableActiveRunCensus(readApi, sleep, passes) {
   for (let pass = 1; ; pass += 1) {
+    const evidence = { pass, reason: null, statuses: {}, runs: new Map() };
+    passes.push(evidence);
     try {
-      return await readActiveRunCensusPass(readApi);
+      return await readActiveRunCensusPass(readApi, evidence);
     } catch (error) {
+      evidence.reason = censusErrorReason(error);
       if (!(error instanceof MovingRunCensusError) || pass >= productionWriterCensusPassLimit) throw error;
       await sleep(productionWriterCensusRetryDelayMs * pass);
     }
@@ -1273,21 +1451,58 @@ export async function readGitHubProductionWriterCensus(options = {}) {
   const apiUrl = requiredOption(env.GITHUB_API_URL ?? "https://api.github.com", "GITHUB_API_URL").replace(/\/$/, "");
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
-  async function readApi(path, label) {
+  const stderrSink = options.stderrSink ?? process.stderr;
+  const passes = [];
+  const reads = [];
+  async function readApi(path, label, requests = reads) {
     const response = await fetchImpl(`${apiUrl}/repos/${repository}/${path}`, {
+      method: "GET",
       headers: {
         Accept: "application/vnd.github+json",
         Authorization: `Bearer ${token}`,
         "X-GitHub-Api-Version": "2022-11-28",
       },
     });
+    requests.push(censusResponseMetadata(path, response));
     if (!response.ok) {
-      throw new Error(`GitHub Actions ${label} failed with HTTP ${response.status}.`);
+      throw censusRefusal("census-http-status", `GitHub Actions ${label} failed with HTTP ${response.status}.`);
     }
-    return response.json();
+    try {
+      return await response.json();
+    } catch {
+      // A JSON parse message quotes the body; the class and label are enough.
+      throw censusRefusal("census-invalid-response", `GitHub Actions ${label} returned an invalid response.`);
+    }
   }
+  // One bounded stderr line per call that discarded a pass or refused; the census itself is unchanged.
+  const writeEvidence = (outcome, refusalClass = null, message = null) =>
+    writeCensusEvidence(stderrSink, {
+      schemaVersion: "production-writer-census-evidence/v1",
+      repository,
+      currentRunId: String(currentRunId),
+      outcome,
+      refusalClass,
+      message,
+      passes: passes.map(({ runs, ...pass }) => pass),
+      reads,
+      runs: censusEvidenceRuns(passes),
+    });
 
-  const runs = await readStableActiveRunCensus(readApi, sleep);
+  let census;
+  try {
+    census = await readProductionWriterCensus({ env, currentRunId, repository, readApi, sleep, passes, options });
+  } catch (error) {
+    const refusalClass = censusRefusalClass(error, passes);
+    const message = censusRefusalMessage(refusalClass, error, passes);
+    writeEvidence("refused", refusalClass, message);
+    throw new Error(message, { cause: error });
+  }
+  if (passes.length > 1) writeEvidence("admitted");
+  return census;
+}
+
+async function readProductionWriterCensus({ env, currentRunId, repository, readApi, sleep, passes, options }) {
+  const runs = await readStableActiveRunCensus(readApi, sleep, passes);
   if (!runs.some((run) => String(run.id) === String(currentRunId))) {
     const run = await readApi(`actions/runs/${currentRunId}`, "current run census");
     const contract = serializedProductionWriterWorkflows.get(env.GITHUB_WORKFLOW);
@@ -1309,7 +1524,10 @@ export async function readGitHubProductionWriterCensus(options = {}) {
       run.head_branch !== "main" ||
       !activeActionsRunStatuses.includes(run.status)
     ) {
-      throw new Error("GitHub Actions current run census returned an unverified run identity.");
+      throw censusRefusal(
+        "census-invalid-response",
+        "GitHub Actions current run census returned an unverified run identity.",
+      );
     }
     runs.push(actionsRunRecord(run));
     runs.sort((left, right) => Number(left.id) - Number(right.id));
@@ -1324,7 +1542,7 @@ export async function readGitHubProductionWriterCensus(options = {}) {
     statuses: [...activeActionsRunStatuses],
     runs,
     concurrencyQueuedRuns,
-    writerRuns: runs.filter((run) => productionHelmWriterWorkflows.has(run.name) && !queuedIds.has(run.id)),
+    writerRuns: runs.filter((run) => isProductionWriterCandidate(run) && !queuedIds.has(run.id)),
   };
 }
 
