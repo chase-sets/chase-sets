@@ -3,13 +3,24 @@ import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import { SupportOperationsPage } from "./support-operations-page";
-import type { SupportRequestDetail, SupportRequestDetailResponse, SupportRequestListItem } from "./contracts";
+import type {
+  SupportOperationsRequestDetailResponse,
+  SupportOperationsRequestListItem,
+  SupportRequestDetail,
+} from "./contracts";
 import { getSupportFlowDefinition } from "../domain/flow-catalog";
 import { normalizeFlowType } from "../domain/common";
 
-function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): SupportRequestListItem {
+function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {}): SupportOperationsRequestListItem {
   return {
     support_request_id: "sup_1",
+    operatorPolicy: {
+      deadlineAt: null,
+      recommendedAction: "response",
+      responsibilityReasons: [],
+      refundCap: null,
+      refundPrefill: null,
+    },
     display_reference: "SUP-TEST1234",
     order_id: "ord_1",
     buyer_account_id: "acc_buyer",
@@ -51,7 +62,7 @@ function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): Suppor
   };
 }
 
-function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): SupportRequestDetailResponse {
+function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): SupportOperationsRequestDetailResponse {
   const request = {
     ...buildQueueItem(),
     evidence: [],

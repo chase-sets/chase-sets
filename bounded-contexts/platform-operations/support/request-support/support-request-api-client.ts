@@ -50,6 +50,8 @@ import type {
   SupportRequestEscalationSnapshot,
   SupportRequestListItem,
   SupportRequestParticipantDetailResponse,
+  SupportOperationsRequestDetailResponse,
+  SupportOperationsRequestListItem,
 } from "../../features/support-requests/ui/contracts";
 
 export type {
@@ -61,6 +63,8 @@ export type {
   SupportRequestEscalationSnapshot,
   SupportRequestListItem,
   SupportRequestParticipantDetailResponse,
+  SupportOperationsRequestDetailResponse,
+  SupportOperationsRequestListItem,
 } from "../../features/support-requests/ui/contracts";
 
 type SupportRequestApiClientOptions = Readonly<{
@@ -211,7 +215,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         }),
       ),
     listSupportOperationsQueue: async (query = "") =>
-      parseJsonResponse<{ items: readonly SupportRequestListItem[]; total: number; count: number }>(
+      parseJsonResponse<{ items: readonly SupportOperationsRequestListItem[]; total: number; count: number }>(
         await clientFetch(`${baseUrl}/support-requests/ops${query ? `?${query}` : ""}`, {
           headers: resolveHeaders(options.headers),
         }),
@@ -223,7 +227,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         }),
       ),
     getSupportOperationsRequest: async (supportRequestId: string) =>
-      parseJsonResponse<SupportRequestDetailResponse>(
+      parseJsonResponse<SupportOperationsRequestDetailResponse>(
         await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}`, {
           headers: resolveHeaders(options.headers),
         }),
