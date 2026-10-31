@@ -51,8 +51,10 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
         ...memory.eventStore,
         readStreamInTransaction: (_client: unknown, input: Parameters<typeof memory.eventStore.readStream>[0]) =>
           memory.eventStore.readStream(input),
-        appendToStreamInTransaction: (_client: unknown, input: Parameters<typeof memory.eventStore.appendToStream>[0]) =>
-          memory.eventStore.appendToStream(input),
+        appendToStreamInTransaction: (
+          _client: unknown,
+          input: Parameters<typeof memory.eventStore.appendToStream>[0],
+        ) => memory.eventStore.appendToStream(input),
         appendToStreamsInTransaction: (
           _client: unknown,
           inputs: Parameters<NonNullable<typeof memory.eventStore.appendToStreams>>[0],

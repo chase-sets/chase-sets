@@ -36,6 +36,17 @@ function pool(valid = true) {
 const request = () =>
   new Request("https://extension.example/observation", { headers: { authorization: `Bearer ${bearer}` } });
 
+function grantedDecisionWithRole(roleKey: string): Extract<OperatorAuthorityDecision, { kind: "granted" }> {
+  const decision: Extract<OperatorAuthorityDecision, { kind: "granted" }> = {
+    kind: "granted",
+    membershipId: "mbr_creator",
+    roleKey: "platform-admin",
+    rolePermissions: ["catalog.manage"],
+  };
+  Object.defineProperty(decision, "roleKey", { value: roleKey });
+  return decision;
+}
+
 it("renews a grant when the live creator authority is granted", async () => {
   const fake = pool(true);
   const forGrantCreator = vi.fn(async () => ({
@@ -62,10 +73,7 @@ it.each([
     "missing catalog.manage",
     { kind: "granted", membershipId: "mbr_creator", roleKey: "platform-admin", rolePermissions: [] },
   ],
-  [
-    "a granted non-platform-admin authority",
-    { kind: "granted", membershipId: "mbr_creator", roleKey: "owner", rolePermissions: ["catalog.manage"] },
-  ],
+  ["a granted non-platform-admin authority", grantedDecisionWithRole("owner")],
 ] as const satisfies readonly [string, OperatorAuthorityDecision][])(
   "revokes when the authority decision has %s",
   async (_label, decision) => {
