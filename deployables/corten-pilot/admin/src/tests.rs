@@ -415,6 +415,9 @@ fn identity_api(method: &Method, rest: &str, body: &str) -> Response {
         "access-hub/users/usr_2/account" => Json(json!({ "account_id": "acc_1" })).into_response(),
         "access-hub/users/usr_9/account" => Json(json!({ "account_id": null })).into_response(),
         "api-keys/key_1" => Json(key).into_response(),
+        "memberships/mem_1" => Json(membership.clone()).into_response(),
+        "invitations/inv_1" => Json(invitation.clone()).into_response(),
+        "memberships/mem_gone" => refusal(StatusCode::NOT_FOUND, "not_found", "Membership not found."),
         "access-hub" => {
             let mut rotation = key.clone();
             rotation["account_id"] = json!("acc_1");
@@ -1277,7 +1280,18 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         {
             refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Unavailable.")
         }
+        (Method::GET, "/provider-scope-mappings/inbox") => {
+            let paf = json!({ "scopeRecordId": "scp_paf", "scopeName": "Paldean Fates", "productDomain": "pokemon",
+                "scopeKind": "set", "officialSetCode": "PAF", "isDraftCanonicalRecord": true,
+                "counts": { "total": 2, "highConfidence": 1 }, "candidates": [] });
+            let groups = if query.contains("productDomain=magic") { vec![] } else { vec![paf] };
+            let n = groups.len();
+            Json(json!({ "groups": groups, "counts": { "totalGroups": n, "totalCandidates": 2 * n, "highConfidenceCandidates": n } }))
+                .into_response()
+        }
         (Method::GET, "/provider-scope-mappings/coverage/scp_paf") => Json(json!({
+            "scopeRecordId": "scp_paf",
+            "scopeName": "Paldean Fates",
             "lifecycleStatus": "draft",
             "providers": [
                 { "providerKey": "tcgplayer", "state": "available", "mapping": { "mappingId": "map_1", "confidence": "high" } },
@@ -1287,8 +1301,12 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
             ],
         }))
         .into_response(),
+        (Method::GET, "/provider-scope-mappings/coverage/scp_gone") => {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Scope record not found.")
+        }
         (Method::GET, path) if path.starts_with("/provider-scope-mappings/coverage/") => {
-            Json(json!({ "lifecycleStatus": "active", "providers": [] })).into_response()
+            let id = path.trim_start_matches("/provider-scope-mappings/coverage/");
+            Json(json!({ "scopeRecordId": id, "scopeName": id, "lifecycleStatus": "active", "providers": [] })).into_response()
         }
         (Method::GET, "/source-observations/bulk-jobs/active")
             if query.contains("scp_paf") && query.contains("status=completed") =>
@@ -3355,6 +3373,59 @@ async fn a_scopes_coverage_writes_send_the_commands_and_redirect_with_the_toast(
 }
 
 #[tokio::test]
+async fn the_unmapped_scope_inbox_lists_what_waits_and_filters_by_domain() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scope-coverage", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Unmapped Scope Inbox | Catalog Admin"), "{html}");
+    assert!(html.contains("1 scope records with 2 pending proposals (1 high-confidence)."), "{html}");
+    assert!(
+        html.contains("Paldean Fates") && html.contains("New canonical record") && html.contains("2 pending (1 high-confidence)")
+    );
+    assert!(html.contains(r#"href="/catalog/scope-coverage/scp_paf""#), "Review opens its coverage: {html}");
+    assert!(html.contains(r#"data-label="Pending proposals""#), "a row is a card on a phone: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/scope-coverage?product_domain=magic", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Nothing pending review") && html.contains(r#"<option value="magic" selected>"#), "{html}");
+    let (status, _, _) = pilot.send(get("/catalog/scope-coverage", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view is needed");
+}
+
+#[tokio::test]
+async fn a_scopes_coverage_page_writes_through_the_scope_routes_and_comes_back() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scope-coverage/scp_paf", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"href="/catalog/scope-coverage">Unmapped Scope Inbox</a>"#), "the way back: {html}");
+    assert!(html.contains(r#"action="/catalog/scopes/scp_paf/coverage?via=coverage""#), "{html}");
+    assert!(
+        html.contains(r#"action="/catalog/scopes/scp_paf/publish?via=coverage""#),
+        "a draft's Confirm canonical record: {html}"
+    );
+
+    let (status, headers, _) =
+        pilot.send(post("/catalog/scopes/scp_paf/coverage?via=coverage", "intent=accept&mapping_ids=map_1", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scope-coverage/scp_paf?after_write=") && to.ends_with("&done=mapping_accepted"), "{to}");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Mapping accepted."), "the toast: {html}");
+
+    let (status, _, html) = pilot
+        .send(post("/catalog/scopes/scp_paf/coverage?via=coverage", "intent=reject&mapping_ids=map_1&reason=refuse", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("The mapping moved meanwhile.") && html.contains("Unmapped Scope Inbox</a>"), "refused, here: {html}");
+
+    let (status, _, html) = pilot.send(get("/catalog/scope-coverage/scp_down", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "a coverage that cannot be read is a banner: {html}");
+    assert!(html.contains(r#"role="status""#) && !html.contains("Accept all"), "{html}");
+    let (status, _, _) = pilot.send(get("/catalog/scope-coverage/scp_gone", Some("staff"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "an unknown scope");
+}
+
+#[tokio::test]
 async fn a_scope_write_without_its_reason_or_refused_is_the_page_again_with_the_message() {
     let pilot = Pilot::new().await;
     let (status, _, html) =
@@ -4029,12 +4100,16 @@ async fn a_users_or_keys_page_opens_its_accounts_workspace() {
         ("/access/users/usr_2", "/access/accounts/acc_1?tab=team"),
         ("/access/users/usr_9", "/access/users?search=usr_9"),
         ("/access/api-keys/key_1", "/access/accounts/acc_1?tab=api-access"),
+        ("/access/memberships/mem_1", "/access/accounts/acc_1?tab=team"),
+        ("/access/invitations/inv_1", "/access/accounts/acc_1?tab=team"),
     ] {
         let (status, headers, html) = pilot.send(get(path, Some("access-staff"))).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "{path}: {html}");
         assert_eq!(headers[header::LOCATION], to, "{path}");
     }
     assert_eq!(pilot.send(get("/access/users/usr_2", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(pilot.send(get("/access/memberships/mem_1", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(pilot.send(get("/access/memberships/mem_gone", Some("access-staff"))).await.0, StatusCode::NOT_FOUND);
 }
 
 const REPORTED: &str = "/api/experience/reported-content";

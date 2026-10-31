@@ -291,6 +291,16 @@ pub async fn user_account(caller: &Caller<'_>, user: &str) -> Result<Option<Stri
     Ok(link.account_id)
 }
 
+/// A membership (`GET /api/identity/memberships/{id}`).
+pub async fn membership(caller: &Caller<'_>, id: &str) -> Result<Membership, ApiError> {
+    caller.read(&format!("/api/identity/memberships/{}", segment(id)), CONTEXT).await
+}
+
+/// An invitation (`GET /api/identity/invitations/{id}`).
+pub async fn invitation(caller: &Caller<'_>, id: &str) -> Result<Invitation, ApiError> {
+    caller.read(&format!("/api/identity/invitations/{}", segment(id)), CONTEXT).await
+}
+
 /// An API key (`GET /api/identity/api-keys/{id}`).
 pub async fn api_key(caller: &Caller<'_>, id: &str) -> Result<ApiKey, ApiError> {
     caller.read(&format!("/api/identity/api-keys/{}", segment(id)), CONTEXT).await

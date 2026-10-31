@@ -26,7 +26,7 @@ use super::{
 use crate::{
     api::{ApiError, Method, segment},
     app::{Shared, read_failed, sign_in},
-    auth::{AccountsView, SecurityManage, Staff, Viewer},
+    auth::{AccountsView, MembershipsView, SecurityManage, Staff, Viewer},
     text::Acc,
 };
 
@@ -416,6 +416,36 @@ pub(crate) async fn api_key(
     };
     match account {
         Ok(account) => to_account(&req, account, Tab::ApiAccess, &route.id, |query| super::people::ApiKeys { query }.href()),
+        Err(error) => read_failed(&req, error, false),
+    }
+}
+
+/// A membership's account, on its team tab.
+pub(crate) async fn membership(
+    req: Req,
+    Caller(_): Caller<Staff<MembershipsView>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<super::teams::MembershipPage<'_>>,
+) -> HtmlResult {
+    let caller = config.platform.caller(&headers, config.proto, None);
+    match api::membership(&caller, &route.id).await {
+        Ok(m) => to_account(&req, Some(m.account_id), Tab::Team, &route.id, |_| String::new()),
+        Err(error) => read_failed(&req, error, false),
+    }
+}
+
+/// An invitation's account, on its team tab.
+pub(crate) async fn invitation(
+    req: Req,
+    Caller(_): Caller<Staff<MembershipsView>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<super::teams::InvitationPage<'_>>,
+) -> HtmlResult {
+    let caller = config.platform.caller(&headers, config.proto, None);
+    match api::invitation(&caller, &route.id).await {
+        Ok(i) => to_account(&req, Some(i.account_id), Tab::Team, &route.id, |_| String::new()),
         Err(error) => read_failed(&req, error, false),
     }
 }

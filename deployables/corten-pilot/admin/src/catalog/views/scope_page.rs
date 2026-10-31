@@ -8,10 +8,10 @@ use super::{DetailPage, Dialog, Empty, Toasts, Tone, TonePill, Trigger};
 use crate::{
     api::segment,
     catalog::{
-        api::{AliasCandidate, CoverageRow, ReviewJob},
+        api::{AliasCandidate, Coverage, CoverageRow, ReviewJob},
         scope::{
             CONFIDENCES, Condition, Edition, Jobs, Journey, Link, ScopeBack, ScopeScreen, Stage, StageKey, StageStatus,
-            url::{self, AliasCommand, MappingInput, ProposeInput, ScopeAt},
+            url::{self, AliasCommand, MappingInput, ProposeInput, ScopeAt, Via},
         },
         scopes::{Promotion, Sync},
     },
@@ -50,7 +50,15 @@ pub fn scope_page<'a>(
             <ScopePage>
                 <ScopeHeader t={t} p={p} screen={screen} refused={refused.as_deref()} />
                 <JourneyPart t={t} p={p} journey={&screen.journey} />
-                <CoveragePart t={t} p={p} screen={screen} propose={propose.as_ref()} manage={manage} />
+                <CoveragePart
+                    t={t}
+                    p={p}
+                    id={id}
+                    coverage={screen.coverage.as_ref()}
+                    propose={propose.as_ref()}
+                    manage={manage}
+                    via={Via::Scope}
+                />
                 <WorkspacePart p={p} href={&workspace} />
                 <JobsPart t={t} p={p} id={id} jobs={screen.jobs.as_ref()} cursor={cursor} />
                 if let Some(editions) = &screen.editions {
@@ -99,7 +107,7 @@ fn ScopeHeader<'a>(t: Cat, p: Pilot, screen: &'a ScopeScreen, refused: Option<&'
 /// A table whose rows are cards on a phone, each cell under its heading (`data-label`), so a row's
 /// commands are never scrolled out of sight.
 #[component(css = ScopePage)]
-fn Rows<'a, C: Render>(label: &'a str, head: &'a [&'a str], children: C) -> impl Render {
+pub fn Rows<'a, C: Render>(label: &'a str, head: &'a [&'a str], children: C) -> impl Render {
     html! {
         <div class={Scroll}>
             <table class={Table} aria-label={label}>
@@ -286,24 +294,26 @@ fn coverage_tone(state: &str) -> Tone {
 }
 
 /// The coverage matrix (`CatalogScopeCoverageMatrixPanel`): its counts, its commands, and each
-/// provider's row. A coverage that could not be read is its banner, never an empty table.
+/// provider's row. A coverage that could not be read is its banner, never an empty table. `via`
+/// is the page it is on, which its writes answer with.
 #[component(css = ScopePage)]
-fn CoveragePart<'a>(
+pub fn CoveragePart<'a>(
     t: Cat,
     p: Pilot,
-    screen: &'a ScopeScreen,
+    id: &'a str,
+    coverage: Option<&'a Coverage>,
     propose: Option<&'a (ProposeInput, String)>,
     manage: bool,
+    via: Via,
 ) -> impl Render {
-    let id = &screen.scope.scope_record_id;
-    let coverage = screen.coverage.as_ref();
+    let via = url::ViaQuery { via: (via == Via::Coverage).then_some(via) };
     let rows: &[CoverageRow] = coverage.map_or(&[], |c| c.providers.as_slice());
     let count = |state: &str| rows.iter().filter(|r| r.state == state).count();
     let (mapped, synced, settled) = (count("mapped"), count("synced"), count("settled"));
     let available: Vec<&str> =
         rows.iter().filter(|r| r.state == "available").filter_map(|r| Some(r.mapping.as_ref()?.mapping_id.as_str())).collect();
     let draft = coverage.is_some_and(|c| c.lifecycle_status == "draft");
-    let action = url::ScopeCoverage { id }.href();
+    let action = url::ScopeCoverage { id, via }.href();
     let f = MappingInput::FIELDS;
     let mapped_text = t.scope_detail_coverage_summary_mapped(mapped).to_string();
     let synced_text = t.scope_detail_coverage_summary_synced(synced).to_string();
@@ -330,7 +340,7 @@ fn CoveragePart<'a>(
             if manage && coverage.is_some() {
                 <div class={Actions}>
                     if draft {
-                        <form method="post" action={&url::ScopePublish { id }.href()}>
+                        <form method="post" action={&url::ScopePublish { id, via }.href()}>
                             <button type="submit" class={Small}>{t.coverage_confirm_canonical_record()}</button>
                         </form>
                     }
@@ -371,7 +381,7 @@ fn CoveragePart<'a>(
                 }
             }
             if manage {
-                <ProposeDialog t={t} p={p} action={&url::ScopePropose { id }.href()} back={propose} />
+                <ProposeDialog t={t} p={p} action={&url::ScopePropose { id, via }.href()} back={propose} />
             }
         </section>
     }
@@ -794,5 +804,61 @@ fn alias_label(t: Cat, intent: &str) -> &'static str {
         "alias.reject" => t.alias_action_reject(),
         "alias.defer" => t.alias_action_defer(),
         _ => t.alias_action_revoke(),
+    }
+}
+
+// Catalog > Scope Coverage's parts (views/coverage.rs), which share this stylesheet.
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InboxTone {
+    Success,
+    Warning,
+}
+
+/// The title, what the inbox is for, and how much waits.
+#[component(css = ScopePage)]
+pub fn InboxHeader<'a>(t: Cat, summary: &'a str, tone: InboxTone) -> impl Render {
+    let tone = if tone == InboxTone::Warning { Warning } else { Success };
+    html! {
+        <h1 class={PageTitle}>{t.inbox_unmapped_scope_inbox()}</h1>
+        <p class={Lead}>{t.inbox_description()}</p>
+        <div class={(Banner, tone)} role="status">
+            <p class={BannerTitle}>{t.inbox_summary_title()}</p>
+            <p>{summary}</p>
+        </div>
+    }
+}
+
+/// A scope's row; Review opens its coverage page.
+#[component(css = ScopePage)]
+pub fn InboxRow<'a>(t: Cat, group: &'a crate::catalog::coverage::Group) -> impl Render {
+    let review = crate::catalog::coverage::url::CoveragePage { id: &group.scope_record_id, at: Default::default() }.href();
+    let pending = t.inbox_pending_count(group.counts.total, group.counts.high_confidence).to_string();
+    let (status, tone) = if group.is_draft_canonical_record {
+        (t.inbox_new_canonical_record(), Tone::Warning)
+    } else {
+        (t.inbox_existing_record(), Tone::Neutral)
+    };
+    html! {
+        <tr>
+            <td data-label={t.inbox_scope()}><strong>{&group.scope_name}</strong></td>
+            <td data-label={t.inbox_product_domain()}>{&group.product_domain}</td>
+            <td data-label={t.inbox_scope_kind()}>{&group.scope_kind}</td>
+            <td data-label={t.inbox_official_code()}>{group.official_set_code.as_deref().unwrap_or("\u{2014}")}</td>
+            <td data-label={t.inbox_status()}><TonePill text={status} tone={tone} /></td>
+            <td data-label={t.inbox_pending_proposals()}>{&pending}</td>
+            <td><a class={Link} href={&review}>{t.inbox_review()}</a></td>
+        </tr>
+    }
+}
+
+/// A refused write's message.
+#[component(css = ScopePage)]
+pub fn Refused<'a>(p: Pilot, message: &'a str) -> impl Render {
+    html! {
+        <div class={(Banner, Danger)} role="alert">
+            <p class={BannerTitle}>{p.scope_refused()}</p>
+            <p>{message}</p>
+        </div>
     }
 }

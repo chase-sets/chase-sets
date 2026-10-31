@@ -17,6 +17,10 @@
   text-transform: uppercase;
   color: var(--color-text-secondary);
 }
+.page-title {
+  margin: 0 0 var(--space-2);
+  font: 600 1.75rem/1.25 var(--font-display);
+}
 .lead {
   margin: 0 0 var(--space-5);
   max-width: 65ch;

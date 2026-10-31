@@ -162,6 +162,18 @@ pub mod teams {
         #[route(query)]
         pub query: ListQuery,
     }
+
+    /// A membership's page: its account's workspace on its team tab (admin-web's redirect).
+    #[route("/access/memberships/{id}", get = crate::access::account::membership)]
+    pub struct MembershipPage<'a> {
+        pub id: &'a str,
+    }
+
+    /// An invitation's page: its account's workspace on its team tab (admin-web's redirect).
+    #[route("/access/invitations/{id}", get = crate::access::account::invitation)]
+    pub struct InvitationPage<'a> {
+        pub id: &'a str,
+    }
 }
 
 /// The area: its routes and its stylesheet.

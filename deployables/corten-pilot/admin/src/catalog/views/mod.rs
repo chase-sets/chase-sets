@@ -23,6 +23,7 @@ mod bulk_dialogs;
 mod bulk_rows;
 mod categories;
 mod components;
+mod coverage;
 mod detail_page;
 mod dialog;
 mod display_templates;
@@ -44,6 +45,7 @@ pub use bulk_dialogs::{Candidates, JobDialog, PreviewDialog, Previewed, job_stat
 pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
 pub use categories::{CategoryForms, category_actions, category_list, category_page, category_rows, category_transitions};
 pub use components::{ComponentForms, component_list, component_page, component_rows};
+pub use coverage::{coverage_inbox, coverage_page};
 pub use detail_page::{
     ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, RemoveForm, Transition,
 };
@@ -72,7 +74,7 @@ pub use reference_records::{
 };
 pub use reference_types::{RefTypeForms, ref_type_actions, ref_type_list, ref_type_page, ref_type_rows, ref_type_transitions};
 pub use scope_list::{ScopeRowView, scope_list};
-pub use scope_page::{ScopePage, scope_page};
+pub use scope_page::{CoveragePart, InboxHeader, InboxRow, InboxTone, Refused, Rows, ScopePage, scope_page};
 pub use status_pill::{StatusPill, Tone, TonePill};
 
 /// The area's components: its stylesheet, and corten-ui's toaster and combobox scripts.

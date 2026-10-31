@@ -101,9 +101,28 @@ pub mod url {
         pub reason: String,
     }
 
+    /// Which page a coverage write answers with: the scope's page, or (`coverage`) the scope's
+    /// coverage page, `/catalog/scope-coverage/{id}`, which posts to the same routes.
+    #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Via {
+        #[default]
+        Scope,
+        Coverage,
+    }
+
+    /// A coverage write's query: the page it answers with.
+    #[derive(Clone, Copy, Debug, Default, Deserialize, Route)]
+    #[route(query)]
+    pub struct ViaQuery {
+        pub via: Option<Via>,
+    }
+
     #[route("/catalog/scopes/{id}/coverage", post = crate::catalog::scope::coverage)]
     pub struct ScopeCoverage<'a> {
         pub id: &'a str,
+        #[route(query)]
+        pub via: ViaQuery,
     }
 
     /// Propose mapping's fields; `accept` is set by Propose & accept.
@@ -121,11 +140,15 @@ pub mod url {
     #[route("/catalog/scopes/{id}/coverage/propose", post = crate::catalog::scope::propose)]
     pub struct ScopePropose<'a> {
         pub id: &'a str,
+        #[route(query)]
+        pub via: ViaQuery,
     }
 
     #[route("/catalog/scopes/{id}/publish", post = crate::catalog::scope::publish)]
     pub struct ScopePublish<'a> {
         pub id: &'a str,
+        #[route(query)]
+        pub via: ViaQuery,
     }
 
     /// An alias candidate's command (`alias.accept`, `alias.reject`, `alias.revoke`,
@@ -144,7 +167,7 @@ pub mod url {
     }
 }
 
-use url::{AliasCommand, MappingInput, ProposeInput, ScopeAt, ScopeDone};
+use url::{AliasCommand, MappingInput, ProposeInput, ScopeAt, ScopeDone, Via};
 
 impl ScopeDone {
     /// The toast: admin-web's words for the coverage, the pilot's for an alias (admin-web says
@@ -416,6 +439,28 @@ pub(crate) async fn page(
     render(&req, &staff.viewer, &config, &headers, &id, &at, ScopeBack::Nothing).await
 }
 
+/// The page a write came from, again: with a `back` other than nothing, a refused write's answer
+/// (422).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
+async fn again(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    at: &ScopeAt,
+    back: ScopeBack,
+    from: Via,
+) -> HtmlResult {
+    match from {
+        Via::Scope => render(req, viewer, config, headers, id, at, back).await,
+        Via::Coverage => crate::catalog::coverage::render(req, viewer, config, headers, id, at, back).await,
+    }
+}
+
 /// The page; with a `back` other than nothing, a refused write's answer (422).
 async fn render(
     req: &Req,
@@ -442,10 +487,13 @@ async fn render(
     if status == StatusCode::OK { req.screen(&view, html) } else { req.page_with_status(status, html) }
 }
 
-/// After a write: the page, waiting for it, with its toast.
-fn to_scope(req: &Req, id: &str, written: Option<&Written>, done: ScopeDone, count: Option<u32>) -> HtmlResult {
+/// After a write: the page it came from, waiting for it, with its toast.
+fn to_scope(req: &Req, id: &str, written: Option<&Written>, done: ScopeDone, count: Option<u32>, from: Via) -> HtmlResult {
     let at = ScopeAt { after_write: written.and_then(receipt), done: Some(done), count, jobs: None };
-    req.redirect(&url::ScopePage { id, at })
+    match from {
+        Via::Scope => req.redirect(&url::ScopePage { id, at }),
+        Via::Coverage => req.redirect(&crate::catalog::coverage::url::CoveragePage { id, at }),
+    }
 }
 
 /// A write's answer: the page after it, or the page again with the API's refusal.
@@ -462,12 +510,13 @@ async fn answer(
     sent: Sent,
     done: ScopeDone,
     count: Option<u32>,
+    from: Via,
 ) -> HtmlResult {
     match sent {
-        Sent::Written(written) => to_scope(req, id, Some(&written), done, count),
+        Sent::Written(written) => to_scope(req, id, Some(&written), done, count, from),
         Sent::Refused(errors) => {
             let message = errors.form().map(str::to_owned).unwrap_or_default();
-            render(req, viewer, config, headers, id, &ScopeAt::default(), ScopeBack::Refused(message)).await
+            again(req, viewer, config, headers, id, &ScopeAt::default(), ScopeBack::Refused(message), from).await
         }
         Sent::Denied(denied) => denied.answer(req),
     }
@@ -485,8 +534,16 @@ fn ids(text: &str) -> Vec<String> {
 }
 
 /// A refused form, before anything is sent: the page with `message` (422).
-async fn invalid(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, id: &str, message: String) -> HtmlResult {
-    render(req, viewer, config, headers, id, &ScopeAt::default(), ScopeBack::Refused(message)).await
+async fn invalid(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    message: String,
+    from: Via,
+) -> HtmlResult {
+    again(req, viewer, config, headers, id, &ScopeAt::default(), ScopeBack::Refused(message), from).await
 }
 
 pub(crate) async fn coverage(
@@ -497,17 +554,17 @@ pub(crate) async fn coverage(
     Params(route): Params<crate::catalog::scope::url::ScopeCoverage<'_>>,
     Form(input): Form<MappingInput>,
 ) -> HtmlResult {
-    let id = route.id;
+    let (id, via) = (route.id, route.via.via.unwrap_or_default());
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let viewer = &staff.viewer;
     let mapping_ids = ids(&input.mapping_ids);
     let reason = input.reason.trim();
     let intent = input.intent.as_str();
     if mapping_ids.is_empty() || !matches!(intent, "accept" | "reject" | "revoke") {
-        return invalid(&req, viewer, &config, &headers, &id, p.catalog_action().to_owned()).await;
+        return invalid(&req, viewer, &config, &headers, &id, p.catalog_action().to_owned(), via).await;
     }
     if intent != "accept" && reason.is_empty() {
-        return invalid(&req, viewer, &config, &headers, &id, t.coverage_reason_required().to_owned()).await;
+        return invalid(&req, viewer, &config, &headers, &id, t.coverage_reason_required().to_owned(), via).await;
     }
     let mut body = json!({ "intent": intent, "mappingIds": mapping_ids });
     if !reason.is_empty() {
@@ -521,7 +578,7 @@ pub(crate) async fn coverage(
     };
     let sent =
         command(&caller(&config, &headers, None), Method::POST, Kind::ProviderScopeMappings, "/commands", Some(&body)).await;
-    answer(&req, viewer, &config, &headers, &id, sent, done, count).await
+    answer(&req, viewer, &config, &headers, &id, sent, done, count, via).await
 }
 
 /// The confidence tiers Propose mapping offers (`confidenceOptions`).
@@ -535,7 +592,7 @@ pub(crate) async fn propose(
     Params(route): Params<crate::catalog::scope::url::ScopePropose<'_>>,
     Form(input): Form<ProposeInput>,
 ) -> HtmlResult {
-    let id = route.id;
+    let (id, via) = (route.id, route.via.via.unwrap_or_default());
     let p: Pilot = req.t();
     let viewer = &staff.viewer;
     let (provider, unit, set_id, set_name) =
@@ -543,7 +600,7 @@ pub(crate) async fn propose(
     // admin-web's dialog sends nothing until these are filled; the pilot says what is missing.
     if provider.is_empty() || unit.is_empty() || (set_id.is_empty() && set_name.is_empty()) {
         let back = ScopeBack::Propose(input.clone(), p.scope_propose_needs().to_owned());
-        return render(&req, viewer, &config, &headers, &id, &ScopeAt::default(), back).await;
+        return again(&req, viewer, &config, &headers, &id, &ScopeAt::default(), back, via).await;
     }
     let confidence = if CONFIDENCES.contains(&input.confidence.as_str()) { input.confidence.as_str() } else { "manual" };
     let accept = !input.accept.is_empty();
@@ -562,9 +619,9 @@ pub(crate) async fn propose(
     match command(&caller(&config, &headers, None), Method::POST, Kind::ProviderScopeMappings, "/propose", Some(&body)).await {
         Sent::Refused(errors) => {
             let back = ScopeBack::Propose(input.clone(), errors.form().map(str::to_owned).unwrap_or_default());
-            render(&req, viewer, &config, &headers, &id, &ScopeAt::default(), back).await
+            again(&req, viewer, &config, &headers, &id, &ScopeAt::default(), back, via).await
         }
-        sent => answer(&req, viewer, &config, &headers, &id, sent, done, None).await,
+        sent => answer(&req, viewer, &config, &headers, &id, sent, done, None, via).await,
     }
 }
 
@@ -577,10 +634,10 @@ pub(crate) async fn publish(
     headers: HeaderMap,
     Params(route): Params<crate::catalog::scope::url::ScopePublish<'_>>,
 ) -> HtmlResult {
-    let id = route.id;
+    let (id, via) = (route.id, route.via.via.unwrap_or_default());
     let rest = under(&id, &["publish"]);
     let sent = command(&caller(&config, &headers, None), Method::POST, Kind::ReferenceRecords, &rest, None).await;
-    answer(&req, &staff.viewer, &config, &headers, &id, sent, ScopeDone::CanonicalConfirmed, None).await
+    answer(&req, &staff.viewer, &config, &headers, &id, sent, ScopeDone::CanonicalConfirmed, None, via).await
 }
 
 /// An alias candidate's command (`handleAliasReviewCommand`). Defer writes nothing (the candidate
@@ -604,23 +661,23 @@ pub(crate) async fn aliases(
         "alias.reject" => ("reject", ScopeDone::AliasRejected),
         "alias.revoke" => ("revoke", ScopeDone::AliasRevoked),
         "alias.defer" => ("defer", ScopeDone::AliasDeferred),
-        _ => return invalid(&req, viewer, &config, &headers, &id, p.catalog_action().to_owned()).await,
+        _ => return invalid(&req, viewer, &config, &headers, &id, p.catalog_action().to_owned(), Via::Scope).await,
     };
     if hashes.is_empty() {
-        return invalid(&req, viewer, &config, &headers, &id, p.catalog_action().to_owned()).await;
+        return invalid(&req, viewer, &config, &headers, &id, p.catalog_action().to_owned(), Via::Scope).await;
     }
     if intent == "defer" {
-        return to_scope(&req, &id, None, done, None);
+        return to_scope(&req, &id, None, done, None, Via::Scope);
     }
     if intent != "accept" && reason.is_empty() {
-        return invalid(&req, viewer, &config, &headers, &id, t.coverage_reason_required().to_owned()).await;
+        return invalid(&req, viewer, &config, &headers, &id, t.coverage_reason_required().to_owned(), Via::Scope).await;
     }
     let mut body: Value = json!({ "intent": intent, "aliasHashes": hashes.join(",") });
     if !reason.is_empty() {
         body["reason"] = json!(reason);
     }
     let sent = command(&caller(&config, &headers, None), Method::POST, Kind::AliasReview, "/commands", Some(&body)).await;
-    answer(&req, viewer, &config, &headers, &id, sent, done, None).await
+    answer(&req, viewer, &config, &headers, &id, sent, done, None, Via::Scope).await
 }
 
 #[cfg(test)]
