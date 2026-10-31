@@ -10,7 +10,9 @@
 //   Attention queue's (platformOperations.operationsAttention.*) and Projection Operations'
 //   (platformOperations.projectionOperations.* as projections.*), and Support's Reported Content
 //   (platformOperations.reportedContent.* as reported.*) and Risk Alerts (platformOperations.riskAlerts.*
-//   as risk.*).
+//   as risk.*), Provider Connections'
+//   (platformOperations.providerConnections.* as pc.*) and Offer Economics' (platformOperations.offerEconomics.*
+//   as oe.*).
 // - admin/locales/access.en.json: the access section's English catalog: Access's home, the
 //   accounts, users, memberships, invitations and API keys lists, an account's workspace (its
 //   tabs, the detail pages' actions and the API key secret reveal), the identity value labels and
@@ -661,6 +663,8 @@ const outputs = [
         ["platformOperations.projectionOperations.", "projections"],
         ["platformOperations.reportedContent.", "reported"],
         ["platformOperations.riskAlerts.", "risk"],
+        ["platformOperations.providerConnections.", "pc"],
+        ["platformOperations.offerEconomics.", "oe"],
       ]),
     ),
   ],

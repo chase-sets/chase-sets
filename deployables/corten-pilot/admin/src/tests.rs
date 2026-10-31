@@ -121,6 +121,13 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["commercial-terms.view"])
         } else if cookie.contains("chase_sets_session=growth-viewer") {
             actor(&["public-presence.view"])
+        } else if cookie.contains("chase_sets_session=providers-admin") {
+            Json(json!({ "actor": { "userId": "usr_1", "accountId": "acc_platform", "roleKey": "platform-admin", "permissions": ["provider-connections.view"] } }))
+                .into_response()
+        } else if cookie.contains("chase_sets_session=providers-owner") {
+            actor(&["provider-connections.view"])
+        } else if cookie.contains("chase_sets_session=insights-viewer") {
+            actor(&["insights-dashboards.view"])
         } else if cookie.contains("chase_sets_session=shopping-viewer") {
             actor(&["google-shopping.view", "google-shopping.manage", "catalog.view"])
         } else if cookie.contains("chase_sets_session=payouts-viewer") {
@@ -193,6 +200,12 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             );
         }
         return commercial_terms(&method, rest, uri.query().unwrap_or_default(), &body);
+    }
+    if uri.path() == "/api/platform/insights/offer-economics/summary" {
+        return offer_economics(uri.query().unwrap_or_default());
+    }
+    if uri.path() == "/api/platform/provider-connections" {
+        return provider_connections();
     }
     if let Some(rest) = uri.path().strip_prefix(SHOPPING_API) {
         return shopping_api(&method, rest, uri.query().unwrap_or_default(), &body);
@@ -5862,4 +5875,79 @@ async fn a_google_shopping_dry_run_is_queued_with_the_pages_limit_and_followed()
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Batch size is too small."), "{html}");
+}
+
+/// Platform Operations' provider connections: a fresh Catalog provider with its page, a stale
+/// seller channel, and a section the API could only partly read.
+fn provider_connections() -> Response {
+    Json(json!({
+        "evaluatedAt": "2026-10-31T07:05:00.000Z",
+        "catalog": { "state": "available", "rows": [{
+            "id": "lorcast", "provider": "lorcast", "capability": "catalog-integration", "owner": "catalog", "accountId": null,
+            "credentialReadiness": "not-required", "health": "ready", "observedAt": "2026-10-31T07:04:55.000Z",
+            "freshness": { "freshWithinSeconds": 15, "staleAfterSeconds": 60, "unavailableAfterSeconds": 300 },
+            "destination": { "routeId": "provider-detail", "href": "/catalog/providers/lorcast" } }] },
+        "channels": { "state": "partial", "rows": [{
+            "id": "chc_1", "provider": "tcgplayer", "capability": "channel-connection", "owner": "channels", "accountId": "acc_9",
+            "status": "paused", "credentialReadiness": "expired", "health": "failing", "observedAt": "2026-10-31T07:02:00.000Z",
+            "freshness": { "freshWithinSeconds": 15, "staleAfterSeconds": 60, "unavailableAfterSeconds": 300 },
+            "destination": { "routeId": "x", "href": "/account/channels/chc_1" } }] },
+    }))
+    .into_response()
+}
+
+#[tokio::test]
+async fn provider_connections_need_a_platform_admin_and_show_each_connections_freshness() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/platform/provider-connections", Some("providers-owner"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "the permission without the platform-admin role");
+    let (status, _, html) = pilot.send(get("/platform/provider-connections", Some("providers-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Provider Connections | Chase Sets Admin"), "{html}");
+    assert!(html.contains(">Fresh<") && html.contains("(0 min ago)"), "{html}");
+    assert!(html.contains(">Stale<") && html.contains("(3 min ago)"), "{html}");
+    assert!(html.contains("Seller account acc_9") && html.contains(">Expired<") && html.contains(">Paused<"), "{html}");
+    assert!(
+        html.contains(r#"href="http://localhost:7752/catalog/providers/lorcast""#) && !html.contains("/account/channels/chc_1"),
+        "{html}"
+    );
+    assert!(html.contains("Read-only; no operator action"), "{html}");
+}
+
+/// Platform Operations' offer economics: one week of sell-through, a share of the platform's GMV,
+/// and the reserve not available in this profile; the window echoes what was asked.
+fn offer_economics(query: &str) -> Response {
+    let from = query.split('&').find_map(|p| p.strip_prefix("from=")).unwrap_or("2026-09-02");
+    Json(json!({ "snapshot": {
+        "from": from, "to": "2026-10-31", "listingsCreatedCount": 12, "lockedSellerAccountCount": 3, "lockedGmvAmount": "1234.50",
+        "lockedTradeCount": 9, "platformGmvAmount": "4000.00", "lockedGmvShareRatio": "0.3086", "standardFeePercentageBps": 650,
+        "standardFeeFixedAmount": "0.30", "standardScheduleSource": { "scheduleId": "pol_1", "scheduleLabel": "Standard seller terms" },
+        "foregoneFeeEstimateAmount": "82.94",
+        "weeklySellThrough": [{ "weekStart": "2026-10-26", "listingsCreatedCount": 4, "cumulativeListingsCreatedCount": 12,
+            "tradeCount": 2, "cumulativeTradeCount": 9, "sellThroughRate": "0.75" }],
+        "protectionReserve": { "available": false, "reason": "Settlement protection-reserve contribution data is unavailable in this runtime profile." },
+    } }))
+    .into_response()
+}
+
+#[tokio::test]
+async fn offer_economics_writes_the_apis_figures_for_the_window_asked() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/platform/insights/offer-economics", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, html) =
+        pilot.send(get("/platform/insights/offer-economics?from=2026-10-01&to=nonsense", Some("insights-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        pilot
+            .calls_to_path("/api/platform/insights/offer-economics")
+            .iter()
+            .any(|c| c.path.ends_with("/summary?from=2026-10-01")),
+        "a date the API cannot read is not sent"
+    );
+    assert!(html.contains("<title>Offer Economics | Chase Sets Admin") && html.contains("Oct 1, 2026 to Oct 31, 2026"), "{html}");
+    assert!(html.contains("$1,234.50") && html.contains("30.9%") && html.contains("$82.94"), "{html}");
+    assert!(html.contains("Standard seller terms published schedule: 6.50% + $0.30 per sale."), "{html}");
+    assert!(html.contains("Oct 26, 2026") && html.contains("75.0%"), "{html}");
+    assert!(html.contains("Pending #4098") && html.contains("unavailable in this runtime profile"), "{html}");
 }

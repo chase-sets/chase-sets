@@ -142,6 +142,8 @@ pub fn app(config: Config) -> App {
         .area(|area| url::area(area, shared.clone()).components(views::POSTAGE))
         .area(|area| crate::operations::area(area, shared.clone()))
         .area(|area| crate::projections::area(area, shared.clone()))
+        .area(|area| crate::providers::area(area, shared.clone()))
+        .area(|area| crate::insights::area(area, shared.clone()))
         .area(|area| catalog::area(area, shared.clone()))
         .area(|area| crate::access::area(area, shared.clone()))
         .area(|area| crate::reported::area(area, shared.clone()))

@@ -108,6 +108,8 @@ rules! {
     /// Growth > Google Shopping (its nav entry's permission; Discovery's API asks for
     /// `google-shopping.manage`, which every role with this one holds).
     GoogleShoppingView => "google-shopping.view";
+    /// Platform > Insights (Offer Economics and the Ops Dashboard; the API asks for the same).
+    InsightsView => "insights-dashboards.view";
     /// Support > Customer Feedback (admin-web's route takes its nav entry's permission).
     SupportView => "support.view";
 }
@@ -154,6 +156,21 @@ pub struct TermsAccess;
 impl Rule for TermsAccess {
     fn permission(_: &Method) -> &'static str {
         "commercial-terms.view"
+    }
+}
+
+/// Platform > Provider Connections: `provider-connections.view` held by a `platform-admin`, as
+/// admin-web's loader and the API ask (other roles hold the permission too).
+#[derive(Clone, Debug, Hash)]
+pub struct ProviderConnectionsView;
+
+impl Rule for ProviderConnectionsView {
+    fn permission(_: &Method) -> &'static str {
+        "provider-connections.view"
+    }
+
+    fn allows(viewer: &Viewer, method: &Method) -> bool {
+        viewer.role_key == "platform-admin" && viewer.can(Self::permission(method))
     }
 }
 
