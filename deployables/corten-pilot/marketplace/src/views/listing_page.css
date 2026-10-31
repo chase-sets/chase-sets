@@ -1,0 +1,299 @@
+/* A listing's public page (discovery's routes/public-listing.tsx): the header, then the purchase
+   panel and the seller beside it from 64rem, and Report Listing. */
+.page {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+}
+.head {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  min-width: 0;
+}
+.title {
+  margin: 0;
+  font: 600 clamp(1.75rem, 6vw, 2.75rem)/1.1 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.subtitle {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 1.125rem;
+  overflow-wrap: anywhere;
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.strong {
+  font-weight: 600;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge[data-tone="success"] {
+  border-color: transparent;
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  justify-self: stretch;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.banner p {
+  margin: 0;
+}
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.banner[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.banner[data-tone="success"] {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.banner[data-tone="info"] {
+  border-color: var(--color-info);
+  background: var(--color-info-soft);
+}
+.banner-title {
+  font-weight: 600;
+}
+
+.columns {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.column {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  justify-items: start;
+  min-width: 0;
+}
+.column > * {
+  justify-self: stretch;
+}
+.column > .badge {
+  justify-self: start;
+}
+.card {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.card-title {
+  margin: 0;
+  font: 600 1.25rem/1.2 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.price-label {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.price {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+}
+.facts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.facts[data-boxed] {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+.facts > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  justify-content: space-between;
+}
+.facts dt {
+  color: var(--color-text-secondary);
+}
+.facts dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+.seller {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: end;
+}
+.who {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.who a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  color: inherit;
+}
+.actions {
+  display: grid;
+  gap: var(--space-2);
+}
+.actions form {
+  display: grid;
+}
+.seller-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: start;
+  justify-content: space-between;
+}
+.seller-name {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+}
+.tiles {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tiles li {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+
+.report {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.section-title {
+  margin: 0;
+  font: 600 1.75rem/1.2 var(--font-display);
+}
+.form {
+  display: grid;
+  gap: var(--space-3);
+}
+.form p {
+  margin: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  font-weight: 600;
+}
+.field select,
+.field textarea {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 400;
+}
+.required {
+  color: var(--color-primary);
+}
+
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  font: 600 0.9375rem/1.2 var(--font-body);
+  text-decoration: none;
+  cursor: pointer;
+}
+.primary {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+.primary:hover {
+  background: var(--color-primary-hover);
+}
+.secondary {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.secondary:hover {
+  background: var(--color-surface-2);
+}
+
+@media (min-width: 48rem) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .actions form {
+    justify-items: start;
+  }
+}
+
+@media (min-width: 64rem) {
+  .columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}

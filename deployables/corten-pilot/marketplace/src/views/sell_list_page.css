@@ -1,0 +1,478 @@
+/* Mobile first: one column, with the expected payout and Continue in a bar at the bottom; the
+   cards two across from 40rem, the summary beside them (and the bar gone) from 64rem. Every control
+   is at least --control-height tall, and nothing is wider than the screen. */
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-block-end: var(--space-5);
+}
+.heading {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 48rem;
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.part-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.big {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-block: var(--space-6);
+}
+.stack {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding-block-start: var(--space-3);
+}
+.tight {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+}
+.row form {
+  margin: 0;
+}
+.hidden {
+  display: none;
+}
+.notices {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-end: var(--space-4);
+}
+.notices:empty {
+  display: none;
+}
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--color-info-soft);
+}
+.banner p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.banner[data-tone="success"] {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.spread {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+.card {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.card > p {
+  margin: 0;
+}
+.tinted {
+  background: var(--color-surface-2);
+}
+.empty {
+  justify-items: start;
+}
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  margin: 0;
+}
+.badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge[data-tone="accent"] {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+.badge[data-tone="success"] {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.badge[data-tone="warning"] {
+  background: var(--color-warning-soft);
+}
+.badge[data-tone="danger"] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.badge[data-tone="info"] {
+  background: var(--color-info-soft);
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+  cursor: pointer;
+}
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.ghost {
+  background: none;
+  color: var(--color-primary);
+  border-color: transparent;
+}
+.facts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  min-width: 0;
+}
+.facts > div {
+  display: grid;
+  gap: var(--space-1);
+  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+}
+.facts dt {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+.facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.facts > .sum {
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--color-border);
+  font-weight: 600;
+}
+.metrics {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+.metrics > div {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+  min-width: 0;
+}
+.metrics dt {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+.metrics dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.effects {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.layout {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+.main {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  min-width: 0;
+}
+.aside {
+  display: none;
+}
+/* On a phone the summary folds above the lines. */
+.folded > summary {
+  min-height: var(--control-height);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.cards {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.entry {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.entry > p {
+  margin: 0;
+}
+.entry[data-ready="false"] {
+  border-inline-start: 4px solid var(--color-warning);
+}
+.top {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  min-width: 0;
+}
+.thumb {
+  flex: none;
+  width: 4rem;
+  height: 4rem;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  object-fit: contain;
+}
+.more > summary {
+  list-style: none;
+  width: 100%;
+}
+.more > summary::-webkit-details-marker {
+  display: none;
+}
+.more[open] > summary {
+  border-color: var(--color-primary);
+}
+.picks {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.offer-pick {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.offer-pick:has(:checked) {
+  border-color: var(--color-primary);
+}
+.choose {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: var(--control-height);
+  cursor: pointer;
+}
+.choose input {
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  margin: 0;
+}
+.pair {
+  display: grid;
+  gap: var(--space-3);
+}
+.photos {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.fields {
+  display: grid;
+  gap: var(--space-3);
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.field select,
+.field input:not([type="file"]) {
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.field input[type="file"] {
+  max-width: 100%;
+  min-height: var(--control-height);
+}
+.total {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin: 0;
+}
+/* The bulk bar and the call to action sit at the bottom of a phone's screen. */
+.dock {
+  position: sticky;
+  bottom: env(safe-area-inset-bottom, 0px);
+  z-index: 1;
+  display: grid;
+  gap: var(--space-2);
+}
+.bulk,
+.cta {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: 0 -0.25rem 1rem rgb(0 0 0 / 0.08);
+}
+/* The bulk bar shows once an offer is checked; a browser without :has() shows it always. */
+@supports selector(:has(*)) {
+  .layout:not(:has(input[name="bulkOfferId"]:checked)) .bulk {
+    display: none;
+  }
+}
+.dialog {
+  width: min(32rem, calc(100vw - 2 * var(--space-4)));
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.dialog[open] {
+  display: grid;
+  gap: var(--space-3);
+}
+.dialog::backdrop {
+  background: var(--color-overlay);
+}
+.dialog .row {
+  justify-content: flex-end;
+}
+/* Two cards across from 40rem: a card is then too narrow for the terms side by side, so the
+   pair and the fields stay one column until a card is wide again (one card a row, from 90rem). */
+@media (min-width: 40rem) {
+  .cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .photos {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (min-width: 90rem) {
+  .pair,
+  .fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 48rem) {
+  .metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .effects {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 64rem) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    align-items: start;
+  }
+  .aside {
+    display: block;
+    position: sticky;
+    top: var(--space-4);
+  }
+  .folded,
+  .cta {
+    display: none;
+  }
+}

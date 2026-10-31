@@ -1,0 +1,277 @@
+/* Packing slips (the design system's PackingSlipPrintDocument). On screen each slip is a white
+   sheet the shape of its paper, in the theme's page; on a phone the slips fill the width, the
+   addresses and the header stack, and each item row stacks with its quantity labelled. Printed,
+   only the slips are left (the top bar hides itself), each a page of its own size: US letter or a
+   4x6 thermal label. The sheet's colors are the paper's, not the theme's, so they print the same. */
+.page {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: end;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+}
+.copy {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  font: 700 2rem/1.1 var(--font-display);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+.actions,
+.chooser {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: end;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.button,
+.print > button {
+  min-height: 2.75rem;
+}
+.print {
+  display: contents;
+}
+.button[data-tone="secondary"] {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.sheets {
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 8.5in;
+  margin-inline: auto;
+}
+.sheet {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+  justify-self: center;
+  width: 100%;
+  min-width: 0;
+  max-width: 8.5in;
+  aspect-ratio: 8.5 / 11;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1.5rem 3rem rgb(15 23 42 / 0.12);
+  break-after: page;
+}
+.letter {
+  padding: 0.5in;
+}
+.thermal {
+  aspect-ratio: 4 / 6;
+  max-width: 4in;
+  padding: 0.18in;
+  gap: 0.5rem;
+}
+.sheet-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: start;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #cbd5e1;
+}
+.sheet-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.reference {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.75rem;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.addresses {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.section-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.line {
+  font-size: 0.82rem;
+  line-height: 1.25rem;
+  overflow-wrap: anywhere;
+}
+.items {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.items th,
+.items td {
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.qty {
+  width: 3rem;
+  text-align: right;
+  white-space: nowrap;
+}
+.qty-label {
+  display: none;
+  font-weight: 700;
+}
+.footer {
+  margin: 0;
+  color: #475569;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.thermal .sheet-header {
+  grid-template-columns: 1fr;
+}
+.thermal .reference {
+  text-align: left;
+}
+.thermal .addresses {
+  gap: 0.35rem;
+}
+.thermal .sheet-title {
+  font-size: 1rem;
+}
+.thermal .section-title {
+  margin-bottom: 0.2rem;
+}
+.thermal .line,
+.thermal .items,
+.thermal .footer {
+  font-size: 0.72rem;
+  line-height: 1rem;
+}
+
+@media screen and (max-width: 44rem) {
+  .toolbar {
+    align-items: stretch;
+  }
+  .title {
+    font-size: 1.6rem;
+  }
+  .actions,
+  .chooser,
+  .chooser > *,
+  .actions > .button {
+    width: 100%;
+  }
+  .sheet {
+    aspect-ratio: auto;
+    gap: 1.25rem;
+    padding: 1rem;
+  }
+  .sheet-header {
+    grid-template-columns: 1fr;
+  }
+  .letter .addresses {
+    grid-template-columns: 1fr;
+  }
+  .reference {
+    text-align: left;
+  }
+  .items,
+  .items tbody,
+  .items tr,
+  .items td {
+    display: block;
+  }
+  .items thead {
+    display: none;
+  }
+  .items tr {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .items td {
+    padding: 0.15rem 0;
+    border-bottom: 0;
+  }
+  .qty {
+    width: auto;
+    text-align: left;
+  }
+  .qty-label {
+    display: inline;
+  }
+}
+
+@page packing-slips-page-letter {
+  size: letter;
+  margin: 0;
+}
+@page packing-slips-page-thermal {
+  size: 4in 6in;
+  margin: 0;
+}
+
+@media print {
+  .page {
+    display: block;
+  }
+  .toolbar {
+    display: none;
+  }
+  .sheets {
+    display: block;
+    max-width: none;
+  }
+  .sheet {
+    margin: 0;
+    border: 0;
+    box-shadow: none;
+    aspect-ratio: auto;
+    max-width: none;
+  }
+  .letter {
+    page: packing-slips-page-letter;
+    width: 8.5in;
+    height: 11in;
+  }
+  .thermal {
+    page: packing-slips-page-thermal;
+    width: 4in;
+    height: 6in;
+  }
+}

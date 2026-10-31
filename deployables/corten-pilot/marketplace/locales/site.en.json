@@ -1,0 +1,9 @@
+{
+  "manifest_description": "Purchase and sell trading cards.",
+  "offline.description": "Chase Sets needs a network connection before it can show live marketplace data.",
+  "offline.heading": "You are offline",
+  "offline.protection.description": "Your account, Buy Cart, orders, and support records remain tied to your marketplace identity. Live pricing and fulfillment refresh when connection returns.",
+  "offline.protection.title": "Marketplace records stay protected",
+  "offline.retry": "Try again",
+  "offline.title": "Offline | Chase Sets"
+}

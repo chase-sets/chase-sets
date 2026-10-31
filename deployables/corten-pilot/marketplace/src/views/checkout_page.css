@@ -1,0 +1,575 @@
+/* Mobile first: one column, the order summary in a disclosure above the form and the total with
+   Pay now in a bar at the bottom of the screen. From 48rem the bar gives way to the form's own
+   row; from 64rem the summary sits beside the form. Every control is at least --control-height
+   tall, and nothing is wider than the screen. */
+.checkout {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  padding-block-end: 10rem;
+}
+@media (min-width: 48rem) {
+  .checkout {
+    padding-block-end: 0;
+  }
+}
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: end;
+  justify-content: space-between;
+  min-width: 0;
+}
+.header-text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 40rem;
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.part-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin: 0;
+}
+.amount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.quiet {
+  color: var(--color-text-secondary);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+  cursor: pointer;
+}
+.secondary {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.small {
+  font-size: 0.875rem;
+}
+.wide {
+  width: 100%;
+}
+@media (min-width: 48rem) {
+  .wide {
+    width: auto;
+    min-width: 12rem;
+  }
+}
+
+/* Update totals and its notice show once the page's script marks a changed field. The banner's
+   own selector is named so it outranks `.banner`'s display, which comes later in this file. */
+.stale-only,
+.banner.stale-only {
+  display: none;
+}
+[data-stale] .banner.stale-only {
+  display: grid;
+}
+[data-stale] .button.stale-only {
+  display: inline-flex;
+}
+[data-stale] .pay-only,
+[data-stale] .drawn {
+  display: none;
+}
+/* Without a script nothing marks the form stale, so Update totals is always offered. */
+@media (scripting: none) {
+  .button.stale-only {
+    display: inline-flex;
+  }
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.panel p {
+  margin: 0;
+}
+.lost {
+  justify-items: start;
+  max-width: 40rem;
+}
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+.banner p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.banner[data-tone="info"] {
+  background: var(--color-info-soft, var(--color-surface-2));
+}
+.banner[data-tone="success"] {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.banner[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.drawn {
+  min-width: 0;
+}
+.badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge[data-tone="success"] {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.badge[data-tone="warning"] {
+  background: var(--color-warning-soft);
+}
+
+/* The layout: the form, and the summary beside it from 64rem. */
+.flow {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.main {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.aside {
+  display: none;
+}
+.mobile-summary {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.mobile-summary > .panel {
+  border: 0;
+  border-block-start: 1px solid var(--color-border);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+.mobile-summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+}
+.mobile-summary-bar .amount {
+  margin-inline-start: auto;
+}
+@media (min-width: 64rem) {
+  .flow {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+  }
+  .aside {
+    display: block;
+    position: sticky;
+    top: var(--space-4);
+  }
+  .mobile-summary {
+    display: none;
+  }
+}
+
+/* The steps: marks and labels on one line; their descriptions from 48rem. */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+  min-width: 0;
+  font-size: 0.75rem;
+}
+.step-mark {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+}
+.step[data-status="complete"] .step-mark {
+  border-color: var(--color-success);
+  background: var(--color-success);
+}
+.step[data-status="current"] .step-mark {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+}
+.step[data-status="blocked"] .step-mark {
+  border-color: var(--color-warning);
+  background: var(--color-warning);
+}
+.step-text {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.step-description {
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.step .step-description {
+  display: none;
+}
+@media (min-width: 48rem) {
+  .step {
+    font-size: 0.875rem;
+  }
+  .step .step-description {
+    display: block;
+  }
+}
+
+/* The form: a part per open step, the ready steps' rows, then the commit row. */
+.form {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.part {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.part > legend {
+  float: left;
+  width: 100%;
+  padding: 0;
+}
+.fields {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 48rem) {
+  .fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.label {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.input {
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.check {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  min-height: var(--control-height);
+}
+.check input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-block-start: 0.125rem;
+}
+.check > span {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.rows {
+  gap: var(--space-2);
+}
+.row-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.saved-item {
+  display: grid;
+  gap: var(--space-2);
+  padding-block: var(--space-2);
+  border-block-start: 1px solid var(--color-border);
+}
+.saved-item:first-child {
+  border-block-start: 0;
+}
+.saved-text {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.saved-text p {
+  margin: 0;
+}
+.saved-end {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+@media (min-width: 48rem) {
+  .saved-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+}
+.commit-row {
+  display: none;
+}
+@media (min-width: 48rem) {
+  .commit-row {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+.policies {
+  display: grid;
+  gap: var(--space-2);
+  font-size: 0.875rem;
+}
+.protections a,
+.policies a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  color: var(--color-link, var(--color-primary));
+}
+
+/* The phone's bar: the total and Pay now, over the bottom of the page. */
+.bar {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 10;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-block-start: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 0.08);
+}
+.bar-total {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 var(--space-2);
+  align-items: baseline;
+}
+.bar-total p {
+  margin: 0;
+}
+.bar-total .step-description {
+  grid-column: 1 / -1;
+}
+@media (min-width: 48rem) {
+  .bar {
+    display: none;
+  }
+}
+
+/* The payment's panel once Pay now started it. */
+.confirmed {
+  gap: var(--space-4);
+}
+.facts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.facts div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.facts dt {
+  color: var(--color-text-secondary);
+}
+.facts dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.next-steps {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The order summary. */
+.summary-panel {
+  gap: var(--space-4);
+}
+.summary-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+.items {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chip {
+  padding: 0 0.375rem;
+  border-radius: var(--radius-sm, 0.25rem);
+  background: var(--color-surface-2);
+  font-size: 0.75rem;
+}
+.price {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.totals {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.totals div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.totals dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.total {
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--color-border);
+  font-weight: 600;
+}
+.total .amount {
+  font-size: 1.25rem;
+}
+.protections {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3) 0 0;
+  border-block-start: 1px solid var(--color-border);
+  list-style: none;
+}
+.protections p {
+  margin: 0;
+}
+.protections a {
+  color: var(--color-link, var(--color-primary));
+}

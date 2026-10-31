@@ -1,0 +1,86 @@
+.bar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.brand {
+  color: var(--color-text);
+  font: 600 1.125rem/1 var(--font-display);
+  text-decoration: none;
+}
+.tag {
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.item {
+  display: inline-flex;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.item:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+/* A guest's Exit guest checkout, at the bar's end: a button that looks like the entries. */
+.exit {
+  margin: 0 0 0 auto;
+}
+.exit .item {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+}
+.item[aria-current="page"] {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+/* An open menu flows under its entry on a narrow screen, so it never runs off the side. From
+   64rem it drops over the page from the bar's end edge: the entries wrap, so its own entry can
+   be at either end of a row, and a menu hung from it would leave the screen on one side. */
+.menu {
+  display: grid;
+  min-width: 12rem;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+@media (min-width: 64rem) {
+  .menu {
+    position: absolute;
+    z-index: 1;
+    inset-block-start: 100%;
+    inset-inline-end: var(--space-6);
+  }
+}
+/* A printed page is its content: the top bar is for the screen. */
+@media print {
+  .bar {
+    display: none;
+  }
+}

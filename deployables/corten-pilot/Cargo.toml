@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["admin", "marketplace", "platform", "public"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+# Pinned to a Corten revision on purpose (no release is tagged). Move the pin forward when a fix
+# the pilot needs lands; see README.md, "Corten pin".
+corten = { git = "https://github.com/todd-skelton/corten", rev = "723c5e244a8826f817a4866dc02ed177a5c8a7c4", features = ["compress", "json"] }
+corten-ui = { git = "https://github.com/todd-skelton/corten", rev = "723c5e244a8826f817a4866dc02ed177a5c8a7c4" }
+platform = { package = "corten-pilot-platform", path = "platform" }
+percent-encoding = "2"
+futures-util = { version = "0.3", default-features = false }
+bytes = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "multipart"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tracing = "0.1"
+ulid = "1"
+time = { version = "0.3", default-features = false, features = ["std", "parsing", "formatting"] }
+# A visitor's time zone by its name (corten::ClientZone), for a picked date's start where they are.
+jiff = "0.2"
+uuid = { version = "1", features = ["v4"] }
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+

@@ -1,0 +1,37 @@
+{
+  "shell": {
+    "site": "Chase Sets",
+    "breadcrumb": "Breadcrumb",
+    "skip": "Skip to main content"
+  },
+  "chart": {
+    "empty_title": "No data yet",
+    "empty_description": "Data will appear here once activity accumulates.",
+    "insufficient_title": "Not enough data yet",
+    "insufficient_description": "At least 2 data points are required to show a reliable trend.",
+    "summary": "{name}: {count} points, from {min} to {max}."
+  },
+  "error": {
+    "failed": "This page could not be loaded. Try again in a moment."
+  },
+  "home": {
+    "highlight": "Marketing highlight",
+    "highlights": "Marketing highlights"
+  },
+  "help": {
+    "change": "The published policy values on this page will update automatically on this date."
+  },
+  "welcome": {
+    "save": "Save answers"
+  },
+  "promo": {
+    "label": "Marketplace announcements",
+    "previous": "Previous announcement",
+    "next": "Next announcement",
+    "pause": "Pause announcements",
+    "resume": "Resume announcements"
+  },
+  "compare": {
+    "calculate": "Calculate"
+  }
+}

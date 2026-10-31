@@ -1,0 +1,46 @@
+/* One column at every width, no wider than marketplace's narrow page (48rem); Try again is at
+   least 2.75rem tall and keeps its own width. */
+.empty {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 48rem;
+  margin-inline: auto;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+.title {
+  margin: 0;
+  font: 600 1.5rem/1.3 var(--font-display);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+}
+.cue {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font-weight: 600;
+  text-decoration: none;
+}

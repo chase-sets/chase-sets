@@ -1,0 +1,156 @@
+/* A policy document's page (PolicyArtifactPage) on the design system's tokens, in the
+   public-presence shell. A phone first: one column, the title over Print; from 48rem (md) Print
+   beside the title and the title larger. Printed, Print is left out. */
+.page {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+}
+.header {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+@media (min-width: 48rem) {
+  .header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+}
+.heading {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  font: 600 2.25rem/1.15 var(--font-display);
+  overflow-wrap: anywhere;
+}
+@media (min-width: 48rem) {
+  .title {
+    font-size: 3rem;
+  }
+}
+.description {
+  margin: 0;
+  max-width: 48rem;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.print {
+  justify-self: start;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: 600 0.875rem/1.25 var(--font-body);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+.print:hover {
+  border-color: var(--color-border-strong);
+}
+.print[hidden] {
+  display: none;
+}
+.pending {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-lg);
+  background: var(--color-warning-soft);
+}
+.pending p {
+  margin: 0;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.pending-title {
+  font-weight: 600;
+}
+.card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+@media (min-width: 48rem) {
+  .card {
+    padding: var(--space-5);
+  }
+}
+.card p {
+  margin: 0;
+}
+.card-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.contents {
+  display: grid;
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+.contents a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding-block: var(--space-1);
+  line-height: 1.4;
+  color: var(--color-text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.contents a:hover {
+  text-decoration: underline;
+}
+.sections {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+}
+.part {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  justify-items: start;
+  scroll-margin-top: var(--space-4);
+}
+.part-title {
+  margin: 0;
+  font: 600 1.5rem/1.25 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.badge {
+  padding: 0.125rem var(--space-2);
+  border-radius: 999px;
+  background: var(--color-warning-soft);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.text {
+  margin: 0;
+  max-width: 48rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+@media print {
+  .print {
+    display: none;
+  }
+}

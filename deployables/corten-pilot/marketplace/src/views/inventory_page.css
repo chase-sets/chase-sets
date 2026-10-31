@@ -1,0 +1,384 @@
+/* Mobile first. Create inventory item is one column, two from 64rem; the items are a card each,
+   a table from 48rem. Every control is at least --control-height tall, and nothing is wider
+   than the screen. */
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-block-end: var(--space-5);
+}
+.heading {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 48rem;
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.part-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.label {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.error {
+  margin: 0;
+  color: var(--color-danger);
+}
+.section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-block: var(--space-6);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+}
+.notice,
+.outcome {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+.outcome p {
+  margin: 0;
+}
+.outcome[data-tone="success"] {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.outcome[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.outcome:focus {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+.card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+.card > p {
+  margin: 0;
+}
+.create,
+.column,
+.chosen,
+.options,
+.form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.chosen p,
+.options p {
+  margin: 0;
+}
+.options {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+.three {
+  display: grid;
+  gap: var(--space-3);
+}
+.matches {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.match {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.match p {
+  margin: 0;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+  cursor: pointer;
+}
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.ghost {
+  background: transparent;
+  color: var(--color-primary);
+  border-color: transparent;
+}
+.small {
+  font-size: 0.875rem;
+}
+.badge,
+.chip {
+  justify-self: start;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.chip {
+  font-weight: 400;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+/* A card each on a phone: the header row is read by screen readers only, and each cell says
+   what it is. */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.table,
+.table tbody,
+.table tr,
+.table td {
+  display: block;
+}
+.table tr {
+  display: grid;
+  gap: var(--space-2);
+  margin-block-end: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.table td {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.table td[data-label]::before {
+  content: attr(data-label);
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+.item {
+  flex-direction: column;
+  justify-content: flex-start;
+}
+.table td.item {
+  display: grid;
+  gap: var(--space-1);
+}
+.actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.number {
+  font-variant-numeric: tabular-nums;
+}
+.pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-block-start: var(--space-3);
+}
+.dialog {
+  width: min(32rem, calc(100vw - 2 * var(--space-4)));
+  max-height: calc(100dvh - 2 * var(--space-4));
+  box-sizing: border-box;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.dialog[open] {
+  display: grid;
+  gap: var(--space-3);
+}
+.dialog::backdrop {
+  background: var(--color-overlay);
+}
+.dialog-head {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+.money {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.money input {
+  flex: 1;
+  min-width: 0;
+}
+.check {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  min-height: var(--control-height);
+}
+.check input {
+  width: 1.375rem;
+  height: 1.375rem;
+  margin: 0.125rem 0 0;
+  flex: none;
+}
+/* The confirmation shows once honoring the sale is chosen. */
+.confirm {
+  display: none;
+}
+.form:has(option[value="honor-offline"]:checked) .confirm {
+  display: grid;
+}
+@media (min-width: 48rem) {
+  .three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .table thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+  .table {
+    display: table;
+  }
+  .table thead {
+    display: table-header-group;
+  }
+  .table tbody {
+    display: table-row-group;
+  }
+  .table tr {
+    display: table-row;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  .table th,
+  .table td {
+    display: table-cell;
+    padding: var(--space-3);
+    border-block-end: 1px solid var(--color-border);
+    text-align: start;
+    vertical-align: top;
+  }
+  .table th {
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  .table td[data-label]::before {
+    content: none;
+  }
+  .table .number {
+    text-align: end;
+  }
+  .table td.actions > * {
+    margin: 0 var(--space-1) var(--space-1) 0;
+  }
+}
+@media (min-width: 64rem) {
+  .create {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}

@@ -369,6 +369,30 @@
     "consumer": "bootstrap",
     "status": "cutover"
   },
+  "deployables/corten-pilot/marketplace/src/views/packing.js": {
+    "families": ["item-read"],
+    "authority": "not Inventory: browser storage",
+    "attempt": "not applicable",
+    "read": "browser storage.getItem",
+    "consumer": "not Inventory",
+    "status": "unrelated"
+  },
+  "deployables/corten-pilot/marketplace/src/views/recovery.js": {
+    "families": ["item-read"],
+    "authority": "not Inventory: browser storage",
+    "attempt": "not applicable",
+    "read": "browser storage.getItem",
+    "consumer": "not Inventory",
+    "status": "unrelated"
+  },
+  "deployables/corten-pilot/scripts/smoke-marketplace.mjs": {
+    "families": ["item-read"],
+    "authority": "not Inventory: browser storage",
+    "attempt": "not applicable",
+    "read": "browser storage.getItem",
+    "consumer": "not Inventory",
+    "status": "unrelated"
+  },
   "deployables/platform-api/src/app.ts": {
     "families": ["import-create"],
     "authority": "Collections owner-authorized Saved List snapshot and Inventory trusted actor context",
