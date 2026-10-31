@@ -3,6 +3,7 @@ import type { CatalogOperatorAuthority } from "@chase-sets/catalog/server";
 import { module as identityModule } from "@chase-sets/identity";
 import type { IdentityServices } from "@chase-sets/identity/server";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createPlatformApiHost } from "../src/app";
@@ -59,9 +60,14 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
           _client: unknown,
           inputs: Parameters<NonNullable<typeof memory.eventStore.appendToStreams>>[0],
         ) => {
-          const append = memory.eventStore.appendToStreams
+          const append: Promise<readonly AppendToStreamsResult[]> = memory.eventStore.appendToStreams
             ? memory.eventStore.appendToStreams(inputs)
-            : Promise.all(inputs.map((input) => memory.eventStore.appendToStream(input)));
+            : Promise.all(inputs.map((input) => memory.eventStore.appendToStream(input))).then((storedEvents) =>
+                storedEvents.map((events, index) => ({
+                  streamId: inputs[index]!.streamId,
+                  storedEvents: events,
+                })),
+              );
           return append.then((stored) => {
             stored.forEach((result, index) => {
               const streamId = inputs[index]?.streamId;
