@@ -6142,7 +6142,7 @@ fn campaign_analytics() -> Response {
             { "utm_source": "discord", "utm_medium": "social", "utm_campaign": null, "signup_count": 200, "seller_signup_count": 70, "qualified_seller_count": 55 },
             { "utm_source": null, "utm_medium": null, "utm_campaign": null, "signup_count": 50, "seller_signup_count": 10, "qualified_seller_count": 5 },
         ],
-        "admissionBar": { "totalSignups": 250, "qualifiedSellerCount": 60, "totalSignupsMet": false, "qualifiedSellersMet": true,
+        "admissionBar": { "goals": { "minTotalSignups": 400, "minQualifiedSellers": 48, "minQualifiedSellersPerGame": 5 }, "totalSignups": 250, "qualifiedSellerCount": 60, "totalSignupsMet": false, "qualifiedSellersMet": true,
             "gameCoverage": [{ "game": "pokemon", "qualifiedSellerCount": 40, "covered": true }, { "game": "yu-gi-oh", "qualifiedSellerCount": 0, "covered": false }],
             "allGamesCovered": false, "admitted": false },
     }))
@@ -6157,8 +6157,11 @@ async fn campaign_analytics_shows_progress_toward_the_policys_goals() {
     let (status, _, html) = pilot.send(get("/growth/campaign-analytics", Some("growth-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("<title>") && html.contains("Wave 1 bar not yet met"), "{html}");
-    assert!(html.contains("250 of 500") && html.contains(r#"max="100" value="50""#), "half the signup floor: {html}");
-    assert!(html.contains("60 of 50") && html.contains(r#"value="100""#), "past the seller goal: {html}");
+    assert!(
+        html.contains("250 of 400") && html.contains(r#"max="100" value="62""#),
+        "the read's signup goal, not the policy's 500: {html}"
+    );
+    assert!(html.contains("60 of 48") && html.contains(r#"value="100""#), "past the read's seller goal: {html}");
     assert!(html.contains("25%") && html.contains("Pok"), "{html}");
     assert!(html.contains("discord / social") && html.contains("Direct / no UTM"), "{html}");
     assert!(html.contains("/grafana/d/chase-sets-public-presence-waitlist/public-presence-waitlist-funnel"), "{html}");

@@ -6,7 +6,7 @@
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /growth/campaign-analytics` | the page |
-use std::{collections::BTreeMap, sync::LazyLock};
+use std::collections::BTreeMap;
 
 use corten::{axum::http::HeaderMap, prelude::*};
 use serde::{Deserialize, Serialize};
@@ -36,18 +36,14 @@ pub fn area(area: Area<url::Campaign>, shared: Shared) -> Area<url::Campaign> {
     url::area(area, shared).components(views::CAMPAIGN)
 }
 
-/// The wave-1 admission bar's goals (`WAVE_ONE_ADMISSION_BAR`, exported by scripts/export.mjs):
-/// the page shows progress toward them, which the API does not return (chase-sets/chase-sets#10869).
-#[derive(Debug, Deserialize)]
+/// The wave-1 admission bar's goals, as the analytics read returns them.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
-pub struct Bar {
-    pub min_qualified_sellers: u64,
+pub struct Goals {
     pub min_total_signups: u64,
+    pub min_qualified_sellers: u64,
+    pub min_qualified_sellers_per_game: u64,
 }
-
-pub static BAR: LazyLock<Bar> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../../admission-bar.json")).expect("admission-bar.json is the export's output")
-});
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +92,7 @@ pub struct Coverage {
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct Admission {
+    pub goals: Goals,
     pub total_signups: u64,
     pub qualified_seller_count: u64,
     pub total_signups_met: bool,
@@ -161,6 +158,5 @@ mod tests {
         };
         assert_eq!(channel(Some("discord"), Some("social")).label().as_deref(), Some("discord / social"));
         assert_eq!(channel(None, None).label(), None);
-        assert_eq!((BAR.min_total_signups, BAR.min_qualified_sellers), (500, 50));
     }
 }

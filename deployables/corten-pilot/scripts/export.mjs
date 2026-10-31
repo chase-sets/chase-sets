@@ -41,8 +41,6 @@
 // - admin/support-responsibility-reasons.json: each support flow's responsibility reasons an
 //   operator may choose (getSupportResponsibilityReasonDefinitions), while the ops detail read does
 //   not return them.
-// - admin/admission-bar.json: the wave-1 admission bar's goals (`WAVE_ONE_ADMISSION_BAR`), which
-//   Campaign Analytics shows progress toward while the API does not return them.
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
@@ -542,11 +540,6 @@ async function policies() {
 }
 
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
-const { WAVE_ONE_ADMISSION_BAR } = await import(
-  pathToFileURL(
-    path.join(repo, "bounded-contexts/public-presence/features/waitlist/read-model/campaign-admission-bar-policy.ts"),
-  ).href
-);
 const { catalogScopeProductDomains } = await import(
   pathToFileURL(path.join(repo, "bounded-contexts/catalog/features/scope-registry/domain/contract.ts")).href
 );
@@ -809,7 +802,6 @@ const outputs = [
       ]).then((all) => Object.fromEntries(Object.entries(all).filter(([key]) => key.startsWith("gs."))))),
     }),
   ],
-  ["admin/admission-bar.json", json(WAVE_ONE_ADMISSION_BAR)],
   ["admin/nav.json", json(adminNav())],
   ["admin/defaults.json", json(defaultPostagePolicy)],
   ["admin/scope-domains.json", json(catalogScopeProductDomains)],

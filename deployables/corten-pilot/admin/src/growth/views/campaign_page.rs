@@ -4,7 +4,7 @@
 use corten::prelude::*;
 
 use crate::{
-    growth::campaign::{Analytics, BAR, FUNNEL_DASHBOARD, INVENTORY_SIZES, progress},
+    growth::campaign::{Analytics, FUNNEL_DASHBOARD, INVENTORY_SIZES, progress},
     text::Gro,
 };
 
@@ -99,14 +99,14 @@ pub fn CampaignPage<'a>(t: Gro, analytics: &'a Analytics) -> impl Render {
                     t={t}
                     label={t.admin_campaign_analytics_admission_bar_total_signups()}
                     count={bar.total_signups}
-                    goal={BAR.min_total_signups}
+                    goal={bar.goals.min_total_signups}
                     met={bar.total_signups_met}
                 />
                 <Progress
                     t={t}
                     label={t.admin_campaign_analytics_admission_bar_qualified_sellers()}
                     count={bar.qualified_seller_count}
-                    goal={BAR.min_qualified_sellers}
+                    goal={bar.goals.min_qualified_sellers}
                     met={bar.qualified_sellers_met}
                 />
             </section>
