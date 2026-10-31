@@ -296,14 +296,14 @@ describe("SupportOperationsPage", () => {
     expect(open.getAttribute("href")).toContain("search=ord_1");
   });
 
-  it("shows the earliest applicable deadline when a request has multiple deadlines", () => {
+  it("renders the API-provided queue policy deadline instead of raw deadline columns", () => {
     renderPage({
       queue: {
         items: [
           buildQueueItem({
-            operatorPolicy: { deadlineAt: "2026-06-02T00:00:00.000Z" },
-            seller_response_due_at: "2026-06-03T00:00:00.000Z",
-            support_review_due_at: "2026-06-02T00:00:00.000Z",
+            operatorPolicy: { deadlineAt: "2026-06-03T00:00:00.000Z" },
+            seller_response_due_at: "2026-06-02T00:00:00.000Z",
+            support_review_due_at: "2026-06-04T00:00:00.000Z",
           }),
         ],
         total: 1,
@@ -312,7 +312,7 @@ describe("SupportOperationsPage", () => {
       queueNow: "2026-06-01T00:00:00.000Z",
     });
 
-    expect(screen.getAllByText("Due in 24 hours").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Due in 2 days").length).toBeGreaterThan(0);
   });
 
   it("renders actionable buyer/seller marketplace order links when a marketplace origin is configured", () => {
@@ -342,7 +342,22 @@ describe("SupportOperationsPage", () => {
   });
   it("renders a ready-for-support request with resolve as the primary drawer action", () => {
     renderPage({
-      selectedRequest: buildDetailItem(),
+      selectedRequest: buildDetailItem({
+        operatorPolicy: {
+          deadlineAt: null,
+          recommendedAction: "resolve",
+          responsibilityReasons: [
+            {
+              code: "product-not-received.carrier-loss",
+              responsibility: "carrier",
+              operatorLabel: "Synthetic policy reason",
+              operatorSelectable: true,
+            },
+          ],
+          refundCap: null,
+          refundPrefill: null,
+        },
+      }),
       queueNow: "2026-06-01T12:00:00.000Z",
       marketplaceOrigin: "https://marketplace.chasesets.com",
     });
@@ -351,7 +366,7 @@ describe("SupportOperationsPage", () => {
     const evidenceBasis = screen.getByLabelText("Evidence basis") as HTMLSelectElement;
     expect(document.querySelector('[data-support-primary-action="resolve"]')).toBeTruthy();
     expect(reason.required).toBe(true);
-    expect([...reason.options].map((option) => option.text)).toContain("Carrier lost the shipment (carrier)");
+    expect([...reason.options].map((option) => option.text)).toEqual(["Synthetic policy reason (carrier)"]);
     expect(evidenceBasis.required).toBe(true);
     expect([...evidenceBasis.options].map((option) => option.text)).toEqual([
       "Operator finding",
@@ -366,24 +381,6 @@ describe("SupportOperationsPage", () => {
         status: "waiting-on-seller",
         support_review_due_at: "2026-06-01T00:00:00.000Z",
         operatorPolicy: {
-          deadlineAt: "2026-06-01T00:00:00.000Z",
-          recommendedAction: "escalate",
-          responsibilityReasons: [],
-          refundCap: null,
-          refundPrefill: null,
-        },
-      }),
-      queueNow: "2026-06-02T00:00:00.000Z",
-    });
-    expect(document.querySelector('[data-support-primary-action="escalate"]')).toBeTruthy();
-
-    cleanup();
-
-    renderPage({
-      selectedRequest: buildDetailItem({
-        status: "waiting-on-seller",
-        support_review_due_at: "2026-06-03T00:00:00.000Z",
-        operatorPolicy: {
           deadlineAt: "2026-06-03T00:00:00.000Z",
           recommendedAction: "response",
           responsibilityReasons: [],
@@ -394,6 +391,24 @@ describe("SupportOperationsPage", () => {
       queueNow: "2026-06-02T00:00:00.000Z",
     });
     expect(document.querySelector('[data-support-primary-action="response"]')).toBeTruthy();
+
+    cleanup();
+
+    renderPage({
+      selectedRequest: buildDetailItem({
+        status: "waiting-on-seller",
+        support_review_due_at: "2026-06-03T00:00:00.000Z",
+        operatorPolicy: {
+          deadlineAt: "2026-06-01T00:00:00.000Z",
+          recommendedAction: "escalate",
+          responsibilityReasons: [],
+          refundCap: null,
+          refundPrefill: null,
+        },
+      }),
+      queueNow: "2026-06-02T00:00:00.000Z",
+    });
+    expect(document.querySelector('[data-support-primary-action="escalate"]')).toBeTruthy();
   });
 
   it("shows support notes, structured offers, and the audit trail in the drawer", () => {
@@ -536,6 +551,13 @@ describe("SupportOperationsPage", () => {
         status: "ready-for-support",
         contested: true,
         affected_line_items: [{ lineId: "line_1", amount: "40.00", currencyCode: "usd" }],
+        operatorPolicy: {
+          deadlineAt: null,
+          recommendedAction: "resolve",
+          responsibilityReasons: [],
+          refundCap: "12.00",
+          refundPrefill: "11.00",
+        },
         escalated_at: "2026-06-01T05:00:00.000Z",
         escalated_by_role: "buyer",
         escalation_reason: "Seller refused the return.",
@@ -598,7 +620,9 @@ describe("SupportOperationsPage", () => {
     const attachment = screen.getByRole("link", { name: /Attachment 1/ }) as HTMLAnchorElement;
     expect(attachment.href).toBe("https://cdn.example.com/photo-1.jpg");
     // Decision panel prefills the refund from the declined offer, within the 40.00 cap.
-    expect((screen.getByLabelText("Refund amount") as HTMLInputElement).value).toBe("15.00");
+    const refundAmount = screen.getByLabelText("Refund amount") as HTMLInputElement;
+    expect(refundAmount.value).toBe("11.00");
+    expect(screen.getByText("Maximum refund: 12.00")).toBeTruthy();
     // Only the flow's allowed resolutions are offered.
     const resolution = screen.getByLabelText("Resolution") as HTMLSelectElement;
     expect([...resolution.options].map((option) => option.value)).toEqual([

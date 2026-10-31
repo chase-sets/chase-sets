@@ -189,14 +189,6 @@ export function projectSupportOperatorPolicy(row: OperatorPolicySource, now: str
   };
 }
 
-const emptySupportOperatorPolicy: SupportOperatorPolicy = {
-  deadlineAt: null,
-  recommendedAction: "response",
-  responsibilityReasons: [],
-  refundCap: null,
-  refundPrefill: null,
-};
-
 /**
  * A case is contested — genuinely needing operator adjudication rather than a
  * clerical review — when a party challenged with evidence, a party declined an
@@ -655,10 +647,7 @@ export async function getSupportOperationsRequest(
   const compatible = withCompatibleResolution(row);
   return {
     ...compatible,
-    operatorPolicy:
-      typeof compatible.flow_type === "string" && typeof compatible.status === "string"
-        ? projectSupportOperatorPolicy(compatible, now)
-        : emptySupportOperatorPolicy,
+    operatorPolicy: projectSupportOperatorPolicy(compatible, now),
   };
 }
 

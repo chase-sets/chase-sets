@@ -71,6 +71,67 @@ describe("projectSupportOperatorPolicy", () => {
   });
 });
 
+function operationsRow(overrides: Record<string, unknown> = {}) {
+  return {
+    support_request_id: "sup_1",
+    flow_type: "product-not-received",
+    status: "open",
+    seller_response_due_at: null,
+    support_review_due_at: null,
+    seller_condition_attestation_due_at: null,
+    affected_line_items: [],
+    pending_offer: null,
+    offers: [],
+    resolution: null,
+    remedy_approval: null,
+    ...overrides,
+  } as never;
+}
+
+describe("support operations policy read contracts", () => {
+  const now = "2026-06-01T01:00:00.000Z";
+
+  it("projects list policies for null, one, all, and equal deadlines without per-row queries", async () => {
+    const calls: QueryCall[] = [];
+    const rows = [
+      operationsRow({ support_request_id: "sup_null" }),
+      operationsRow({ support_request_id: "sup_one", seller_response_due_at: "2026-06-01T03:00:00.000Z" }),
+      operationsRow({
+        support_request_id: "sup_all",
+        seller_response_due_at: "2026-06-01T04:00:00.000Z",
+        support_review_due_at: "2026-06-01T02:00:00.000Z",
+        seller_condition_attestation_due_at: "2026-06-01T02:00:00.000Z",
+      }),
+    ];
+
+    const result = await listSupportOperationsQueue(buildDb(calls, "3", rows), { now });
+
+    expect(result.items.map((item) => item.operatorPolicy)).toEqual([
+      { deadlineAt: null },
+      { deadlineAt: "2026-06-01T03:00:00.000Z" },
+      { deadlineAt: "2026-06-01T02:00:00.000Z" },
+    ]);
+    expect(result.total).toBe(3);
+    expect(result.items).toHaveLength(3);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("projects detail policy equality in one query and returns null for a missing row", async () => {
+    const row = operationsRow({
+      flow_type: "product-not-as-described",
+      status: "ready-for-support",
+      seller_response_due_at: "2026-06-01T00:00:00.000Z",
+      affected_line_items: [{ amount: "12.00", currencyCode: "USD" }],
+    });
+    const calls: QueryCall[] = [];
+    const result = await getSupportOperationsRequest(buildDb(calls, "1", [row]), "sup_1", now);
+
+    expect(result?.operatorPolicy).toEqual(projectSupportOperatorPolicy(row, now));
+    expect(calls).toHaveLength(1);
+    expect(await getSupportOperationsRequest(buildDb([], "0", []), "missing", now)).toBeNull();
+  });
+});
+
 describe("support operations queue read-model query", () => {
   it("guards duplicate intake across every open flow for an order", async () => {
     const calls: QueryCall[] = [];
