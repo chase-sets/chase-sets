@@ -3782,10 +3782,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(job.if).toBe("needs['change-scope'].outputs.unit_tests_required == 'true'");
     const execution = job.steps.find((step) => step.name === "Run non-DB tests");
     expect(execution.run).toContain(
-      'node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2',
+      "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
     );
     expect(execution.run).toContain(
-      'node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2',
+      "node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
     );
     expect(execution.run).toContain("--concurrency=4");
 
