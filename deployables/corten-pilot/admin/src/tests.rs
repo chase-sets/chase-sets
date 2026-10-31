@@ -105,6 +105,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"])
         } else if cookie.contains("chase_sets_session=feedback-viewer") {
             actor(&["platform-feedback.view"])
+        } else if cookie.contains("chase_sets_session=support-viewer") || cookie.contains("chase_sets_session=attention-down") {
+            actor(&["support.view"])
         } else if cookie.contains("chase_sets_session=support-agent") || cookie.contains("chase_sets_session=support-lag") {
             actor(&["support.manage"])
         } else if cookie.contains("chase_sets_session=moderator") {
@@ -140,6 +142,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if uri.path() == "/api/customer-feedback" {
         return csat_dashboard(uri.query().unwrap_or_default());
+    }
+    if uri.path() == "/api/customer-feedback/attention" {
+        return feedback_attention(cookie);
     }
     if let Some(reference) = uri.path().strip_prefix("/api/platform/support-reference-lookup/") {
         return support_lookup(reference);
@@ -440,6 +445,33 @@ fn platform_feedback(method: &Method, rest: &str, body: &str) -> Response {
         }
         _ => refusal(StatusCode::NOT_FOUND, "not_found", "Platform feedback not found."),
     }
+}
+
+/// Customer Feedback's attention queue: an urgent case past its triage deadline, a triaged one
+/// due in 2099 with an owner, and the metrics; `attention-down` fails.
+fn feedback_attention(cookie: &str) -> Response {
+    if cookie.contains("attention-down") {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
+    }
+    let item = |id: &str, priority: &str, rating: u8, owner: Option<&str>, triaged: Option<&str>, due: Option<&str>| {
+        json!({
+            "attentionId": format!("att_{id}"), "caseId": id, "state": "active", "reason": "low-score", "ruleVersion": "low-score-v1",
+            "rating": rating, "priority": priority, "ownerId": owner, "openedAt": "2026-05-07T10:00:00.000Z", "triagedAt": triaged,
+            "dueAt": due, "triageDueAt": "2026-05-07T11:00:00.000Z", "closedAt": null, "deliveryStatus": "sent",
+            "deliveryReference": null, "deliveryReportedAt": null, "followUpDeliveryStatus": "not-requested", "followUpChannel": null,
+        })
+    };
+    Json(json!({
+        "items": [
+            item("fbcase_1", "urgent", 1, None, None, None),
+            item("fbcase_2", "high", 2, Some("usr_ops"), Some("2026-05-07T10:30:00.000Z"), Some("2099-01-01T12:00:00.000Z")),
+        ],
+        "metrics": {
+            "activeCount": 2, "overdueCount": 1, "medianTimeToTriageMs": 5_400_000.0, "medianTimeToCloseMs": null, "oldestOverdueMs": 1,
+            "deliverySuccesses": 2, "deliveryFailures": 3, "digestPending": 0, "digestFailures": 0, "latestDigestAt": null,
+        },
+    }))
+    .into_response()
 }
 
 const EBAY_DELETION: &str = "/api/channels/staff/ebay-account-deletion";
@@ -4469,4 +4501,34 @@ async fn the_ebay_lookup_shows_the_counts_and_a_user_ids_unexpired_receipts() {
 
     assert_eq!(pilot.send(get(at, Some("feedback-viewer"))).await.0, StatusCode::FORBIDDEN);
     assert_eq!(pilot.send(post_as("feedback-viewer", at, "userId=ebay-user-1", false)).await.0, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
+    let pilot = Pilot::new().await;
+    let at = "/support/customer-feedback/attention";
+    let (status, _, html) = pilot.send(get(at, Some("support-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "<dd>2</dd>",
+        "<dd>1</dd>",
+        "<dd>2 hours</dd>",
+        "<dd>3</dd>",
+        "fbcase_1",
+        "1/5",
+        "SLA breached",
+        "Jan 1, 2099, 12:00 PM UTC",
+        "usr_ops",
+        "Unassigned",
+        "sent / not-requested",
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert_eq!(html.matches("SLA breached").count(), 1, "the triaged case is within its due date: {html}");
+    assert!(!html.contains("caseId="), "no link to the same queue (chase-sets/chase-sets#10854): {html}");
+    assert!(html.contains(r#"href="/support/customer-feedback/attention" aria-current="page""#), "the nav serves it: {html}");
+    assert_eq!(pilot.calls_to("/api/customer-feedback/attention").len(), 1);
+
+    assert_eq!(pilot.send(get(at, Some("attention-down"))).await.0, StatusCode::BAD_GATEWAY);
+    assert_eq!(pilot.send(get(at, Some("support-agent"))).await.0, StatusCode::FORBIDDEN, "admin-web's route needs support.view");
 }

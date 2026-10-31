@@ -24,7 +24,8 @@
 //   as fb.*, its topics and workflows as fb_topic.* and fb_workflow.*, and its two route titles as
 //   fb_route.*), and the Support operations workbench's (support.features.supportRequests.ui.supportOperationsPage.*
 //   as ops.*, and its routes' text as ops_route.* and ops_detail_route.*), and the eBay
-//   account-deletion lookup's (channels.ebayDeletion.* as ebay.*).
+//   account-deletion lookup's (channels.ebayDeletion.* as ebay.*), and Customer Feedback's attention
+//   queue's (customer-feedback.attention.* as cfa.*).
 // - admin/support-responsibility-reasons.json: each support flow's responsibility reasons an
 //   operator may choose (getSupportResponsibilityReasonDefinitions), while the ops detail read does
 //   not return them.
@@ -672,6 +673,9 @@ const outputs = [
         ["support.features.supportRequests.ui.attachments.", "att"],
       ])),
       ...(await catalog("channels.ts", "channelsEnglishTranslations", [["channels.ebayDeletion.", "ebay"]])),
+      ...(await catalog("customer-feedback.ts", "customerFeedbackEnglishTranslations", [
+        ["customer-feedback.attention.", "cfa"],
+      ])),
     }),
   ],
   [

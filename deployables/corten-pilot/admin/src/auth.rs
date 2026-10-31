@@ -96,6 +96,8 @@ rules! {
     SupportManage => "support.manage";
     /// Support > CSAT dashboard.
     PlatformFeedbackView => "platform-feedback.view";
+    /// Support > Customer Feedback (admin-web's route takes its nav entry's permission).
+    SupportView => "support.view";
 }
 
 /// Support > Platform Feedback: reading needs `platform-feedback.view`, writing
