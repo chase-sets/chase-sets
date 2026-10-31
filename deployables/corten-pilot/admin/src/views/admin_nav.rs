@@ -43,6 +43,7 @@ fn served(path: &str) -> Option<String> {
         (<support::csat::url::Csat as Route>::PATH, support::csat::url::Csat::default().href()),
         (<support::feedback::url::Feedback as Route>::PATH, support::feedback::url::Feedback::default().href()),
         (<support::requests::url::Requests as Route>::PATH, support::requests::url::Requests::default().href()),
+        (<support::ebay::url::Lookup as Route>::PATH, support::ebay::url::Lookup.href()),
     ];
     pages.into_iter().find(|(at, _)| *at == path).map(|(_, href)| href)
 }

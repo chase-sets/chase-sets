@@ -154,6 +154,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         }
         return platform_feedback(&method, rest, &body);
     }
+    if let Some(rest) = uri.path().strip_prefix(EBAY_DELETION) {
+        return ebay_deletion(&method, rest, &body);
+    }
     if let Some(rest) = uri.path().strip_prefix(SUPPORT_REQUESTS) {
         if cookie.contains("support-lag") && headers.contains_key("chase-sets-read-after-write") {
             return refusal(
@@ -436,6 +439,26 @@ fn platform_feedback(method: &Method, rest: &str, body: &str) -> Response {
             written(StatusCode::OK, "pfb_1")
         }
         _ => refusal(StatusCode::NOT_FOUND, "not_found", "Platform feedback not found."),
+    }
+}
+
+const EBAY_DELETION: &str = "/api/channels/staff/ebay-account-deletion";
+
+/// Channels' staff eBay account-deletion lookup: the counts; `ebay-user-1` matches one receipt,
+/// `nobody` none, `slow` misses the API's deadline and `down` fails (the counts too).
+fn ebay_deletion(method: &Method, rest: &str, body: &str) -> Response {
+    match (method.clone(), rest) {
+        (Method::GET, "/subject-data-count") => Json(json!({ "connections": 2, "credentialEnvelopes": 0 })).into_response(),
+        (Method::POST, "/lookup") if body == r#"{"userId":"ebay-user-1"}"# => Json(json!({
+            "matches": [{ "notificationId": "ntf_1", "eventDate": "2026-05-07T18:00:00.000Z", "expiresAt": "2027-05-07T18:00:00.000Z" }],
+        }))
+        .into_response(),
+        (Method::POST, "/lookup") if body == r#"{"userId":"slow"}"# => {
+            (StatusCode::REQUEST_TIMEOUT, Json(json!({ "error": "receipt_lookup_deadline_exceeded" }))).into_response()
+        }
+        (Method::POST, "/lookup") if body == r#"{"userId":""}"# => (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid_lookup" }))).into_response(),
+        (Method::POST, "/lookup") => Json(json!({ "matches": [] })).into_response(),
+        _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
@@ -4403,4 +4426,47 @@ async fn an_evidence_photo_is_relayed_to_staff() {
         pilot.send(get("/support/requests/req_1/attachments/sea_abc123", Some("feedback-viewer"))).await.0,
         StatusCode::FORBIDDEN
     );
+}
+
+#[tokio::test]
+async fn the_ebay_lookup_shows_the_counts_and_a_user_ids_unexpired_receipts() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(get("/support/ebay-account-deletion", Some("support-agent"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert!(html.contains("Non-disconnected connections: 2. Credential envelopes: 0."), "{html}");
+    assert!(
+        html.contains(r#"<form class="#) && html.contains(r#"method="post" action="/support/ebay-account-deletion""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="userId""#) && html.contains(r#"maxlength="1024""#), "{html}");
+    assert!(!html.contains("Unexpired receipts") && !html.contains(r#"role="alert""#), "{html}");
+    assert!(html.contains(r#"href="/support/ebay-account-deletion" aria-current="page""#), "the nav serves it: {html}");
+
+    let at = "/support/ebay-account-deletion";
+    let (status, headers, html) = pilot.send(post_as("support-agent", at, "userId=ebay-user-1", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert!(html.contains("ntf_1") && html.contains("Unexpired receipts") && html.contains("Credential envelopes: 0."), "{html}");
+    assert!(!html.contains("ebay-user-1"), "the user ID is not echoed back: {html}");
+    let lookup = pilot.calls_to(EBAY_DELETION).into_iter().find(|c| c.method == Method::POST).unwrap();
+    assert_eq!(
+        (lookup.path.as_str(), lookup.body.as_str()),
+        (&*format!("{EBAY_DELETION}/lookup"), r#"{"userId":"ebay-user-1"}"#)
+    );
+
+    let (status, _, html) = pilot.send(post_as("support-agent", at, "userId=nobody", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("No unexpired receipt matches"), "{html}");
+    let (status, _, html) = pilot.send(post_as("support-agent", at, "userId=slow", false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(
+        html.contains(r#"role="alert""#) && html.contains("Lookup unavailable") && html.contains("Credential envelopes"),
+        "{html}"
+    );
+    let (status, _, html) = pilot.send(post_as("support-agent", at, "userId=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+
+    assert_eq!(pilot.send(get(at, Some("feedback-viewer"))).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(pilot.send(post_as("feedback-viewer", at, "userId=ebay-user-1", false)).await.0, StatusCode::FORBIDDEN);
 }

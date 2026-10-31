@@ -405,5 +405,19 @@
   "ops.adjudication.evidence.attachment": "Attachment {index}",
   "ops.adjudication.evidence.no_attachments": "No attachments",
   "ops.adjudication.decision.summary_verbatim": "This summary is shown to both the buyer and the seller exactly as written, and the decision is binding.",
-  "ops.adjudication.decision.refund_cap": "Refund is prefilled from the affected lines and capped at {amount}."
+  "ops.adjudication.decision.refund_cap": "Refund is prefilled from the affected lines and capped at {amount}.",
+  "ebay.title": "eBay account-deletion lookup",
+  "ebay.description": "Look up one operator-held eBay user ID. Receipts do not confirm deletion of operator-held data.",
+  "ebay.lookup": "Look up receipts",
+  "ebay.user_id": "Exact eBay user ID",
+  "ebay.loading": "Looking up receipts...",
+  "ebay.error": "Lookup unavailable. Check your staff access and try again.",
+  "ebay.receipts": "Unexpired receipts",
+  "ebay.empty": "No unexpired receipt matches",
+  "ebay.notification": "Notification ID",
+  "ebay.event_date": "Event date",
+  "ebay.expires_at": "Expires at",
+  "ebay.count_title": "Production eBay subject data",
+  "ebay.counts": "Non-disconnected connections: {connections}. Credential envelopes: {credentialEnvelopes}.",
+  "ebay.save_warning": "Both counts must be zero before Production Save. Operator-held data must be checked separately."
 }

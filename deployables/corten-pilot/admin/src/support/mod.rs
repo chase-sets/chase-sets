@@ -16,6 +16,7 @@ use corten::{
 use serde::{Deserialize, Serialize};
 
 pub mod csat;
+pub mod ebay;
 pub mod feedback;
 pub mod requests;
 pub mod views;
