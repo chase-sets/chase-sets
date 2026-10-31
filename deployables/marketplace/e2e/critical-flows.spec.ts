@@ -404,7 +404,6 @@ test.describe("marketplace critical flows", () => {
     const filteredResultCount = await settleSearchResults(page, resultLinks);
     expect(filteredResultCount).toBe(categoryCount);
     expect(filteredResultCount).not.toBe(initialResultCount);
-    expect(() => expect(filteredResultCount).toBe(initialResultCount)).toThrow();
   });
 
   test("browse Sort Order reverses the Result Set @marketplace-browse", async ({ page }) => {
@@ -418,7 +417,8 @@ test.describe("marketplace critical flows", () => {
     await sort.click();
     await page.getByRole("option", { name: "Title A-Z" }).click();
     await expect(page).toHaveURL(/(?:\?|&)sort=title_asc(?:&|$)/);
-    await settleSearchResults(page, resultLinks);
+    const ascendingResultCount = await settleSearchResults(page, resultLinks);
+    expect(ascendingResultCount).toBe(initialResultCount);
     const ascendingResultHrefs = await resultLinks.evaluateAll((links) =>
       links.map((link) => link.getAttribute("href")),
     );
@@ -428,12 +428,12 @@ test.describe("marketplace critical flows", () => {
     await page.getByRole("option", { name: "Title Z-A" }).click();
     await expect(sort).toContainText("Title Z-A");
     await expect(page).toHaveURL(/(?:\?|&)sort=title_desc(?:&|$)/);
-    await settleSearchResults(page, resultLinks);
+    const descendingResultCount = await settleSearchResults(page, resultLinks);
+    expect(descendingResultCount).toBe(initialResultCount);
     const descendingResultHrefs = await resultLinks.evaluateAll((links) =>
       links.map((link) => link.getAttribute("href")),
     );
     expect(descendingResultHrefs).toEqual([...ascendingResultHrefs].reverse());
-    expect(() => expect(descendingResultHrefs).toEqual(ascendingResultHrefs)).toThrow();
   });
 
   test("browse recovers from a zero-result search @marketplace-browse", async ({ page }) => {
@@ -449,15 +449,16 @@ test.describe("marketplace critical flows", () => {
     const missingQuery = `no-result-${invocationIdentity}`;
     await searchBox.fill(missingQuery);
     await searchBox.press("Enter");
+    await expect(page).toHaveURL((url) => url.searchParams.get("q") === missingQuery);
     await expect(page.getByRole("heading", { name: "No items found" })).toBeVisible();
-    await settleSearchResults(page, resultLinks);
-    expect(await resultLinks.count()).toBe(0);
+    const zeroResultCount = await settleSearchResults(page, resultLinks);
+    expect(zeroResultCount).toBe(0);
     await captureAccessibilityEvidence({ page, testInfo, surface: "6111-zero-result" });
 
     await page.getByRole("button", { name: "Clear search" }).click();
-    await expect(page).toHaveURL(/\/search(?:\?|$)/);
-    await settleSearchResults(page, resultLinks);
-    expect(await resultLinks.count()).toBeGreaterThan(0);
+    await expect(page).toHaveURL((url) => url.searchParams.get("q") === null);
+    const recoveredResultCount = await settleSearchResults(page, resultLinks);
+    expect(recoveredResultCount).toBeGreaterThan(0);
     await expect(searchBox).toHaveValue("");
   });
 
