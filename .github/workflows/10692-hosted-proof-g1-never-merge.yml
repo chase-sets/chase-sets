@@ -141,70 +141,67 @@ jobs:
           write_mutant_patch() {
             local mutant="$1"
             local patch="$log_dir/mutant-$mutant.patch"
+            local file
+            local source_hash
+            local expected_patch_hash
             case "$mutant" in
               guard)
-                cat >"$patch" <<'PATCH'
-          diff --git a/infrastructure/event-core-postgres/event-store.ts b/infrastructure/event-core-postgres/event-store.ts
-          index 2a6c72cf90..ed805d5401 100644
-          --- a/infrastructure/event-core-postgres/event-store.ts
-          +++ b/infrastructure/event-core-postgres/event-store.ts
-          @@ -1294,11 +1294,7 @@ function assertExpectedVersion(streamId: string, expectedVersion: ExpectedStream
-                return;
-              }
-
-          -    throw createEventStoreError("concurrency_conflict", "Expected no stream but stream already exists.", {
-          -      streamId,
-          -      expectedVersion,
-          -      currentVersion,
-          -    });
-          +    return; // probe mutant: expected-version/no-stream guard removed
-            }
-
-            if (expectedVersion !== currentVersion) {
-          PATCH
+                file='infrastructure/event-core-postgres/event-store.ts'
+                source_hash='15F76E8ED6F23BB5DCAD13C1F01FC9F07F31F4BE79E442F569E6F9DFC9567BF0'
+                expected_patch_hash='C97B9B0D14F8929ED6498BD2558E600EC9FD83ABB41E15D060851F3DE0AE4814'
                 ;;
               stream_id)
-                cat >"$patch" <<'PATCH'
-          diff --git a/bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts b/bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts
-          index d901c6b42c..e8b3f1e732 100644
-          --- a/bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts
-          +++ b/bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts
-          @@ -99,7 +99,7 @@ export function createAccountAppealRuntime(db: PgQueryable, eventStore: EventSto
-                assertAccountAppealFileCapability(capability);
-                assertSellerContext(capability, context);
-                return handler.commandHandler({
-          -        streamId: appealStreamId(action.appealableActionId),
-          +        streamId: `${appealStreamId(action.appealableActionId)}-probe-mutant`,
-                expectedVersion: "no_stream",
-                command: fileAccountAppeal(capability, action, input),
-                context,
-          PATCH
+                file='bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts'
+                source_hash='68A6250CE3EAEECD74FD83C43E8FDA8907C59B9CBA8019989C6A93138A340954'
+                expected_patch_hash='0C9340956FAE6A524850C233CF7F11EE957DB661791458BF81C6788B596AD602'
                 ;;
               unscoped_query)
-                cat >"$patch" <<'PATCH'
-          diff --git a/bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts b/bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts
-          index 3a5f876219..1abe59ce51 100644
-          --- a/bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts
-          +++ b/bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts
-          @@ -1137,9 +1137,8 @@ describeDb("account appeal aggregate DB proof", () => {
-                 }>(
-                   `SELECT stream_version, event_type
-                      FROM event_store_events
-          -            WHERE stream_id = $1
-                     ORDER BY stream_version ASC`,
-          -          [streamId],
-          +          [],
-                 );
-                 expect(
-                   race.filter((entry) => entry.status === "fulfilled"),
-          PATCH
+                file='bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts'
+                source_hash='219C2D39BA4A645E832495BC445A2DF8ABB7ADAF9DE17319B78787F59BCBBFC4'
+                expected_patch_hash='209ED91DB96ACD3C8A26B5C8E89B7B5243EDC8139900A2CC031BCDBA0F19C827'
                 ;;
               *)
                 echo "::error::unknown mutant $mutant" >&2
                 return 2
                 ;;
             esac
-            sha256sum "$patch" | tee "$log_dir/mutant-$mutant.patch.sha256"
+            node --input-type=module - "$mutant" "$file" <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const mutant = process.argv[2];
+          const file = process.argv[3];
+          const specs = {
+            guard: {
+              find: `throw createEventStoreError("concurrency_conflict", "Expected no stream but stream already exists.", {
+                streamId,
+                expectedVersion,
+                currentVersion,
+              });`,
+              replace: 'return; // probe mutant: expected-version/no-stream guard removed',
+            },
+            stream_id: {
+              find: 'streamId: appealStreamId(action.appealableActionId),',
+              replace: 'streamId: `${appealStreamId(action.appealableActionId)}-probe-mutant`,',
+            },
+            unscoped_query: {
+              find: 'WHERE stream_id = $1\n            ORDER BY stream_version ASC`,\n          [streamId],',
+              replace: 'ORDER BY stream_version ASC`,\n          [],',
+            },
+          };
+          const spec = specs[mutant];
+          const source = readFileSync(file, 'utf8');
+          const occurrences = source.split(spec.find).length - 1;
+          if (occurrences !== 1) throw new Error(`${mutant}: expected one source match, found ${occurrences}`);
+          writeFileSync(file, source.replace(spec.find, spec.replace));
+          NODE
+            git diff --no-ext-diff -- "$file" >"$patch"
+            git restore --source=HEAD --staged --worktree -- "$file"
+            local actual_patch_hash
+            actual_patch_hash="$(sha256sum "$patch" | awk '{print $1}')"
+            printf '%s\t%s\t%s\n' "$mutant" "$source_hash" "$actual_patch_hash" >>"$log_dir/mutant-patch-hashes.tsv"
+            if [ "$actual_patch_hash" != "$(printf '%s' "$expected_patch_hash" | tr '[:upper:]' '[:lower:]')" ]; then
+              echo "::error::generated adapted patch hash mismatch for $mutant: $actual_patch_hash" >&2
+              return 1
+            fi
           }
 
           apply_mutant() {
