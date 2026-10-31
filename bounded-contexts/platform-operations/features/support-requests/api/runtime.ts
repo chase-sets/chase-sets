@@ -495,7 +495,10 @@ export type SupportRequestServices = Readonly<{
     supportRequestId: string,
     accountId: string,
   ) => ReturnType<typeof getAccountSupportRequest>;
-  getSupportOperationsRequest: (supportRequestId: string, now?: string) => ReturnType<typeof getSupportOperationsRequest>;
+  getSupportOperationsRequest: (
+    supportRequestId: string,
+    now?: string,
+  ) => ReturnType<typeof getSupportOperationsRequest>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 

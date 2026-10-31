@@ -28,15 +28,15 @@ function policy(request: SupportRequestDetail) {
 describe("adjudication refund helpers", () => {
   it("caps the refund at the summed affected-line amounts", () => {
     expect(
-      policy(
-        detail({
+      policy({
+        ...detail({
           affected_line_items: [
             { lineId: "l1", amount: "40.00", currencyCode: "usd" },
             { lineId: "l2", amount: "10.50", currencyCode: "usd" },
           ],
         }),
-      ),
-    ).refundCap).toBe("50.50");
+      }).refundCap,
+    ).toBe("50.50");
   });
 
   it("returns no cap when there is no affected-line snapshot", () => {

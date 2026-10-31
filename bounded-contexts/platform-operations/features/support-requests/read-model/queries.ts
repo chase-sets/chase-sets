@@ -126,7 +126,10 @@ type OperatorPolicySource = Pick<
   Readonly<{ offers?: readonly SupportOffer[] }>;
 
 function operatorDeadline(
-  row: Pick<SupportRequestListRow, "seller_response_due_at" | "support_review_due_at" | "seller_condition_attestation_due_at">,
+  row: Pick<
+    SupportRequestListRow,
+    "seller_response_due_at" | "support_review_due_at" | "seller_condition_attestation_due_at"
+  >,
 ) {
   const deadlines = [
     row.seller_response_due_at,

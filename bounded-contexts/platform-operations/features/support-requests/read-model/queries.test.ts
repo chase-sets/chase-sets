@@ -53,7 +53,9 @@ describe("projectSupportOperatorPolicy", () => {
     );
     expect(policy.recommendedAction).toBe("resolve");
     expect(policy.responsibilityReasons.every((reason) => reason.operatorSelectable)).toBe(true);
-    expect(policy.responsibilityReasons.some((reason) => reason.code.endsWith("accepted-resolution-without-cause-finding"))).toBe(false);
+    expect(
+      policy.responsibilityReasons.some((reason) => reason.code.endsWith("accepted-resolution-without-cause-finding")),
+    ).toBe(false);
   });
 
   it("preserves existing line and latest-offer refund ceiling semantics", () => {

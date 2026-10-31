@@ -35,7 +35,8 @@ export type CustomerSupportRequestListItem = CustomerSupportRequestListRow;
 export type SupportRequestDetail = SupportRequestDetailRow;
 export type SupportOperationsRequestDetail = SupportOperationsRequestDetailRow;
 export type SupportRequestDetailResponse = SupportRequestDetailRow & Readonly<{ flow: SupportFlowDetail }>;
-export type SupportOperationsRequestDetailResponse = SupportOperationsRequestDetailRow & Readonly<{ flow: SupportFlowDetail }>;
+export type SupportOperationsRequestDetailResponse = SupportOperationsRequestDetailRow &
+  Readonly<{ flow: SupportFlowDetail }>;
 export type SupportRequestParticipantDetailResponse = SupportRequestDetailResponse &
   Readonly<{ participantPolicy: SupportParticipantPolicy }>;
 

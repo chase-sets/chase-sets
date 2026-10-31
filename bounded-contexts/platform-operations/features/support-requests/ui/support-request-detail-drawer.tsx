@@ -149,14 +149,13 @@ function gradedCardSummary(line: Record<string, unknown>) {
 }
 
 function responsibilityReasonItems(request: SupportOperationsRequestDetail) {
-  return request.operatorPolicy.responsibilityReasons
-    .map(({ code, responsibility, operatorLabel }) => ({
-      value: `${responsibility}|${code}`,
-      label: t("support.features.supportRequests.ui.supportOperationsPage.resolve.responsibilityReasonOption", {
-        reason: operatorLabel,
-        responsibility,
-      }),
-    }));
+  return request.operatorPolicy.responsibilityReasons.map(({ code, responsibility, operatorLabel }) => ({
+    value: `${responsibility}|${code}`,
+    label: t("support.features.supportRequests.ui.supportOperationsPage.resolve.responsibilityReasonOption", {
+      reason: operatorLabel,
+      responsibility,
+    }),
+  }));
 }
 
 function ResponseForm({ actionHref }: Readonly<{ actionHref: string }>) {
@@ -214,7 +213,10 @@ function resolutionItemsForFlow(request: SupportOperationsRequestDetailResponse)
     .filter((item): item is (typeof resolutionTypeItems)[number] => Boolean(item));
 }
 
-function ResolveForm({ request, actionHref }: Readonly<{ request: SupportOperationsRequestDetailResponse; actionHref: string }>) {
+function ResolveForm({
+  request,
+  actionHref,
+}: Readonly<{ request: SupportOperationsRequestDetailResponse; actionHref: string }>) {
   const reasons = responsibilityReasonItems(request);
   const resolutionItems = resolutionItemsForFlow(request);
   const { refundPrefill, refundCap } = request.operatorPolicy;
