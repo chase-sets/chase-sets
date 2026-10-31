@@ -35,6 +35,7 @@ mod reference_types;
 mod scope_list;
 mod scope_page;
 mod status_pill;
+mod sync_batches;
 
 pub use attention_panel::{AttentionBanner, AttentionPanel, AttentionSheet, park_form};
 pub use blueprints::{
@@ -76,6 +77,7 @@ pub use reference_types::{RefTypeForms, ref_type_actions, ref_type_list, ref_typ
 pub use scope_list::{ScopeRowView, scope_list};
 pub use scope_page::{CoveragePart, InboxHeader, InboxRow, InboxTone, Refused, Rows, ScopePage, scope_page};
 pub use status_pill::{StatusPill, Tone, TonePill};
+pub use sync_batches::{SyncBatchPage, sync_batch_page};
 
 /// The area's components: its stylesheet, and corten-ui's toaster and combobox scripts.
 pub const COMPONENTS: &[Component] = &[
@@ -86,6 +88,7 @@ pub const COMPONENTS: &[Component] = &[
     BulkRows,
     ScopeRowView,
     ScopePage,
+    SyncBatchPage,
     AttentionPanel,
     PreviewDialog,
     ItemForm,

@@ -57,6 +57,7 @@ pub mod reference_records;
 pub mod reference_types;
 pub mod scope;
 pub mod scopes;
+pub mod sync_batches;
 pub mod views;
 
 use crate::{
@@ -434,6 +435,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = scopes::url::area(area, shared.clone());
     let area = scope::url::area(area, shared.clone());
     let area = coverage::url::area(area, shared.clone());
+    let area = sync_batches::url::area(area, shared.clone());
     let area = attention::url::area(area, shared.clone());
     let area = categories::url::area(area, shared.clone());
     let area = components::url::area(area, shared.clone());

@@ -32,6 +32,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Catalog > Scopes (the list), `/catalog/scopes` |
 | `admin/` | Catalog > a scope's page, `/catalog/scopes/{id}` |
 | `admin/` | Catalog > Scope Coverage (the Unmapped Scope Inbox), `/catalog/scope-coverage` (`?product_domain=`), and a scope's coverage, `/catalog/scope-coverage/{id}` (the scope page's coverage matrix, whose writes come back here) |
+| `admin/` | Catalog > Scope Sync Batches, `/catalog/scopes/sync-batches` (`?batch_id=`, `?quote_id=`): resolve a TCGplayer held-set export, preview a batch and confirm it, quote and acquire capped counts, and a batch's progress (read again every 2 seconds while it is queued or running) with Cancel, Resume and Retry unit. admin-web's staging count-capture steps (`countCapture`) are not served |
 | `admin/` | Platform > Attention Queue, `/platform/operations-attention` |
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}`, with its Publish, Set Field Value and Add content line dialogs |
 | `admin/` | Catalog's home, `/catalog`, a dimension's and a field's page, `/catalog/dimensions/{id}`, `/catalog/fields/{id}`, and the scope attention review, `/catalog/scopes/attention/review` |

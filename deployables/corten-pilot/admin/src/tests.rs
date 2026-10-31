@@ -172,6 +172,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if uri.path() == "/api/catalog/scope-records" {
         return scope_records(uri.query().unwrap_or_default());
     }
+    if let Some(rest) = uri.path().strip_prefix("/api/catalog/scope-sync-batches") {
+        return sync_batches_api(&method, rest, &headers, &body);
+    }
     if let Some(answer) = scope_api(&method, uri.path(), uri.query().unwrap_or_default(), &body) {
         return answer;
     }
@@ -4872,6 +4875,284 @@ fn return_intake(method: &Method, rest: &str, query: &str, body: &str) -> Respon
         }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+// Catalog > Scope Sync Batches.
+
+const QUOTE_ID: &str = "8d0f6a4e-4f1e-4c1f-9a51-3c2b9f0a7e11";
+
+fn sync_preview(ready: bool) -> Value {
+    json!({
+        "previewVersion": "scope-sync-batch-preview-v1",
+        "selection": { "mode": "matching-scope", "query": { "productDomain": "pokemon", "scopeKind": "set", "languageCode": "en" } },
+        "budget": {
+            "maxScopesPerTurn": 1, "defaultProviderConcurrency": 1, "providerConcurrency": { "scrydex": 1 },
+            "providerRequestLimits": { "tcgdex": 1000, "scrydex": 1000 }, "creditedProviderRequestLimits": { "scrydex": 0 },
+            "providerFailureThreshold": 3
+        },
+        "planFingerprint": "plan_abc",
+        "status": if ready { "ready" } else { "blocked" },
+        "confirmAllowed": ready,
+        "counts": { "scopes": 2, "readyScopes": if ready { 2 } else { 1 }, "blockedScopes": if ready { 0 } else { 1 }, "providerUnits": 3 },
+        "providerUnitTotals": { "tcgdex": 2, "scrydex": 1 },
+        "providerRequestEstimates": { "tcgdex": 40, "scrydex": null },
+        "samples": [{
+            "scopeRecordId": "scp_paf", "providerUnitCount": 2, "blockerCount": 0, "estimatedRequestCount": 40,
+            "providerKeys": ["tcgdex", "scrydex"],
+            "mappingVersions": [{ "mappingId": "map_1", "version": "3", "reviewStatus": "accepted" }],
+            "profileVersions": [{ "providerKey": "tcgdex", "unitKey": "cards", "profileKey": "default", "profileVersion": "2" }]
+        }],
+        "blockers": if ready { json!([]) } else { json!([{ "code": "mapping-missing", "scopeRecordId": "scp_x", "providerKey": null, "message": "No accepted mapping." }]) },
+        "resolvedAt": "2026-10-31T12:00:00.000Z"
+    })
+}
+
+fn sync_batch(status: &str) -> Value {
+    json!({
+        "batchId": "ssb_1", "status": status, "fastNoOp": false, "circuitOpenProviders": if status == "running" { json!(["scrydex"]) } else { json!([]) },
+        "counts": { "queued": 0, "running": 1, "completed": 1, "failed": 1, "cancelled": 0 },
+        "units": [
+            { "scopeRecordId": "scp_paf", "state": "completed", "syncRunId": "run_1", "providerKeys": ["tcgdex"], "attemptCount": 1, "errorMessage": null, "updatedAt": "2026-10-31T12:00:00.000Z" },
+            { "scopeRecordId": "scp_sv1", "state": "failed", "syncRunId": null, "providerKeys": ["scrydex"], "attemptCount": 2, "errorMessage": "x", "updatedAt": "2026-10-31T12:00:00.000Z" }
+        ],
+    })
+}
+
+fn sync_quote(state: &str) -> Value {
+    json!({
+        "quoteId": QUOTE_ID, "fingerprint": "f".repeat(64), "membershipFingerprint": "m",
+        "selection": { "mode": "ids", "scopeRecordIds": ["scp_paf"] },
+        "authority": { "fingerprint": "a", "headroom": 100, "allowed": true },
+        "targets": [
+            { "scopeRecordId": "scp_paf", "query": { "kind": "cards" }, "source": null, "blocked": false },
+            { "scopeRecordId": "scp_paf", "query": { "kind": "sealed" }, "source": { "observedAt": "2026-10-30T00:00:00.000Z" }, "blocked": false }
+        ],
+        "plannedCredits": 1, "cap": 5, "expiresAt": "2026-10-31T13:00:00.000Z", "state": state
+    })
+}
+
+/// The scope sync batch API. A count command without the browser's origin is refused, as the
+/// API refuses one from another origin.
+fn sync_batches_api(method: &Method, rest: &str, headers: &HeaderMap, body: &str) -> Response {
+    let same_origin = headers.get(header::ORIGIN).is_some_and(|o| o == "http://localhost:7790");
+    match (method.clone(), rest) {
+        (Method::POST, "/preview") if body.contains("scp_down") => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "Failed."),
+        (Method::POST, "/preview") if body.contains(r#""mode":"ids","scopeRecordIds":[]"#) => {
+            refusal(StatusCode::BAD_REQUEST, "invalid_request", "Selection is empty.")
+        }
+        (Method::POST, "/preview") => Json(sync_preview(!body.contains("scp_x"))).into_response(),
+        (Method::POST, "/confirm") if body.contains(r#""planFingerprint":"stale""#) => {
+            refusal(StatusCode::CONFLICT, "scope_sync_batch_stale_preview", "The preview is stale.")
+        }
+        (Method::POST, "/confirm") => (StatusCode::ACCEPTED, Json(sync_batch("queued"))).into_response(),
+        (Method::POST, "/counts/quote" | "/counts/acquire") if !same_origin => refusal(StatusCode::FORBIDDEN, "forbidden", ""),
+        (Method::POST, "/counts/quote") => Json(sync_quote("quoted")).into_response(),
+        (Method::POST, "/counts/acquire") => Json(sync_quote("complete")).into_response(),
+        (Method::GET, path) if path == format!("/counts/quote/{QUOTE_ID}") => Json(sync_quote("quoted")).into_response(),
+        (Method::POST, "/resolve-held-sets") => Json(json!({
+            "resolved": [{ "scopeRecordId": "scp_paf", "productDomain": "pokemon", "scopeKind": "set", "productLine": "Pokemon", "setName": "Paldean Fates", "rowCount": 12 }],
+            "unresolved": [{ "productLine": "Pokemon", "setName": "Mystery", "rowCount": 2, "reason": "set-unresolved", "productDomain": "pokemon" }],
+            "totals": { "rows": 14, "distinctPairs": 2, "resolvedPairs": 1, "unresolvedPairs": 1, "resolvedRows": 12, "unresolvedRows": 2 }
+        }))
+        .into_response(),
+        (Method::GET, "/ssb_1") => Json(sync_batch("running")).into_response(),
+        (Method::GET, "/ssb_done") => Json(json!({ "batchId": "ssb_done", "status": "completed", "fastNoOp": true, "circuitOpenProviders": [], "counts": {}, "units": [] })).into_response(),
+        (Method::POST, "/ssb_1/cancel" | "/ssb_1/resume" | "/ssb_1/units/scp_sv1/retry") => Json(sync_batch("cancelled")).into_response(),
+        (_, _) => refusal(StatusCode::NOT_FOUND, "not_found", "Scope Sync Batch not found."),
+    }
+}
+
+impl Pilot {
+    fn sync_calls(&self) -> Vec<Call> {
+        self.calls.lock().unwrap().iter().filter(|c| c.path.starts_with("/api/catalog/scope-sync-batches")).cloned().collect()
+    }
+}
+
+#[tokio::test]
+async fn the_sync_batch_page_offers_its_forms_to_who_may_write_and_follows_a_running_batch() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes/sync-batches", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains("<h1")
+            && html.contains("Scope Sync Batches")
+            && html.contains("<title>Scope Sync Batches | Catalog admin</title>"),
+        "{html}"
+    );
+    assert!(html.contains("/sections/catalog.css"), "the catalog area's stylesheet: {html}");
+    assert!(
+        html.contains(r#"action="/catalog/scopes/sync-batches/held-sets""#) && html.contains(r#"enctype="multipart/form-data""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="selection_mode""#) && html.contains(r#"<option value="matching-scope" selected>"#), "{html}");
+    assert!(html.contains(r#"name="tcgdex_request_limit" value="1000""#), "admin-web's defaults: {html}");
+    assert!(pilot.sync_calls().is_empty(), "nothing is read without a batch or quote");
+
+    // A running batch: its progress, Cancel, the circuit notice, Retry on the failed unit, and
+    // the page read again in two seconds.
+    let (status, _, html) = pilot.send(get("/catalog/scopes/sync-batches?batch_id=ssb_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("1 completed · 1 failed · 1 running · 0 queued"), "{html}");
+    assert!(html.contains(r#"name="intent" value="cancel""#) && html.contains("Cancel batch"), "{html}");
+    assert!(html.contains("New work is paused for: scrydex."), "{html}");
+    assert!(
+        html.contains(r#"name="scope_record_id" value="scp_sv1""#) && !html.contains(r#"name="scope_record_id" value="scp_paf""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"http-equiv="refresh""#) || html.contains("corten-read-again"), "read again while it runs: {html}");
+
+    // A settled batch: Already settled, nothing to cancel, not read again.
+    let (_, _, html) = pilot.send(get("/catalog/scopes/sync-batches?batch_id=ssb_done", Some("staff"))).await;
+    assert!(html.contains("Already settled") && !html.contains("Cancel batch"), "{html}");
+    assert!(!html.contains(r#"http-equiv="refresh""#) && !html.contains("corten-read-again"), "{html}");
+
+    // A viewer sees the batch without the forms or its commands.
+    let (status, _, html) = pilot.send(get("/catalog/scopes/sync-batches?batch_id=ssb_1", Some("catalog-viewer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("held-sets") && !html.contains("Cancel batch") && !html.contains("Retry unit"), "{html}");
+    let (status, _, _) = pilot.send(get("/catalog/scopes/sync-batches?batch_id=gone", Some("staff"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = pilot.send(get("/catalog/scopes/sync-batches", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn preview_shows_the_plan_and_confirm_sends_it_back_and_follows_the_batch() {
+    let pilot = Pilot::new().await;
+    let form = "intent=preview&selection_mode=matching-scope&product_domain=pokemon&scope_kind=set&language_code=en&scope_record_ids=                &max_scopes_per_turn=1&default_provider_concurrency=1&scrydex_concurrency=1&tcgdex_request_limit=1000                &scrydex_rate_request_limit=1000&scrydex_request_limit=0&provider_failure_threshold=3&count_cap=0";
+    let (status, _, html) = pilot.send(post_as("staff", "/catalog/scopes/sync-batches", form, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sent = pilot.sync_calls().pop().unwrap();
+    assert_eq!(sent.path, "/api/catalog/scope-sync-batches/preview");
+    let body: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(
+        body["selection"],
+        json!({ "mode": "matching-scope", "query": { "productDomain": "pokemon", "scopeKind": "set", "languageCode": "en" } })
+    );
+    assert_eq!(body["budget"]["providerRequestLimits"], json!({ "tcgdex": 1000, "scrydex": 1000 }));
+    assert!(html.contains("Batch is ready") && html.contains("2 ready scopes, 0 blocked scopes, 3 provider units."), "{html}");
+    assert!(
+        html.contains("plan_abc")
+            && html.contains("tcgdex units / requests")
+            && html.contains("2 / 40")
+            && html.contains("1 / Unavailable"),
+        "{html}"
+    );
+    assert!(html.contains("map_1@3") && html.contains("tcgdex/default@2"), "{html}");
+    assert!(
+        html.contains(r#"name="intent" value="confirm""#) && html.contains(r#"name="plan_fingerprint" value="plan_abc""#),
+        "{html}"
+    );
+
+    // Confirm sends the preview's selection, budget and plan, and goes to the batch.
+    let confirm = "intent=confirm&plan_fingerprint=plan_abc&selection_mode=matching-scope&product_domain=pokemon&scope_kind=set                   &language_code=en&max_scopes_per_turn=1&default_provider_concurrency=1&scrydex_concurrency=1                   &tcgdex_request_limit=1000&scrydex_rate_request_limit=1000&scrydex_request_limit=0&provider_failure_threshold=3";
+    let (status, headers, html) = pilot.send(post_as("staff", "/catalog/scopes/sync-batches", confirm, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/catalog/scopes/sync-batches?batch_id=ssb_1");
+    let sent = pilot.sync_calls().pop().unwrap();
+    let body: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(
+        (sent.path.as_str(), body["planFingerprint"].as_str()),
+        ("/api/catalog/scope-sync-batches/confirm", Some("plan_abc"))
+    );
+
+    // A blocked preview: its blockers, no Confirm. A stale confirm is the banner, the form kept.
+    let blocked = form
+        .replace("selection_mode=matching-scope", "selection_mode=ids")
+        .replace("scope_record_ids=", "scope_record_ids=scp_paf,scp_x");
+    let (_, _, html) = pilot.send(post_as("staff", "/catalog/scopes/sync-batches", &blocked, false)).await;
+    assert!(
+        html.contains("Batch needs attention") && html.contains("mapping-missing") && !html.contains(r#"value="confirm""#),
+        "{html}"
+    );
+    let stale = confirm.replace("plan_abc", "stale");
+    let (status, _, html) = pilot.send(post_as("staff", "/catalog/scopes/sync-batches", &stale, false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("Batch command blocked") && html.contains("The preview is stale."), "{html}");
+    // An empty selection is the API's message; a failed preview is a 502 with the pilot's words.
+    let empty = form.replace("selection_mode=matching-scope", "selection_mode=ids");
+    let (status, _, html) = pilot.send(post_as("staff", "/catalog/scopes/sync-batches", &empty, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(
+        html.contains("Selection is empty.") && html.contains(r#"<option value="ids" selected>"#),
+        "the form as it was sent: {html}"
+    );
+    let down = form
+        .replace("selection_mode=matching-scope", "selection_mode=ids")
+        .replace("scope_record_ids=", "scope_record_ids=scp_down");
+    let (status, _, html) = pilot.send(post_as("staff", "/catalog/scopes/sync-batches", &down, false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains("could not run the scope sync batch command"), "{html}");
+}
+
+#[tokio::test]
+async fn batch_commands_go_to_the_batch_and_count_commands_carry_the_browsers_origin() {
+    let pilot = Pilot::new().await;
+    for (fields, api) in [
+        ("intent=cancel&batch_id=ssb_1", "/ssb_1/cancel"),
+        ("intent=resume&batch_id=ssb_1", "/ssb_1/resume"),
+        ("intent=retry-unit&batch_id=ssb_1&scope_record_id=scp_sv1", "/ssb_1/units/scp_sv1/retry"),
+    ] {
+        let (status, headers, html) = pilot.send(post_as("staff", "/catalog/scopes/sync-batches", fields, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{fields}: {html}");
+        assert_eq!(headers[header::LOCATION], "/catalog/scopes/sync-batches?batch_id=ssb_1");
+        assert_eq!(pilot.sync_calls().pop().unwrap().path, format!("/api/catalog/scope-sync-batches{api}"));
+    }
+    let (status, _, html) = pilot.send(post_as("staff", "/catalog/scopes/sync-batches", "intent=cancel", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Batch id is required."), "{html}");
+
+    // Quote: the browser's origin goes along, and the quote is drawn with Approve.
+    let quote = "intent=count-quote&selection_mode=ids&scope_record_ids=scp_paf&count_cap=5";
+    let mut req = post_as("staff", "/catalog/scopes/sync-batches", quote, false);
+    req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sent = pilot.sync_calls().pop().unwrap();
+    assert_eq!(sent.headers[header::ORIGIN], "http://localhost:7790");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "selection": { "mode": "ids", "scopeRecordIds": ["scp_paf"] }, "cap": 5 })
+    );
+    assert!(html.contains("Scrydex count quote") && html.contains("Approve count acquisition"), "{html}");
+    assert!(html.contains(&format!(r#"href="/catalog/scopes/sync-batches?quote_id={QUOTE_ID}""#)), "the retained quote: {html}");
+    // Without the origin the API refuses it, and the page says so.
+    let (status, _, html) = pilot.send(post_as("staff", "/catalog/scopes/sync-batches", quote, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert!(html.contains("Batch command blocked"), "{html}");
+    // The retained quote's address reads it.
+    let (status, _, html) = pilot.send(get(&format!("/catalog/scopes/sync-batches?quote_id={QUOTE_ID}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Planned credits") && html.contains(r#"name="count_fingerprint""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_held_set_export_is_sent_on_and_its_scopes_can_be_previewed() {
+    let pilot = Pilot::new().await;
+    let csv = b"Product Line,Set Name
+Pokemon,Paldean Fates
+";
+    let req =
+        post_multipart("/catalog/scopes/sync-batches/held-sets", "staff", None, &[], &[("file", "live.csv", "text/csv", csv)]);
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sent = pilot.sync_calls().pop().unwrap();
+    assert_eq!(sent.path, "/api/catalog/scope-sync-batches/resolve-held-sets");
+    assert!(sent.headers[header::CONTENT_TYPE].to_str().unwrap().starts_with("multipart/form-data"), "{:?}", sent.headers);
+    assert!(
+        sent.body.contains(r#"name="file"; filename="live.csv""#) && sent.body.contains("Pokemon,Paldean Fates"),
+        "{}",
+        sent.body
+    );
+    assert!(html.contains("1 resolved pairs and 1 unresolved pairs across 14 rows."), "{html}");
+    assert!(html.contains("Pokemon / Paldean Fates") && html.contains("set-unresolved"), "{html}");
+    assert!(html.contains(r#"href="/catalog/scope-coverage?product_domain=pokemon""#), "the inbox for its domain: {html}");
+    assert!(html.contains(r#"name="scope_record_ids" value="scp_paf""#) && html.contains("Preview resolved sets"), "{html}");
+    // No file: the page says to choose one.
+    let req = post_multipart("/catalog/scopes/sync-batches/held-sets", "staff", None, &[], &[]);
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Choose a held-set export CSV."), "{html}");
 }
 
 /// A multipart form post, as a browser sends the station's forms: `fields`, then `files` as
