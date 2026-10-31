@@ -3,12 +3,13 @@ import type {
   ClaimedOperationOutcome,
   ClaimedReservationRunSettlementPort,
 } from "../../outbound-sync/domain/contracts";
+import { OutboundSyncError } from "../../outbound-sync/domain/contracts";
 import { canonicalJson } from "../../outbound-sync/domain/validation";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable, PostgresEventStore } from "@chase-sets/event-core-postgres";
-import { deriveClaimedOperationOutcomes } from "../domain/lifecycle";
+import { assertChannelSyncRunSettlement, deriveClaimedOperationOutcomes } from "../domain/lifecycle";
 import { channelSyncRunEventCodec } from "../domain/codec";
-import type { ChannelSyncRun, ChannelSyncRunTransitionedEvent } from "../domain/contracts";
+import { ChannelSyncRunError, type ChannelSyncRun, type ChannelSyncRunTransitionedEvent } from "../domain/contracts";
 import { projectChannelSyncRunTransitioned } from "../read-model/projection";
 import { readChannelSyncRunByReservation } from "../read-model/queries";
 
@@ -34,6 +35,14 @@ export function createTcgplayerClaimedReservationRunSettlementPort(
         run.state !== input.fromState
       ) {
         throw new Error("Channel Sync Run settlement fence is stale.");
+      }
+      try {
+        assertChannelSyncRunSettlement(run, input, {
+          leaseExpired: Date.now() >= Date.parse(run.leaseExpiresAt),
+        });
+      } catch (error) {
+        if (!(error instanceof ChannelSyncRunError)) throw error;
+        throw new OutboundSyncError("invalid-input", "Channel Sync Run settlement evidence is invalid.");
       }
       const settledRun: ChannelSyncRun = {
         ...run,
