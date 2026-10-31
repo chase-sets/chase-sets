@@ -123,7 +123,6 @@ export function resolveClientState(value: unknown, status: number): ClientState 
         "interruption-safe-client-required",
         "address-standardization-suggested",
         "shipping-address-undeliverable",
-        "validation-failed",
       ].includes(result.code)
     )
       return "failed-safe";
