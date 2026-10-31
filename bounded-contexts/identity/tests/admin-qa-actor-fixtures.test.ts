@@ -7,6 +7,7 @@ import type { IdentityServices } from "../support/runtime-support/services";
 import {
   ADMIN_QA_ACTOR_FIXTURES,
   provisionAdminQaActorFixtures,
+  type AdminQaActorFixtureContacts,
 } from "../support/runtime-support/admin-qa-actor-fixtures";
 
 // A forced Consent admission would read the activation authority; the spy
@@ -16,6 +17,15 @@ vi.mock("@chase-sets/platform-policy/consent-activation-authority", async (impor
   ...(await importOriginal<typeof import("@chase-sets/platform-policy/consent-activation-authority")>()),
   readConsentActivationAuthority: activationAuthorityReads,
 }));
+
+const CONTACTS: AdminQaActorFixtureContacts = {
+  ADMIN_QA_PLATFORM_ADMIN_EMAIL: "admin-qa-platform-admin@chasesets.test",
+  ADMIN_QA_OWNER_EMAIL: "admin-qa-owner@chasesets.test",
+  ADMIN_QA_MANAGER_EMAIL: "admin-qa-manager@chasesets.test",
+  ADMIN_QA_FULFILLMENT_EMAIL: "admin-qa-fulfillment@chasesets.test",
+  ADMIN_QA_VIEWER_EMAIL: "admin-qa-viewer@chasesets.test",
+  ADMIN_QA_CATALOG_ADMIN_EMAIL: "admin-qa-catalog-admin@chasesets.test",
+};
 
 type CommandEnvelope = Readonly<{
   streamId?: unknown;
@@ -116,7 +126,7 @@ describe("admin-qa actor fixtures", () => {
   it("creates every fixture when none exist yet, using magic-link auth and platform-bootstrap authority for platform-admin", async () => {
     const { services, records } = createServices();
 
-    const results = await provisionAdminQaActorFixtures(services);
+    const results = await provisionAdminQaActorFixtures(services, CONTACTS);
 
     expect(results).toHaveLength(6);
     expect(results.every((result) => result.createdAccount && result.createdUser && result.createdMembership)).toBe(
@@ -163,7 +173,7 @@ describe("admin-qa actor fixtures", () => {
       new Set(["acc_admin_qa_platform_admin", "usr_admin_qa_platform_admin", "mbr_admin_qa_platform_admin"]),
     );
 
-    const results = await provisionAdminQaActorFixtures(services);
+    const results = await provisionAdminQaActorFixtures(services, CONTACTS);
 
     const platformAdminResult = results.find((result) => result.actorAlias === "admin-qa-platform-admin");
     expect(platformAdminResult).toMatchObject({
@@ -178,7 +188,7 @@ describe("admin-qa actor fixtures", () => {
   it("keeps evidence support-safe by returning only alias, role, host, and boolean flags", async () => {
     const { services } = createServices();
 
-    const results = await provisionAdminQaActorFixtures(services);
+    const results = await provisionAdminQaActorFixtures(services, CONTACTS);
 
     for (const result of results) {
       expect(Object.keys(result).sort()).toEqual(
@@ -199,6 +209,18 @@ describe("admin-qa actor fixtures", () => {
     expect(serialized).not.toContain("usr_admin_qa");
   });
 
+  it.each(Object.keys(CONTACTS) as (keyof AdminQaActorFixtureContacts)[])(
+    "refuses a withheld %s before any Identity command",
+    async (key) => {
+      const { services, records } = createServices();
+
+      await expect(provisionAdminQaActorFixtures(services, { ...CONTACTS, [key]: " " })).rejects.toThrow(
+        `Missing ${key}.`,
+      );
+      expect([records.accounts, records.users, records.memberships].flat()).toEqual([]);
+    },
+  );
+
   it("records no Consent and reads no activation authority across clean, repeated, retained and interrupted runs", async () => {
     const retained = new Set<string>();
     const boot = createServices(retained);
@@ -206,20 +228,20 @@ describe("admin-qa actor fixtures", () => {
     const noneCreated = ADMIN_QA_ACTOR_FIXTURES.map(({ actorAlias }) => [actorAlias, false, false, false]);
 
     // Clean boot, then a repeat inside the same boot.
-    expect(createdFlags(await provisionAdminQaActorFixtures(boot.services))).toEqual(allCreated);
-    expect(createdFlags(await provisionAdminQaActorFixtures(boot.services))).toEqual(noneCreated);
+    expect(createdFlags(await provisionAdminQaActorFixtures(boot.services, CONTACTS))).toEqual(allCreated);
+    expect(createdFlags(await provisionAdminQaActorFixtures(boot.services, CONTACTS))).toEqual(noneCreated);
     expect([boot.records.accounts, boot.records.users, boot.records.memberships].map((list) => list.length)).toEqual([
       6, 12, 6,
     ]);
 
     // A fresh boot over the retained state authors nothing.
     const rerun = createServices(retained);
-    expect(createdFlags(await provisionAdminQaActorFixtures(rerun.services))).toEqual(noneCreated);
+    expect(createdFlags(await provisionAdminQaActorFixtures(rerun.services, CONTACTS))).toEqual(noneCreated);
     expect([rerun.records.accounts, rerun.records.users, rerun.records.memberships].flat()).toEqual([]);
 
     // A run interrupted after one Account resumes only that actor's User and Membership.
     const interrupted = createServices(new Set(["acc_admin_qa_owner"]));
-    const resumed = createdFlags(await provisionAdminQaActorFixtures(interrupted.services));
+    const resumed = createdFlags(await provisionAdminQaActorFixtures(interrupted.services, CONTACTS));
     expect(resumed.find(([actorAlias]) => actorAlias === "admin-qa-owner")).toEqual([
       "admin-qa-owner",
       false,
@@ -276,8 +298,8 @@ describe("admin-qa actor fixtures", () => {
       revokeAccountCapability: vi.fn(),
     };
     Object.assign(services, { accountCapabilities });
-    await provisionAdminQaActorFixtures(services);
-    await provisionAdminQaActorFixtures(services);
+    await provisionAdminQaActorFixtures(services, CONTACTS);
+    await provisionAdminQaActorFixtures(services, CONTACTS);
 
     expect(accountCapabilities.grantAccountCapability).not.toHaveBeenCalled();
     expect(accountCapabilities.revokeAccountCapability).not.toHaveBeenCalled();

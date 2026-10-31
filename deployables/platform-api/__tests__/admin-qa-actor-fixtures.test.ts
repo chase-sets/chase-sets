@@ -7,9 +7,43 @@ import { ADMIN_QA_ACTOR_FIXTURES } from "@chase-sets/identity/server";
 import {
   assertAdminQaActorFixturesRunAllowed,
   assertAdminQaActorFixturesEvidenceIsSupportSafe,
+  readAdminQaActorFixtureContacts,
   writeAdminQaActorFixturesEvidence,
   type AdminQaActorFixturesEvidence,
 } from "../src/admin-qa-actor-fixtures";
+
+const CONTACT_INPUTS = {
+  ADMIN_QA_PLATFORM_ADMIN_EMAIL: "sentinel-platform-admin@chasesets.test",
+  ADMIN_QA_OWNER_EMAIL: "sentinel-owner@chasesets.test",
+  ADMIN_QA_MANAGER_EMAIL: "sentinel-manager@chasesets.test",
+  ADMIN_QA_FULFILLMENT_EMAIL: "sentinel-fulfillment@chasesets.test",
+  ADMIN_QA_VIEWER_EMAIL: "sentinel-viewer@chasesets.test",
+  ADMIN_QA_CATALOG_ADMIN_EMAIL: "sentinel-catalog-admin@chasesets.test",
+} as const;
+
+describe("admin-qa actor fixtures contact inputs", () => {
+  it("reads all six protected inputs", () => {
+    expect(readAdminQaActorFixtureContacts({ ...CONTACT_INPUTS })).toEqual(CONTACT_INPUTS);
+  });
+
+  it.each(Object.keys(CONTACT_INPUTS) as (keyof typeof CONTACT_INPUTS)[])(
+    "refuses a withheld %s naming only the key",
+    (key) => {
+      const environment: NodeJS.ProcessEnv = { ...CONTACT_INPUTS };
+      delete environment[key];
+      let message = "";
+      try {
+        readAdminQaActorFixtureContacts(environment);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toBe(`Missing ${key}.`);
+      expect(readAdminQaActorFixtureContacts.bind(null, { ...environment, [key]: "  " })).toThrow(`Missing ${key}.`);
+      // Value-leak sentinel: no supplied contact appears in the refusal.
+      expect(Object.values(CONTACT_INPUTS).filter((value) => message.includes(value))).toEqual([]);
+    },
+  );
+});
 
 describe("admin-qa actor fixtures run guardrails", () => {
   it("allows confirmed staging runs", () => {

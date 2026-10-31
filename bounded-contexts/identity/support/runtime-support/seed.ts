@@ -14,7 +14,7 @@ import { isDeepStrictEqual } from "node:util";
 import { createIdentityServices } from "./services";
 import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../../features/account-capabilities/api/authority";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
-import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
+import { provisionAdminQaActorFixtures, type AdminQaActorFixtureContacts } from "./admin-qa-actor-fixtures";
 import type {
   AccountId,
   EnforcementActionId,
@@ -764,9 +764,22 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
     await seedRepresentativeIdentityAccounts(services, context);
   }
   if (shouldSeedAdminQaActorFixtures) {
-    await provisionAdminQaActorFixtures(services);
+    await provisionAdminQaActorFixtures(services, LOCAL_ADMIN_QA_ACTOR_FIXTURE_CONTACTS);
   }
 }
+
+/**
+ * Reserved `.test` contacts for the local/test seed profile only. Staging
+ * contacts are operator inputs read by the platform-api composition.
+ */
+const LOCAL_ADMIN_QA_ACTOR_FIXTURE_CONTACTS: AdminQaActorFixtureContacts = {
+  ADMIN_QA_PLATFORM_ADMIN_EMAIL: "admin-qa-platform-admin@chasesets.test",
+  ADMIN_QA_OWNER_EMAIL: "admin-qa-owner@chasesets.test",
+  ADMIN_QA_MANAGER_EMAIL: "admin-qa-manager@chasesets.test",
+  ADMIN_QA_FULFILLMENT_EMAIL: "admin-qa-fulfillment@chasesets.test",
+  ADMIN_QA_VIEWER_EMAIL: "admin-qa-viewer@chasesets.test",
+  ADMIN_QA_CATALOG_ADMIN_EMAIL: "admin-qa-catalog-admin@chasesets.test",
+};
 
 function profileEnabled(options: BcSeedOptions | undefined, profile: EnvironmentDataProfile): boolean {
   const defaultProfiles: readonly EnvironmentDataProfile[] = [
