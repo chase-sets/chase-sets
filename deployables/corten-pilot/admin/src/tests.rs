@@ -1422,6 +1422,51 @@ fn attention_queue(method: Method, rest: &str, cookie: &str, headers: &HeaderMap
 
 /// The Catalog API, as far as the area uses it. A dimension list has 120 rows (three pages). A
 /// bulk archive cannot start (another change is running).
+/// A Source Observation the stand-in knows: `obs_card`, an observed Pokemon card; `obs_product`,
+/// a changed provider product; `obs_done`, a promoted one. Promoting `obs_held` is refused by a
+/// rollout control (403), as the API answers it.
+fn observation(id: &str, status: &str) -> Value {
+    let normalized = if id == "obs_product" {
+        json!({ "kind": "provider-product", "name": "Booster Box", "imageUrls": [], "providerProductId": "pp_9",
+                "productLineName": "Lorcana", "productCategoryName": null,
+                "skuReferences": [{ "externalKey": "sku-1" }, { "externalKey": "sku-2" }] })
+    } else {
+        json!({ "kind": "pokemon-card", "name": "Pikachu", "setName": "Base", "expansionName": null, "cardNumber": "58",
+                "imageUrls": ["https://images.example/pikachu.png"], "cardVariantLabel": "Holo", "rarity": "Common",
+                "imageDisclaimer": null, "illustrator": "Atsuko Nishida", "releaseDate": "1999-01-09" })
+    };
+    json!({ "observation_id": id, "provider_key": "tcgdex", "external_key": "base1-58", "source_url": "https://api.example/base1-58",
+            "language_code": "en", "source_record_hash": "h_1", "source_updated_at": null, "observed_at": "2026-10-30T10:00:00Z",
+            "source_profile_key": "tcgdex-cards", "source_profile_version": "3", "source_mapping_fingerprint": "fp_map",
+            "normalized": normalized, "status": status, "status_reason": null,
+            "promoted_catalog_item_id": if status == "promoted" { json!("cat_pika") } else { Value::Null },
+            "promoted_reference_record_id": null, "promoted_at": null,
+            "promotion_profile_key": if status == "promoted" { json!("pokemon-cards") } else { Value::Null },
+            "promotion_profile_version": if status == "promoted" { json!("2") } else { Value::Null },
+            "promotion_plan_fingerprint": null, "updated_at": "2026-10-30T10:00:00Z", "source_payload": {} })
+}
+
+fn observation_api(method: &Method, rest: &str, _body: &str) -> Option<Response> {
+    let rest = rest.strip_prefix("/source-observations/")?;
+    let (id, action) = rest.split_once('/').map_or((rest, None), |(id, action)| (id, Some(action)));
+    let status = match id {
+        "obs_card" | "obs_held" => "observed",
+        "obs_product" => "changed",
+        "obs_done" => "promoted",
+        "obs_down" if *method == Method::GET => return Some(StatusCode::SERVICE_UNAVAILABLE.into_response()),
+        _ if !id.starts_with("obs_") => return None,
+        _ => return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Source observation not found.")),
+    };
+    Some(match (method, action) {
+        (&Method::GET, None) => Json(observation(id, status)).into_response(),
+        (&Method::POST, Some("promote")) if id == "obs_held" => {
+            refusal(StatusCode::FORBIDDEN, "catalog_integration_rollout_denied", "Promotion is paused for this provider.")
+        }
+        (&Method::POST, Some("promote" | "reject")) => Json(json!({ "observation_id": id })).into_response(),
+        _ => return None,
+    })
+}
+
 fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> Response {
     if let Some(rest) = rest.strip_prefix("/items")
         && !rest.starts_with("/bulk-lifecycle")
@@ -1430,6 +1475,9 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         if answer.status() != StatusCode::NOT_FOUND {
             return answer;
         }
+    }
+    if let Some(answer) = observation_api(&method, rest, body) {
+        return answer;
     }
     match (method, rest) {
         (Method::GET, "/bulk-authoring-jobs/job_publish") => {
@@ -3506,6 +3554,88 @@ async fn a_catalog_viewer_sees_a_scope_without_its_commands_and_cannot_write() {
     let (status, _, _) = pilot.send(post_as("catalog-viewer", "/catalog/scopes/scp_paf/publish", "", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
     assert!(pilot.catalog_writes().is_empty());
+}
+
+// Catalog > a Source Observation (/catalog/source-observations/{id}).
+
+#[tokio::test]
+async fn a_source_observation_shows_its_values_and_offers_what_its_status_allows() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/source-observations/obs_card", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Pikachu | Catalog Admin</title>"), "{html}");
+    assert!(
+        html.contains("tcgdex-cards@3") && html.contains("Atsuko Nishida") && html.contains("<dd>Base</dd>"),
+        "the expansion falls back to the set: {html}"
+    );
+    assert!(html.contains(r#"src="https://images.example/pikachu.png""#), "{html}");
+    assert!(
+        html.contains(r#"value="promote""#) && html.contains(r#"value="reject""#) && html.contains(r#"name="reason""#),
+        "{html}"
+    );
+    assert!(html.contains("/catalog/integrations?section=workbench"), "the way back is admin-web's workbench: {html}");
+
+    let (_, _, html) = pilot.send(get("/catalog/source-observations/obs_product", Some("staff"))).await;
+    assert!(html.contains(r#"value="promote""#) && !html.contains(r#"value="reject""#), "a changed one is promoted only: {html}");
+    assert!(html.contains("sku-1, sku-2") && html.contains("<dd>2</dd>") && !html.contains("Card Number"), "{html}");
+
+    let (_, _, html) = pilot.send(get("/catalog/source-observations/obs_done", Some("staff"))).await;
+    assert!(!html.contains(r#"value="promote""#) && html.contains("cat_pika") && html.contains("pokemon-cards@2"), "{html}");
+
+    let (_, _, html) = pilot.send(get("/catalog/source-observations/obs_card", Some("catalog-viewer"))).await;
+    assert!(!html.contains(r#"value="promote""#), "a viewer reviews nothing: {html}");
+    let (status, _, _) = pilot.send(get("/catalog/source-observations/obs_missing", Some("staff"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = pilot.send(get("/catalog/source-observations/obs_down", Some("staff"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn a_review_posts_the_api_its_body_and_a_refusal_is_the_forms_message() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot
+        .send(post_as("staff", "/catalog/source-observations/obs_card", "action=reject&reason=&status=observed", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/catalog/source-observations/obs_card?") && to.contains("done=rejected"), "{to}");
+    let (status, _, _) =
+        pilot.send(post_as("staff", "/catalog/source-observations/obs_product", "action=promote&status=changed", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let writes = pilot.catalog_writes();
+    assert_eq!(writes.len(), 2, "{writes:?}");
+    assert_eq!(writes[0].path, "/api/catalog/source-observations/obs_card/reject");
+    assert_eq!(serde_json::from_str::<Value>(&writes[0].body).unwrap(), json!({ "reason": "Rejected during review." }));
+    assert_eq!(writes[1].path, "/api/catalog/source-observations/obs_product/promote");
+    assert_eq!(serde_json::from_str::<Value>(&writes[1].body).unwrap(), json!({ "promoteAsDraft": false }));
+
+    let (_, _, html) = pilot.send(get("/catalog/source-observations/obs_card?done=rejected", Some("staff"))).await;
+    assert!(html.contains("Source observation rejected"), "the toast: {html}");
+
+    let (status, _, html) =
+        pilot.send(post_as("staff", "/catalog/source-observations/obs_held", "action=promote&status=observed", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        html.contains("Promotion is paused for this provider.") && html.contains("<title>"),
+        "the whole page without JavaScript: {html}"
+    );
+    let (status, _, html) =
+        pilot.send(post_as("staff", "/catalog/source-observations/obs_held", "action=promote&status=observed", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        html.contains("Promotion is paused for this provider.")
+            && !html.contains("<title>")
+            && html.contains(r#"value="reject""#),
+        "the form as a patch: {html}"
+    );
+
+    let before = pilot.catalog_writes().len();
+    let (status, _, _) =
+        pilot.send(post_as("catalog-viewer", "/catalog/source-observations/obs_card", "action=promote", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
+    let (status, _, _) = pilot.send(post_as("staff", "/catalog/source-observations/obs_card", "action=archive", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "an action the form does not offer");
+    assert_eq!(pilot.catalog_writes().len(), before);
 }
 
 // Projection Operations (/platform/projections).

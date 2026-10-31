@@ -30,6 +30,7 @@ mod display_templates;
 mod item_list;
 mod item_page;
 mod list_page;
+mod observation_page;
 mod reference_records;
 mod reference_types;
 mod scope_list;
@@ -69,6 +70,7 @@ pub use list_page::{
     BlueprintRow, CategoryRow, ComponentRow, DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick,
     RefRecordRow, RefTypeRow, Search, Table, TemplateRow, TextFilter,
 };
+pub use observation_page::{ObservationPage, ReviewForm, observation_page};
 pub use reference_records::{
     RecordDraft, RefChoices, RefRecordCreateDialog, RefRecordEditDialog, RefRecordForms, ref_record_actions, ref_record_list,
     ref_record_page, ref_record_rows, ref_record_transitions,
@@ -89,6 +91,7 @@ pub const COMPONENTS: &[Component] = &[
     ScopeRowView,
     ScopePage,
     SyncBatchPage,
+    ObservationPage,
     AttentionPanel,
     PreviewDialog,
     ItemForm,
@@ -134,6 +137,10 @@ pub mod ids {
     #[derive(Id, Clone, Copy)]
     pub struct CatalogAddOptionDialogId;
     pub const ADD_OPTION_DIALOG: CatalogAddOptionDialogId = CatalogAddOptionDialogId;
+    /// A Source Observation's review form.
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogReviewId;
+    pub const REVIEW: CatalogReviewId = CatalogReviewId;
     #[derive(Id, Clone, Copy)]
     pub struct CatalogReorderId;
     pub const REORDER: CatalogReorderId = CatalogReorderId;

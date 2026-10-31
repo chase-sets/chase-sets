@@ -29,6 +29,7 @@
 //! | `GET /catalog/display-templates?...` and its writes | the display templates list and a template's page (`display_templates`) |
 //! | `GET /catalog/reference-types?...` and its writes | the reference types list and a type's page (`reference_types`) |
 //! | `GET /catalog/reference-records?...` and its writes | the reference records list and a record's page (`reference_records`) |
+//! | `GET /catalog/source-observations/{id}` and its review | a Source Observation (`observation`) |
 //!
 //! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
 //! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
@@ -53,6 +54,7 @@ pub mod display_templates;
 pub mod form;
 pub mod item;
 pub mod items;
+pub mod observation;
 pub mod reference_records;
 pub mod reference_types;
 pub mod scope;
@@ -435,6 +437,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = scopes::url::area(area, shared.clone());
     let area = scope::url::area(area, shared.clone());
     let area = coverage::url::area(area, shared.clone());
+    let area = observation::url::area(area, shared.clone());
     let area = sync_batches::url::area(area, shared.clone());
     let area = attention::url::area(area, shared.clone());
     let area = categories::url::area(area, shared.clone());
