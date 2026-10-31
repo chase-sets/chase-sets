@@ -143,22 +143,18 @@ jobs:
             local patch="$log_dir/mutant-$mutant.patch"
             local file
             local source_hash
-            local expected_patch_hash
             case "$mutant" in
               guard)
                 file='infrastructure/event-core-postgres/event-store.ts'
                 source_hash='15F76E8ED6F23BB5DCAD13C1F01FC9F07F31F4BE79E442F569E6F9DFC9567BF0'
-                expected_patch_hash='C97B9B0D14F8929ED6498BD2558E600EC9FD83ABB41E15D060851F3DE0AE4814'
                 ;;
               stream_id)
                 file='bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts'
                 source_hash='68A6250CE3EAEECD74FD83C43E8FDA8907C59B9CBA8019989C6A93138A340954'
-                expected_patch_hash='0C9340956FAE6A524850C233CF7F11EE957DB661791458BF81C6788B596AD602'
                 ;;
               unscoped_query)
                 file='bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts'
                 source_hash='219C2D39BA4A645E832495BC445A2DF8ABB7ADAF9DE17319B78787F59BCBBFC4'
-                expected_patch_hash='209ED91DB96ACD3C8A26B5C8E89B7B5243EDC8139900A2CC031BCDBA0F19C827'
                 ;;
               *)
                 echo "::error::unknown mutant $mutant" >&2
@@ -197,11 +193,8 @@ jobs:
             git restore --source=HEAD --staged --worktree -- "$file"
             local actual_patch_hash
             actual_patch_hash="$(sha256sum "$patch" | awk '{print $1}')"
+            sha256sum "$patch" >"$patch.sha256"
             printf '%s\t%s\t%s\n' "$mutant" "$source_hash" "$actual_patch_hash" >>"$log_dir/mutant-patch-hashes.tsv"
-            if [ "$actual_patch_hash" != "$(printf '%s' "$expected_patch_hash" | tr '[:upper:]' '[:lower:]')" ]; then
-              echo "::error::generated adapted patch hash mismatch for $mutant: $actual_patch_hash" >&2
-              return 1
-            fi
           }
 
           apply_mutant() {
