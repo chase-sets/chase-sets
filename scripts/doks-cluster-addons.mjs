@@ -177,14 +177,6 @@ export function planClusterAddons(options = {}) {
         pinned.ingressNginx.valuesFile,
         "--set-string",
         `${lbAnnotationKey}=${lbName}`,
-        ...(environment === "staging"
-          ? [
-              "--set-string",
-              "controller.config.error-log-path=/dev/stderr",
-              "--set-string",
-              "controller.config.error-log-level=error",
-            ]
-          : []),
         "--atomic",
         "--wait",
         "--timeout",
