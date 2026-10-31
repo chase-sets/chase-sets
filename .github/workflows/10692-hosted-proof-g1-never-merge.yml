@@ -33,7 +33,8 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       CHASE_SETS_LANE_MODE: "1"
-      PROBE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PROBE_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PROBE_HEAD_SHA: 4ca07dc05c9fe0e4d87803bb24a52ea23598187f
       PROBE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PROBE_GITHUB_SHA: ${{ github.sha }}
       PROBE_RUN_ID: ${{ github.run_id }}
@@ -44,6 +45,18 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
+      - name: Check out exact repair head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$PROBE_HEAD_SHA"
+          checked_out_head="$(git rev-parse HEAD)"
+          if [ "$checked_out_head" != "$PROBE_HEAD_SHA" ]; then
+            echo "::error::checked-out HEAD $checked_out_head differs from required repair head $PROBE_HEAD_SHA"
+            exit 1
+          fi
+          echo "checked_out_head=$checked_out_head"
+
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
           install: true
@@ -53,7 +66,7 @@ jobs:
         run: |
           set -u -o pipefail
 
-          log_dir="$RUNNER_TEMP/10692-hosted-proof-g1"
+          log_dir="$RUNNER_TEMP/10692-hosted-proof-g3"
           mkdir -p "$log_dir"
           exec > >(tee "$log_dir/probe-console.log") 2>&1
 
@@ -68,6 +81,7 @@ jobs:
             --no-file-parallelism
           )
 
+          echo "pr_head=$PROBE_PR_HEAD_SHA"
           echo "head=$PROBE_HEAD_SHA"
           echo "base=$PROBE_BASE_SHA"
           echo "merge_ref=$PROBE_GITHUB_SHA"
@@ -124,40 +138,87 @@ jobs:
             git show "HEAD:$1" | sha256sum | awk '{print $1}'
           }
 
+          write_mutant_patch() {
+            local mutant="$1"
+            local patch="$log_dir/mutant-$mutant.patch"
+            case "$mutant" in
+              guard)
+                cat >"$patch" <<'PATCH'
+          diff --git a/infrastructure/event-core-postgres/event-store.ts b/infrastructure/event-core-postgres/event-store.ts
+          index 2a6c72cf90..ed805d5401 100644
+          --- a/infrastructure/event-core-postgres/event-store.ts
+          +++ b/infrastructure/event-core-postgres/event-store.ts
+          @@ -1294,11 +1294,7 @@ function assertExpectedVersion(streamId: string, expectedVersion: ExpectedStream
+                return;
+              }
+
+          -    throw createEventStoreError("concurrency_conflict", "Expected no stream but stream already exists.", {
+          -      streamId,
+          -      expectedVersion,
+          -      currentVersion,
+          -    });
+          +    return; // probe mutant: expected-version/no-stream guard removed
+            }
+
+            if (expectedVersion !== currentVersion) {
+          PATCH
+                ;;
+              stream_id)
+                cat >"$patch" <<'PATCH'
+          diff --git a/bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts b/bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts
+          index d901c6b42c..e8b3f1e732 100644
+          --- a/bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts
+          +++ b/bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts
+          @@ -99,7 +99,7 @@ export function createAccountAppealRuntime(db: PgQueryable, eventStore: EventSto
+                assertAccountAppealFileCapability(capability);
+                assertSellerContext(capability, context);
+                return handler.commandHandler({
+          -        streamId: appealStreamId(action.appealableActionId),
+          +        streamId: `${appealStreamId(action.appealableActionId)}-probe-mutant`,
+                expectedVersion: "no_stream",
+                command: fileAccountAppeal(capability, action, input),
+                context,
+          PATCH
+                ;;
+              unscoped_query)
+                cat >"$patch" <<'PATCH'
+          diff --git a/bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts b/bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts
+          index 3a5f876219..1abe59ce51 100644
+          --- a/bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts
+          +++ b/bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts
+          @@ -1137,9 +1137,8 @@ describeDb("account appeal aggregate DB proof", () => {
+                 }>(
+                   `SELECT stream_version, event_type
+                      FROM event_store_events
+          -            WHERE stream_id = $1
+                     ORDER BY stream_version ASC`,
+          -          [streamId],
+          +          [],
+                 );
+                 expect(
+                   race.filter((entry) => entry.status === "fulfilled"),
+          PATCH
+                ;;
+              *)
+                echo "::error::unknown mutant $mutant" >&2
+                return 2
+                ;;
+            esac
+            sha256sum "$patch" | tee "$log_dir/mutant-$mutant.patch.sha256"
+          }
+
           apply_mutant() {
             local mutant="$1"
-            node --input-type=module - "$mutant" <<'NODE'
-          import { readFileSync, writeFileSync } from 'node:fs';
-
-          const mutant = process.argv[2];
-          const specs = {
-            guard: {
-              file: 'infrastructure/event-core-postgres/event-store.ts',
-              find: `throw createEventStoreError("concurrency_conflict", "Expected no stream but stream already exists.", {
-                streamId,
-                expectedVersion,
-                currentVersion,
-              });`,
-              replace: 'return; // probe mutant: expected-version/no-stream guard removed',
-            },
-            stream_id: {
-              file: 'bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts',
-              find: 'return handler.commandHandler({\n        streamId: appealStreamId(action.appealableActionId),\n        expectedVersion: "no_stream",',
-              replace: 'return handler.commandHandler({\n        streamId: `${appealStreamId(action.appealableActionId)}-probe-mutant`,\n        expectedVersion: "no_stream",',
-            },
-            unscoped_query: {
-              file: 'bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts',
-              find: 'WHERE stream_id = $1\n            ORDER BY stream_version ASC`,\n          [streamId],',
-              replace: 'ORDER BY stream_version ASC`,\n          [],',
-            },
-          };
-          const spec = specs[mutant];
-          if (!spec) throw new Error(`unknown mutant ${mutant}`);
-          const source = readFileSync(spec.file, 'utf8');
-          const occurrences = source.split(spec.find).length - 1;
-          if (occurrences !== 1) throw new Error(`${mutant}: expected one source match, found ${occurrences}`);
-          writeFileSync(spec.file, source.replace(spec.find, spec.replace));
-          NODE
+            local patch="$log_dir/mutant-$mutant.patch"
+            write_mutant_patch "$mutant"
+            if ! git apply --check --index "$patch"; then
+              echo "::error::exact mutant patch did not apply: $mutant" >&2
+              return 1
+            fi
+            if ! git apply --index "$patch"; then
+              echo "::error::exact mutant patch apply failed: $mutant" >&2
+              return 1
+            fi
           }
 
           run_mutant() {
@@ -180,16 +241,24 @@ jobs:
               local status
               status="$(run_focused "$log" 600)"
               extract_assertion "$log" "$assertion"
-              printf '%s\t%s\t%s\t%s\t%s\n' "$mutant" "$file" "$status" "$head_hash" "$(head -n 1 "$assertion")" >>"$log_dir/mutant-results.tsv"
+              local assertion_line
+              assertion_line="$(head -n 1 "$assertion")"
+              local patch_hash
+              patch_hash="$(awk '{print $1}' "$log_dir/mutant-$mutant.patch.sha256")"
+              printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$mutant" "$file" "$status" "$head_hash" "$assertion_line" "$patch_hash" >>"$log_dir/mutant-results.tsv"
               echo "mutant=$mutant exit=$status assertion=$(head -n 1 "$assertion")"
               if [ "$status" -eq 0 ] || [ "$(head -n 1 "$assertion")" = 'NO_ASSERTION_LINE_FOUND' ]; then overall=1; fi
+              if [ "$mutant" = 'unscoped_query' ] && ! grep -Eq 'account-appeal-aggregate\.db\.test\.ts:1157|toHaveLength|expected.*1' "$assertion"; then
+                echo "::error::unscoped-query mutant did not record the rows-length assertion at :1157 or equivalent" >&2
+                overall=1
+              fi
             else
               echo "::error::mutant substitution did not apply: $mutant" >&2
               cat "$log_dir/mutant-$mutant-apply.log" >&2
-              printf '%s\t%s\t%s\t%s\t%s\n' "$mutant" "$file" "apply_$apply_status" "$head_hash" "$(head -n 1 "$log_dir/mutant-$mutant-apply.log")" >>"$log_dir/mutant-results.tsv"
+              printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$mutant" "$file" "apply_$apply_status" "$head_hash" "$(head -n 1 "$log_dir/mutant-$mutant-apply.log")" "" >>"$log_dir/mutant-results.tsv"
               overall=1
             fi
-            git restore --source=HEAD --worktree -- "$file"
+            git restore --source=HEAD --staged --worktree -- "$file"
             local restored_hash
             restored_hash="$(sha256sum "$file" | awk '{print $1}')"
             printf '%s\t%s\n' "$mutant" "$restored_hash" >>"$log_dir/restored-hashes.tsv"
@@ -242,7 +311,7 @@ jobs:
           });
           const restored = new Map(lines('restored-hashes.tsv').map((line) => line.split('\t')));
           const mutants = lines('mutant-results.tsv').map((line) => {
-            const [name, file, exitStatus, headBlobSha256, assertionLine] = line.split('\t');
+            const [name, file, exitStatus, headBlobSha256, assertionLine, patchSha256] = line.split('\t');
             return {
               name,
               file,
@@ -250,6 +319,8 @@ jobs:
               exit_status: Number.isNaN(Number(exitStatus)) ? exitStatus : Number(exitStatus),
               assertion_line: assertionLine,
               mutation_diff: `mutant-${name}.diff`,
+              mutation_patch: `mutant-${name}.patch`,
+              mutation_patch_sha256: patchSha256 || null,
               head_blob_sha256: headBlobSha256,
               restored_byte_sha256: restored.get(name) ?? null,
             };
@@ -283,7 +354,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: 10692-hosted-proof-g1-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/10692-hosted-proof-g1
+          name: 10692-hosted-proof-g3-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/10692-hosted-proof-g3
           if-no-files-found: error
           retention-days: 14
