@@ -190,8 +190,11 @@ describe("provider connections real loader and owner exports", () => {
 
     await route();
 
-    const catalogRow = await screen.findByRole("listitem", { name: /catalog-provider/ });
-    expect(within(catalogRow).getByText("Stale")).toBeTruthy();
+    const catalogList = await screen.findByRole("list");
+    const catalogProvider = within(catalogList).getByText("catalog-provider", { exact: true });
+    const catalogRow = catalogProvider.closest('[role="listitem"]');
+    expect(catalogRow).not.toBeNull();
+    expect(within(catalogRow as HTMLElement).getByText("Stale", { exact: true })).toBeTruthy();
     expect(screen.queryByText("Fresh")).toBeNull();
     const pageSource = readFileSync(
       new URL(
