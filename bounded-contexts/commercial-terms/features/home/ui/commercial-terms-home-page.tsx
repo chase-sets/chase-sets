@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { formatBpsPercent, formatMoney, t } from "@chase-sets/localization";
 import {
@@ -30,10 +30,7 @@ import type {
   CommercialTermsSchedule,
   PublishedMarketplaceSalesFeeSchedule,
 } from "../integrations/admin-api-client";
-
-type CommercialTermCard =
-  | Readonly<{ kind: "schedule"; id: string; effectiveFrom: string; item: CommercialTermsSchedule }>
-  | Readonly<{ kind: "agreement"; id: string; effectiveFrom: string; item: CommercialAgreement }>;
+import type { CommercialTermsHome, CommercialTermsHomeTerm, CommercialTermsStartingTerms } from "../api/home-read";
 
 export type CommercialTermsCreateKind = "schedule" | "agreement";
 
@@ -91,93 +88,41 @@ function PublishedScheduleCard({ schedule }: Readonly<{ schedule: PublishedMarke
   );
 }
 
-function isActiveWindow(
-  item: Readonly<{ status: string; effective_from: string; effective_until: string | null }>,
-  now: string,
-) {
-  return (
-    item.status === "active" &&
-    item.effective_from <= now &&
-    (item.effective_until === null || item.effective_until > now)
-  );
+function termAttention(term: CommercialTermsHomeTerm) {
+  const date = dateOnly(term.phaseAt);
+  if (term.phase === "scheduled") return t("commercialTerms.features.home.effective", { date });
+  if (term.phase === "expiring") return t("commercialTerms.features.home.overrideExpires", { date });
+  return t("commercialTerms.features.home.effectiveSince", { date });
 }
 
-function activeScheduleFor(schedules: readonly CommercialTermsSchedule[], accountType: string | null, now: string) {
-  return schedules
-    .filter((item) => item.account_type === accountType && isActiveWindow(item, now))
-    .sort((left, right) => right.effective_from.localeCompare(left.effective_from))[0];
-}
-
-function orderedCards(
-  schedules: readonly CommercialTermsSchedule[],
-  agreements: readonly CommercialAgreement[],
-  now: string,
-): readonly CommercialTermCard[] {
-  return [
-    ...schedules.map(
-      (item): CommercialTermCard => ({
-        kind: "schedule",
-        id: item.schedule_id,
-        effectiveFrom: item.effective_from,
-        item,
-      }),
-    ),
-    ...agreements.map(
-      (item): CommercialTermCard => ({
-        kind: "agreement",
-        id: item.agreement_id,
-        effectiveFrom: item.effective_from,
-        item,
-      }),
-    ),
-  ]
-    .filter(({ item }) => item.status === "active" && (item.effective_until === null || item.effective_until > now))
-    .sort((left, right) => right.effectiveFrom.localeCompare(left.effectiveFrom) || left.id.localeCompare(right.id));
-}
-
-function cardAttention(card: CommercialTermCard, now: string) {
-  if (card.effectiveFrom > now) {
-    return t("commercialTerms.features.home.effective", { date: dateOnly(card.effectiveFrom) });
-  }
-  if (card.kind === "agreement" && card.item.effective_until && card.item.effective_until > now) {
-    return t("commercialTerms.features.home.overrideExpires", { date: dateOnly(card.item.effective_until) });
-  }
-  return t("commercialTerms.features.home.effectiveSince", { date: dateOnly(card.effectiveFrom) });
-}
-
-function statusTone(status: string, effectiveFrom: string, now: string): "success" | "warning" | "neutral" {
-  if (status !== "active") return "neutral";
-  return effectiveFrom > now ? "warning" : "success";
-}
-
-function CommercialTermCardView({ card, now }: Readonly<{ card: CommercialTermCard; now: string }>) {
-  const item = card.item;
+function CommercialTermCardView({ term }: Readonly<{ term: CommercialTermsHomeTerm }>) {
+  const item = term.item;
   const href =
-    card.kind === "schedule"
-      ? `/commerce/terms?schedule=${encodeURIComponent(card.id)}`
-      : `/commerce/terms?agreement=${encodeURIComponent(card.id)}`;
+    term.kind === "schedule"
+      ? `/commerce/terms?schedule=${encodeURIComponent(term.id)}`
+      : `/commerce/terms?agreement=${encodeURIComponent(term.id)}`;
   const subtitle =
-    card.kind === "schedule"
+    term.kind === "schedule"
       ? t("commercialTerms.features.home.scheduleFor", { accountType: item.account_type })
-      : accountLabel(card.item);
+      : accountLabel(term.item);
 
   return (
-    <Card data-commercial-term-id={card.id} elevation="elevated">
+    <Card data-commercial-term-id={term.id} elevation="elevated">
       <Card.Header>
         <Stack gap={1}>
-          <Badge tone={statusTone(item.status, item.effective_from, now)}>{item.status}</Badge>
+          <Badge tone={term.phase === "scheduled" ? "warning" : "success"}>{item.status}</Badge>
           <Card.Title>{item.label}</Card.Title>
           <Card.Description>{subtitle}</Card.Description>
-          {card.kind === "agreement" ? (
+          {term.kind === "agreement" ? (
             <Text size="sm" tone="secondary">
-              {card.item.account_id}
+              {term.item.account_id}
             </Text>
           ) : null}
         </Stack>
       </Card.Header>
       <Card.Body>
         <Stack gap={2}>
-          <Text weight="semibold">{cardAttention(card, now)}</Text>
+          <Text weight="semibold">{termAttention(term)}</Text>
           <Text size="sm" tone="secondary">
             {formatBpsPercent(item.marketplace_sales_fee_percentage_bps)} +{" "}
             {formatMoney(item.marketplace_sales_fee_fixed_amount, "USD")}
@@ -281,16 +226,14 @@ function TermsFields({
 }
 
 function comparisonRows(
-  active:
-    | Readonly<{
-        label: string;
-        marketplace_sales_fee_percentage_bps: number;
-        marketplace_sales_fee_fixed_amount: string;
-        shipping_allowance_percentage_bps: number;
-        effective_from: string;
-        effective_until: string | null;
-      }>
-    | undefined,
+  active: Readonly<{
+    label: string;
+    marketplace_sales_fee_percentage_bps: number;
+    marketplace_sales_fee_fixed_amount: string;
+    shipping_allowance_percentage_bps: number;
+    effective_from: string;
+    effective_until: string | null;
+  }> | null,
   candidate: Readonly<{
     label: string;
     marketplace_sales_fee_percentage_bps: number;
@@ -337,7 +280,7 @@ function ScheduleSheet({
   onClose,
 }: Readonly<{
   schedule: CommercialTermsSchedule;
-  activeSchedule?: CommercialTermsSchedule;
+  activeSchedule: CommercialTermsHome["scheduleComparison"];
   onClose: () => void;
 }>) {
   return (
@@ -488,19 +431,10 @@ function AgreementSheet({
 }
 
 function CreateScheduleSheet({
-  schedules,
-  now,
+  startingTerms,
   onClose,
-}: Readonly<{ schedules: readonly CommercialTermsSchedule[]; now: string; onClose: () => void }>) {
-  const seed = activeScheduleFor(schedules, "business", now) ?? {
-    label: t("commercialTerms.features.home.newSchedule"),
-    marketplace_sales_fee_percentage_bps: 850,
-    marketplace_sales_fee_fixed_amount: "0.10",
-    shipping_allowance_percentage_bps: 500,
-    status: "active",
-    effective_from: now,
-    effective_until: null,
-  };
+}: Readonly<{ startingTerms: CommercialTermsStartingTerms; onClose: () => void }>) {
+  const seed = { ...startingTerms, label: startingTerms.label ?? t("commercialTerms.features.home.newSchedule") };
   return (
     <ResponsiveEditSheet
       open
@@ -529,17 +463,24 @@ function CreateScheduleSheet({
   );
 }
 
+function overrideStartingTerms(
+  startingTerms: CommercialTermsHome["startingTerms"]["override"],
+  accountType: string | undefined,
+) {
+  return accountType === "personal" || accountType === "business" || accountType === "enterprise"
+    ? startingTerms[accountType]
+    : startingTerms.default;
+}
+
 function CreateAgreementSheet({
-  schedules,
+  startingTerms,
   accounts,
   initialAccountId,
-  now,
   onClose,
 }: Readonly<{
-  schedules: readonly CommercialTermsSchedule[];
+  startingTerms: CommercialTermsHome["startingTerms"]["override"];
   accounts: readonly CommercialTermsAccountOption[];
   initialAccountId?: string | null;
-  now: string;
   onClose: () => void;
 }>) {
   const firstAccountId = accounts.some((item) => item.accountId === initialAccountId)
@@ -547,15 +488,10 @@ function CreateAgreementSheet({
     : (accounts[0]?.accountId ?? "");
   const [accountId, setAccountId] = useState(firstAccountId);
   const account = accounts.find((item) => item.accountId === accountId);
-  const schedule = activeScheduleFor(schedules, account?.accountType ?? null, now);
-  const seed = schedule ?? {
-    label: t("commercialTerms.features.home.newOverride"),
-    marketplace_sales_fee_percentage_bps: 850,
-    marketplace_sales_fee_fixed_amount: "0.10",
-    shipping_allowance_percentage_bps: 500,
-    status: "active",
-    effective_from: now,
-    effective_until: null,
+  const accountStartingTerms = overrideStartingTerms(startingTerms, account?.accountType);
+  const seed = {
+    ...accountStartingTerms,
+    label: accountStartingTerms.label ?? t("commercialTerms.features.home.newOverride"),
   };
 
   return (
@@ -595,39 +531,27 @@ function CreateAgreementSheet({
 
 export function CommercialTermsHomePage({
   publishedSchedule,
-  schedules,
-  agreements,
+  home,
   accounts,
   selectedSchedule,
   selectedAgreement,
   createKind,
   initialAccountId,
-  now = new Date().toISOString(),
   errorMessage,
   loadErrorMessage,
 }: Readonly<{
   publishedSchedule: PublishedMarketplaceSalesFeeSchedule | null;
-  schedules: readonly CommercialTermsSchedule[];
-  agreements: readonly CommercialAgreement[];
+  home: CommercialTermsHome | null;
   accounts: readonly CommercialTermsAccountOption[];
   selectedSchedule?: CommercialTermsSchedule | null;
   selectedAgreement?: CommercialAgreement | null;
   createKind?: CommercialTermsCreateKind | null;
   initialAccountId?: string | null;
-  now?: string;
   errorMessage?: string | null;
   loadErrorMessage?: string | null;
 }>) {
   const navigate = useNavigate();
-  const cards = useMemo(() => orderedCards(schedules, agreements, now), [agreements, now, schedules]);
   const closeSheet = () => navigate("/commerce/terms");
-  const selectedActiveSchedule = selectedSchedule
-    ? activeScheduleFor(
-        schedules.filter((item) => item.schedule_id !== selectedSchedule.schedule_id),
-        selectedSchedule.account_type,
-        now,
-      )
-    : undefined;
 
   return (
     <Page>
@@ -660,25 +584,30 @@ export function CommercialTermsHomePage({
       {publishedSchedule ? <PublishedScheduleCard schedule={publishedSchedule} /> : null}
       <PageSection title={t("commercialTerms.features.home.activeAndScheduled")}>
         <AutoGrid minItemWidth="md" gap={3}>
-          {cards.map((card) => (
-            <CommercialTermCardView key={`${card.kind}:${card.id}`} card={card} now={now} />
+          {(home?.activeTerms ?? []).map((term) => (
+            <CommercialTermCardView key={`${term.kind}:${term.id}`} term={term} />
           ))}
         </AutoGrid>
       </PageSection>
 
       {selectedSchedule ? (
-        <ScheduleSheet schedule={selectedSchedule} activeSchedule={selectedActiveSchedule} onClose={closeSheet} />
+        <ScheduleSheet
+          schedule={selectedSchedule}
+          activeSchedule={home?.scheduleComparison ?? null}
+          onClose={closeSheet}
+        />
       ) : null}
       {selectedAgreement ? (
         <AgreementSheet agreement={selectedAgreement} publishedSchedule={publishedSchedule} onClose={closeSheet} />
       ) : null}
-      {createKind === "schedule" ? <CreateScheduleSheet schedules={schedules} now={now} onClose={closeSheet} /> : null}
-      {createKind === "agreement" ? (
+      {createKind === "schedule" && home ? (
+        <CreateScheduleSheet startingTerms={home.startingTerms.schedule} onClose={closeSheet} />
+      ) : null}
+      {createKind === "agreement" && home ? (
         <CreateAgreementSheet
-          schedules={schedules}
+          startingTerms={home.startingTerms.override}
           accounts={accounts}
           initialAccountId={initialAccountId}
-          now={now}
           onClose={closeSheet}
         />
       ) : null}

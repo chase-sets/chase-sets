@@ -4,6 +4,7 @@ import type { CommercialTermsServices } from "./support/runtime-support/services
 import { createAgreementRoutes } from "./features/agreements/api/route";
 import { createAuthenticityFeeRoutes } from "./features/authenticity-fee/api/route";
 import { createCheckoutProcessingFeeRoutes } from "./features/checkout-processing-fee/api/route";
+import { createHomeRoutes } from "./features/home/api/route";
 import { createResolutionRoutes } from "./features/resolutions/api/route";
 import { createScheduleRoutes } from "./features/schedules/api/route";
 import { createPublicMarketplaceSalesFeeScheduleRoutes } from "./features/marketplace-sales-fee/api/route";
@@ -12,6 +13,7 @@ export type CommercialTermsApiEnv = AuthenticatedApiEnv;
 
 export function buildCommercialTermsApi(services: CommercialTermsServices) {
   const app = new Hono<CommercialTermsApiEnv>();
+  app.route("/home", createHomeRoutes(services.home));
   app.route("/schedules", createScheduleRoutes(services.schedules, services.resolutions));
   app.route("/agreements", createAgreementRoutes(services.agreements));
   app.route("/resolutions", createResolutionRoutes(services.resolutions));

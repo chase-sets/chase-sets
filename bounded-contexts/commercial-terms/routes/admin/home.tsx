@@ -43,8 +43,7 @@ function homeQueryState(request: Request) {
 function unavailableHome(request: Request, error: unknown) {
   return {
     publishedSchedule: null,
-    schedules: [],
-    agreements: [],
+    home: null,
     accounts: [],
     selectedSchedule: null,
     selectedAgreement: null,
@@ -62,19 +61,16 @@ export const loader = defineResourceRoute({
     const api = createCommercialTermsRequestApiClient(request);
     const scheduleId = url.searchParams.get("schedule");
     const agreementId = url.searchParams.get("agreement");
-    const [scheduleList, agreementList, accounts, selectedSchedule, selectedAgreement, publishedSchedule] =
-      await Promise.all([
-        api.listSchedules("limit=250&offset=0"),
-        api.listAgreements("limit=250&offset=0"),
-        api.listAccountOptions(),
-        scheduleId ? api.getSchedule(scheduleId) : null,
-        agreementId ? api.getAgreement(agreementId) : null,
-        createCommercialTermsPublicRequestApiClient(request).getMarketplaceSalesFeeSchedule(),
-      ]);
+    const [home, accounts, selectedSchedule, selectedAgreement, publishedSchedule] = await Promise.all([
+      api.getHome(scheduleId),
+      api.listAccountOptions(),
+      scheduleId ? api.getSchedule(scheduleId) : null,
+      agreementId ? api.getAgreement(agreementId) : null,
+      createCommercialTermsPublicRequestApiClient(request).getMarketplaceSalesFeeSchedule(),
+    ]);
     return {
       publishedSchedule,
-      schedules: scheduleList.items,
-      agreements: agreementList.items,
+      home,
       accounts,
       selectedSchedule,
       selectedAgreement,
@@ -131,8 +127,7 @@ export default function CommercialTermsHomeRoute() {
   return (
     <CommercialTermsHomePage
       publishedSchedule={data.publishedSchedule}
-      schedules={data.schedules}
-      agreements={data.agreements}
+      home={data.home}
       accounts={data.accounts}
       selectedSchedule={data.selectedSchedule}
       selectedAgreement={data.selectedAgreement}
