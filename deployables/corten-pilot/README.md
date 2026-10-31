@@ -159,6 +159,7 @@ cd ..
 corten check                                    # cargo fmt, corten fmt, clippy -D warnings, the scripts' types, cargo test
 node --import tsx scripts/export.mjs --check    # the exported text, nav, tokens and defaults match the React sources
 node scripts/smoke-<screen>.mjs                 # a screen in a browser, with and without JavaScript (each script's header says its arguments)
+node scripts/sweep.mjs <app> <pilot-url> [state] # every page at 390 px without JavaScript and 1280 px with it: overflow, failures and console errors
 node scripts/measure.mjs screen=<screen> marketplace=http://localhost:7753 pilot=http://localhost:7792
 ```
 
