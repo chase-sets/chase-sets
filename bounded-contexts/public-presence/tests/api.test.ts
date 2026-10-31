@@ -72,6 +72,7 @@ function createServices(overrides: Partial<WaitlistServices> = {}) {
     })),
     getCampaignChannelAttribution: vi.fn(async () => []),
     getWaveOneAdmissionBarStatus: vi.fn(async () => ({
+      goals: { minTotalSignups: 777, minQualifiedSellers: 77, minQualifiedSellersPerGame: 7 },
       totalSignups: 0,
       qualifiedSellerCount: 0,
       totalSignupsMet: false,
@@ -406,6 +407,16 @@ describe("public presence API", () => {
     expect(body).toHaveProperty("quality");
     expect(body).toHaveProperty("channelAttribution");
     expect(body).toHaveProperty("admissionBar");
+    expect(body.admissionBar).toMatchObject({
+      goals: { minTotalSignups: 777, minQualifiedSellers: 77, minQualifiedSellersPerGame: 7 },
+      totalSignups: 0,
+      qualifiedSellerCount: 0,
+      totalSignupsMet: false,
+      qualifiedSellersMet: false,
+      gameCoverage: [],
+      allGamesCovered: false,
+      admitted: false,
+    });
   });
 
   it("returns the command-owned wave admission and rollout exposure snapshot", async () => {

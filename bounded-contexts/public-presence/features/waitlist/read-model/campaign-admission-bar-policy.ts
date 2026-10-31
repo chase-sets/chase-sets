@@ -17,7 +17,13 @@ import { WAITLIST_GAMES } from "../domain/common";
  * campaign data suggests better ones; each field documents the reasoning it
  * was set with.
  */
-export const WAVE_ONE_ADMISSION_BAR = Object.freeze({
+export type WaveOneAdmissionBarGoals = Readonly<{
+  minTotalSignups: number;
+  minQualifiedSellers: number;
+  minQualifiedSellersPerGame: number;
+}>;
+
+export const WAVE_ONE_ADMISSION_BAR: WaveOneAdmissionBarGoals = Object.freeze({
   /**
    * Total qualified sellers (see definition above) required before wave 1 is
    * considered to have real supply behind it. Matches the issue's own
@@ -52,6 +58,7 @@ export type WaveOneGameCoverage = Readonly<{
 }>;
 
 export type WaveOneAdmissionBarStatus = Readonly<{
+  goals: WaveOneAdmissionBarGoals;
   totalSignups: number;
   qualifiedSellerCount: number;
   totalSignupsMet: boolean;
@@ -86,6 +93,7 @@ export function evaluateWaveOneAdmissionBar(
   const qualifiedSellersMet = input.qualifiedSellerCount >= WAVE_ONE_ADMISSION_BAR.minQualifiedSellers;
 
   return {
+    goals: WAVE_ONE_ADMISSION_BAR,
     totalSignups: input.totalSignups,
     qualifiedSellerCount: input.qualifiedSellerCount,
     totalSignupsMet,
