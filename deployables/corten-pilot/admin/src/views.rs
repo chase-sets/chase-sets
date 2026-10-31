@@ -171,6 +171,26 @@ pub fn admin_web(path: &str) -> Option<Uri> {
     format!("{}{path}", crate::app::admin_web_origin()).parse().ok()
 }
 
+/// The operator's zone, for `t.date_time(..).zone(&here)`: Corten writes times in UTC unless told,
+/// and takes the zone as its `Zone` (todd-skelton/corten#387 is to give one for the visitor).
+#[derive(Clone, Debug)]
+pub struct Here(pub jiff::tz::TimeZone);
+
+impl corten::i18n::Zone for Here {
+    fn offset(&self, at: std::time::SystemTime) -> i32 {
+        jiff::Timestamp::try_from(at).map_or(0, |at| self.0.to_offset(at).seconds())
+    }
+}
+
+/// Where an admin-web `path` (query and all) goes: the pilot's own page when it serves one there
+/// (every page the pilot ports keeps admin-web's path), or admin-web's.
+pub fn link_to(req: &Req, path: &str) -> Option<String> {
+    match corten::Local::parse(path) {
+        Some(local) if req.serves(&local) => Some(local.to_string()),
+        _ => admin_web(path).map(|uri| uri.to_string()),
+    }
+}
+
 /// The list, and the selected policy's sheet.
 pub fn page<'a>(t: Msg, p: Pilot, screen: &'a Screen, forms: Forms) -> impl Render + 'a {
     let now = now_iso();

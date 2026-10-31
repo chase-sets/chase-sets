@@ -145,6 +145,7 @@ pub fn app(config: Config) -> App {
         .area(|area| crate::providers::area(area, shared.clone()))
         .area(|area| crate::insights::area(area, shared.clone()))
         .area(|area| crate::insights::ops::area(area, shared.clone()))
+        .area(|area| crate::policy_console::area(area, shared.clone()))
         .area(|area| catalog::area(area, shared.clone()))
         .area(|area| crate::access::area(area, shared.clone()))
         .area(|area| crate::reported::area(area, shared.clone()))

@@ -13,6 +13,7 @@ mod form;
 mod growth;
 mod insights;
 mod operations;
+mod policy_console;
 mod projections;
 mod providers;
 mod reported;

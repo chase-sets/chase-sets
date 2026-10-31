@@ -128,6 +128,10 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["provider-connections.view"])
         } else if cookie.contains("chase_sets_session=insights-viewer") {
             actor(&["insights-dashboards.view"])
+        } else if cookie.contains("chase_sets_session=policy-viewer") {
+            actor(&["platform-policy.view"])
+        } else if cookie.contains("chase_sets_session=policy-manager") {
+            actor(&["platform-policy.view", "platform-policy.manage"])
         } else if cookie.contains("chase_sets_session=shopping-viewer") {
             actor(&["google-shopping.view", "google-shopping.manage", "catalog.view"])
         } else if cookie.contains("chase_sets_session=payouts-viewer") {
@@ -200,6 +204,27 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             );
         }
         return commercial_terms(&method, rest, uri.query().unwrap_or_default(), &body);
+    }
+    if let Some(rest) = uri.path().strip_prefix("/api/platform/policy-console") {
+        return policy_console(&method, rest, &body);
+    }
+    if uri.path() == "/api/platform/public-doc-reviews" {
+        return Json(json!({ "items": [{ "locale": "en", "articleSlug": "fees", "articleTitle": "Seller fees",
+            "articleHref": "/help/selling/fees", "policyKey": "settlement.payout-fee", "policyDocumentId": "pol_2",
+            "policyRevisionEventId": "evt_1", "flaggedAt": "2026-10-20T00:00:00.000Z", "ageDays": 11 }] }))
+        .into_response();
+    }
+    if let Some(rest) = uri.path().strip_prefix("/api/platform/public-doc-reviews/") {
+        return if method == Method::POST && rest == "en/fees/settlement.payout-fee/confirm" {
+            Json(json!({ "confirmed": true })).into_response()
+        } else {
+            refusal(StatusCode::NOT_FOUND, "not_found", "No review is waiting for that article.")
+        };
+    }
+    if uri.path() == "/api/platform/commercial-terms-attention" {
+        return Json(json!({ "items": [{ "id": "schedule:cts_1:upcoming", "kind": "upcoming-schedule", "label": "Standard seller terms",
+            "detail": "Effective 2026-11-15", "attentionAt": "2026-11-15T00:00:00.000Z", "href": "/commerce/terms?schedule=cts_1" }] }))
+        .into_response();
     }
     if let Some(rest) = uri.path().strip_prefix("/api/platform/insights/ops/") {
         return ops_dashboard(rest, uri.query().unwrap_or_default());
@@ -5932,6 +5957,124 @@ async fn the_nav_links_every_page_the_pilot_serves_to_the_pilot() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"href="/platform/insights/offer-economics" aria-current="page""#), "{html}");
     assert!(!html.contains("localhost:7752/platform/insights/offer-economics"), "{html}");
+}
+
+/// Platform Operations' policy console: two contexts' policies (one on its compiled default), a
+/// policy with a scheduled revision and its history, and revisions that the API refuses when the
+/// value is negative.
+fn policy_console(method: &Method, rest: &str, body: &str) -> Response {
+    let current = json!({ "source": "policy", "documentId": "pol_1", "status": "active", "value": { "maximumDays": 14 },
+        "effectiveFrom": "2026-07-14T00:00:00.000Z", "effectiveUntil": null });
+    match (method.clone(), rest) {
+        (Method::GET, "") => Json(json!({ "commercialTermsSchedulesHref": "/commerce/terms", "items": [
+            { "policyKey": "settlement.clearance-window", "contextName": "settlement", "schemaSummary": "{ maximumDays }",
+              "status": "active", "value": { "maximumDays": 14 }, "effectiveFrom": "2026-07-14T00:00:00.000Z", "effectiveUntil": null,
+              "updatedAt": "2026-10-29T21:55:36.532Z" },
+            { "policyKey": "platform-operations.rate-limits", "contextName": "platform-operations", "schemaSummary": "{ perMinute }",
+              "status": "fallback", "value": { "perMinute": 60 }, "effectiveFrom": "", "effectiveUntil": null, "updatedAt": "" },
+        ] }))
+        .into_response(),
+        (Method::GET, "/settlement.clearance-window") => Json(json!({
+            "policyKey": "settlement.clearance-window", "contextName": "settlement", "schemaSummary": "{ maximumDays }",
+            "current": current,
+            "upcoming": [{ "documentId": "pol_9", "status": "active", "value": { "maximumDays": 10 },
+                "effectiveFrom": "2026-12-01T06:00:00.000Z", "effectiveUntil": null }],
+        }))
+        .into_response(),
+        (Method::GET, "/settlement.clearance-window/documents/pol_1") => Json(json!({ "document_id": "pol_1", "history": [
+            { "history_id": "h_1", "event_type": "platform-policy.document.created", "actor_user_id": "usr_admin", "status": "active",
+              "effective_from": "2026-07-14T00:00:00.000Z", "effective_until": null, "recorded_at": "2026-07-13T18:30:00.000Z" },
+        ] }))
+        .into_response(),
+        (Method::POST, "/settlement.clearance-window/revisions") => {
+            let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            if sent["value"]["maximumDays"].as_i64().is_some_and(|d| d < 0) {
+                refusal(StatusCode::BAD_REQUEST, "validation_failed", "maximumDays must be at least 0.")
+            } else {
+                (StatusCode::CREATED, Json(json!({ "id": "pol_10", "version": 2, "scheduled": true }))).into_response()
+            }
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[tokio::test]
+async fn the_policy_console_lists_by_context_and_a_reader_cannot_write() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/platform/policy-console", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, html) = pilot.send(get("/platform/policy-console", Some("policy-viewer; corten-zone=America/Chicago"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Policy Console | Chase Sets Admin"), "{html}");
+    let (operations, settlement) = (html.find(">Platform Operations<").unwrap(), html.find(">Settlement<").unwrap());
+    assert!(operations < settlement, "the contexts in name order: {html}");
+    assert!(html.contains(r#"href="/platform/policy-console/settlement.clearance-window""#), "{html}");
+    assert!(html.contains("Fallback (compiled default)") && html.contains(">Not set<"), "{html}");
+    assert!(html.contains("Oct 29, 2026, 4:55 PM"), "a time in the operator's zone: {html}");
+    assert!(html.contains(r#"href="/commerce/terms?schedule=cts_1""#), "the attention link is the pilot's terms page: {html}");
+    assert!(html.contains("Seller fees") && html.contains("11 days"), "{html}");
+    assert!(!html.contains("Confirm current"), "a viewer cannot confirm: {html}");
+    let (status, _, _) = pilot.send(post_as("policy-viewer", "/platform/policy-console", "locale=en", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "nor post");
+
+    let (_, _, html) = pilot.send(get("/platform/policy-console", Some("policy-manager"))).await;
+    assert!(html.contains("Confirm current"), "{html}");
+    let confirm = "locale=en&articleSlug=fees&policyKey=settlement.payout-fee";
+    let (status, headers, _) = pilot.send(post_as("policy-manager", "/platform/policy-console", confirm, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/platform/policy-console"));
+    assert!(
+        pilot
+            .calls_to_path("/api/platform/public-doc-reviews/en/fees/settlement.payout-fee/confirm")
+            .iter()
+            .any(|c| c.method == Method::POST),
+        "the confirmation was sent"
+    );
+    let (status, _, html) =
+        pilot.send(post_as("policy-manager", "/platform/policy-console", "locale=en&articleSlug=gone&policyKey=x", false)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert!(html.contains("No review is waiting for that article."), "the refusal on the console: {html}");
+}
+
+#[tokio::test]
+async fn a_policy_revision_is_sent_in_the_operators_zone_and_a_refusal_keeps_what_was_typed() {
+    let pilot = Pilot::new().await;
+    let page = "/platform/policy-console/settlement.clearance-window";
+    let (status, _, html) = pilot.send(get(page, Some("policy-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>settlement.clearance-window</title>"), "{html}");
+    assert!(html.contains("Scheduled for Dec 1, 2026, 6:00 AM") && html.contains("platform-policy.document.created"), "{html}");
+    assert!(!html.contains("<textarea"), "a viewer has no form: {html}");
+
+    let session = "policy-manager; corten-zone=America/Chicago";
+    let (_, _, html) = pilot.send(get(page, Some(session))).await;
+    assert!(html.contains("Scheduled for Dec 1, 2026, 12:00 AM"), "in Chicago: {html}");
+    assert!(html.contains("&quot;maximumDays&quot;: 14"), "the value, indented, to edit: {html}");
+    let revise = "value=%7B%22maximumDays%22%3A10%7D&status=active&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=";
+    for script in [false, true] {
+        let (status, _, body) = pilot.send(post_as(session, page, revise, script)).await;
+        let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
+        assert_eq!(status, expected, "{body}");
+    }
+    let sent = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions");
+    let body: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(
+        body,
+        json!({ "value": { "maximumDays": 10 }, "status": "active", "effectiveFrom": "2026-12-01T06:00:00Z", "effectiveUntil": null }),
+        "midnight in Chicago as its instant"
+    );
+
+    let (status, _, html) = pilot.send(post_as(session, page, "value=%7Bnope&status=inactive", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("The value must be valid JSON.") && html.contains(">{nope</textarea>"), "{html}");
+    assert!(html.contains(r#"<option value="inactive" selected>"#), "the status as chosen: {html}");
+    let calls = pilot.calls_to_path("/api/platform/policy-console/settlement.clearance-window/revisions").len();
+    assert_eq!(calls, 2, "nothing sent for JSON that does not read");
+
+    let negative = "value=%7B%22maximumDays%22%3A-1%7D&status=active&effectiveFrom=2026-12-01T00%3A00";
+    let (status, _, html) = pilot.send(post_as(session, page, negative, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("maximumDays must be at least 0.") && html.contains(r#"value="2026-12-01T00:00""#), "{html}");
 }
 
 /// Platform Operations' ops dashboard: two days of GMV, one top item without a title, and a

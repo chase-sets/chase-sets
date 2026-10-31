@@ -114,6 +114,17 @@ rules! {
     SupportView => "support.view";
 }
 
+/// Platform > Policy Console: reading needs `platform-policy.view`, a revision or a review's
+/// confirmation `platform-policy.manage`, as the API's routes ask.
+#[derive(Clone, Debug, Hash)]
+pub struct PolicyAccess;
+
+impl Rule for PolicyAccess {
+    fn permission(method: &Method) -> &'static str {
+        if method.is_safe() { "platform-policy.view" } else { "platform-policy.manage" }
+    }
+}
+
 /// Support > Platform Feedback: reading needs `platform-feedback.view`, writing
 /// `platform-feedback.manage` (the export's `platform-feedback.export` is checked by its handler).
 #[derive(Clone, Debug, Hash)]

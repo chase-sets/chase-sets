@@ -1,19 +1,10 @@
-use corten::{Local, prelude::*};
+use corten::prelude::*;
 
-use super::admin_web;
+use super::{admin_web, link_to};
 use crate::{
     auth::{self, NavItem, Viewer},
     text::Pilot,
 };
-
-/// Where admin-web's `path` goes: the pilot's own page when it serves one there (every page the
-/// pilot ports keeps admin-web's path), or admin-web's.
-fn link_to(req: &Req, path: &str) -> Option<String> {
-    match Local::parse(path) {
-        Some(local) if req.serves(&local) => Some(local.to_string()),
-        _ => admin_web(path).map(|uri| uri.to_string()),
-    }
-}
 
 /// Where a nav entry goes.
 fn link(req: &Req, section: &str, item: &NavItem) -> Option<String> {

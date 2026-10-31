@@ -217,7 +217,8 @@ pub struct PromoScreen {
     pub now: Timestamp,
 }
 
-fn zone_of(zone: Option<ClientZone>) -> TimeZone {
+/// The operator's zone, or UTC when the browser has not said.
+pub fn zone_of(zone: Option<ClientZone>) -> TimeZone {
     zone.and_then(|ClientZone(name)| TimeZone::get(&name).ok()).unwrap_or(TimeZone::UTC)
 }
 
