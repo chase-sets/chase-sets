@@ -130,7 +130,7 @@ Access coverage: access:accounts-reactivate
 Access coverage: access:accounts-close-terminal
 Access coverage: access:accounts-badge-founding-add-remove
 Access coverage: access:accounts-badge-trusted-seller-add-remove
-Access coverage: access:accounts-badge-manual-payout-review-add-remove
+Access coverage: access:accounts-payout-review-hold-place-release
 Access coverage: access:users-profile-edit
 Access coverage: access:users-suspend
 Access coverage: access:users-reactivate

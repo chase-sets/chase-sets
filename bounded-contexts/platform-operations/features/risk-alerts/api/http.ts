@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { RiskAlertAction } from "./contracts";
-import type { RiskAlertServices } from "./runtime";
+import { RiskAlertNotFoundError, type RiskAlertServices } from "./runtime";
 
 function requireActor(c: { get(key: "actor"): AuthenticatedApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -76,6 +76,16 @@ export function createRiskAlertRoutes(services: RiskAlertServices) {
   app.post("/:alertId/actions", async (c) => {
     const access = requireActor(c);
     if (access.response) return access.response;
+    const requestedAction = await c.req.raw
+      .clone()
+      .json()
+      .catch(() => ({}));
+    if (
+      requestedAction.action === "request-manual-payout-review" &&
+      !access.actor.permissions.includes("payout-review-holds.manage")
+    ) {
+      return c.json({ error: { code: "authorization_forbidden", message: t("experience.api.forbidden") } }, 403);
+    }
     const context = c.get("context");
     if (!context) {
       return c.json(
@@ -91,11 +101,15 @@ export function createRiskAlertRoutes(services: RiskAlertServices) {
           action: normalizeAction(body.action),
           note: typeof body.note === "string" && body.note.trim() ? body.note.trim() : null,
           operatorUserId: access.actor.userId,
+          ...(body.action === "request-manual-payout-review" ? { actorPermissions: access.actor.permissions } : {}),
         },
         context,
       );
       return c.json({ id: result.actionId, recordedAt: result.recordedAt });
     } catch (error) {
+      if (error instanceof RiskAlertNotFoundError) {
+        return c.json({ error: { code: "not_found", message: t("experience.api.reported.content.not.found") } }, 404);
+      }
       return c.json(
         { error: { code: "validation_failed", message: error instanceof Error ? error.message : String(error) } },
         400,

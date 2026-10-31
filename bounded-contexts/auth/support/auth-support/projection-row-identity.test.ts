@@ -376,6 +376,10 @@ describeDb("auth projection row identity", () => {
             [membershipId],
           );
           expect(result.rows).toHaveLength(1);
+          expect(result.rows[0]!.role_permissions).toEqual(ROLE_PERMISSIONS[roleKey as keyof typeof ROLE_PERMISSIONS]);
+          expect(result.rows[0]!.role_permissions.filter((key) => key === "payout-review-holds.manage")).toEqual(
+            roleKey === "platform-admin" ? ["payout-review-holds.manage"] : [],
+          );
           const pricing = result.rows[0]!.role_permissions.filter((key) => key.startsWith("pricing.")).sort();
           expect(pricing).toEqual(
             roleKey === "platform-admin"

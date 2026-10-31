@@ -331,7 +331,7 @@ describe("Terms reconciliation with ratified decisions and shipped controls", ()
       for (const fragment of row.sourceFragments) expect(cited!.text, row.proposition).toContain(fragment);
     }
     expect(refs).toEqual([
-      `${settlementGlossaryPath}:127-135,158-166,168-176,178-186`,
+      `${settlementGlossaryPath}:131-139,162-170,172-180,182-190`,
       `${walletAdjustmentAdrPath}:70-82`,
     ]);
     expect(section.reviewManifest.assumptions[0]!.evidenceRef).toBe(
@@ -344,7 +344,7 @@ describe("Terms reconciliation with ratified decisions and shipped controls", ()
     const entrySpans = negativeBalanceAuthorityPropositions
       .filter(({ sourcePath }) => sourcePath === settlementGlossaryPath)
       .map(({ heading }) => markdownEntrySpan(settlementGlossaryPath, heading));
-    for (const staleRange of ["149", "152-170", "152-159", "162-170", "172-180"]) {
+    for (const staleRange of ["149", "152-170", "152-159", "127-135", "158-166", "168-176", "178-186"]) {
       expect(entrySpans).not.toContain(staleRange);
     }
     expect(section.draftText).not.toMatch(/Creating or increasing a Negative Balance, and any Wallet Adjustment/);

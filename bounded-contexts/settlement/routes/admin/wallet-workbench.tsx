@@ -9,6 +9,7 @@ import {
   type SettlementWalletAdjustmentPreview,
   type SettlementWalletAdjustmentRow,
   type SettlementWalletRow,
+  type SettlementPayoutReviewHold,
 } from "../../support/request-support/api-client";
 import { describeWalletAdjustmentFlowError } from "../../support/request-support/wallet-adjustment-flow-error";
 import {
@@ -23,6 +24,10 @@ import {
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+export const PAYOUT_REVIEW_HOLD_FORM_INTENTS = {
+  place: "place-payout-review-hold",
+  release: "release-payout-review-hold",
+} as const;
 
 function parseLimit(value: string | null): number {
   if (!value) {
@@ -61,6 +66,7 @@ type LoaderData = Readonly<{
   ledger: { items: readonly SettlementLedgerEntryRow[]; total: number };
   ledgerFilters: Readonly<{ limit: number; offset: number }>;
   marketplaceOrigin: string | null;
+  payoutReviewHold: SettlementPayoutReviewHold | null;
 }>;
 
 export async function loader({ request, params }: LoaderFunctionArgs): Promise<LoaderData> {
@@ -81,6 +87,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<L
 
   const emptyAdjustments = { items: [] as readonly SettlementWalletAdjustmentRow[], total: 0 };
   const emptyLedger = { items: [] as readonly SettlementLedgerEntryRow[], total: 0 };
+  let payoutReviewHold: SettlementPayoutReviewHold | null = null;
   const adjustmentsFilters = {
     limit: adjustmentsLimit,
     offset: adjustmentsOffset,
@@ -109,6 +116,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<L
       ledger: emptyLedger,
       ledgerFilters,
       marketplaceOrigin,
+      payoutReviewHold,
     };
   }
 
@@ -123,6 +131,11 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<L
   }).toString();
 
   try {
+    try {
+      payoutReviewHold = await settlementApi.getPayoutReviewHold(accountId);
+    } catch {
+      // The panel is optional for actors without payout-review-holds.manage.
+    }
     const [adjustments, ledger] = await Promise.all([
       settlementApi.listWalletAdjustmentAccountHistory(accountId, adjustmentsQuery),
       settlementApi.listWalletAdjustmentAccountLedger(accountId, ledgerQuery),
@@ -138,6 +151,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<L
       ledger: { items: ledger.items ?? [], total: ledger.total ?? (ledger.items ?? []).length },
       ledgerFilters,
       marketplaceOrigin,
+      payoutReviewHold,
     };
   } catch {
     return {
@@ -150,6 +164,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<L
       ledger: emptyLedger,
       ledgerFilters,
       marketplaceOrigin,
+      payoutReviewHold,
     };
   }
 }
@@ -161,6 +176,42 @@ function optionalText(value: FormDataEntryValue | null): string | null {
 
 export const action = defineFormAction({
   intents: {
+    [PAYOUT_REVIEW_HOLD_FORM_INTENTS.place]: async ({ request, params, formData, intent }) => {
+      const reason = String(formData.get("reason") ?? "");
+      try {
+        const result = await createSettlementRequestApiClient(request).placePayoutReviewHold(params.accountId!, {
+          reason,
+        });
+        return { intent, holdReason: reason, holdResult: result };
+      } catch (error) {
+        return {
+          intent,
+          holdReason: reason,
+          holdError:
+            error instanceof SettlementApiError
+              ? String((error.body as { error?: { message?: unknown } })?.error?.message ?? error.message)
+              : String(error),
+        };
+      }
+    },
+    [PAYOUT_REVIEW_HOLD_FORM_INTENTS.release]: async ({ request, params, formData, intent }) => {
+      const reason = String(formData.get("reason") ?? "");
+      try {
+        const result = await createSettlementRequestApiClient(request).releasePayoutReviewHold(params.accountId!, {
+          reason,
+        });
+        return { intent, holdReason: reason, holdResult: result };
+      } catch (error) {
+        return {
+          intent,
+          holdReason: reason,
+          holdError:
+            error instanceof SettlementApiError
+              ? String((error.body as { error?: { message?: unknown } })?.error?.message ?? error.message)
+              : String(error),
+        };
+      }
+    },
     [WALLET_ADJUSTMENT_FORM_INTENTS.preview]: async ({ request, params, formData, intent }) => {
       const values = readWalletAdjustmentGuidedFlowValues(formData);
       try {
@@ -304,6 +355,7 @@ export default function AdminWalletWorkbenchRoute() {
       currentActorUserId={actor.userId}
       lastAction={actionData}
       marketplaceOrigin={data.marketplaceOrigin}
+      payoutReviewHold={data.payoutReviewHold}
     />
   );
 }

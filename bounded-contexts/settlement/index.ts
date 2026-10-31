@@ -32,12 +32,14 @@ import {
   buildSettlementIdentityAccountRiskSourceProjectionHandlers,
   buildSettlementPaymentsAccountRiskSourceProjectionHandlers,
   buildSettlementReputationAccountRiskSourceProjectionHandlers,
+  buildSettlementPayoutReviewHoldProjectionHandlers,
 } from "./features/wallets/integrations/account-risk-source/account-risk-source-projection";
 import { createSettlementPayoutReadinessMcpHandlers } from "./features/payout-readiness/api/mcp";
 import { createSettlementPayoutMcpHandlers } from "./features/payouts/api/mcp";
 import { createSettlementWalletMcpHandlers } from "./features/wallets/api/mcp";
 import { getProtectionCoverageByRemedy } from "./features/protection-coverage/read-model/protection-coverage-queries";
 import { SettlementDomainError } from "./support/runtime-support/common";
+import { buildPayoutReviewHoldMigrationHandlers } from "./features/wallets/integrations/account-risk-source/payout-review-hold-migration";
 
 export const module = defineBoundedContextModule<SettlementServices, PgTransactionalPool, SettlementHostPorts>({
   manifest: contextManifest,
@@ -126,6 +128,10 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
         }),
         "identity.settlement-account-risk-source-projection": () =>
           buildSettlementIdentityAccountRiskSourceProjectionHandlers(services.db, { policies: services.policies }),
+        "settlement.settlement-account-risk-source-projection": () =>
+          buildSettlementPayoutReviewHoldProjectionHandlers(services.db),
+        "identity.settlement-payout-review-hold-migration": () =>
+          buildPayoutReviewHoldMigrationHandlers(services.db, services.payoutReviewHold),
         "marketplace.settlement-account-risk-source-projection": () =>
           buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db, {
             policies: services.policies,

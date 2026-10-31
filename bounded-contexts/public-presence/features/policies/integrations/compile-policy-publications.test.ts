@@ -493,9 +493,10 @@ describe("public policy corpus compiler", () => {
     // Re-derived for #8667, the first Terms content edit since #7429; prior pin was on-disk Terms at bb85cc7a24^.
     // Re-derived again for the #9721 byte-identical Stripe payment citation relocations, and for the #9034
     // ratified-decision and shipped-control review-text reconciliation.
+    // Re-derived for #9784's byte-identical citation rebinding.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:f7017190f077c3fec907653d167e0a590021819f81d82e1321c45c3ef1692539");
+    ).toBe("sha256:8ab10907fe303eba76075ff9321ad4a15dee85312eb3a4518e8431b0cfafdbe6");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

@@ -158,6 +158,17 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
         400,
       );
     }
+    if (badgeKey === "manual-payout-review") {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("identity.features.accounts.api.route.account.badge.not.supported"),
+          },
+        },
+        400,
+      );
+    }
 
     const result = await services.commandHandler({
       streamId: `identity.account-${accountId}`,
@@ -182,6 +193,17 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
     }
     const badgeKey = readAccountBadgeKey(c.req.param("badgeKey"));
     if (!badgeKey) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("identity.features.accounts.api.route.account.badge.not.supported"),
+          },
+        },
+        400,
+      );
+    }
+    if (badgeKey === "manual-payout-review") {
       return c.json(
         {
           error: {

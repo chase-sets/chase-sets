@@ -174,7 +174,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "clearance SLA or the agreement-specific timing that depends on the #5924/#5923 gate.",
         decisionRefs: [5685, 5924, 5923],
         productTruthRefs: [
-          "bounded-contexts/settlement/GLOSSARY.md:117-125",
+          "bounded-contexts/settlement/GLOSSARY.md:121-129",
           "bounded-contexts/settlement/features/payouts/domain/reason-codes.ts",
           "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:610-635",
         ],
@@ -265,7 +265,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         decisionRefs: [5685],
         productTruthRefs: [
           "bounded-contexts/settlement/features/payouts/domain/reason-codes.ts:3-16",
-          "bounded-contexts/settlement/GLOSSARY.md:117-125 (Payout Release Hold)",
+          "bounded-contexts/settlement/GLOSSARY.md:121-129 (Payout Release Hold)",
         ],
         openQuestions: [],
         assumptions: [
@@ -274,7 +274,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
               "Chase Sets already models a Settlement-owned Payout Release Hold distinct from Stripe's own " +
               "processor-level holds, plus a payout-unavailable reason for an outstanding provider requirement, " +
               "without publishing a numeric release SLA.",
-            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:117-125",
+            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:121-129",
           },
         ],
         canonicalClaims: [
@@ -305,7 +305,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "own chargeback hold and recovery/release mechanics using the ratified Chargeback Clawback " +
           "vocabulary's effects without naming that internal term, without inventing deadlines.",
         decisionRefs: [5685],
-        productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:127-135 (Chargeback Clawback)"],
+        productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:131-139 (Chargeback Clawback)"],
         openQuestions: [],
         assumptions: [
           {
@@ -314,7 +314,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
               "recovery against the seller's Wallet balance (which may go negative) if the dispute is lost, " +
               "and releases the hold with a matching credit if the dispute is won — a mechanism distinct from " +
               "the operator-directed Wallet Adjustment path, which this section therefore does not name.",
-            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:127-135",
+            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:131-139",
           },
         ],
         canonicalClaims: [
@@ -533,7 +533,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "The exact duration of the processor refund window Stripe permits for a card is not yet confirmed by " +
             "repository evidence; this draft states only that a refund is available within whatever window the " +
             "processor's own rules allow, pending the wallet funding lifecycle probe's confirmed value.",
-          "ADR 0020:29 and settlement/GLOSSARY.md:144 " +
+          "ADR 0020:29 and settlement/GLOSSARY.md:148 " +
             "still define Marketplace Credit as 'promotional or prepaid'; #7807 rules 'prepaid' struck by a " +
             "separate Prepaid Balance ADR that has not yet landed. This draft does not restate Marketplace " +
             "Credit's definition.",

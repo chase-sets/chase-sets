@@ -1073,7 +1073,7 @@ describe("canonical claim consistency guard", () => {
     // claim: even valid, resolvable evidence must not settle an unresolved
     // shared claim from a sibling artifact.
     const registry = withPaymentsTermsCanonicalClaims("no-interest", [
-      { claimId: "wallet-no-interest", productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:5-7"] },
+      { claimId: "wallet-no-interest", productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:9-11"] },
     ]);
 
     const violations = evaluateCanonicalClaimConsistency(registry, repoRoot);

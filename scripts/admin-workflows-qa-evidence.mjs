@@ -213,8 +213,8 @@ export const ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE = Object.freeze([
     suggestedActorAlias: "admin-qa-platform-admin",
   },
   {
-    key: "access:accounts-badge-manual-payout-review-add-remove",
-    description: "Manual Payout Review badge add/remove",
+    key: "access:accounts-payout-review-hold-place-release",
+    description: "Payout Review Hold place/release",
     suggestedActorAlias: "admin-qa-platform-admin",
   },
   {
