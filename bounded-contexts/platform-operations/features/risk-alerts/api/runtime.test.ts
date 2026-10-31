@@ -31,8 +31,12 @@ function createDeps(options: Readonly<{ candidate?: boolean; missing?: boolean; 
 
 describe("risk alert action runtime", () => {
   it("risk alert action appends for an allowed action", async () => {
-    for (const action of ["request-manual-payout-review", "acknowledge"] as const) {
-      const deps = createDeps({ candidate: true });
+    for (const { action, candidate } of [
+      { action: "request-manual-payout-review", candidate: true },
+      { action: "acknowledge", candidate: true },
+      { action: "acknowledge", candidate: false },
+    ] as const) {
+      const deps = createDeps({ candidate });
       const result = await createRiskAlertRuntime(deps).recordRiskAlertAction(
         {
           alertId: "risk_synthetic_alert",
@@ -84,20 +88,22 @@ describe("risk alert action runtime", () => {
   });
 
   it("risk alert action refuses an unknown alert", async () => {
-    const deps = createDeps({ missing: true });
+    for (const action of ["request-manual-payout-review", "acknowledge"] as const) {
+      const deps = createDeps({ missing: true });
 
-    await expect(
-      createRiskAlertRuntime(deps).recordRiskAlertAction(
-        {
-          alertId: "risk_missing_alert",
-          action: "acknowledge",
-          note: null,
-          operatorUserId: "usr_synthetic_operator",
-        },
-        context,
-      ),
-    ).rejects.toMatchObject({ name: "RiskAlertActionRejectedError", code: "alert-not-found" });
-    expect(deps.appendToStream).not.toHaveBeenCalled();
+      await expect(
+        createRiskAlertRuntime(deps).recordRiskAlertAction(
+          {
+            alertId: "risk_missing_alert",
+            action,
+            note: null,
+            operatorUserId: "usr_synthetic_operator",
+          },
+          context,
+        ),
+      ).rejects.toMatchObject({ name: "RiskAlertActionRejectedError", code: "alert-not-found" });
+      expect(deps.appendToStream).not.toHaveBeenCalled();
+    }
   });
 
   it("risk alert action appends nothing when the alert lookup fails", async () => {

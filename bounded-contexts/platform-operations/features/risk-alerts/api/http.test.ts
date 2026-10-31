@@ -1,9 +1,12 @@
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv, ResolvedActor } from "@chase-sets/auth-context";
+import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it, vi } from "vitest";
 import { createRiskAlertRoutes } from "./http";
 import { RiskAlertActionRejectedError } from "./contracts";
+import { createRiskAlertRuntime } from "./runtime";
 import type { RiskAlertServices } from "./runtime";
 
 const actor = Object.freeze({
@@ -30,6 +33,19 @@ function authorizedApp(services: RiskAlertServices) {
   });
   app.route("/", createRiskAlertRoutes(services));
   return app;
+}
+
+function realRuntimeApp(options: Readonly<{ candidate?: boolean; missing?: boolean }> = {}) {
+  const appendToStream = vi.fn().mockResolvedValue([]);
+  const query = vi.fn().mockResolvedValue({
+    rows: options.missing
+      ? []
+      : [{ alert_id: "risk_synthetic_alert", manual_payout_review_candidate: options.candidate ?? false }],
+  });
+  const db = { query } as unknown as PgQueryable;
+  const eventStore = { appendToStream } as unknown as EventStore;
+  const app = authorizedApp(createRiskAlertRuntime({ db, eventStore }));
+  return { app, appendToStream, query };
 }
 
 describe("risk-alerts HTTP authorization", () => {
@@ -194,5 +210,75 @@ describe("risk-alerts HTTP action outcomes", () => {
       error: { code: "validation_failed", message: "Risk alert action is invalid." },
     });
     expect(record).not.toHaveBeenCalled();
+  });
+});
+
+describe("risk-alerts HTTP action outcomes on the real runtime", () => {
+  it("risk alert action refuses a non-candidate payout review without appending", async () => {
+    const { app, appendToStream } = realRuntimeApp({ candidate: false });
+
+    const response = await app.request("/alert_synthetic/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "request-manual-payout-review" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "validation_failed",
+        reason: "action-not-allowed",
+        message: "The risk alert action was rejected.",
+      },
+    });
+    expect(appendToStream).not.toHaveBeenCalled();
+  });
+
+  it("risk alert action refuses an unknown alert without appending", async () => {
+    const { app, appendToStream } = realRuntimeApp({ missing: true });
+
+    const response = await app.request("/alert_missing/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "acknowledge" }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "not_found",
+        reason: "alert-not-found",
+        message: "The risk alert action was rejected.",
+      },
+    });
+    expect(appendToStream).not.toHaveBeenCalled();
+  });
+
+  it("risk alert action appends allowed actions through the real runtime", async () => {
+    const candidate = realRuntimeApp({ candidate: true });
+    const candidateResponse = await candidate.app.request("/alert_synthetic/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "request-manual-payout-review" }),
+    });
+    expect(candidateResponse.status).toBe(200);
+    expect(await candidateResponse.json()).toEqual({
+      id: expect.any(String),
+      recordedAt: expect.any(String),
+    });
+    expect(candidate.appendToStream).toHaveBeenCalledTimes(1);
+
+    const nonCandidate = realRuntimeApp({ candidate: false });
+    const acknowledgeResponse = await nonCandidate.app.request("/alert_synthetic/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "acknowledge" }),
+    });
+    expect(acknowledgeResponse.status).toBe(200);
+    expect(await acknowledgeResponse.json()).toEqual({
+      id: expect.any(String),
+      recordedAt: expect.any(String),
+    });
+    expect(nonCandidate.appendToStream).toHaveBeenCalledTimes(1);
   });
 });
