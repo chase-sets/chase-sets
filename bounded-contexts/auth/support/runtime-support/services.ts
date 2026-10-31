@@ -8,6 +8,7 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
+  EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS,
   isSocialLoginProviderKey,
   ROLE_PERMISSIONS,
   type OperatorAuthority,
@@ -255,12 +256,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
 
 export type AuthSessionMembership = Awaited<ReturnType<typeof listActiveAuthMembershipsForUser>>[number];
 
-const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = new Set([
-  "listings.manage",
-  "offers.manage",
-  "orders.manage",
-  "pricing.manage",
-]);
+const emailVerificationRestrictedPermissions: ReadonlySet<string> = new Set(EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS);
 
 function hasVerifiedEmailForCommerce(
   user: Awaited<ReturnType<typeof getAuthIdentityUser>> | null,
@@ -309,7 +305,7 @@ function restrictPermissionsForUnverifiedEmail(
     return permissions;
   }
 
-  return permissions.filter((permission) => !EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS.has(permission));
+  return permissions.filter((permission) => !emailVerificationRestrictedPermissions.has(permission));
 }
 
 export type AuthSessionStartResult =
