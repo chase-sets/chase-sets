@@ -147,6 +147,26 @@ describe("doks cluster addons planner", () => {
     );
   });
 
+  it("keeps staging and production ingress error logging discarded", () => {
+    const staging = planClusterAddons({ environment: "staging" }).find((step) =>
+      step.name.startsWith("install ingress-nginx"),
+    );
+    const production = planClusterAddons({ environment: "production" }).find((step) =>
+      step.name.startsWith("install ingress-nginx"),
+    );
+
+    expect(staging.command).not.toContain("controller.config.error-log-path=/dev/stderr");
+    expect(staging.command).not.toContain("controller.config.error-log-level=error");
+    expect(production.command).not.toContain("controller.config.error-log-path=/dev/stderr");
+    expect(production.command).not.toContain("controller.config.error-log-level=error");
+    expect(production.command).toEqual(
+      expect.arrayContaining([
+        "--set-string",
+        "controller.service.annotations.service\\.beta\\.kubernetes\\.io/do-loadbalancer-name=chase-sets-production-doks-ingress",
+      ]),
+    );
+  });
+
   it("pins a query-free access format and discarded error log", () => {
     const config = ingressNginxValuesDocument.controller.config;
     const format = config["log-format-upstream"];
