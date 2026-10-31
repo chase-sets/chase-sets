@@ -118,6 +118,91 @@ describe("identity creation path registry", () => {
     ]);
   });
 
+  it("keeps twenty unique identities in the 10/6/4 disposition and 6/4/3/1/2/2/1/1 kind partition", () => {
+    const entries = [
+      ...registry.paths.map(({ id, kind, disposition }) => [id, kind, disposition]),
+      ...registry.compositions.map(({ id, disposition }) => [id, "composition", disposition]),
+    ];
+    expect(new Set(entries.map(([id]) => id)).size).toBe(20);
+    expect(entries).toEqual([
+      ["password-direct-registration", "public-first-use", "bound"],
+      ["invitation-registration", "public-first-use", "bound"],
+      ["first-use-magic-link", "public-first-use", "bound"],
+      ["passkey-registration", "public-first-use", "bound"],
+      ["phone-code-registration", "public-first-use", "bound"],
+      ["social-login-first-use", "public-first-use", "bound"],
+      ["marketplace-register-route-action", "direct-register-client", "bound"],
+      ["marketplace-e2e-auth-helper", "direct-register-client", "bound"],
+      ["guest-buy-now-freshness-probe", "direct-register-client", "bound"],
+      ["stripe-money-smoke-test", "direct-register-client", "bound"],
+      ["protected-account-administration", "protected-administration", "exempt-permanent"],
+      ["protected-user-administration", "protected-administration", "exempt-permanent"],
+      ["protected-membership-administration", "protected-administration", "exempt-permanent"],
+      ["identity-domain-deciders", "domain-decider", "exempt-permanent"],
+      ["identity-domain-decider-tests", "test-fixture", "exempt-permanent"],
+      ["platform-api-bootstrap-reconciliation-db-test", "test-fixture", "exempt-permanent"],
+      ["production-platform-admin-bootstrap", "operator-provisioning", "exempt-temporary"],
+      ["admin-qa-actor-fixtures", "operator-provisioning", "exempt-temporary"],
+      ["development-scenario-seed", "seed", "exempt-temporary"],
+      ["guest-checkout-account-claim", "composition", "exempt-temporary"],
+    ]);
+  });
+
+  it("forwards the fetched, unaffirmed registration consent submission from the marketplace register action", () => {
+    const file = registry.paths.find(({ id }) => id === "marketplace-register-route-action").sites[0].file;
+    const text = readFileSync(path.join(repoRoot, file), "utf8");
+    const violations = (...replacements) =>
+      collectMarketplaceSubmissionViolations(parseMutant(file, text, replacements));
+    const submission =
+      /\n\s*registrationConsent: \{\s*resolution: await api\.getRegistrationConsent\(\),\s*affirmed: false,\s*\},/;
+
+    expect(violations()).toEqual([]);
+    expect(violations([submission, ""])).toEqual(["api.register must forward a registrationConsent object"]);
+    // Resolving first and dropping the value keeps the route's fetch order but forwards nothing.
+    expect(
+      violations(
+        [submission, ""],
+        ["authResult = await api.register<", "await api.getRegistrationConsent();\nauthResult = await api.register<"],
+      ),
+    ).toEqual(["api.register must forward a registrationConsent object"]);
+    expect(violations(["affirmed: false", "affirmed: true"])).toEqual(["affirmed must be false"]);
+    expect(
+      violations(["resolution: await api.getRegistrationConsent()", 'resolution: { bundleKey: "registration" }']),
+    ).toEqual(["resolution must be the awaited api.getRegistrationConsent() result"]);
+  });
+
+  it("keeps guest checkout start and claim off the registration consent mint and submission", () => {
+    const file = registry.compositions.find(({ id }) => id === "guest-checkout-account-claim").members[0].file;
+    const text = readFileSync(path.join(repoRoot, file), "utf8");
+    const references = (...replacements) => collectRegistrationConsentReferences(parseMutant(file, text, replacements));
+
+    expect(references()).toEqual([]);
+    expect(
+      references([
+        "identityMutations.createGuestAccount({",
+        "identityMutations.createGuestAccount({\nregistrationConsent: await resolveUnaffirmedRegistrationConsent(identityMutations),",
+      ]),
+    ).toEqual([
+      "POST /guest-checkout/start: property registrationConsent",
+      "POST /guest-checkout/start: call resolveUnaffirmedRegistrationConsent",
+    ]);
+    expect(
+      references(
+        [
+          "getBootstrapContext, type AuthApiApp }",
+          "getBootstrapContext, resolveUnaffirmedRegistrationConsent as mint, type AuthApiApp }",
+        ],
+        [
+          "const existingUser = await services.identity.getUserByEmail(params.email);",
+          "await mint(identityMutations);\nconst existingUser = await services.identity.getUserByEmail(params.email);",
+        ],
+      ),
+    ).toEqual(["resolveClaimUser: call mint"]);
+    expect(references(["identityMutations.createUser({", "identityMutations.createPersonalIdentity({"])).toEqual([
+      "resolveClaimUser: call identityMutations.createPersonalIdentity",
+    ]);
+  });
+
   it("states that provisioning records no Consent and awaits no migration, in both creation registries", () => {
     const positions = JSON.parse(readFileSync(path.join(repoRoot, "scripts/identity-creation-positions.json"), "utf8"));
     const provisioningPaths = ["admin-qa-actor-fixtures", "development-scenario-seed"];
@@ -498,6 +583,91 @@ const landingSelectors = {
     call("identityMutations.claimGuestAccount", "claimGuestAccountAndStartSession"),
   ],
 };
+
+// Each in-memory replacement must match exactly once, so a control can never
+// pass because its anchor drifted out of the real source.
+function parseMutant(file, text, replacements) {
+  const mutated = replacements.reduce((current, [pattern, replacement]) => {
+    const matches =
+      typeof pattern === "string"
+        ? current.split(pattern).length - 1
+        : (current.match(new RegExp(pattern.source, "g")) ?? []).length;
+    if (matches !== 1) throw new Error(`${file}: expected one ${pattern} anchor, found ${matches}`);
+    return current.replace(pattern, replacement);
+  }, text);
+  return ts.createSourceFile(file, mutated, ts.ScriptTarget.Latest, true);
+}
+
+// The register form renders no affirmation control yet, so the route action
+// must hand Identity exactly the resolution it just fetched, unaffirmed.
+function collectMarketplaceSubmissionViolations(source) {
+  const registers = call("api.register", "createRegisterAction")(source);
+  if (registers.length !== 1) return [`expected one api.register call, found ${registers.length}`];
+  const submission = value(registers[0].arguments[0], "registrationConsent");
+  if (!submission || !ts.isObjectLiteralExpression(submission)) {
+    return ["api.register must forward a registrationConsent object"];
+  }
+  const members = submission.properties.map((member) => member.name?.getText()).toSorted();
+  const resolution = value(submission, "resolution");
+  const fetched =
+    resolution &&
+    ts.isAwaitExpression(resolution) &&
+    ts.isCallExpression(resolution.expression) &&
+    resolution.expression.expression.getText() === "api.getRegistrationConsent" &&
+    resolution.expression.arguments.length === 0;
+  return [
+    ...(members.join() === "affirmed,resolution"
+      ? []
+      : [`registrationConsent must carry only resolution and affirmed, found ${members.join(", ")}`]),
+    ...(fetched ? [] : ["resolution must be the awaited api.getRegistrationConsent() result"]),
+    ...(value(submission, "affirmed")?.kind === ts.SyntaxKind.FalseKeyword ? [] : ["affirmed must be false"]),
+  ];
+}
+
+const registrationConsentOperations = new Set([
+  "getRegistrationConsent",
+  "resolveRegistrationConsent",
+  "resolveUnaffirmedRegistrationConsent",
+  "createPersonalIdentity",
+]);
+
+// Every call that reaches the registration consent mint or personal-identity
+// creation, followed through import and destructuring aliases, and every
+// Registration Consent Submission handed over by property name.
+function collectRegistrationConsentReferences(source) {
+  const names = new Set(registrationConsentOperations);
+  for (const alias of walk(source, (node) => ts.isImportSpecifier(node) || ts.isBindingElement(node))) {
+    if (registrationConsentOperations.has((alias.propertyName ?? alias.name).getText()))
+      names.add(alias.name.getText());
+  }
+  const operation = (expression) =>
+    ts.isPropertyAccessExpression(expression)
+      ? expression.name.text
+      : ts.isElementAccessExpression(expression)
+        ? literal(expression.argumentExpression)
+        : expression.getText();
+  return walk(
+    source,
+    (node) =>
+      (ts.isCallExpression(node) && names.has(operation(node.expression))) ||
+      ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
+        node.name.getText() === "registrationConsent"),
+  ).map(
+    (node) =>
+      `${referenceOwner(node)}: ${ts.isCallExpression(node) ? `call ${node.expression.getText()}` : "property registrationConsent"}`,
+  );
+}
+
+function referenceOwner(node) {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    const route = ts.isCallExpression(parent) && /^app\.(get|post)$/.test(parent.expression.getText());
+    if (route && literal(parent.arguments[0])) {
+      return `${parent.expression.name.text.toUpperCase()} ${literal(parent.arguments[0])}`;
+    }
+    if (ts.isFunctionDeclaration(parent) && parent.name) return parent.name.text;
+  }
+  return "<module>";
+}
 
 function registrySlots(candidate) {
   return [...candidate.paths, ...candidate.compositions].flatMap((entry) =>
