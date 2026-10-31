@@ -10,19 +10,17 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
-import type { ProviderConnectionRow, ProviderConnectionsSnapshot } from "../api/contracts";
-import { providerConnectionAge } from "./freshness";
+import type { ProviderConnectionsResponseRow, ProviderConnectionsSnapshot } from "../api/contracts";
 
 const key = "platformOperations.providerConnections";
 
-function observation(row: ProviderConnectionRow, evaluatedAt: string) {
-  const age = providerConnectionAge(row, evaluatedAt);
+function observation(row: ProviderConnectionsResponseRow) {
   return (
     <Stack gap={1}>
-      <Text>{t(`${key}.freshness.${age.state}`)}</Text>
-      {age.ageSeconds !== null && (
+      <Text>{t(`${key}.freshness.${row.freshnessState}`)}</Text>
+      {row.ageSeconds !== null && (
         <Text>
-          {t(`${key}.observed`, { timestamp: row.observedAt ?? "", minutes: Math.floor(age.ageSeconds / 60) })}
+          {t(`${key}.observed`, { timestamp: row.observedAt ?? "", minutes: Math.floor(row.ageSeconds / 60) })}
         </Text>
       )}
     </Stack>
@@ -51,7 +49,7 @@ export function ProviderConnectionsPage({
               <Stack gap={3}>
                 {!section && <Text role="status">{t(`${key}.loading`)}</Text>}
                 {section?.state === "partial" && <Text role="status">{t(`${key}.partial`)}</Text>}
-                <DataTable<ProviderConnectionRow>
+                <DataTable<ProviderConnectionsResponseRow>
                   rows={[...(section?.rows ?? [])]}
                   loading={!section}
                   getRowId={(row) => row.id}
@@ -99,7 +97,7 @@ export function ProviderConnectionsPage({
                     {
                       key: "observation",
                       header: t(`${key}.observation`),
-                      cell: (row) => observation(row, snapshot?.evaluatedAt ?? ""),
+                      cell: (row) => observation(row),
                     },
                     { key: "owner", header: t(`${key}.owner`), cell: (row) => t(`${key}.owner.${row.owner}`) },
                     {
