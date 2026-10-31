@@ -201,7 +201,7 @@ export async function writeSellerComplianceCohort(
           input.observedAt,
           input.policyVersion,
           input.evaluation.state,
-          kind === "exited" ? "none" : input.evaluation.band,
+          kind === "exited" || kind === "entered" ? "none" : input.evaluation.band,
         ],
       );
     }

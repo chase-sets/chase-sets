@@ -316,6 +316,17 @@ function evaluatorLifecycle(
 }
 
 describe("seller compliance cohort window", () => {
+  it("evaluates continuous starts for the AC3 intraday clamp example", () => {
+    const result = evaluateSellerComplianceCohort({
+      sales: [sale("jan", "2025-01-31T00:00:00.000Z", "250000"), sale("feb", "2025-02-28T12:00:00.000Z", "250000")],
+      policy: { ...policy, qualifyingTransactionCount: 2, qualifyingGrossCents: "500000" },
+      evaluationAt: "2025-03-05T00:00:00.000Z",
+    });
+    expect(result.state).toBe("member");
+    expect(result.windowStart).toBe("2025-01-28T12:00:00.001Z");
+    expect(result.windowEnd).toBe("2025-02-28T12:00:00.001Z");
+  });
+
   it("clamps UTC month arithmetic", () => {
     expect(addUtcMonths("2025-01-31T00:00:00.000Z", 1)).toBe("2025-02-28T00:00:00.000Z");
     expect(addUtcMonths("2024-01-31T00:00:00.000Z", 1)).toBe("2024-02-29T00:00:00.000Z");

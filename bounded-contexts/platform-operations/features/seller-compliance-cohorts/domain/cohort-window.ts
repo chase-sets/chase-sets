@@ -191,8 +191,16 @@ function evaluateAt(
     .sort(bySaleKey);
   const amounts = eligible.map((sale) => (classify(sale, policy) === "qualifying" ? gross(sale, policy) : null));
   let winner: Candidate | null = null;
+  const starts = new Set<string>();
   for (const sale of eligible) {
-    const candidate = candidateAt(sale.occurredAt, eligible, amounts, policy);
+    // A qualifying window may begin at any UTC millisecond.  The earliest
+    // start that still contains a sale is one millisecond after its clamped
+    // month inverse; sale instants remain candidates for deterministic ties.
+    starts.add(new Date(Date.parse(addUtcMonths(sale.occurredAt, -(policy.windowMonths ?? 1))) + 1).toISOString());
+    starts.add(sale.occurredAt);
+  }
+  for (const start of [...starts].sort()) {
+    const candidate = candidateAt(start, eligible, amounts, policy);
     if (qualifies(candidate, policy)) {
       winner = candidate;
       break;
@@ -225,7 +233,11 @@ function isConfigured(policy: SellerComplianceCohortPolicyValue): boolean {
 }
 
 /** A policy in force from `effectiveFrom` until the next segment or the evaluated revision. */
-export type CohortPolicySegment = Readonly<{ effectiveFrom: string; policy: SellerComplianceCohortPolicyValue }>;
+export type CohortPolicySegment = Readonly<{
+  effectiveFrom: string;
+  /** null is an inert policy interval (inactive or uncovered history). */
+  policy: SellerComplianceCohortPolicyValue | null;
+}>;
 
 export type CohortEvaluationInput = Readonly<{
   sales: readonly SellerSaleFact[];
@@ -250,15 +262,11 @@ function policyTimeline(input: CohortEvaluationInput) {
   const prior = [...(input.priorPolicies ?? [])].sort(
     (a, b) => Date.parse(a.effectiveFrom) - Date.parse(b.effectiveFrom),
   );
-  return (instant: string): SellerComplianceCohortPolicyValue => {
+  return (instant: string): SellerComplianceCohortPolicyValue | null => {
     const at = Date.parse(instant);
     if (revisionAt === null || at >= revisionAt) return input.policy;
-    // The earliest known policy also governs older history, as it does for a first admission.
-    const segment = prior.filter((candidate) => Date.parse(candidate.effectiveFrom) <= at).at(-1) ?? prior[0];
-    if (segment === undefined || !isConfigured(segment.policy))
-      throw new Error(
-        "The policy in force before the revision is unavailable, so the transition's cause cannot be determined.",
-      );
+    const segment = prior.filter((candidate) => Date.parse(candidate.effectiveFrom) <= at).at(-1);
+    if (segment === undefined || segment.policy === null || !isConfigured(segment.policy)) return null;
     return segment.policy;
   };
 }
@@ -284,7 +292,10 @@ function firstInstant(
   const upperAt = Date.parse(input.evaluationAt);
   if (Number.isNaN(lowerAt) || Number.isNaN(upperAt)) return null;
   const policyAt = policyTimeline(input);
-  const policies = [input.policy, ...(input.priorPolicies ?? []).map((segment) => segment.policy)];
+  const policies = [
+    input.policy,
+    ...(input.priorPolicies ?? []).flatMap((segment) => (segment.policy ? [segment.policy] : [])),
+  ];
   // A sale no longer admissible just after `lower` stays inadmissible at every later candidate instant.
   const firstCandidate = new Date(lowerAt + 1).toISOString();
   const sales = input.sales.filter((sale) => {
@@ -303,6 +314,12 @@ function firstInstant(
   for (const segment of input.priorPolicies ?? []) instants.add(Date.parse(segment.effectiveFrom));
   for (const sale of sales) {
     if (change !== "membership-loss") instants.add(Date.parse(sale.occurredAt));
+    if (change !== "membership-loss")
+      for (const candidate of policies)
+        instants.add(Date.parse(addUtcMonths(sale.occurredAt, -(candidate.windowMonths ?? 1))) + 1);
+    if (change !== "membership-gain")
+      for (const candidate of policies)
+        instants.add(Date.parse(addUtcMonths(sale.occurredAt, candidate.windowMonths ?? 1)));
     if (change !== "membership-gain")
       for (const candidate of policies)
         instants.add(Date.parse(addUtcMonths(sale.occurredAt, candidate.lookbackMonths ?? 60)) + 1);
@@ -310,7 +327,9 @@ function firstInstant(
   const ordered = [...instants].filter((at) => at > lowerAt && at <= upperAt).sort((a, b) => a - b);
   for (const at of ordered) {
     const instant = new Date(at).toISOString();
-    const state = evaluateAt(sales, policyAt(instant), instant, at !== upperAt);
+    const activePolicy = policyAt(instant);
+    if (activePolicy === null) continue;
+    const state = evaluateAt(sales, activePolicy, instant, at !== upperAt);
     if (holds({ member: state.winner !== null, band: state.bandWinner ? "disclosure" : "none" })) return instant;
   }
   return null;

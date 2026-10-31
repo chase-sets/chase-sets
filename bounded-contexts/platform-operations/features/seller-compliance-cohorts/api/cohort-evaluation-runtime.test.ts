@@ -5,6 +5,7 @@ import {
   SellerComplianceCohortPolicyDomainError,
   type SellerComplianceCohortPolicyValue,
 } from "../domain/seller-compliance-cohort-policy";
+import type { PolicyHistoryRecord } from "@chase-sets/platform-policy/policy-history-reader";
 
 const policy: SellerComplianceCohortPolicyValue = {
   ...SELLER_COMPLIANCE_COHORT_POLICY_DEFAULT_VALUE,
@@ -52,12 +53,13 @@ type ResolvedFixture = Readonly<{
   documentId: string;
   effectiveFrom: string;
 }>;
+type WorldSetup = Partial<ResolvedFixture> & { history?: readonly PolicyHistoryRecord[] };
 
 /**
  * A stateful fake of every table the cohort runtime reads and writes. Each statement is matched by its exact
  * bound-parameter layout, writes persist across ticks, and an unmodelled statement fails the test.
  */
-function createWorld(initial: Partial<ResolvedFixture> = {}) {
+function createWorld(initial: WorldSetup = {}) {
   let resolved: ResolvedFixture = {
     value: initial.value ?? policy,
     documentId: initial.documentId ?? "doc-1",
@@ -181,6 +183,12 @@ function createWorld(initial: Partial<ResolvedFixture> = {}) {
       };
     }
     if (text.includes("SELECT DISTINCT seller_account_id")) {
+      if (text.includes("change_sequence > $1::bigint")) {
+        const ids = sales
+          .filter((entry) => entry.changeSequence > Number(values[0]) && entry.changeSequence <= Number(values[1]))
+          .map((entry) => entry.seller);
+        return sellerRows(page(ids, values[2], values[3]));
+      }
       if (values.length === 6) {
         const ids = sales
           .filter((entry) => entry.changeSequence > Number(values[0]) && entry.changeSequence <= Number(values[1]))
@@ -330,6 +338,30 @@ function createWorld(initial: Partial<ResolvedFixture> = {}) {
           return { value: resolved.value, documentId: resolved.documentId, effectiveFrom: resolved.effectiveFrom };
         },
       } as never,
+      policyHistory:
+        initial.history === undefined
+          ? undefined
+          : ({
+              start: async () => ({
+                policyKey: "platform-operations.seller-compliance-cohort",
+                horizon: "999",
+                continuation: {
+                  policyKey: "platform-operations.seller-compliance-cohort",
+                  horizon: "999",
+                  afterGlobalPosition: "0",
+                },
+              }),
+              readPage: async () => ({
+                records: initial.history ?? [],
+                horizon: "999",
+                continuation: {
+                  policyKey: "platform-operations.seller-compliance-cohort",
+                  horizon: "999",
+                  afterGlobalPosition: "999",
+                },
+                complete: true,
+              }),
+            } as never),
     });
   return {
     db,
@@ -377,6 +409,25 @@ function createWorld(initial: Partial<ResolvedFixture> = {}) {
 }
 type World = ReturnType<typeof createWorld>;
 
+const historyRecord = (
+  overrides: Partial<Omit<PolicyHistoryRecord, "globalPosition">> & {
+    eventId: string;
+    documentId: string;
+    streamVersion: number;
+    globalPosition: string;
+  },
+): PolicyHistoryRecord => ({
+  eventType: "platform-policy.document.created",
+  policyKey: "platform-operations.seller-compliance-cohort",
+  recordedAt: "2025-01-01T00:00:00.000Z",
+  status: "active",
+  value: policy,
+  effectiveFrom: "2025-01-01T00:00:00.000Z",
+  effectiveUntil: null,
+  ...overrides,
+  globalPosition: overrides.globalPosition as never,
+});
+
 async function sweepTicks(world: World, ticks: readonly string[], limit: number) {
   const perTick: string[][] = [];
   for (const now of ticks) {
@@ -393,6 +444,67 @@ const ledger = (world: World, seller?: string) =>
     .map((row) => [row.transition_id, row.effective_at, row.observed_at, row.policy_version]);
 
 describe("seller compliance cohort runtime", () => {
+  it("resolves the active covering document before precedence ranking", async () => {
+    const world = createWorld({
+      history: [
+        historyRecord({ eventId: "a1", documentId: "doc-a", streamVersion: 1, globalPosition: "1" }),
+        historyRecord({
+          eventId: "b1",
+          documentId: "doc-b",
+          streamVersion: 1,
+          globalPosition: "2",
+          recordedAt: "2025-03-01T00:00:00.000Z",
+          effectiveFrom: "2025-03-01T00:00:00.000Z",
+          status: "inactive",
+        }),
+      ],
+    });
+    world.record("history-active", sale("history-active", "2025-04-01T00:00:00.000Z"));
+    expect(await world.runtime.sweep({ now: "2025-05-01T00:00:00.000Z", limit: 10 })).toBe(1);
+    expect(world.cohorts.get("history-active")?.state).toBe("member");
+  });
+
+  it("fails closed on a proven stream gap and accepts an identical duplicate", async () => {
+    const gap = createWorld({
+      history: [
+        historyRecord({ eventId: "g1", documentId: "doc-gap", streamVersion: 1, globalPosition: "1" }),
+        historyRecord({ eventId: "g3", documentId: "doc-gap", streamVersion: 3, globalPosition: "3" }),
+      ],
+    });
+    gap.record("gap", sale("gap", "2025-04-01T00:00:00.000Z"), "2025-05-01T00:00:00.000Z");
+    await gap.runtime.sweep({ now: "2025-05-01T00:00:00.000Z", limit: 10 });
+    expect(gap.cohorts.has("gap")).toBe(false);
+    expect(gap.failures.at(-1)?.[4]).toBe("doc-gap@unknown#3");
+
+    const duplicate = createWorld({
+      history: [
+        historyRecord({ eventId: "d1", documentId: "doc-dup", streamVersion: 1, globalPosition: "1" }),
+        historyRecord({ eventId: "d1", documentId: "doc-dup", streamVersion: 1, globalPosition: "1" }),
+      ],
+    });
+    duplicate.record("dup", sale("dup", "2025-04-01T00:00:00.000Z"), "2025-05-01T00:00:00.000Z");
+    expect(await duplicate.runtime.sweep({ now: "2025-05-01T00:00:00.000Z", limit: 10 })).toBe(1);
+    expect(duplicate.cohorts.get("dup")?.state).toBe("member");
+  });
+
+  it("retains the selected policy identity on a decode failure", async () => {
+    const world = createWorld({
+      history: [
+        historyRecord({
+          eventId: "bad1",
+          documentId: "doc-bad",
+          streamVersion: 1,
+          globalPosition: "1",
+          value: {},
+        }),
+      ],
+    });
+    world.record("bad", sale("bad", "2025-04-01T00:00:00.000Z"), "2025-05-01T00:00:00.000Z");
+    await world.runtime.sweep({ now: "2025-05-01T00:00:00.000Z", limit: 10 });
+    expect(world.cohorts.has("bad")).toBe(false);
+    expect(world.failures.at(-1)?.[4]).toBe("doc-bad@2025-01-01T00:00:00.000Z");
+  });
+
   it("admits rowless sellers through the occurrence pass, completes it once and does not repeat it", async () => {
     const world = createWorld();
     for (const seller of ["s01", "s02", "s03", "s04", "s05"])
@@ -429,15 +541,25 @@ describe("seller compliance cohort runtime", () => {
     world.record("d", sale("d", "2025-05-19T00:07:00.000Z"), "2025-05-19T00:07:00.000Z");
     const mark = world.evaluations.length;
     await world.runtime.sweep({ now: tick(5), limit: 10 });
-    // T1 reaches d at the tick, the revision pass reaches a and b at the revision instant, the occurrence pass c at the tick.
+    // Every verdict is observed at the injected tick; revision causes remain historically dated.
     expect(world.evaluatedSince(mark).sort()).toEqual(
-      [`a@2025-05-15T00:00:00.000Z`, `b@2025-05-15T00:00:00.000Z`, `c@${tick(5)}`, `d@${tick(5)}`].sort(),
+      [`a@${tick(5)}`, `b@${tick(5)}`, `c@${tick(5)}`, `d@${tick(5)}`].sort(),
     );
     // A new rowless seller joins the next occurrence pass; rows of either version are not re-evaluated by it.
     world.record("e", sale("e", "2025-05-04T00:00:00.000Z"));
     const next = world.evaluations.length;
     await world.runtime.sweep({ now: tick(10), limit: 10 });
     expect(world.evaluatedSince(next)).toEqual([`e@${tick(10)}`]);
+  });
+
+  it("discovers a changed seller after a gap longer than the wall-clock window", async () => {
+    const world = createWorld();
+    world.record("gap-seller", sale("gap-first", "2025-04-01T00:00:00.000Z"));
+    await world.runtime.sweep({ now: "2025-04-02T00:00:00.000Z", limit: 10 });
+    const mark = world.evaluations.length;
+    world.record("gap-seller", sale("gap-second", "2025-04-02T00:00:00.000Z"), "2025-04-02T00:00:00.000Z");
+    await world.runtime.sweep({ now: "2025-04-05T12:00:00.000Z", limit: 10 });
+    expect(world.evaluatedSince(mark)).toEqual(["gap-seller@2025-04-05T12:00:00.000Z"]);
   });
 
   it("keeps every cohort row byte-identical under an identical-value revision and completes that pass once", async () => {
@@ -452,7 +574,7 @@ describe("seller compliance cohort runtime", () => {
     const revisionVersion = world.version();
     const mark = world.evaluations.length;
     await world.runtime.sweep({ now: "2025-05-20T00:00:00.000Z", limit: 10 });
-    expect(world.evaluatedSince(mark)).toEqual(["ac8@2025-05-15T00:00:00.000Z"]);
+    expect(world.evaluatedSince(mark)).toEqual(["ac8@2025-05-20T00:00:00.000Z"]);
     expect(world.cohortWrites()).toBe(writes);
     expect(JSON.stringify([...world.cohorts.values()])).toBe(before);
     expect(JSON.stringify(world.transitions)).toBe(ledgerBefore);
@@ -584,7 +706,7 @@ describe("seller compliance cohort runtime", () => {
       await world.runtime.sweep({ now: "2025-05-20T00:00:00.000Z", limit: 10 });
       expect(ledger(world)).toEqual([
         ["re:1:entered", "2025-05-10T00:00:00.000Z", "2025-05-11T00:00:00.000Z", "doc-1@2025-01-01T00:00:00.000Z"],
-        ["re:2:exited", "2025-05-15T00:00:00.000Z", "2025-05-15T00:00:00.000Z", "doc-2@2025-05-15T00:00:00.000Z"],
+        ["re:2:exited", "2025-05-15T00:00:00.000Z", "2025-05-16T00:00:00.000Z", "doc-2@2025-05-15T00:00:00.000Z"],
         ["re:3:entered", "2025-05-19T00:00:00.000Z", "2025-05-20T00:00:00.000Z", "doc-3@2025-05-19T00:00:00.000Z"],
         ...(disclosureGrossCents === "700000"
           ? [

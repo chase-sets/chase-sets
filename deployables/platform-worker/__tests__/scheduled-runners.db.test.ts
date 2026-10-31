@@ -991,13 +991,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     });
     // Entry and disclosure share the qualifying sale's instant.
     const entered = [
-      transition(
-        "cohort-band:1:entered",
-        "2025-01-10T00:00:00.000Z",
-        "2025-01-11T00:00:00.000Z",
-        "member",
-        "disclosure",
-      ),
+      transition("cohort-band:1:entered", "2025-01-10T00:00:00.000Z", "2025-01-11T00:00:00.000Z", "member", "none"),
       transition(
         "cohort-band:2:disclosure-band-changed",
         "2025-01-10T00:00:00.000Z",
@@ -1055,10 +1049,10 @@ describeDatabase("registered platform-worker scheduled runners", () => {
           target_band: "none",
         });
       }
-      // Paired control: while the old policy still admits the seller, a threshold-raising revision causes the exit,
-      // whether the revision pass (evaluated at the revision) or the due pass (evaluated at the tick) reaches it first.
+      // Paired control: while the old policy still admits the seller, a threshold-raising revision causes the exit;
+      // both revision and due triggers evaluate at the injected tick while dating the cause historically.
       for (const [effectiveFrom, tick, observedAt] of [
-        ["2025-04-10T00:00:00.000Z", "2025-04-20T00:00:00.000Z", "2025-04-10T00:00:00.000Z"],
+        ["2025-04-10T00:00:00.000Z", "2025-04-20T00:00:00.000Z", "2025-04-20T00:00:00.000Z"],
         ["2025-05-10T00:00:00.000Z", "2025-05-20T00:00:00.000Z", "2025-05-20T00:00:00.000Z"],
       ] as const) {
         await clearCohortRows();

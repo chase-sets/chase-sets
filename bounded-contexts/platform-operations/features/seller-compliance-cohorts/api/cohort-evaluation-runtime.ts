@@ -1,5 +1,5 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { JsonValue } from "@chase-sets/primitives/json";
+import { compareGlobalPosition } from "@chase-sets/event-core/storage";
 import {
   decodeSellerComplianceCohortPolicyValue,
   sellerComplianceCohortPolicy,
@@ -45,6 +45,15 @@ export function createSellerComplianceCohortRuntime(
     priorPolicies?: readonly CohortPolicySegment[];
   }>;
 
+  class PolicyHistoryFailure extends Error {
+    readonly policyVersion: string | null;
+    constructor(message: string, policyVersion: string | null = null) {
+      super(message);
+      this.name = "PolicyHistoryFailure";
+      this.policyVersion = policyVersion;
+    }
+  }
+
   function policyVersion(record: PolicyHistoryRecord): string {
     // Keep the historical document@effectiveFrom shape for first creates while
     // making same-document revisions distinct via their stream version.
@@ -73,42 +82,95 @@ export function createSellerComplianceCohortRuntime(
     }
 
     const atMs = Date.parse(at);
-    // A revision of one document supersedes its earlier stream versions at
-    // the revision's recorded instant, including a future-moved effectiveFrom.
-    // Keep only the latest observed version per document before applying the
-    // resolver's effective-window ordering.
-    const latestByDocument = new Map<string, PolicyHistoryRecord>();
+    const byEventId = new Map<string, PolicyHistoryRecord>();
     for (const record of records) {
-      if (Date.parse(record.recordedAt) > atMs) continue;
-      const prior = latestByDocument.get(record.documentId);
-      if (!prior || record.streamVersion > prior.streamVersion) latestByDocument.set(record.documentId, record);
+      const existing = byEventId.get(record.eventId);
+      if (existing) {
+        if (JSON.stringify(existing) !== JSON.stringify(record))
+          throw new PolicyHistoryFailure(
+            `Policy history event identity ${record.eventId} has conflicting records.`,
+            policyVersion(record),
+          );
+        continue;
+      }
+      byEventId.set(record.eventId, record);
     }
-    const candidates = [...latestByDocument.values()]
-      .filter((record) => {
-        const start = Date.parse(policyStart(record));
-        const end = record.effectiveUntil === null ? Number.POSITIVE_INFINITY : Date.parse(record.effectiveUntil);
-        return start <= atMs && atMs < end;
-      })
-      .sort((a, b) => {
-        const effective = Date.parse(b.effectiveFrom) - Date.parse(a.effectiveFrom);
-        if (effective !== 0) return effective;
-        const recorded = Date.parse(b.recordedAt) - Date.parse(a.recordedAt);
-        if (recorded !== 0) return recorded;
-        return b.documentId.localeCompare(a.documentId);
+    const unique = [...byEventId.values()].sort((a, b) => {
+      return compareGlobalPosition(a.globalPosition, b.globalPosition);
+    });
+    const versions = new Map<string, number[]>();
+    for (const record of unique) {
+      const list = versions.get(record.documentId) ?? [];
+      if (!list.includes(record.streamVersion)) list.push(record.streamVersion);
+      versions.set(record.documentId, list);
+    }
+    for (const [documentId, values] of versions) {
+      values.sort((a, b) => a - b);
+      for (let index = 0; index < values.length; index += 1)
+        if (values[index] !== index + 1)
+          throw new PolicyHistoryFailure(
+            `Policy history stream gap for ${documentId}.`,
+            `${documentId}@unknown#${values[index]}`,
+          );
+    }
+    const latestAt = (instantMs: number) => {
+      const latestByDocument = new Map<string, PolicyHistoryRecord>();
+      for (const record of unique) {
+        if (Date.parse(record.recordedAt) > instantMs) continue;
+        const prior = latestByDocument.get(record.documentId);
+        if (!prior || compareGlobalPosition(prior.globalPosition, record.globalPosition) < 0)
+          latestByDocument.set(record.documentId, record);
+      }
+      return [...latestByDocument.values()]
+        .filter((record) => {
+          const start = Date.parse(policyStart(record));
+          const end = record.effectiveUntil === null ? Number.POSITIVE_INFINITY : Date.parse(record.effectiveUntil);
+          return record.status === "active" && start <= instantMs && instantMs < end;
+        })
+        .sort((a, b) => {
+          const effective = Date.parse(b.effectiveFrom) - Date.parse(a.effectiveFrom);
+          if (effective !== 0) return effective;
+          const recorded = Date.parse(b.recordedAt) - Date.parse(a.recordedAt);
+          if (recorded !== 0) return recorded;
+          return b.documentId.localeCompare(a.documentId);
+        })[0];
+    };
+    const breakpoints = new Set<number>([
+      ...unique.flatMap((record) => [Date.parse(record.recordedAt), Date.parse(policyStart(record))]),
+    ]);
+    for (const record of unique) if (record.effectiveUntil !== null) breakpoints.add(Date.parse(record.effectiveUntil));
+    const segments: CohortPolicySegment[] = [...breakpoints]
+      .filter((value) => Number.isFinite(value) && value <= atMs)
+      .sort((a, b) => a - b)
+      .map((value) => {
+        const selected = latestAt(value);
+        if (!selected) return { effectiveFrom: new Date(value).toISOString(), policy: null };
+        try {
+          return {
+            effectiveFrom: new Date(value).toISOString(),
+            policy: decodeSellerComplianceCohortPolicyValue(selected.value),
+          };
+        } catch (error) {
+          throw new PolicyHistoryFailure(
+            error instanceof Error ? error.message : String(error),
+            policyVersion(selected),
+          );
+        }
       });
-    const selected = candidates[0];
-    if (!selected || selected.status !== "active") return null;
-    const priorPolicies = records
-      .filter((record) => record !== selected && Date.parse(record.recordedAt) <= atMs && record.status === "active")
-      .sort((a, b) => Date.parse(policyStart(a)) - Date.parse(policyStart(b)))
-      .map((record) => ({
-        effectiveFrom: policyStart(record),
-        policy: decodeSellerComplianceCohortPolicyValue(record.value),
-      }));
+    const selected = latestAt(atMs);
+    if (!selected) return null;
+    let selectedValue: SellerComplianceCohortPolicyValue;
+    try {
+      selectedValue = decodeSellerComplianceCohortPolicyValue(selected.value);
+    } catch (error) {
+      throw new PolicyHistoryFailure(error instanceof Error ? error.message : String(error), policyVersion(selected));
+    }
+    const selectedStart = policyStart(selected);
+    const priorPolicies = segments.filter((segment) => Date.parse(segment.effectiveFrom) < Date.parse(selectedStart));
     return {
-      value: decodeSellerComplianceCohortPolicyValue(selected.value),
+      value: selectedValue,
       version: policyVersion(selected),
-      effectiveFrom: policyStart(selected),
+      effectiveFrom: selectedStart,
       recordedAt: selected.recordedAt,
       priorPolicies,
     };
@@ -158,15 +220,11 @@ export function createSellerComplianceCohortRuntime(
       [version, effectiveFrom, JSON.stringify(value)],
     );
   }
-  /**
-   * The retained policies in force before `revisionEffectiveAt`. The policy that produced the seller's state must be
-   * among them: without its content a change before the revision cannot be judged, so the evaluation fails closed.
-   */
   async function loadPriorPolicies(
     revisionEffectiveAt: string,
     stampedVersion: string,
   ): Promise<CohortPolicySegment[]> {
-    const result = await deps.db.query<{ policy_version: string; effective_from: Date | string; value: JsonValue }>(
+    const result = await deps.db.query<{ policy_version: string; effective_from: Date | string; value: unknown }>(
       `SELECT policy_version, effective_from, value FROM platform_operations_seller_compliance_policy_evidence WHERE effective_from < $1 ORDER BY effective_from ASC, policy_version ASC`,
       [revisionEffectiveAt],
     );
@@ -176,7 +234,7 @@ export function createSellerComplianceCohortRuntime(
       );
     return result.rows.map((row) => ({
       effectiveFrom: new Date(row.effective_from).toISOString(),
-      policy: decodeSellerComplianceCohortPolicyValue(row.value),
+      policy: decodeSellerComplianceCohortPolicyValue(row.value as never),
     }));
   }
   async function evaluateSeller(
@@ -200,7 +258,7 @@ export function createSellerComplianceCohortRuntime(
           sellerAccountId,
           evaluationAt,
           error instanceof Error ? error.message : String(error),
-          null,
+          error instanceof PolicyHistoryFailure ? error.policyVersion : null,
         );
         return false;
       }
@@ -251,12 +309,14 @@ export function createSellerComplianceCohortRuntime(
       const lower = since ?? (previous.state === "member" ? previous.entryEffectiveAt : previous.exitEffectiveAt);
       const revised = base.policyVersion !== policyVersion ? revisionAt : undefined;
       const priorPolicies =
-        current && "priorPolicies" in current && current.priorPolicies
-          ? current.priorPolicies
-          : revised !== undefined && lower !== null && Date.parse(lower) + 1 < Date.parse(revised)
-            ? await loadPriorPolicies(revised, base.policyVersion)
-            : [];
-      const maxLookback = Math.max(lookbackMonths, ...priorPolicies.map((prior) => prior.policy.lookbackMonths ?? 60));
+        current?.priorPolicies ??
+        (!deps.policyHistory && revised !== undefined && lower !== null && Date.parse(lower) + 1 < Date.parse(revised)
+          ? await loadPriorPolicies(revised, base.policyVersion)
+          : []);
+      const maxLookback = Math.max(
+        lookbackMonths,
+        ...priorPolicies.flatMap((prior) => (prior.policy ? [prior.policy.lookbackMonths ?? 60] : [])),
+      );
       const floor = lower === null ? verdictFloor : addUtcMonths(lower, -maxLookback);
       evaluation = evaluateSellerComplianceCohort({
         sales:
@@ -340,35 +400,19 @@ export function createSellerComplianceCohortRuntime(
     const after = resume ? saved!.after_seller_account_id : null;
     const passStartedAt = resume ? saved!.pass_started_at : now;
     // A resumed pass keeps the recording-time window it started with, so no change ages out before the cursor reaches it.
-    const from = new Date(Date.parse(passStartedAt) - 24 * 60 * 60 * 1000).toISOString();
     if (trigger === "t1-changed") {
-      const changed = await listSellersWithChangedCompletedSales(deps.db, {
-        fromInclusive: from,
-        toExclusive: now,
-        snapshotChangeSequence: passSnapshot,
-        afterSellerAccountId: after,
-        limit,
-      });
-      const changedSinceCheckpoint =
-        resume && passSnapshot !== snapshot
-          ? await deps.db.query<{ seller_account_id: string }>(
-              `SELECT DISTINCT seller_account_id
-               FROM platform_operations_seller_compliance_sales
-               WHERE recorded_at IS NOT NULL
-                 AND seller_account_id IS NOT NULL
-                 AND change_sequence > $1::bigint
-                 AND change_sequence <= $2::bigint
-                 AND changed_at >= $3
-                 AND changed_at < $4
-                 AND ($5::text IS NULL OR seller_account_id > $5::text)
-               ORDER BY seller_account_id ASC
-               LIMIT $6`,
-              [passSnapshot, snapshot, from, now, after, limit],
-            )
-          : { rows: [] };
-      const ids = [
-        ...new Set([...changedSinceCheckpoint.rows.map((row) => row.seller_account_id), ...changed.sellerAccountIds]),
-      ]
+      const lowerBound = saved?.after_seller_account_id === null ? saved.snapshot_change_sequence : "0";
+      const changed = await deps.db.query<{ seller_account_id: string }>(
+        `SELECT DISTINCT seller_account_id
+         FROM platform_operations_seller_compliance_sales
+         WHERE recorded_at IS NOT NULL AND seller_account_id IS NOT NULL
+           AND change_sequence > $1::bigint AND change_sequence <= $2::bigint
+           AND ($3::text IS NULL OR seller_account_id > $3::text)
+         ORDER BY seller_account_id ASC LIMIT $4`,
+        [lowerBound, passSnapshot, after, limit],
+      );
+      const ids = changed.rows
+        .map((row) => row.seller_account_id)
         .sort()
         .slice(0, limit);
       return {
@@ -531,7 +575,7 @@ export function createSellerComplianceCohortRuntime(
           candidate.sellerAccountId,
           now,
           error instanceof Error ? error.message : String(error),
-          null,
+          error instanceof PolicyHistoryFailure ? error.policyVersion : null,
           kind,
         );
       if (page.full && page.candidates.length > 0) {
@@ -552,7 +596,10 @@ export function createSellerComplianceCohortRuntime(
       return page.candidates.length;
     }
     if (!resolved || !resolved.value.activated) return 0;
-    await retainPolicyEvidence(resolved.version, resolved.effectiveFrom, resolved.value);
+    // Immutable history is authoritative in production; the evidence table is
+    // retained only for the resolver fallback and is never used to reconstruct
+    // policy timelines on the history path.
+    if (!deps.policyHistory) await retainPolicyEvidence(resolved.version, resolved.effectiveFrom, resolved.value);
     const snapshot = await readSellerComplianceSnapshotChangeSequence(deps.db);
     let processed = 0;
     const evaluated = new Set<string>();
@@ -560,13 +607,11 @@ export function createSellerComplianceCohortRuntime(
       const page = await candidateSellers(now, limit - processed, snapshot, resolved.value, resolved.version, trigger);
       for (const candidate of page.candidates) {
         if (evaluated.has(candidate.sellerAccountId)) continue;
-        const evaluationAt =
-          trigger === "t3-revision" && candidate.revisionOnly && resolved.effectiveFrom ? resolved.effectiveFrom : now;
         try {
           await evaluateSeller(
             candidate.sellerAccountId,
-            evaluationAt,
-            { value: resolved.value, version: resolved.version },
+            now,
+            { value: resolved.value, version: resolved.version, priorPolicies: resolved.priorPolicies },
             resolved.effectiveFrom ?? undefined,
           );
         } catch (error) {
@@ -584,6 +629,8 @@ export function createSellerComplianceCohortRuntime(
       if (page.full && (page.candidates.length > 0 || trigger === "t3-revision" || trigger === "t3-occurrence")) {
         await writeCheckpoint(trigger, page, resolved.version, now);
       } else if (trigger === "t3-revision" || trigger === "t3-occurrence") {
+        await writeCheckpoint(trigger, { ...page, afterSellerAccountId: null }, resolved.version, now);
+      } else if (trigger === "t1-changed") {
         await writeCheckpoint(trigger, { ...page, afterSellerAccountId: null }, resolved.version, now);
       } else {
         await deps.db.query(
