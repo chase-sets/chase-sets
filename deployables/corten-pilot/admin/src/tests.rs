@@ -5269,7 +5269,7 @@ async fn the_create_sheets_start_from_the_schedule_in_effect_and_write_what_admi
         html.contains(r#"value="Account override""#) && html.contains(r#"value="850""#),
         "no personal schedule in effect: the defaults: {html}"
     );
-    assert!(html.contains(r#"name="accountId" value="acc_personal""#), "{html}");
+    assert!(!html.contains(r#"type="hidden" name="accountId""#), "the account is the save form's select: {html}");
     let (_, _, html) = pilot.send(get("/commerce/terms?create=agreement&account=acc_1", Some("terms-viewer"))).await;
     assert!(html.contains(r#"<option value="acc_1" selected"#) && html.contains(r#"value="Business 2026""#), "{html}");
 
@@ -5290,6 +5290,15 @@ async fn the_create_sheets_start_from_the_schedule_in_effect_and_write_what_admi
     let (status, _, html) = pilot.send(get(&location, Some("terms-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("We are preparing your change.") && !html.contains("<dialog"), "{html}");
+
+    // Review on the save form re-opens the sheet on the account chosen, writing nothing.
+    let posts = pilot.calls_to(TERMS_API).into_iter().filter(|c| c.method == Method::POST).count();
+    let body = terms_body("create-agreement", &[("accountId", "acc_personal"), ("review", "account")], "");
+    let (status, headers, _) =
+        pilot.send(post_as("terms-viewer", "/commerce/terms?create=agreement&account=acc_1", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/commerce/terms?create=agreement&account=acc_personal");
+    assert_eq!(pilot.calls_to(TERMS_API).into_iter().filter(|c| c.method == Method::POST).count(), posts, "no write");
 
     let body = terms_body("create-schedule", &[("accountType", "enterprise")], "Enterprise");
     let (status, headers, _) = pilot.send(post_as("terms-viewer", "/commerce/terms?create=schedule", &body, false)).await;

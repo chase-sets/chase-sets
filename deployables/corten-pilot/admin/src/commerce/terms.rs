@@ -288,6 +288,8 @@ pub struct TermsForm {
     pub status: String,
     pub effective_from: String,
     pub effective_until: String,
+    /// Set by Create account override's Review: re-read the starting terms for `account_id`.
+    pub review: String,
 }
 
 impl TermsForm {
@@ -534,6 +536,11 @@ async fn act(
     let open = route.open;
     let caller = config.platform.caller(&headers, config.proto, None);
     let id = form.id.trim().to_owned();
+    if form.intent == "create-agreement" && !form.review.is_empty() {
+        let account = Some(form.account_id.trim().to_owned()).filter(|a| !a.is_empty());
+        let open = url::Open { create: Some("agreement".to_owned()), account, ..url::Open::default() };
+        return req.redirect(&url::Terms { open });
+    }
     let (request, sheet) = match form.intent.as_str() {
         "create-schedule" => {
             let mut sent = body(&form);

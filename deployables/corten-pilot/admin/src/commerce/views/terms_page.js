@@ -3,9 +3,10 @@
 // changes, as Review does without JavaScript.
 
 /**
- * Submits the account's form, which opens the sheet again on that account.
+ * Submits the save form with its Review button, which opens the sheet again on the chosen account.
  * @param {HTMLSelectElement} target The account select.
  */
 export function prefill(target) {
-  target.form?.requestSubmit();
+  const review = target.form?.querySelector('button[name="review"]');
+  if (review instanceof HTMLButtonElement) target.form?.requestSubmit(review);
 }

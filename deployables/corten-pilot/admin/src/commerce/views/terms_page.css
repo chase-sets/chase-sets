@@ -208,9 +208,6 @@
 .form .button {
   justify-self: start;
 }
-.inline {
-  align-items: end;
-}
 .field {
   display: grid;
   gap: var(--space-1);
@@ -307,9 +304,6 @@
   }
   .featured .fact-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .inline {
-    grid-template-columns: minmax(0, 1fr) auto;
   }
 }
 /* A phone: the sheet is the screen. */
