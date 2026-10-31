@@ -44,16 +44,6 @@ const repositoryRoot = realpathSync(resolve("."));
 const goldenProvenance = "dae5e288572b52a559654343ec229f3a988c4b07";
 const historicalNonexistentProvenance = "93172b2173e40bdd0089c63a28b58cd86466a6b9";
 const committedGoldens = readCommittedGoldens(repositoryRoot);
-const stagingLoggingDelta = [
-  {
-    name: "temporary staging ingress error logging",
-    decision: "AC1 staging-only diagnostic delta; production golden remains immutable",
-    goldenFragment:
-      "--set-string controller.service.annotations.service\\\\.beta\\\\.kubernetes\\\\.io/do-loadbalancer-name=chase-sets-staging-doks-ingress --atomic",
-    currentFragment:
-      "--set-string controller.service.annotations.service\\\\.beta\\\\.kubernetes\\\\.io/do-loadbalancer-name=chase-sets-staging-doks-ingress --set-string controller.config.error-log-path=/dev/stderr --set-string controller.config.error-log-level=error --atomic",
-  },
-];
 const movingMainRef = "refs/remotes/fixture/moving-main";
 
 function isOutsideSourceCheckout(root) {
@@ -154,31 +144,6 @@ describe("doks cluster addons planner", () => {
     expect(ingressNginxValues).toContain('use-forwarded-headers: "false"');
     expect(ingressNginxValues).not.toMatch(
       /compute-full-forwarded-for|proxy-set-headers|[\w-]+-snippet:[\s\S]*\$http_x_forwarded/,
-    );
-  });
-
-  it("adds exactly the temporary error logging pairs to staging before --atomic", () => {
-    const staging = planClusterAddons({ environment: "staging" }).find((step) =>
-      step.name.startsWith("install ingress-nginx"),
-    );
-    const production = planClusterAddons({ environment: "production" }).find((step) =>
-      step.name.startsWith("install ingress-nginx"),
-    );
-
-    const atomicIndex = staging.command.indexOf("--atomic");
-    expect(staging.command.slice(atomicIndex - 4, atomicIndex)).toEqual([
-      "--set-string",
-      "controller.config.error-log-path=/dev/stderr",
-      "--set-string",
-      "controller.config.error-log-level=error",
-    ]);
-    expect(production.command).not.toContain("controller.config.error-log-path=/dev/stderr");
-    expect(production.command).not.toContain("controller.config.error-log-level=error");
-    expect(production.command).toEqual(
-      expect.arrayContaining([
-        "--set-string",
-        "controller.service.annotations.service\\.beta\\.kubernetes\\.io/do-loadbalancer-name=chase-sets-production-doks-ingress",
-      ]),
     );
   });
 
@@ -479,17 +444,13 @@ describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
   });
 
   it("matches the staging and production immutable goldens through the real CLI", () => {
-    assertDryRunMatchesGolden({
-      environment: "staging",
-      golden: committedGoldens.staging,
-      actual: runRealDryRun({ repositoryRoot, environment: "staging" }),
-      allowlist: stagingLoggingDelta,
-    });
-    assertDryRunMatchesGolden({
-      environment: "production",
-      golden: committedGoldens.production,
-      actual: runRealDryRun({ repositoryRoot, environment: "production" }),
-    });
+    for (const environment of dryRunEnvironments) {
+      assertDryRunMatchesGolden({
+        environment,
+        golden: committedGoldens[environment],
+        actual: runRealDryRun({ repositoryRoot, environment }),
+      });
+    }
   });
 
   it("records an explicit zero-entry normalized-delta allowlist", () => {
@@ -653,7 +614,6 @@ describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
         golden: committedGoldens.staging,
         actual,
         allowlist: [
-          ...stagingLoggingDelta,
           {
             name: "test-only ingress repo debug token",
             decision: "synthetic proof for #6166; not committed policy",
