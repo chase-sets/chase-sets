@@ -214,6 +214,9 @@
   gap: var(--space-4);
   margin: 0;
 }
+.form > .button {
+  justify-self: start;
+}
 .tinted {
   padding: var(--space-4);
   border-radius: var(--radius-lg);

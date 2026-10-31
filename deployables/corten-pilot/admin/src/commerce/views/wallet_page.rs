@@ -337,7 +337,7 @@ fn Request<'a>(t: Com, screen: &'a WalletScreen, sign_in: &'a str) -> impl Rende
                 </fieldset>
                 <div class={Grid}>
                     <label class={Field}>
-                        <span>{t.wa_flow_amount()} " (" {&screen.wallet.currency_code} ")"</span>
+                        <span>{t.wa_flow_amount()} " (" {screen.wallet.currency_code.to_ascii_uppercase()} ")"</span>
                         <input type="text" name={f.amount} value={&form.amount} inputmode="decimal" required autocomplete="off">
                     </label>
                     <label class={Field}>
