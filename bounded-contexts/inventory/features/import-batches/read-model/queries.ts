@@ -101,6 +101,13 @@ export type InventoryImportCommitParentCensus = Readonly<{
   complete: boolean;
 }>;
 
+export type InventoryImportCommitCensusRow = Readonly<{
+  row_id: string;
+  batch_id: string;
+  row_number: number;
+  status: string;
+}>;
+
 type CommitCensusUnit = Readonly<{
   unit_id: string;
   unit_kind: string;
@@ -136,34 +143,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export async function censusImportCommitParent(
   db: PgQueryable,
-  input: Readonly<{ jobId: string; inputId: string; batchId: string; accountId: string }>,
+  input: Readonly<{
+    jobId: string;
+    inputId: string;
+    batchId: string;
+    accountId: string;
+    acceptedRows?: readonly InventoryImportCommitCensusRow[];
+    verifyAcceptedRows?: boolean;
+  }>,
 ): Promise<InventoryImportCommitParentCensus> {
-  const inputResult = await db.query<{
-    account_id: string;
-    batch_id: string;
-    snapshot_version: number;
-    row_count: number;
-    accepted_rows: unknown;
-  }>(
-    `SELECT account_id, batch_id, snapshot_version, row_count, accepted_rows
-     FROM inventory_import_commit_inputs
-     WHERE input_id = $1 AND account_id = $2 AND batch_id = $3`,
-    [input.inputId, input.accountId, input.batchId],
-  );
-  const frozen = inputResult.rows[0];
-  if (
-    !frozen ||
-    frozen.account_id !== input.accountId ||
-    frozen.batch_id !== input.batchId ||
-    frozen.snapshot_version !== 1 ||
-    !Number.isSafeInteger(frozen.row_count) ||
-    frozen.row_count < 0 ||
-    !Array.isArray(frozen.accepted_rows)
-  ) {
-    return commitCensusReconciliationRequired();
+  let total = input.acceptedRows?.length ?? 0;
+  if (!input.acceptedRows || input.verifyAcceptedRows) {
+    const inputResult = await db.query<{
+      account_id: string;
+      batch_id: string;
+      snapshot_version: number;
+      row_count: number;
+      accepted_rows: unknown;
+    }>(
+      `SELECT account_id, batch_id, snapshot_version, row_count, accepted_rows
+       FROM inventory_import_commit_inputs
+       WHERE input_id = $1 AND account_id = $2 AND batch_id = $3`,
+      [input.inputId, input.accountId, input.batchId],
+    );
+    const frozen = inputResult.rows[0];
+    if (
+      !frozen ||
+      frozen.account_id !== input.accountId ||
+      frozen.batch_id !== input.batchId ||
+      frozen.snapshot_version !== 1 ||
+      !Number.isSafeInteger(frozen.row_count) ||
+      frozen.row_count < 0 ||
+      !Array.isArray(frozen.accepted_rows) ||
+      (input.acceptedRows !== undefined && frozen.row_count !== input.acceptedRows.length)
+    ) {
+      return commitCensusReconciliationRequired();
+    }
+    total = frozen.row_count;
   }
-
-  const total = frozen.row_count;
   const acceptedRows = new Map<string, { rowNumber: number; batchId: string; status: string }>();
   const completedRows = new Set<string>();
   let ordinal = 0;
@@ -180,7 +197,39 @@ export async function censusImportCommitParent(
       unit: CommitCensusUnit | null;
       outcome: CommitCensusOutcome | null;
     }>(
-      `SELECT frozen.ordinal::integer AS ordinal,
+      input.acceptedRows
+        ? `SELECT frozen.ordinal::integer AS ordinal,
+              frozen.value->>'row_id' AS row_id,
+              frozen.value->>'row_number' AS row_number,
+              frozen.value->>'batch_id' AS expected_batch_id,
+              frozen.value->>'status' AS expected_status,
+              jsonb_build_object(
+                'unit_id', unit.unit_id,
+                'unit_kind', unit.unit_kind,
+                'state', unit.state,
+                'payload', unit.payload,
+                'result', unit.result,
+                'claim_owner_id', unit.claim_owner_id,
+                'claim_token', unit.claim_token,
+                'claimed_until', unit.claimed_until,
+                'attempt_count', unit.attempt_count
+              ) AS unit,
+              jsonb_build_object(
+                'row_id', outcome.row_id,
+                'batch_id', outcome.batch_id,
+                'status', outcome.status,
+                'commit_generation', outcome.commit_generation,
+                'committed_at', outcome.committed_at
+              ) AS outcome
+       FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS frozen(value, ordinal)
+       LEFT JOIN inventory_import_batch_work_units AS unit
+         ON unit.job_id = $2 AND unit.unit_id = frozen.value->>'row_id'
+       LEFT JOIN inventory_import_batch_rows AS outcome
+         ON outcome.row_id = frozen.value->>'row_id'
+       WHERE frozen.ordinal > $3
+       ORDER BY frozen.ordinal
+       LIMIT $4`
+        : `SELECT frozen.ordinal::integer AS ordinal,
               frozen.value->>'row_id' AS row_id,
               frozen.value->>'row_number' AS row_number,
               frozen.value->>'batch_id' AS expected_batch_id,
@@ -213,7 +262,9 @@ export async function censusImportCommitParent(
          AND frozen.ordinal > $5
        ORDER BY frozen.ordinal
        LIMIT $6`,
-      [input.inputId, input.accountId, input.batchId, input.jobId, ordinal, IMPORT_COMMIT_CENSUS_PAGE_SIZE],
+      input.acceptedRows
+        ? [JSON.stringify(input.acceptedRows), input.jobId, ordinal, IMPORT_COMMIT_CENSUS_PAGE_SIZE]
+        : [input.inputId, input.accountId, input.batchId, input.jobId, ordinal, IMPORT_COMMIT_CENSUS_PAGE_SIZE],
     );
     if (page.rows.length === 0) {
       if (ordinal < total) return commitCensusReconciliationRequired();

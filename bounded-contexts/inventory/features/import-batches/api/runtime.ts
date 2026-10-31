@@ -55,6 +55,7 @@ import {
 } from "../domain/import-source-adapters";
 import {
   censusImportCommitParent,
+  type InventoryImportCommitCensusRow,
   getImportBatch,
   listImportBatches,
   type InventoryImportBatchRow,
@@ -2701,6 +2702,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     jobId?: string;
     commitInput?: InventoryImportCommitInput;
     commitRowsById?: ReadonlyMap<string, InventoryImportCommitInputRow>;
+    censusAcceptedRows?: readonly InventoryImportCommitCensusRow[];
   }): Promise<number> {
     const claimResult = await workUnitStore.claimNext({
       claimOwnerId: input.claimOwnerId,
@@ -2740,6 +2742,9 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         input.commitInput ??
         (await loadCommitInput(claim.job.payload.commit?.inputId ?? "", { batchId, accountId }, context));
       const commitRowsById = input.commitRowsById ?? indexInventoryImportCommitRows(commitInput.rows);
+      const censusAcceptedRows =
+        input.censusAcceptedRows ??
+        commitInput.rows.map(({ row_id, batch_id, row_number, status }) => ({ row_id, batch_id, row_number, status }));
       const row = commitRowsById.get(claim.unit.unitId);
       if (!row) throw new InventoryDomainError("Import commit row is unavailable; reconciliation is required.");
       await commitSingleRow({ batchId, accountId }, row, context, {
@@ -2763,6 +2768,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             inputId: claim.job.payload.commit?.inputId ?? "",
             batchId,
             accountId,
+            acceptedRows: censusAcceptedRows,
+            verifyAcceptedRows: input.censusAcceptedRows === undefined,
           });
           let parentResult = claim.job.result;
           if (census.complete) {
@@ -2792,6 +2799,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           jobId: claim.job.jobId,
           commitInput,
           commitRowsById,
+          censusAcceptedRows,
         }))
       );
     } catch (error) {
