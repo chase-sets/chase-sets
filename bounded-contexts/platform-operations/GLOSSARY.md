@@ -66,6 +66,10 @@ The **Platform Remedy Policy** is the versioned Platform Operations policy that 
 
 A **Remedy Approval** is an immutable human decision on a proposed remedy after any required Protection Coverage reservation succeeds. Policy may require distinct operators, multiple approvals, and elevated authority before Support can authorize execution.
 
+## Seller Compliance Cohort
+
+A **Seller Compliance Cohort** is the policy-configured rolling-window membership state for seller accounts, derived from recorded seller-compliance sale facts. It is inert until an operator publishes an activated, fully configured policy and does not itself make a statutory applicability claim.
+
 - Projection Operation: A durable control-plane request for operator-triggered projection work such as rebuild, retry, or cancellation.
 - Projection Group: A bounded-context declared projection owner for one read-model group and its source subscriptions.
 - Subscription: A projection group's declared source-context event consumer and checkpoint boundary.
