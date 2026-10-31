@@ -15,9 +15,23 @@ import type {
 } from "./features/payouts/read-model/queries";
 import type { SettlementPayoutSummary } from "./features/payouts/read-model/payout-summary";
 import type { SettlementPayoutReadinessRow as PayoutReadinessProjection } from "./features/payout-readiness/read-model/queries";
-import type { PayoutSetupDecision, PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
+import type {
+  PayoutSetupAttention,
+  PayoutSetupDecision,
+  PayoutSetupProgress,
+} from "./features/payout-readiness/domain/setup-progress";
+import type { PayoutOperationsAttention } from "./features/payouts/read-model/payout-operations";
 
 export type SettlementPayoutReadinessRow = PayoutReadinessProjection & PayoutSetupDecision;
+
+export type SettlementPayoutReadinessResponse = SettlementPayoutReadinessRow & PayoutSetupAttention;
+
+export type SettlementPayoutOperationsResponse = Readonly<{
+  items: readonly SettlementPayoutRow[];
+  total: number;
+  count: number;
+  attention: PayoutOperationsAttention;
+}>;
 
 type SettlementApiApp = ReturnType<typeof buildSettlementApi>;
 
@@ -210,7 +224,7 @@ export function createSettlementApiClient({
         }),
       );
     },
-    async getPayoutReadiness(): Promise<SettlementPayoutReadinessRow> {
+    async getPayoutReadiness(): Promise<SettlementPayoutReadinessResponse> {
       return parseJsonResponse(await client["payout-readiness"].$get({ header: headers }));
     },
     async getPayoutQuickAmounts(): Promise<SettlementPayoutQuickAmounts> {
@@ -267,7 +281,7 @@ export function createSettlementApiClient({
         }),
       );
     },
-    async listPayoutsNeedingReconciliation(query = ""): Promise<ListResponse<SettlementPayoutRow>> {
+    async listPayoutsNeedingReconciliation(query = ""): Promise<SettlementPayoutOperationsResponse> {
       return parseJsonResponse(
         await client.payouts.reconciliation.$get({
           query: Object.fromEntries(new URLSearchParams(query)),

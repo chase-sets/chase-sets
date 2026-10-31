@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
-import { buildPayoutSetupProgress, derivePayoutSetupDecision, withPayoutSetupDecision } from "./setup-progress";
+import {
+  buildPayoutSetupProgress,
+  derivePayoutSetupAttention,
+  derivePayoutSetupDecision,
+  withPayoutSetupDecision,
+} from "./setup-progress";
 import { payoutReadinessFixture, payoutSetupMatrix } from "../tests/setup-decision.test-data";
 
 function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
@@ -29,6 +34,24 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
 }
 
 describe("payout setup progress", () => {
+  it("keeps blocked display state separate from strict 30-day staleness", () => {
+    const base = readiness({ status: "ready", provider_reference: "acct_test" });
+    expect(derivePayoutSetupAttention(base, "2026-07-01T15:00:00.000Z")).toEqual({
+      setup_blocked: false,
+      setup_stale: false,
+      setup_stale_after_days: 30,
+    });
+    expect(
+      derivePayoutSetupAttention({ ...base, updated_at: "2026-06-01T15:00:00.000Z" }, "2026-07-01T15:00:00.001Z"),
+    ).toMatchObject({ setup_stale: true });
+    expect(derivePayoutSetupAttention({ ...base, updated_at: null })).toMatchObject({
+      setup_stale: false,
+    });
+    expect(derivePayoutSetupAttention({ ...base, provider_reference: null })).toMatchObject({
+      setup_blocked: true,
+    });
+  });
+
   it.each(payoutSetupMatrix)("matrix-row-tests: $name", ({ projection, expected }) => {
     expect(derivePayoutSetupDecision(projection)).toEqual(expected);
     expect(buildPayoutSetupProgress(projection)).toMatchObject(expected);
