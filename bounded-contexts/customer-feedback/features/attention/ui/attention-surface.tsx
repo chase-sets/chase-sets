@@ -10,8 +10,7 @@ import {
   StatGrid,
   Text,
 } from "@chase-sets/design-system";
-import type { FeedbackAttentionItem } from "../domain";
-import { feedbackCaseSlaState } from "../domain";
+import type { FeedbackAttentionQueueItem } from "../read-model/queries";
 
 export type FeedbackAttentionMetrics = Readonly<{
   activeCount: number;
@@ -26,18 +25,16 @@ export type FeedbackAttentionMetrics = Readonly<{
   latestDigestAt: string | null;
 }>;
 
-function priorityTone(priority: FeedbackAttentionItem["priority"]) {
+function priorityTone(priority: FeedbackAttentionQueueItem["priority"]) {
   return priority === "urgent" ? "danger" : priority === "high" ? "warning" : "neutral";
 }
 
 export function FeedbackAttentionSurface({
   items,
   metrics,
-  now = new Date().toISOString(),
 }: Readonly<{
-  items: readonly FeedbackAttentionItem[];
+  items: readonly FeedbackAttentionQueueItem[];
   metrics: FeedbackAttentionMetrics;
-  now?: string;
 }>) {
   return (
     <Page>
@@ -86,26 +83,13 @@ export function FeedbackAttentionSurface({
             {
               key: "sla",
               header: t("customer-feedback.attention.sla"),
-              cell: (item) => {
-                const sla = feedbackCaseSlaState(
-                  {
-                    openedAt: item.openedAt,
-                    priority: item.priority,
-                    triagedAt: item.triagedAt,
-                    dueAt: item.dueAt,
-                    status: item.closedAt ? "closed" : "new",
-                    closedAt: item.closedAt,
-                  },
-                  now,
-                );
-                return (
-                  <Badge tone={sla.overdue ? "danger" : "neutral"}>
-                    {sla.overdue
-                      ? t("customer-feedback.attention.sla.breached")
-                      : formatDateTime(sla.effectiveDueAt ?? sla.triageDueAt)}
-                  </Badge>
-                );
-              },
+              cell: ({ sla }) => (
+                <Badge tone={sla.overdue ? "danger" : "neutral"}>
+                  {sla.overdue
+                    ? t("customer-feedback.attention.sla.breached")
+                    : formatDateTime(sla.effectiveDueAt ?? sla.triageDueAt)}
+                </Badge>
+              ),
             },
             {
               key: "delivery",
