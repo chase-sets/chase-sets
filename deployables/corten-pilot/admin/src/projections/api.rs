@@ -48,6 +48,14 @@ fn runtime_memory() -> String {
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
     #[serde(default)]
+    pub total_groups: u32,
+    #[serde(default)]
+    pub caught_up_groups: u32,
+    #[serde(default)]
+    pub behind_groups: u32,
+    #[serde(default)]
+    pub error_groups: u32,
+    #[serde(default)]
     pub running_groups: u32,
     /// A count as decimal text: it can pass 2^53.
     #[serde(default)]
@@ -257,6 +265,10 @@ pub struct OperationSummary {
     pub running_count: Count,
     #[serde(default)]
     pub failed_count: Count,
+    #[serde(default)]
+    pub oldest_queued_at: Option<String>,
+    #[serde(default)]
+    pub oldest_running_at: Option<String>,
 }
 
 /// A signal the API raised, in its own words (English: admin-web draws them as sent).

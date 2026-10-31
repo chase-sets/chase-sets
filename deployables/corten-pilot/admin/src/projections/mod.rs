@@ -1,23 +1,27 @@
 //! Projection Operations (`/platform/projections`, admin-web's `ProjectionOperationsPage` in the platform
 //! section): the console's health, its filters, the repair queue and the recent operations, read
 //! from `GET /api/platform/projections` and its wake status as the signed-in staff member, and a
-//! record's details (`selected`) in a sheet with its repairs. The area has its own stylesheet and
-//! caller: admin-web challenges the page for `projection-operations.view` (its nav entry's
-//! permission). The page offers each write only to staff the API lets make it (`.operate`,
+//! record's details (`selected`) in a sheet with its repairs; and its settings and reference page
+//! (admin-web's `ProjectionOperationsReferencePage`): the groups, the subscription matrix, the
+//! workers, the wake pipeline's signals and the read's diagnostics, from the same reads, with the
+//! same filters and sheet. The area has its own stylesheet and caller: admin-web challenges both
+//! pages for `projection-operations.view` (its nav entry's permission). The page offers each write only to staff the API lets make it (`.operate`,
 //! `.rebuild`), and the API checks again.
 //!
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /platform/projections?search&state&context_name&projection_name&selected` | the console |
 //! | `GET /platform/projections/live?..` | its health, repair queue and operations again each time a running operation changes state (`<corten-live>`) |
+//! | `GET /platform/projections/reference?search&state&context_name&projection_name&selected` | settings and reference |
 //! | `POST /platform/projections/refresh?..` | Refresh status |
 //! | `POST /platform/projections/retry?..` | Retry a blocked stream |
 //! | `POST /platform/projections/rebuild?..` | Rebuild a projection group |
 //! | `POST /platform/projections/rebuild-context?..` | Rebuild every group of a context |
 //! | `POST /platform/projections/cancel?..` | Cancel an operation |
 //!
-//! Each write goes back to the console as it was (its filters and selection), as admin-web's do;
-//! an operation it queued is in Recent operations, followed live.
+//! Each write goes back to the page it came from as it was (its filters and selection; `via=reference`
+//! for the reference page), as admin-web's do; an operation it queued is in the console's Recent
+//! operations, followed live.
 use std::collections::HashMap;
 
 use corten::{Fragment, LiveResponse, axum::http::HeaderMap, prelude::*};
@@ -57,11 +61,31 @@ pub mod url {
         pub context_name: Option<String>,
         pub projection_name: Option<String>,
         pub selected: Option<String>,
+        /// The page a write answers with; none is the console.
+        pub via: Option<Via>,
+    }
+
+    /// The page a link or a write leads to: the console, or settings and reference.
+    #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Via {
+        #[default]
+        Console,
+        Reference,
     }
 
     #[derive(Clone, Debug, Default)]
     #[route("/platform/projections", get = console)]
     pub struct Projections {
+        #[route(query)]
+        pub filters: Filters,
+    }
+
+    /// Settings and reference: the groups, the subscriptions, the workers, the wake pipeline's
+    /// signals and the read's diagnostics.
+    #[derive(Clone, Debug, Default)]
+    #[route("/platform/projections/reference", get = reference)]
+    pub struct Reference {
         #[route(query)]
         pub filters: Filters,
     }
@@ -134,6 +158,20 @@ impl url::Filters {
         url::Filters { selected: selected.map(str::to_owned), ..self.clone() }
     }
 
+    /// The page `via` names with these filters (admin-web's `projectionSelectionHref` on its base).
+    pub fn on(&self, via: url::Via) -> String {
+        let filters = url::Filters { via: None, ..self.clone() };
+        match via {
+            url::Via::Console => url::Projections { filters }.href(),
+            url::Via::Reference => url::Reference { filters }.href(),
+        }
+    }
+
+    /// The same filters for a write from `via`'s page, so it answers with that page.
+    pub fn writing_from(&self, via: url::Via) -> url::Filters {
+        url::Filters { via: (via == url::Via::Reference).then_some(via), ..self.clone() }
+    }
+
     /// Whether a record with these values is shown (admin-web's `matchesProjectionFilters`):
     /// its text holds the search (any case), and its state, context and projection are the ones chosen.
     pub fn matches(&self, text: &str, state: &str, context: Option<&str>, projection: Option<&str>) -> bool {
@@ -155,7 +193,7 @@ pub fn area(area: Area<url::Projections>, shared: Shared) -> Area<url::Projectio
 pub struct Screen {
     pub console: Snapshot,
     /// The wake pipeline's attention items; none when its read failed.
-    pub wake: Vec<AttentionItem>,
+    pub wake: Option<Vec<AttentionItem>>,
 }
 
 /// The console and the wake pipeline's attention, read together. The wake read is optional:
@@ -163,7 +201,7 @@ pub struct Screen {
 async fn read(config: &Shared, headers: &HeaderMap) -> Result<Screen, api::ApiError> {
     let caller = config.platform.caller(headers, config.proto, None);
     let (console, wake) = tokio::join!(api::read(&caller), api::wake(&caller));
-    Ok(Screen { console: console?, wake: wake.map(|w| w.attention_items).unwrap_or_default() })
+    Ok(Screen { console: console?, wake: wake.map(|w| w.attention_items) })
 }
 
 /// What a selection needs that the console's read does not carry: the details of each blocked
@@ -209,6 +247,36 @@ async fn console(
         &screen,
         html! {
             <crate::views::Layout req={&req} viewer={Some(&staff.viewer)} title={t.projections_meta_title()} head="">
+                {view}
+            </crate::views::Layout>
+        },
+    )
+}
+
+/// Settings and reference: the console's reads drawn as its groups, subscriptions, workers, wake
+/// signals and diagnostics, with the same filters and selection sheet. Not followed live, as
+/// admin-web's page is not.
+async fn reference(
+    req: Req,
+    Caller(staff): Caller<Staff<OperationsView>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::projections::url::Reference>,
+) -> HtmlResult {
+    let filters = route.filters;
+    let mut screen = match read(&config, &headers).await {
+        Ok(screen) => screen,
+        Err(error) => return read_failed(&req, error, false),
+    };
+    blocked_details(&config, &headers, &mut screen.console, filters.selected()).await;
+    let t: Ops = req.t();
+    let view = html! {
+        <views::ReferencePage t={t} screen={&screen} filters={&filters} viewer={&staff.viewer} />
+    };
+    req.screen(
+        &screen,
+        html! {
+            <crate::views::Layout req={&req} viewer={Some(&staff.viewer)} title={t.projections_reference_meta_title()} head="">
                 {view}
             </crate::views::Layout>
         },
@@ -269,9 +337,12 @@ async fn live(
     corten::live(fragments)
 }
 
-/// Back to the console as the write found it.
-fn back(req: &Req, filters: url::Filters) -> HtmlResult {
-    req.redirect(&url::Projections { filters })
+/// Back to the page the write came from, as the write found it.
+fn back(req: &Req, mut filters: url::Filters) -> HtmlResult {
+    match filters.via.take() {
+        Some(url::Via::Reference) => req.redirect(&url::Reference { filters }),
+        _ => req.redirect(&url::Projections { filters }),
+    }
 }
 
 /// A write the API refused or failed, as the page's answer: sign in again, 403, 404, or 502

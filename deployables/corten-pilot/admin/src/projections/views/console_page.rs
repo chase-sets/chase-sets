@@ -68,7 +68,7 @@ pub fn state_hue(state: &str) -> Hue {
 }
 
 /// A state's order, most urgent first (admin-web's `stateSeverity`).
-fn severity(state: &str) -> u8 {
+pub(crate) fn severity(state: &str) -> u8 {
     match state {
         "failed" | "error" => 0,
         "degraded" | "blocked" | "cancel_requested" => 1,
@@ -117,7 +117,7 @@ pub fn ConsolePage<'a>(t: Ops, screen: &'a Screen, filters: &'a url::Filters, vi
     let page = url::Projections { filters: filters.clone() }.href();
     let live = url::ProjectionsLive { filters: filters.clone() }.href();
     let refresh = url::Refresh { filters: filters.clone() }.href();
-    let reference = admin_web("/platform/projections/reference").map(|u| u.to_string());
+    let reference = url::Reference::default().href();
     let catalog = viewer.can(crate::catalog::VIEW).then(|| crate::catalog::url::Dimensions::default().href());
     let identity = viewer.can("accounts.view").then(|| admin_web("/access/accounts").map(|u| u.to_string())).flatten();
     let followed = console.operations.iter().any(Operation::live);
@@ -130,9 +130,7 @@ pub fn ConsolePage<'a>(t: Ops, screen: &'a Screen, filters: &'a url::Filters, vi
                     <button type="submit" class={Button}>{t.projections_refresh()}</button>
                 </form>
             }
-            if let Some(href) = &reference {
-                <a class={(Button, Secondary)} href={href}>{t.projections_reference()}</a>
-            }
+            <a class={(Button, Secondary)} href={&reference}>{t.projections_reference()}</a>
             if let Some(href) = &catalog {
                 <a class={(Button, Secondary)} href={href}>{t.projections_catalog()}</a>
             }
@@ -144,10 +142,10 @@ pub fn ConsolePage<'a>(t: Ops, screen: &'a Screen, filters: &'a url::Filters, vi
             <LiveStatus words={&words} id={ids::LIVE} src={&live} reload={&page} kept={&[]}>{""}</LiveStatus>
         }
         {health(t, screen)}
-        <FiltersForm t={t} console={console} filters={filters} />
+        <FiltersForm t={t} console={console} filters={filters} via={url::Via::Console} />
         {repair_queue(t, console, filters)}
         {operations(t, console, filters)}
-        {detail_sheet(t, console, filters, viewer)}
+        {detail_sheet(t, console, filters, viewer, url::Via::Console)}
     }
 }
 
@@ -185,7 +183,7 @@ fn health<'a>(t: Ops, screen: &'a Screen) -> impl Render + 'a {
 #[component(css = ConsolePage)]
 fn Health<'a>(t: Ops, screen: &'a Screen) -> impl Render {
     let console = &screen.console;
-    let attention: Vec<&AttentionItem> = console.attention_items.iter().chain(&screen.wake).collect();
+    let attention: Vec<&AttentionItem> = console.attention_items.iter().chain(screen.wake.iter().flatten()).collect();
     let (label, detail, hue) = status(t, console, &attention);
     let zero = Count("0".into());
     let ops = console.operation_summary.as_ref();
@@ -237,6 +235,71 @@ fn Health<'a>(t: Ops, screen: &'a Screen) -> impl Render {
     }
 }
 
+/// A part of a page: its heading (`id` names it), what it holds, and its content.
+#[component(css = ConsolePage)]
+pub(crate) fn Part<'a, C: Render>(id: &'a str, title: &'a str, description: Option<&'a str>, children: C) -> impl Render {
+    html! {
+        <section class={Part} aria-labelledby={id}>
+            <h2 class={Heading} id={id}>{title}</h2>
+            if let Some(description) = description {
+                <p class={Muted}>{description}</p>
+            }
+            {children}
+        </section>
+    }
+}
+
+/// A table whose rows are cards on a phone, each cell beside its heading (`data-label`).
+#[component(css = ConsolePage)]
+pub(crate) fn Rows<'a, C: Render>(label: &'a str, head: &'a [&'a str], children: C) -> impl Render {
+    html! {
+        <div class={Scroll}>
+            <table class={Table} aria-label={label}>
+                <thead>
+                    <tr>
+                        for heading in head {
+                            <th scope="col">{*heading}</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>{children}</tbody>
+            </table>
+        </div>
+    }
+}
+
+/// A record's name and, under it, what tells it apart.
+#[component(css = ConsolePage)]
+pub(crate) fn Named<'a>(name: &'a str, detail: &'a str) -> impl Render {
+    html! {
+        <span class={Strong}>{name}</span>
+        <span class={Small}>{detail}</span>
+    }
+}
+
+/// Nothing to list: what is missing and why.
+#[component(css = ConsolePage)]
+pub(crate) fn Nothing<'a>(title: &'a str, description: &'a str) -> impl Render {
+    html! {
+        <div class={Empty}>
+            <p class={EmptyTitle}>{title}</p>
+            <p class={Muted}>{description}</p>
+        </div>
+    }
+}
+
+/// A link drawn as a button: `compact` in a table row.
+#[component(css = ConsolePage)]
+pub(crate) fn LinkButton<'a>(href: &'a str, label: &'a str, compact: bool) -> impl Render {
+    html! {
+        if compact {
+            <a class={(Button, Secondary, Compact)} href={href}>{label}</a>
+        } else {
+            <a class={(Button, Secondary)} href={href}>{label}</a>
+        }
+    }
+}
+
 /// A state or a tone, as a pill.
 #[component(css = ConsolePage)]
 pub fn Pill<'a>(hue: Hue, label: &'a str) -> impl Render {
@@ -250,10 +313,10 @@ pub fn Pill<'a>(hue: Hue, label: &'a str) -> impl Render {
     html! { <span class={(Pill, tone)}>{label}</span> }
 }
 
-/// The filters: a search and three choices, sent as the console's address (a `GET` form, so it
+/// The filters: a search and three choices, sent as the page's address (a `GET` form, so it
 /// works without JavaScript), and the filters applied, each a chip, with Clear filters.
 #[component(css = ConsolePage)]
-fn FiltersForm<'a>(t: Ops, console: &'a Snapshot, filters: &'a url::Filters) -> impl Render {
+pub(crate) fn FiltersForm<'a>(t: Ops, console: &'a Snapshot, filters: &'a url::Filters, via: url::Via) -> impl Render {
     let mut contexts: Vec<&str> = console.projection_groups.iter().map(|g| g.target_context_name.as_str()).collect();
     contexts.sort_unstable();
     contexts.dedup();
@@ -261,7 +324,7 @@ fn FiltersForm<'a>(t: Ops, console: &'a Snapshot, filters: &'a url::Filters) -> 
     projections.sort_unstable();
     projections.dedup();
     let f = url::Filters::FIELDS;
-    let clear = url::Projections::default().href();
+    let clear = url::Filters::default().on(via);
     let applied: Vec<String> = [
         (!filters.search().is_empty()).then(|| t.projections_filter_search(filters.search()).to_string()),
         (!filters.state().is_empty()).then(|| t.projections_filter_state(filters.state()).to_string()),
@@ -272,7 +335,7 @@ fn FiltersForm<'a>(t: Ops, console: &'a Snapshot, filters: &'a url::Filters) -> 
     .flatten()
     .collect();
     html! {
-        <form class={Filters} method="get" action={url::Projections::default().href()} aria-label={t.projections_filters()}>
+        <form class={Filters} method="get" action={&clear} aria-label={t.projections_filters()}>
             <label class={Field}>
                 <span class={Label}>{t.projections_search()}</span>
                 <input type="search" name={f.search} value={filters.search()} placeholder={t.projections_search_placeholder()}>
@@ -368,8 +431,7 @@ fn RepairQueue<'a>(t: Ops, rows: Vec<&'a RepairItem>, filters: &'a url::Filters)
                             for item in rows.iter() {
                                 let details = url::Projections { filters: filters.select(Some(&item.target_id)) }.href();
                                 let reference = (item.kind == "projection-group")
-                                    .then(|| group_reference(item.context_name.as_deref(), item.projection_name.as_deref()))
-                                    .flatten();
+                                    .then(|| group_reference(item.context_name.as_deref(), item.projection_name.as_deref()));
                                 <tr>
                                     <td data-label={head[0]}><Pill hue={Hue::from(item.tone)} label={&item.state} /></td>
                                     <td data-label={head[1]}>
@@ -397,21 +459,11 @@ fn RepairQueue<'a>(t: Ops, rows: Vec<&'a RepairItem>, filters: &'a url::Filters)
     }
 }
 
-/// A group's place on admin-web's reference page (not ported), as admin-web links it.
-fn group_reference(context: Option<&str>, projection: Option<&str>) -> Option<String> {
-    let mut query = Vec::new();
-    if let Some(context) = context.filter(|c| !c.is_empty()) {
-        query.push(format!("contextName={}", crate::api::segment(context)));
-    }
-    if let Some(projection) = projection.filter(|p| !p.is_empty()) {
-        query.push(format!("projectionName={}", crate::api::segment(projection)));
-    }
-    let path = if query.is_empty() {
-        "/platform/projections/reference".to_owned()
-    } else {
-        format!("/platform/projections/reference?{}", query.join("&"))
-    };
-    admin_web(&path).map(|u| u.to_string())
+/// A group's place on the reference page, its context and projection chosen, as admin-web links it.
+fn group_reference(context: Option<&str>, projection: Option<&str>) -> String {
+    let some = |value: Option<&str>| value.filter(|v| !v.is_empty()).map(str::to_owned);
+    let filters = url::Filters { context_name: some(context), projection_name: some(projection), ..Default::default() };
+    url::Reference { filters }.href()
 }
 
 fn operations<'a>(t: Ops, console: &'a Snapshot, filters: &'a url::Filters) -> impl Render + 'a {

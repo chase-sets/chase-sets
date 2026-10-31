@@ -81,7 +81,7 @@ fn find<'a>(console: &'a Snapshot, selected: &str) -> Option<Record<'a>> {
 }
 
 /// A runner's or a worker's id (admin-web's `workerId`).
-fn worker_id(entry: &serde_json::Map<String, Value>) -> String {
+pub(crate) fn worker_id(entry: &serde_json::Map<String, Value>) -> String {
     match entry.get("runner_name").filter(|v| !v.is_null()).or_else(|| entry.get("worker_id")) {
         Some(Value::String(text)) => text.clone(),
         Some(Value::Null) | None => String::new(),
@@ -91,7 +91,7 @@ fn worker_id(entry: &serde_json::Map<String, Value>) -> String {
 
 /// A subscription's state as the operator sees it: behind while its runner runs is running
 /// (admin-web's `resolveProjectionOperatorState`).
-fn operator_state<'a>(console: &'a Snapshot, group: &Group, subscription: &'a Subscription) -> &'a str {
+pub(crate) fn operator_state<'a>(console: &'a Snapshot, group: &Group, subscription: &'a Subscription) -> &'a str {
     let runner = format!("{}.{}", group.target_context_name, group.projection_name);
     let running = console.runners.iter().any(|r| {
         r.get("runner_name").and_then(Value::as_str) == Some(runner.as_str())
@@ -257,11 +257,18 @@ fn group_problems<'a>(console: &'a Snapshot, group: &Group) -> Vec<(String, Stri
 }
 
 /// The selected record's sheet, or nothing when nothing (or a record that is gone) is selected.
-pub fn detail_sheet<'a>(t: Ops, console: &'a Snapshot, filters: &'a url::Filters, viewer: &'a Viewer) -> impl Render + 'a {
+/// `via` is the page it is drawn on, which its links and writes come back to.
+pub fn detail_sheet<'a>(
+    t: Ops,
+    console: &'a Snapshot,
+    filters: &'a url::Filters,
+    viewer: &'a Viewer,
+    via: url::Via,
+) -> impl Render + 'a {
     let record = find(console, filters.selected());
     html! {
         if let Some(record) = &record {
-            <DetailSheet t={t} console={console} record={record} filters={filters} viewer={viewer} />
+            <DetailSheet t={t} console={console} record={record} filters={filters} viewer={viewer} via={via} />
         }
     }
 }
@@ -273,8 +280,9 @@ pub(crate) fn DetailSheet<'a>(
     record: &'a Record<'a>,
     filters: &'a url::Filters,
     viewer: &'a Viewer,
+    via: url::Via,
 ) -> impl Render {
-    let close = url::Projections { filters: filters.select(None) }.href();
+    let close = filters.select(None).on(via);
     let back = refs();
     let operate = viewer.can(OPERATE);
     let rebuild = viewer.can(REBUILD);
@@ -293,7 +301,7 @@ pub(crate) fn DetailSheet<'a>(
                 </div>
                 <a ref={back} class={Close} href={&close} aria-label={t.projections_close_detail()}>"×"</a>
             </header>
-            <Repairs t={t} record={record} filters={filters} operate={operate} rebuild={rebuild} />
+            <Repairs t={t} record={record} filters={filters} operate={operate} rebuild={rebuild} via={via} />
             if let Record::Worker(entry) = record {
                 <dl class={Rows}>
                     for (key, value) in &worker_rows(entry) {
@@ -328,7 +336,7 @@ pub(crate) fn DetailSheet<'a>(
                         </h3>
                         <ul>
                             for (id, label, state) in &problems {
-                                let href = url::Projections { filters: filters.select(Some(id)) }.href();
+                                let href = filters.select(Some(id)).on(via);
                                 <li>
                                     <Pill hue={state_hue(state)} label={*state} />
                                     <a href={&href}>{label}</a>
@@ -344,11 +352,18 @@ pub(crate) fn DetailSheet<'a>(
 
 /// The record's repairs, for staff the API lets make them.
 #[component(css = DetailSheet)]
-fn Repairs<'a>(t: Ops, record: &'a Record<'a>, filters: &'a url::Filters, operate: bool, rebuild: bool) -> impl Render {
-    let cancel = url::Cancel { filters: filters.clone() }.href();
-    let retry = url::Retry { filters: filters.clone() }.href();
-    let rebuild_group = url::Rebuild { filters: filters.clone() }.href();
-    let rebuild_context = url::RebuildContext { filters: filters.clone() }.href();
+fn Repairs<'a>(
+    t: Ops,
+    record: &'a Record<'a>,
+    filters: &'a url::Filters,
+    operate: bool,
+    rebuild: bool,
+    via: url::Via,
+) -> impl Render {
+    let cancel = url::Cancel { filters: filters.writing_from(via) }.href();
+    let retry = url::Retry { filters: filters.writing_from(via) }.href();
+    let rebuild_group = url::Rebuild { filters: filters.writing_from(via) }.href();
+    let rebuild_context = url::RebuildContext { filters: filters.writing_from(via) }.href();
     let cancel_fields = crate::projections::CancelInput::FIELDS;
     let retry_fields = crate::projections::RetryInput::FIELDS;
     let group_fields = crate::projections::RebuildInput::FIELDS;

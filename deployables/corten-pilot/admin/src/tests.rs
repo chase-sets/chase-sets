@@ -3521,7 +3521,7 @@ fn projection_operation(id: &str, kind: &str, state: &str, updated_at: &str) -> 
 /// failed one, and the API's triage of them.
 fn projections_console() -> Value {
     json!({
-        "summary": { "status": "degraded", "totalGroups": 2, "runningGroups": 0, "outstandingEventCount": "12345" },
+        "summary": { "status": "degraded", "totalGroups": 2, "caughtUpGroups": 1, "behindGroups": 0, "errorGroups": 0, "runningGroups": 0, "outstandingEventCount": "12345" },
         "projectionGroups": [
             {
                 "projectionName": "settlement-fulfillment-source-projection",
@@ -3580,7 +3580,7 @@ fn projections_console() -> Value {
             projection_operation("op_run", "rebuild-projection-group", "running", "2026-10-28T10:01:00.000Z"),
             projection_operation("op_fail", "rebuild-context", "failed", "2026-10-28T09:00:00.000Z"),
         ],
-        "operationSummary": { "queuedCount": "0", "runningCount": "1", "failedCount": "1", "cancelRequestedCount": "0" },
+        "operationSummary": { "queuedCount": "0", "runningCount": "1", "failedCount": "1", "cancelRequestedCount": "0", "oldestRunningAt": "2026-10-28T10:00:00.000Z" },
         "attentionItems": [
             { "id": "degraded-groups", "label": "Degraded projection groups", "detail": "One or more projection groups report degraded or error state.", "tone": "danger", "count": 1, "targetTab": "groups" },
             { "id": "failed-operations", "label": "Failed operations", "detail": "Projection work reached a terminal failure.", "tone": "danger", "count": 1, "targetTab": "operations" }
@@ -3701,9 +3701,12 @@ async fn projection_operations_draws_the_apis_console_and_triage() {
     assert!(failed < group, "the API's order");
     assert!(html.contains(r#"href="/platform/projections?selected=op_fail""#), "{html}");
     assert!(
-        html.contains("contextName=settlement&amp;projectionName=settlement-fulfillment-source-projection"),
-        "the group's reference on admin-web: {html}"
+        html.contains(
+            r#"href="/platform/projections/reference?context_name=settlement&amp;projection_name=settlement-fulfillment-source-projection""#
+        ),
+        "the group's place on the pilot's reference page: {html}"
     );
+    assert!(html.contains(r#"href="/platform/projections/reference""#), "Settings and reference is the pilot's: {html}");
     let ops = &html[html.find("projections-operations-title").unwrap()..];
     assert!(ops.find("op_fail").unwrap() < ops.find("op_run").unwrap(), "failed before running");
     // Staff who may operate get Refresh status, and the console follows the running operation.
@@ -3847,6 +3850,95 @@ async fn each_projection_repair_goes_to_the_api_and_back_to_the_console_as_it_wa
     let (status, _, html) =
         pilot.send(post_as("ops", "/platform/projections/rebuild-context", "context_name=settlement", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+}
+
+#[tokio::test]
+async fn the_reference_page_lists_groups_subscriptions_workers_wake_signals_and_diagnostics() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/platform/projections/reference", Some("ops"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains("<h1>Projection settings and reference</h1>")
+            && html.contains("<title>Projection Settings and Reference | Chase Sets Admin</title>"),
+        "{html}"
+    );
+    assert!(html.contains("/sections/platform/projections.css"), "the area's stylesheet: {html}");
+    assert!(html.contains(r#"href="/platform/projections""#) && html.contains("Back to projection operations"), "{html}");
+    // The groups, the degraded one first, each with its issues and a Details link that stays here.
+    let groups = &html[html.find("projections-groups-title").unwrap()..html.find("projections-subscriptions-title").unwrap()];
+    assert!(groups.find("settlement-fulfillment-source-projection").unwrap() < groups.find("auth-session-projection").unwrap());
+    assert!(groups.contains("1 blocked / 1 poison"), "{groups}");
+    assert!(
+        groups
+            .contains(r#"href="/platform/projections/reference?selected=settlement%3Asettlement-fulfillment-source-projection""#),
+        "{groups}"
+    );
+    // The subscription matrix: the checkpoint, its source and its positions.
+    let matrix = &html[html.find("projections-subscriptions-title").unwrap()..html.find("projections-workers-title").unwrap()];
+    assert!(
+        matrix.contains("settlement-fulfillment-source-projection:fulfillment:v2") && matrix.contains("47 -&gt; 47"),
+        "{matrix}"
+    );
+    // The workers, the wake pipeline's signals and the diagnostics.
+    assert!(html.contains("platform-worker-1") && html.contains("platform-worker"), "{html}");
+    assert!(html.contains("Failed wake intents") && html.contains("Wake intents failed."), "{html}");
+    assert!(
+        html.contains("<dt>Status source</dt><dd>worker-snapshot</dd>") && html.contains("<dt>Caught up</dt><dd>1</dd>"),
+        "{html}"
+    );
+    assert!(html.contains("<dt>Oldest queued at</dt><dd>Not recorded</dd>"), "{html}");
+    assert!(!html.contains("<dialog"), "nothing selected, no sheet");
+
+    // The filters keep only what they choose, and their form and Clear stay on this page.
+    let (_, _, html) = pilot.send(get("/platform/projections/reference?context_name=auth", Some("ops"))).await;
+    assert!(html.contains(r#"action="/platform/projections/reference""#) && html.contains("Context: auth"), "{html}");
+    let groups = &html[html.find("projections-groups-title").unwrap()..html.find("projections-subscriptions-title").unwrap()];
+    assert!(groups.contains("auth-session-projection") && !groups.contains("settlement-fulfillment"), "{groups}");
+    assert!(
+        html.contains("No subscriptions") && html.contains("No workers"),
+        "a context hides the workers, as admin-web's: {html}"
+    );
+
+    // Without the wake read, the page says so.
+    let (status, _, html) = pilot.send(get("/platform/projections/reference", Some("projections-nowake"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Push-wake status unavailable") && !html.contains("Failed wake intents"), "{html}");
+    let (status, _, _) = pilot.send(get("/platform/projections/reference", Some("staff"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(get("/platform/projections/reference", Some("projections-down"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn a_repair_from_the_reference_page_comes_back_to_it() {
+    let pilot = Pilot::new().await;
+    let group = "/platform/projections/reference?selected=settlement%3Asettlement-fulfillment-source-projection";
+    let (_, _, html) = pilot.send(get(group, Some("projections-operator"))).await;
+    assert!(html.contains("<dialog") && html.contains("settlement.settlement-fulfillment-source-projection"), "{html}");
+    assert!(
+        html.contains(
+            r#"action="/platform/projections/rebuild?selected=settlement%3Asettlement-fulfillment-source-projection&amp;via=reference""#
+        ),
+        "{html}"
+    );
+    assert!(
+        html.contains(r#"href="/platform/projections/reference" aria-label="Close projection detail""#),
+        "closed back to this page: {html}"
+    );
+    assert!(html.contains(r#"href="/platform/projections/reference?selected=poison-event%3Aevt_1""#), "{html}");
+    let (status, headers, html) = pilot
+        .send(post_as(
+            "projections-operator",
+            "/platform/projections/rebuild?selected=settlement%3Asettlement-fulfillment-source-projection&via=reference",
+            "context_name=settlement&projection_name=settlement-fulfillment-source-projection",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(
+        headers[header::LOCATION],
+        "/platform/projections/reference?selected=settlement%3Asettlement-fulfillment-source-projection"
+    );
 }
 
 #[tokio::test]
