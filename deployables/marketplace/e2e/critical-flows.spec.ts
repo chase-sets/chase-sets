@@ -373,7 +373,7 @@ test.describe("marketplace critical flows", () => {
     await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
 
     const resultLinks = page.getByRole("link", { name: /View details for/i });
-    const initialResultCount = await settleSearchResults(page, resultLinks);
+    const initialResultCount = await resultLinks.count();
     expect(initialResultCount).toBeGreaterThan(2);
 
     const categoriesSection = page.locator(
@@ -401,7 +401,7 @@ test.describe("marketplace critical flows", () => {
     await categoryChoice.click();
     await expect(page).toHaveURL((url) => url.pathname.startsWith("/categories/") || url.searchParams.has("category"));
     await expect(selectedCategory).toHaveAttribute("aria-pressed", "true");
-    const filteredResultCount = await settleSearchResults(page, resultLinks);
+    const filteredResultCount = await resultLinks.count();
     expect(filteredResultCount).toBe(categoryCount);
     expect(filteredResultCount).not.toBe(initialResultCount);
     expect(() => expect(filteredResultCount).toBe(initialResultCount)).toThrow();
