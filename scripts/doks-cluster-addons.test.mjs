@@ -653,6 +653,7 @@ describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
         golden: committedGoldens.staging,
         actual,
         allowlist: [
+          ...stagingLoggingDelta,
           {
             name: "test-only ingress repo debug token",
             decision: "synthetic proof for #6166; not committed policy",
