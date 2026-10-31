@@ -8,6 +8,8 @@ import {
   admitMarkerOnlyPolicy,
   admitMarkerSourceRun,
   assertRegistryIdentity,
+  githubApi,
+  main,
   publishReleaseMarker,
   readCompletePages,
   releaseMarkerIdentity,
@@ -852,6 +854,270 @@ describe("production authority collector", () => {
       await expect(readPriorAuthority(api, { ...identity, attempt: 2 })).rejects.toThrow();
     },
   );
+});
+
+describe("bounded GitHub authority reads", () => {
+  const token = "synthetic-secret-token-0000";
+  const secretBody = '{"message":"SYNTHETIC-SECRET-BODY"}';
+  const authorityEnv = { GITHUB_TOKEN: token, GITHUB_REPOSITORY: "synthetic/marker" };
+  const base = "https://api.github.com/repos/synthetic/marker/";
+  const failures = {
+    transport: () => {
+      throw new TypeError("fetch failed", { cause: Object.assign(new Error(secretBody), { code: "UND_ERR_SOCKET" }) });
+    },
+    "mid-body transport": () => ({
+      ok: true,
+      status: 200,
+      body: null,
+      json: async () => {
+        throw new TypeError("terminated");
+      },
+    }),
+    timeout: () => {
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    },
+    abort: () => {
+      throw new DOMException("This operation was aborted", "AbortError");
+    },
+    "HTTP 429": () => new Response(secretBody, { status: 429 }),
+    "HTTP 500": () => new Response(secretBody, { status: 500 }),
+    "HTTP 503": () => new Response(secretBody, { status: 503 }),
+  };
+  const failureClass = {
+    transport: "transport error (UND_ERR_SOCKET)",
+    "mid-body transport": "transport error",
+    timeout: "timeout",
+    abort: "aborted",
+    "HTTP 429": "HTTP 429",
+    "HTTP 500": "HTTP 500",
+    "HTTP 503": "HTTP 503",
+  };
+  // Each path consumes its scripted outcomes in order; an unscripted read is a test failure, never a default.
+  function authority(outcomes) {
+    const fetch = vi.fn(async (url) => {
+      const next = outcomes[url.slice(base.length)]?.shift();
+      if (next === undefined) throw new Error(`unscripted authority read ${url}`);
+      return typeof next === "function" ? next() : new Response(JSON.stringify(next), { status: 200 });
+    });
+    const deps = { fetch, sleep: vi.fn(async () => {}), log: vi.fn() };
+    return { ...deps, deps, paths: () => fetch.mock.calls.map(([url]) => url.slice(base.length)) };
+  }
+  function expectNoLeak(text) {
+    expect(text).not.toContain(token);
+    expect(text).not.toContain("SYNTHETIC-SECRET-BODY");
+  }
+
+  it.each(Object.keys(failures))("recovers from %s on a later bounded read", async (kind) => {
+    const read = authority({ "actions/runs/1": [failures[kind], failures[kind], { id: 1 }] });
+    expect(await githubApi(authorityEnv, read.deps)("actions/runs/1")).toEqual({ id: 1 });
+    expect(read.fetch).toHaveBeenCalledTimes(3);
+    expect(read.sleep.mock.calls).toEqual([[1_000], [2_000]]);
+    expect(read.log.mock.calls).toEqual([
+      [`GitHub authority read retry 2/3 after actions/runs/1 ${failureClass[kind]}`],
+      [`GitHub authority read retry 3/3 after actions/runs/1 ${failureClass[kind]}`],
+    ]);
+    for (const [url, init] of read.fetch.mock.calls) {
+      expect(url).toBe(`${base}actions/runs/1`);
+      expect(init.headers.Authorization).toBe(`Bearer ${token}`);
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("stops reading at the first successful read", async () => {
+    const read = authority({ "actions/runs/1": [failures["HTTP 503"], { id: 1 }, { id: 2 }] });
+    expect(await githubApi(authorityEnv, read.deps)("actions/runs/1")).toEqual({ id: 1 });
+    expect(read.fetch).toHaveBeenCalledTimes(2);
+    expect(read.sleep.mock.calls).toEqual([[1_000]]);
+  });
+
+  it.each(Object.keys(failures))("refuses exhausted %s after three reads with a bounded class", async (kind) => {
+    const read = authority({ "actions/runs/1": [failures[kind], failures[kind], failures[kind], { id: 1 }] });
+    const refusal = await githubApi(authorityEnv, read.deps)("actions/runs/1").catch((error) => error);
+    expect(refusal.message).toBe(`GitHub authority read failed after 3 reads: actions/runs/1 ${failureClass[kind]}`);
+    expect(read.fetch).toHaveBeenCalledTimes(3);
+    expect(read.sleep.mock.calls).toEqual([[1_000], [2_000]]);
+    expectNoLeak([refusal.message, ...read.log.mock.calls.flat()].join("\n"));
+  });
+
+  it.each([400, 401, 403, 404, 422])("refuses non-transient HTTP %s on the first read", async (status) => {
+    const read = authority({ "actions/runs/1": [() => new Response(secretBody, { status }), { id: 1 }] });
+    const refusal = await githubApi(authorityEnv, read.deps)("actions/runs/1").catch((error) => error);
+    expect(refusal.message).toBe(`GitHub authority read failed: actions/runs/1 HTTP ${status}`);
+    expect(read.fetch).toHaveBeenCalledOnce();
+    expect(read.sleep).not.toHaveBeenCalled();
+    expect(read.log).not.toHaveBeenCalled();
+    expectNoLeak(refusal.message);
+  });
+
+  it.each([
+    ["malformed JSON", () => new Response("SYNTHETIC-SECRET-BODY is not JSON", { status: 200 }), "malformed JSON"],
+    [
+      "request error",
+      () => {
+        throw new TypeError(`Headers.append: "Bearer ${token}\n" is an invalid header value.`);
+      },
+      "request error",
+    ],
+  ])("refuses a %s on the first read without quoting upstream text", async (_, outcome, failure) => {
+    const read = authority({ "actions/runs/1": [outcome, { id: 1 }] });
+    const refusal = await githubApi(authorityEnv, read.deps)("actions/runs/1").catch((error) => error);
+    expect(refusal.message).toBe(`GitHub authority read failed: actions/runs/1 ${failure}`);
+    expect(read.fetch).toHaveBeenCalledOnce();
+    expect(read.sleep).not.toHaveBeenCalled();
+    expectNoLeak(refusal.message);
+  });
+
+  it("refuses missing credentials before any read", () => {
+    const read = authority({});
+    expect(() => githubApi({ GITHUB_REPOSITORY: "synthetic/marker" }, read.deps)).toThrow(
+      "missing GitHub authority credentials",
+    );
+    expect(read.fetch).not.toHaveBeenCalled();
+  });
+
+  it("recovers reconcile's prior-authority job reads through the same reader", async () => {
+    const job = syntheticJob();
+    const read = authority({
+      [`actions/runs/${run.id}/attempts/1/jobs?per_page=100&page=1`]: [
+        failures["HTTP 500"],
+        { total_count: 1, jobs: [job] },
+      ],
+    });
+    expect(await readPriorAuthority(githubApi(authorityEnv, read.deps), { ...identity, attempt: 2 })).toEqual(job);
+    expect(read.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  describe("through every marker command mode", () => {
+    const executorRunId = 900000010;
+    const executorPath = `actions/runs/${executorRunId}`;
+    const executor = {
+      id: executorRunId,
+      path: ".github/workflows/platform-production.yml",
+      event: "workflow_dispatch",
+      head_branch: "main",
+      run_attempt: 1,
+      status: "in_progress",
+      head_sha: commit,
+      created_at: run.created_at,
+    };
+    const modeEnv = {
+      ...authorityEnv,
+      GITHUB_RUN_ID: String(executorRunId),
+      GITHUB_RUN_ATTEMPT: "1",
+      RELEASE_COMMIT: commit,
+      RELEASE_IMAGE: `registry.digitalocean.com/synthetic/chase-sets-platform:${commit}`,
+      RELEASE_IMAGE_DIGEST: digest,
+    };
+    const sourceRunPath = `actions/runs/${run.id}`;
+    const sourceRun = {
+      id: run.id,
+      path: ".github/workflows/platform-production.yml",
+      event: "workflow_dispatch",
+      run_attempt: 1,
+      head_branch: "main",
+      status: "completed",
+      conclusion: "failure",
+      head_sha: commit,
+      created_at: run.created_at,
+    };
+    // Every mode ends at an unchanged admission refusal reached only with recovered authority, before any
+    // git, registry or Helm effect: publish and reconcile stop at the next identity check after executor admission.
+    const modes = {
+      publish: {
+        env: { RELEASE_IMAGE_DIGEST: "sha256:synthetic-invalid" },
+        outcomes: () => ({ [executorPath]: [failures.transport, failures["HTTP 503"], executor] }),
+        reads: [executorPath, executorPath, executorPath],
+        refusal: "invalid release image identity",
+        tag: releaseMarkerIdentity(executor, commit),
+      },
+      reconcile: {
+        env: { RELEASE_IMAGE_DIGEST: "sha256:synthetic-invalid" },
+        outcomes: () => ({ [executorPath]: [failures.timeout, executor] }),
+        reads: [executorPath, executorPath],
+        refusal: "invalid release image identity",
+        tag: releaseMarkerIdentity(executor, commit),
+      },
+      "retain-identity": {
+        env: {},
+        outcomes: () => ({
+          [executorPath]: [failures["HTTP 429"], executor],
+          [`${executorPath}/attempts/1/jobs?per_page=100&page=1`]: [
+            failures.abort,
+            failures["HTTP 500"],
+            { total_count: 1, jobs: [syntheticJob()] },
+          ],
+        }),
+        reads: [executorPath, executorPath, ...Array(3).fill(`${executorPath}/attempts/1/jobs?per_page=100&page=1`)],
+        refusal: "current production job identity unavailable",
+        tag: releaseMarkerIdentity(executor, commit),
+      },
+      "marker-only": {
+        env: {
+          GITHUB_EVENT_NAME: "workflow_dispatch",
+          GITHUB_REF_NAME: "main",
+          RECONCILE_MARKER_ONLY: "true",
+          MARKER_SOURCE_RUN_ID: String(run.id),
+          MARKER_SOURCE_ATTEMPT: "1",
+          MARKER_RECOVERY_REASON: "synthetic recovery",
+        },
+        outcomes: () => ({
+          [executorPath]: [executor],
+          [`${sourceRunPath}/attempts/1`]: [failures.transport, sourceRun],
+          [sourceRunPath]: [
+            failures["HTTP 503"],
+            { id: run.id, status: "completed", head_sha: commit, run_attempt: 1 },
+          ],
+          [`${sourceRunPath}/attempts/1/jobs?per_page=100&page=1`]: [
+            failures.timeout,
+            { total_count: 1, jobs: [syntheticJob()] },
+          ],
+          [`${sourceRunPath}/artifacts?per_page=100&page=1`]: [failures["HTTP 500"], { total_count: 0, artifacts: [] }],
+        }),
+        reads: [
+          executorPath,
+          `${sourceRunPath}/attempts/1`,
+          `${sourceRunPath}/attempts/1`,
+          sourceRunPath,
+          sourceRunPath,
+          `${sourceRunPath}/attempts/1/jobs?per_page=100&page=1`,
+          `${sourceRunPath}/attempts/1/jobs?per_page=100&page=1`,
+          `${sourceRunPath}/artifacts?per_page=100&page=1`,
+          `${sourceRunPath}/artifacts?per_page=100&page=1`,
+        ],
+        refusal: "missing or duplicate transition artifact in source upload interval",
+        tag: "unknown",
+      },
+    };
+
+    it.each(Object.keys(modes))("%s recovers transient reads and keeps its admission refusal", async (mode) => {
+      const outcomes = modes[mode].outcomes();
+      const read = authority(outcomes);
+      const refusal = await main(mode, { ...modeEnv, ...modes[mode].env }, read.deps).catch((error) => error);
+      expect(refusal.message).toBe(modes[mode].refusal);
+      expect(read.paths()).toEqual(modes[mode].reads);
+      expect(Object.values(outcomes).flat()).toEqual([]);
+      expect(refusal.marker).toMatchObject({
+        marker_phase: mode,
+        marker_operation: "admission",
+        production_marker_commit: "unknown",
+        release_tag: modes[mode].tag,
+      });
+    });
+
+    it.each(Object.keys(modes))("%s refuses an exhausted executor read before any effect", async (mode) => {
+      const read = authority({ [executorPath]: Array(4).fill(failures["HTTP 503"]) });
+      const refusal = await main(mode, { ...modeEnv, ...modes[mode].env }, read.deps).catch((error) => error);
+      expect(refusal.message).toBe(`GitHub authority read failed after 3 reads: ${executorPath} HTTP 503`);
+      expect(read.paths()).toEqual([executorPath, executorPath, executorPath]);
+      expect(read.sleep.mock.calls).toEqual([[1_000], [2_000]]);
+      expect(refusal.marker).toMatchObject({
+        marker_phase: mode,
+        marker_operation: "admission",
+        production_marker_commit: "unknown",
+      });
+      expectNoLeak([JSON.stringify(refusal.marker), ...read.log.mock.calls.flat()].join("\n"));
+    });
+  });
 });
 
 describe("registry reads through the real command adapter", () => {
