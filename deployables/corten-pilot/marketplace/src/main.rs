@@ -64,6 +64,7 @@ mod sessions;
 mod sets;
 mod shipments;
 mod sign_in;
+mod site;
 mod submitted_offers;
 mod support;
 mod support_list;

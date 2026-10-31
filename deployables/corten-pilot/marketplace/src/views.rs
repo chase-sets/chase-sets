@@ -44,6 +44,7 @@ mod market_nav;
 mod money_page;
 mod notification_page;
 mod offer_matches_page;
+mod offline_page;
 mod order_page;
 mod order_review_page;
 mod packing_page;
@@ -99,6 +100,7 @@ pub use market_nav::MarketNav;
 pub use money_page::{MoneyPage, PayoutPage, PayoutPreparing};
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
 pub use offer_matches_page::{OfferMatchPage, OfferMatchesPage, offer_matches_live_parts};
+pub use offline_page::OfflinePage;
 pub use order_page::{OrderList, OrderPage};
 pub use order_review_page::OrderReviewPage;
 pub use packing_page::{PackingLineId, PackingPage, PackingParts, ShipmentPending};
@@ -150,6 +152,9 @@ pub const INVENTORY: &[Component] = &[
 
 /// The cart's components (`/account/cart`).
 pub const CART: &[Component] = &[CartItem];
+
+/// The offline page (`/offline`), which the service worker keeps for a navigation it cannot make.
+pub const OFFLINE: &[Component] = &[OfflinePage];
 
 /// The buy checkout page (`/checkout/buy/session/{id}`) and the script that says a changed field
 /// needs its totals updated.

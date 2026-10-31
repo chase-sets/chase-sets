@@ -2284,6 +2284,41 @@ pub trait Discovery {
     async fn public_account(&self, slug: &str, query: &str) -> Result<Option<PublicAccount>, ApiError>;
 }
 
+/// One public page a sitemap lists (`DiscoverySitemapUrl`): its path on marketplace and when it
+/// last changed.
+#[derive(Debug, Deserialize)]
+pub struct SitemapEntry {
+    pub path: String,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SitemapEntries {
+    #[serde(default)]
+    items: Vec<SitemapEntry>,
+}
+
+/// Discovery's public pages for the sitemaps, read for no one in particular.
+pub trait Sitemaps {
+    /// How many public pages there are of each kind (`GET /api/marketplace/sitemap-entity-counts`):
+    /// `items`, `categories`, `sellers`, `listings` and `sets`.
+    async fn sitemap_counts(&self) -> Result<BTreeMap<String, u64>, ApiError>;
+    /// The `page`th page of a kind's (`GET /api/marketplace/sitemap-entities/{kind}/{page}`).
+    async fn sitemap_entries(&self, kind: &str, page: u64) -> Result<Vec<SitemapEntry>, ApiError>;
+}
+
+impl Sitemaps for Caller<'_> {
+    async fn sitemap_counts(&self) -> Result<BTreeMap<String, u64>, ApiError> {
+        self.read("/api/marketplace/sitemap-entity-counts", DISCOVERY).await
+    }
+
+    async fn sitemap_entries(&self, kind: &str, page: u64) -> Result<Vec<SitemapEntry>, ApiError> {
+        let path = format!("/api/marketplace/sitemap-entities/{}/{page}", segment(kind));
+        Ok(self.read::<SitemapEntries>(&path, DISCOVERY).await?.items)
+    }
+}
+
 /// Pricing's market rollups for a product, which the Sales tab shows.
 pub trait MarketHistory {
     /// The product's market stats (`ProductMarketStatsSnapshotResponse`).

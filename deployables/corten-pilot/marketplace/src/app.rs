@@ -46,6 +46,12 @@
 //! | `GET /sign-in/magic?token=..` | a magic link's landing |
 //! | `GET /account/select`, `POST ..` | the account a sign-in acts for |
 //! | `POST /sign-out` | signing out |
+//! | `GET /robots.txt` | the crawler rules, and the sitemap index when the site may be indexed (see `site`) |
+//! | `GET /sitemap.xml`, `/sitemap/{kind}/{page}.xml` | the sitemap index and its pages: the home page and search, then Discovery's public pages |
+//! | `GET /favicon.svg`, `/favicon.ico` | the design system's logo (`Public`, a day) |
+//! | `GET /.well-known/appspecific/com.chrome.devtools.json` | nothing (204, `no-store`), so Chrome stops asking |
+//! | `GET /manifest.webmanifest`, `/service-worker.js` | the web app manifest and the service worker (Corten's, `pwa`) |
+//! | `GET /offline` | the page the service worker shows for a navigation it cannot make |
 //!
 //! `<check>` is `recovery::Check`: `after_write`, `attempt`, `family`, `target` and `user`;
 //! `<choice>` is `items::Address`: `market`, `listing`, `offer`, `book` and `dimension.<id>`;
@@ -124,6 +130,9 @@ pub struct Config {
     /// (`STRIPE_PUBLISHABLE_KEY`, as marketplace reads it); without it the page says setup is not
     /// configured.
     pub stripe_publishable_key: Option<String>,
+    /// Whether crawlers may index the site (`CHASE_SETS_MARKETPLACE_INDEXING`, `shouldIndexFromEnv`:
+    /// anything but `0`, `false`, `no` or `off`).
+    pub indexing: bool,
 }
 
 impl Config {
@@ -136,8 +145,22 @@ impl Config {
                 .ok()
                 .map(|key| key.trim().to_owned())
                 .filter(|key| !key.is_empty()),
+            indexing: indexing(std::env::var("CHASE_SETS_MARKETPLACE_INDEXING").ok().as_deref()),
         }
     }
+
+    /// The API's calls for no one in particular, as if for marketplace's own host: a `Public`
+    /// handler's, which cannot read the request's cookies or host.
+    pub fn anonymous(&self) -> crate::api::Caller<'_> {
+        let origin = marketplace_origin();
+        let host = origin.split_once("://").map_or(origin, |(_, host)| host);
+        self.platform.anonymous(host, self.proto)
+    }
+}
+
+/// `shouldIndexFromEnv`: on unless the variable says off.
+pub fn indexing(value: Option<&str>) -> bool {
+    !matches!(value.map(|v| v.trim().to_ascii_lowercase()).as_deref(), Some("0" | "false" | "no" | "off"))
 }
 
 /// Marketplace's origin (`MARKETPLACE_WEB_ORIGIN`), for sign-in and the pages the pilot links to.
@@ -172,7 +195,7 @@ pub mod url {
     pub use desk::Desk;
     pub use desk_offers::DeskOffers;
     pub use guest_payments::{GuestPayment, GuestPaymentStatus};
-    pub use home::Home;
+    pub use home::{Home, Sitemap, SitemapPage};
     pub use inventory::{
         Archive, ImportBatch, ImportCommit, ImportExport, ImportResolve, ImportTemplate, Imports, Inventory, Location, Locations,
         OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
@@ -256,6 +279,38 @@ pub mod url {
         /// checkout and any session, then the search).
         #[route("/guest-checkout/exit", post = crate::sign_in::sign_out)]
         pub struct GuestCheckoutExit;
+
+        /// The site's own files (`crate::site`): the crawler rules, the sitemap index and its
+        /// pages, the favicon at both of marketplace-web's addresses, and Chrome's devtools probe.
+        #[route("/robots.txt", get = crate::site::robots)]
+        pub struct Robots;
+
+        #[route("/sitemap.xml", get = crate::site::sitemap)]
+        pub struct Sitemap;
+
+        /// `file` is the page's number and `.xml` (`1.xml`): a parameter is a whole segment.
+        #[route("/sitemap/{kind}/{file}", get = crate::site::sitemap_page)]
+        pub struct SitemapPage<'a> {
+            pub kind: &'a str,
+            pub file: &'a str,
+        }
+
+        #[route("/favicon.svg", get = crate::site::favicon)]
+        pub struct FaviconSvg;
+
+        #[route("/favicon.ico", get = crate::site::favicon)]
+        pub struct FaviconIco;
+
+        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools)]
+        pub struct Devtools;
+    }
+
+    /// The offline page (`crate::site::offline`), an area for its stylesheet, which no other page
+    /// loads. Public.
+    #[corten::routes(state = crate::app::Shared, area = Offline)]
+    pub mod offline {
+        #[route("/offline", get = crate::site::offline)]
+        pub struct Offline;
     }
 
     /// The account's own page (Identity's `account`): its profile and Update Profile. Every handler
@@ -1694,12 +1749,52 @@ fn stripe_connect(p: corten::security::Sources) -> corten::security::Sources {
 // (todd-skelton/corten#268).
 corten::assets::embed!(pub struct Static = "static");
 
+/// What marketplace-web's service worker leaves to the network (`marketplaceServiceWorkerPolicy`'s
+/// excluded paths and prefixes): no offline page for a sign-in, a checkout, a payment, an account's
+/// pages or an order. Its exact paths are prefixes here, which reach only their own sub-paths
+/// (`/sign-in/magic`).
+const NETWORK_ONLY: [&str; 10] = [
+    "/guest-checkout/exit",
+    "/sign-in",
+    "/sign-out",
+    "/register",
+    "/api/",
+    "/account",
+    "/checkout",
+    "/payment",
+    "/payments",
+    "/orders",
+];
+
+/// marketplace-web's web app manifest (`routes/manifest.ts`), and its service worker as Corten's
+/// (`corten::pwa`): pages from the network, the offline page when there is none, and the static
+/// files from the cache. Marketplace's `orientation` (`any`, the default) and `categories`
+/// (`shopping`, `productivity`) are not written: Corten's manifest has neither
+/// (todd-skelton/corten#515). The description is in English, as marketplace's is.
+fn pwa() -> corten::pwa::Pwa {
+    use corten::{
+        i18n::Messages as _,
+        pwa::{Manifest, Pwa},
+    };
+    let t = crate::text::SiteMsg::for_locale("en");
+    let manifest = Manifest::new("Chase Sets", "Chase Sets")
+        .description(t.manifest_description())
+        .theme_color("#4845c6")
+        .background_color("#f7f5f1")
+        .icon(Static::ICONS_CHASE_SETS_192_PNG, "192x192")
+        .icon(Static::ICONS_CHASE_SETS_512_PNG, "512x512")
+        .maskable_icon(Static::ICONS_CHASE_SETS_MASKABLE_192_PNG, "192x192")
+        .maskable_icon(Static::ICONS_CHASE_SETS_MASKABLE_512_PNG, "512x512");
+    NETWORK_ONLY.into_iter().fold(Pwa::new(manifest), Pwa::network_only)
+}
+
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     App::new(url::home::router(shared.clone()))
         .assets(Static)
+        .pwa(pwa())
         // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
         // which are plain http locally (the default policy takes any https image), and Check out
         // redirects to marketplace's checkout.
@@ -1800,6 +1895,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::invite::area(area, shared.clone()).components(views::REGISTER))
         .area(|area| url::account_select::area(area, shared.clone()).components(views::SIGN_IN))
         .area(|area| url::sign_out::area(area, shared.clone()))
+        .area(|area| url::offline::area(area, shared.clone()).components(views::OFFLINE))
         .error_page(views::error_page, shared)
 }
 

@@ -118,6 +118,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | A submitted offer's page, `/account/offers/submitted/{id}` |
 | `marketplace/` | Support, `/account/support` and a case's page, `/account/support/{id}` |
 | `marketplace/` | Product alerts, `/account/product-alerts` |
+| `marketplace/` | The site's own files: `/robots.txt`, the sitemap index `/sitemap.xml` and its pages `/sitemap/{kind}/{page}.xml` (the home page and search, then Discovery's public items, categories, sellers, listings and sets), `/favicon.svg`, `/favicon.ico`, `/.well-known/appspecific/com.chrome.devtools.json`, the web app manifest and service worker (Corten's PWA, leaving marketplace-web's private paths to the network) and `/offline`. Not ported: `POST /analytics/item-detail-rail`, which counts events only marketplace-web's scripts send |
 | `marketplace/` | marketplace's older money addresses, which move to the Seller Desk: `/account/payouts`, `/account/settlement`, `/account/payouts/{id}`, `/account/payouts/setup` and `/account/wallet/adjustments/{reference}` |
 
 What each screen covers and leaves out, screen by screen, is in the
@@ -150,7 +151,7 @@ From the worktree root, with the dev system running (`node scripts/dev-system.mj
 or `admin-web` for admin):
 
 ```powershell
-node --import tsx deployables/corten-pilot/scripts/export.mjs   # first: writes platform/tokens.json and public/favicon.svg, which are not committed
+node --import tsx deployables/corten-pilot/scripts/export.mjs   # first: writes platform/tokens.json and the favicons, which are not committed
 node deployables/corten-pilot/scripts/sign-in.mjs http://localhost:7753 artifacts/corten-pilot/marketplace-state.json marketplace
 cd deployables/corten-pilot/marketplace; corten dev --port 7792    # or admin/, public/
 cd ..
@@ -174,6 +175,7 @@ and preview the platform.
 | `CHASE_SETS_PUBLIC_ORIGIN` | `https://chasesets.com` | public: the canonical origin (canonical links, the sitemap, the host the API is told) |
 | `CHASE_SETS_MARKETPLACE_ORIGIN` | `https://marketplace.chasesets.com` | public: where Buy or sell links go |
 | `CHASE_SETS_PUBLIC_INDEXING` | on | public: `0`, `false`, `no` or `off` adds `noindex`, closes `robots.txt` and empties the sitemap |
+| `CHASE_SETS_MARKETPLACE_INDEXING` | on | marketplace: `0`, `false`, `no` or `off` closes `robots.txt` and empties the sitemaps |
 | `PUBLIC_WEB_ORIGIN` | `http://localhost:7754` | public: public-web's pages it does not serve (the developer pages, `llms.txt`) and its analytics endpoint |
 | `PROXIES` | none | every app (read by Corten): the proxies in front, comma separated addresses or networks (`10.0.0.0/8`), whose `X-Forwarded-For` `ClientIp` follows back to the visitor; without it the visitor is the connection's peer. Set it where a deploy would have set `CHASE_SETS_TRUST_FORWARDED_HEADERS` for the Node apps. public's Join sends the address to the API |
 | `CHASE_SETS_DISCORD_INVITE_URL` | none | public: the Discord invite the home page links, when set |
@@ -182,7 +184,7 @@ The [export](scripts/export.mjs) writes what the apps read from Chase Sets' sour
 text (`*/locales/*.en.json`), each app's navigation, admin's defaults, the design system's tokens
 and fonts, and public's policy and developer documents. Run it after `main` changes them; the CI
 job runs it with `--check`. `*/locales/pilot.en.json` is the pilot's own text. The two outputs that
-carry the brand foil's colors, `platform/tokens.json` and `public/favicon.svg`, are written on every
+carry the brand foil's colors, `platform/tokens.json`, `public/favicon.svg` and `marketplace/favicon.svg`, are written on every
 run and not committed: the structure gate allows those values only in the design system's own
 registered files.
 
@@ -234,7 +236,9 @@ commit that says what changed. The history of every move is in the
 | [todd-skelton/corten#393 Catalogs have no plural rules, so apps pick a form with count == 1 and card-market shows "1 listings"](https://github.com/todd-skelton/corten/issues/393) | Access's list count (`access::views::ListFrame`) has an `access.item` and an `access.items` message and picks one with `shown == 1`; Payout Operations' retry cell does the same with `payout.attempt` and `payout.attempts` | [todd-skelton/corten#465 i18n: plural messages by CLDR category, picked by the count on the server and in the browser](https://github.com/todd-skelton/corten/pull/465), merged on Corten `main` as `3bc5fe85`: move the pin and write `access.items` and `payout.attempts` as plural messages |
 | [todd-skelton/corten#415 A handler that answers a file cannot answer a page or a redirect when the file is refused](https://github.com/todd-skelton/corten/issues/415) | `channels::manual_sync_download` relays a 303 to the connection with `?manual=failed`, and the page shows the failure | Corten has an answer that is a file or a page: draw the connection with why |
 | [todd-skelton/corten#492 A sub-component cannot bind its page's script: #[component] has css = Other but no js = Other](https://github.com/todd-skelton/corten/issues/492) | Commercial Terms' `TermsPage` draws Create account override's account chooser and passes it to `CreateAgreementSheet` as `chooser` | [todd-skelton/corten#494 #[component(js = Owner)]: a part of a component calls its owner's handlers](https://github.com/todd-skelton/corten/pull/494), merged on Corten `main` as `911de8b8`: move the pin, give `CreateAgreementSheet` `js = TermsPage` and drop `chooser` |
-| [todd-skelton/corten#502 i18n: no way to write a calendar date (no instant behind it) that never shifts with the zone](https://github.com/todd-skelton/corten/issues/502) | Offer Economics and the Ops Dashboard write their windows, weeks and trend points as their midnight in UTC, which `t.date` writes in UTC (`insights::views::date`) | Corten has a calendar date type `t.date` takes: write the dates with it |
+| [todd-skelton/corten#502 i18n: no way to write a calendar date (no instant behind it) that never shifts with the zone](https://github.com/todd-skelton/corten/issues/502) | Offer Economics and the Ops Dashboard write their windows, weeks and trend points as their midnight in UTC, which `t.date` writes in UTC (`insights::views::date`) | merged on Corten `main` as `5a7520bc` (`Day`): move the pin, read the dates as `Day`, write them with `t.date(day, ..)`, and drop the `T00:00:00Z` parse |
+| [todd-skelton/corten#514 A route parameter cannot be followed by fixed text in its segment, so /sitemap/{kind}/{page}.xml has no typed route](https://github.com/todd-skelton/corten/issues/514) | marketplace's sitemap page route takes the whole segment (`1.xml`) and `site::page_number` parses it | Corten routes a parameter with a suffix: make the page a `u64` |
+| [todd-skelton/corten#515 pwa::Manifest cannot set the manifest's other members (orientation, categories, id, screenshots, shortcuts)](https://github.com/todd-skelton/corten/issues/515) | marketplace's manifest (`app::pwa`) leaves out `orientation` and `categories` | Corten's manifest takes them: set them as marketplace-web does |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 

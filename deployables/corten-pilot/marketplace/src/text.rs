@@ -39,6 +39,7 @@ pub use seller_listings::SellerListingsMsg;
 pub use sessions::SessionsMsg;
 pub use shipments::ShipmentsMsg;
 pub use sign_in::SignInMsg;
+pub use site::SiteMsg;
 pub use submitted_offers::SubmittedOffersMsg;
 pub use support::SupportMsg;
 pub use team::TeamMsg;
@@ -208,6 +209,13 @@ mod sell_list {
 mod cart {
     corten::i18n::messages! {
         pub struct CartMsg { "en" => "locales/cart.en.json" }
+    }
+}
+
+/// marketplace-web's offline page and its web app manifest's description.
+mod site {
+    corten::i18n::messages! {
+        pub struct SiteMsg { "en" => "locales/site.en.json" }
     }
 }
 

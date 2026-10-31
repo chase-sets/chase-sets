@@ -214,6 +214,11 @@
 //   .info.contact.* as contact.*, and Contact's meta as meta.contact.*).
 // - public/favicon.svg: the design system's logo (chaseSetsLogoSvg), public-web's favicon. Not
 //   committed (see GENERATED).
+// - marketplace/favicon.svg: the same logo, marketplace-web's favicon. Not committed (see GENERATED).
+// - marketplace/locales/site.en.json: marketplace-web's offline page and its web app manifest's
+//   description (marketplace.app.routes.offline.* as offline.*, and
+//   marketplace.app.routes.manifest.description as manifest_description).
+// - marketplace/static/icons/: marketplace-web's four app icons (public/icons), which its manifest names.
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
@@ -410,6 +415,15 @@ const homeAssets = [
   "chase-sets-og-disney-lorcana.png",
   "chase-sets-og-one-piece-card-game.png",
   "chase-sets-og-founders.png",
+];
+
+// marketplace-web's app icons (deployables/marketplace/public/icons), which its web app manifest
+// names, in marketplace/static/icons/.
+const marketplaceIcons = [
+  "chase-sets-192.png",
+  "chase-sets-512.png",
+  "chase-sets-maskable-192.png",
+  "chase-sets-maskable-512.png",
 ];
 
 /** An article as the help center and the developer portal draw it. */
@@ -1499,13 +1513,27 @@ const outputs = [
     (await import(pathToFileURL(path.join(repo, "packages/design-system/src/brand/chase-sets-logo.tsx")).href))
       .chaseSetsLogoSvg,
   ],
+  [
+    "marketplace/favicon.svg",
+    (await import(pathToFileURL(path.join(repo, "packages/design-system/src/brand/chase-sets-logo.tsx")).href))
+      .chaseSetsLogoSvg,
+  ],
+  [
+    "marketplace/locales/site.en.json",
+    json(
+      await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.app.routes.offline.", "offline"],
+        ["marketplace.app.routes.manifest.description", "manifest_description"],
+      ]),
+    ),
+  ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],
 ];
 // Outputs that carry the brand foil's values are written on every run, --check included, and are not
 // committed: the structure gate (scripts/check-structure/brand-foil-sites.mjs) allows those values
 // only in the design system's registered carriers. Run this script before building the pilot.
-const GENERATED = new Set(["public/favicon.svg", "platform/tokens.json"]);
+const GENERATED = new Set(["public/favicon.svg", "marketplace/favicon.svg", "platform/tokens.json"]);
 const require = createRequire(path.join(repo, "packages/design-system/package.json"));
 let stale = 0;
 for (const [file, text] of outputs) {
@@ -1546,6 +1574,19 @@ for (const name of homeAssets) {
   } else {
     copyFileSync(source, target);
     console.log(`wrote public/static/home/${name}`);
+  }
+}
+mkdirSync(path.join(pilot, "marketplace/static/icons"), { recursive: true });
+for (const name of marketplaceIcons) {
+  const source = path.join(repo, "deployables/marketplace/public/icons", name);
+  const target = path.join(pilot, "marketplace/static/icons", name);
+  if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
+  if (check) {
+    console.error(`marketplace/static/icons/${name} is out of date`);
+    stale += 1;
+  } else {
+    copyFileSync(source, target);
+    console.log(`wrote marketplace/static/icons/${name}`);
   }
 }
 process.exit(stale ? 1 : 0);

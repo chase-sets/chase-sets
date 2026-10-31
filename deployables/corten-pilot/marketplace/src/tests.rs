@@ -576,6 +576,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = search(&uri) {
         return answer;
     }
+    if let Some(answer) = sitemaps(&uri) {
+        return answer;
+    }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
         // Discovery has not caught up with a listing published at 44.
         if waits_for(&headers).as_deref() == Some("44") {
@@ -1986,6 +1989,11 @@ struct Pilot {
 
 impl Pilot {
     async fn new() -> Self {
+        Self::indexed(true).await
+    }
+
+    /// The pilot with crawlers allowed (`CHASE_SETS_MARKETPLACE_INDEXING` on) or not.
+    async fn indexed(indexing: bool) -> Self {
         let stand = Stand::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -1995,6 +2003,7 @@ impl Pilot {
             platform: Platform::new(&origin),
             proto: "http",
             stripe_publishable_key: Some("pk_stand_in_pilot".into()),
+            indexing,
         })
         .router();
         Pilot { router, stand }
@@ -16875,4 +16884,165 @@ async fn a_guests_started_payment_continues_on_the_guest_payment_page() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"href="/checkout/payments/pay_1""#), "{html}");
     assert!(!html.contains(r#"href="/account/payments/pay_1""#), "{html}");
+}
+
+/// Discovery's sitemap reads, as the stand-in answers them: 5,001 items (two pages), one set, none
+/// of the rest; an item page whose entries include one off marketplace's origin; and a categories
+/// page that fails.
+fn sitemaps(uri: &Uri) -> Option<Response> {
+    match uri.path() {
+        "/api/marketplace/sitemap-entity-counts" => {
+            Some(Json(json!({ "items": 5001, "categories": 0, "sellers": 0, "listings": 0, "sets": 1 })).into_response())
+        }
+        "/api/marketplace/sitemap-entities/items/2" => Some(
+            Json(json!({
+                "items": [
+                    { "path": "/items/charizard", "updated_at": "2026-10-30T12:00:00Z" },
+                    { "path": "//evil.example/items/x", "updated_at": "2026-10-30T12:00:00Z" },
+                    { "path": "/items/a&b", "updated_at": null },
+                ],
+                "count": 3,
+            }))
+            .into_response(),
+        ),
+        "/api/marketplace/sitemap-entities/categories/1" => Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        _ => None,
+    }
+}
+
+#[tokio::test]
+async fn robots_and_the_sitemaps_follow_indexing() {
+    let pilot = Pilot::new().await;
+    let (status, headers, robots) = pilot.send(get("/robots.txt", Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/plain"));
+    assert_eq!(robots, "User-agent: *\nAllow: /\nSitemap: http://localhost:7753/sitemap.xml\n");
+
+    // The static page, then two pages of items and one of sets, on marketplace's origin.
+    let (status, _, index) = pilot.send(get("/sitemap.xml", None)).await;
+    assert_eq!(status, StatusCode::OK, "{index}");
+    let locs: Vec<&str> = index.split("<loc>").skip(1).map(|l| l.split("</loc>").next().unwrap()).collect();
+    assert_eq!(
+        locs,
+        [
+            "http://localhost:7753/sitemap/static/1.xml",
+            "http://localhost:7753/sitemap/items/1.xml",
+            "http://localhost:7753/sitemap/items/2.xml",
+            "http://localhost:7753/sitemap/sets/1.xml",
+        ]
+    );
+    // The API is called for no one: no session, marketplace's own host.
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let counts = calls.iter().find(|c| c.path == "/api/marketplace/sitemap-entity-counts").unwrap();
+    assert!(counts.headers.get(header::COOKIE).is_none());
+    assert_eq!(counts.headers["x-forwarded-host"], "localhost:7753");
+    assert_eq!(counts.headers["chase-sets-read-target-context"], "discovery");
+
+    let (status, _, page) = pilot.send(get("/sitemap/static/1.xml", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("<url><loc>http://localhost:7753/</loc></url><url><loc>http://localhost:7753/search</loc></url>"),
+        "{page}"
+    );
+
+    let (status, headers, page) = pilot.send(get("/sitemap/items/2.xml", None)).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(headers[header::CONTENT_TYPE].to_str().unwrap().starts_with("application/xml"));
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().starts_with("public"), "{headers:?}");
+    assert!(
+        page.contains("<url><loc>http://localhost:7753/items/charizard</loc><lastmod>2026-10-30T12:00:00Z</lastmod></url>"),
+        "{page}"
+    );
+    assert!(page.contains("<loc>http://localhost:7753/items/a&amp;b</loc></url>"), "{page}");
+    assert!(!page.contains("evil.example"), "a path off marketplace's origin is left out: {page}");
+
+    // A failed read is a 502 no cache keeps, not a sitemap without the pages.
+    let (status, headers, _) = pilot.send(get("/sitemap/categories/1.xml", None)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(!headers[header::CACHE_CONTROL].to_str().unwrap().contains("public"), "{headers:?}");
+
+    for missing in [
+        "/sitemap/static/2.xml",
+        "/sitemap/people/1.xml",
+        "/sitemap/items/0.xml",
+        "/sitemap/items/1.json",
+        "/sitemap/items/x.xml",
+    ] {
+        let (status, _, _) = pilot.send(get(missing, None)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{missing}");
+    }
+
+    // Closed: robots.txt says so, and the sitemaps list nothing and ask the API nothing.
+    let closed = Pilot::indexed(false).await;
+    let (_, _, robots) = closed.send(get("/robots.txt", None)).await;
+    assert_eq!(robots, "User-agent: *\nDisallow: /\n");
+    let (status, _, index) = closed.send(get("/sitemap.xml", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!index.contains("<sitemap>"), "{index}");
+    let (status, _, page) = closed.send(get("/sitemap/items/1.xml", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!page.contains("<url>"), "{page}");
+    assert!(closed.stand.calls.lock().unwrap().iter().all(|c| !c.path.contains("sitemap")));
+}
+
+#[tokio::test]
+async fn the_site_files_are_marketplaces() {
+    let pilot = Pilot::new().await;
+    for path in ["/favicon.svg", "/favicon.ico"] {
+        let (status, headers, body) = pilot.send(get(path, None)).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert_eq!(headers[header::CONTENT_TYPE], "image/svg+xml; charset=utf-8");
+        assert!(body.contains("<svg xmlns=\"http://www.w3.org/2000/svg\""), "{body}");
+    }
+    let (status, headers, _) = pilot.send(get("/.well-known/appspecific/com.chrome.devtools.json", None)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"));
+
+    // The manifest: marketplace's name, description, colors and four icons, at their versioned URLs.
+    let (status, headers, manifest) = pilot.send(get("/manifest.webmanifest", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=3600");
+    let manifest: Value = serde_json::from_str(&manifest).unwrap();
+    assert_eq!(manifest["name"], "Chase Sets");
+    assert_eq!(manifest["description"], "Purchase and sell trading cards.");
+    assert_eq!(manifest["theme_color"], "#4845c6");
+    assert_eq!(manifest["background_color"], "#f7f5f1");
+    let icons = manifest["icons"].as_array().unwrap();
+    assert_eq!(icons.len(), 4);
+    for icon in icons {
+        let src = icon["src"].as_str().unwrap();
+        assert!(src.ends_with(".png") && src.contains("/icons/chase-sets-"), "{src}");
+        let res = pilot.router.clone().oneshot(get(src, None)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{src}");
+        assert_eq!(res.headers()[header::CONTENT_TYPE], "image/png", "{src}");
+    }
+    assert_eq!(icons.iter().filter(|i| i["purpose"] == "maskable").count(), 2);
+
+    // The worker leaves marketplace's private paths to the network.
+    let (status, _, worker) = pilot.send(get("/service-worker.js", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    for prefix in ["/account", "/checkout", "/payments", "/orders", "/sign-in", "/api/", "/guest-checkout/exit"] {
+        assert!(worker.contains(&format!("\"{prefix}\"")), "{prefix}: {worker}");
+    }
+    assert!(worker.contains(r#"const OFFLINE = "/offline";"#));
+}
+
+#[tokio::test]
+async fn the_offline_page_is_the_same_for_everyone() {
+    let pilot = Pilot::new().await;
+    let (status, headers, page) = pilot.send(get("/offline", None)).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().starts_with("public, max-age=0"), "{headers:?}");
+    assert!(page.contains("<title>Offline | Chase Sets</title>"), "{page}");
+    assert!(page.contains("You are offline"), "{page}");
+    assert!(page.contains("Marketplace records stay protected"), "{page}");
+    // Try again loads the address asked for, with or without a script.
+    assert!(page.contains(r#"href="">Try again</a>"#), "{page}");
+    assert!(page.contains(r#"<link rel="manifest" href="/manifest.webmanifest">"#), "{page}");
+    // A signed-in member's request draws no nav and asks nothing of the API.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, signed_in) = pilot.send(get("/offline", Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!signed_in.contains("<nav"), "{signed_in}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().len(), before);
 }
