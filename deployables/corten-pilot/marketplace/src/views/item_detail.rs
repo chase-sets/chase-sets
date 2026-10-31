@@ -486,7 +486,7 @@ fn Gallery<'a>(shots: &'a [Shot]) -> impl Render {
     html! {
         <div class={Gallery}>
             for (i, shot) in shots.iter().enumerate() {
-                <label class={Pick}>
+                <label class={Thumb}>
                     <input type="radio" name="item-gallery" checked={i == 0} aria-label={&shot.alt}>
                     <img src={&shot.thumb} alt="" width="64" height="64" loading="lazy" decoding="async">
                 </label>

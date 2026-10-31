@@ -4450,6 +4450,9 @@ async fn an_item_with_more_than_one_picture_shows_one_at_a_time_picked_by_its_th
     assert_eq!(status, StatusCode::OK, "{html}");
     let at = html.find(r#"<div class="item-detail__gallery">"#).expect("the gallery");
     let gallery = &html[at..at + html[at..].find("</div>").unwrap()];
+    // Its thumbnails have a class of their own: the option picker's form is `pick`, and a
+    // thumbnail's 4rem box once clipped it.
+    assert_eq!(gallery.matches(r#"<label class="item-detail__thumb">"#).count(), 3, "{gallery}");
     // The two pictures, then the card back that stays, each after its thumbnail; the first checked.
     assert_eq!(gallery.matches(r#"type="radio" name="item-gallery""#).count(), 3, "{gallery}");
     assert_eq!(gallery.matches(" checked").count(), 1, "{gallery}");
