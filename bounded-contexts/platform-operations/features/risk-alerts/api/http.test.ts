@@ -3,6 +3,7 @@ import type { AuthenticatedApiEnv, ResolvedActor } from "@chase-sets/auth-contex
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { describe, expect, it, vi } from "vitest";
 import { createRiskAlertRoutes } from "./http";
+import { RiskAlertActionRejectedError } from "./contracts";
 import type { RiskAlertServices } from "./runtime";
 
 const actor = Object.freeze({
@@ -19,6 +20,17 @@ const context = Object.freeze({
   audit: Object.freeze({ performedByUserId: "usr_synthetic_operator", forAccountId: "acc_synthetic_operator" }),
 }) satisfies EventStoreContext;
 const recorded = { actionId: "action_synthetic_operator", recordedAt: "2026-10-06T12:00:00.000Z" };
+
+function authorizedApp(services: RiskAlertServices) {
+  const app = new Hono<AuthenticatedApiEnv>();
+  app.use("*", async (c, next) => {
+    c.set("actor", actor);
+    c.set("context", context);
+    await next();
+  });
+  app.route("/", createRiskAlertRoutes(services));
+  return app;
+}
 
 describe("risk-alerts HTTP authorization", () => {
   it("authorizes risk alerts with the reported-content grant", async () => {
@@ -92,5 +104,97 @@ describe("risk-alerts HTTP authorization", () => {
         }
       }
     }
+  });
+});
+
+describe("risk-alerts HTTP action outcomes", () => {
+  function servicesForAction(
+    recordRiskAlertAction: RiskAlertServices["recordRiskAlertAction"],
+  ): RiskAlertServices {
+    return {
+      listRiskAlertQueue: vi.fn<RiskAlertServices["listRiskAlertQueue"]>().mockResolvedValue({ items: [], total: 0 }),
+      getRiskAlertQueueItem: vi.fn<RiskAlertServices["getRiskAlertQueueItem"]>().mockResolvedValue(null),
+      getRiskAlertQueueMetrics: vi.fn<RiskAlertServices["getRiskAlertQueueMetrics"]>().mockResolvedValue({
+        total_count: 0,
+        needs_review_count: 0,
+        manual_payout_review_candidate_count: 0,
+      }),
+      recordRiskAlertAction,
+      projectors: [],
+    };
+  }
+
+  it("risk alert action appends for an allowed action", async () => {
+    const record = vi.fn<RiskAlertServices["recordRiskAlertAction"]>().mockResolvedValue(recorded);
+    const app = authorizedApp(servicesForAction(record));
+
+    for (const action of ["request-manual-payout-review", "acknowledge"] as const) {
+      const response = await app.request("/alert_synthetic/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, note: "Synthetic operator evidence" }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ id: recorded.actionId, recordedAt: recorded.recordedAt });
+    }
+    expect(record).toHaveBeenCalledTimes(2);
+  });
+
+  it("risk alert action refuses a non-candidate payout review", async () => {
+    const record = vi
+      .fn<RiskAlertServices["recordRiskAlertAction"]>()
+      .mockRejectedValue(new RiskAlertActionRejectedError("action-not-allowed"));
+    const app = authorizedApp(servicesForAction(record));
+
+    const response = await app.request("/alert_synthetic/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "request-manual-payout-review" }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "validation_failed",
+        reason: "action-not-allowed",
+        message: "The risk alert action was rejected.",
+      },
+    });
+  });
+
+  it("risk alert action refuses an unknown alert", async () => {
+    const record = vi
+      .fn<RiskAlertServices["recordRiskAlertAction"]>()
+      .mockRejectedValue(new RiskAlertActionRejectedError("alert-not-found"));
+    const app = authorizedApp(servicesForAction(record));
+
+    const response = await app.request("/alert_missing/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "acknowledge" }),
+    });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "not_found",
+        reason: "alert-not-found",
+        message: "The risk alert action was rejected.",
+      },
+    });
+  });
+
+  it("risk alert action keeps the invalid-action refusal", async () => {
+    const record = vi.fn<RiskAlertServices["recordRiskAlertAction"]>().mockResolvedValue(recorded);
+    const app = authorizedApp(servicesForAction(record));
+
+    const response = await app.request("/alert_synthetic/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "invalid-action" }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: { code: "validation_failed", message: "Risk alert action is invalid." },
+    });
+    expect(record).not.toHaveBeenCalled();
   });
 });
