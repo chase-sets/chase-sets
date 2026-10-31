@@ -1,5 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
-import { compareMoneyAmounts, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { compareMoneyAmounts, tryMoneyToCents, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, RepricingPolicyId } from "@chase-sets/primitives/typed-ids";
 import { worstCaseRepricingFloorAmount } from "./floor-resolution";
 import { bindAuthoringIntent, recognizeAuthoringIntent, type RepricingAuthoringIntent } from "./authoring-intent";
@@ -282,7 +282,7 @@ function normalizeOffset(offset: RepricingOffset): RepricingOffset {
 
 function normalizeSignedMoneyAmount(value: string, fieldName: string): string {
   const normalized = value.trim();
-  assert(/^-?\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid signed decimal amount.`);
+  assert(trySignedMoneyToCents(normalized) !== null, `${fieldName} must be a valid signed decimal amount.`);
   return normalized;
 }
 

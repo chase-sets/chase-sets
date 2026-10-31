@@ -452,6 +452,43 @@ describe("RepricingPolicy validation matrix", () => {
     ).toThrow("Floor amount must be greater than zero.");
   });
 
+  function absoluteOffsetRule(amount: string): RepricingRule {
+    return { ...defaultRule, directive: { ...defaultRule.directive, offset: { mode: "absolute", amount } } };
+  }
+
+  it.each(["10000000000.00", "-10000000000.00"])("rejects absolute offset %s beyond the money range", (amount) => {
+    const create = createWith({ rules: [absoluteOffsetRule(amount)] });
+    expect(create).toThrow(RepricingPolicyValidationError);
+    expect(create).toThrow("Offset amount must be a valid signed decimal amount.");
+  });
+
+  it("absolute offset output preservation", () => {
+    for (const [amount, emitted] of [
+      ["9999999999.99", "9999999999.99"],
+      ["-9999999999.99", "-9999999999.99"],
+      ["-0", "-0"],
+      ["0", "0"],
+      ["  -1.5  ", "-1.5"],
+      ["-0002.5", "-0002.5"],
+    ] as const) {
+      const events = decideRepricingPolicy(initialRepricingPolicyState, {
+        ...createCommand,
+        rules: [absoluteOffsetRule(amount)],
+      });
+      expect(events[0]).toMatchObject({
+        data: { rules: [{ directive: { offset: { mode: "absolute", amount: emitted } } }] },
+      });
+    }
+  });
+
+  it("absolute offset syntax rejection", () => {
+    for (const amount of ["1e2", "-1.005", "+1", "--1", "- 1", "-"]) {
+      const create = createWith({ rules: [absoluteOffsetRule(amount)] });
+      expect(create).toThrow(RepricingPolicyValidationError);
+      expect(create).toThrow("Offset amount must be a valid signed decimal amount.");
+    }
+  });
+
   it("rejects a blank name", () => {
     expect(createWith({ name: "   " })).toThrow("must not be blank");
   });
