@@ -11,7 +11,7 @@ import type {
 } from "./contracts";
 import { getSupportFlowDefinition } from "../domain/flow-catalog";
 import { normalizeFlowType } from "../domain/common";
-import { projectSupportOperatorPolicy } from "../read-model/queries";
+import { projectSupportOperatorPolicy, type SupportOperatorPolicy } from "../read-model/queries";
 
 function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {}): SupportOperationsRequestListItem {
   return {
@@ -60,7 +60,9 @@ function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {
   };
 }
 
-function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): SupportOperationsRequestDetailResponse {
+type DetailFixtureOverrides = Partial<SupportRequestDetail> & Readonly<{ operatorPolicy?: SupportOperatorPolicy }>;
+
+function buildDetailItem(overrides: DetailFixtureOverrides = {}): SupportOperationsRequestDetailResponse {
   const request: SupportOperationsRequestDetail = {
     ...buildQueueItem(),
     operatorPolicy: {
