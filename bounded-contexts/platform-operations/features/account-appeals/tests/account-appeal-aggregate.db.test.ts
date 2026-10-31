@@ -1085,6 +1085,22 @@ describeDb("account appeal aggregate DB proof", () => {
           }),
         ).rejects.toThrow("account capability");
         const streamId = appealStreamId(resolved.action.appealableActionId);
+        // Discriminator for the exact-stream readback: one committed event on a sibling appeal stream, appended
+        // through the real event store before the race, so an unscoped readback observes two rows instead of one.
+        const unrelatedStreamId = appealStreamId(createId("enf"));
+        expect(unrelatedStreamId).not.toBe(streamId);
+        const unrelated = await createPostgresEventStore({ pool }).appendToStream({
+          streamId: unrelatedStreamId,
+          expectedVersion: "no_stream",
+          context: {
+            tenantId: seller.tenantId,
+            audit: { performedByUserId: createId("usr"), forAccountId: createId("acc") },
+          },
+          events: [
+            { eventType: "platform-operations.account-appeal.synthetic-unrelated", payload: { synthetic: true } },
+          ],
+        });
+        expect(unrelated.map((event) => event.streamVersion)).toEqual([1]);
         const rendezvous = createConcurrentFilingRendezvous(diagnostics);
         const firstPool = instrumentConcurrentFilingPool(pool, "first", diagnostics, rendezvous);
         const secondPool = instrumentConcurrentFilingPool(pool, "second", diagnostics, rendezvous);
