@@ -42,6 +42,7 @@ import {
 } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 import { buildStreamPrefixFilterSql, streamCategory, streamContextName } from "./stream-prefix-filter";
+import { lockAndCommitRequestTerminalInTransaction } from "./owner-stream-reservation";
 
 type DbEventRow = Readonly<{
   event_id: string;
@@ -269,6 +270,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
   return {
     readStreamInTransaction: readStream,
     appendToStreamInTransaction: async (client, input) => {
+      if (input.requestTerminal)
+        throw createEventStoreError("concurrency_conflict", "Request terminals require appendToStreams.");
       if (input.configurationGrants?.length)
         throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
       if (input.events.length === 0) return [];
@@ -358,6 +361,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStream: async (input) => {
+      if (input.requestTerminal)
+        throw createEventStoreError("concurrency_conflict", "Request terminals require appendToStreams.");
       if (input.configurationGrants?.length)
         throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
       if (input.events.length === 0) {
@@ -470,6 +475,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStreamsIndependently: async (inputs, options) => {
+      if (inputs.some((input) => input.requestTerminal))
+        throw createEventStoreError("concurrency_conflict", "Request terminals require appendToStreams.");
       if (inputs.some((input) => input.configurationGrants?.length))
         throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
       const appendInputs = inputs.filter((input) => input.events.length > 0);
@@ -864,6 +871,18 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
 
 async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Promise<readonly AppendToStreamsResult[]> {
   const results: AppendToStreamsResult[] = [];
+  const terminals = args.inputs.flatMap((input) => (input.requestTerminal ? [input.requestTerminal] : []));
+  if (terminals.length) {
+    const keys = terminals.map((binding) => JSON.stringify([binding.consumerStoreId, binding.requestId]));
+    if (new Set(keys).size !== keys.length)
+      throw createEventStoreError("concurrency_conflict", "Each request terminal may participate once per append.");
+    // Request-terminal locks are the first lock in the class-C append order.
+    // The CAS is consumer-local and therefore never reads an owner database.
+    for (const binding of [...terminals].sort((a, b) =>
+      JSON.stringify([a.consumerStoreId, a.requestId]).localeCompare(JSON.stringify([b.consumerStoreId, b.requestId])),
+    ))
+      await lockAndCommitRequestTerminalInTransaction(args.client, binding);
+  }
   const grants = args.inputs.flatMap((input) => input.configurationGrants ?? []);
   if (grants.length) {
     assertUniqueStreamIds("appendToStreams", args.inputs);

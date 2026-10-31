@@ -59,6 +59,15 @@ export type EventStore = Readonly<{
    * every key's SHARED guard lock, held through COMMIT. Single-stream and
    * independent append APIs reject these grants. Omission preserves existing
    * no-grant behavior.
+   *
+   * A class-M requestTerminal is an immutable consumer-local preparation.
+   * The adapter locks terminals first (ordered by consumer/request), then
+   * class-C keys, streams and the global append guard. It validates the full
+   * binding and consumer incarnation and CASes OPEN to COMMITTED in the same
+   * transaction as every event. Failure restores both terminal and events.
+   * ABORTED or an already COMMITTED terminal refuses with zero events; COMMIT
+   * never reads an owner. Single-stream and independent APIs reject bindings.
+   * Omission preserves no-binding behavior.
    */
   appendToStreams?: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
   /**

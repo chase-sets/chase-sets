@@ -99,6 +99,44 @@ describeDb("applies a migration data step atomically", () => {
     expect(await writes()).toEqual(["prior-schema-business-row"]);
   });
 
+  it("upgrades the prior owner-stream schema, preserves business data and ledgers it once", async () => {
+    await pool.query(
+      "DROP TABLE event_owner_stream_reservations, event_owner_stream_invalidations, event_request_terminals, event_owner_stream_inbound_evidence",
+    );
+    await pool.query(`DELETE FROM ${SCHEMA_MIGRATIONS_TABLE} WHERE migration_id = $1`, [
+      "20261028_owner_stream_reservations",
+    ]);
+    await pool.query("INSERT INTO data_step_writes (source) VALUES ('prior-owner-stream-business-row')");
+    const first = observeForwardedSql(pool);
+    await bootstrap([], first.pool);
+    const second = observeForwardedSql(pool);
+    await bootstrap([], second.pool);
+    const creates = first.forwarded.filter((entry) =>
+      entry.sql.includes("CREATE TABLE IF NOT EXISTS event_owner_stream_reservations"),
+    );
+    expect(creates).toHaveLength(1);
+    expect(first.forwarded.findIndex((entry) => entry === creates[0])).toBeGreaterThan(
+      first.forwarded.findIndex(
+        (entry) => entry.sql === ledgerCheckSql && entry.values?.[0] === "20261028_owner_stream_reservations",
+      ),
+    );
+    expect(
+      second.forwarded.some((entry) =>
+        entry.sql.includes("CREATE TABLE IF NOT EXISTS event_owner_stream_reservations"),
+      ),
+    ).toBe(false);
+    const tables = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM information_schema.tables WHERE table_schema = current_schema() AND table_name IN ('event_owner_stream_reservations', 'event_owner_stream_invalidations', 'event_request_terminals', 'event_owner_stream_inbound_evidence')",
+    );
+    expect(tables.rows[0]?.count).toBe("4");
+    const ledger = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM ${SCHEMA_MIGRATIONS_TABLE} WHERE migration_id = $1`,
+      ["20261028_owner_stream_reservations"],
+    );
+    expect(ledger.rows[0]?.count).toBe("1");
+    expect(await writes()).toEqual(["prior-owner-stream-business-row"]);
+  });
+
   it("leaves no write or ledger row when the step throws after writing, then applies once", async () => {
     let failStep = true;
     const migration = dataStepMigration(async (db) => {

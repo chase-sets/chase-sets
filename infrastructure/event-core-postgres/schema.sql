@@ -30,6 +30,69 @@ CREATE TABLE IF NOT EXISTS event_configuration_guard_history (
 );
 -- configuration-epoch-schema:end
 
+-- owner-stream-reservation-schema:start
+CREATE TABLE IF NOT EXISTS event_owner_stream_reservations (
+  reservation_id text PRIMARY KEY,
+  operation_id text NOT NULL,
+  owner_stream_id text NOT NULL,
+  purpose text NOT NULL,
+  resource_key text NOT NULL,
+  consumer_store_id text NOT NULL,
+  consumer_incarnation text NOT NULL,
+  request_id text NOT NULL,
+  seal_version bigint NOT NULL CHECK (seal_version >= 0),
+  store_incarnation text NOT NULL,
+  target jsonb NOT NULL,
+  command_fingerprint text NOT NULL,
+  status text NOT NULL CHECK (status IN ('OPEN', 'RELEASED')),
+  release_status text NULL CHECK (release_status IS NULL OR release_status IN ('COMMITTED', 'ABORTED')),
+  created_at timestamptz NOT NULL,
+  released_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS event_owner_stream_reservations_resource_open_idx
+  ON event_owner_stream_reservations (resource_key, status)
+  WHERE status = 'OPEN';
+
+CREATE INDEX IF NOT EXISTS event_owner_stream_reservations_owner_open_idx
+  ON event_owner_stream_reservations (owner_stream_id, status)
+  WHERE status = 'OPEN';
+
+CREATE INDEX IF NOT EXISTS event_owner_stream_reservations_operation_open_idx
+  ON event_owner_stream_reservations (operation_id, purpose, resource_key)
+  WHERE status = 'OPEN';
+
+CREATE TABLE IF NOT EXISTS event_owner_stream_invalidations (
+  owner_stream_id text PRIMARY KEY,
+  generation bigint NOT NULL CHECK (generation >= 1),
+  status text NOT NULL CHECK (status IN ('PENDING', 'ABORT-REQUESTED', 'APPLIED')),
+  affected_reservation_ids text[] NOT NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS event_request_terminals (
+  consumer_store_id text NOT NULL,
+  request_id text NOT NULL,
+  status text NOT NULL CHECK (status IN ('OPEN', 'COMMITTED', 'ABORTED')),
+  binding jsonb NOT NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (consumer_store_id, request_id)
+);
+
+CREATE TABLE IF NOT EXISTS event_owner_stream_inbound_evidence (
+  evidence_id text PRIMARY KEY,
+  resource_key text NOT NULL,
+  payload jsonb NOT NULL,
+  status text NOT NULL CHECK (status IN ('PENDING', 'BLOCKED', 'APPLIED')),
+  recorded_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS event_owner_stream_inbound_evidence_resource_idx
+  ON event_owner_stream_inbound_evidence (resource_key, status);
+-- owner-stream-reservation-schema:end
+
 CREATE TABLE IF NOT EXISTS event_store_events (
   global_position bigserial PRIMARY KEY,
   event_id text NOT NULL UNIQUE,
