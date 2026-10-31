@@ -150,6 +150,15 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         } else if cookie.contains("chase_sets_session=payouts-operator") || cookie.contains("chase_sets_session=payouts-blocked")
         {
             actor(&["payouts.reconcile"])
+        } else if cookie.contains("chase_sets_session=wallet-admin") || cookie.contains("chase_sets_session=wallet-stepup") {
+            actor(&[
+                "wallet-adjustments.view",
+                "wallet-adjustments.create",
+                "wallet-adjustments.approve",
+                "wallet-adjustments.reverse",
+            ])
+        } else if cookie.contains("chase_sets_session=wallet-viewer") {
+            actor(&["wallet-adjustments.view"])
         } else if cookie.contains("chase_sets_session=moderator") {
             actor(&["reported-content.view"])
         } else if cookie.contains("chase_sets_session=reader") {
@@ -263,6 +272,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if let Some(rest) = uri.path().strip_prefix(WAITLIST_API) {
         return waitlist_api(rest, uri.query().unwrap_or_default());
+    }
+    if let Some(rest) = uri.path().strip_prefix(WALLET_API) {
+        return wallet_api(&method, rest, cookie, &body);
     }
     if let Some(rest) = uri.path().strip_prefix(SETTLEMENT) {
         return settlement(&method, rest, uri.query().unwrap_or_default(), cookie);
@@ -6810,4 +6822,268 @@ async fn offer_economics_writes_the_apis_figures_for_the_window_asked() {
     assert!(html.contains("Standard seller terms published schedule: 6.50% + $0.30 per sale."), "{html}");
     assert!(html.contains("Oct 26, 2026") && html.contains("75.0%"), "{html}");
     assert!(html.contains("Pending #4098") && html.contains("unavailable in this runtime profile"), "{html}");
+}
+
+const WALLET_API: &str = "/api/settlement/wallet-adjustments";
+
+fn wallet_adjustment(id: &str, status: &str, requested_by: &str, elevation_required: bool) -> Value {
+    json!({
+        "adjustment_id": id, "status": status, "target_account_id": "acc_1", "display_reference": "WAD-1",
+        "direction": "credit", "amount": "25.00", "currency_code": "USD", "reason_code": "fee-correction",
+        "explanation": "Refund of a double fee", "evidence_references": ["ord_1"], "reversal_of_adjustment_id": null,
+        "reversed_by_adjustment_id": null, "requested_by": requested_by, "requested_at": "2026-10-30T15:00:00.000Z",
+        "self_benefiting": false, "approved_by": null, "approved_at": null, "elevation_required": elevation_required,
+        "elevation_reasons": [], "elevation_approved_by": null, "rejected_by": null, "rejected_at": null,
+        "rejection_reason": null, "posted_at": if status == "posted" { json!("2026-10-30T16:00:00.000Z") } else { Value::Null },
+        "available_balance_before": null, "available_balance_after": if status == "posted" { json!("125.00") } else { Value::Null },
+        "updated_at": "2026-10-30T16:00:00.000Z"
+    })
+}
+
+/// Settlement's wallet adjustment API, as far as the workbench uses it.
+fn wallet_api(method: &Method, rest: &str, cookie: &str, body: &str) -> Response {
+    let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let path = rest.split('?').next().unwrap_or_default();
+    let receipt = || {
+        let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+        [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)]
+    };
+    match (method.clone(), path) {
+        (Method::GET, "/accounts/acc_1/summary") => Json(json!({
+            "account_id": "acc_1", "currency_code": "USD", "pending_balance_amount": "10.00",
+            "available_balance_amount": "-4.50", "total_credited_amount": "300.00", "total_debited_amount": "304.50",
+            "negative_balance_status": "negative", "negative_balance_started_at": null, "collections_escalated_at": null,
+            "opened_at": "2026-01-01T00:00:00.000Z", "updated_at": "2026-10-30T16:00:00.000Z"
+        }))
+        .into_response(),
+        (Method::GET, "/accounts/acc_down/summary") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        (Method::GET, p) if p.ends_with("/summary") => refusal(StatusCode::NOT_FOUND, "not_found", "Account wallet not found."),
+        (Method::GET, "/accounts/acc_1/adjustments") => Json(json!({
+            "items": [wallet_adjustment("wad_req", "requested", "usr_2", true), wallet_adjustment("wad_post", "posted", "usr_2", false),
+                wallet_adjustment("wad_mine", "requested", "usr_1", false)],
+            "total": 45, "count": 3
+        }))
+        .into_response(),
+        (Method::GET, "/accounts/acc_1/ledger") => Json(json!({
+            "items": [{ "ledger_entry_id": "led_1", "account_id": "acc_1", "kind": "payout", "direction": "debit", "amount": "50.00",
+                "currency_code": "USD", "funds_status": "available", "order_id": null, "payment_id": null, "payout_id": "pay_1",
+                "description": "Weekly payout", "posted_at": "2026-10-29T12:00:00.000Z", "available_at": null,
+                "updated_at": "2026-10-29T12:00:00.000Z" }],
+            "total": 1, "count": 1
+        }))
+        .into_response(),
+        (Method::POST, "/preview") if sent["amount"] == "0" => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": { "code": "validation_failed", "message": "Amount must be a positive money value.",
+                "details": [{ "field": "amount", "code": "invalid_amount", "message": "Amount must be a positive money value." }] } })),
+        )
+            .into_response(),
+        (Method::POST, "/preview") => Json(json!({
+            "target_account_id": "acc_1", "direction": sent["direction"], "amount": sent["amount"], "currency_code": "USD",
+            "reason_code": sent["reasonCode"], "balance_revision": "rev_7", "available_balance_before": "-4.50",
+            "available_balance_after": "-1004.50", "pending_balance_amount": "10.00", "cash_equivalent": true, "spendable": false,
+            "payoutable": false, "negative_balance_status": "negative", "creates_or_increases_negative_balance": true,
+            "high_value": true, "self_benefiting": sent["amount"] == "666",
+            "blocked_reason": if sent["amount"] == "666" { json!("self-benefiting") } else { Value::Null },
+            "requires_second_approval": true, "elevation_reasons": ["high-value", "negative-balance"],
+            "controls": { "high_value_credit_threshold_amount": "500.00", "high_value_debit_threshold_amount": "500.00",
+                "recent_auth_max_age_minutes": 15 }
+        }))
+        .into_response(),
+        (Method::POST, "") if cookie.contains("wallet-stepup") => {
+            refusal(StatusCode::UNAUTHORIZED, "step_up_required", "Sign in again to make this change.")
+        }
+        (Method::POST, "") if sent["expectedBalanceRevision"] == "stale" => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": { "code": "conflict", "message": "The wallet balance changed since the preview.",
+                "details": [{ "code": "stale_balance_revision", "message": "The wallet balance changed since the preview." }] } })),
+        )
+            .into_response(),
+        (Method::POST, "") => (StatusCode::CREATED, receipt(), Json(wallet_adjustment("wad_new", "requested", "usr_1", true))).into_response(),
+        (Method::POST, "/wad_req/approve") if sent.get("elevationApprovedByUserId").is_none() => {
+            refusal(StatusCode::CONFLICT, "conflict", "This Wallet Adjustment requires a second, elevated approval.")
+        }
+        (Method::POST, "/wad_req/approve") => (receipt(), Json(wallet_adjustment("wad_req", "posted", "usr_2", true))).into_response(),
+        (Method::POST, "/wad_req/reject") => (receipt(), Json(wallet_adjustment("wad_req", "rejected", "usr_2", true))).into_response(),
+        (Method::POST, "/wad_post/reverse") => {
+            let mut reversal = wallet_adjustment("wad_rev", "posted", "usr_1", true);
+            reversal["reversal_of_adjustment_id"] = json!("wad_post");
+            let mut original = wallet_adjustment("wad_post", "reversed", "usr_2", false);
+            original["reversed_by_adjustment_id"] = json!("wad_rev");
+            (StatusCode::CREATED, receipt(), Json(json!({ "original": original, "reversal": reversal }))).into_response()
+        }
+        (Method::POST, "/wad_down/approve") => StatusCode::BAD_GATEWAY.into_response(),
+        _ => refusal(StatusCode::NOT_FOUND, "not_found", "Wallet Adjustment not found."),
+    }
+}
+
+const WALLET_PAGE: &str = "/commerce/wallet-workbench/acc_1";
+
+#[tokio::test]
+async fn the_wallet_workbench_shows_the_balance_the_history_with_its_commands_and_the_ledger() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{WALLET_PAGE}?accountName=Card%20Vault"), Some("wallet-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "<title>Wallet Workbench | Settlement Admin</title>",
+        "Wallet for Card Vault",
+        "Account: acc_1",
+        "-$4.50",
+        "$300.00",
+        "Negative balance",
+        "Payouts restricted",
+        "Request adjustment",
+        "Request preview",
+        "Fee correction",
+        "Refund of a double fee",
+        "Requested by usr_2",
+        "$125.00",
+        "Weekly payout",
+        r#"name="direction" value="credit" checked"#,
+        r#"<option value="transaction-correction" selected"#,
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    // A requested adjustment that needs an elevated approver asks for one in its Approve dialog;
+    // the operator's own request cannot be approved by them.
+    assert!(
+        html.contains(r#"commandfor="wallet-approve-wad_req""#) && html.contains(r#"name="elevationApprovedByUserId""#),
+        "{html}"
+    );
+    assert!(html.contains("You requested this adjustment"), "{html}");
+    assert!(html.contains(r#"command="show-modal" commandfor="wallet-approve-wad_mine" disabled"#), "{html}");
+    assert!(html.contains(r#"commandfor="wallet-reverse-wad_post""#) && html.contains(r#"name="approvedByUserId""#), "{html}");
+    // The filters and the pager keep the account's name.
+    assert!(html.contains(r#"href="/commerce/wallet-workbench/acc_1?accountName=Card%20Vault&amp;status=posted""#), "{html}");
+    assert!(
+        html.contains(r#"href="/commerce/wallet-workbench/acc_1?accountName=Card%20Vault&amp;adjustmentsOffset=20""#),
+        "{html}"
+    );
+    assert!(!html.contains("View payout"), "no payout link without marketplace's origin, as on admin-web: {html}");
+    assert!(html.contains(r#"<nav class="wallet-page__buttons" aria-label="Adjustment history">"#), "{html}");
+    let reads: Vec<String> = pilot.calls_to(WALLET_API).into_iter().map(|c| c.path).collect();
+    assert!(reads.contains(&format!("{WALLET_API}/accounts/acc_1/adjustments?limit=20&offset=0")), "{reads:?}");
+    assert!(reads.contains(&format!("{WALLET_API}/accounts/acc_1/ledger?limit=20&offset=0")), "{reads:?}");
+
+    // A viewer sees the wallet without the form or the commands.
+    let (status, _, html) = pilot.send(get(WALLET_PAGE, Some("wallet-viewer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Wallet Workbench") && !html.contains("Request preview") && !html.contains("show-modal"), "{html}");
+    let (status, _, html) = pilot.send(get("/commerce/wallet-workbench/acc_none", Some("wallet-viewer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(html.contains("Account wallet not found") && html.contains("acc_none"), "{html}");
+    let (status, _, html) = pilot.send(get("/commerce/wallet-workbench/acc_down", Some("wallet-viewer"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(html.contains("Wallet workbench unavailable"), "{html}");
+    assert_eq!(pilot.send(get(WALLET_PAGE, Some("reader"))).await.0, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(post_as("wallet-viewer", WALLET_PAGE, "intent=preview-adjustment&amount=5", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a command needs its own permission");
+    let (status, _, _) = pilot.send(post_as("wallet-admin", WALLET_PAGE, "intent=teleport", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn a_preview_offers_confirm_and_submit_with_its_balance_revision_and_a_request_shows_its_snapshot() {
+    let pilot = Pilot::new().await;
+    let form = "intent=preview-adjustment&direction=debit&amount=1000.00&reasonCode=fraud-recovery&explanation=&evidenceReferences=ord_9";
+    let (status, _, html) = pilot.send(post_as("wallet-admin", WALLET_PAGE, form, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sent: Value =
+        serde_json::from_str(&pilot.calls_to(WALLET_API).into_iter().find(|c| c.method == Method::POST).unwrap().body).unwrap();
+    assert_eq!(
+        sent,
+        json!({ "targetAccountId": "acc_1", "direction": "debit", "amount": "1000.00", "reasonCode": "fraud-recovery" })
+    );
+    for text in [
+        "Available balance after",
+        "-$1,004.50",
+        "High-value amount; Creates or deepens a negative balance",
+        r#"commandfor="wallet-confirm""#,
+        r#"name="expectedBalanceRevision" value="rev_7""#,
+        r#"name="evidenceReferences" value="ord_9""#,
+        r#"name="direction" value="debit" checked"#,
+        r#"aria-current="step""#,
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    let (_, _, html) = pilot.send(post_as("wallet-admin", WALLET_PAGE, &form.replace("1000.00", "666"), false)).await;
+    assert!(
+        html.contains("role=\"alert\"") && !html.contains(r#"commandfor="wallet-confirm""#),
+        "a self-benefiting preview is blocked: {html}"
+    );
+
+    // A field the API refuses keeps the form and names the field.
+    let (status, _, html) = pilot.send(post_as("wallet-admin", WALLET_PAGE, &form.replace("1000.00", "0"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(
+        html.contains("Check the adjustment details") && html.contains("<li>Amount must be a positive money value.</li>"),
+        "{html}"
+    );
+    assert!(html.contains(r#"<option value="fraud-recovery" selected"#), "{html}");
+
+    // Confirm & submit: the snapshot is drawn first, read with the write's receipt.
+    let request = "intent=request-adjustment&direction=credit&amount=25.00&reasonCode=fee-correction&explanation=Refund&evidenceReferences=ord_1,%20ord_2&expectedBalanceRevision=rev_7";
+    let (status, _, html) = pilot.send(post_as("wallet-admin", WALLET_PAGE, request, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pilot.calls_to(WALLET_API);
+    let sent: Value = serde_json::from_str(&calls.iter().rev().find(|c| c.method == Method::POST).unwrap().body).unwrap();
+    assert_eq!(sent["evidenceReferences"], json!(["ord_1", "ord_2"]));
+    assert_eq!((sent["explanation"].as_str(), sent["expectedBalanceRevision"].as_str()), (Some("Refund"), Some("rev_7")));
+    assert!(calls.last().unwrap().headers.contains_key("chase-sets-read-after-write"), "read after the write");
+    assert!(html.contains("Projection catching up") && html.contains("wad_new"), "{html}");
+    assert!(html.contains(r#"<option value="transaction-correction" selected"#), "the form starts again: {html}");
+
+    // A stale preview and a session too old for the command are said where they were made.
+    let (status, _, html) = pilot.send(post_as("wallet-admin", WALLET_PAGE, &request.replace("rev_7", "stale"), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("Balance changed since preview") && html.contains(">Refund</textarea>"), "{html}");
+    let (status, _, html) = pilot.send(post_as("wallet-stepup", WALLET_PAGE, request, false)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    assert!(html.contains("Reauthentication required") && html.contains("Sign in again in a new tab"), "{html}");
+    assert!(html.contains(r#"target="_blank""#) && html.contains("returnTo=%2Fcommerce%2Fwallet-workbench%2Facc_1"), "{html}");
+}
+
+#[tokio::test]
+async fn approve_reject_and_reverse_answer_with_their_snapshots_and_refusals_stay_on_their_row() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post_as("wallet-admin", WALLET_PAGE, "intent=approve-adjustment&adjustmentId=wad_req", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("Second approval required") && html.contains("requires a second, elevated approval"), "{html}");
+
+    let approve = "intent=approve-adjustment&adjustmentId=wad_req&elevationApprovedByUserId=usr_9";
+    let (status, _, html) = pilot.send(post_as("wallet-admin", WALLET_PAGE, approve, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sent = pilot.calls_to(WALLET_API).into_iter().rev().find(|c| c.method == Method::POST).unwrap();
+    assert_eq!(
+        (sent.path.as_str(), sent.body.as_str()),
+        ("/api/settlement/wallet-adjustments/wad_req/approve", r#"{"elevationApprovedByUserId":"usr_9"}"#)
+    );
+    assert!(
+        html.contains("Projection catching up") && !html.contains(r#"commandfor="wallet-approve-wad_req""#),
+        "posted now: {html}"
+    );
+
+    let (status, _, html) = pilot
+        .send(post_as("wallet-admin", WALLET_PAGE, "intent=reject-adjustment&adjustmentId=wad_req&rejectionReason=", false))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Rejected"), "{html}");
+
+    let reverse = "intent=reverse-adjustment&adjustmentId=wad_post&approvedByUserId=usr_8&elevationApprovedByUserId=usr_9&explanation=Wrong%20account";
+    let (status, _, html) = pilot.send(post_as("wallet-admin", WALLET_PAGE, reverse, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sent: Value =
+        serde_json::from_str(&pilot.calls_to(WALLET_API).into_iter().rev().find(|c| c.method == Method::POST).unwrap().body)
+            .unwrap();
+    assert_eq!(
+        sent,
+        json!({ "approvedByUserId": "usr_8", "elevationApprovedByUserId": "usr_9", "explanation": "Wrong account" })
+    );
+    assert!(html.contains("Reversed by wad_rev") && html.contains("Reverses wad_post"), "{html}");
+
+    let (status, _, html) =
+        pilot.send(post_as("wallet-admin", WALLET_PAGE, "intent=approve-adjustment&adjustmentId=wad_down", false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains("Something went wrong") && html.contains("Approval could not be completed."), "{html}");
 }

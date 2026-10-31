@@ -78,9 +78,9 @@ pub fn AccountPage<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, screen: &'a HubScre
     let account = &hub.account;
     let id = account.account_id.as_str();
     let name = if account.display_name.is_empty() { id } else { account.display_name.as_str() };
-    let wallet = viewer.can("wallet-adjustments.view").then(|| {
-        let segment = crate::api::segment;
-        access::admin_web(&format!("/commerce/wallet-workbench/{}?accountName={}", segment(id), segment(name)))
+    let wallet = viewer.can(crate::commerce::wallet::VIEW).then(|| {
+        let view = crate::commerce::wallet::url::View { account_name: Some(name.to_owned()), ..Default::default() };
+        crate::commerce::wallet::url::Wallet { id, view }
     });
     let team = hub.memberships.len() + hub.invitations.iter().filter(|i| i.status == "pending").count();
     let keys = hub.api_keys.iter().filter(|k| k.status == "active").count();

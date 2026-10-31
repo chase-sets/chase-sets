@@ -1,6 +1,6 @@
 //! Commerce's operator pages: Commerce > Return Intake ([`intake`]), Recovered Returns
 //! ([`recovered`]), Commercial Terms ([`terms`]) and Money Health and Payout Operations
-//! ([`payouts`]); Postage Policies is the app's own area (`crate::app`).
+//! ([`payouts`]) and the Wallet Workbench ([`wallet`]); Postage Policies is the app's own area (`crate::app`).
 use corten::i18n::Currency;
 
 use crate::text::Com;
@@ -10,6 +10,7 @@ pub mod payouts;
 pub mod recovered;
 pub mod terms;
 pub mod views;
+pub mod wallet;
 
 /// An amount in US dollars (admin-web's `formatMoney(value, "USD")`), or the API's text.
 pub fn usd(t: Com, amount: &str) -> String {

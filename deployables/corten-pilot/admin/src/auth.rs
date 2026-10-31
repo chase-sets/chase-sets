@@ -173,6 +173,18 @@ impl Rule for TermsAccess {
     }
 }
 
+/// Commerce > Wallet Workbench: `wallet-adjustments.view` for the page and its commands, as
+/// admin-web's route needs; each command's own permission (`create`, `approve` or `reverse`) is
+/// checked by its handler, as the API checks it.
+#[derive(Clone, Debug, Hash)]
+pub struct WalletAccess;
+
+impl Rule for WalletAccess {
+    fn permission(_: &Method) -> &'static str {
+        crate::commerce::wallet::VIEW
+    }
+}
+
 /// Platform > Provider Connections: `provider-connections.view` held by a `platform-admin`, as
 /// admin-web's loader and the API ask (other roles hold the permission too).
 #[derive(Clone, Debug, Hash)]

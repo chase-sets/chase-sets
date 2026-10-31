@@ -26,7 +26,9 @@
 //   as rr.*) and Commercial Terms' (commercialTerms.features.home.* as ct.*) and Settlement's Money
 //   Health (settlement.features.payouts.ui.moneyHealthPage.* as mh.*) and Payout Operations
 //   (settlement.features.payouts.ui.payoutOperationsPage.* as po.*), with the payout amount
-//   headings both use (payout.*) and the routes' titles.
+//   headings both use (payout.*), and the Wallet Workbench (settlement.features.wallets.ui.walletWorkbenchPage.*
+//   as ww.*, its guided flow, approval, reversal, copy and sign-in link as wa.flow.*, wa.approval.*,
+//   wa.reversal.*, wa.copy.* and wa.reauth.*), and the routes' titles.
 // - admin/locales/support.en.json: the support section's English catalog: Reference Lookup's page
 //   (support.features.supportReferenceLookup.ui.supportReferenceLookupPage.* as lookup.*) and its
 //   route's text (support.routes.admin.supportReferenceLookup.* as lookup_route.*), and the CSAT
@@ -775,6 +777,13 @@ const outputs = [
         ["settlement.features.payouts.ui.netPayout", "payout.net"],
         ["settlement.routes.admin.moneyHealth.money.health.settlement.admin", "mh.route_title"],
         ["settlement.routes.admin.payoutOperations.payout.operations.settlement.admin", "po.route_title"],
+        ["settlement.features.wallets.ui.walletWorkbenchPage.", "ww"],
+        ["settlement.features.wallets.ui.walletAdjustmentGuidedFlow.", "wa.flow"],
+        ["settlement.features.wallets.ui.walletAdjustmentApprovalActions.", "wa.approval"],
+        ["settlement.features.wallets.ui.walletAdjustmentReversalActions.", "wa.reversal"],
+        ["settlement.features.wallets.ui.walletAdjustmentCopy.", "wa.copy"],
+        ["settlement.features.wallets.ui.walletAdjustmentReauthenticationLink.", "wa.reauth"],
+        ["settlement.routes.admin.walletWorkbench.wallet.workbench.settlement.admin", "ww.route_title"],
       ])),
     }),
   ],
