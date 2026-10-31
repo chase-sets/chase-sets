@@ -58,6 +58,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Growth > Google Shopping, `/growth/google-shopping` (filters, a row's detail, the three dry runs, a dry run followed live; live runs stay gated) |
 | `admin/` | Growth > Waitlist, `/growth/waitlist`, with its CSV export, `/growth/waitlist/export`. Growth's pages call the same Public Presence routes as admin-web and inherit their access; see the private advisory GHSA-2v8j-2hqx-92fq before giving anyone the pilot's admin |
 | `admin/` | Growth > Campaign Analytics, `/growth/campaign-analytics` |
+| `admin/` | The site's own files: `/favicon.svg`, `/favicon.ico`, the web app manifest and service worker (Corten's PWA, leaving admin-web's sign-in, the API and the health checks to the network) and `/offline` |
 | `admin/` | Growth > Promo Bar, `/growth/promo-bar` (`?edit=`, `?delete=`), with Create, Edit, Activate, Deactivate and Delete |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` |
@@ -184,7 +185,7 @@ The [export](scripts/export.mjs) writes what the apps read from Chase Sets' sour
 text (`*/locales/*.en.json`), each app's navigation, admin's defaults, the design system's tokens
 and fonts, and public's policy and developer documents. Run it after `main` changes them; the CI
 job runs it with `--check`. `*/locales/pilot.en.json` is the pilot's own text. The two outputs that
-carry the brand foil's colors, `platform/tokens.json`, `public/favicon.svg` and `marketplace/favicon.svg`, are written on every
+carry the brand foil's colors, `platform/tokens.json` and the three apps' `favicon.svg`, are written on every
 run and not committed: the structure gate allows those values only in the design system's own
 registered files.
 
@@ -238,7 +239,7 @@ commit that says what changed. The history of every move is in the
 | [todd-skelton/corten#492 A sub-component cannot bind its page's script: #[component] has css = Other but no js = Other](https://github.com/todd-skelton/corten/issues/492) | Commercial Terms' `TermsPage` draws Create account override's account chooser and passes it to `CreateAgreementSheet` as `chooser` | [todd-skelton/corten#494 #[component(js = Owner)]: a part of a component calls its owner's handlers](https://github.com/todd-skelton/corten/pull/494), merged on Corten `main` as `911de8b8`: move the pin, give `CreateAgreementSheet` `js = TermsPage` and drop `chooser` |
 | [todd-skelton/corten#502 i18n: no way to write a calendar date (no instant behind it) that never shifts with the zone](https://github.com/todd-skelton/corten/issues/502) | Offer Economics and the Ops Dashboard write their windows, weeks and trend points as their midnight in UTC, which `t.date` writes in UTC (`insights::views::date`) | merged on Corten `main` as `5a7520bc` (`Day`): move the pin, read the dates as `Day`, write them with `t.date(day, ..)`, and drop the `T00:00:00Z` parse |
 | [todd-skelton/corten#514 A route parameter cannot be followed by fixed text in its segment, so /sitemap/{kind}/{page}.xml has no typed route](https://github.com/todd-skelton/corten/issues/514) | marketplace's sitemap page route takes the whole segment (`1.xml`) and `site::page_number` parses it | Corten routes a parameter with a suffix: make the page a `u64` |
-| [todd-skelton/corten#515 pwa::Manifest cannot set the manifest's other members (orientation, categories, id, screenshots, shortcuts)](https://github.com/todd-skelton/corten/issues/515) | marketplace's manifest (`app::pwa`) leaves out `orientation` and `categories` | Corten's manifest takes them: set them as marketplace-web does |
+| [todd-skelton/corten#515 pwa::Manifest cannot set the manifest's other members (orientation, categories, id, screenshots, shortcuts)](https://github.com/todd-skelton/corten/issues/515) | marketplace's and admin's manifests (`app::pwa`, `site::pwa`) leave out `orientation` and `categories` | Corten's manifest takes them: set them as marketplace-web does |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 

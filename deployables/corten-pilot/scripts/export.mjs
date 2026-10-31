@@ -219,6 +219,11 @@
 //   description (marketplace.app.routes.offline.* as offline.*, and
 //   marketplace.app.routes.manifest.description as manifest_description).
 // - marketplace/static/icons/: marketplace-web's four app icons (public/icons), which its manifest names.
+// - admin/favicon.svg: the same logo, admin-web's favicon. Not committed (see GENERATED).
+// - admin/locales/site.en.json: admin-web's offline page and its web app manifest's description
+//   (adminWeb.app.routes.offline.* as offline.*, and adminWeb.app.routes.manifest.description as
+//   manifest_description).
+// - admin/static/icons/: admin-web's four app icons (public/icons), which its manifest names.
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
@@ -417,13 +422,24 @@ const homeAssets = [
   "chase-sets-og-founders.png",
 ];
 
-// marketplace-web's app icons (deployables/marketplace/public/icons), which its web app manifest
-// names, in marketplace/static/icons/.
-const marketplaceIcons = [
-  "chase-sets-192.png",
-  "chase-sets-512.png",
-  "chase-sets-maskable-192.png",
-  "chase-sets-maskable-512.png",
+// marketplace-web's and admin-web's app icons (deployables/<app>/public/icons), which their web app
+// manifests name, in each pilot app's static/icons/.
+const appIcons = [
+  [
+    "marketplace",
+    "marketplace",
+    ["chase-sets-192.png", "chase-sets-512.png", "chase-sets-maskable-192.png", "chase-sets-maskable-512.png"],
+  ],
+  [
+    "admin-web",
+    "admin",
+    [
+      "chase-sets-admin-192.png",
+      "chase-sets-admin-512.png",
+      "chase-sets-admin-maskable-192.png",
+      "chase-sets-admin-maskable-512.png",
+    ],
+  ],
 ];
 
 /** An article as the help center and the developer portal draw it. */
@@ -1527,13 +1543,32 @@ const outputs = [
       ]),
     ),
   ],
+  [
+    "admin/favicon.svg",
+    (await import(pathToFileURL(path.join(repo, "packages/design-system/src/brand/chase-sets-logo.tsx")).href))
+      .chaseSetsLogoSvg,
+  ],
+  [
+    "admin/locales/site.en.json",
+    json(
+      await catalog("admin-web.ts", "adminWebEnglishTranslations", [
+        ["adminWeb.app.routes.offline.", "offline"],
+        ["adminWeb.app.routes.manifest.description", "manifest_description"],
+      ]),
+    ),
+  ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["platform/tokens.json", json(tokens())],
 ];
 // Outputs that carry the brand foil's values are written on every run, --check included, and are not
 // committed: the structure gate (scripts/check-structure/brand-foil-sites.mjs) allows those values
 // only in the design system's registered carriers. Run this script before building the pilot.
-const GENERATED = new Set(["public/favicon.svg", "marketplace/favicon.svg", "platform/tokens.json"]);
+const GENERATED = new Set([
+  "public/favicon.svg",
+  "marketplace/favicon.svg",
+  "admin/favicon.svg",
+  "platform/tokens.json",
+]);
 const require = createRequire(path.join(repo, "packages/design-system/package.json"));
 let stale = 0;
 for (const [file, text] of outputs) {
@@ -1576,17 +1611,19 @@ for (const name of homeAssets) {
     console.log(`wrote public/static/home/${name}`);
   }
 }
-mkdirSync(path.join(pilot, "marketplace/static/icons"), { recursive: true });
-for (const name of marketplaceIcons) {
-  const source = path.join(repo, "deployables/marketplace/public/icons", name);
-  const target = path.join(pilot, "marketplace/static/icons", name);
-  if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
-  if (check) {
-    console.error(`marketplace/static/icons/${name} is out of date`);
-    stale += 1;
-  } else {
-    copyFileSync(source, target);
-    console.log(`wrote marketplace/static/icons/${name}`);
+for (const [deployable, app, names] of appIcons) {
+  mkdirSync(path.join(pilot, app, "static/icons"), { recursive: true });
+  for (const name of names) {
+    const source = path.join(repo, "deployables", deployable, "public/icons", name);
+    const target = path.join(pilot, app, "static/icons", name);
+    if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
+    if (check) {
+      console.error(`${app}/static/icons/${name} is out of date`);
+      stale += 1;
+    } else {
+      copyFileSync(source, target);
+      console.log(`wrote ${app}/static/icons/${name}`);
+    }
   }
 }
 process.exit(stale ? 1 : 0);

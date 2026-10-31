@@ -21,6 +21,7 @@ mod admin_nav;
 mod badge;
 mod lifecycle;
 mod live_status;
+mod offline_page;
 mod policy_fields;
 mod policy_sheet;
 mod policy_table;
@@ -29,6 +30,7 @@ pub use admin_nav::AdminNav;
 pub use badge::Badge;
 pub use lifecycle::{ActivateForm, CloneForm, Lifecycle, RetireForm};
 pub use live_status::{LiveStatus, LiveWords};
+pub use offline_page::OfflinePage;
 pub use platform::section::{Banner, PageHeader, Section};
 pub use policy_fields::{CreateForm, PolicyFields, ReviseForm};
 pub use policy_sheet::{PolicySheet, PreviewResult};
@@ -37,6 +39,9 @@ pub use policy_table::{Pagination, PolicyTable};
 /// The components every page renders (the frame and the shared parts), tokens first: their
 /// stylesheets are `components.css`.
 pub const COMPONENTS: &[Component] = &[theme::TOKENS, AdminNav, Section];
+
+/// The offline page (`/offline`), which the service worker keeps for a navigation it cannot make.
+pub const OFFLINE: &[Component] = &[OfflinePage];
 
 /// A live stream's status, which the catalog and the Operations Attention queue render: both areas
 /// list it, so its stylesheet is one those two share.

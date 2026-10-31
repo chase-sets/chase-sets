@@ -7220,3 +7220,60 @@ async fn approve_reject_and_reverse_answer_with_their_snapshots_and_refusals_sta
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
     assert!(html.contains("Something went wrong") && html.contains("Approval could not be completed."), "{html}");
 }
+
+#[tokio::test]
+async fn the_site_files_are_admin_webs() {
+    let pilot = Pilot::new().await;
+    for path in ["/favicon.svg", "/favicon.ico"] {
+        let (status, headers, body) = pilot.send(get(path, None)).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert_eq!(headers[header::CONTENT_TYPE], "image/svg+xml; charset=utf-8");
+        assert!(body.contains("<svg xmlns=\"http://www.w3.org/2000/svg\""), "{body}");
+    }
+
+    // The manifest: admin-web's names, description, colors and four icons, at their versioned URLs.
+    let (status, headers, manifest) = pilot.send(get("/manifest.webmanifest", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=3600");
+    let manifest: Value = serde_json::from_str(&manifest).unwrap();
+    assert_eq!(manifest["name"], "Chase Sets Admin");
+    assert_eq!(manifest["short_name"], "CS Admin");
+    assert_eq!(manifest["theme_color"], "#0f766e");
+    assert!(manifest["description"].as_str().unwrap().starts_with("Manage Chase Sets catalog"));
+    let icons = manifest["icons"].as_array().unwrap();
+    assert_eq!(icons.len(), 4);
+    for icon in icons {
+        let src = icon["src"].as_str().unwrap();
+        assert!(src.contains("/icons/chase-sets-admin-"), "{src}");
+        let res = pilot.router.clone().oneshot(get(src, None)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{src}");
+        assert_eq!(res.headers()[header::CONTENT_TYPE], "image/png", "{src}");
+    }
+
+    // The worker leaves admin-web's sign-in and the API to the network.
+    let (status, _, worker) = pilot.send(get("/service-worker.js", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    for prefix in ["/access/sign-in", "/sign-in", "/api/", "/health/"] {
+        assert!(worker.contains(&format!("\"{prefix}\"")), "{prefix}: {worker}");
+    }
+}
+
+#[tokio::test]
+async fn the_offline_page_is_the_same_for_everyone() {
+    let pilot = Pilot::new().await;
+    for session in [None, Some("staff")] {
+        let before = pilot.calls.lock().unwrap().len();
+        let (status, headers, page) = pilot.send(get("/offline", session)).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        // A request with a cookie is answered privately (Corten's rule for every `Public` answer).
+        let cache = headers[header::CACHE_CONTROL].to_str().unwrap();
+        assert!(if session.is_none() { cache.starts_with("public, max-age=0") } else { cache.starts_with("private") }, "{cache}");
+        assert!(page.contains("<title>Offline | Chase Sets Admin</title>"), "{page}");
+        assert!(page.contains("Admin is offline"), "{page}");
+        assert!(page.contains(r#"href="">Try again</a>"#), "{page}");
+        assert!(page.contains(r#"<link rel="manifest" href="/manifest.webmanifest">"#), "{page}");
+        // No staff member's nav, and nothing asked of the API.
+        assert!(!page.contains("<nav"), "{page}");
+        assert_eq!(pilot.calls.lock().unwrap().len(), before);
+    }
+}

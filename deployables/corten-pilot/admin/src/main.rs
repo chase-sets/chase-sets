@@ -18,6 +18,7 @@ mod policy_console;
 mod projections;
 mod providers;
 mod reported;
+mod site;
 mod support;
 mod text;
 mod views;

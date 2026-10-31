@@ -9,6 +9,7 @@ pub use growth::Gro;
 pub use operations::Ops;
 pub use ordering::Msg;
 pub use pilot::Pilot;
+pub use site::SiteMsg;
 pub use support::Sup;
 
 /// A name as `export.mjs` writes a key's segment: `aliasCandidate` is `alias_candidate`.
@@ -28,6 +29,13 @@ pub fn snake_case(name: &str) -> String {
 mod ordering {
     corten::i18n::messages! {
         pub struct Msg { "en" => "locales/en.json" }
+    }
+}
+
+/// admin-web's offline page and its web app manifest's description.
+mod site {
+    corten::i18n::messages! {
+        pub struct SiteMsg { "en" => "locales/site.en.json" }
     }
 }
 
