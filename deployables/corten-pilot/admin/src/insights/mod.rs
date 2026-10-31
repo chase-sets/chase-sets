@@ -11,6 +11,7 @@
 use corten::{axum::http::HeaderMap, prelude::*};
 use serde::{Deserialize, Serialize};
 
+pub mod ops;
 pub mod views;
 
 use crate::{

@@ -122,7 +122,7 @@ pub fn Layout<'a, H: Render, C: Render>(
             </head>
             <body>
                 if let Some(viewer) = viewer {
-                    <AdminNav p={p} viewer={viewer} path={req.path()} />
+                    <AdminNav p={p} req={req} viewer={viewer} />
                 }
                 <main>{children}</main>
             </body>

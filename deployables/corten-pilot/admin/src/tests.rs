@@ -201,6 +201,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         }
         return commercial_terms(&method, rest, uri.query().unwrap_or_default(), &body);
     }
+    if let Some(rest) = uri.path().strip_prefix("/api/platform/insights/ops/") {
+        return ops_dashboard(rest, uri.query().unwrap_or_default());
+    }
     if uri.path() == "/api/platform/insights/offer-economics/summary" {
         return offer_economics(uri.query().unwrap_or_default());
     }
@@ -5912,6 +5915,91 @@ async fn provider_connections_need_a_platform_admin_and_show_each_connections_fr
         "{html}"
     );
     assert!(html.contains("Read-only; no operator action"), "{html}");
+}
+
+/// Every page the pilot serves is the nav's own, found from the routes rather than a list kept by
+/// hand; a page it does not serve opens on admin-web.
+#[tokio::test]
+async fn the_nav_links_every_page_the_pilot_serves_to_the_pilot() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/growth/campaign-analytics", Some("growth-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for path in ["/growth/waitlist", "/growth/promo-bar"] {
+        assert!(html.contains(&format!(r#"href="{path}""#)), "{path}: {html}");
+    }
+    assert!(html.contains(r#"href="/growth/campaign-analytics" aria-current="page""#), "{html}");
+    let (status, _, html) = pilot.send(get("/platform/insights/offer-economics", Some("insights-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"href="/platform/insights/offer-economics" aria-current="page""#), "{html}");
+    assert!(!html.contains("localhost:7752/platform/insights/offer-economics"), "{html}");
+}
+
+/// Platform Operations' ops dashboard: two days of GMV, one top item without a title, and a
+/// drift alarm with a ratio and an OK run without one. The summary echoes the window it was asked.
+fn ops_dashboard(rest: &str, query: &str) -> Response {
+    let param = |name: &str| query.split('&').find_map(|p| p.strip_prefix(&format!("{name}="))).unwrap_or("").to_owned();
+    match rest {
+        "summary" => Json(json!({
+            "from": param("from"), "to": param("to"),
+            "summary": { "gmvAmount": "1406.95", "tradeCount": 12, "orderCount": 11, "unitVolume": 14, "verifiedTradeCount": 3,
+                "activeBuyerCount": 9, "activeSellerCount": 4 },
+            "liquidity": { "asOfDay": param("to"), "sellThroughRate": "0.0444", "medianSpreadAmount": null, "spreadSampleCount": 5 },
+            "topCatalogItems": [{ "catalogItemId": "cat_untitled", "title": null, "gmvAmount": "389.00", "tradeCount": 1, "unitVolume": 1 }],
+        }))
+        .into_response(),
+        "series" => Json(json!({
+            "from": param("from"), "to": param("to"), "granularity": param("granularity"),
+            "series": [
+                { "day": "2026-10-29", "gmvAmount": "1000.00", "tradeCount": 10, "unitVolume": 12, "orderCount": 9, "verifiedTradeCount": 3 },
+                { "day": "2026-10-30", "gmvAmount": "406.95", "tradeCount": 2, "unitVolume": 2, "orderCount": 2, "verifiedTradeCount": 0 },
+            ],
+        }))
+        .into_response(),
+        "reconciliation-runs" => Json(json!({ "items": [
+            { "reconciliationRunId": "gmvrec_1", "yearMonth": "2026-09", "tapeGmvAmount": "100.00", "ledgerSaleAmount": "80.00",
+              "deltaAmount": "20.00", "deltaRatio": "0.2", "status": "drift-alarm",
+              "startedAt": "2026-10-30T22:01:42.751Z", "completedAt": "2026-10-30T22:01:42.751Z" },
+            { "reconciliationRunId": "gmvrec_2", "yearMonth": "2026-08", "tapeGmvAmount": "0.00", "ledgerSaleAmount": "0.00",
+              "deltaAmount": "0.00", "deltaRatio": null, "status": "ok",
+              "startedAt": "2026-09-30T22:01:42.751Z", "completedAt": "2026-09-30T22:01:42.751Z" },
+        ], "count": 2 }))
+        .into_response(),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[tokio::test]
+async fn the_ops_dashboard_reads_the_range_asked_and_draws_the_trend() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/platform/insights/ops-dashboard", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, html) =
+        pilot.send(get("/platform/insights/ops-dashboard?rangeDays=7&granularity=weekly", Some("insights-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pilot.calls_to_path("/api/platform/insights/ops/");
+    let today = jiff::Timestamp::now().to_zoned(jiff::tz::TimeZone::UTC).date();
+    let from = today.checked_sub(jiff::ToSpan::days(6)).unwrap();
+    assert!(calls.iter().any(|c| c.path == format!("/api/platform/insights/ops/summary?from={from}&to={today}")), "{calls:?}");
+    assert!(
+        calls.iter().any(|c| c.path == format!("/api/platform/insights/ops/series?from={from}&to={today}&granularity=weekly")),
+        "{calls:?}"
+    );
+    assert!(calls.iter().any(|c| c.path == "/api/platform/insights/ops/reconciliation-runs?limit=12"), "{calls:?}");
+    assert!(html.contains("<title>Ops Dashboard | Chase Sets Admin"), "{html}");
+    assert!(
+        html.contains(r#"<option value="7" selected>Last 7 days"#) && html.contains(r#"<option value="weekly" selected>Weekly"#),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="rangeDays""#) && html.contains(r#"type="submit""#), "the range can be applied: {html}");
+    assert!(html.contains("$1,406.95") && html.contains("4.4%") && html.contains(">Not available<"), "{html}");
+    assert!(html.contains(r#"<path d="M12.0,"#) && html.contains("Oct 29, 2026: $1,000.00"), "the line and its points: {html}");
+    assert!(html.contains(">cat_untitled<") && html.contains("$389.00"), "an item without a title is its id: {html}");
+    assert!(html.contains(">Drift alarm<") && html.contains("$20.00 (20.0%)") && html.contains(">OK<"), "{html}");
+    // Anything else is admin-web's default: the last 30 days, by day.
+    let (status, _, html) =
+        pilot.send(get("/platform/insights/ops-dashboard?rangeDays=14&granularity=hourly", Some("insights-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<option value="30" selected>"#) && html.contains(r#"<option value="daily" selected>"#), "{html}");
 }
 
 /// Platform Operations' offer economics: one week of sell-through, a share of the platform's GMV,

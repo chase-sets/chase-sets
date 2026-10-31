@@ -94,5 +94,11 @@
   "support": {
     "remedy_elsewhere": "Platform-funded remedies are not in the pilot yet. Review and act on this request's remedy on admin-web.",
     "remedy_open": "Open the remedy on admin-web"
+  },
+  "chart": {
+    "empty_title": "No data yet",
+    "empty_description": "Data will appear here once activity accumulates.",
+    "insufficient_title": "Not enough data yet",
+    "insufficient_description": "At least 2 data points are required to show a reliable trend."
   }
 }
