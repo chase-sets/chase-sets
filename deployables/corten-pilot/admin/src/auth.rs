@@ -94,8 +94,19 @@ rules! {
     ReportedContentView => "reported-content.view";
     /// Support > Reference Lookup (and Support's other operator pages).
     SupportManage => "support.manage";
-    /// Support > CSAT dashboard (and Platform Feedback).
+    /// Support > CSAT dashboard.
     PlatformFeedbackView => "platform-feedback.view";
+}
+
+/// Support > Platform Feedback: reading needs `platform-feedback.view`, writing
+/// `platform-feedback.manage` (the export's `platform-feedback.export` is checked by its handler).
+#[derive(Clone, Debug, Hash)]
+pub struct FeedbackAccess;
+
+impl Rule for FeedbackAccess {
+    fn permission(method: &Method) -> &'static str {
+        if method.is_safe() { "platform-feedback.view" } else { crate::support::feedback::MANAGE }
+    }
 }
 
 /// The catalog area: reading needs `catalog.view`, writing `catalog.manage` (admin-web's

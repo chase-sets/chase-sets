@@ -20,7 +20,9 @@
 // - admin/locales/support.en.json: the support section's English catalog: Reference Lookup's page
 //   (support.features.supportReferenceLookup.ui.supportReferenceLookupPage.* as lookup.*) and its
 //   route's text (support.routes.admin.supportReferenceLookup.* as lookup_route.*), and the CSAT
-//   dashboard's (experience.csatAdmin.* as csat.*).
+//   dashboard's (experience.csatAdmin.* as csat.*), and Platform Feedback's (experience.platformFeedbackAdmin.*
+//   as fb.*, its topics and workflows as fb_topic.* and fb_workflow.*, and its two route titles as
+//   fb_route.*).
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
@@ -628,7 +630,14 @@ const outputs = [
         ["support.features.supportReferenceLookup.ui.supportReferenceLookupPage.", "lookup"],
         ["support.routes.admin.supportReferenceLookup.", "lookup_route"],
       ])),
-      ...(await catalog("experience.ts", "experienceEnglishTranslations", [["experience.csatAdmin.", "csat"]])),
+      ...(await catalog("experience.ts", "experienceEnglishTranslations", [
+        ["experience.csatAdmin.", "csat"],
+        ["experience.platformFeedbackAdmin.", "fb"],
+        ["experience.platformFeedback.topic.", "fb_topic"],
+        ["experience.platformFeedback.workflow.", "fb_workflow"],
+        ["experience.routes.admin.platformFeedback.platform.feedback.experience.admin", "fb_route.list"],
+        ["experience.routes.admin.platformFeedbackDetail.platform.feedback.detail", "fb_route.detail"],
+      ])),
     }),
   ],
   [

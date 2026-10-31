@@ -101,6 +101,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             ])
         } else if cookie.contains("chase_sets_session=ops") || cookie.contains("chase_sets_session=projections-") {
             actor(&["projection-operations.view"])
+        } else if cookie.contains("chase_sets_session=feedback-manager") || cookie.contains("chase_sets_session=feedback-lag") {
+            actor(&["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"])
         } else if cookie.contains("chase_sets_session=feedback-viewer") {
             actor(&["platform-feedback.view"])
         } else if cookie.contains("chase_sets_session=support-agent") {
@@ -141,6 +143,16 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if let Some(reference) = uri.path().strip_prefix("/api/platform/support-reference-lookup/") {
         return support_lookup(reference);
+    }
+    if let Some(rest) = uri.path().strip_prefix("/api/experience/platform-feedback") {
+        if cookie.contains("feedback-lag") && headers.contains_key("chase-sets-read-after-write") {
+            return refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            );
+        }
+        return platform_feedback(&method, rest, &body);
     }
     if let Some(rest) = uri.path().strip_prefix("/api/experience/risk-alerts") {
         return risk_alerts(&method, rest);
@@ -361,6 +373,59 @@ fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
         }
         (Method::POST, "/listing/lst_1/actions" | "/review/rev_1/actions") => written(StatusCode::OK, "act_1"),
         _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Platform Operations' platform feedback: two of five in the queue, one with a note and two
+/// related records, its CSV, and a blank note refused as the API refuses it.
+fn platform_feedback(method: &Method, rest: &str, body: &str) -> Response {
+    let entry = |id: &str, status: &str, rating: u8, topic: &str, workflow: &str| {
+        json!({
+            "feedback_id": id, "user_id": "usr_buyer", "account_id": "acc_buyer", "rating": rating, "topic": topic,
+            "comment": "Offer tracking is useful.", "follow_up_consent": true, "workflow": workflow,
+            "source_route_path": "/account/offers/submitted/off_1",
+            "related_entities": [{ "id": "off_1", "type": "offer" }, { "id": "x_1", "type": "mystery" }],
+            "related_entity_key": "offer:off_1", "status": status,
+            "submitted_at": "2026-05-07 18:00:00+00", "updated_at": "2026-05-08T09:30:00.000Z",
+            "reviewed_by_user_id": null, "reviewed_at": null, "archived_by_user_id": null, "archived_at": null,
+            "operator_notes": [],
+        })
+    };
+    match (method.clone(), rest) {
+        (Method::GET, "") => Json(json!({
+            "items": [entry("pfb_1", "new", 4, "ease-of-use", "offer-submit"), entry("pfb_2", "reviewed", 2, "other", "listing-publish")],
+            "total": 5, "count": 2,
+        }))
+        .into_response(),
+        (Method::GET, "/metrics") => Json(json!({
+            "total_count": 5, "new_count": 3, "reviewed_count": 1, "archived_count": 1, "average_rating": "3.80",
+            "by_topic": [], "by_workflow": [],
+        }))
+        .into_response(),
+        (Method::GET, "/export") => (
+            [
+                ("content-type", "text/csv; charset=utf-8"),
+                ("content-disposition", r#"attachment; filename="chase-sets-platform-feedback.csv""#),
+            ],
+            r#""feedback_id","rating"
+"pfb_1","4""#,
+        )
+            .into_response(),
+        (Method::GET, "/pfb_1") => {
+            let mut detail = entry("pfb_1", "new", 4, "ease-of-use", "offer-submit");
+            detail["operator_notes"] = json!([
+                { "noteId": "pfn_1", "body": "Asked the seller.", "recordedByUserId": "usr_ops", "recordedAt": "2026-05-08T09:30:00.000Z" },
+            ]);
+            Json(detail).into_response()
+        }
+        (Method::GET, "/pfb_2") => Json(entry("pfb_2", "archived", 2, "other", "listing-publish")).into_response(),
+        (Method::POST, "/pfb_1/notes") if !body.contains(r#""body":"Called"#) => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "Operator note is required.")
+        }
+        (Method::POST, "/bulk/review" | "/bulk/archive" | "/pfb_1/notes" | "/pfb_1/review" | "/pfb_1/archive") => {
+            written(StatusCode::OK, "pfb_1")
+        }
+        _ => refusal(StatusCode::NOT_FOUND, "not_found", "Platform feedback not found."),
     }
 }
 
@@ -2849,9 +2914,10 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
     );
     assert!(html.contains("Oct 26, 2026, 12:00 PM UTC") && html.contains("No deadline"), "{html}");
     let origin = crate::app::admin_web_origin();
-    for path in ["/platform/projections?tab=blocked", "/support/requests?requestId=req_1", "/support/platform-feedback/pfb_1"] {
+    for path in ["/platform/projections?tab=blocked", "/support/requests?requestId=req_1"] {
         assert!(html.contains(&format!(r#"href="{origin}{path}">Open</a>"#)), "{path}: {html}");
     }
+    assert!(html.contains(r#"href="/support/platform-feedback/pfb_1">Open</a>"#), "the pilot serves a feedback's page: {html}");
     assert!(html.contains(r#"id="attention-live" src="/platform/operations-attention/live""#), "{html}");
     assert!(html.contains(r#"<div id="attention-queue">"#), "{html}");
     assert!(
@@ -3938,4 +4004,147 @@ async fn a_csat_read_that_fails_keeps_the_filters_on_the_page_with_a_banner() {
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
     assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2099-01-01""#), "{html}");
     assert!(html.contains(r#"<option value="issued" selected>Issued</option>"#), "{html}");
+}
+
+const FEEDBACK: &str = "/api/experience/platform-feedback";
+
+#[tokio::test]
+async fn platform_feedback_reads_the_queue_and_its_counts_with_the_filters_admin_web_offers() {
+    let pilot = Pilot::new().await;
+    let at = "/support/platform-feedback?status=new&topic=bogus&workflow=offer-submit";
+    let (status, _, html) = pilot.send(get(at, Some("feedback-manager"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let mut paths: Vec<String> = pilot.calls_to(FEEDBACK).into_iter().map(|c| c.path).collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        [format!("{FEEDBACK}/metrics"), format!("{FEEDBACK}?limit=100&offset=0&status=new&workflow=offer-submit")],
+        "an unknown topic is all of them"
+    );
+    for text in [
+        "<dd>5</dd>",
+        "<dd>3</dd>",
+        "<dd>3.80</dd>",
+        "\u{2605}\u{2605}\u{2605}\u{2605}\u{2606}",
+        "4/5",
+        "Ease of use",
+        "Offer submission",
+        "May 7, 2026, 6:00 PM UTC",
+        "Showing 2 of 5",
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"<option value="new" selected>New</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="all" selected>All topics</option>"#), "{html}");
+    assert!(html.contains(r#"href="/support/platform-feedback/pfb_1""#), "{html}");
+    assert!(html.contains(r#"name="feedbackIds" value="pfb_1""#), "a box on each row: {html}");
+    assert!(html.contains(r#"value="bulk-review""#) && html.contains(r#"value="bulk-archive""#), "{html}");
+    assert!(html.contains(r#"action="/support/platform-feedback?status=new&amp;workflow=offer-submit""#), "{html}");
+    assert!(html.contains(r#"href="/support/platform-feedback/export?status=new&amp;workflow=offer-submit""#), "{html}");
+    assert!(html.contains(r#"href="/support/platform-feedback" aria-current="page""#), "the nav serves it: {html}");
+
+    let (status, _, html) = pilot.send(get("/support/platform-feedback", Some("feedback-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("feedbackIds") && !html.contains("bulk-review"), "a viewer changes nothing: {html}");
+    assert!(!html.contains("Export CSV"), "nor exports: {html}");
+    assert_eq!(pilot.send(get("/support/platform-feedback", Some("support-agent"))).await.0, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_bulk_change_sends_the_ticked_rows_and_the_list_is_read_after_it() {
+    let pilot = Pilot::new().await;
+    let at = "/support/platform-feedback?status=new";
+    let form = "intent=bulk-archive&feedbackIds=pfb_1&feedbackIds=pfb_2";
+    let (status, headers, _) = pilot.send(post_as("feedback-manager", at, form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/support/platform-feedback?status=new&after_write="), "{to}");
+    let write = pilot.calls_to(FEEDBACK).into_iter().last().unwrap();
+    assert_eq!(
+        (write.method, write.path.as_str(), write.body.as_str()),
+        (Method::POST, &*format!("{FEEDBACK}/bulk/archive"), r#"{"feedbackIds":["pfb_1","pfb_2"]}"#)
+    );
+    let (status, _, html) = pilot.send(get(&to, Some("feedback-manager"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(pilot.calls_to(FEEDBACK).into_iter().last().unwrap().headers.contains_key("chase-sets-read-after-write"));
+
+    for form in ["intent=bulk-review", "intent=bogus&feedbackIds=pfb_1"] {
+        let (status, headers, _) = pilot.send(post_as("feedback-manager", at, form, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{form}");
+        assert_eq!(headers[header::LOCATION], "/support/platform-feedback?status=new", "{form}");
+    }
+    let (status, _, _) = pilot.send(post_as("feedback-viewer", at, "intent=bulk-review&feedbackIds=pfb_1", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let writes = pilot.calls_to(FEEDBACK).into_iter().filter(|c| c.method == Method::POST).count();
+    assert_eq!(writes, 1, "no selection, an unknown intent and a viewer write nothing");
+}
+
+#[tokio::test]
+async fn the_export_relays_the_apis_csv_to_staff_who_may_export() {
+    let pilot = Pilot::new().await;
+    let (status, headers, body) =
+        pilot.send(get("/support/platform-feedback/export?status=new&topic=bogus", Some("feedback-manager"))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(headers[header::CONTENT_TYPE], "text/csv; charset=utf-8");
+    assert_eq!(headers[header::CONTENT_DISPOSITION], r#"attachment; filename="chase-sets-platform-feedback.csv""#);
+    assert!(body.starts_with("\"feedback_id\""), "{body}");
+    assert_eq!(pilot.calls_to(FEEDBACK).last().unwrap().path, format!("{FEEDBACK}/export?status=new"));
+    let (status, _, _) = pilot.send(get("/support/platform-feedback/export", Some("feedback-viewer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_feedbacks_page_shows_it_and_offers_what_its_status_allows() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/platform-feedback/pfb_1", Some("feedback-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "Feedback pfb_1",
+        "Offer tracking is useful.",
+        "/account/offers/submitted/off_1",
+        "Asked the seller.",
+        "usr_ops at May 8, 2026, 9:30 AM UTC",
+        "offer: off_1",
+        "mystery: x_1",
+        "<dd>Yes</dd>",
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(!html.contains(r#"value="review""#) && !html.contains("record-note"), "a viewer changes nothing: {html}");
+    let (_, _, html) = pilot.send(get("/support/platform-feedback/pfb_1", Some("feedback-manager"))).await;
+    assert!(html.contains(r#"value="review""#) && html.contains(r#"value="archive""#), "a new one: {html}");
+    assert!(html.contains(r#"value="record-note""#), "{html}");
+    let (_, _, html) = pilot.send(get("/support/platform-feedback/pfb_2", Some("feedback-manager"))).await;
+    assert!(!html.contains(r#"value="review""#) && !html.contains(r#"value="archive""#), "an archived one: {html}");
+    let (status, _, _) = pilot.send(get("/support/platform-feedback/pfb_none", Some("feedback-viewer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_feedbacks_writes_are_sent_and_its_page_is_read_after_them() {
+    let pilot = Pilot::new().await;
+    let at = "/support/platform-feedback/pfb_1";
+    let (status, headers, _) = pilot.send(post_as("feedback-manager", at, "intent=record-note&body=Called+back", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/support/platform-feedback/pfb_1?after_write="), "{to}");
+    let write = pilot.calls_to(FEEDBACK).into_iter().last().unwrap();
+    assert_eq!((write.path.as_str(), write.body.as_str()), (&*format!("{FEEDBACK}/pfb_1/notes"), r#"{"body":"Called back"}"#));
+    let (_, headers, _) = pilot.send(post_as("feedback-manager", at, "intent=review", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/support/platform-feedback/pfb_1?after_write="));
+    let write = pilot.calls_to(FEEDBACK).into_iter().last().unwrap();
+    assert_eq!((write.path.as_str(), write.body.as_str()), (&*format!("{FEEDBACK}/pfb_1/review"), "{}"));
+
+    let (status, headers, html) = pilot.send(post_as("feedback-manager", at, "intent=record-note&body=+", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(headers.get(header::LOCATION).is_none());
+    assert!(html.contains("Operator note is required.") && html.contains(r#"role="alert""#), "{html}");
+    let (status, headers, _) = pilot.send(post_as("feedback-manager", at, "intent=bogus", false)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, at));
+    assert_eq!(pilot.send(post_as("feedback-viewer", at, "intent=review", false)).await.0, StatusCode::FORBIDDEN);
+
+    let lagging = format!("{at}?after_write={}", fresh_receipt());
+    let (status, _, html) = pilot.send(get(&lagging, Some("feedback-lag"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
 }

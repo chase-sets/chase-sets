@@ -41,6 +41,7 @@ fn served(path: &str) -> Option<String> {
         (<reported::risk::url::Risks as Route>::PATH, reported::risk::url::Risks::default().href()),
         (<support::url::Lookup as Route>::PATH, support::url::Lookup::default().href()),
         (<support::csat::url::Csat as Route>::PATH, support::csat::url::Csat::default().href()),
+        (<support::feedback::url::Feedback as Route>::PATH, support::feedback::url::Feedback::default().href()),
     ];
     pages.into_iter().find(|(at, _)| *at == path).map(|(_, href)| href)
 }

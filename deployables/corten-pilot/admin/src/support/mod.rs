@@ -1,4 +1,5 @@
-//! Support's operator pages. Support > CSAT dashboard is [`csat`]; this module is the ones that
+//! Support's operator pages. Support > CSAT dashboard is [`csat`] and Support > Platform Feedback
+//! [`feedback`], each its own area; this module is the ones that
 //! need `support.manage`, as admin-web's nav entries do. So far Support > Reference Lookup (admin-web's `/support/reference-lookup`, Platform Operations'
 //! `SupportReferenceLookupPage`): an operator pastes a support reference (`ORD-`, `SHP-`, `PYO-`,
 //! `SUP-`, `CSG-`, `CS-SL-`, or a raw typed id) and gets the owning record's summary and a link to
@@ -15,6 +16,7 @@ use corten::{
 use serde::{Deserialize, Serialize};
 
 pub mod csat;
+pub mod feedback;
 pub mod views;
 
 use crate::{

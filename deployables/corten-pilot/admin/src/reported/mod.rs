@@ -230,7 +230,7 @@ pub struct ItemScreen {
 }
 
 /// marketplace's origin (`CHASE_SETS_MARKETPLACE_ORIGIN`, as admin-web reads it), if set.
-fn marketplace_origin() -> Option<&'static str> {
+pub(crate) fn marketplace_origin() -> Option<&'static str> {
     static ORIGIN: LazyLock<Option<String>> = LazyLock::new(|| {
         std::env::var("CHASE_SETS_MARKETPLACE_ORIGIN")
             .ok()

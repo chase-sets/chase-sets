@@ -114,6 +114,10 @@ pub fn open_href(link: &DeepLink) -> Option<String> {
     let first = link.href[1..].split(['/', '?', '#']).next().unwrap_or("");
     let path =
         if auth::SECTIONS.contains(&first) { link.href.clone() } else { format!("/{}{}", section(&link.surface)?, link.href) };
+    // A page the pilot serves opens here.
+    if let Some(own) = crate::support::feedback::serves(&path) {
+        return Some(own);
+    }
     crate::views::admin_web(&path).map(|uri| uri.to_string())
 }
 
