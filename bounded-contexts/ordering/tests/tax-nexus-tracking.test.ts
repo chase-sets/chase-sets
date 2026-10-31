@@ -25,6 +25,23 @@ describe("tax nexus tracking", () => {
       currentYearGrossSalesAmount: "1.50",
       previousYearGrossSalesAmount: "1.50",
     });
+
+    const maxReport = evaluateTaxNexusReadiness([
+      {
+        jurisdictionCode: "OH",
+        currentYearGrossSalesAmount: "9999999999.99",
+        previousYearGrossSalesAmount: "9999999999.99",
+        currentYearTransactionCount: 0,
+        previousYearTransactionCount: 0,
+        registrationStatus: "not-registered",
+        collectionStatus: "not-collecting",
+      },
+    ]);
+
+    expect(maxReport.jurisdictions.find((row) => row.jurisdictionCode === "OH")).toMatchObject({
+      currentYearGrossSalesAmount: "9999999999.99",
+      previousYearGrossSalesAmount: "9999999999.99",
+    });
   });
 
   it("normalizer range rejection", () => {

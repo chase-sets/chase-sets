@@ -199,7 +199,7 @@ export const defaultTaxNexusThresholdPolicies: readonly TaxNexusThresholdPolicy[
   },
 );
 
-function normalizeMoneyAmount(value: string, fieldName: string) {
+function normalizeMoneyAmount(value: string, fieldName: string): string {
   const normalized = value.trim();
   const cents = tryMoneyToCents(normalized);
   if (cents === null) {
