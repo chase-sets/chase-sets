@@ -2840,6 +2840,7 @@ describe("platform Kubernetes deployment", () => {
           ...headers,
         });
         if (body?.transportError) throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } });
+        if (body?.fetchError) throw new Error("SENTINEL-FETCH-ERROR");
         if (body?.httpStatus) return { ok: false, status: body.httpStatus, headers: responseHeaders };
         if (body?.malformedJson) {
           return {
@@ -2847,6 +2848,30 @@ describe("platform Kubernetes deployment", () => {
             status: 200,
             headers: responseHeaders,
             json: async () => JSON.parse("SENTINEL-BODY-10858 {"),
+          };
+        }
+        if (body?.transportJsonError) {
+          return {
+            ok: true,
+            status: 200,
+            headers: responseHeaders,
+            json: async () => {
+              throw new TypeError("terminated");
+            },
+          };
+        }
+        if (body?.jsonTypeError || body?.abortError || body?.timeoutError) {
+          return {
+            ok: true,
+            status: 200,
+            headers: responseHeaders,
+            json: async () => {
+              const error = body.jsonTypeError
+                ? new TypeError("SENTINEL-BODY-ERROR")
+                : new Error("SENTINEL-BODY-ERROR");
+              if (!body.jsonTypeError) error.name = body.abortError ? "AbortError" : "TimeoutError";
+              throw error;
+            },
           };
         }
         return { ok: true, status: 200, headers: responseHeaders, json: async () => body };
@@ -3018,13 +3043,6 @@ describe("platform Kubernetes deployment", () => {
           "census-http-status after 1 pass: GitHub Actions in_progress run census failed with HTTP 429.",
         ],
         [
-          "a transport error is read once",
-          { in_progress: [[{ transportError: true }, ok]] },
-          1,
-          [],
-          "census-unclassified after 1 pass: TypeError (ECONNRESET).",
-        ],
-        [
           "malformed JSON is read once",
           { in_progress: [[{ malformedJson: true }, ok]] },
           1,
@@ -3069,6 +3087,92 @@ describe("platform Kubernetes deployment", () => {
           expect(evidence().serverErrorRetries).toHaveLength(sleeps.length);
           expect(lines.join("")).not.toContain("SENTINEL-BODY-10858");
         }
+      });
+    });
+
+    describe("census transport errors", () => {
+      const ok = page(1, [deploy]);
+      const transportPath = "actions/runs?status=in_progress&per_page=100&page=1";
+
+      it.each([
+        [
+          "fetch failure recovers",
+          { in_progress: [[{ transportError: true }, { transportError: true }, ok]] },
+          "transport error (ECONNRESET)",
+        ],
+        [
+          "response body reset recovers",
+          { in_progress: [[{ transportJsonError: true }, { transportJsonError: true }, ok]] },
+          "transport error",
+        ],
+      ])("re-reads %s with bounded delays and admits", async (_label, pass, failure) => {
+        const { census, error, requests, sleep, evidence } = await readPasses([pass]);
+        expect(error).toBeUndefined();
+        expect(requests.filter((request) => request === `1:in_progress:1`)).toHaveLength(3);
+        expect(sleep.mock.calls).toEqual([[1_000], [2_000]]);
+        expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+        expect(evidence()).toMatchObject({
+          outcome: "admitted",
+          transportRetries: [
+            { path: transportPath, failure, delayMs: 1_000 },
+            { path: transportPath, failure, delayMs: 2_000 },
+          ],
+        });
+      });
+
+      it("redacts transport details and refuses after three failures", async () => {
+        const { census, error, requests, sleep, lines, evidence } = await readPasses([
+          { in_progress: [[{ transportError: true }, { transportError: true }, { transportError: true }, ok]] },
+        ]);
+        expect(census).toBeUndefined();
+        expect(error.message).toBe(
+          "census-transport after 1 pass: GitHub Actions in_progress run census encountered transport error (ECONNRESET). Final pass per-status total/collected: requested 0/0, pending 0/0, queued 0/0.",
+        );
+        expect(requests.filter((request) => request === "1:in_progress:1")).toHaveLength(3);
+        expect(sleep.mock.calls).toEqual([[1_000], [2_000]]);
+        expect(evidence()).toMatchObject({
+          outcome: "refused",
+          refusalClass: "census-transport",
+          transportRetries: [
+            { path: transportPath, failure: "transport error (ECONNRESET)", delayMs: 1_000 },
+            { path: transportPath, failure: "transport error (ECONNRESET)", delayMs: 2_000 },
+          ],
+        });
+        expect(lines.join("")).not.toContain("SENTINEL");
+      });
+
+      it("shares the six-retry budget between 5xx and transport failures", async () => {
+        const { census, error, sleep, evidence } = await readPasses([
+          {
+            pending: [[{ httpStatus: 502 }, { transportError: true }, page(0, [])]],
+            queued: [[{ httpStatus: 502 }, { transportError: true }, page(0, [])]],
+            in_progress: [[{ httpStatus: 502 }, { transportError: true }, ok]],
+            waiting: [[{ transportError: true }, page(0, [])]],
+          },
+        ]);
+        expect(census).toBeUndefined();
+        expect(error.message.startsWith("census-transport after 1 pass: GitHub Actions waiting run census")).toBe(true);
+        expect(sleep.mock.calls).toEqual([[1_000], [2_000], [1_000], [2_000], [1_000], [2_000]]);
+        expect(evidence()).toMatchObject({
+          refusalClass: "census-transport",
+          serverErrorRetries: expect.any(Array),
+          transportRetries: expect.any(Array),
+        });
+        expect(evidence().serverErrorRetries).toHaveLength(3);
+        expect(evidence().transportRetries).toHaveLength(3);
+      });
+
+      it.each([
+        ["a TypeError with another message", { in_progress: [{ jsonTypeError: true }] }, "census-invalid-response"],
+        ["AbortError", { in_progress: [{ abortError: true }] }, "census-invalid-response"],
+        ["TimeoutError", { in_progress: [{ timeoutError: true }] }, "census-invalid-response"],
+        ["a non-TypeError rejection", { in_progress: [{ fetchError: true }] }, "census-unclassified"],
+      ])("does not retry %s", async (_label, pass, refusalClass) => {
+        const { error, sleep, evidence, lines } = await readPasses([pass]);
+        expect(error.message.startsWith(`${refusalClass} after 1 pass: `)).toBe(true);
+        expect(sleep).not.toHaveBeenCalled();
+        expect(evidence()).toMatchObject({ outcome: "refused", refusalClass, transportRetries: [] });
+        expect(lines.join("")).not.toContain("SENTINEL");
       });
     });
 
