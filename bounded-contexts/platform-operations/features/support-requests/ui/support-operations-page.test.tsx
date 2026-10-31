@@ -3,13 +3,22 @@ import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import { SupportOperationsPage } from "./support-operations-page";
-import type { SupportRequestDetail, SupportRequestDetailResponse, SupportRequestListItem } from "./contracts";
+import type {
+  SupportOperationsRequestDetailResponse,
+  SupportOperationsRequestListItem,
+  SupportOperationsRequestDetail,
+  SupportRequestDetail,
+} from "./contracts";
 import { getSupportFlowDefinition } from "../domain/flow-catalog";
 import { normalizeFlowType } from "../domain/common";
+import { projectSupportOperatorPolicy, type SupportOperatorPolicy } from "../read-model/queries";
 
-function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): SupportRequestListItem {
+function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {}): SupportOperationsRequestListItem {
   return {
     support_request_id: "sup_1",
+    operatorPolicy: {
+      deadlineAt: null,
+    },
     display_reference: "SUP-TEST1234",
     order_id: "ord_1",
     buyer_account_id: "acc_buyer",
@@ -51,15 +60,29 @@ function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): Suppor
   };
 }
 
-function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): SupportRequestDetailResponse {
-  const request = {
+type DetailFixtureOverrides = Partial<SupportRequestDetail> & Readonly<{ operatorPolicy?: SupportOperatorPolicy }>;
+
+function buildDetailItem(overrides: DetailFixtureOverrides = {}): SupportOperationsRequestDetailResponse {
+  const request: SupportOperationsRequestDetail = {
     ...buildQueueItem(),
+    operatorPolicy: {
+      deadlineAt: null,
+      recommendedAction: "response",
+      responsibilityReasons: [],
+      refundCap: null,
+      refundPrefill: null,
+    },
     evidence: [],
     responses: [],
     offers: [],
     ...overrides,
   };
-  return { ...request, flow: getSupportFlowDefinition(normalizeFlowType(request.flow_type)) };
+  return {
+    ...request,
+    operatorPolicy:
+      overrides.operatorPolicy ?? projectSupportOperatorPolicy(request as never, "2026-10-31T12:00:00.000Z"),
+    flow: getSupportFlowDefinition(normalizeFlowType(request.flow_type)),
+  };
 }
 
 function renderPage(props: Partial<Parameters<typeof SupportOperationsPage>[0]> = {}) {
@@ -256,7 +279,11 @@ describe("SupportOperationsPage", () => {
 
   it("shows deadline countdowns and links each row back to a drawer on the current queue", () => {
     renderPage({
-      queue: { items: [buildQueueItem()], total: 1, count: 1 },
+      queue: {
+        items: [buildQueueItem({ operatorPolicy: { deadlineAt: "2026-06-02T00:00:00.000Z" } })],
+        total: 1,
+        count: 1,
+      },
       queueNow: "2026-06-02T02:00:00.000Z",
     });
 
@@ -274,6 +301,7 @@ describe("SupportOperationsPage", () => {
       queue: {
         items: [
           buildQueueItem({
+            operatorPolicy: { deadlineAt: "2026-06-02T00:00:00.000Z" },
             seller_response_due_at: "2026-06-03T00:00:00.000Z",
             support_review_due_at: "2026-06-02T00:00:00.000Z",
           }),
@@ -337,6 +365,13 @@ describe("SupportOperationsPage", () => {
       selectedRequest: buildDetailItem({
         status: "waiting-on-seller",
         support_review_due_at: "2026-06-01T00:00:00.000Z",
+        operatorPolicy: {
+          deadlineAt: "2026-06-01T00:00:00.000Z",
+          recommendedAction: "escalate",
+          responsibilityReasons: [],
+          refundCap: null,
+          refundPrefill: null,
+        },
       }),
       queueNow: "2026-06-02T00:00:00.000Z",
     });
@@ -348,6 +383,13 @@ describe("SupportOperationsPage", () => {
       selectedRequest: buildDetailItem({
         status: "waiting-on-seller",
         support_review_due_at: "2026-06-03T00:00:00.000Z",
+        operatorPolicy: {
+          deadlineAt: "2026-06-03T00:00:00.000Z",
+          recommendedAction: "response",
+          responsibilityReasons: [],
+          refundCap: null,
+          refundPrefill: null,
+        },
       }),
       queueNow: "2026-06-02T00:00:00.000Z",
     });

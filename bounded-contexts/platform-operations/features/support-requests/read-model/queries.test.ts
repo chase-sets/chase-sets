@@ -8,6 +8,7 @@ import {
   listSupportRequestsReadyForAutoClose,
   listSupportOperationsQueue,
   listSellerSupportRequests,
+  projectSupportOperatorPolicy,
 } from "./queries";
 
 type QueryCall = Readonly<{ sql: string; params: readonly unknown[] }>;
@@ -23,6 +24,52 @@ function buildDb(calls: QueryCall[], countValue = "0", rows: unknown[] = []): Pg
     },
   };
 }
+
+describe("projectSupportOperatorPolicy", () => {
+  const row = (overrides: Record<string, unknown> = {}) =>
+    ({
+      flow_type: "product-not-received",
+      status: "open",
+      seller_response_due_at: null,
+      support_review_due_at: "2026-06-01T02:00:00.000Z",
+      seller_condition_attestation_due_at: "2026-06-01T01:00:00.000Z",
+      affected_line_items: [{ amount: "12.34", currencyCode: "USD" }],
+      pending_offer: null,
+      offers: [],
+      ...overrides,
+    }) as never;
+
+  it("selects the earliest stamped deadline and derives escalation from it", () => {
+    expect(projectSupportOperatorPolicy(row(), "2026-06-01T01:30:00.000Z")).toMatchObject({
+      deadlineAt: "2026-06-01T01:00:00.000Z",
+      recommendedAction: "escalate",
+    });
+  });
+
+  it("uses resolve for ready cases and only exposes operator-selectable reasons", () => {
+    const policy = projectSupportOperatorPolicy(
+      row({ status: "ready-for-support", flow_type: "product-not-as-described" }),
+      "2026-06-01T00:00:00.000Z",
+    );
+    expect(policy.recommendedAction).toBe("resolve");
+    expect(policy.responsibilityReasons.every((reason) => reason.operatorSelectable)).toBe(true);
+    expect(
+      policy.responsibilityReasons.some((reason) => reason.code.endsWith("accepted-resolution-without-cause-finding")),
+    ).toBe(false);
+  });
+
+  it("preserves existing line and latest-offer refund ceiling semantics", () => {
+    const policy = projectSupportOperatorPolicy(
+      row({
+        pending_offer: { refundAmount: "9.00" },
+        offers: [{ offeredAt: "2026-05-31T00:00:00.000Z", refundAmount: "8.00" }],
+      }),
+      "2026-06-01T00:00:00.000Z",
+    );
+    expect(policy.refundCap).toBe("12.34");
+    expect(policy.refundPrefill).toBe("9.00");
+  });
+});
 
 describe("support operations queue read-model query", () => {
   it("guards duplicate intake across every open flow for an order", async () => {

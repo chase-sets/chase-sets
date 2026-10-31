@@ -8,15 +8,6 @@ export function formatSupportDateTime(value: string | null) {
     : t("support.features.supportRequests.ui.supportOperationsPage.not.applicable");
 }
 
-export function nextSupportDeadline(request: SupportRequestListItem) {
-  const deadlines = [
-    request.seller_response_due_at,
-    request.support_review_due_at,
-    request.seller_condition_attestation_due_at,
-  ].filter((value): value is string => Boolean(value));
-  return deadlines.sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0] ?? null;
-}
-
 export function supportChecklistSummary(request: SupportRequestListItem) {
   const required = request.checklist.filter((item) => item.required);
   const satisfied = required.filter((item) => item.satisfiedAt !== null);

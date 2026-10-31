@@ -10,7 +10,7 @@ import {
   type SupportParticipantPolicy,
 } from "./support-flow-projection";
 import type { SupportRequestDetailResponse, SupportRequestParticipantDetailResponse } from "../ui/contracts";
-import type { SupportRequestDetailRow } from "../read-model/queries";
+import type { SupportOperationsRequestDetailRow, SupportRequestDetailRow } from "../read-model/queries";
 import type { SupportRequesterRole } from "../domain/common";
 import type { SupportRequestServices } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
@@ -1422,8 +1422,15 @@ async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer
   return { runtime, eventStore, allEvents, storage, reference };
 }
 
-function supportRequestDetail(): SupportRequestDetailRow {
+function supportRequestDetail(): SupportOperationsRequestDetailRow {
   return {
+    operatorPolicy: {
+      deadlineAt: null,
+      recommendedAction: "response",
+      responsibilityReasons: [],
+      refundCap: null,
+      refundPrefill: null,
+    },
     support_request_id: "sup_1",
     display_reference: "SUP-00000001",
     order_id: "ord_1",
