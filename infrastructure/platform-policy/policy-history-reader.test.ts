@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { GlobalPosition, StoredEvent } from "@chase-sets/event-core/storage";
-import { createPolicyHistoryReader } from "./index";
+import { createPolicyHistoryReader, PolicyHistoryReaderError } from "./index";
 
 const policyKey = "pricing.shipping-window";
 const otherPolicyKey = "other.catalog";
@@ -73,7 +73,7 @@ function readerFor(events: readonly StoredEvent[], options: ReaderOptions = {}) 
 }
 
 describe("bounded policy history reader", () => {
-  it("returns every immutable AC1 field, including revisions, inactive and expired windows, in numeric order", async () => {
+  it("policy timeline identity and document coverage", async () => {
     const { reader, reads } = readerFor([
       event(9, policyKey, { value: { cents: 9 }, effectiveFrom: "2026-01-01T00:00:00.000Z" }, undefined, {
         documentId: "doc-history",
@@ -177,43 +177,45 @@ describe("bounded policy history reader", () => {
     ]);
   });
 
-  it("keeps raw-page continuation complete across an interleaved 500-event boundary and JSON restart", async () => {
-    const events = Array.from({ length: 502 }, (_, index) =>
-      event(index + 1, index + 1 === 499 || index + 1 === 501 ? policyKey : otherPolicyKey),
-    );
-    const { reader } = readerFor(events);
-    const start = await reader.start(policyKey);
+  describe("raw-page continuation is complete", () => {
+    it("keeps raw-page continuation complete across an interleaved 500-event boundary and JSON restart", async () => {
+      const events = Array.from({ length: 502 }, (_, index) =>
+        event(index + 1, index + 1 === 499 || index + 1 === 501 ? policyKey : otherPolicyKey),
+      );
+      const { reader } = readerFor(events);
+      const start = await reader.start(policyKey);
 
-    const first = await reader.readPage(start.continuation);
-    expect(first.records.map((record) => record.globalPosition)).toEqual(["499"]);
-    expect(first.complete).toBe(false);
-    expect(first.continuation.afterGlobalPosition).toBe("500");
+      const first = await reader.readPage(start.continuation);
+      expect(first.records.map((record) => record.globalPosition)).toEqual(["499"]);
+      expect(first.complete).toBe(false);
+      expect(first.continuation.afterGlobalPosition).toBe("500");
 
-    const restarted = JSON.parse(JSON.stringify(first.continuation)) as typeof first.continuation;
-    const second = await reader.readPage(restarted);
-    expect(second.records.map((record) => record.globalPosition)).toEqual(["501"]);
-    expect(second.complete).toBe(true);
-  });
+      const restarted = JSON.parse(JSON.stringify(first.continuation)) as typeof first.continuation;
+      const second = await reader.readPage(restarted);
+      expect(second.records.map((record) => record.globalPosition)).toEqual(["501"]);
+      expect(second.complete).toBe(true);
+    });
 
-  it("requires an empty page after an exactly-500 raw terminal page and completes empty history", async () => {
-    const full = readerFor(Array.from({ length: 500 }, (_, index) => event(index + 1, otherPolicyKey)));
-    const start = await full.reader.start(policyKey);
-    const first = await full.reader.readPage(start.continuation);
-    expect(first.records).toEqual([]);
-    expect(first.complete).toBe(false);
-    expect(first.continuation.afterGlobalPosition).toBe("500");
-    await expect(full.reader.readPage(first.continuation)).resolves.toMatchObject({ complete: true, records: [] });
+    it("requires an empty page after an exactly-500 raw terminal page and completes empty history", async () => {
+      const full = readerFor(Array.from({ length: 500 }, (_, index) => event(index + 1, otherPolicyKey)));
+      const start = await full.reader.start(policyKey);
+      const first = await full.reader.readPage(start.continuation);
+      expect(first.records).toEqual([]);
+      expect(first.complete).toBe(false);
+      expect(first.continuation.afterGlobalPosition).toBe("500");
+      await expect(full.reader.readPage(first.continuation)).resolves.toMatchObject({ complete: true, records: [] });
 
-    const empty = readerFor([]);
-    const emptyStart = await empty.reader.start(policyKey);
-    await expect(empty.reader.readPage(emptyStart.continuation)).resolves.toMatchObject({
-      complete: true,
-      records: [],
-      continuation: { afterGlobalPosition: "0" },
+      const empty = readerFor([]);
+      const emptyStart = await empty.reader.start(policyKey);
+      await expect(empty.reader.readPage(emptyStart.continuation)).resolves.toMatchObject({
+        complete: true,
+        records: [],
+        continuation: { afterGlobalPosition: "0" },
+      });
     });
   });
 
-  it("fails closed on malformed status, window, policy key, value, source pages, replays, and version gaps", async () => {
+  it("policy timeline fails closed", async () => {
     const malformed: readonly [string, StoredEvent][] = [
       ["status", event(1, policyKey, { status: "paused" })],
       ["window", event(1, policyKey, { effectiveFrom: "not-a-timestamp" })],
@@ -229,6 +231,42 @@ describe("bounded policy history reader", () => {
     const mismatchedIdentity = readerFor([event(1, policyKey, { documentId: "wrong-document" })]);
     const mismatchedStart = await mismatchedIdentity.reader.start(policyKey);
     await expect(mismatchedIdentity.reader.readPage(mismatchedStart.continuation)).rejects.toThrow(
+      "does not match its stream",
+    );
+
+    const nonObjectPayloads: readonly [string, unknown][] = [
+      ["null", null],
+      ["string", "doc-1"],
+      ["array", []],
+    ];
+    const nonObjectPayloadFailures = await Promise.all(
+      nonObjectPayloads.map(async ([label, payload]) => {
+        const { reader } = readerFor([{ ...event(1), payload: payload as never }]);
+        const start = await reader.start(policyKey);
+        const error = await reader.readPage(start.continuation).then(
+          () => undefined,
+          (rejection: unknown) => rejection,
+        );
+        return { label, typed: error instanceof PolicyHistoryReaderError, message: String(error) };
+      }),
+    );
+    expect(nonObjectPayloadFailures).toEqual(
+      nonObjectPayloads.map(([label]) => ({
+        label,
+        typed: true,
+        message: expect.stringContaining("payload must be an object"),
+      })),
+    );
+
+    // Other keys' identities are decoded, but their record fields are not.
+    const crossKey = readerFor([event(1), event(2, otherPolicyKey, { status: "paused" })]);
+    const crossKeyStart = await crossKey.reader.start(policyKey);
+    expect(
+      (await crossKey.reader.readPage(crossKeyStart.continuation)).records.map((record) => record.eventId),
+    ).toEqual(["evt-1"]);
+    const crossKeyIdentity = readerFor([event(1), event(2, otherPolicyKey, { documentId: "wrong-document" })]);
+    const crossKeyIdentityStart = await crossKeyIdentity.reader.start(policyKey);
+    await expect(crossKeyIdentity.reader.readPage(crossKeyIdentityStart.continuation)).rejects.toThrow(
       "does not match its stream",
     );
 

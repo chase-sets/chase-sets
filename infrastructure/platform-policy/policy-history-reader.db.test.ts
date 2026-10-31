@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { compareGlobalPosition } from "@chase-sets/event-core/storage";
 import {
   EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
   createPostgresEventStore,
@@ -47,7 +48,7 @@ describeDb("gap-safe policy history reader", () => {
     await schema?.close();
   });
 
-  it("drives create/revise through createPolicyRuntime and fences an in-flight append, rollback hole, and fixed horizon", async () => {
+  it("gap-safe policy history without projections", async () => {
     const runtime = createPolicyRuntime({ eventStore, db: schema.pool });
     const created = await runtime.createPolicyDocument(
       policy,
@@ -110,7 +111,8 @@ describeDb("gap-safe policy history reader", () => {
       expect(oldPageAfterAppend.horizon).toBe(oldStart.horizon);
 
       const newStart = await reader.start(policy.policyKey);
-      expect(newStart.horizon).toBe("4");
+      expect(compareGlobalPosition(newStart.horizon, oldStart.horizon)).toBeGreaterThan(0);
+      expect(newStart.horizon).toBe(await readGapSafeEventStoreHead(schema.pool));
       expect((await reader.readPage(newStart.continuation)).records).toHaveLength(3);
     } finally {
       if (!released) {
