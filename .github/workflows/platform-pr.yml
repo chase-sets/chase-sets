@@ -247,11 +247,15 @@ jobs:
         run: pnpm run verify:typecheck
 
   unit-tests:
-    name: Unit Tests
+    name: Unit Tests (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
     if: needs['change-scope'].outputs.unit_tests_required == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -263,8 +267,8 @@ jobs:
 
       - name: Run non-DB tests
         run: |
-          node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
-          node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+          node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
+          node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
 
   db-tests:
     name: DB Profile Tests (${{ matrix.db-workspace-group }})

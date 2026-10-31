@@ -1573,6 +1573,164 @@ describe("closed duration scheduling contracts", () => {
     expect(stdout.at(-1)).toBe(summaryLines[0]);
   });
 
+  it("partitions every eligible unit task into exactly one shard for the checked-in registry", async () => {
+    const registry = readJson("scripts/workspace-test-duration-hints-v1.json");
+    const cases = [
+      ["test", "--exclude-test-profile=db"],
+      ["test:unit", "--test-profile=db"],
+    ];
+
+    for (const [script, profile] of cases) {
+      const unsharded = [];
+      await captureConsole(() =>
+        runWorkspaceScripts({
+          argv: [script, profile, "--concurrency=1"],
+          buildInvocation,
+          durationHintRegistry: registry,
+          listWorkspaces: listWorkspacePackages,
+          loadEnvironment: () => {},
+          run: async (_command, args) => unsharded.push(args[1]),
+        }),
+      );
+
+      for (const total of [1, 2, 3, 4]) {
+        const shards = [];
+        for (let index = 1; index <= total; index += 1) {
+          const invoked = [];
+          await captureConsole(() =>
+            runWorkspaceScripts({
+              argv: [script, profile, "--concurrency=1", `--shard=${index}/${total}`],
+              buildInvocation,
+              durationHintRegistry: registry,
+              listWorkspaces: listWorkspacePackages,
+              loadEnvironment: () => {},
+              run: async (_command, args) => invoked.push(args[1]),
+            }),
+          );
+          shards.push(invoked);
+        }
+
+        expect(new Set(shards.flat())).toEqual(new Set(unsharded));
+        expect(shards.flat()).toHaveLength(unsharded.length);
+        for (const shard of shards) {
+          const positions = shard.map((name) => unsharded.indexOf(name));
+          expect(positions).toEqual([...positions].sort((left, right) => left - right));
+        }
+      }
+    }
+  });
+
+  it("keeps unsharded scheduling identical", async () => {
+    const workspaces = [
+      workspace("@chase-sets/alpha", { test: "test" }),
+      workspace("@chase-sets/bravo", { test: "test" }),
+      workspace("@chase-sets/charlie", { test: "test" }),
+    ];
+    const registry = durationRegistry([
+      durationEntry("@chase-sets/alpha", "test", 10),
+      durationEntry("@chase-sets/bravo", "test", 20),
+      durationEntry("@chase-sets/charlie", "test", 15),
+    ]);
+    const invoke = (argv) => {
+      const runs = [];
+      return captureConsole(() =>
+        runWorkspaceScripts({
+          argv,
+          buildInvocation,
+          durationHintRegistry: registry,
+          listWorkspaces: () => workspaces,
+          loadEnvironment: () => {},
+          run: async (_command, args) => runs.push(args[1]),
+        }),
+      ).then(() => runs);
+    };
+
+    await expect(invoke(["test", "--exclude-test-profile=db", "--concurrency=1"])).resolves.toEqual([
+      "@chase-sets/bravo",
+      "@chase-sets/charlie",
+      "@chase-sets/alpha",
+    ]);
+  });
+
+  it("runs an empty shard as no workspaces matched", async () => {
+    const output = await captureConsole(() =>
+      runWorkspaceScripts({
+        argv: ["test", "--exclude-test-profile=db", "--shard=2/2"],
+        buildInvocation,
+        durationHintRegistry: durationRegistry([durationEntry("@chase-sets/only", "test", 1)]),
+        listWorkspaces: () => [workspace("@chase-sets/only", { test: "test" })],
+        loadEnvironment: () => {},
+        run: async () => {
+          throw new Error("empty shard must not run a workspace");
+        },
+      }),
+    );
+
+    expect(output.stdout).toContain("No workspaces matched test.");
+    expect(output.stdout.at(-1)).toMatch(/^RUN_WORKSPACES_SUMMARY /);
+  });
+
+  it("rejects invalid shard specifications before running", async () => {
+    const cases = [
+      ["test", "--exclude-test-profile=db", "--shard=0/2"],
+      ["test", "--exclude-test-profile=db", "--shard=3/2"],
+      ["test", "--exclude-test-profile=db", "--shard=1/0"],
+      ["test", "--exclude-test-profile=db", "--shard=a/b"],
+      ["test", "--exclude-test-profile=db", "--shard=1/9"],
+      ["test", "--exclude-test-profile=db", "--shard=1/2", "--shard=2/2"],
+      ["build", "--shard=1/2"],
+      [DB_TEST_SCRIPT_SELECTOR, "--shard=1/2"],
+      ["test", "--shard=1/2"],
+    ];
+
+    for (const argv of cases) {
+      let runs = 0;
+      await expect(
+        runWorkspaceScripts({
+          argv,
+          buildInvocation,
+          durationHintRegistry: durationRegistry([durationEntry("@chase-sets/only", "test", 1)]),
+          listWorkspaces: () => {
+            throw new Error("workspace discovery must not run");
+          },
+          loadEnvironment: () => {
+            throw new Error("environment loading must not run");
+          },
+          run: async () => {
+            runs += 1;
+          },
+        }),
+      ).rejects.toThrow();
+      expect(runs).toBe(0);
+    }
+  });
+
+  it("fails a shard when one of its workspaces fails", async () => {
+    const output = await captureConsole(async () => {
+      await expect(
+        runWorkspaceScripts({
+          argv: ["test", "--exclude-test-profile=db", "--shard=2/2"],
+          buildInvocation,
+          durationHintRegistry: durationRegistry([
+            durationEntry("@chase-sets/alpha", "test", 1),
+            durationEntry("@chase-sets/bravo", "test", 1),
+          ]),
+          listWorkspaces: () => [
+            workspace("@chase-sets/alpha", { test: "test" }),
+            workspace("@chase-sets/bravo", { test: "test" }),
+          ],
+          loadEnvironment: () => {},
+          run: async (_command, args) => {
+            if (args[1] === "@chase-sets/bravo") throw new Error("synthetic shard failure");
+          },
+        }),
+      ).rejects.toThrow("1 workspace script run(s) failed.");
+    });
+
+    expect(output.stderr.join("\n")).toContain("Failed workspaces: @chase-sets/bravo");
+    expect(output.stderr.join("\n")).toContain("synthetic shard failure");
+  });
+
   it("DB admission preserves selection and summaries while adding DB-only telemetry", async () => {
     const cases = [
       ["build", "--concurrency=2"],
