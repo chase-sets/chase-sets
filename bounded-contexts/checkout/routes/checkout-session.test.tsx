@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "@chase-sets/localization";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION, type GlobalPosition } from "@chase-sets/event-core/storage";
-import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { CheckoutApiEnv } from "../api";
 import {
   MockCheckoutApiError,
@@ -91,7 +90,7 @@ const heldReservations = [
   },
 ] as const;
 
-function createCheckpointStore(): ProjectionCheckpointStore {
+function createCheckpointStore(): Parameters<typeof createCheckoutSessionRuntime>[0]["checkpointStore"] {
   const checkpoints = new Map<string, GlobalPosition>();
   return {
     loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,

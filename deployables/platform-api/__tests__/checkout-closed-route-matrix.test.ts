@@ -367,6 +367,7 @@ const closedRoutes = [
     "fulfillment-preview",
     "optimization-goal",
     "confirm",
+    "cancel",
   ].map((action) => `/account/checkout-sessions/:sessionId/${action}`),
   "/account/purchases/checkout",
   "/account/purchases/checkout/preview",
@@ -1047,7 +1048,12 @@ describe("checkout-closed-session-lifecycle", () => {
     const cancel = await nativeTool(f.closed, "checkout.cancel-session", { sessionId }, "C-cannot-cancel");
     expect((await cancel.json()).result).toEqual({
       isError: true,
-      content: [{ type: "text", text: "Checkout sessions cannot be cancelled after payment starts." }],
+      content: [
+        {
+          type: "text",
+          text: "This checkout already created orders or started payment, so cancel it from your purchases instead.",
+        },
+      ],
     });
     for (const path of paymentPaths)
       expect((await post(f.closed, path, "acc_synthetic", "owner", "C-refused-start")).status).toBe(503);
