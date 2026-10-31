@@ -142,21 +142,13 @@ jobs:
             },
             stream_id: {
               file: 'bounded-contexts/platform-operations/features/account-appeals/api/runtime.ts',
-              find: `streamId: appealStreamId(action.appealableActionId),
-                expectedVersion: "no_stream",`,
-              replace: 'streamId: `${appealStreamId(action.appealableActionId)}-probe-mutant`,\n                expectedVersion: "no_stream",',
+              find: 'return handler.commandHandler({\n        streamId: appealStreamId(action.appealableActionId),\n        expectedVersion: "no_stream",',
+              replace: 'return handler.commandHandler({\n        streamId: `${appealStreamId(action.appealableActionId)}-probe-mutant`,\n        expectedVersion: "no_stream",',
             },
             unscoped_query: {
               file: 'bounded-contexts/platform-operations/features/account-appeals/tests/account-appeal-aggregate.db.test.ts',
-              find: `          \`SELECT stream_version, event_type
-             FROM event_store_events
-            WHERE stream_id = $1
-            ORDER BY stream_version ASC\`,
-          [streamId],`,
-              replace: `          \`SELECT stream_version, event_type
-             FROM event_store_events
-            ORDER BY stream_version ASC\`,
-          [],`,
+              find: 'WHERE stream_id = $1\n            ORDER BY stream_version ASC`,\n          [streamId],',
+              replace: 'ORDER BY stream_version ASC`,\n          [],',
             },
           };
           const spec = specs[mutant];
@@ -183,6 +175,8 @@ jobs:
             set -e
             git diff --no-ext-diff -- "$file" >"$diff" || true
             if [ "$apply_status" -eq 0 ]; then
+              echo "mutation diff for $mutant:"
+              cat "$diff"
               local status
               status="$(run_focused "$log" 600)"
               extract_assertion "$log" "$assertion"
@@ -190,6 +184,8 @@ jobs:
               echo "mutant=$mutant exit=$status assertion=$(head -n 1 "$assertion")"
               if [ "$status" -eq 0 ] || [ "$(head -n 1 "$assertion")" = 'NO_ASSERTION_LINE_FOUND' ]; then overall=1; fi
             else
+              echo "::error::mutant substitution did not apply: $mutant" >&2
+              cat "$log_dir/mutant-$mutant-apply.log" >&2
               printf '%s\t%s\t%s\t%s\t%s\n' "$mutant" "$file" "apply_$apply_status" "$head_hash" "$(head -n 1 "$log_dir/mutant-$mutant-apply.log")" >>"$log_dir/mutant-results.tsv"
               overall=1
             fi
@@ -219,9 +215,12 @@ jobs:
           fi
           git status --short >"$log_dir/final-status.txt"
 
-          find "$log_dir" -maxdepth 1 -type f ! -name manifest.sha256 ! -name receipt.json -printf '%f\0' |
-            sort -z |
-            xargs -0 -r sha256sum >"$log_dir/manifest.sha256"
+          (
+            cd "$log_dir"
+            find . -maxdepth 1 -type f ! -name manifest.sha256 ! -name receipt.json -printf '%f\0' |
+              sort -z |
+              xargs -0 -r sha256sum
+          ) >"$log_dir/manifest.sha256"
           manifest_hash="$(sha256sum "$log_dir/manifest.sha256" | awk '{print $1}')"
 
           PROBE_LOG_DIR="$log_dir" \
