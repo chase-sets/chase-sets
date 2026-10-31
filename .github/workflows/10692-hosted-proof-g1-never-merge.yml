@@ -175,8 +175,8 @@ jobs:
               replace: 'return; // probe mutant: expected-version/no-stream guard removed',
             },
             stream_id: {
-              find: 'streamId: appealStreamId(action.appealableActionId),',
-              replace: 'streamId: `${appealStreamId(action.appealableActionId)}-probe-mutant`,',
+              find: 'return handler.commandHandler({\n        streamId: appealStreamId(action.appealableActionId),\n        expectedVersion: "no_stream",',
+              replace: 'return handler.commandHandler({\n        streamId: `${appealStreamId(action.appealableActionId)}-probe-mutant`,\n        expectedVersion: "no_stream",',
             },
             unscoped_query: {
               find: 'WHERE stream_id = $1\n            ORDER BY stream_version ASC`,\n          [streamId],',
