@@ -517,7 +517,7 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("entryAttemptKey", "entry_attempt_1");
+    form.set("entryAttemptKey", "chkentry_01JSTARTENTRYKEY000001");
     form.set("source", "buy-now");
     form.set("listingId", "lst_1");
     form.set("catalogItemId", "cat_1");
@@ -540,7 +540,7 @@ describe("checkout web routes: checkout start", () => {
 
     expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: "entry_attempt_1",
+      entryAttemptKey: "chkentry_01JSTARTENTRYKEY000001",
       source: {
         type: "buy-now",
         listingId: "lst_1",
@@ -590,7 +590,7 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("entryAttemptKey", "entry_attempt_1");
+    form.set("entryAttemptKey", "chkentry_01JSTARTENTRYKEY000001");
     form.set("source", "cart");
     form.set("listingId", "lst_tampered");
     form.set("fulfillmentMode", "locked-listing");
@@ -617,7 +617,7 @@ describe("checkout web routes: checkout start", () => {
 
     expect(mockStartGuestCheckout).toHaveBeenCalledWith({});
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: "entry_attempt_1",
+      entryAttemptKey: "chkentry_01JSTARTENTRYKEY000001",
       source: expect.objectContaining({
         type: "buy-now",
         listingId: "lst_1",
@@ -643,6 +643,31 @@ describe("checkout web routes: checkout start", () => {
         },
       ],
     });
+  });
+
+  it("refuses a keyless signed-out buy-now entry before minting a guest or sending any command", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateAuthRequestApiClient.mockReturnValue({ startGuestCheckout: mockStartGuestCheckout });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ createCheckoutSession: mockCreateCheckoutSession });
+    const form = new URLSearchParams();
+    form.set("source", "buy-now");
+
+    const result = await checkoutStartAction({
+      request: new Request(
+        "http://localhost/checkout/buy/readiness?source=buy-now&listingId=lst_1&fulfillmentMode=locked-listing&lockedListingId=lst_1&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&quantity=1",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        },
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({ recovery: { kind: "attempt-changed", recoveryKind: "action-required" } });
+    expect(mockStartGuestCheckout).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
   it("silently recovers active guest buy-now checkout when the current guest account cannot start the preserved session", async () => {
@@ -672,7 +697,7 @@ describe("checkout web routes: checkout start", () => {
       });
 
     const form = new URLSearchParams();
-    form.set("entryAttemptKey", "entry_attempt_1");
+    form.set("entryAttemptKey", "chkentry_01JSTARTENTRYKEY000001");
     form.set("source", "buy-now");
     form.set("listingId", "lst_1");
     form.set("catalogItemId", "cat_1");
@@ -695,7 +720,7 @@ describe("checkout web routes: checkout start", () => {
     } as never)) as Response;
 
     expect(blockedCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: "entry_attempt_1",
+      entryAttemptKey: "chkentry_01JSTARTENTRYKEY000001",
       source: expect.objectContaining({
         type: "buy-now",
         listingId: "lst_1",
@@ -706,7 +731,7 @@ describe("checkout web routes: checkout start", () => {
     });
     expect(mockStartGuestCheckout).toHaveBeenCalledWith({});
     expect(recoveredCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: "entry_attempt_1",
+      entryAttemptKey: "chkentry_01JSTARTENTRYKEY000001",
       source: expect.objectContaining({
         type: "buy-now",
         listingId: "lst_1",
@@ -734,6 +759,7 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const form = new URLSearchParams();
+    form.set("entryAttemptKey", "chkentry_01JSTARTENTRYKEY000002");
     form.set("source", "buy-now");
     form.set("listingId", "lst_1");
     form.set("catalogItemId", "cat_1");
@@ -770,7 +796,7 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("entryAttemptKey", "entry_attempt_offer_1");
+    form.set("entryAttemptKey", "chkentry_01JSTARTOFFERKEY000001");
     form.set("source", "buy-now");
     form.set("listingId", "lst_tampered");
     form.set("catalogItemId", "cat_tampered");
@@ -794,7 +820,7 @@ describe("checkout web routes: checkout start", () => {
 
     expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: "entry_attempt_offer_1",
+      entryAttemptKey: "chkentry_01JSTARTOFFERKEY000001",
       source: {
         type: "offer-intent",
         catalogItemId: "cat_1",

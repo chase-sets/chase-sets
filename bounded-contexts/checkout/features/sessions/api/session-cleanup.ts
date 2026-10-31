@@ -147,6 +147,7 @@ export function createCheckoutSessionCleanupService(
             orderIds: params.orderIds as OrderId[],
             fulfilledLineKeys: params.fulfilledLineKeys,
             orderWriteCommitPositions: params.orderWriteCommitPositions,
+            orderHash: params.orderHash,
             recordedAt: new Date().toISOString(),
           },
         },

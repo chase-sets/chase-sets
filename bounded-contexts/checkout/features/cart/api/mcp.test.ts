@@ -577,6 +577,69 @@ describe("checkout cart MCP handlers", () => {
     }
   });
 
+  it("returns the first cancelled Session for a repeated cancel with no release beyond the first", async () => {
+    const fakeServices = services();
+    const firstRead = vi.mocked(fakeServices.sessions.getSession).getMockImplementation()!;
+    let cancelled = false;
+    vi.mocked(fakeServices.sessions.getSession).mockImplementation(async (sessionId, accountId) => {
+      const session = (await firstRead(sessionId, accountId))!;
+      return cancelled
+        ? {
+            ...session,
+            cancelled_at: "2026-07-08T00:00:00.000Z",
+            checkout_reservations: session.checkout_reservations.map((reservation) => ({
+              ...reservation,
+              status: "released" as const,
+            })),
+          }
+        : session;
+    });
+    const cancelOnce = vi.mocked(fakeServices.sessions.cancelSession).getMockImplementation()!;
+    vi.mocked(fakeServices.sessions.cancelSession).mockImplementation(async (params, context) => {
+      cancelled = true;
+      return cancelOnce(params, context);
+    });
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ holdId: "hld_1", status: "released" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const handlers = createCheckoutCartMcpHandlers(fakeServices);
+    const cancel = () =>
+      handlers.toolHandlers["checkout.cancel-session"]?.({
+        actor,
+        tool: null as never,
+        arguments: {
+          accountId: "acc_1",
+          sessionId: "chk_1",
+          idempotencyKey: KEYS.cancel,
+          confirmationText: "Cancel Checkout Session.",
+        },
+        request: new Request("https://api.test/mcp", { headers: { cookie: "session=1" } }),
+        protocol: legacyMcpProtocol,
+      });
+    try {
+      const first = await cancel();
+      const replay = await cancel();
+
+      expect(replay).toMatchObject({
+        sessionId: "chk_1",
+        status: "cancelled",
+        cancelledAt: (first as { cancelledAt: string }).cancelledAt,
+        releasedReservationIds: (first as { releasedReservationIds: string[] }).releasedReservationIds,
+        resourceUri: (first as { resourceUri: string }).resourceUri,
+      });
+      // One release per hold, through the first cancel's deterministic Inventory attempt only.
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fakeServices.sessions.cancelSession).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("reads cart resources by URI", async () => {
     const handlers = createCheckoutCartMcpHandlers(services());
     const result = await handlers.resourceHandlers["chase-sets://checkout/{accountId}/cart"]?.({

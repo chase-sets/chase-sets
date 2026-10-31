@@ -1,4 +1,6 @@
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -19,26 +21,31 @@ import {
   type ShippingOption,
 } from "../../../support/runtime-support/common";
 import {
+  decideCheckoutSession,
+  initialCheckoutSessionState,
   type CheckoutSessionCommand,
   type CheckoutSessionEvent,
   type CheckoutSessionLine,
   type CheckoutSessionState,
   type CheckoutOptimizationGoal,
+  type StartCheckoutSessionCommand,
 } from "../domain/domain";
+import {
+  checkoutEntryAttemptAppend,
+  checkoutEntryReplayCommitMetadata,
+  resolveCheckoutEntryAttempt,
+  type CheckoutEntryAttempt,
+  type CheckoutEntryAttemptReplay,
+} from "../../command-attempts/api/entry-attempt";
 import type { CheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
 import { unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
 import type { CheckoutSessionCreateResult, CheckoutSessionRuntimeDeps, CheckoutSessionServices } from "./runtime";
-
-type SessionRepository = Readonly<{
-  load: (streamId: string) => Promise<{ state: CheckoutSessionState }>;
-}>;
 
 type SessionEntryDeps = Readonly<{
   eventStore: EventStore;
   db: CheckoutSessionRuntimeDeps["db"];
   cart: CheckoutCartServices;
   commandHandler: CommandHandler<CheckoutSessionCommand, CheckoutSessionState, CheckoutSessionEvent>;
-  repository: SessionRepository;
 }>;
 
 function cartLineToSessionLine(line: CheckoutCartLineRow): CheckoutSessionLine {
@@ -127,9 +134,19 @@ function assertBuyNowHandoffReady(
   if (!params.fulfillmentPreviewRevision.trim()) throw unresolvedFulfillmentError();
 }
 
+const sessionEventCodec = createPassthroughDomainEventCodec<CheckoutSessionEvent>();
+
+function isEventStoreConflict(error: unknown) {
+  return (error as { code?: unknown } | null)?.code === "concurrency_conflict";
+}
+
+function replayedEntry(replay: CheckoutEntryAttemptReplay): CheckoutSessionCreateResult {
+  return { sessionId: replay.sessionId, ...checkoutEntryReplayCommitMetadata(replay.result) };
+}
+
 export function createCheckoutSessionEntryServices(
   deps: SessionEntryDeps,
-): Pick<CheckoutSessionServices, "createFromCart" | "createBuyNow" | "createOfferIntent"> {
+): Pick<CheckoutSessionServices, "createFromCart" | "createBuyNow" | "createOfferIntent" | "resolveEntryAttempt"> {
   async function validateCatalogSelection(
     params: Readonly<{
       catalogItemId: string;
@@ -174,11 +191,12 @@ export function createCheckoutSessionEntryServices(
       shippingOption: ShippingOption;
       lines: readonly CheckoutSessionLine[];
       sessionIdOverride?: CheckoutSessionId;
+      entryAttempt?: CheckoutEntryAttempt;
     }>,
     context: EventStoreContext,
   ): Promise<CheckoutSessionCreateResult> {
-    let sessionId = params.sessionIdOverride ?? (createId("chk") as CheckoutSessionId);
-    let streamId = `checkout.session-${sessionId}`;
+    const sessionId = params.sessionIdOverride ?? (createId("chk") as CheckoutSessionId);
+    const streamId = `checkout.session-${sessionId}`;
     async function existingStartedSession(candidateSessionId: CheckoutSessionId, candidateStreamId: string) {
       if (!params.sessionIdOverride || candidateSessionId !== params.sessionIdOverride) return null;
       const storedEvents = await readCompleteStream(deps.eventStore, { streamId: candidateStreamId });
@@ -192,47 +210,37 @@ export function createCheckoutSessionEntryServices(
       ) {
         throw new CheckoutDomainError("Checkout session not found.");
       }
-      const loaded = await deps.repository.load(candidateStreamId);
-      return {
-        result: { sessionId: candidateSessionId, ...commitMetadataFromStoredEvents(storedEvents) },
-        state: loaded.state,
-      };
+      return { result: { sessionId: candidateSessionId, ...commitMetadataFromStoredEvents(storedEvents) } };
     }
 
+    // An existing started Session under the derived id always replays as it
+    // stands, whatever it has committed since; a new deliberate submission
+    // carries a new key and so derives a new id.
     const existing = await existingStartedSession(sessionId, streamId);
-    if (
-      existing &&
-      (params.sourceType !== "buy-now" ||
-        existing.state.orderIds.length === 0 ||
-        existing.state.paymentId ||
-        existing.state.submittedOfferId)
-    )
-      return existing.result;
-    if (existing) {
-      sessionId = createId("chk") as CheckoutSessionId;
-      streamId = `checkout.session-${sessionId}`;
+    if (existing) return existing.result;
+    const command: StartCheckoutSessionCommand = {
+      type: "StartCheckoutSession",
+      sessionId,
+      buyerAccountId: params.accountId,
+      sourceType: params.sourceType,
+      optimizationGoal: params.optimizationGoal,
+      fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
+      fulfillmentPreviewSnapshot: params.fulfillmentPreviewSnapshot,
+      cartReadinessSnapshot: params.cartReadinessSnapshot,
+      presentedAnonymousCartId: params.presentedAnonymousCartId,
+      shippingOption: params.shippingOption,
+      lines: params.lines,
+      handoffExpiresAt: params.handoffExpiresAt,
+      createdAt: params.createdAt ?? new Date().toISOString(),
+    };
+    if (params.entryAttempt) {
+      return startSessionWithEntryAttempt(params.accountId, params.entryAttempt, command, streamId, context, () =>
+        existingStartedSession(sessionId, streamId),
+      );
     }
     let result: Awaited<ReturnType<typeof deps.commandHandler>>;
     try {
-      result = await deps.commandHandler({
-        streamId,
-        command: {
-          type: "StartCheckoutSession",
-          sessionId,
-          buyerAccountId: params.accountId,
-          sourceType: params.sourceType,
-          optimizationGoal: params.optimizationGoal,
-          fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
-          fulfillmentPreviewSnapshot: params.fulfillmentPreviewSnapshot,
-          cartReadinessSnapshot: params.cartReadinessSnapshot,
-          presentedAnonymousCartId: params.presentedAnonymousCartId,
-          shippingOption: params.shippingOption,
-          lines: params.lines,
-          handoffExpiresAt: params.handoffExpiresAt,
-          createdAt: params.createdAt ?? new Date().toISOString(),
-        },
-        context,
-      });
+      result = await deps.commandHandler({ streamId, command, context });
     } catch (error) {
       if (
         !params.sessionIdOverride ||
@@ -244,7 +252,6 @@ export function createCheckoutSessionEntryServices(
         )
       )
         throw error;
-      if (sessionId !== params.sessionIdOverride) throw error;
       const replayed = await existingStartedSession(
         params.sessionIdOverride,
         `checkout.session-${params.sessionIdOverride}`,
@@ -255,7 +262,52 @@ export function createCheckoutSessionEntryServices(
     return { sessionId, ...commitMetadataFromStoredEvents(result.storedEvents) };
   }
 
+  /**
+   * Opens a Session and records its entry attempt in one all-or-nothing
+   * `appendToStreams`, both streams at `no_stream`. Losing either race reads
+   * the attempt the winner recorded: the same hash replays the winner's
+   * Session, a changed hash is a conflict, and nothing of the loser remains.
+   */
+  async function startSessionWithEntryAttempt(
+    ownerKey: AccountId,
+    entryAttempt: CheckoutEntryAttempt,
+    command: StartCheckoutSessionCommand,
+    streamId: string,
+    context: EventStoreContext,
+    readExistingSession: () => Promise<{ result: CheckoutSessionCreateResult } | null>,
+  ): Promise<CheckoutSessionCreateResult> {
+    if (!deps.eventStore.appendToStreams) {
+      throw new Error("Checkout entry attempts require an atomic multi-stream event store.");
+    }
+    const events = decideCheckoutSession(initialCheckoutSessionState, command);
+    try {
+      const appended = await deps.eventStore.appendToStreams([
+        {
+          streamId,
+          expectedVersion: "no_stream",
+          context,
+          events: events.map((event) => sessionEventCodec.encode(event)),
+        },
+        checkoutEntryAttemptAppend(ownerKey, entryAttempt, command.sessionId, context),
+      ]);
+      const storedEvents = appended.flatMap((entry) => entry.storedEvents);
+      recordCommittedEvents(storedEvents);
+      return { sessionId: command.sessionId, ...commitMetadataFromStoredEvents(storedEvents) };
+    } catch (error) {
+      if (!isEventStoreConflict(error)) throw error;
+      const winner = await resolveCheckoutEntryAttempt(deps.eventStore, ownerKey, entryAttempt);
+      if (winner) return replayedEntry(winner);
+      const existing = await readExistingSession();
+      if (existing) return existing.result;
+      throw error;
+    }
+  }
+
   return {
+    resolveEntryAttempt: async ({ accountId, entryAttempt }) => {
+      const replay = await resolveCheckoutEntryAttempt(deps.eventStore, accountId, entryAttempt);
+      return replay ? replayedEntry(replay) : null;
+    },
     createFromCart: async (params, context) => {
       // Exclusion happens before line resolution, so a refused key contributes
       // no line, no readiness snapshot binding, and no `presentedAnonymousCartId`
@@ -301,6 +353,7 @@ export function createCheckoutSessionEntryServices(
           presentedAnonymousCartId,
           lines: applyCartReadinessToLines(cartLines, readiness.current).map(cartLineToSessionLine),
           sessionIdOverride: params.sessionIdOverride,
+          entryAttempt: params.entryAttempt,
         },
         context,
       );
@@ -325,6 +378,7 @@ export function createCheckoutSessionEntryServices(
           handoffExpiresAt: params.handoffExpiresAt,
           createdAt: params.createdAt,
           sessionIdOverride: params.sessionIdOverride,
+          entryAttempt: params.entryAttempt,
           lines: [
             {
               listingId: lockedListingId,
@@ -356,6 +410,7 @@ export function createCheckoutSessionEntryServices(
           shippingOption: normalizeShippingOption(params.shippingOption ?? "standard"),
           optimizationGoal: params.optimizationGoal,
           sessionIdOverride: params.sessionIdOverride,
+          entryAttempt: params.entryAttempt,
           lines: [
             {
               listingId: null,

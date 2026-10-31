@@ -199,6 +199,7 @@ export async function ensureCartReadinessSnapshot(
 
   const readiness = await api.createCartReadiness(request.source.readinessDecisions ?? {});
   return {
+    ...request,
     source: {
       ...request.source,
       readinessSnapshotId: readiness.readiness.snapshotId,

@@ -427,6 +427,24 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
     if (!session) {
       throw new Error("Checkout session not found.");
     }
+    const resourceUri = `chase-sets://checkout/${encodeURIComponent(scopedActor.accountId)}/sessions/${encodeURIComponent(
+      sessionId,
+    )}`;
+    // A repeated cancel returns the first cancelled Session as it stands: no
+    // release and no Session write beyond what the first cancel recorded.
+    if (session.cancelled_at) {
+      return {
+        accountId: scopedActor.accountId,
+        id: sessionId,
+        sessionId,
+        status: "cancelled",
+        cancelledAt: session.cancelled_at,
+        releasedReservationIds: session.checkout_reservations
+          .filter((reservation) => reservation.status === "released")
+          .map((reservation) => reservation.holdId),
+        resourceUri,
+      };
+    }
 
     const releasedReservations = await releaseCheckoutInventoryReservations(request, session);
     const result = await services.sessions.cancelSession(
@@ -444,9 +462,7 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
       status: result.session.cancelled_at ? "cancelled" : "already-cancelled",
       cancelledAt: result.session.cancelled_at,
       releasedReservationIds: releasedReservations.map((reservation) => reservation.holdId),
-      resourceUri: `chase-sets://checkout/${encodeURIComponent(scopedActor.accountId)}/sessions/${encodeURIComponent(
-        result.sessionId,
-      )}`,
+      resourceUri,
       ...(result.commitPosition ? { commitPosition: result.commitPosition } : {}),
       ...(result.commitEventIds ? { commitEventIds: result.commitEventIds } : {}),
       ...(result.commitPositions ? { commitPositions: result.commitPositions } : {}),

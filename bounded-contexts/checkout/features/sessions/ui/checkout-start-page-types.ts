@@ -55,4 +55,6 @@ export type CheckoutStartPageData = Readonly<{
 
 export type CheckoutStartActionData =
   | Readonly<{ error: string; signInPath: string }>
-  | Readonly<{ recovery: CheckoutRecovery }>;
+  | Readonly<{ recovery: CheckoutRecovery }>
+  /** The entry may have opened a Session but neither its response nor one owner lookup showed it. */
+  | Readonly<{ entryState: "ambiguous" }>;

@@ -4,6 +4,7 @@ import {
   CheckoutNoticeStack,
   CheckoutStateNotice,
   Form,
+  LinkButton,
   Page,
   PageHeader,
   PageStepper,
@@ -16,6 +17,7 @@ import {
   CheckoutStickyAction,
   type CheckoutCommitButtonProps,
 } from "./checkout-commit-actions";
+import { CheckoutAttemptResultNotice } from "./checkout-attempt-result-notice";
 import { CheckoutContactSection } from "./checkout-contact-section";
 import { CheckoutDeliverySection } from "./checkout-delivery-section";
 import { CheckoutFormLevelHiddenFields } from "./checkout-hidden-fields";
@@ -57,6 +59,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
     commitIntent: model.commitIntent,
     commitIcon: model.commitIcon,
     isSubmitting: model.isSubmitting,
+    confirmationAmbiguous: props.confirmationAmbiguous ?? false,
     submittingCtaLabel: model.submittingCtaLabel,
     primaryCtaLabel: model.primaryCtaLabel,
   };
@@ -85,6 +88,19 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
           tone="danger"
           title={t("checkout.features.sessions.ui.checkoutPage.checkout.issue")}
           description={model.errorMessage}
+        />
+      ) : null}
+
+      {props.confirmationAmbiguous ? (
+        <CheckoutAttemptResultNotice
+          id="checkout-confirmation-result"
+          title={t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.title")}
+          description={t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.description")}
+          action={
+            <LinkButton href={`/checkout/buy/session/${model.session.session_id}`} leadingIcon="refreshCcw" tone="secondary">
+              {t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.refresh")}
+            </LinkButton>
+          }
         />
       ) : null}
 
