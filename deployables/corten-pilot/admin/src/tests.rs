@@ -119,6 +119,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["recovered-inventory.view"])
         } else if cookie.contains("chase_sets_session=terms-viewer") || cookie.contains("chase_sets_session=terms-lag") {
             actor(&["commercial-terms.view"])
+        } else if cookie.contains("chase_sets_session=growth-viewer") {
+            actor(&["public-presence.view"])
         } else if cookie.contains("chase_sets_session=payouts-viewer") {
             actor(&["payouts.platform.view"])
         } else if cookie.contains("chase_sets_session=payouts-operator") || cookie.contains("chase_sets_session=payouts-blocked")
@@ -189,6 +191,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             );
         }
         return commercial_terms(&method, rest, uri.query().unwrap_or_default(), &body);
+    }
+    if let Some(rest) = uri.path().strip_prefix(WAITLIST_API) {
+        return waitlist_api(rest, uri.query().unwrap_or_default());
     }
     if let Some(rest) = uri.path().strip_prefix(SETTLEMENT) {
         return settlement(&method, rest, uri.query().unwrap_or_default(), cookie);
@@ -5529,4 +5534,75 @@ async fn a_refused_run_says_why_and_an_unknown_intent_does_nothing() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION], "/commerce/payout-operations");
     assert_eq!(pilot.calls_to_path("/api/settlement/payouts/reconciliation/run").len(), 1, "only the blocked one");
+}
+
+const WAITLIST_API: &str = "/api/public-presence/admin/waitlist";
+
+/// Public Presence's waitlist: one referred seller who came through a UTM campaign, the figures,
+/// and the export as CSV; `search=down` fails.
+fn waitlist_api(rest: &str, query: &str) -> Response {
+    if query.contains("search=down") {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    match rest {
+        "" => Json(json!({ "items": [{
+            "signup_id": "wls_1", "email": "seller@example.test", "role": "sell", "interests": ["bulk-listing", "pricing-tools"],
+            "page_path": "/", "referrer": "https://ref.example", "utm_source": "discord", "referred_by_signup_id": "wls_0",
+            "referral_count": 3, "updated_at": "2026-10-30T12:00:00.000Z",
+        }], "total": 7, "count": 1 }))
+        .into_response(),
+        "/metrics" => Json(json!({ "total_count": 7, "buy_count": 2, "sell_count": 4, "both_count": 1, "wave_fill": [
+            { "waveNumber": 1, "admittedCount": 3, "capacity": 100 }, { "waveNumber": 2, "admittedCount": 0, "capacity": 250 },
+        ] }))
+        .into_response(),
+        "/export" => (
+            [
+                (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+                (header::CONTENT_DISPOSITION, r#"attachment; filename="chase-sets-waitlist.csv""#),
+            ],
+            "\"email\",\"role\"\n\"seller@example.test\",\"sell\"",
+        )
+            .into_response(),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[tokio::test]
+async fn the_waitlist_forwards_admin_webs_filters_and_shows_the_figures_and_signups() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/growth/waitlist", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, html) =
+        pilot.send(get("/growth/waitlist?role=sell&interest=nonsense&sort=referrals&search=seller", Some("growth-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let reads: Vec<String> = pilot.calls_to_path(WAITLIST_API).into_iter().map(|c| c.path).collect();
+    assert!(
+        reads.contains(&format!("{WAITLIST_API}?limit=100&offset=0&role=sell&search=seller&sort=referrals")),
+        "an interest admin-web does not offer is All: {reads:?}"
+    );
+    assert!(html.contains("<title>Waitlist | Experience Admin"), "{html}");
+    assert!(html.contains(r#"<option value="sell" selected>List cards</option>"#), "{html}");
+    assert!(html.contains("Wave 1") && html.contains("3 of 100 admitted"), "{html}");
+    assert!(html.contains("seller@example.test") && html.contains("Bulk listing") && html.contains(">discord<"), "{html}");
+    assert!(html.contains(">Yes<") && html.contains("Showing 1 of 7"), "{html}");
+    assert!(html.contains(r#"href="/growth/waitlist/export?search=seller&amp;role=sell&amp;sort=referrals""#), "{html}");
+
+    let (status, _, _) = pilot.send(get("/growth/waitlist?search=down", Some("growth-viewer"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn the_waitlist_export_relays_the_apis_file_and_no_cache_keeps_it() {
+    let pilot = Pilot::new().await;
+    let (status, headers, body) = pilot.send(get("/growth/waitlist/export?role=buy", Some("growth-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(headers[header::CONTENT_TYPE], "text/csv; charset=utf-8");
+    assert_eq!(headers[header::CONTENT_DISPOSITION], r#"attachment; filename="chase-sets-waitlist.csv""#);
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert!(body.starts_with("\"email\""), "{body}");
+    assert!(
+        pilot.calls_to_path(WAITLIST_API).iter().any(|c| c.path == format!("{WAITLIST_API}/export?limit=100&offset=0&role=buy"))
+    );
+    let (status, _, _) = pilot.send(get("/growth/waitlist/export", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }

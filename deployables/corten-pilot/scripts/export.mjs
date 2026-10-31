@@ -754,6 +754,22 @@ const outputs = [
       ])),
     }),
   ],
+  [
+    "admin/locales/growth.en.json",
+    json(
+      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
+        ["publicPresence.admin.", "admin"],
+        ["publicPresence.waitlist.role.", "role"],
+        ["publicPresence.waitlist.interest.", "interest"],
+        ["publicPresence.waitlist.game.", "game"],
+        ["publicPresence.waitlist.inventorySize.", "inventory_size"],
+        ["publicPresence.promoBar.", "promo"],
+        ["publicPresence.routes.admin.waitlist.meta.title", "route.waitlist"],
+        ["publicPresence.routes.admin.campaignAnalytics.meta.title", "route.campaign_analytics"],
+        ["publicPresence.routes.admin.promoBar.meta.title", "route.promo_bar"],
+      ]),
+    ),
+  ],
   ["admin/nav.json", json(adminNav())],
   ["admin/defaults.json", json(defaultPostagePolicy)],
   ["admin/scope-domains.json", json(catalogScopeProductDomains)],

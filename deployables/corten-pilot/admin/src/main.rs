@@ -10,6 +10,7 @@ mod auth;
 mod catalog;
 mod commerce;
 mod form;
+mod growth;
 mod operations;
 mod projections;
 mod reported;

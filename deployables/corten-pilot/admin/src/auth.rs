@@ -102,6 +102,9 @@ rules! {
     SupportManage => "support.manage";
     /// Support > CSAT dashboard.
     PlatformFeedbackView => "platform-feedback.view";
+    /// Growth > Waitlist, Promo Bar and Campaign Analytics (Public Presence's admin API asks for the
+    /// same, for reads and writes alike).
+    GrowthView => "public-presence.view";
     /// Support > Customer Feedback (admin-web's route takes its nav entry's permission).
     SupportView => "support.view";
 }

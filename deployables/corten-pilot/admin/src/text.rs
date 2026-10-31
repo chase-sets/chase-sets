@@ -1,10 +1,11 @@
 //! The screens' text. `Msg` is admin-web's own catalog for the postage screen and `Cat` its
-//! catalog area's, `Ops` the Operations Attention queue's, `Acc` the access section's, `Sup` the support section's, `Com` the commerce section's (all exported from contracts/localization
+//! catalog area's, `Ops` the Operations Attention queue's, `Acc` the access section's, `Sup` the support section's, `Com` the commerce section's, `Gro` the growth section's (all exported from contracts/localization
 //! by scripts/export.mjs, so the copy cannot drift); `Pilot` is the pilot's shell and input checks. `messages!` checks every call
 //! against the catalogs when the crate compiles.
 pub use access::Acc;
 pub use catalog::Cat;
 pub use commerce::Com;
+pub use growth::Gro;
 pub use operations::Ops;
 pub use ordering::Msg;
 pub use pilot::Pilot;
@@ -45,6 +46,12 @@ mod catalog {
 mod commerce {
     corten::i18n::messages! {
         pub struct Com { "en" => "locales/commerce.en.json" }
+    }
+}
+
+mod growth {
+    corten::i18n::messages! {
+        pub struct Gro { "en" => "locales/growth.en.json" }
     }
 }
 
