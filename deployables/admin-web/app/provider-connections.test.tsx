@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { mountApiRouters, resolveModuleApiMounts } from "@chase-sets/bounded-context-runtime";
 import { createTestApp } from "@chase-sets/bounded-context-runtime/test-support";
@@ -190,7 +190,8 @@ describe("provider connections real loader and owner exports", () => {
 
     await route();
 
-    expect(await screen.findByText("Stale")).toBeTruthy();
+    const catalogRow = await screen.findByRole("listitem", { name: /catalog-provider/ });
+    expect(within(catalogRow).getByText("Stale")).toBeTruthy();
     expect(screen.queryByText("Fresh")).toBeNull();
     const pageSource = readFileSync(
       new URL(
