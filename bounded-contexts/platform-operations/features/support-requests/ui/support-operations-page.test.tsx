@@ -6,6 +6,7 @@ import { SupportOperationsPage } from "./support-operations-page";
 import type {
   SupportOperationsRequestDetailResponse,
   SupportOperationsRequestListItem,
+  SupportOperationsRequestDetail,
   SupportRequestDetail,
 } from "./contracts";
 import { getSupportFlowDefinition } from "../domain/flow-catalog";
@@ -59,7 +60,7 @@ function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {
 }
 
 function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): SupportOperationsRequestDetailResponse {
-  const request = {
+  const request: SupportOperationsRequestDetail = {
     ...buildQueueItem(),
     operatorPolicy: {
       deadlineAt: null,
