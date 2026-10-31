@@ -101,6 +101,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             ])
         } else if cookie.contains("chase_sets_session=ops") || cookie.contains("chase_sets_session=projections-") {
             actor(&["projection-operations.view"])
+        } else if cookie.contains("chase_sets_session=feedback-viewer") {
+            actor(&["platform-feedback.view"])
         } else if cookie.contains("chase_sets_session=support-agent") {
             actor(&["support.manage"])
         } else if cookie.contains("chase_sets_session=moderator") {
@@ -133,6 +135,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if let Some(rest) = uri.path().strip_prefix("/api/auth/sessions") {
         return auth_sessions(&method, rest, &body);
+    }
+    if uri.path() == "/api/customer-feedback" {
+        return csat_dashboard(uri.query().unwrap_or_default());
     }
     if let Some(reference) = uri.path().strip_prefix("/api/platform/support-reference-lookup/") {
         return support_lookup(reference);
@@ -357,6 +362,41 @@ fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
         (Method::POST, "/listing/lst_1/actions" | "/review/rev_1/actions") => written(StatusCode::OK, "act_1"),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+/// Customer Feedback's CSAT dashboard: a 7-day window with too few answers, a 30-day one with
+/// figures, one trend bucket, one invitation and both pages; a `to` in the future is answered 500,
+/// as the API does (chase-sets/chase-sets#10844).
+fn csat_dashboard(query: &str) -> Response {
+    if query.contains("to=2099") {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
+    }
+    let slice = |csat: Value, availability: &str| {
+        json!({
+            "csat": csat, "csatAvailability": availability, "responseRate": 0.25, "responseRateAvailability": "available",
+            "ratingDistribution": { "1": 0, "2": 1, "3": 0, "4": 2, "5": 4 }, "volume": { "submitted": 7, "presented": 28 },
+        })
+    };
+    let mut bucket = slice(json!(0.5), "available");
+    bucket["bucketStart"] = json!("2026-10-29T00:00:00.000Z");
+    Json(json!({
+        "analytics": {
+            "asOf": "2026-10-30T12:00:00.000Z",
+            "windows": { "trailing-7d": slice(Value::Null, "insufficient-sample"), "trailing-30d": slice(json!(0.857), "available") },
+            "trend": { "items": [bucket] },
+            "health": { "lastProjectedAt": "2026-10-30T11:59:00.000Z" },
+        },
+        "queue": {
+            "items": [{
+                "invitationId": "csi_1", "state": "submitted",
+                "surveyVersion": { "surveyKind": "transactional-csat", "surveyVersion": "csat.v1", "questionVersion": "csat.q.v1" },
+                "outcomeCode": "order.delivered", "rating": 4, "submittedAt": "2026-10-29T10:00:00.000Z",
+            }],
+            "nextCursor": "c2", "previousCursor": "c0", "limit": 50,
+        },
+        "filters": {},
+    }))
+    .into_response()
 }
 
 /// Support's reference lookup: an order, a record whose link is not a path here, a failure, and
@@ -3852,4 +3892,50 @@ async fn reference_lookup_finds_the_record_a_reference_names_and_links_its_admin
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
     assert!(html.contains(r#"role="alert""#) && html.contains("Reference lookup request failed."), "{html}");
     assert_eq!(pilot.send(get("/support/reference-lookup", Some("moderator"))).await.0, StatusCode::FORBIDDEN);
+}
+
+const CSAT: &str = "/api/customer-feedback";
+
+#[tokio::test]
+async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_offers() {
+    let pilot = Pilot::new().await;
+    let at = "/support/csat?from=2026-10-01&to=oops&surveyVersion=v1&outcomeCodes=order.delivered&customerRoles=pirate&ratings=4";
+    let (status, _, html) = pilot.send(get(at, Some("feedback-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(
+        pilot.calls_to(CSAT).last().unwrap().path,
+        format!("{CSAT}?from=2026-10-01&surveyVersion=csat.v1&outcomeCodes=order.delivered&ratings=4"),
+        "admin-web's v1 is the registered version; what admin-web does not offer is left out"
+    );
+    for text in [
+        "<dd>Insufficient sample</dd>",
+        "<dd>86%</dd>",
+        "<dd>25%</dd>",
+        "<dd>7</dd>",
+        "<dd>28</dd>",
+        "csi_1",
+        "Order delivered",
+        "Transactional CSAT v1",
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"<option value="csat.v1" selected>Transactional CSAT v1</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="order.delivered" selected>Order delivered</option>"#), "{html}");
+    assert!(html.contains(r#"value="2026-10-01""#), "{html}");
+    assert!(html.contains("cursor=c2&amp;direction=next") && html.contains("cursor=c0&amp;direction=previous"), "{html}");
+    assert!(!html.contains("Export safe CSV"), "Export is left out until it works: {html}");
+    assert!(html.contains(r#"href="/support/csat" aria-current="page""#), "the nav serves it: {html}");
+
+    pilot.send(get("/support/csat?cursor=c2&direction=next&ratings=4", Some("feedback-viewer"))).await;
+    assert_eq!(pilot.calls_to(CSAT).last().unwrap().path, format!("{CSAT}?ratings=4&cursor=c2&direction=next"));
+    assert_eq!(pilot.send(get("/support/csat", Some("support-agent"))).await.0, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_csat_read_that_fails_keeps_the_filters_on_the_page_with_a_banner() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/csat?to=2099-01-01&states=issued", Some("feedback-viewer"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2099-01-01""#), "{html}");
+    assert!(html.contains(r#"<option value="issued" selected>Issued</option>"#), "{html}");
 }

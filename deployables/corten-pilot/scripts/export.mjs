@@ -19,7 +19,8 @@
 //   adminAuthHostConfig as route.sessions and route.session).
 // - admin/locales/support.en.json: the support section's English catalog: Reference Lookup's page
 //   (support.features.supportReferenceLookup.ui.supportReferenceLookupPage.* as lookup.*) and its
-//   route's text (support.routes.admin.supportReferenceLookup.* as lookup_route.*).
+//   route's text (support.routes.admin.supportReferenceLookup.* as lookup_route.*), and the CSAT
+//   dashboard's (experience.csatAdmin.* as csat.*).
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
@@ -622,12 +623,13 @@ const outputs = [
   ],
   [
     "admin/locales/support.en.json",
-    json(
-      await catalog("support.ts", "supportEnglishTranslations", [
+    json({
+      ...(await catalog("support.ts", "supportEnglishTranslations", [
         ["support.features.supportReferenceLookup.ui.supportReferenceLookupPage.", "lookup"],
         ["support.routes.admin.supportReferenceLookup.", "lookup_route"],
-      ]),
-    ),
+      ])),
+      ...(await catalog("experience.ts", "experienceEnglishTranslations", [["experience.csatAdmin.", "csat"]])),
+    }),
   ],
   [
     "admin/locales/access.en.json",

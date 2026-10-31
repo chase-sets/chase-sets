@@ -94,6 +94,8 @@ rules! {
     ReportedContentView => "reported-content.view";
     /// Support > Reference Lookup (and Support's other operator pages).
     SupportManage => "support.manage";
+    /// Support > CSAT dashboard (and Platform Feedback).
+    PlatformFeedbackView => "platform-feedback.view";
 }
 
 /// The catalog area: reading needs `catalog.view`, writing `catalog.manage` (admin-web's

@@ -40,6 +40,7 @@ fn served(path: &str) -> Option<String> {
         (<reported::url::Reported as Route>::PATH, reported::url::Reported::default().href()),
         (<reported::risk::url::Risks as Route>::PATH, reported::risk::url::Risks::default().href()),
         (<support::url::Lookup as Route>::PATH, support::url::Lookup::default().href()),
+        (<support::csat::url::Csat as Route>::PATH, support::csat::url::Csat::default().href()),
     ];
     pages.into_iter().find(|(at, _)| *at == path).map(|(_, href)| href)
 }
@@ -81,7 +82,7 @@ fn section_label(p: Pilot, section: &str) -> &'static str {
 /// admin-web's frame: the sections the viewer can open, and the pages of the one the page is in
 /// (catalog or commerce). The pilot serves postage policies, the catalog's dimensions, fields,
 /// items list and scopes list, Access's home, lists and sessions, the platform's Operations Attention queue and Projection
-/// Operations, and Support's Reported Content, Risk Alerts and Reference Lookup; every other entry links to admin-web.
+/// Operations, and Support's Reported Content, Risk Alerts, Reference Lookup and CSAT dashboard; every other entry links to admin-web.
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, viewer: &'a Viewer, path: &'a str) -> impl Render {
     let sections = auth::sections(viewer);
