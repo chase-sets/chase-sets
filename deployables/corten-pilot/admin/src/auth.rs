@@ -111,6 +111,17 @@ impl Rule for FeedbackAccess {
     }
 }
 
+/// Commerce > Return Intake: reading needs `return-intake.view`, writing `return-intake.manage`, as
+/// admin-web's loader and action do.
+#[derive(Clone, Debug, Hash)]
+pub struct IntakeAccess;
+
+impl Rule for IntakeAccess {
+    fn permission(method: &Method) -> &'static str {
+        if method.is_safe() { "return-intake.view" } else { "return-intake.manage" }
+    }
+}
+
 /// The catalog area: reading needs `catalog.view`, writing `catalog.manage` (admin-web's
 /// actions require it; the API checks both again).
 #[derive(Clone, Debug, Hash)]

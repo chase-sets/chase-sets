@@ -127,6 +127,8 @@ pub fn app(config: Config) -> App {
     App::new(Routes::new())
         .assets(Static)
         .messages::<Msg>()
+        // Return Intake reads a receipt time in the operator's zone.
+        .client_zone()
         .components(views::COMPONENTS)
         .area(|area| url::area(area, shared.clone()).components(views::POSTAGE))
         .area(|area| crate::operations::area(area, shared.clone()))
@@ -141,6 +143,7 @@ pub fn app(config: Config) -> App {
         .area(|area| crate::support::requests::area(area, shared.clone()))
         .area(|area| crate::support::ebay::area(area, shared.clone()))
         .area(|area| crate::support::attention::area(area, shared.clone()))
+        .area(|area| crate::commerce::intake::area(area, shared.clone()))
         .error_page(views::error_page, shared)
 }
 

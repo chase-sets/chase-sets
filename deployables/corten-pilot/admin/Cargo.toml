@@ -9,6 +9,7 @@ publish.workspace = true
 bytes.workspace = true
 corten.workspace = true
 futures-util.workspace = true
+jiff.workspace = true
 corten-ui.workspace = true
 platform.workspace = true
 reqwest.workspace = true

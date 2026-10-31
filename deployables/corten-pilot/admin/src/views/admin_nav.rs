@@ -5,7 +5,7 @@ use crate::{
     access,
     app::url,
     auth::{self, NavItem, Viewer},
-    catalog, operations, projections, reported, support,
+    catalog, commerce, operations, projections, reported, support,
     text::Pilot,
 };
 
@@ -45,6 +45,7 @@ fn served(path: &str) -> Option<String> {
         (<support::requests::url::Requests as Route>::PATH, support::requests::url::Requests::default().href()),
         (<support::ebay::url::Lookup as Route>::PATH, support::ebay::url::Lookup.href()),
         (<support::attention::url::Attention as Route>::PATH, support::attention::url::Attention.href()),
+        (<commerce::intake::url::Intake as Route>::PATH, commerce::intake::url::Intake::default().href()),
     ];
     pages.into_iter().find(|(at, _)| *at == path).map(|(_, href)| href)
 }

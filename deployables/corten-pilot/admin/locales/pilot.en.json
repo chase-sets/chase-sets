@@ -24,7 +24,9 @@
     "required": "Enter a value.",
     "number": "Enter a number.",
     "json_object": "Enter a JSON object, such as {{}}.",
-    "relationship": "Enter both the relationship and the reference record, or neither."
+    "relationship": "Enter both the relationship and the reference record, or neither.",
+    "received_at": "Enter the date and time the package was received.",
+    "evidence_too_large": "The photos are too large together. Send up to 10 photos of 10 MB each."
   },
   "error": {
     "forbidden_title": "Not allowed",

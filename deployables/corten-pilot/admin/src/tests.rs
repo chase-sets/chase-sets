@@ -109,6 +109,10 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["support.view"])
         } else if cookie.contains("chase_sets_session=support-agent") || cookie.contains("chase_sets_session=support-lag") {
             actor(&["support.manage"])
+        } else if cookie.contains("chase_sets_session=intake-manager") {
+            actor(&["return-intake.view", "return-intake.manage"])
+        } else if cookie.contains("chase_sets_session=intake-viewer") {
+            actor(&["return-intake.view"])
         } else if cookie.contains("chase_sets_session=moderator") {
             actor(&["reported-content.view"])
         } else if cookie.contains("chase_sets_session=reader") {
@@ -161,6 +165,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if let Some(rest) = uri.path().strip_prefix(EBAY_DELETION) {
         return ebay_deletion(&method, rest, &body);
+    }
+    if let Some(rest) = uri.path().strip_prefix(RETURN_INTAKE) {
+        return return_intake(&method, rest, uri.query().unwrap_or_default(), &body);
     }
     if let Some(rest) = uri.path().strip_prefix(SUPPORT_REQUESTS) {
         if cookie.contains("support-lag") && headers.contains_key("chase-sets-read-after-write") {
@@ -4531,4 +4538,321 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
 
     assert_eq!(pilot.send(get(at, Some("attention-down"))).await.0, StatusCode::BAD_GATEWAY);
     assert_eq!(pilot.send(get(at, Some("support-agent"))).await.0, StatusCode::FORBIDDEN, "admin-web's route needs support.view");
+}
+
+const RETURN_INTAKE: &str = "/api/marketplace/operations/return-intake";
+
+/// Fulfillment's return intake for facility `fac_1`: a delivered package waiting, an unidentified
+/// package awaiting reconciliation and one reconciled, and the figures. `RS-1` resolves to
+/// `rsh_1` (version 3, not received), `RS-DONE` to `rsh_done` (quarantined), anything else to
+/// nothing. A completion citing version 2 is stale; each photo answers an attachment named after
+/// its file.
+fn return_intake(method: &Method, rest: &str, query: &str, body: &str) -> Response {
+    let shipment = |id: &str, intake: Value| {
+        json!({
+            "return_shipment_id": id, "order_id": "ord_1", "status": "delivered", "tracking_identifier": "9400TRACK1",
+            "delivered_at": "2026-10-29T15:00:00.000Z", "received_at": null,
+            "expected_items": [{ "item_title": "Sleeved Booster", "quantity": 2 }],
+            "package_requirements": { "weightOunces": 6, "lengthInches": 9, "widthInches": 6, "heightInches": 2 },
+            "destination_snapshot": { "displayInstructions": "Hold sealed product at the cage." },
+            "facility_intake": intake,
+        })
+    };
+    match (method.clone(), rest) {
+        (Method::GET, "") if query == "facilityId=fac_1" => Json(json!({
+            "items": [shipment("rsh_1", Value::Null)],
+            "unidentified": [
+                { "unidentified_package_id": "uip_1", "custody_identifier": "CUST-UNK-1", "received_at": "2026-10-29T16:00:00.000Z",
+                  "package_condition": "damaged", "return_shipment_id": null },
+                { "unidentified_package_id": "uip_2", "custody_identifier": "CUST-UNK-2", "received_at": "2026-10-28T16:00:00.000Z",
+                  "package_condition": "intact", "return_shipment_id": "rsh_old" },
+            ],
+            "metrics": {
+                "delivered_not_intaken_count": 4, "oldest_delivered_not_intaken_age_seconds": 7200.0, "discrepancy_rate": 0.25,
+                "unidentified_package_count": 1, "duplicate_scan_count": 3, "average_intake_latency_seconds": 150.0,
+            },
+        }))
+        .into_response(),
+        (Method::GET, "/resolve") if query == "identifier=RS-1&facilityId=fac_1" => {
+            Json(json!({ "shipment": shipment("rsh_1", Value::Null), "version": 3 })).into_response()
+        }
+        (Method::GET, "/resolve") if query == "identifier=RS-DONE&facilityId=fac_1" => Json(json!({
+            "shipment": shipment("rsh_done", json!({ "custodyIdentifier": "CUST-77", "disposition": "quarantine" })),
+            "version": 5,
+        }))
+        .into_response(),
+        (Method::GET, "/resolve") => refusal(StatusCode::NOT_FOUND, "return_shipment_not_found", "No return shipment matched."),
+        (Method::POST, "/evidence") => {
+            let file = body.split("filename=\"").nth(1).and_then(|r| r.split('"').next()).unwrap_or("none");
+            Json(json!({ "attachment": { "attachmentId": format!("att_{file}"), "fileName": file } })).into_response()
+        }
+        (Method::POST, "/rsh_1/complete") if body.contains(r#""expectedVersion":2"#) => {
+            refusal(StatusCode::CONFLICT, "version_conflict", "The return shipment changed.")
+        }
+        (Method::POST, "/rsh_1/complete") if body.contains(r#""custodyIdentifier":"CUST-REFUSED""#) => {
+            refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "Custody identifier is already in use.")
+        }
+        (Method::POST, "/rsh_1/complete" | "/rsh_done/corrections" | "/unidentified" | "/unidentified/uip_1/reconcile") => {
+            written(StatusCode::OK, "rsh_1")
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// A multipart form post, as a browser sends the station's forms: `fields`, then `files` as
+/// (input name, filename, type, bytes), from a browser in `zone` when one is given.
+fn post_multipart(
+    uri: &str,
+    session: &str,
+    zone: Option<&str>,
+    fields: &[(&str, &str)],
+    files: &[(&str, &str, &str, &[u8])],
+) -> Request<Body> {
+    const BOUNDARY: &str = "pilotTestBoundary7MA4YWxkTrZu0gW";
+    let mut body = Vec::new();
+    for (name, value) in fields {
+        body.extend_from_slice(
+            format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n").as_bytes(),
+        );
+    }
+    for (name, filename, kind, bytes) in files {
+        body.extend_from_slice(
+            format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{filename}\"\r\nContent-Type: {kind}\r\n\r\n").as_bytes(),
+        );
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
+    let cookie = match zone {
+        Some(zone) => format!("chase_sets_session={session}; corten-zone={zone}"),
+        None => format!("chase_sets_session={session}"),
+    };
+    Request::post(uri)
+        .header(header::HOST, "localhost:7790")
+        .header(header::COOKIE, cookie)
+        .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={BOUNDARY}"))
+        .body(Body::from(body))
+        .unwrap()
+}
+
+/// A complete intake's fields for `rsh_1` at `version`, received at `received_at`.
+fn intake_fields<'a>(version: &'a str, received_at: &'a str, custody: &'a str) -> Vec<(&'a str, &'a str)> {
+    vec![
+        ("intent", "complete"),
+        ("returnShipmentId", "rsh_1"),
+        ("facilityId", "fac_1"),
+        ("expectedVersion", version),
+        ("idempotencyKey", "rii_1"),
+        ("stationId", "dock-2"),
+        ("receivedAt", received_at),
+        ("packageCondition", "intact"),
+        ("sealCondition", "intact"),
+        ("measuredWeightOunces", "6.5"),
+        ("custodyIdentifier", custody),
+        ("discrepancyType", "expected"),
+        ("disposition", "completed"),
+        ("expectedItemReference", ""),
+        ("observedItemReference", ""),
+        ("quantity", "2"),
+        ("owner", "Facility operations"),
+        ("nextAction", "Complete custody handoff"),
+        ("notes", ""),
+    ]
+}
+
+const STATION: &str = "/commerce/return-intake";
+
+#[tokio::test]
+async fn the_return_intake_station_opens_a_facility_and_resolves_a_scan() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(STATION, Some("intake-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Choose the assigned facility") && html.contains(r#"name="facilityId""#), "{html}");
+    assert!(!html.contains("Record unidentified package"), "no unidentified form before a facility: {html}");
+    assert!(pilot.calls_to(RETURN_INTAKE).is_empty(), "nothing is read before a facility is open");
+    assert!(html.contains(r#"href="/commerce/return-intake" aria-current="page""#), "the nav serves it: {html}");
+
+    let (status, _, html) = pilot.send(get("/commerce/return-intake?facilityId=fac_1", Some("intake-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in
+        ["<dd>4</dd>", "<dd>2h</dd>", "<dd>25%</dd>", "<dd>3</dd>", "<dd>3m</dd>", "rsh_1", "9400TRACK1", "CUST-UNK-1", "rsh_old"]
+    {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains("Record unidentified package"), "an open facility offers the unidentified form: {html}");
+    assert_eq!(html.matches(r#"value="reconcile""#).count(), 1, "only the unreconciled package takes Reconcile: {html}");
+    assert!(html.contains(r#"enctype="multipart/form-data""#), "{html}");
+
+    let (status, _, html) =
+        pilot.send(get("/commerce/return-intake?facilityId=fac_1&identifier=RS-1", Some("intake-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "Sleeved Booster \u{d7} 2",
+        "6 oz \u{b7} 9 \u{d7} 6 \u{d7} 2 in",
+        "Hold sealed product at the cage.",
+        "Complete facility intake",
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"name="expectedVersion" value="3""#), "{html}");
+    assert!(!html.contains("Record unidentified package"), "{html}");
+
+    let (_, _, html) =
+        pilot.send(get("/commerce/return-intake?facilityId=fac_1&identifier=RS-DONE", Some("intake-viewer"))).await;
+    assert!(html.contains("Existing intake result") && html.contains("Record correction") && html.contains("CUST-77"), "{html}");
+    assert!(html.contains("Intake routed to quarantine"), "{html}");
+    assert!(!html.contains("Complete facility intake"), "a received package takes a correction, not a second intake: {html}");
+
+    let (status, _, html) =
+        pilot.send(get("/commerce/return-intake?facilityId=fac_1&identifier=NOPE", Some("intake-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Record unidentified package"), "a scan that resolves nothing offers the unidentified form: {html}");
+
+    assert_eq!(pilot.send(get(STATION, Some("reader"))).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(pilot.send(get(STATION, Some("support-viewer"))).await.0, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn completing_an_intake_sends_each_photo_then_cites_it_at_the_operators_time() {
+    let pilot = Pilot::new().await;
+    let at = "/commerce/return-intake?facilityId=fac_1&identifier=RS-1";
+    let photos: [(&str, &str, &str, &[u8]); 2] =
+        [("evidence", "front.jpg", "image/jpeg", b"front"), ("evidence", "label.png", "image/png", b"label")];
+    let fields = intake_fields("3", "2026-10-30T14:05", "CUST-1");
+    let (status, headers, html) =
+        pilot.send(post_multipart(at, "intake-manager", Some("America/Chicago"), &fields, &photos)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let location = headers[header::LOCATION].to_str().unwrap();
+    assert!(location.starts_with("/commerce/return-intake?facilityId=fac_1&result=completed&after_write="), "{location}");
+    assert!(!location.contains("identifier="), "the station again, without the scan: {location}");
+
+    let calls = pilot.calls_to(RETURN_INTAKE);
+    let evidence: Vec<_> = calls.iter().filter(|c| c.path.ends_with("/evidence")).collect();
+    assert_eq!(evidence.len(), 2, "{calls:?}");
+    assert!(evidence.iter().all(|c| c.body.contains("name=\"facilityId\"\r\n\r\nfac_1")), "{evidence:?}");
+    assert!(evidence[0].body.contains("front.jpg") && evidence[1].body.contains("label.png"), "in order: {evidence:?}");
+    let complete = calls.iter().find(|c| c.path.ends_with("/rsh_1/complete")).expect("the intake");
+    let sent: Value = serde_json::from_str(&complete.body).unwrap();
+    assert_eq!(sent["receivedAt"], "2026-10-30T19:05:00Z", "read in the operator's zone (chase-sets/chase-sets#10857)");
+    assert_eq!(sent["evidence"][1]["attachmentId"], "att_label.png");
+    assert_eq!(sent["discrepancies"][0]["evidenceAttachmentIds"], json!(["att_front.jpg", "att_label.png"]));
+    assert_eq!(sent["discrepancies"][0]["quantity"], 2);
+    assert_eq!(sent["measuredWeightOunces"], 6.5);
+    assert_eq!(sent["expectedVersion"], 3);
+    assert_eq!(sent["idempotencyKey"], "rii_1");
+
+    let (status, _, html) = pilot.send(get(location, Some("intake-manager"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Intake completed and platform custody is recorded."), "{html}");
+}
+
+#[tokio::test]
+async fn a_refused_intake_redraws_the_station_and_sends_nothing_it_should_not() {
+    let pilot = Pilot::new().await;
+    let at = "/commerce/return-intake?facilityId=fac_1&identifier=RS-1";
+    let photo: [(&str, &str, &str, &[u8]); 1] = [("evidence", "front.jpg", "image/jpeg", b"front")];
+
+    let (status, _, html) =
+        pilot.send(post_multipart(at, "intake-manager", None, &intake_fields("2", "2026-10-30T14:05", "CUST-1"), &photo)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("This intake form is stale") && html.contains(r#"role="alert""#), "{html}");
+    assert!(html.contains("Complete facility intake"), "the scanned package is drawn again: {html}");
+
+    let (status, _, html) = pilot
+        .send(post_multipart(at, "intake-manager", None, &intake_fields("3", "2026-10-30T14:05", "CUST-REFUSED"), &photo))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Custody identifier is already in use."), "the API's words: {html}");
+
+    let before = pilot.calls_to(RETURN_INTAKE).iter().filter(|c| c.path.ends_with("/evidence")).count();
+    let (status, _, html) =
+        pilot.send(post_multipart(at, "intake-manager", None, &intake_fields("3", "yesterday", "CUST-1"), &photo)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Enter the date and time the package was received."), "{html}");
+    let after = pilot.calls_to(RETURN_INTAKE).iter().filter(|c| c.path.ends_with("/evidence")).count();
+    assert_eq!(before, after, "no photo is sent for a time that cannot be read");
+
+    let many: Vec<(&str, &str, &str, &[u8])> = (0..11).map(|_| ("evidence", "p.jpg", "image/jpeg", b"p" as &[u8])).collect();
+    let (status, _, html) =
+        pilot.send(post_multipart(at, "intake-manager", None, &intake_fields("3", "2026-10-30T14:05", "CUST-1"), &many)).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{html}");
+    assert!(html.contains("Send up to 10 photos of 10 MB each."), "{html}");
+
+    let (status, _, _) =
+        pilot.send(post_multipart(at, "intake-viewer", None, &intake_fields("3", "2026-10-30T14:05", "CUST-1"), &photo)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "writing needs return-intake.manage");
+    assert!(
+        pilot
+            .calls_to(RETURN_INTAKE)
+            .iter()
+            .all(|c| !c.path.ends_with("/complete") || !c.body.contains("dock-2") || c.body.contains("CUST-"))
+    );
+}
+
+#[tokio::test]
+async fn the_station_records_unidentified_packages_reconciles_them_and_corrects_an_intake() {
+    let pilot = Pilot::new().await;
+    let at = "/commerce/return-intake?facilityId=fac_1";
+    let photo: [(&str, &str, &str, &[u8]); 1] = [("evidence", "box.jpg", "image/jpeg", b"box")];
+    let unidentified = [
+        ("intent", "unidentified"),
+        ("facilityId", "fac_1"),
+        ("idempotencyKey", "rii_2"),
+        ("stationId", "dock-2"),
+        ("receivedAt", "2026-10-30T14:05"),
+        ("packageCondition", "damaged"),
+        ("sealCondition", "broken"),
+        ("measuredWeightOunces", ""),
+        ("custodyIdentifier", "CUST-UNK-3"),
+        ("owner", "Facility operations"),
+        ("nextAction", "Hold for review"),
+        ("notes", "No label"),
+    ];
+    let (status, headers, html) = pilot.send(post_multipart(at, "intake-manager", None, &unidentified, &photo)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("result=unidentified"));
+    let calls = pilot.calls_to(RETURN_INTAKE);
+    let sent: Value = serde_json::from_str(&calls.iter().find(|c| c.path.ends_with("/unidentified")).unwrap().body).unwrap();
+    assert_eq!(sent["receivedAt"], "2026-10-30T14:05:00Z", "UTC when the browser has not said its zone");
+    assert_eq!(sent["measuredWeightOunces"], Value::Null);
+    assert_eq!(sent["evidence"][0]["attachmentId"], "att_box.jpg");
+
+    let reconcile = [
+        ("intent", "reconcile"),
+        ("facilityId", "fac_1"),
+        ("unidentifiedPackageId", "uip_1"),
+        ("returnShipmentId", "rsh_1"),
+        ("reason", "Label found"),
+    ];
+    let (status, headers, html) = pilot.send(post_multipart(at, "intake-manager", None, &reconcile, &[])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("result=reconciled"));
+    let calls = pilot.calls_to(RETURN_INTAKE);
+    let sent: Value = serde_json::from_str(&calls.iter().find(|c| c.path.ends_with("/uip_1/reconcile")).unwrap().body).unwrap();
+    assert_eq!(sent, json!({ "returnShipmentId": "rsh_1", "reason": "Label found" }));
+
+    let correct = [
+        ("intent", "correct"),
+        ("facilityId", "fac_1"),
+        ("returnShipmentId", "rsh_done"),
+        ("expectedVersion", "5"),
+        ("reason", "Wrong custody label"),
+        ("owner", ""),
+        ("nextAction", ""),
+        ("custodyIdentifier", "CUST-78"),
+    ];
+    let (status, headers, html) = pilot.send(post_multipart(at, "intake-manager", None, &correct, &[])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("result=corrected"));
+    let calls = pilot.calls_to(RETURN_INTAKE);
+    let sent: Value =
+        serde_json::from_str(&calls.iter().find(|c| c.path.ends_with("/rsh_done/corrections")).unwrap().body).unwrap();
+    assert_eq!(sent["expectedVersion"], 5);
+    assert_eq!(sent["owner"], Value::Null);
+    assert_eq!(sent["custodyIdentifier"], "CUST-78");
+
+    let (status, _, html) =
+        pilot.send(post_multipart(at, "intake-manager", None, &[("intent", "other"), ("facilityId", "fac_1")], &[])).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Choose an intake action and try again."), "{html}");
 }

@@ -8,6 +8,7 @@ mod api;
 mod app;
 mod auth;
 mod catalog;
+mod commerce;
 mod form;
 mod operations;
 mod projections;
