@@ -32,13 +32,6 @@ export function configureComponent(
     key: string;
     name: LocalizedTextMap;
     description?: LocalizedTextMap;
-    fieldRules: { fieldId: string; required: boolean }[];
-    dimensionRules: {
-      dimensionId: string;
-      required: boolean;
-      allowedOptionIds: string[];
-      appliesWhen: Array<{ dimensionId: string; optionIds: string[] }>;
-    }[];
   },
 ) {
   return api.reviseComponent<CommandResponse>(id, body);

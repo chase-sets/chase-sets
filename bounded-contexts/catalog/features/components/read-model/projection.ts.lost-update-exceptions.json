@@ -64,5 +64,16 @@
     },
     "classification": "key-only but safe",
     "reason": "UPDATE at bounded-contexts/catalog/features/components/read-model/projection.ts:143 directly synchronizes catalog_components from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0b5be5ca4c1a10e4",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/components/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_components",
+      "digest": "9426d5c78fda40dceb249ba729bc7a509ea205dbfca1a16e51aefc55caaf8157"
+    },
+    "classification": "key-only but safe",
+    "reason": "Metadata-only revision updates key and localized metadata by component id, preserving all rule columns."
   }
 ]

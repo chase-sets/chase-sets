@@ -191,19 +191,6 @@ export function ComponentDetailPage({
       key: editKey,
       name: localizedTextMapFromEnglish(editName),
       description: localizedTextMapFromEnglish(editDescription),
-      fieldRules: (data?.field_rules ?? []).map((rule) => ({
-        fieldId: rule.fieldId,
-        required: rule.required,
-      })),
-      dimensionRules: (data?.dimension_rules ?? []).map((rule) => ({
-        dimensionId: rule.dimensionId,
-        required: rule.required,
-        allowedOptionIds: rule.allowedOptions.map((option) => option.optionId),
-        appliesWhen: rule.appliesWhen.map((clause) => ({
-          dimensionId: clause.dimensionId,
-          optionIds: clause.optionIds,
-        })),
-      })),
     });
     addToast(t("catalog.features.components.ui.componentDetailPage.component.updated"), "success");
     setEditing(false);

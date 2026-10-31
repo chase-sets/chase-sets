@@ -119,6 +119,32 @@ export function buildComponentProjectionHandlers(db: PgQueryable): ProjectorHand
       );
     },
 
+    "catalog.component.revised": async (event) => {
+      const componentId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { key, name, description } = event.data as {
+        key: string;
+        name: LocalizedTextMap | string;
+        description: LocalizedTextMap | string;
+      };
+      const nameI18n = coerceLocalizedTextMap(name);
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
+
+      await db.query(
+        `UPDATE catalog_components
+         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, updated_at = $7
+         WHERE component_id = $1`,
+        [
+          componentId,
+          key,
+          JSON.stringify(nameI18n),
+          resolveLocalizedTextMap(nameI18n),
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          event.timing.recordedAt,
+        ],
+      );
+    },
+
     "catalog.component.activated": async (event) => {
       const componentId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
