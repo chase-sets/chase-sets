@@ -145,6 +145,22 @@ describeDb("operator session revoke reasons", () => {
     expect(revoked.rows[0]).toMatchObject({ revoke_reason: "authority-lost" });
     expect(revoked.rows[0]!.revoked_at).not.toBeNull();
 
+    const revokedAuthority = vi.fn(async () => ({
+      kind: "granted" as const,
+      membershipId: "mbr_creator",
+      roleKey: "platform-admin" as const,
+      rolePermissions: ["catalog.manage"],
+    }));
+    const revokedServices = createOperatorSessionGrants(pool, {
+      forActor: vi.fn(),
+      forGrantCreator: revokedAuthority,
+    });
+    await expect(revokedServices.authorizeObservationGrant(request())).rejects.toMatchObject({
+      code: "grant-invalid",
+      status: 401,
+    });
+    expect(revokedAuthority).not.toHaveBeenCalled();
+
     const expiredBearer = "C".repeat(43);
     const expiredHash = createHash("sha256").update(expiredBearer, "ascii").digest();
     const expiredId = "00000000-0000-0000-0000-000000000011";

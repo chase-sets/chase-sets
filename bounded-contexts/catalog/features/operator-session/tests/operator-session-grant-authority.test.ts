@@ -62,6 +62,10 @@ it.each([
     "missing catalog.manage",
     { kind: "granted", membershipId: "mbr_creator", roleKey: "platform-admin", rolePermissions: [] },
   ],
+  [
+    "a granted non-platform-admin authority",
+    { kind: "granted", membershipId: "mbr_creator", roleKey: "owner", rolePermissions: ["catalog.manage"] },
+  ],
 ] as const satisfies readonly [string, OperatorAuthorityDecision][])(
   "revokes when the authority decision has %s",
   async (_label, decision) => {

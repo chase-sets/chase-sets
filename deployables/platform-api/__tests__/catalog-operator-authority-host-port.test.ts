@@ -4,8 +4,6 @@ import { module as identityModule } from "@chase-sets/identity";
 import type { IdentityServices } from "@chase-sets/identity/server";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
-import { createMembershipRuntime, type MembershipCommand } from "@chase-sets/identity/server";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -16,6 +14,7 @@ const captured = vi.hoisted(() => ({
 const stores = vi.hoisted(() => ({
   constructingIdentity: false,
   identity: undefined as ReturnType<typeof createInMemoryEventStore>["eventStore"] | undefined,
+  versions: new Map<string, number>(),
 }));
 
 vi.mock("@chase-sets/platform-runtime/api", async (importOriginal) => {
@@ -33,7 +32,12 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@chase-sets/event-core-postgres")>();
   const fakePool = () => {
     const client = {
-      query: async () => ({ rows: [] }),
+      query: async (sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("SELECT current_version FROM event_store_streams")) {
+          return { rows: [{ current_version: stores.versions.get(String(values[0])) ?? 0 }] };
+        }
+        return { rows: [] };
+      },
       release: () => undefined,
     };
     return { query: client.query, connect: async () => client, end: async () => undefined };
@@ -42,7 +46,30 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
     ...actual,
     createPgPool: fakePool,
     createPostgresEventStore: (_options: Parameters<typeof actual.createPostgresEventStore>[0]) => {
-      const store = createInMemoryEventStore().eventStore;
+      const memory = createInMemoryEventStore();
+      const store = {
+        ...memory.eventStore,
+        readStreamInTransaction: (_client: unknown, input: Parameters<typeof memory.eventStore.readStream>[0]) =>
+          memory.eventStore.readStream(input),
+        appendToStreamInTransaction: (_client: unknown, input: Parameters<typeof memory.eventStore.appendToStream>[0]) =>
+          memory.eventStore.appendToStream(input),
+        appendToStreamsInTransaction: (
+          _client: unknown,
+          inputs: Parameters<NonNullable<typeof memory.eventStore.appendToStreams>>[0],
+        ) => {
+          const append = memory.eventStore.appendToStreams
+            ? memory.eventStore.appendToStreams(inputs)
+            : Promise.all(inputs.map((input) => memory.eventStore.appendToStream(input)));
+          return append.then((stored) => {
+            stored.forEach((result, index) => {
+              const streamId = inputs[index]?.streamId;
+              const last = result.storedEvents.at(-1);
+              if (streamId && last) stores.versions.set(streamId, last.streamVersion);
+            });
+            return stored;
+          });
+        },
+      };
       if (stores.constructingIdentity) stores.identity = store;
       return store;
     },
@@ -84,22 +111,14 @@ describe("platform-api Catalog operator authority composition", () => {
 
       const identity = runtime.services.identity as IdentityServices;
       expect(stores.identity).toBeDefined();
-      const memory = createInMemoryEventStore();
-      const db = { query: async () => ({ rows: [] }) };
-      const memberships = createMembershipRuntime({
-        eventStore: memory.eventStore,
-        checkpointStore: createPostgresProjectionStore({ db }),
-        db,
-      });
-      const getMembershipStateSpy = vi
-        .spyOn(identity.memberships, "getMembershipState")
-        .mockImplementation(memberships.getMembershipState);
       const context = {
         tenantId: "tnt_synthetic",
         audit: { performedByUserId: "usr_identity_system", forAccountId: "acc_identity_system" },
       } as EventStoreContext;
-      const run = (membershipId: string, command: MembershipCommand) =>
-        memberships.commandHandler({ streamId: `identity.membership-${membershipId}`, command, context });
+      const run = (
+        membershipId: string,
+        command: Parameters<IdentityServices["memberships"]["commandHandler"]>[0]["command"],
+      ) => identity.memberships.commandHandler({ streamId: `identity.membership-${membershipId}`, command, context });
       await run("mbr_creator", {
         type: "GrantMembership",
         membershipId: "mbr_creator" as never,
@@ -126,7 +145,6 @@ describe("platform-api Catalog operator authority composition", () => {
         kind: "denied",
         reason: "not-platform-admin",
       });
-      getMembershipStateSpy.mockRestore();
     } finally {
       identitySpy.mockRestore();
       await closePlatformApiPools(pools);

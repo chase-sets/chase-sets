@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createOperatorSessionGrants } from "@chase-sets/catalog/server";
+import { module as catalogModule } from "@chase-sets/catalog";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -32,9 +32,8 @@ it("omits Catalog creator authority and fails closed without calling a port", as
   expect(source).not.toContain("catalogOperatorAuthority");
 
   const fake = validGrantPool();
-  const forGrantCreator = vi.fn();
   const bearer = "W".repeat(43);
-  const services = createOperatorSessionGrants(fake.value, undefined);
+  const services = catalogModule.createServices(fake.value, {}).operatorSession;
   await expect(
     services.authorizeObservationGrant(
       new Request("https://extension.example/observation", {
@@ -42,6 +41,5 @@ it("omits Catalog creator authority and fails closed without calling a port", as
       }),
     ),
   ).rejects.toMatchObject({ code: "authority-lost", status: 403 });
-  expect(forGrantCreator).not.toHaveBeenCalled();
   expect(fake.state.revocations).toBe(1);
 });

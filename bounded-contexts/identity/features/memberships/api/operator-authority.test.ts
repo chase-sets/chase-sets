@@ -115,7 +115,19 @@ describe("Identity operator authority", () => {
     await grant("mem_revoked", "platform-admin");
     await run("mem_revoked", { type: "RevokeMembership" });
 
-    await expect(authority(actor("mem_revoked"))).resolves.toEqual({ kind: "denied", reason: "inactive" });
+    await expect(authority.forGrantCreator({ userId: "usr_op", membershipId: "mem_revoked" })).resolves.toEqual({
+      kind: "denied",
+      reason: "inactive",
+    });
+  });
+
+  it("denies a missing membership aggregate", async () => {
+    const { authority, actor } = createFixture();
+
+    await expect(authority.forGrantCreator({ userId: "usr_op", membershipId: "mem_missing" })).resolves.toEqual({
+      kind: "denied",
+      reason: "authority-unavailable",
+    });
   });
 
   it.each([
@@ -131,13 +143,9 @@ describe("Identity operator authority", () => {
     });
   });
 
-  it("denies an actor without a membership and an actor whose membership has no aggregate", async () => {
+  it("denies an actor without a membership", async () => {
     const { authority, actor } = createFixture();
 
     await expect(authority(actor(""))).resolves.toEqual({ kind: "denied", reason: "no-membership" });
-    await expect(authority(actor("mem_missing"))).resolves.toEqual({
-      kind: "denied",
-      reason: "authority-unavailable",
-    });
   });
 });

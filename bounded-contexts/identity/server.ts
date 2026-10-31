@@ -4,8 +4,6 @@ import {
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
 export type { IdentityHostPorts, IdentityServices } from "./support/runtime-support/services";
-export { createMembershipRuntime } from "./features/memberships/api/runtime";
-export type { MembershipCommand } from "./features/memberships/domain/domain";
 export {
   DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
   parseCapabilityAdministrationAuthority,
