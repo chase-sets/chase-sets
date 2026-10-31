@@ -192,6 +192,12 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         }
         return commercial_terms(&method, rest, uri.query().unwrap_or_default(), &body);
     }
+    if let Some(rest) = uri.path().strip_prefix(PROMO_API) {
+        return promo_api(&method, rest, &body);
+    }
+    if uri.path() == "/api/public-presence/admin/waitlist/campaign-analytics" {
+        return campaign_analytics();
+    }
     if let Some(rest) = uri.path().strip_prefix(WAITLIST_API) {
         return waitlist_api(rest, uri.query().unwrap_or_default());
     }
@@ -5605,4 +5611,123 @@ async fn the_waitlist_export_relays_the_apis_file_and_no_cache_keeps_it() {
     );
     let (status, _, _) = pilot.send(get("/growth/waitlist/export", Some("reader"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+fn campaign_analytics() -> Response {
+    Json(json!({
+        "quality": { "totalSignups": 250, "sellerSignupCount": 80, "qualifiedSellerCount": 60, "storeLinkCount": 20, "storeLinkPercent": 25,
+            "inventorySizeDistribution": { "under_100": 10, "100_to_500": 30, "500_to_2000": 15, "2000_plus": 5 },
+            "qualifiedSellersByGame": { "pokemon": 40 } },
+        "channelAttribution": [
+            { "utm_source": "discord", "utm_medium": "social", "utm_campaign": null, "signup_count": 200, "seller_signup_count": 70, "qualified_seller_count": 55 },
+            { "utm_source": null, "utm_medium": null, "utm_campaign": null, "signup_count": 50, "seller_signup_count": 10, "qualified_seller_count": 5 },
+        ],
+        "admissionBar": { "totalSignups": 250, "qualifiedSellerCount": 60, "totalSignupsMet": false, "qualifiedSellersMet": true,
+            "gameCoverage": [{ "game": "pokemon", "qualifiedSellerCount": 40, "covered": true }, { "game": "yu-gi-oh", "qualifiedSellerCount": 0, "covered": false }],
+            "allGamesCovered": false, "admitted": false },
+    }))
+    .into_response()
+}
+
+#[tokio::test]
+async fn campaign_analytics_shows_progress_toward_the_policys_goals() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/growth/campaign-analytics", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, html) = pilot.send(get("/growth/campaign-analytics", Some("growth-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>") && html.contains("Wave 1 bar not yet met"), "{html}");
+    assert!(html.contains("250 of 500") && html.contains(r#"max="100" value="50""#), "half the signup floor: {html}");
+    assert!(html.contains("60 of 50") && html.contains(r#"value="100""#), "past the seller goal: {html}");
+    assert!(html.contains("25%") && html.contains("Pok"), "{html}");
+    assert!(html.contains("discord / social") && html.contains("Direct / no UTM"), "{html}");
+    assert!(html.contains("/grafana/d/chase-sets-public-presence-waitlist/public-presence-waitlist-funnel"), "{html}");
+}
+
+const PROMO_API: &str = "/api/public-presence/admin/promo-bar-messages";
+
+/// Public Presence's promo bar messages: one live with a marketplace link, one scheduled and one
+/// inactive. A message titled `refuse` is refused as admin-web's API refuses a bad write.
+fn promo_api(method: &Method, rest: &str, body: &str) -> Response {
+    if method == Method::GET && rest.is_empty() {
+        return Json(json!({ "items": [
+            { "id": "pbm_live", "title": "Lower fees", "description": "Sell for less.", "href": "/sales-fees", "link_label": "See fees",
+              "tone": "success", "is_active": true, "display_order": 10, "starts_at": null, "ends_at": null },
+            { "id": "pbm_later", "title": "Holiday hours", "description": null, "href": null, "link_label": null,
+              "tone": "warning", "is_active": true, "display_order": 20, "starts_at": "2099-01-01 00:00:00+00", "ends_at": null },
+            { "id": "pbm_off", "title": "Old news", "description": null, "href": null, "link_label": null,
+              "tone": "info", "is_active": false, "display_order": 30, "starts_at": "2026-11-10 15:00:00+00", "ends_at": null },
+        ] }))
+        .into_response();
+    }
+    if body.contains(r#""title":"refuse""#) {
+        return refusal(StatusCode::UNPROCESSABLE_ENTITY, "invalid_promo_bar_message", "Title must be shorter.");
+    }
+    Json(json!({})).into_response()
+}
+
+#[tokio::test]
+async fn the_promo_bar_previews_live_messages_and_shows_each_messages_status() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/growth/promo-bar", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, html) = pilot.send(get("/growth/promo-bar", Some("growth-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Promo Bar | Experience Admin"), "{html}");
+    assert_eq!(html.matches(r#"data-tone="success""#).count(), 1, "only the live message is previewed: {html}");
+    assert!(html.contains("Sell for less.") && !html.contains("See fees"), "no marketplace origin, so no preview link: {html}");
+    assert!(html.contains(r#"data-status="active""#) && html.contains(r#"data-status="scheduled""#), "{html}");
+    assert!(html.contains(r#"data-status="inactive""#) && html.contains(">Deactivate<") && html.contains(">Activate<"), "{html}");
+    assert!(
+        html.contains(r#"href="/growth/promo-bar?edit=pbm_live""#) && html.contains(r#"href="/growth/promo-bar?delete=pbm_off""#),
+        "{html}"
+    );
+    assert!(!html.contains("<dialog"), "{html}");
+
+    let (_, _, html) =
+        pilot.send(get("/growth/promo-bar?edit=pbm_off", Some("growth-viewer; corten-zone=America/Chicago"))).await;
+    assert!(html.contains("<dialog") && html.contains(r#"value="2026-11-10T09:00""#), "the time in the operator's zone: {html}");
+    let (_, _, html) = pilot.send(get("/growth/promo-bar?delete=pbm_off", Some("growth-viewer"))).await;
+    assert!(html.contains(r#"role="alertdialog""#) && html.contains("Old news"), "{html}");
+}
+
+#[tokio::test]
+async fn promo_bar_writes_send_admin_webs_bodies_and_a_refusal_keeps_what_was_typed() {
+    let pilot = Pilot::new().await;
+    let session = "growth-viewer; corten-zone=America/Chicago";
+    let create = "intent=create&title=New&description=&href=%2Fx&linkLabel=Go&tone=warning&isActive=true&displayOrder=5\
+                  &startsAt=2026-11-10T09%3A00&endsAt=";
+    for script in [false, true] {
+        let (status, _, body) = pilot.send(post_as(session, "/growth/promo-bar", create, script)).await;
+        let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
+        assert_eq!(status, expected, "{body}");
+    }
+    let sent: Vec<Call> = pilot.calls_to_path(PROMO_API).into_iter().filter(|c| c.method == Method::POST).collect();
+    let body: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(body["startsAt"], json!("2026-11-10T15:00:00Z"), "Chicago's 9:00 as its instant");
+    assert_eq!((body["endsAt"].clone(), body["description"].clone()), (Value::Null, Value::Null));
+    assert_eq!((body["displayOrder"].clone(), body["tone"].clone()), (json!(5.0), json!("warning")));
+
+    for (form, method, path) in [
+        ("intent=activate&id=pbm_off", Method::POST, format!("{PROMO_API}/pbm_off/activate")),
+        ("intent=deactivate&id=pbm_live", Method::POST, format!("{PROMO_API}/pbm_live/deactivate")),
+        ("intent=delete&id=pbm_off", Method::DELETE, format!("{PROMO_API}/pbm_off")),
+        ("intent=update&id=pbm_live&title=Lower&tone=info&displayOrder=10", Method::PUT, format!("{PROMO_API}/pbm_live")),
+    ] {
+        let (status, headers, _) = pilot.send(post_as("growth-viewer", "/growth/promo-bar", form, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{form}");
+        assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/growth/promo-bar?done="), "{form}");
+        assert!(pilot.calls_to_path(&path).iter().any(|c| c.method == method), "{form}");
+    }
+    let (_, _, html) = pilot.send(get("/growth/promo-bar?done=deleted", Some("growth-viewer"))).await;
+    assert!(html.contains("Promo bar message deleted."), "{html}");
+
+    let (status, _, html) = pilot
+        .send(post_as("growth-viewer", "/growth/promo-bar", "intent=create&title=refuse&tone=info&displayOrder=1", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Title must be shorter.") && html.contains(r#"value="refuse""#), "{html}");
+    let (status, _, html) = pilot.send(post_as("growth-viewer", "/growth/promo-bar", "intent=update", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("No promo bar change was applied."), "{html}");
 }

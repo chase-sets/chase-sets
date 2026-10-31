@@ -158,6 +158,8 @@ pub fn app(config: Config) -> App {
         .area(|area| crate::commerce::payouts::health_area(area, shared.clone()))
         .area(|area| crate::commerce::payouts::area(area, shared.clone()))
         .area(|area| crate::growth::waitlist::area(area, shared.clone()))
+        .area(|area| crate::growth::campaign::area(area, shared.clone()))
+        .area(|area| crate::growth::promo::area(area, shared.clone()))
         .error_page(views::error_page, shared)
 }
 
