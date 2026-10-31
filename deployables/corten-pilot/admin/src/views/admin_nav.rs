@@ -47,6 +47,7 @@ fn served(path: &str) -> Option<String> {
         (<support::attention::url::Attention as Route>::PATH, support::attention::url::Attention.href()),
         (<commerce::intake::url::Intake as Route>::PATH, commerce::intake::url::Intake::default().href()),
         (<commerce::recovered::url::Recovered as Route>::PATH, commerce::recovered::url::Recovered::default().href()),
+        (<commerce::terms::url::Terms as Route>::PATH, commerce::terms::url::Terms::default().href()),
     ];
     pages.into_iter().find(|(at, _)| *at == path).map(|(_, href)| href)
 }

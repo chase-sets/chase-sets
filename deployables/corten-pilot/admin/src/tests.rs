@@ -117,6 +117,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["recovered-inventory.view", "recovered-inventory.manage"])
         } else if cookie.contains("chase_sets_session=recovery-viewer") {
             actor(&["recovered-inventory.view"])
+        } else if cookie.contains("chase_sets_session=terms-viewer") || cookie.contains("chase_sets_session=terms-lag") {
+            actor(&["commercial-terms.view"])
         } else if cookie.contains("chase_sets_session=moderator") {
             actor(&["reported-content.view"])
         } else if cookie.contains("chase_sets_session=reader") {
@@ -169,6 +171,19 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if let Some(rest) = uri.path().strip_prefix(EBAY_DELETION) {
         return ebay_deletion(&method, rest, &body);
+    }
+    if uri.path() == "/api/public/commercial-terms/marketplace-sales-fee-schedule" {
+        return published_fee_schedule();
+    }
+    if let Some(rest) = uri.path().strip_prefix(TERMS_API) {
+        if cookie.contains("terms-lag") && headers.contains_key("chase-sets-read-after-write") {
+            return refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            );
+        }
+        return commercial_terms(&method, rest, uri.query().unwrap_or_default(), &body);
     }
     if let Some(rest) = uri.path().strip_prefix(RECOVERED) {
         if cookie.contains("recovery-lag") && headers.contains_key("chase-sets-read-after-write") {
@@ -5060,4 +5075,251 @@ async fn a_refused_recovered_item_action_keeps_the_form_and_says_why() {
     assert_eq!(status, StatusCode::FORBIDDEN, "writing needs recovered-inventory.manage");
     let after = pilot.calls_to(RECOVERED).iter().filter(|c| c.method == Method::POST).count();
     assert_eq!(before, after, "an unknown action, a missing item and a viewer reach no API");
+}
+
+const TERMS_API: &str = "/api/commercial-terms";
+
+fn published_fee_schedule() -> Response {
+    Json(json!({
+        "value": {
+            "label": "Standard seller terms", "marketplaceSalesFeePercentageBps": 500, "marketplaceSalesFeeFixedAmount": "0.00",
+            "marketplaceSalesFeeCapAmount": "25.00", "shippingAllowancePercentageBps": 500,
+        },
+        "source": "policy", "documentId": "pol_1", "effectiveFrom": "2026-07-03T00:00:00.000Z", "resolvedAt": "2026-10-30T12:00:00.000Z",
+    }))
+    .into_response()
+}
+
+fn terms_schedule(id: &str, kind: &str, label: &str, bps: i64, from: &str, until: Option<&str>, status: &str) -> Value {
+    json!({
+        "schedule_id": id, "label": label, "account_type": kind, "marketplace_sales_fee_percentage_bps": bps,
+        "marketplace_sales_fee_fixed_amount": "0.30", "shipping_allowance_percentage_bps": 400, "status": status,
+        "effective_from": from, "effective_until": until, "created_at": from, "updated_at": from,
+    })
+}
+
+/// Commercial Terms: a business schedule in effect, one scheduled for 2099, an ended personal one and
+/// an inactive one; an override for `acc_1` that expires in 2099. Writes answer the new ID; a label
+/// of "Refused" is refused, "Down" fails, and the viewer's writes are forbidden (by cookie, upstream).
+fn commercial_terms(method: &Method, rest: &str, query: &str, body: &str) -> Response {
+    let in_effect = terms_schedule("cts_now", "business", "Business 2026", 650, "2026-01-01T00:00:00.000Z", None, "active");
+    let scheduled = terms_schedule("cts_next", "business", "Business 2099", 600, "2099-01-01T00:00:00.000Z", None, "active");
+    let ended = terms_schedule(
+        "cts_old",
+        "personal",
+        "Personal 2025",
+        900,
+        "2025-01-01T00:00:00.000Z",
+        Some("2025-12-31T00:00:00.000Z"),
+        "active",
+    );
+    let inactive = terms_schedule("cts_off", "business", "Business draft", 700, "2026-02-01T00:00:00.000Z", None, "inactive");
+    let agreement = json!({
+        "agreement_id": "cag_1", "account_id": "acc_1", "account_name": "Card Vault", "account_display_name": "Vault",
+        "account_type": "business", "label": "Vault override", "marketplace_sales_fee_percentage_bps": 425,
+        "marketplace_sales_fee_fixed_amount": "0.05", "shipping_allowance_percentage_bps": 500, "status": "active",
+        "effective_from": "2026-03-01T00:00:00.000Z", "effective_until": "2099-06-01T00:00:00.000Z",
+        "created_at": "2026-03-01T00:00:00.000Z", "updated_at": "2026-03-01T00:00:00.000Z",
+        "history": [{ "history_id": "h1", "event_id": "e1", "event_type": "agreement.created", "actor_user_id": "usr_ops",
+            "status": "active", "payload": {}, "effective_from": "2026-03-01T00:00:00.000Z", "effective_until": null,
+            "recorded_at": "2026-03-01T09:00:00.000Z" }],
+    });
+    let written = |status: StatusCode, id: &str| {
+        let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+        let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
+        (status, headers, Json(json!({ "id": id, "version": 1 }))).into_response()
+    };
+    let refused_or = |ok: Response| {
+        if body.contains(r#""label":"Refused""#) {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "Effective until must be after effective from.")
+        } else if body.contains(r#""label":"Down""#) {
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        } else {
+            ok
+        }
+    };
+    match (method.clone(), rest) {
+        (Method::GET, "/schedules") if query == "limit=250&offset=0" => {
+            Json(json!({ "items": [in_effect, scheduled, ended, inactive], "total": 4, "count": 4 })).into_response()
+        }
+        (Method::GET, "/agreements") if query == "limit=250&offset=0" => Json(json!({ "items": [agreement], "total": 1, "count": 1 })).into_response(),
+        (Method::GET, "/agreements/account-options") => Json(json!({ "items": [
+            { "account_id": "acc_personal", "account_name": "Binder", "display_name": "Binder Builder", "account_type": "personal" },
+            { "account_id": "acc_1", "account_name": "Card Vault", "display_name": "Vault", "account_type": "business" },
+        ] }))
+        .into_response(),
+        (Method::GET, "/schedules/cts_next") => {
+            let mut s = scheduled;
+            s["history"] = json!([]);
+            Json(s).into_response()
+        }
+        (Method::GET, "/agreements/cag_1") => Json(agreement).into_response(),
+        (Method::GET, "/agreements/cag_new" | "/schedules/cts_new") => {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Not found.")
+        }
+        (Method::GET, _) => refusal(StatusCode::NOT_FOUND, "not_found", "Commercial terms schedule not found."),
+        (Method::POST, "/schedules") => refused_or(written(StatusCode::CREATED, "cts_new")),
+        (Method::PUT, "/schedules/cts_next") => refused_or(written(StatusCode::OK, "cts_next")),
+        (Method::POST, "/agreements") => refused_or(written(StatusCode::CREATED, "cag_new")),
+        (Method::PUT, "/agreements/cag_1") => refused_or(written(StatusCode::OK, "cag_1")),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+const TERMS: &str = "/commerce/terms";
+
+fn terms_body(intent: &str, extra: &[(&str, &str)], label: &str) -> String {
+    let mut fields = vec![
+        ("intent", intent),
+        ("label", label),
+        ("marketplaceSalesFeePercentageBps", "725"),
+        ("marketplaceSalesFeeFixedAmount", "0.25"),
+        ("shippingAllowancePercentageBps", ""),
+        ("status", "active"),
+        ("effectiveFrom", "2026-11-01T00:00:00.000Z"),
+        ("effectiveUntil", ""),
+    ];
+    fields.extend_from_slice(extra);
+    fields
+        .iter()
+        .map(|(k, v)| format!("{k}={}", percent_encoding::utf8_percent_encode(v, percent_encoding::NON_ALPHANUMERIC)))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+#[tokio::test]
+async fn commercial_terms_lists_the_published_schedule_and_the_active_and_scheduled_terms_in_order() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(TERMS, Some("terms-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "Existing fee locks stay fixed",
+        "Published policy",
+        "Standard seller terms",
+        "5% + $0.00",
+        "$25.00",
+        "2026-07-03",
+        "Effective 2099-01-01",
+        "Override expires 2099-06-01",
+        "Effective since 2026-01-01",
+        "Schedule for business accounts",
+        "Card Vault (Vault)",
+        "4.25% + $0.05",
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    let order: Vec<usize> = ["Business 2099", "Vault override", "Business 2026"].iter().map(|l| html.find(l).unwrap()).collect();
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "latest to start first: {order:?}");
+    assert!(!html.contains("Personal 2025") && !html.contains("Business draft"), "ended and inactive terms are left out: {html}");
+    assert!(html.contains(r#"href="/commerce/terms" aria-current="page""#), "the nav serves it: {html}");
+    assert!(!html.contains("<dialog"), "no sheet: {html}");
+    assert_eq!(pilot.send(get(TERMS, Some("recovery-viewer"))).await.0, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_terms_sheet_compares_and_revises_and_the_old_addresses_open_it() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/commerce/terms?schedule=cts_next", Some("terms-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<dialog") && html.contains("Compare with active schedule"), "{html}");
+    assert!(html.contains("Business 2026") && html.contains("6.5% + $0.30"), "compared with the schedule in effect: {html}");
+    assert!(html.contains(r#"value="revise-schedule""#) && html.contains(r#"value="cts_next""#), "{html}");
+    assert!(html.contains("No revisions recorded yet."), "{html}");
+
+    let (status, _, html) = pilot.send(get("/commerce/terms?agreement=cag_1", Some("terms-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "Compare with published seller terms",
+        "Account override",
+        "agreement.created \u{b7} active",
+        "Changed by usr_ops",
+        r#"value="425""#,
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+
+    let (status, _, html) = pilot.send(get("/commerce/terms?schedule=cts_missing", Some("terms-viewer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert!(html.contains("Commercial Terms unavailable") && html.contains("Commercial terms schedule not found."), "{html}");
+
+    for (old, new) in [
+        ("/commerce/terms/schedules?create=schedule", "/commerce/terms?create=schedule"),
+        ("/commerce/terms/agreements", "/commerce/terms"),
+        ("/commerce/terms/schedules/cts_next", "/commerce/terms?schedule=cts_next"),
+        ("/commerce/terms/agreements/cag_1", "/commerce/terms?agreement=cag_1"),
+        ("/commerce/terms/accounts/acc_1/agreements/new", "/commerce/terms?create=agreement&account=acc_1"),
+    ] {
+        let (status, headers, _) = pilot.send(get(old, Some("terms-viewer"))).await;
+        assert!(status.is_redirection(), "{old}: {status}");
+        assert_eq!(headers[header::LOCATION], new, "{old}");
+    }
+}
+
+#[tokio::test]
+async fn the_create_sheets_start_from_the_schedule_in_effect_and_write_what_admin_web_writes() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/commerce/terms?create=schedule", Some("terms-viewer"))).await;
+    assert!(
+        html.contains(r#"value="Business 2026""#) && html.contains(r#"value="650""#),
+        "the business schedule in effect: {html}"
+    );
+    let (_, _, html) = pilot.send(get("/commerce/terms?create=agreement", Some("terms-viewer"))).await;
+    assert!(html.contains(r#"<option value="acc_personal" selected"#), "the first account: {html}");
+    assert!(
+        html.contains(r#"value="Account override""#) && html.contains(r#"value="850""#),
+        "no personal schedule in effect: the defaults: {html}"
+    );
+    assert!(html.contains(r#"name="accountId" value="acc_personal""#), "{html}");
+    let (_, _, html) = pilot.send(get("/commerce/terms?create=agreement&account=acc_1", Some("terms-viewer"))).await;
+    assert!(html.contains(r#"<option value="acc_1" selected"#) && html.contains(r#"value="Business 2026""#), "{html}");
+
+    let body = terms_body("create-agreement", &[("accountId", " acc_1 ")], "New override");
+    let (status, headers, html) =
+        pilot.send(post_as("terms-viewer", "/commerce/terms?create=agreement&account=acc_1", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let location = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(location.starts_with("/commerce/terms?agreement=cag_new&after_write="), "{location}");
+    let call = pilot.calls_to(TERMS_API).into_iter().find(|c| c.method == Method::POST).expect("the create");
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!(sent["accountId"], "acc_1");
+    assert_eq!(sent["marketplaceSalesFeePercentageBps"], 725.0);
+    assert_eq!(sent["shippingAllowancePercentageBps"], 0, "an empty number is 0, as admin-web's Number('')");
+    assert_eq!(sent["effectiveUntil"], "");
+
+    // The new override is not readable yet: the page says so and leaves its sheet closed.
+    let (status, _, html) = pilot.send(get(&location, Some("terms-lag"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("We are preparing your change.") && !html.contains("<dialog"), "{html}");
+
+    let body = terms_body("create-schedule", &[("accountType", "enterprise")], "Enterprise");
+    let (status, headers, _) = pilot.send(post_as("terms-viewer", "/commerce/terms?create=schedule", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/commerce/terms?schedule=cts_new&after_write="));
+    let call = pilot.calls_to(TERMS_API).into_iter().filter(|c| c.method == Method::POST).nth(1).expect("the schedule");
+    assert_eq!(serde_json::from_str::<Value>(&call.body).unwrap()["accountType"], "enterprise");
+}
+
+#[tokio::test]
+async fn a_refused_terms_write_keeps_its_sheet_and_what_was_sent() {
+    let pilot = Pilot::new().await;
+    let at = "/commerce/terms?schedule=cts_next";
+    let body = terms_body("revise-schedule", &[("id", "cts_next")], "Refused");
+    let (status, _, html) = pilot.send(post_as("terms-viewer", at, &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Change not saved") && html.contains("Effective until must be after effective from."), "{html}");
+    assert!(
+        html.contains("<dialog") && html.contains(r#"value="Refused""#) && html.contains(r#"value="725""#),
+        "the sheet keeps what was sent: {html}"
+    );
+    let call = pilot.calls_to(TERMS_API).into_iter().find(|c| c.method == Method::PUT).expect("the revision");
+    assert_eq!(call.path, "/api/commercial-terms/schedules/cts_next");
+
+    let body = terms_body("revise-agreement", &[("id", "cag_1")], "Down");
+    let (status, _, html) = pilot.send(post_as("terms-viewer", "/commerce/terms?agreement=cag_1", &body, false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains("Commercial Terms unavailable"), "{html}");
+
+    let (status, _, html) = pilot.send(post_as("terms-viewer", TERMS, &terms_body("delete-everything", &[], "X"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Unknown Commercial Terms action."), "{html}");
 }

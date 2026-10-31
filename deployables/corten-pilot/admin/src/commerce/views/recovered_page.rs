@@ -2,12 +2,15 @@
 //! the recovered value, the custody and disposition queue (scrolling on its own on a phone), and the
 //! action form, its fields in one column on a phone, two from 40rem and three from 64rem.
 use corten::{
-    i18n::{Currency, DateStyle, TimeStyle, parse_timestamp},
+    i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
 
 use crate::{
-    commerce::recovered::{ActionForm, RecoveredScreen},
+    commerce::{
+        recovered::{ActionForm, RecoveredScreen},
+        usd,
+    },
     text::{Com, Pilot},
 };
 
@@ -21,14 +24,6 @@ fn Status<'a>(status: &'a str) -> impl Render {
         _ => Accent,
     };
     html! { <span class={(Pill, tone)}>{status}</span> }
-}
-
-/// An amount in US dollars (admin-web's `formatMoney(value, "USD")`), or the API's text.
-fn usd(t: Com, amount: &str) -> String {
-    match (platform::money::decimal(amount), Currency::parse("USD")) {
-        (Some(amount), Some(usd)) => t.money(amount, usd).to_string(),
-        _ => amount.to_owned(),
-    }
 }
 
 fn when(t: Com, at: &str) -> String {

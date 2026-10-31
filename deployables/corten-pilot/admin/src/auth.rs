@@ -133,6 +133,18 @@ impl Rule for RecoveredAccess {
     }
 }
 
+/// Commerce > Commercial Terms: `commercial-terms.view` for the page and its writes, as admin-web's
+/// route needs; the API refuses a schedule write without `commercial-terms.manage` and an override
+/// write without `commercial-terms.agreements.manage`.
+#[derive(Clone, Debug, Hash)]
+pub struct TermsAccess;
+
+impl Rule for TermsAccess {
+    fn permission(_: &Method) -> &'static str {
+        "commercial-terms.view"
+    }
+}
+
 /// The catalog area: reading needs `catalog.view`, writing `catalog.manage` (admin-web's
 /// actions require it; the API checks both again).
 #[derive(Clone, Debug, Hash)]
