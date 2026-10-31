@@ -17,6 +17,12 @@ use crate::{api::Identity, app::Shared};
 /// What an area asks of who is asking: the permission a request needs, by its method.
 pub trait Rule: Clone + Hash + Send + Sync + 'static {
     fn permission(method: &Method) -> &'static str;
+
+    /// Whether `viewer` may make a request with `method`: by default, that they have
+    /// [`Rule::permission`]. A rule of more than one permission says so here.
+    fn allows(viewer: &Viewer, method: &Method) -> bool {
+        viewer.can(Self::permission(method))
+    }
 }
 
 /// Signed-in staff with the permission `R` says the request needs. Each area's routes module
@@ -32,7 +38,7 @@ pub struct Staff<R> {
 impl<R: Rule> Identify<Shared> for Staff<R> {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
         let viewer = viewer(parts, config).await?;
-        if !viewer.can(R::permission(&parts.method)) {
+        if !R::allows(&viewer, &parts.method) {
             return Err(Refused::forbidden());
         }
         Ok(Staff { viewer, rule: PhantomData })
@@ -142,6 +148,26 @@ pub struct TermsAccess;
 impl Rule for TermsAccess {
     fn permission(_: &Method) -> &'static str {
         "commercial-terms.view"
+    }
+}
+
+/// Settlement's `payouts.reconcile`: a reconciliation run, the payout setup's readiness and the
+/// provider attempts.
+pub const RECONCILE: &str = "payouts.reconcile";
+
+/// Commerce > Money Health and Payout Operations: reading needs `payouts.reconcile` or
+/// `payouts.platform.view`, as their nav entries do (`requiredPermissionsMatch: any`); a run needs
+/// `payouts.reconcile`, as the API does.
+#[derive(Clone, Debug, Hash)]
+pub struct PayoutAccess;
+
+impl Rule for PayoutAccess {
+    fn permission(_: &Method) -> &'static str {
+        RECONCILE
+    }
+
+    fn allows(viewer: &Viewer, method: &Method) -> bool {
+        viewer.can(RECONCILE) || (method.is_safe() && viewer.can("payouts.platform.view"))
     }
 }
 

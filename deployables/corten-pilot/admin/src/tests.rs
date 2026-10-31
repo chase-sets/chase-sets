@@ -119,6 +119,11 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["recovered-inventory.view"])
         } else if cookie.contains("chase_sets_session=terms-viewer") || cookie.contains("chase_sets_session=terms-lag") {
             actor(&["commercial-terms.view"])
+        } else if cookie.contains("chase_sets_session=payouts-viewer") {
+            actor(&["payouts.platform.view"])
+        } else if cookie.contains("chase_sets_session=payouts-operator") || cookie.contains("chase_sets_session=payouts-blocked")
+        {
+            actor(&["payouts.reconcile"])
         } else if cookie.contains("chase_sets_session=moderator") {
             actor(&["reported-content.view"])
         } else if cookie.contains("chase_sets_session=reader") {
@@ -184,6 +189,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             );
         }
         return commercial_terms(&method, rest, uri.query().unwrap_or_default(), &body);
+    }
+    if let Some(rest) = uri.path().strip_prefix(SETTLEMENT) {
+        return settlement(&method, rest, uri.query().unwrap_or_default(), cookie);
     }
     if let Some(rest) = uri.path().strip_prefix(RECOVERED) {
         if cookie.contains("recovery-lag") && headers.contains_key("chase-sets-read-after-write") {
@@ -5331,4 +5339,194 @@ async fn a_refused_terms_write_keeps_its_sheet_and_what_was_sent() {
     let (status, _, html) = pilot.send(post_as("terms-viewer", TERMS, &terms_body("delete-everything", &[], "X"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Unknown Commercial Terms action."), "{html}");
+}
+
+const SETTLEMENT: &str = "/api/settlement";
+
+fn payout_row(id: &str, status: &str, reference: Option<&str>, retry: Option<&str>, retries: u32) -> Value {
+    json!({
+        "payout_id": id, "account_id": "acc_1", "amount": "20.00", "requested_amount": "20.00", "fee_amount": "0.25",
+        "net_amount": "19.75", "currency_code": "usd", "status": status, "provider_payout_reference": reference,
+        "provider_status": null, "last_reconciled_at": "2026-03-24T11:10:00.000Z", "retry_count": retries,
+        "next_retry_at": retry, "updated_at": "2026-03-24T11:10:00.000Z",
+    })
+}
+
+fn reconciliation_job(status: &str, done: u64, result: Option<Value>) -> Value {
+    json!({
+        "jobId": "job_1", "jobKind": "payout-reconciliation", "status": status,
+        "progress": { "phase": status, "completed": done, "total": 2, "message": null }, "result": result,
+        "errorMessage": null, "createdAt": "2026-10-30T12:00:00.000Z", "updatedAt": "2026-10-30T12:00:01.000Z",
+    })
+}
+
+/// Settlement: two payouts needing attention (one failed with a retry queued, one in transit),
+/// one finished run, a run `job_1` still running whose stream finishes it, and a blocked
+/// operator's run refused.
+fn settlement(method: &Method, rest: &str, query: &str, cookie: &str) -> Response {
+    let payouts = json!([
+        payout_row("pyo_failed", "failed", None, Some("2026-03-24T11:25:00.000Z"), 1),
+        payout_row("pyo_transit", "in-transit", Some("po_1"), None, 0),
+    ]);
+    match (method.clone(), rest) {
+        (Method::GET, "/money-health") => Json(json!({
+            "payouts_needing_attention": payouts,
+            "negative_balance_accounts": [{ "account_id": "acc_neg", "negative_balance_status": "collections",
+                "available_balance_amount": "-12.50", "currency_code": "usd", "negative_balance_started_at": "2026-10-01T00:00:00.000Z",
+                "collections_escalated_at": null }],
+            "negative_balance_total": 1,
+            "reconciliation_runs": [{ "reconciliation_run_id": "rec_1", "kind": "payouts", "checked_count": 2, "reconciled_count": 0,
+                "ignored_count": 0, "skipped_count": 0, "error_count": 2, "status": "completed-with-errors",
+                "started_at": "2026-10-30T11:00:00.000Z", "completed_at": "2026-10-30T11:00:01.000Z" }],
+            "platform_balance_forecast": { "currency_code": "usd", "available_amount": "107.91",
+                "pending_payout_demand_amount": "0.00", "forecast_after_pending_demand_amount": "107.91" },
+            "provider_health": { "provider_name": "stripe", "adapter_mode": "provider", "webhook_signature_required": true,
+                "webhook_failure_classes": ["signature-invalid", "unknown-event"], "platform_balance_supported": true,
+                "connected_account_payouts_supported": false },
+        }))
+        .into_response(),
+        (Method::GET, "/payouts/reconciliation") => {
+            let items = if query == "filter=failed" { json!([payouts[0]]) } else { payouts };
+            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
+        }
+        (Method::GET, "/payout-readiness") => Json(json!({
+            "account_id": "acc_platform", "status": "restricted", "missing_requirements": ["external_account"],
+            "provider_reference": "acct_1", "payout_destination_status": "missing", "updated_at": "2026-01-01T00:00:00.000Z",
+        }))
+        .into_response(),
+        (Method::GET, "/payouts/provider-idempotency") if query == "limit=10" => Json(json!({ "items": [{
+            "operation_key": "op_1", "provider_name": "stripe", "operation_kind": "transfer", "account_id": "acc_1",
+            "payout_id": "pyo_failed", "provider_object_reference": null, "idempotency_key": "secret-key", "created_at": "2026-03-24T11:00:00.000Z",
+        }], "total": 1, "count": 1 }))
+        .into_response(),
+        (Method::GET, "/payouts/reconciliation/jobs/job_1") => Json(reconciliation_job("running", 1, None)).into_response(),
+        (Method::GET, "/payouts/reconciliation/jobs/job_1/events") => {
+            let done = json!({ "checked": 2, "reconciled": 1, "ignored": 0, "skipped": 0,
+                "errors": [{ "payoutId": "pyo_failed", "message": "Payout setup must include a provider account." }] });
+            let event = |id: u32, job: Value| format!("id: {id}\nevent: job.progress\ndata: {job}\n\n");
+            let body = [
+                event(1, reconciliation_job("running", 1, None)),
+                event(2, reconciliation_job("running", 1, None)),
+                event(3, reconciliation_job("completed", 2, Some(done))),
+            ]
+            .concat();
+            ([(header::CONTENT_TYPE, "text/event-stream")], body).into_response()
+        }
+        (Method::GET, path) if path.starts_with("/payouts/reconciliation/jobs/") => {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Job not found.")
+        }
+        (Method::POST, "/payouts/reconciliation/run") if cookie.contains("payouts-blocked") => {
+            refusal(StatusCode::CONFLICT, "reconciliation_running", "A reconciliation run is already in progress.")
+        }
+        (Method::POST, "/payouts/reconciliation/run") => (StatusCode::ACCEPTED, Json(reconciliation_job("queued", 0, None))).into_response(),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+impl Pilot {
+    fn calls_to_path(&self, prefix: &str) -> Vec<Call> {
+        self.calls.lock().unwrap().iter().filter(|c| c.path.starts_with(prefix)).cloned().collect()
+    }
+}
+
+#[tokio::test]
+async fn the_payout_pages_take_either_permission_and_a_run_takes_reconcile() {
+    let pilot = Pilot::new().await;
+    for path in ["/commerce/money-health", "/commerce/payout-operations"] {
+        let (status, _, _) = pilot.send(get(path, Some("reader"))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+        for session in ["payouts-viewer", "payouts-operator"] {
+            let (status, _, html) = pilot.send(get(path, Some(session))).await;
+            assert_eq!(status, StatusCode::OK, "{path} {session}: {html}");
+        }
+    }
+    let (status, _, _) =
+        pilot.send(post_as("payouts-viewer", "/commerce/payout-operations", "intent=run-reconciliation", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(pilot.calls_to_path("/api/settlement/payouts/reconciliation/run").is_empty(), "a viewer's run reaches no API");
+    // The nav shows both pages to a viewer with either permission.
+    let (_, _, html) = pilot.send(get("/commerce/money-health", Some("payouts-viewer"))).await;
+    assert!(html.contains(r#"href="/commerce/payout-operations""#), "{html}");
+}
+
+#[tokio::test]
+async fn money_health_shows_its_one_read() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/commerce/money-health", Some("payouts-viewer"))).await;
+    assert!(html.contains("<title>Money Health | Settlement Admin"), "{html}");
+    assert!(html.contains("$107.91 available") && html.contains("Pending payout demand: "), "{html}");
+    assert!(html.contains("signature-invalid, unknown-event") && html.contains(">Required<"), "{html}");
+    assert!(html.contains(">Unavailable<"), "connected payouts unsupported: {html}");
+    assert!(html.contains("acc_neg") && html.contains("-$12.50") && html.contains(">collections<"), "{html}");
+    assert!(html.contains("pyo_failed") && html.contains("$19.75"), "{html}");
+    assert!(html.contains("Checked 2; reconciled 0; errors 2"), "{html}");
+    assert!(!html.contains("/account/desk/payouts/"), "no Marketplace origin, no links: {html}");
+}
+
+#[tokio::test]
+async fn payout_operations_forwards_the_filter_and_reads_the_rest_only_to_reconcile() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/commerce/payout-operations?filter=failed", Some("payouts-viewer"))).await;
+    let reads: Vec<String> = pilot.calls_to_path(SETTLEMENT).into_iter().map(|c| c.path).collect();
+    assert_eq!(reads, ["/api/settlement/payouts/reconciliation?filter=failed"], "a viewer reads only the payouts");
+    assert!(!html.contains("run-reconciliation") && !html.contains("Recent Provider Attempts"), "{html}");
+    assert!(html.contains(r#"aria-current="page""#) && html.contains("Retry queued"), "{html}");
+    assert!(html.contains("1 attempt; next "), "{html}");
+    assert!(!html.contains("Payout setup blocked"), "the setup rows need payouts.reconcile: {html}");
+
+    let (_, _, html) = pilot.send(get("/commerce/payout-operations?filter=nonsense", Some("payouts-operator"))).await;
+    let reads: Vec<String> = pilot.calls_to_path(SETTLEMENT).into_iter().skip(1).map(|c| c.path).collect();
+    assert!(reads.contains(&"/api/settlement/payouts/reconciliation".to_owned()), "an unknown filter is All: {reads:?}");
+    assert!(reads.contains(&"/api/settlement/payout-readiness".to_owned()));
+    assert!(reads.contains(&"/api/settlement/payouts/provider-idempotency?limit=10".to_owned()));
+    assert!(html.contains("Ready to reconcile") && !html.contains("Needs provider reference"), "{html}");
+    assert!(html.contains("Protected retry key") && !html.contains("secret-key"), "the key itself is not shown: {html}");
+    assert!(html.contains("Not checked in this session"), "{html}");
+    // Restricted setup is blocked; updated in January is stale.
+    let blocked = html.find("Payout setup blocked").unwrap();
+    assert!(html[blocked..].contains(r#">1</span>"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_run_is_sent_shown_by_its_id_and_followed_until_it_is_done() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot
+        .send(post_as("payouts-operator", "/commerce/payout-operations?filter=failed", "intent=run-reconciliation", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/commerce/payout-operations?filter=failed&job=job_1");
+    let run = pilot.calls_to_path("/api/settlement/payouts/reconciliation/run").remove(0);
+    assert_eq!(serde_json::from_str::<Value>(&run.body).unwrap(), json!({ "limit": 100 }));
+
+    let (_, _, html) = pilot.send(get("/commerce/payout-operations?filter=failed&job=job_1", Some("payouts-operator"))).await;
+    assert!(html.contains(">running<") && html.contains("Checked 1; reconciled 0; ignored 0; skipped 0."), "{html}");
+    assert!(html.contains(r#"src="/commerce/payout-operations/live?filter=failed&amp;job=job_1""#), "{html}");
+    assert!(html.contains("Check again"), "{html}");
+
+    // The stream draws the run when it moves: the repeated record draws nothing.
+    let events = pilot.events("/commerce/payout-operations/live?filter=failed&job=job_1", "payouts-operator", 3).await;
+    let events: Vec<_> = events.into_iter().filter(|(event, _)| event == "patch").collect();
+    assert_eq!(events.len(), 2, "two patches, then the stream ends: {events:?}");
+    let (_, done) = &events[1];
+    assert!(done.contains(">completed<") && done.contains("Checked 2; reconciled 1"), "{done}");
+    assert!(done.contains("Errors: Payout setup must include a provider account.") && !done.contains("Check again"), "{done}");
+
+    // An unknown run: an old address shows none.
+    let (status, _, html) = pilot.send(get("/commerce/payout-operations?job=job_gone", Some("payouts-operator"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Not checked in this session"), "{html}");
+}
+
+#[tokio::test]
+async fn a_refused_run_says_why_and_an_unknown_intent_does_nothing() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post_as("payouts-blocked", "/commerce/payout-operations", "intent=run-reconciliation", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"role="alert">A reconciliation run is already in progress."#), "{html}");
+    let (status, headers, _) =
+        pilot.send(post_as("payouts-operator", "/commerce/payout-operations", "intent=other", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/commerce/payout-operations");
+    assert_eq!(pilot.calls_to_path("/api/settlement/payouts/reconciliation/run").len(), 1, "only the blocked one");
 }

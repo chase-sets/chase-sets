@@ -66,6 +66,15 @@ pub fn admin_web_origin() -> &'static str {
     &ORIGIN
 }
 
+/// Marketplace's origin (`CHASE_SETS_MARKETPLACE_ORIGIN`), for the payout pages' links to a payout;
+/// none when it is not set, and then there are no links, as on admin-web.
+pub fn marketplace_origin() -> Option<&'static str> {
+    static ORIGIN: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
+        std::env::var("CHASE_SETS_MARKETPLACE_ORIGIN").ok().map(|o| o.trim().to_owned()).filter(|o| !o.is_empty())
+    });
+    ORIGIN.as_deref()
+}
+
 pub(crate) type Shared = Arc<Config>;
 
 /// Every URL the postage screen serves, with its handlers. The list is the area's route: its
@@ -146,6 +155,8 @@ pub fn app(config: Config) -> App {
         .area(|area| crate::commerce::intake::area(area, shared.clone()))
         .area(|area| crate::commerce::recovered::area(area, shared.clone()))
         .area(|area| crate::commerce::terms::area(area, shared.clone()))
+        .area(|area| crate::commerce::payouts::health_area(area, shared.clone()))
+        .area(|area| crate::commerce::payouts::area(area, shared.clone()))
         .error_page(views::error_page, shared)
 }
 

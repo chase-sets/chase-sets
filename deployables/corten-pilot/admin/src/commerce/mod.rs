@@ -1,19 +1,26 @@
 //! Commerce's operator pages: Commerce > Return Intake ([`intake`]), Recovered Returns
-//! ([`recovered`]) and Commercial Terms ([`terms`]); Postage Policies is the app's own area
-//! (`crate::app`).
+//! ([`recovered`]), Commercial Terms ([`terms`]) and Money Health and Payout Operations
+//! ([`payouts`]); Postage Policies is the app's own area (`crate::app`).
 use corten::i18n::Currency;
 
 use crate::text::Com;
 
 pub mod intake;
+pub mod payouts;
 pub mod recovered;
 pub mod terms;
 pub mod views;
 
 /// An amount in US dollars (admin-web's `formatMoney(value, "USD")`), or the API's text.
 pub fn usd(t: Com, amount: &str) -> String {
-    match (platform::money::decimal(amount), Currency::parse("USD")) {
-        (Some(amount), Some(usd)) => t.money(amount, usd).to_string(),
+    money(t, amount, "USD")
+}
+
+/// An amount in `currency` (admin-web's `formatMoney(value, currency)`; `usd` is USD), or the
+/// API's text.
+pub fn money(t: Com, amount: &str, currency: &str) -> String {
+    match (platform::money::decimal(amount), Currency::parse(currency)) {
+        (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
         _ => amount.to_owned(),
     }
 }

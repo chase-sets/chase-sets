@@ -19,7 +19,10 @@
 //   adminAuthHostConfig as route.sessions and route.session).
 // - admin/locales/commerce.en.json: the commerce section's English catalog: Return Intake's
 //   (fulfillment.returnIntake.* as ri.*) and Recovered Returns' (inventory.features.recoveredItems.ui.page.*
-//   as rr.*) and Commercial Terms' (commercialTerms.features.home.* as ct.*).
+//   as rr.*) and Commercial Terms' (commercialTerms.features.home.* as ct.*) and Settlement's Money
+//   Health (settlement.features.payouts.ui.moneyHealthPage.* as mh.*) and Payout Operations
+//   (settlement.features.payouts.ui.payoutOperationsPage.* as po.*), with the payout amount
+//   headings both use (payout.*) and the routes' titles.
 // - admin/locales/support.en.json: the support section's English catalog: Reference Lookup's page
 //   (support.features.supportReferenceLookup.ui.supportReferenceLookupPage.* as lookup.*) and its
 //   route's text (support.routes.admin.supportReferenceLookup.* as lookup_route.*), and the CSAT
@@ -739,6 +742,15 @@ const outputs = [
       ...(await catalog("commercial-terms.ts", "commercialTermsEnglishTranslations", [
         ["commercialTerms.features.home.", "ct"],
         ["commercialTerms.support.requestSupport.adminLoaderError.commercial.terms.unavailable", "ct.load_unavailable"],
+      ])),
+      ...(await catalog("settlement.ts", "settlementEnglishTranslations", [
+        ["settlement.features.payouts.ui.moneyHealthPage.", "mh"],
+        ["settlement.features.payouts.ui.payoutOperationsPage.", "po"],
+        ["settlement.features.payouts.ui.requestedAmount", "payout.requested_amount"],
+        ["settlement.features.payouts.ui.payoutFee", "payout.fee"],
+        ["settlement.features.payouts.ui.netPayout", "payout.net"],
+        ["settlement.routes.admin.moneyHealth.money.health.settlement.admin", "mh.route_title"],
+        ["settlement.routes.admin.payoutOperations.payout.operations.settlement.admin", "po.route_title"],
       ])),
     }),
   ],
