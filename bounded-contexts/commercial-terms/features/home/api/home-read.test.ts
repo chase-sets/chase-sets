@@ -4,7 +4,6 @@ import type { CommercialTermsApiEnv } from "../../../api";
 import type { CommercialAgreementRow } from "../../agreements/read-model/queries";
 import type { CommercialTermsScheduleRow } from "../../schedules/read-model/queries";
 import {
-  COMMERCIAL_TERMS_HOME_SOURCE_LIMIT,
   CommercialTermsHomeIncompleteError,
   createHomeRuntime,
   resolveCommercialTermsHome,
@@ -310,7 +309,7 @@ describe("commercial terms home runtime: bounded sources", () => {
   }
 
   it("reads both sources from the first offset at the list cap and returns a reconciled envelope", async () => {
-    const full = rows(COMMERCIAL_TERMS_HOME_SOURCE_LIMIT, (index) =>
+    const full = rows(250, (index) =>
       schedule({ schedule_id: `cts_${String(index).padStart(3, "0")}`, status: "inactive" }),
     );
     const { home, listSchedules, listAgreements } = runtime(
@@ -320,7 +319,6 @@ describe("commercial terms home runtime: bounded sources", () => {
 
     const result = await home.readHome({ resolvedAt, scheduleId: null });
 
-    expect(COMMERCIAL_TERMS_HOME_SOURCE_LIMIT).toBe(250);
     expect(listSchedules).toHaveBeenCalledWith({ limit: 250, offset: 0 });
     expect(listAgreements).toHaveBeenCalledWith({ limit: 250, offset: 0 });
     expect(result.resolvedAt).toBe(resolvedAt);

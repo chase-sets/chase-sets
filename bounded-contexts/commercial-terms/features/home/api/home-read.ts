@@ -12,7 +12,7 @@ import { COMMERCIAL_TERMS_SCHEDULE_LAUNCH_VALUES } from "../../../support/runtim
  */
 
 /** The schedule and agreement list read models cap a page at this many rows. */
-export const COMMERCIAL_TERMS_HOME_SOURCE_LIMIT = 250;
+const SOURCE_PAGE_SIZE = 250;
 
 export type CommercialTermsHomePhase = "scheduled" | "in_effect" | "expiring";
 
@@ -197,7 +197,7 @@ function completeRows<T>(
   source: CommercialTermsHomeIncompleteError["source"],
   page: Readonly<{ items: readonly T[]; total: number }>,
 ) {
-  if (page.total > COMMERCIAL_TERMS_HOME_SOURCE_LIMIT || page.items.length !== page.total) {
+  if (page.total > SOURCE_PAGE_SIZE || page.items.length !== page.total) {
     throw new CommercialTermsHomeIncompleteError(source, page.items.length, page.total);
   }
   return page.items;
@@ -215,7 +215,7 @@ type HomeRuntimeDeps = Readonly<{
 export function createHomeRuntime(deps: HomeRuntimeDeps): HomeServices {
   return {
     async readHome({ resolvedAt, scheduleId }) {
-      const firstPage = { limit: COMMERCIAL_TERMS_HOME_SOURCE_LIMIT, offset: 0 };
+      const firstPage = { limit: SOURCE_PAGE_SIZE, offset: 0 };
       const [schedules, agreements] = await Promise.all([
         deps.schedules.listSchedules(firstPage),
         deps.agreements.listAgreements(firstPage),

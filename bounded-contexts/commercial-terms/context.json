@@ -563,6 +563,7 @@
       "classification": "support",
       "purpose": "Provide commercial-terms event-store composition and common fee math shared by runtime services.",
       "expectedConsumers": [
+        "home",
         "schedules",
         "agreements",
         "resolutions",
