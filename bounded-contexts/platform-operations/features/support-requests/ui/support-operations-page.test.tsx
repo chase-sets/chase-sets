@@ -16,10 +16,6 @@ function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {
     support_request_id: "sup_1",
     operatorPolicy: {
       deadlineAt: null,
-      recommendedAction: "response",
-      responsibilityReasons: [],
-      refundCap: null,
-      refundPrefill: null,
     },
     display_reference: "SUP-TEST1234",
     order_id: "ord_1",
@@ -65,6 +61,13 @@ function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {
 function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): SupportOperationsRequestDetailResponse {
   const request = {
     ...buildQueueItem(),
+    operatorPolicy: {
+      deadlineAt: null,
+      recommendedAction: "response",
+      responsibilityReasons: [],
+      refundCap: null,
+      refundPrefill: null,
+    },
     evidence: [],
     responses: [],
     offers: [],
