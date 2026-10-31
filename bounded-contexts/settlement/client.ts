@@ -21,13 +21,14 @@ import type {
   PayoutSetupProgress,
 } from "./features/payout-readiness/domain/setup-progress";
 import type { PayoutOperationsAttention } from "./features/payouts/read-model/payout-operations";
+import type { PayoutOperationsRow } from "./features/payouts/read-model/payout-operations";
 
 export type SettlementPayoutReadinessRow = PayoutReadinessProjection & PayoutSetupDecision;
 
 export type SettlementPayoutReadinessResponse = SettlementPayoutReadinessRow & PayoutSetupAttention;
 
 export type SettlementPayoutOperationsResponse = Readonly<{
-  items: readonly SettlementPayoutRow[];
+  items: readonly PayoutOperationsRow[];
   total: number;
   count: number;
   attention: PayoutOperationsAttention;

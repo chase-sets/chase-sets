@@ -42,6 +42,9 @@ describe("payout setup progress", () => {
       setup_stale_after_days: 30,
     });
     expect(
+      derivePayoutSetupAttention({ ...base, updated_at: "2026-06-01T15:00:00.000Z" }, "2026-07-01T15:00:00.000Z"),
+    ).toMatchObject({ setup_stale: false });
+    expect(
       derivePayoutSetupAttention({ ...base, updated_at: "2026-06-01T15:00:00.000Z" }, "2026-07-01T15:00:00.001Z"),
     ).toMatchObject({ setup_stale: true });
     expect(derivePayoutSetupAttention({ ...base, updated_at: null })).toMatchObject({

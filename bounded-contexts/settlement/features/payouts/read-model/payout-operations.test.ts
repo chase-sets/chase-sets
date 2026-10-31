@@ -49,9 +49,20 @@ describe("payout operations read", () => {
       operations_state: "needs-provider-reference",
       operations_severity: "warning",
     });
-    expect(derivePayoutOperationsRow(payout({ status: "in-transit" }), evaluatedAt)).toMatchObject({
+    expect(
+      derivePayoutOperationsRow(payout({ status: "in-transit", next_retry_at: evaluatedAt }), evaluatedAt),
+    ).toMatchObject({
       operations_state: "ready-to-reconcile",
       operations_severity: "normal",
+    });
+    expect(
+      derivePayoutOperationsRow(
+        payout({ status: "requested", next_retry_at: evaluatedAt, provider_payout_reference: null }),
+        evaluatedAt,
+      ),
+    ).toMatchObject({
+      operations_state: "needs-provider-reference",
+      operations_severity: "warning",
     });
   });
 

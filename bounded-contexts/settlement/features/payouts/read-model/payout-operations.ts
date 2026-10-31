@@ -34,7 +34,7 @@ function isStaleReconciliation(row: SettlementPayoutRow, now: number) {
 
 export function derivePayoutOperationsRow(row: SettlementPayoutRow, evaluatedAt: string): PayoutOperationsRow {
   const now = Date.parse(evaluatedAt);
-  const retryQueued = Boolean(row.next_retry_at);
+  const retryQueued = row.status === "failed" && Boolean(row.next_retry_at);
   const missingProviderReference = !row.provider_payout_reference;
 
   const operationsState: PayoutOperationsState = retryQueued

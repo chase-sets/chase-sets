@@ -15,12 +15,12 @@ import {
   Text,
   type Tone,
 } from "@chase-sets/design-system";
-import type { SettlementPayoutRow, SettlementProviderIdempotencyKeyRow } from "../read-model/queries";
+import type { SettlementProviderIdempotencyKeyRow } from "../read-model/queries";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
-import type { PayoutOperationsAttention } from "../read-model/payout-operations";
+import type { PayoutOperationsAttention, PayoutOperationsRow } from "../read-model/payout-operations";
 import type { PayoutSetupAttention } from "../../payout-readiness/domain/setup-progress";
 
-function operationsTone(row: SettlementPayoutRow): Tone {
+function operationsTone(row: PayoutOperationsRow): Tone {
   switch (row.operations_severity) {
     case "critical":
       return "danger";
@@ -31,7 +31,7 @@ function operationsTone(row: SettlementPayoutRow): Tone {
   }
 }
 
-function operationsLabel(row: SettlementPayoutRow) {
+function operationsLabel(row: PayoutOperationsRow) {
   switch (row.operations_state) {
     case "retry-queued":
       return t("settlement.features.payouts.ui.payoutOperationsPage.retry.queued");
@@ -44,7 +44,7 @@ function operationsLabel(row: SettlementPayoutRow) {
   }
 }
 
-function payoutConfirmationLabel(row: SettlementPayoutRow) {
+function payoutConfirmationLabel(row: PayoutOperationsRow) {
   return row.provider_payout_reference
     ? t("settlement.features.payouts.ui.payoutOperationsPage.confirmed")
     : t("settlement.features.payouts.ui.payoutOperationsPage.pending.confirmation");
@@ -69,7 +69,7 @@ export function SettlementPayoutOperationsPage({
   lastCheckedAt,
   marketplaceOrigin,
 }: {
-  payouts: readonly SettlementPayoutRow[];
+  payouts: readonly PayoutOperationsRow[];
   canReconcile: boolean;
   idempotencyKeys?: readonly SettlementProviderIdempotencyKeyRow[];
   payoutReadiness?: (SettlementPayoutReadinessRow & Partial<PayoutSetupAttention>) | null;
@@ -370,9 +370,19 @@ export function SettlementPayoutOperationsPage({
               header: t("settlement.features.payouts.ui.payoutOperationsPage.retry.policy"),
               cell: (row) =>
                 row.next_retry_at
-                  ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}; next ${formatDateTime(row.next_retry_at)}`
+                  ? t(
+                      row.retry_count === 1
+                        ? "settlement.features.payouts.ui.payoutOperationsPage.retry.attempt.next.singular"
+                        : "settlement.features.payouts.ui.payoutOperationsPage.retry.attempt.next.plural",
+                      { count: row.retry_count, nextAt: formatDateTime(row.next_retry_at) },
+                    )
                   : row.retry_count > 0
-                    ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}`
+                    ? t(
+                        row.retry_count === 1
+                          ? "settlement.features.payouts.ui.payoutOperationsPage.retry.attempt.singular"
+                          : "settlement.features.payouts.ui.payoutOperationsPage.retry.attempt.plural",
+                        { count: row.retry_count },
+                      )
                     : t("settlement.features.payouts.ui.payoutOperationsPage.none"),
             },
             {

@@ -479,6 +479,10 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.ui.payoutOperationsPage.retry.policy": "Retry policy",
   "settlement.features.payouts.ui.payoutOperationsPage.retry.policy.has.a.next.provider":
     "The next retry is already scheduled",
+  "settlement.features.payouts.ui.payoutOperationsPage.retry.attempt.next.singular": "{count} attempt; next {nextAt}",
+  "settlement.features.payouts.ui.payoutOperationsPage.retry.attempt.next.plural": "{count} attempts; next {nextAt}",
+  "settlement.features.payouts.ui.payoutOperationsPage.retry.attempt.singular": "{count} attempt",
+  "settlement.features.payouts.ui.payoutOperationsPage.retry.attempt.plural": "{count} attempts",
   "settlement.features.payouts.ui.payoutOperationsPage.retry.queued": "Retry queued",
   "settlement.features.payouts.ui.payoutOperationsPage.retry.queued.2": "Retry queued",
   "settlement.features.payouts.ui.payoutOperationsPage.review": "Review",
