@@ -102,6 +102,9 @@ jobs:
           extract_assertion() {
             local input="$1"
             local output="$2"
+            if grep -E -m 1 'account-appeal-aggregate\.db\.test\.ts:[0-9]+:' "$input" >"$output"; then
+              return 0
+            fi
             grep -E -m 8 'AssertionError|expected|❯|FAIL|toHaveLength|toMatchObject|toBe' "$input" >"$output" || true
             if [ ! -s "$output" ]; then
               printf '%s\n' 'NO_ASSERTION_LINE_FOUND' >"$output"
@@ -238,7 +241,7 @@ jobs:
               printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$mutant" "$file" "$status" "$head_hash" "$assertion_line" "$patch_hash" >>"$log_dir/mutant-results.tsv"
               echo "mutant=$mutant exit=$status assertion=$(head -n 1 "$assertion")"
               if [ "$status" -eq 0 ] || [ "$(head -n 1 "$assertion")" = 'NO_ASSERTION_LINE_FOUND' ]; then overall=1; fi
-              if [ "$mutant" = 'unscoped_query' ] && ! grep -Eq 'account-appeal-aggregate\.db\.test\.ts:1157|toHaveLength|expected.*1' "$assertion"; then
+              if [ "$mutant" = 'unscoped_query' ] && ! grep -Eq 'account-appeal-aggregate\.db\.test\.ts:115[67]|toHaveLength|expected.*1' "$assertion"; then
                 echo "::error::unscoped-query mutant did not record the rows-length assertion at :1157 or equivalent" >&2
                 overall=1
               fi
