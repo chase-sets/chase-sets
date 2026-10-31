@@ -29,14 +29,14 @@ export function catalogAttentionAliasCandidateItem(
       intent: "alias.accept",
       mode: "command",
       labelKey: "catalog.features.attentionQueue.action.acceptAlias",
-      fields: { aliasHash: "h1", targetKind: "catalog-item", targetId: "i1" },
+      fields: { aliasHashes: "h1", targetKind: "catalog-item", targetId: "i1", targetKey: "name" },
     },
     secondaryResolutions: [
       {
         intent: "alias.reject",
         mode: "command",
         labelKey: "catalog.features.attentionQueue.action.rejectAlias",
-        fields: { aliasHash: "h1", targetKind: "catalog-item", targetId: "i1" },
+        fields: { aliasHashes: "h1", targetKind: "catalog-item", targetId: "i1", targetKey: "name" },
         requiresReason: true,
       },
     ],
