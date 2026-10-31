@@ -763,8 +763,8 @@ const outputs = [
   ],
   [
     "admin/locales/growth.en.json",
-    json(
-      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
+    json({
+      ...(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
         ["publicPresence.admin.", "admin"],
         ["publicPresence.waitlist.role.", "role"],
         ["publicPresence.waitlist.interest.", "interest"],
@@ -774,8 +774,14 @@ const outputs = [
         ["publicPresence.routes.admin.waitlist.meta.title", "route.waitlist"],
         ["publicPresence.routes.admin.campaignAnalytics.meta.title", "route.campaign_analytics"],
         ["publicPresence.routes.admin.promoBar.meta.title", "route.promo_bar"],
-      ]),
-    ),
+      ])),
+      // Google Shopping's page copy; the API's and the sync job's own messages stay in Discovery.
+      ...(await catalog("discovery.ts", "discoveryEnglishTranslations", [
+        ["discovery.googleShoppingOperations.api.", ""],
+        ["discovery.googleShoppingOperations.sync.", ""],
+        ["discovery.googleShoppingOperations.", "gs"],
+      ]).then((all) => Object.fromEntries(Object.entries(all).filter(([key]) => key.startsWith("gs."))))),
+    }),
   ],
   ["admin/admission-bar.json", json(WAVE_ONE_ADMISSION_BAR)],
   ["admin/nav.json", json(adminNav())],

@@ -105,6 +105,9 @@ rules! {
     /// Growth > Waitlist, Promo Bar and Campaign Analytics (Public Presence's admin API asks for the
     /// same, for reads and writes alike).
     GrowthView => "public-presence.view";
+    /// Growth > Google Shopping (its nav entry's permission; Discovery's API asks for
+    /// `google-shopping.manage`, which every role with this one holds).
+    GoogleShoppingView => "google-shopping.view";
     /// Support > Customer Feedback (admin-web's route takes its nav entry's permission).
     SupportView => "support.view";
 }

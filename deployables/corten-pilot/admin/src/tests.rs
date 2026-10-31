@@ -121,6 +121,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["commercial-terms.view"])
         } else if cookie.contains("chase_sets_session=growth-viewer") {
             actor(&["public-presence.view"])
+        } else if cookie.contains("chase_sets_session=shopping-viewer") {
+            actor(&["google-shopping.view", "google-shopping.manage", "catalog.view"])
         } else if cookie.contains("chase_sets_session=payouts-viewer") {
             actor(&["payouts.platform.view"])
         } else if cookie.contains("chase_sets_session=payouts-operator") || cookie.contains("chase_sets_session=payouts-blocked")
@@ -191,6 +193,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             );
         }
         return commercial_terms(&method, rest, uri.query().unwrap_or_default(), &body);
+    }
+    if let Some(rest) = uri.path().strip_prefix(SHOPPING_API) {
+        return shopping_api(&method, rest, uri.query().unwrap_or_default(), &body);
     }
     if let Some(rest) = uri.path().strip_prefix(PROMO_API) {
         return promo_api(&method, rest, &body);
@@ -5730,4 +5735,131 @@ async fn promo_bar_writes_send_admin_webs_bodies_and_a_refusal_keeps_what_was_ty
     let (status, _, html) = pilot.send(post_as("growth-viewer", "/growth/promo-bar", "intent=update", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("No promo bar change was applied."), "{html}");
+}
+
+const SHOPPING_API: &str = "/api/marketplace/google-shopping";
+
+fn shopping_row(id: &str, blocking: u64, reasons: &[&str]) -> Value {
+    json!({
+        "rowId": format!("google-shopping:listing:{id}"), "listingId": id, "title": format!("Box {id}"), "accountId": "acc_1",
+        "catalogItemId": "cat_1", "productId": "cat_1::", "merchantOfferId": format!("cs-listing-{id}"), "externalSellerId": "cs-account-acc_1",
+        "canonicalUrl": format!("https://marketplace.example/listings/{id}"), "targetCountry": "US", "contentLanguage": "en", "feedLabel": "US",
+        "eligibilityStatus": if blocking > 0 { "excluded" } else { "eligible" }, "exclusionReasons": reasons,
+        "imageEligibilityStatus": "excluded", "imageExclusionReasons": ["invalid-image-url"], "syncStatus": "never-submitted",
+        "diagnosticStatus": null, "activeIssueCount": 0, "unknownIssueCodeCount": 0, "blockingIssueCount": blocking,
+        "remediationOwners": ["Catalog"], "pendingDelete": false, "stale": false, "nearingRefresh": false, "payloadHash": null,
+        "lastSubmittedPayloadHash": null, "lastSubmittedAt": null, "lastAcceptedAt": null, "lastSyncAttemptedAt": null,
+        "lastSyncErrorCode": null, "lastSyncErrorMessage": null, "lastProviderOperation": null, "deleteSubmittedAt": null,
+        "lastDiagnosticAt": null, "shippingPolicyUrl": null, "returnPolicyUrl": null, "returnPolicyLabel": null,
+        "updatedAt": "2026-10-30T12:48:49.526Z",
+    })
+}
+
+fn shopping_job(id: &str, status: &str) -> Value {
+    json!({ "jobId": id, "jobKind": "google-shopping.full-sync", "status": status, "result": null, "errorMessage": null,
+        "createdAt": "2026-10-31T06:00:00Z", "startedAt": null, "completedAt": null, "updatedAt": "2026-10-31T06:00:01Z",
+        "progress": { "phase": "processing", "completed": 3, "total": 23, "currentRowId": "google-shopping:listing:lst_a",
+            "submitted": 1, "skipped": 2, "deleted": 0, "failed": 0, "excluded": 20, "message": "Dry run in progress." } })
+}
+
+/// Discovery's Google Shopping operations: two rows (the second blocked, with a reason the page
+/// has no words for), a running job `gsj_1`, and dry runs; a batch of 7 is refused.
+fn shopping_api(method: &Method, rest: &str, query: &str, body: &str) -> Response {
+    match (method.as_str(), rest) {
+        ("GET", "/feed-rows") => Json(json!({
+            "generatedAt": "2026-10-31T06:00:00Z", "filter": "all", "search": "", "limit": 100, "refreshWindowDays": 25,
+            "refreshCutoff": "2026-10-06T06:00:00Z",
+            "summary": { "totalRows": 2, "attentionRows": 1, "eligibleRows": 1, "excludedRows": 1, "failedRows": 0,
+                "disapprovedRows": 0, "pendingDeleteRows": 0, "staleRows": 0, "nearingRefreshRows": 0, "pendingDiagnosticsRows": 0 },
+            "rows": [shopping_row("lst_a", 0, &[]), shopping_row("lst_b", 2, &["missing-condition", "brand-new-reason"])],
+            "echo": query,
+        }))
+        .into_response(),
+        ("GET", "/sync-jobs/gsj_1") => Json(shopping_job("gsj_1", "running")).into_response(),
+        ("GET", _) => StatusCode::NOT_FOUND.into_response(),
+        (_, _) if body.contains(r#""batchSize":7"#) || body.contains(r#""limit":7"#) => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "Batch size is too small.")
+        }
+        ("POST", "/sync-jobs") | ("POST", "/diagnostics/refresh-jobs") => (StatusCode::ACCEPTED, Json(shopping_job("gsj_2", "queued"))).into_response(),
+        ("POST", "/maintenance/sync-jobs") => Json(json!({ "summary": { "total": 0 }, "job": null })).into_response(),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[tokio::test]
+async fn google_shopping_shows_the_feed_and_inspect_and_close_keep_the_filters() {
+    let pilot = Pilot::new().await;
+    let (status, _, _) = pilot.send(get("/growth/google-shopping", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, html) =
+        pilot.send(get("/growth/google-shopping?search=box&filter=nonsense&limit=50", Some("shopping-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let reads: Vec<String> = pilot.calls_to_path(SHOPPING_API).into_iter().map(|c| c.path).collect();
+    assert!(
+        reads.contains(&format!("{SHOPPING_API}/feed-rows?filter=all&limit=50&refreshWindowDays=25&search=box")),
+        "{reads:?}"
+    );
+    assert!(html.contains("<title>Google Shopping | Operations"), "{html}");
+    assert!(html.contains("1 of 2 rows eligible; 1 excluded"), "{html}");
+    assert!(html.contains("Missing condition") && html.contains("Unrecognized exclusion reason (brand-new-reason)"), "{html}");
+    assert!(html.contains("Box lst_b"), "the first blocked row's detail opens: {html}");
+    assert!(
+        html.contains(r#"href="/growth/google-shopping?search=box&amp;filter=nonsense&amp;limit=50&amp;selected=none""#),
+        "Close: {html}"
+    );
+    assert!(
+        html.contains(r#"href="/growth/google-shopping?search=box&amp;filter=nonsense&amp;limit=50&amp;selected=google-shopping%3Alisting%3Alst_a""#),
+        "Inspect keeps the filters: {html}"
+    );
+    assert!(html.contains(r#"href="/catalog/catalog-items/cat_1""#) && !html.contains("/access/accounts/acc_1"), "{html}");
+    assert!(html.contains("Live full sync gated") && html.contains(" disabled"), "{html}");
+
+    let (_, _, html) = pilot.send(get("/growth/google-shopping?search=box&selected=none", Some("shopping-viewer"))).await;
+    assert!(!html.contains("gs-detail"), "closed: {html}");
+    let (_, _, html) =
+        pilot.send(get("/growth/google-shopping?selected=google-shopping%3Alisting%3Alst_a", Some("shopping-viewer"))).await;
+    assert!(html.contains(r#"id="gs-detail">Box lst_a<"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_google_shopping_dry_run_is_queued_with_the_pages_limit_and_followed() {
+    let pilot = Pilot::new().await;
+    for script in [false, true] {
+        let (status, headers, _) =
+            pilot.send(post_as("shopping-viewer", "/growth/google-shopping?limit=50", "intent=dry-run-full-sync", script)).await;
+        let expected = if script { StatusCode::NO_CONTENT } else { StatusCode::SEE_OTHER };
+        assert_eq!(status, expected);
+        if !script {
+            assert_eq!(headers[header::LOCATION], "/growth/google-shopping?limit=50&job=gsj_2&queued=full-sync");
+        }
+    }
+    let sent: Vec<Call> = pilot.calls_to_path(SHOPPING_API).into_iter().filter(|c| c.method == Method::POST).collect();
+    let body: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(body, json!({ "mode": "dry-run", "batchSize": 50 }));
+
+    let (status, headers, _) =
+        pilot.send(post_as("shopping-viewer", "/growth/google-shopping", "intent=dry-run-maintenance-sync", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/growth/google-shopping?queued=maintenance&total=0");
+    let (_, _, html) = pilot.send(get("/growth/google-shopping?queued=maintenance&total=0", Some("shopping-viewer"))).await;
+    assert!(html.contains("Maintenance dry-run found 0 candidate rows."), "{html}");
+
+    let (status, headers, _) =
+        pilot.send(post_as("shopping-viewer", "/growth/google-shopping", "intent=live-full-sync", false)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/growth/google-shopping"));
+    assert_eq!(
+        pilot.calls_to_path(SHOPPING_API).iter().filter(|c| c.method == Method::POST).count(),
+        3,
+        "a live run queues nothing"
+    );
+
+    let (_, _, html) = pilot.send(get("/growth/google-shopping?job=gsj_1&queued=full-sync", Some("shopping-viewer"))).await;
+    assert!(html.contains("Full sync dry-run queued as gsj_1.") && html.contains("3 of 23"), "{html}");
+    assert!(html.contains("/growth/google-shopping/live?job=gsj_1"), "a running job is followed: {html}");
+
+    let (status, _, html) = pilot
+        .send(post_as("shopping-viewer", "/growth/google-shopping?limit=7", "intent=dry-run-diagnostics-refresh", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Batch size is too small."), "{html}");
 }

@@ -50,6 +50,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Commerce > Return Intake, `/commerce/return-intake`, and Recovered Returns, `/commerce/recovered-items` |
 | `admin/` | Commerce > Commercial Terms, `/commerce/terms`, with a schedule's and an override's sheet and both create sheets, and admin-web's older addresses under `/commerce/terms/` |
 | `admin/` | Commerce > Money Health, `/commerce/money-health`, and Payout Operations, `/commerce/payout-operations` (`?job=`, followed live) |
+| `admin/` | Growth > Google Shopping, `/growth/google-shopping` (filters, a row's detail, the three dry runs, a dry run followed live; live runs stay gated) |
 | `admin/` | Growth > Waitlist, `/growth/waitlist`, with its CSV export, `/growth/waitlist/export`. Growth's pages call the same Public Presence routes as admin-web and inherit their access; see the private advisory GHSA-2v8j-2hqx-92fq before giving anyone the pilot's admin |
 | `admin/` | Growth > Campaign Analytics, `/growth/campaign-analytics` |
 | `admin/` | Growth > Promo Bar, `/growth/promo-bar` (`?edit=`, `?delete=`), with Create, Edit, Activate, Deactivate and Delete |
@@ -229,7 +230,7 @@ commit that says what changed. The history of every move is in the
 | [todd-skelton/corten#415 A handler that answers a file cannot answer a page or a redirect when the file is refused](https://github.com/todd-skelton/corten/issues/415) | `channels::manual_sync_download` relays a 303 to the connection with `?manual=failed`, and the page shows the failure | Corten has an answer that is a file or a page: draw the connection with why |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
-| [todd-skelton/corten#492 A sub-component cannot bind its page's script: #[component] has css = Other but no js = Other](https://github.com/todd-skelton/corten/issues/492) | Commercial Terms' `TermsPage` draws Create account override's account chooser and passes it to `CreateAgreementSheet` as `chooser` | [todd-skelton/corten#494 #[component(js = Owner)]: a part of a component calls its owner's handlers](https://github.com/todd-skelton/corten/pull/494), in review: move the pin, give `CreateAgreementSheet` `js = TermsPage` and drop `chooser` |
+| [todd-skelton/corten#492 A sub-component cannot bind its page's script: #[component] has css = Other but no js = Other](https://github.com/todd-skelton/corten/issues/492) | Commercial Terms' `TermsPage` draws Create account override's account chooser and passes it to `CreateAgreementSheet` as `chooser` | [todd-skelton/corten#494 #[component(js = Owner)]: a part of a component calls its owner's handlers](https://github.com/todd-skelton/corten/pull/494), merged on Corten `main` as `911de8b8`: move the pin, give `CreateAgreementSheet` `js = TermsPage` and drop `chooser` |
 
 ### Chase Sets
 
@@ -326,6 +327,7 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10867 [settlement] Return Payout Operations' attention counts, each payout's operations state and payout setup's blocked and stale state from the Settlement reads](https://github.com/chase-sets/chase-sets/issues/10867) (the pilot copies the page's rules: `OperationsScreen::attention`, `operations_status`) | [admin/src/commerce/payouts.rs](admin/src/commerce/payouts.rs) |
 | [chase-sets/chase-sets#10869 [public-presence] Return the wave-1 admission bar's goals from the campaign analytics read instead of the page importing the policy](https://github.com/chase-sets/chase-sets/issues/10869) (the pilot reads the goals from `admin/admission-bar.json`, exported from `WAVE_ONE_ADMISSION_BAR`) | [admin/src/growth/campaign.rs](admin/src/growth/campaign.rs) |
 | [chase-sets/chase-sets#10871 [public-presence] Promo Bar's start and end times are read in the API server's time zone and shown in UTC, not the operator's](https://github.com/chase-sets/chase-sets/issues/10871) (the pilot reads and fills them in the operator's zone and sends the instant) | [admin/src/growth/promo.rs](admin/src/growth/promo.rs) |
+| [chase-sets/chase-sets#10872 [discovery] Google Shopping's Inspect drops the filters and Close reopens the first blocked row instead of closing the detail](https://github.com/chase-sets/chase-sets/issues/10872) (the pilot keeps the filters and closes with `selected=none`; nothing to remove) | [admin/src/growth/google_shopping.rs](admin/src/growth/google_shopping.rs) |
 
 These are closed and still cited in the pilot's code as the decision or fix the code relies on.
 None of them leaves a workaround behind:
