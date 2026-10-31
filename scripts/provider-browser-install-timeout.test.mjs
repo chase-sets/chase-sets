@@ -174,6 +174,32 @@ describe("Static Checks provider installer", () => {
 
   it("static checks provider install timeout propagation", async () => {
     const job = workflow.jobs.static;
+    const resolveVersion = job.steps.find((step) => step.name === "Resolve Playwright Chromium version");
+    expect(resolveVersion).toEqual({
+      name: "Resolve Playwright Chromium version",
+      id: "playwright-version",
+      run: expect.stringContaining("pnpm exec playwright --version | awk '{print $2}'"),
+    });
+    const restore = job.steps.find((step) => step.name === "Restore Playwright Chromium cache");
+    expect(restore).toEqual({
+      name: "Restore Playwright Chromium cache",
+      id: "playwright-chromium-cache",
+      uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25",
+      env: { SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1" },
+      with: {
+        path: "/home/runner/.cache/ms-playwright",
+        key: "playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}",
+      },
+    });
+    expect(restore.with).not.toHaveProperty("restore-keys");
+    expect(job.steps.indexOf(restore)).toBeLessThan(
+      job.steps.findIndex((step) => step.name === "Install provider browser boundary"),
+    );
+    expect(
+      workflow.jobs.static.steps
+        .filter((step) => String(step.uses ?? "").startsWith("actions/cache/"))
+        .map((step) => step.uses),
+    ).toEqual(["actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25"]);
     const install = job.steps.find((step) => step.name === "Install provider browser boundary");
     expect(INSTALLER_TIMEOUT_SECONDS).toBe(600);
     expect(job["timeout-minutes"]).toBe(30);
