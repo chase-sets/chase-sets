@@ -21,7 +21,6 @@ use crate::{
         ORDERS_VIEW, PAYOUTS_SETUP, PAYOUTS_VIEW, PRICING_MANAGE, PRICING_VIEW, REPUTATION_MANAGE, REPUTATION_VIEW,
         SECURITY_MANAGE, SUPPORT_MANAGE, SUPPORT_VIEW, Shared, VIEW, sign_in_at, sign_in_back_to,
     },
-    views,
 };
 
 /// Who is asking on the public pages (the item page): `Option<Caller<Session>>`, `None` for a
@@ -206,17 +205,38 @@ impl Identify<Shared> for BulkRepricer {
     }
 }
 
-/// A buyer with an account cart. The guest cart is not ported: a visitor without an account, or a
-/// guest checkout's session, is sent to marketplace's own cart, which reads it.
+/// Whose cart the request is (marketplace's `canUseAccountCart`): an account's, or a guest's,
+/// which is the guest cart the browser carries (`chase_sets_anonymous_cart`). A visitor and a
+/// guest checkout have no account cart, so both read and write the guest cart, as marketplace's
+/// loader and action do.
 #[derive(Clone, Debug, Hash)]
-pub struct Buyer(pub Viewer);
+pub enum Buyer {
+    Account(Viewer),
+    /// A visitor (`None`), or a guest checkout's guest.
+    Guest(Option<Viewer>),
+}
+
+impl Buyer {
+    pub fn viewer(&self) -> Option<&Viewer> {
+        match self {
+            Buyer::Account(viewer) => Some(viewer),
+            Buyer::Guest(viewer) => viewer.as_ref(),
+        }
+    }
+
+    /// The public pages' session for the same request, for checkout start.
+    pub fn session(&self) -> Option<Session> {
+        self.viewer().cloned().map(Session::Account)
+    }
+}
 
 impl Identify<Shared> for Buyer {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
         match find(parts, config).await {
-            Found::Account(viewer) if !viewer.actor.can(GUEST_CHECKOUT) => Ok(Buyer(viewer)),
+            Found::Account(viewer) if !viewer.actor.can(GUEST_CHECKOUT) => Ok(Buyer::Account(viewer)),
+            Found::Account(viewer) => Ok(Buyer::Guest(Some(viewer))),
+            Found::SignedOut => Ok(Buyer::Guest(None)),
             Found::Unknown => Err(Refused::unavailable(UNKNOWN)),
-            Found::Account(_) | Found::SignedOut => Err(sign_in(views::marketplace("/account/cart"))),
         }
     }
 }

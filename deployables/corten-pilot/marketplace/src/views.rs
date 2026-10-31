@@ -620,12 +620,7 @@ pub fn RefusedDecision<'a>(
 
 /// The cart page (marketplace's `CheckoutCartPage`): its one notice, the lines, the totals and
 /// the checkout bar, or the empty cart.
-pub fn cart_page<'a>(
-    t: CartMsg,
-    _viewer: &'a Viewer,
-    screen: &'a CartScreen,
-    notice: Option<&'a crate::cart::Notice>,
-) -> impl Render + 'a {
+pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crate::cart::Notice>) -> impl Render + 'a {
     use crate::cart::Notice as Said;
     let paused = matches!(notice, Some(Said::Attempt(a)) if a.pauses());
     let readiness = screen.readiness.as_ref();

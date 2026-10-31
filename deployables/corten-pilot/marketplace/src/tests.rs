@@ -619,7 +619,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             _ => Json(cart(session)).into_response(),
         };
     }
-    if let Some(answer) = cart_commands(&stand, session, &method, uri.path(), &body) {
+    if let Some(answer) = cart_commands(&stand, session, &method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = checkout_sessions(&method, &uri, &headers, &body) {
@@ -1116,24 +1116,28 @@ fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str)
 }
 
 const CART_COMMANDS: &str = "/api/marketplace/account/cart/commands";
+const GUEST_CART_COMMANDS: &str = "/api/marketplace/guest/cart/commands";
 const CART_ATTEMPTS: &str = "/api/marketplace/account/command-attempts/";
 
 /// Cart writes, as the stand-in answers them. A command's line says what happens: `cli_gone` is
 /// no longer in the cart (its command is a conflict, the others apply), `cli_refused` is refused
 /// with nothing applied, `cli_lost` applies and its answer is lost, `cli_unknown`'s answer is lost
 /// and nothing is kept. Any other applies, at position 11. `stale`'s session has ended. A lookup
-/// answers what was kept.
-fn cart_commands(stand: &Stand, session: &str, method: &Method, path: &str, body: &str) -> Option<Response> {
+/// answers what was kept. A guest cart's commands need the guest cart they are for.
+fn cart_commands(stand: &Stand, session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     if let Some(id) = path.strip_prefix(CART_ATTEMPTS) {
         return Some(match stand.kept.lock().unwrap().get(id) {
             Some(attempt) => Json(json!({ "attempt": attempt })).into_response(),
             None => refusal(StatusCode::NOT_FOUND, "command_attempt_not_found", "Command attempt not found."),
         });
     }
-    if path != CART_COMMANDS || *method != Method::POST {
+    if (path != CART_COMMANDS && path != GUEST_CART_COMMANDS) || *method != Method::POST {
         return None;
     }
-    if session == "stale" {
+    if path == GUEST_CART_COMMANDS && !headers.contains_key("x-checkout-anonymous-cart-id") {
+        return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "A guest cart is required."));
+    }
+    if path == CART_COMMANDS && session == "stale" {
         return Some(refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."));
     }
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
@@ -2620,14 +2624,17 @@ async fn an_empty_cart_offers_to_keep_shopping() {
 }
 
 #[tokio::test]
-async fn any_account_has_a_cart_and_a_guest_goes_to_marketplaces() {
+async fn any_account_has_a_cart_and_a_visitor_or_a_guest_has_the_guest_cart() {
     let pilot = Pilot::new().await;
+    // No guest cart in the browser: the empty cart, with nothing read for it.
     for session in [None, Some("expired"), Some("guest")] {
-        let (status, headers, _) = pilot.send(get(CART_SCREEN, session)).await;
-        assert_eq!(status, StatusCode::SEE_OTHER, "{session:?}");
-        assert_eq!(headers[header::LOCATION], "http://localhost:7753/account/cart", "{session:?}");
+        let (status, headers, html) = pilot.send(get(CART_SCREEN, session)).await;
+        assert_eq!(status, StatusCode::OK, "{session:?}: {html}");
+        assert!(text(&html).contains("Your buy cart is empty"), "{session:?}: {html}");
+        let cache = headers[header::CACHE_CONTROL].to_str().unwrap();
+        assert!(cache.contains("private") || cache.contains("no-store"), "a visitor's cart is theirs alone: {cache}");
     }
-    assert!(cart_calls(&pilot).is_empty(), "nothing is read for a visitor without an account cart");
+    assert!(cart_calls(&pilot).is_empty() && guest_cart_reads(&pilot).is_empty(), "no cart to read");
     let (status, _, _) = pilot.send(get(CART_SCREEN, Some("down"))).await;
     // Corten's `Refused::unavailable`: a 503, not a sign-in.
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "a failed lookup must not send the user away");
@@ -2636,6 +2643,61 @@ async fn any_account_has_a_cart_and_a_guest_goes_to_marketplaces() {
     assert_eq!(status, StatusCode::OK);
     let (status, _, _) = pilot.send(get(SCREEN, Some("buyer"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+/// The guest cart reads the stand-in received.
+fn guest_cart_reads(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.method == Method::GET && c.path == GUEST_CART_ADD).cloned().collect()
+}
+
+/// The browser's guest cart, `anon_lines`, which the stand-in fills as `buyer`'s cart.
+const GUEST_LINES: &str = "chase_sets_anonymous_cart=anon_lines";
+
+#[tokio::test]
+async fn a_guest_cart_is_the_cart_page_with_its_lines_total_and_offer() {
+    let pilot = Pilot::new().await;
+    let mut req = get(CART_SCREEN, None);
+    req.headers_mut().insert(header::COOKIE, GUEST_LINES.parse().unwrap());
+    let (status, headers, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Save $10.99 by switching to Card Vault"), "{page}");
+    assert!(page.contains("Estimated total $421.49 Final total confirmed at checkout"), "{page}");
+    assert_eq!(checkout_forms(&html).len(), 2, "Use lower price and Check out: {html}");
+    assert_eq!(forms_to(&html, QUANTITY).len(), 2, "{html}");
+    let cache = headers[header::CACHE_CONTROL].to_str().unwrap();
+    assert!(cache.contains("private") || cache.contains("no-store"), "{cache}");
+    let [read] = guest_cart_reads(&pilot).try_into().unwrap();
+    assert_eq!(read.headers["x-checkout-anonymous-cart-id"], "anon_lines");
+    assert_eq!(read.headers["chase-sets-read-target-context"], "checkout");
+    assert!(cart_calls(&pilot).is_empty(), "not an account's cart");
+}
+
+#[tokio::test]
+async fn a_guests_line_write_goes_to_the_guest_cart_it_carries() {
+    let pilot = Pilot::new().await;
+    let body = format!("attempt={KEY}&line_id=cli_pikachu&quantity=1&delta=1");
+    let (status, headers, html) = pilot.send(visitor_post(QUANTITY, Some(GUEST_LINES), &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/cart?after_write="), "the cart read after the write: {to}");
+    let sent: Vec<Call> = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == GUEST_CART_COMMANDS).cloned().collect();
+    let [sent] = sent.try_into().unwrap();
+    assert_eq!(sent.headers["x-checkout-anonymous-cart-id"], "anon_lines");
+    let commands: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(
+        commands,
+        json!({ "attemptId": KEY, "commands": [{ "type": "quantity", "lineId": "cli_pikachu", "quantity": 2 }] })
+    );
+    assert!(cart_writes(&pilot).is_empty(), "not the account's cart");
+
+    // A browser with no guest cart has nothing to change: refused before anything is sent.
+    let (status, _, html) = pilot.send(visitor_post(QUANTITY, None, &body)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Request failed."), "{html}");
+    let guest_writes = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == GUEST_CART_COMMANDS).count();
+    assert_eq!(guest_writes, 1, "nothing more was sent");
 }
 
 #[tokio::test]
@@ -2751,14 +2813,28 @@ async fn a_checkout_the_api_refuses_is_the_cart_with_its_reason() {
 }
 
 #[tokio::test]
-async fn only_an_account_cart_checks_out_here() {
+async fn a_guests_check_out_is_checkout_starts_continue_with_the_offers_decision() {
     let pilot = Pilot::new().await;
-    for session in ["guest", "nobody"] {
-        let (status, headers, _) = pilot.send(post(CHECK_OUT, session, DECLINED, false)).await;
-        assert_eq!(status, StatusCode::SEE_OTHER, "{session}");
-        assert_eq!(headers[header::LOCATION], "http://localhost:7753/account/cart", "{session}: marketplace's own cart");
-    }
-    assert!(checkout_calls(&pilot).is_empty(), "nothing started");
+    // An empty guest cart: checkout start says so, and nothing starts.
+    let (status, _, html) = pilot.send(visitor_post(CHECK_OUT, None, DECLINED)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(checkout_calls(&pilot).is_empty(), "nothing started: {:?}", checkout_calls(&pilot));
+
+    // A guest cart with lines: a guest checkout starts, from a readiness read with the decision.
+    let (status, headers, html) = pilot.send(visitor_post(CHECK_OUT, Some(GUEST_LINES), DECLINED)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/checkout/buy/session/chk_1?"), "{to}");
+    let set = cookies_set(&headers);
+    assert!(set["chase_sets_guest_checkout"].starts_with("chase_sets_guest_checkout=gst_new;"), "{set:?}");
+    assert!(set["chase_sets_anonymous_cart"].contains("Max-Age=0"), "the guest cart moved into the checkout: {set:?}");
+    let calls = checkout_calls(&pilot);
+    let readiness = calls.iter().find(|c| c.path == "/api/marketplace/account/cart/readiness").expect("a readiness read");
+    let decisions: Value = serde_json::from_str(&readiness.body).unwrap();
+    assert_eq!(decisions["optimization"]["decision"], "declined", "{decisions}");
+    assert_eq!(readiness.headers["x-checkout-anonymous-cart-id"], "anon_lines");
+    let started = calls.iter().find(|c| c.path == "/api/marketplace/account/checkout-sessions").expect("a session");
+    assert_eq!(started.headers[header::COOKIE], "chase_sets_guest_checkout=gst_new", "under the new guest");
 }
 
 /// The cart writes the stand-in received, each as the JSON it was sent.
@@ -3634,11 +3710,7 @@ async fn a_guest_adds_to_the_guest_cart_marketplace_reads() {
     let (status, headers, html) = pilot.send(req().body(Body::from(body.clone())).unwrap()).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("http://localhost:7753/account/cart?afterWrite="), "{to}");
-    assert_eq!(
-        query(to)["postWriteHandoff"],
-        r#"{"kind":"checkout.cart.add-line","expectation":"collection-non-empty","surface":"account-cart"}"#
-    );
+    assert!(to.starts_with("/account/cart?after_write="), "the pilot's cart, which reads the guest cart: {to}");
     let cookie = headers[header::SET_COOKIE].to_str().unwrap();
     assert!(cookie.starts_with("chase_sets_anonymous_cart=anon_cmd_") && cookie.contains("Max-Age=2592000"), "{cookie}");
     let id = cookie.split(';').next().unwrap().split_once('=').unwrap().1.to_owned();
@@ -3648,14 +3720,14 @@ async fn a_guest_adds_to_the_guest_cart_marketplace_reads() {
         (GUEST_CART_ADD, id.as_str())
     );
 
-    // The cart the browser keeps is the one written next; a guest's View buy cart is marketplace's.
+    // The cart the browser keeps is the one written next, and the one View buy cart reads.
     let req = req().header(header::COOKIE, format!("chase_sets_anonymous_cart={id}"));
     let (status, headers, _) = pilot.send(req.body(Body::from(buy_body("add-product", "1", VAULT, "", ""))).unwrap()).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(adds(&pilot)[1].0.headers["x-checkout-anonymous-cart-id"].to_str().unwrap(), id);
     let (_, _, html) = pilot.send(get(headers[header::LOCATION].to_str().unwrap(), None)).await;
     let [view] = hrefs(&html, "View buy cart").try_into().unwrap();
-    assert!(view.starts_with("http://localhost:7753/account/cart?afterWrite="), "{view}");
+    assert!(view.starts_with("/account/cart?after_write="), "{view}");
 }
 
 #[tokio::test]
@@ -16602,6 +16674,9 @@ fn checkout_start_api(method: &Method, path: &str, headers: &HeaderMap) -> Optio
     match (method.as_str(), path) {
         ("GET", "/api/marketplace/guest/cart") => {
             let cart = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok());
+            if cart == Some("anon_lines") {
+                return Some(Json(self::cart("buyer")).into_response());
+            }
             let count = if cart == Some("anon_full") { 2 } else { 0 };
             Some(Json(json!({ "items": [], "count": count })).into_response())
         }

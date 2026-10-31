@@ -36,7 +36,7 @@ use crate::{
     api::{ApiError, Caller as ApiCaller, Checkout as _, CheckoutStart as _, Decisions, GuestCheckout, Started},
     app::{GUEST_CHECKOUT, Shared, read_failed, sign_in_back_to, url},
     auth::{Session, Viewer},
-    cart::ANONYMOUS_CART_COOKIE,
+    cart::{ANONYMOUS_CART_COOKIE, anonymous_cart},
     items::Raw,
     listing_new::first,
     sign_in::GUEST_CHECKOUT_COOKIE,
@@ -340,10 +340,6 @@ fn new_entry_key() -> String {
     format!("chkentry_{}", ulid::Ulid::new())
 }
 
-fn anonymous_cart(headers: &HeaderMap) -> Option<&str> {
-    cookie::get(headers, ANONYMOUS_CART_COOKIE).filter(|id| id.starts_with("anon_"))
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn draw(
     req: &Req,
@@ -401,12 +397,14 @@ pub(crate) async fn page(
 }
 
 /// Starts the session with `caller`: the cart's from a fresh readiness snapshot (the guest cart
-/// moved in first, best effort), or the entry's, once per entry key.
+/// moved in first, best effort) read with the cart page's `decisions`, or the entry's, once per
+/// entry key.
 async fn begin(
     caller: &ApiCaller<'_>,
     source: Option<&Source>,
     entry: &str,
     anonymous: Option<&str>,
+    decisions: &Decisions,
 ) -> Result<(Started, Option<Receipt>), ApiError> {
     match source {
         Some(source) => caller.buy_now(entry, &source.session()).await,
@@ -416,9 +414,8 @@ async fn begin(
             {
                 tracing::warn!("the guest cart was not merged before checkout: {error}");
             }
-            let decisions = Decisions::default();
-            let snapshot = caller.cart_readiness(&decisions, anonymous).await?;
-            caller.start_checkout(&snapshot, &decisions, anonymous).await
+            let snapshot = caller.cart_readiness(decisions, anonymous).await?;
+            caller.start_checkout(&snapshot, decisions, anonymous).await
         }
     }
 }
@@ -430,6 +427,7 @@ async fn begin_as_guest(
     source: Option<&Source>,
     entry: &str,
     anonymous: Option<&str>,
+    decisions: &Decisions,
 ) -> Result<(Started, Option<Receipt>, GuestCheckout), ApiError> {
     let guest = config.platform.caller(headers, config.proto, None).start_guest_checkout().await?;
     let mut as_guest = HeaderMap::new();
@@ -446,7 +444,7 @@ async fn begin_as_guest(
         })?,
     );
     let caller = config.platform.caller(&as_guest, config.proto, None);
-    let (started, receipt) = begin(&caller, source, entry, anonymous).await?;
+    let (started, receipt) = begin(&caller, source, entry, anonymous, decisions).await?;
     Ok((started, receipt, guest))
 }
 
@@ -510,7 +508,7 @@ pub(crate) async fn start(
     uri: Uri,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    start_at(&req, session.as_deref(), &config, &headers, &uri, &form_pairs(&raw)).await
+    start_at(&req, session.as_deref(), &config, &headers, &uri, &form_pairs(&raw), &Decisions::default()).await
 }
 
 /// A guest's or a visitor's Buy on an item or a listing page: checkout start's Continue for the
@@ -526,10 +524,24 @@ pub(crate) async fn buy_as_guest(
 ) -> HtmlResult {
     let uri: Uri = format!("{PATH}?{query}").parse().map_err(corten::Error::new)?;
     let posted = Pairs::from([("entryAttemptKey".to_owned(), entry.to_owned())]);
-    start_at(req, session, config, headers, &uri, &posted).await
+    start_at(req, session, config, headers, &uri, &posted, &Decisions::default()).await
 }
 
-/// Starts the checkout the entry at `uri` (or else the posted form) names, for whoever is asking.
+/// The cart page's Check out for a guest or a visitor, whose cart has no checkout of its own
+/// (marketplace's cart form posts to checkout start): Continue for the cart, with the lower-price
+/// offer's `decisions` as the page drew it. A refusal is checkout start's page, at its address.
+pub(crate) async fn cart_as_guest(
+    req: &Req,
+    session: Option<&Session>,
+    config: &Shared,
+    headers: &HeaderMap,
+    decisions: &Decisions,
+) -> HtmlResult {
+    start_at(req, session, config, headers, &Uri::from_static(PATH), &Pairs::new(), decisions).await
+}
+
+/// Starts the checkout the entry at `uri` (or else the posted form) names, for whoever is asking;
+/// a cart's with `decisions`.
 async fn start_at(
     req: &Req,
     session: Option<&Session>,
@@ -537,6 +549,7 @@ async fn start_at(
     headers: &HeaderMap,
     uri: &Uri,
     posted: &Pairs,
+    decisions: &Decisions,
 ) -> HtmlResult {
     let (who, viewer) = who(session)?;
     let source = Source::read(&query_pairs(uri.query())).or_else(|| Source::read(posted));
@@ -553,13 +566,13 @@ async fn start_at(
     };
     if who != Who::Visitor {
         let caller = config.platform.caller(headers, config.proto, None);
-        return match begin(&caller, source.as_ref(), &entry, anonymous).await {
+        return match begin(&caller, source.as_ref(), &entry, anonymous, decisions).await {
             Ok((started, receipt)) => {
                 let res = req.redirect(&session_page(&started, receipt.as_ref()))?;
                 Ok(forget_cart(res, config, anonymous))
             }
             Err(error) if who == Who::Guest && forbidden(&error) && may_start_again(source.as_ref(), anonymous) => {
-                match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous).await {
+                match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous, decisions).await {
                     Ok((started, receipt, guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
                     Err(again) if forbidden(&again) => refuse(who, error).await,
                     Err(again) => refuse(who, again).await,
@@ -582,10 +595,10 @@ async fn start_at(
             Err(error) => return refuse(who, error).await,
         }
     }
-    match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous).await {
+    match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous, decisions).await {
         Ok((started, receipt, guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
         Err(error) if forbidden(&error) && may_start_again(source.as_ref(), anonymous) => {
-            match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous).await {
+            match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous, decisions).await {
                 Ok((started, receipt, guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
                 Err(again) => refuse(Who::Visitor, again).await,
             }

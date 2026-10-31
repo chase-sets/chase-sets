@@ -2,12 +2,15 @@
 // collector with JavaScript and without it, and as a guest without it. It adds a listing and a
 // product to the buy cart, buys the best match (the pilot's cart, after the write), is refused a
 // quantity the lowest listing does not have, buys a listing now (the pilot's checkout session),
-// and as a guest adds to a guest cart (marketplace's cart reads it) and goes to guest checkout.
+// and as a guest adds to a guest cart, which the pilot's cart reads and writes (one more of the
+// line, at 390 px and 1280 px with nothing scrolling sideways), checks out from it (a guest
+// checkout starts) and buys a listing now through guest checkout.
 // The forms are on a product the collector's cart does not hold; the lines it adds are removed
 // at the end, so the cart is left as it was found. At 390 px the forms do not scroll sideways
 // and every control, the quantity and the folded product and offer forms included, is at least 40 px tall.
-// It writes: cart lines (removed again), a guest cart line (removed again) and one checkout
-// session (left open; nothing is reserved until payment starts).
+// It writes: cart lines (removed again), a guest cart line (removed again when it is still
+// there), one checkout session and one guest checkout session (both left open; nothing is
+// reserved until payment starts).
 // Usage: node scripts/smoke-market-item-buy.mjs [pilot-url] [state-file] [marketplace-url] [api-url] [slug]
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -217,7 +220,8 @@ try {
     await ctx.close();
   }
 
-  // A guest without JavaScript: a guest cart marketplace reads, and guest checkout.
+  // A guest without JavaScript: the guest cart, which the pilot's cart reads and writes, and
+  // guest checkout.
   {
     const { ctx, page } = await context({ javaScriptEnabled: false });
     await page.goto(`${base}/items/${slug}?listing=${listing.listing_id}`);
@@ -229,7 +233,7 @@ try {
       `the guest's cart id is kept in marketplace's cookie (${guest?.value.slice(0, 9)}...)`,
     );
     const view = await rail(page).getByRole("link", { name: "View buy cart" }).getAttribute("href");
-    check(view.startsWith(`${web}/account/cart?afterWrite=`), "a guest's View buy cart is marketplace's cart");
+    check(view.startsWith("/account/cart?after_write="), `a guest's View buy cart is the pilot's cart (${view})`);
     const guestRead = async () =>
       await (
         await fetch(`${api}/api/marketplace/guest/cart`, {
@@ -242,26 +246,61 @@ try {
       guestCart.items.length === 1 && guestCart.items[0].locked_listing_id === listing.listing_id,
       "the guest cart has the line",
     );
-    await page.goto(view);
-    check((await page.locator("body").innerText()).includes(read.title), "marketplace's cart shows the guest's line");
+    await page.goto(`${base}${view}`);
+    check(await shows(page, read.title, { reload: true }), "the pilot's cart shows the guest's line");
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+      check(!wide, `the guest's cart does not scroll sideways at ${width} px`);
+    }
+    await page.getByRole("button", { name: "Increase" }).first().click();
+    const two = await eventually(guestRead, (c) => c.items[0]?.quantity === 2);
+    check(
+      two.items[0]?.quantity === 2,
+      `Increase on the guest's cart adds one to the guest cart's line (${two.items.map((l) => l.quantity)})`,
+    );
+    check(await shows(page, "Quantity", { reload: true }), "and the cart is drawn again after the write");
+    // The listing has one, so two cannot check out: back to one, which can.
+    await page.getByRole("button", { name: "Decrease" }).first().click();
+    const one = await eventually(guestRead, (c) => c.items[0]?.quantity === 1);
+    check(one.items[0]?.quantity === 1, `Decrease takes it back to one (${one.items.map((l) => l.quantity)})`);
+    check(await shows(page, "Check out", { reload: true }), "and the cart can check out again");
+    const checkOut = page.getByRole("button", { name: "Check out" });
+    if (await checkOut.count()) {
+      await checkOut.first().click();
+      await page.waitForURL(/\/checkout\/buy\/(session|readiness)/);
+      const cookies = await ctx.cookies();
+      check(
+        /\/checkout\/buy\/session\//.test(page.url()) && cookies.some((c) => c.name === "chase_sets_guest_checkout"),
+        `the guest cart's Check out starts a guest checkout (${new URL(page.url()).pathname})`,
+      );
+      check(!cookies.some((c) => c.name === "chase_sets_anonymous_cart"), "and the guest cart's cookie is cleared");
+      await ctx.clearCookies({ name: "chase_sets_guest_checkout" });
+    } else {
+      check(false, "the guest cart's Check out is drawn");
+    }
+    // The cart's line moved into the checkout (Check out); one is added again for Buy this listing.
     await page.goto(`${base}/items/${slug}?listing=${listing.listing_id}`);
     await listingForm(page).getByRole("button", { name: "Buy this listing" }).click();
-    await page.waitForURL(/\/checkout\/buy\/readiness\?/);
-    const at = new URL(page.url());
+    await page.waitForURL(/\/checkout\/buy\/session\//);
     check(
-      at.searchParams.get("source") === "buy-now" && at.searchParams.get("listingId") === listing.listing_id,
-      "a guest's Buy this listing is marketplace's guest checkout for the listing",
+      (await ctx.cookies()).some((c) => c.name === "chase_sets_guest_checkout"),
+      "a guest's Buy this listing starts a guest checkout for the listing (checkout start's Continue)",
     );
-    check((await page.locator("body").innerText()).includes(read.title), "which shows the item");
+    check(await shows(page, read.title, { reload: true }), "which shows the item");
+    const left = await guestRead();
     const removed = await fetch(`${api}/api/marketplace/guest/cart/commands`, {
       method: "POST",
       headers: { ...checkout("", { "x-checkout-anonymous-cart-id": guest.value }), "content-type": "application/json" },
       body: JSON.stringify({
         attemptId: randomUUID(),
-        commands: guestCart.items.map((l) => ({ type: "remove", lineId: l.line_id })),
+        commands: left.items.map((l) => ({ type: "remove", lineId: l.line_id })),
       }),
     });
-    check(removed.ok, `the guest's line is removed again (${removed.status})`);
+    check(
+      !left.items.length || removed.ok,
+      `any guest line left is removed again (${left.items.length}, ${removed.status})`,
+    );
     await ctx.close();
   }
 

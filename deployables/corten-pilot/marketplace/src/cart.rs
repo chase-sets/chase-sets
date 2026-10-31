@@ -1,10 +1,14 @@
-//! Buy > Cart (marketplace's `/account/cart`): the account's cart lines, what each needs before
-//! checkout, the estimated total and the lower-price offer, as the Checkout API's cart read
-//! returns them. Check out and Use lower price start the checkout session here, as marketplace's
-//! `/checkout/buy/readiness` action does, and send the buyer to the checkout with the write's
-//! receipt (`checkout`); a cart that is not ready goes to checkout start (`checkout_start`).
-//! marketplace's action refuses a post from another origin (React Router's CSRF check), and
-//! starting the session is the Checkout API's call, so the pilot makes it.
+//! Buy > Cart (marketplace's `/account/cart`): the cart's lines, what each needs before checkout,
+//! the estimated total and the lower-price offer, as the Checkout API's cart read returns them.
+//! The cart is the account's, or for a visitor or a guest checkout the guest cart the browser
+//! carries (`chase_sets_anonymous_cart`), read and written through the API's guest routes, as
+//! marketplace's loader and action do (`canUseAccountCart`). Check out and Use lower price start
+//! the checkout session here for an account, as marketplace's `/checkout/buy/readiness` action
+//! does, and send the buyer to the checkout with the write's receipt (`checkout`); a guest's is
+//! checkout start's Continue (`checkout_start::cart_as_guest`), which starts a guest checkout. A
+//! cart that is not ready goes to checkout start (`checkout_start`). marketplace's action refuses
+//! a post from another origin (React Router's CSRF check), and starting the session is the
+//! Checkout API's call, so the pilot makes it.
 //!
 //! The API computes the readiness, the totals and the savings
 //! ([chase-sets/chase-sets#10504](https://github.com/chase-sets/chase-sets/issues/10504)). Each
@@ -27,7 +31,7 @@ use crate::{
         SellerOption, Snapshot,
     },
     app::{Config, Shared, read_failed, sign_in_at, url},
-    auth::{Buyer, Viewer},
+    auth::Buyer,
     cart_attempt::{self, State as Attempted},
     text::CartMsg,
     views::{self, Layout},
@@ -36,6 +40,11 @@ use crate::{
 /// The guest cart a browser carries from before it signed in (marketplace's
 /// `CHECKOUT_ANONYMOUS_CART_COOKIE_NAME`).
 pub const ANONYMOUS_CART_COOKIE: &str = "chase_sets_anonymous_cart";
+
+/// The guest cart the request carries, when it is one the API takes (`readAnonymousCartId`).
+pub fn anonymous_cart(headers: &HeaderMap) -> Option<&str> {
+    cookie::get(headers, ANONYMOUS_CART_COOKIE).filter(|id| id.starts_with("anon_"))
+}
 
 /// What the cart's address carries after a write: its receipt, which the cart read waits for
 /// (marketplace's `afterWrite`).
@@ -463,14 +472,14 @@ fn group(items: Vec<CartLine>) -> Vec<(CartLine, Vec<String>)> {
 
 pub(crate) async fn page(
     req: Req,
-    Caller(Buyer(viewer)): Caller<Buyer>,
+    Caller(buyer): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::cart::Cart>,
 ) -> HtmlResult {
     let after = route.after;
     let receipt = Receipt::from_param(after.after_write.as_deref());
-    render(&req, &viewer, &config, &headers, receipt.as_ref(), None).await
+    render(&req, &buyer, &config, &headers, receipt.as_ref(), None).await
 }
 
 /// The cart page, read after `receipt`'s write when there is one, with `notice` above the lines:
@@ -478,20 +487,25 @@ pub(crate) async fn page(
 /// applied is 409.
 async fn render(
     req: &Req,
-    viewer: &Viewer,
+    buyer: &Buyer,
     config: &Config,
     headers: &HeaderMap,
     receipt: Option<&Receipt>,
     notice: Option<Notice>,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, receipt);
-    let screen = match caller.cart().await {
+    let read = match buyer {
+        Buyer::Account(_) => caller.cart().await,
+        Buyer::Guest(_) => caller.guest_cart(anonymous_cart(headers)).await,
+    };
+    let viewer = buyer.viewer();
+    let screen = match read {
         Ok(cart) => CartScreen::of(cart),
         // marketplace's pending answer: the page says the change is saved and reads again.
         Err(error) if receipt.is_some() && error.catching_up() => CartScreen::pending(),
         Err(error) => {
             let t: CartMsg = req.t();
-            return read_failed(req, Some(viewer), error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()));
+            return read_failed(req, viewer, error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()));
         }
     };
     let t: CartMsg = req.t();
@@ -509,59 +523,62 @@ async fn render(
         Some(Notice::Attempt(a)) if a.state != Attempted::FailedSafe => StatusCode::CONFLICT,
         Some(_) => StatusCode::UNPROCESSABLE_ENTITY,
     };
-    let view = views::cart_page(t, viewer, &screen, notice.as_ref());
+    let view = views::cart_page(t, &screen, notice.as_ref());
     let title = t.route_cart_marketplace();
     req.screen_with_status(
         status,
         &screen,
-        html! { <Layout req={&req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> },
+        html! { <Layout req={&req} viewer={viewer} title={title} head={head}>{view}</Layout> },
     )
 }
 
 pub(crate) async fn quantity(
     req: Req,
-    Caller(Buyer(viewer)): Caller<Buyer>,
+    Caller(buyer): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<LineInput>,
 ) -> HtmlResult {
-    write(&req, &viewer, &config, &headers, Write::Quantity, input).await
+    write(&req, &buyer, &config, &headers, Write::Quantity, input).await
 }
 
 pub(crate) async fn remove(
     req: Req,
-    Caller(Buyer(viewer)): Caller<Buyer>,
+    Caller(buyer): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<LineInput>,
 ) -> HtmlResult {
-    write(&req, &viewer, &config, &headers, Write::Remove, input).await
+    write(&req, &buyer, &config, &headers, Write::Remove, input).await
 }
 
 pub(crate) async fn lock(
     req: Req,
-    Caller(Buyer(viewer)): Caller<Buyer>,
+    Caller(buyer): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<LineInput>,
 ) -> HtmlResult {
-    write(&req, &viewer, &config, &headers, Write::Lock, input).await
+    write(&req, &buyer, &config, &headers, Write::Lock, input).await
 }
 
 /// A line write (marketplace's `submitAccountCartCommands`): one attempt, applied once however
 /// often it is sent. Succeeded is the cart again, read after the write; otherwise the cart with
-/// what did not apply, and for a write not known to have applied, the same write to send again.
-async fn write(
-    req: &Req,
-    viewer: &Viewer,
-    config: &Config,
-    headers: &HeaderMap,
-    which: Write,
-    mut input: LineInput,
-) -> HtmlResult {
+/// what did not apply, and for a write not known to have applied, the same write to send again. A
+/// guest's goes to the guest cart it carries; one that carries none is refused before it is sent,
+/// as marketplace refuses it.
+async fn write(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, which: Write, mut input: LineInput) -> HtmlResult {
     let t: CartMsg = req.t();
     input.attempt = cart_attempt::attempt_id(&input.attempt);
-    let commands = match input.commands(t, which) {
+    let guest = match buyer {
+        Buyer::Account(_) => None,
+        Buyer::Guest(_) => anonymous_cart(headers).map(str::to_owned),
+    };
+    let commands = match buyer {
+        Buyer::Guest(_) if guest.is_none() => Err(t.route_request_failed()),
+        _ => input.commands(t, which),
+    };
+    let commands = match commands {
         Ok(commands) => commands,
         Err(message) => {
             let notice = AttemptNotice {
@@ -570,11 +587,12 @@ async fn write(
                 not_applied: Vec::new(),
                 resend: None,
             };
-            return render(req, viewer, config, headers, None, Some(Notice::Attempt(notice))).await;
+            return render(req, buyer, config, headers, None, Some(Notice::Attempt(notice))).await;
         }
     };
     let caller = config.platform.caller(headers, config.proto, None);
-    let outcome = match cart_attempt::submit(&caller, &input.attempt, &CartWrite::commands(&commands)).await {
+    let sent = CartWrite::commands(&commands).for_guest(guest);
+    let outcome = match cart_attempt::submit(&caller, &input.attempt, &sent).await {
         Ok(outcome) => outcome,
         Err(StatusCode::UNAUTHORIZED) => return sign_in_to_cart(req),
         Err(status) => return Err(corten::Error::status(status)),
@@ -586,7 +604,7 @@ async fn write(
     let resend = (outcome.state == Attempted::Ambiguous).then_some((which, input));
     let notice = AttemptNotice { state: outcome.state, message: outcome.message, not_applied: outcome.not_applied, resend };
     // What applied (a partial write's) is read back as the API has it now.
-    render(req, viewer, config, headers, outcome.receipt.as_ref(), Some(Notice::Attempt(notice))).await
+    render(req, buyer, config, headers, outcome.receipt.as_ref(), Some(Notice::Attempt(notice))).await
 }
 
 /// Check out (marketplace's `/checkout/buy/readiness` action for a signed-in cart): move a guest
@@ -594,29 +612,33 @@ async fn write(
 /// cart's readiness again with the posted decision, start a checkout session from it, and send
 /// the buyer to the checkout page with the write's receipt, the guest cart forgotten. A
 /// session started again from the same readiness is the same session, so sending again is safe.
-/// A refusal is the cart again with the API's reason.
+/// A refusal is the cart again with the API's reason. A guest's cart checks out as checkout
+/// start's Continue, with the same decision.
 pub(crate) async fn checkout(
     req: Req,
-    Caller(Buyer(viewer)): Caller<Buyer>,
+    Caller(buyer): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<CheckoutInput>,
 ) -> HtmlResult {
+    let decisions = input.decisions();
+    if let Buyer::Guest(_) = buyer {
+        return crate::checkout_start::cart_as_guest(&req, buyer.session().as_ref(), &config, &headers, &decisions).await;
+    }
     let caller = config.platform.caller(&headers, config.proto, None);
-    let guest = cookie::get(&headers, ANONYMOUS_CART_COOKIE).filter(|id| id.starts_with("anon_"));
+    let guest = anonymous_cart(&headers);
     if let Some(id) = guest
         && let Err(error) = caller.merge_guest_cart(id).await
     {
         tracing::warn!("the guest cart was not merged before checkout: {error}");
     }
-    let decisions = input.decisions();
     let started = async {
         let snapshot = caller.cart_readiness(&decisions, guest).await?;
         caller.start_checkout(&snapshot, &decisions, guest).await
     };
     let (session, receipt) = match started.await {
         Ok(started) => started,
-        Err(error) => return refused(&req, &viewer, &config, &headers, error).await,
+        Err(error) => return refused(&req, &buyer, &config, &headers, error).await,
     };
     let place = crate::checkout::Place::started(receipt.as_ref());
     let mut res = req.redirect(&url::BuyCheckout { id: &session.session_id, place })?;
@@ -629,14 +651,14 @@ pub(crate) async fn checkout(
 }
 
 /// Checkout did not start: sign in again, the error page, or the cart with the API's reason.
-async fn refused(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap, error: ApiError) -> HtmlResult {
+async fn refused(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, error: ApiError) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in_to_cart(req),
         Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
         Some(status) if status.is_client_error() => {
             let t: CartMsg = req.t();
             let reason = error.refusal().unwrap_or(t.route_request_failed()).to_owned();
-            render(req, viewer, config, headers, None, Some(Notice::Checkout(reason))).await
+            render(req, buyer, config, headers, None, Some(Notice::Checkout(reason))).await
         }
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }

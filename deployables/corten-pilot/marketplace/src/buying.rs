@@ -18,9 +18,9 @@
 //!
 //! A cart add is one cart attempt (`cart.add-line`), applied once however often it is sent, and
 //! resolved as the cart's writes are (`cart_attempt`). A guest's add goes to a guest cart whose
-//! id the browser keeps in marketplace's cookie; marketplace's cart reads it, so a guest's View buy
-//! cart is marketplace's (the pilot's cart is for accounts). A guest's Buy this listing is checkout
-//! start's Continue for the listing (`checkout_start`), as marketplace re-sends it there.
+//! id the browser keeps in marketplace's cookie, which the pilot's cart reads for a guest as for
+//! an account. A guest's Buy this listing is checkout start's Continue for the listing
+//! (`checkout_start`), as marketplace re-sends it there.
 use corten::{
     axum::{
         extract::State,
@@ -40,7 +40,6 @@ use crate::{
     cart_attempt::{self, State as Attempted},
     items::{self, Address, ItemScreen, Raw, available},
     text::ItemMsg,
-    views,
 };
 
 /// The item page's parameter after Add to cart: the write's receipt (empty without one).
@@ -379,20 +378,11 @@ pub(crate) fn is_guest(session: Option<&Session>) -> bool {
     !matches!(session, Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT))
 }
 
-/// The buy cart after a write whose receipt is `receipt` (empty for none): the pilot's for an
-/// account, marketplace's for a guest, with the handoff marketplace's cart waits on
-/// (`ACCOUNT_CART_ADD_LINE_HANDOFF`).
-pub fn cart_href(session: Option<&Session>, receipt: &str) -> String {
+/// The buy cart after a write whose receipt is `receipt` (empty for none): the pilot's, which
+/// reads the account's cart or the guest cart the browser carries.
+pub fn cart_href(receipt: &str) -> String {
     let receipt = (!receipt.is_empty()).then_some(receipt);
-    if !is_guest(session) {
-        return url::Cart { after: AfterWrite { after_write: receipt.map(str::to_owned) } }.href();
-    }
-    let mut path = String::from("/account/cart");
-    if let Some(receipt) = receipt {
-        let handoff = r#"{"kind":"checkout.cart.add-line","expectation":"collection-non-empty","surface":"account-cart"}"#;
-        path.push_str(&format!("?afterWrite={}&postWriteHandoff={}", segment(receipt), segment(handoff)));
-    }
-    views::marketplace(&path).map(|u| u.to_string()).unwrap_or(path)
+    url::Cart { after: AfterWrite { after_write: receipt.map(str::to_owned) } }.href()
 }
 
 async fn read_item(caller: &Caller<'_>, slug: &str) -> Result<Item, corten::Error> {
@@ -452,7 +442,7 @@ pub(crate) async fn add(
     let slug = item.slug.clone().unwrap_or(slug);
     let mut res = match outcome.state {
         Attempted::Succeeded if input.intent == Intent::BuyBestMatch => {
-            let to = cart_href(session, &receipt);
+            let to = cart_href(&receipt);
             req.redirect(&to.parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?)?
         }
         Attempted::Succeeded => req.redirect(&url::Item {
@@ -462,7 +452,7 @@ pub(crate) async fn add(
         })?,
         Attempted::Ambiguous => {
             let address = input.address.clone();
-            let notice = BuyNotice::Ambiguous { cart: cart_href(session, ""), resend: input };
+            let notice = BuyNotice::Ambiguous { cart: cart_href(""), resend: input };
             items::render(&req, session, item, &address, Some(&notice), StatusCode::CONFLICT, Default::default())?
         }
         Attempted::Partial | Attempted::FailedSafe => {

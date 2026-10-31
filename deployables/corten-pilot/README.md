@@ -73,7 +73,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Channels > Connections, `/account/channels` (`?status=`, `?cursor=`), a connection, `/account/channels/{id}`, with its manual TCGplayer sync (`POST ../{id}/manual-sync`, `../ingest`, `../download`), Publication, `/account/channels/publication`, and a connection's publication, `/account/channels/publication/{id}` |
 | `marketplace/` | Seller Desk > Money and a payout's page, `/account/desk/money`, `/account/desk/payouts/{id}` |
 | `marketplace/` | Seller Desk > payout setup, `/account/desk/settings` (`?mode=manage`) |
-| `marketplace/` | Buy > Cart, `/account/cart` |
+| `marketplace/` | Buy > Cart, `/account/cart`, for an account or the guest cart a visitor or guest checkout carries |
 | `marketplace/` | Buy > Checkout, `/checkout/buy/session/{id}`, and its confirmation, `/checkout/buy/session/{id}/confirmation`, for an account or a guest checkout, and an offer's checkout (Submit offer) |
 | `marketplace/` | Checkout start, `/checkout/buy/readiness`, for a listing, an offer or the cart, and a guest's or visitor's Buy |
 | `marketplace/` | Buy > a payment, `/account/payments/{id}`, and a guest checkout's, `/checkout/payments/{id}`, with Retry payment; saving a paid guest order to an account stays on marketplace |

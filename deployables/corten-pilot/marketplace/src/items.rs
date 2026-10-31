@@ -875,7 +875,7 @@ pub(crate) async fn page(
     // After Add to cart, the page says so; View buy cart waits for the write's receipt.
     // After Set alert, the page says so; the alerts' settings wait for the write's receipt.
     let notice = first(ADDED)
-        .map(|receipt| BuyNotice::Added(buying::cart_href(session, receipt)))
+        .map(|receipt| BuyNotice::Added(buying::cart_href(receipt)))
         .or_else(|| first(watching::WATCHED).map(|receipt| BuyNotice::Watched(watching::alerts_href(receipt))))
         .or_else(|| saving::saved(|key| first(key).cloned(), &save).map(BuyNotice::Saved));
     let (terms, history) =

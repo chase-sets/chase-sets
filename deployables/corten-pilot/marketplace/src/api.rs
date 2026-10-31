@@ -668,6 +668,11 @@ impl CartWrite {
         CartWrite { path: "", kind: "cart.add-line", body, guest }
     }
 
+    /// The same write to the guest cart `guest` (`/guest/cart/commands`), or the account's.
+    pub fn for_guest(self, guest: Option<String>) -> Self {
+        CartWrite { guest, ..self }
+    }
+
     fn owner(&self) -> &'static str {
         if self.guest.is_some() { "/api/marketplace/guest" } else { "/api/marketplace/account" }
     }
@@ -1353,6 +1358,9 @@ const MARKETPLACE: &str = "marketplace";
 /// The cart page's calls.
 pub trait Checkout {
     async fn cart(&self) -> Result<Cart, ApiError>;
+    /// The guest cart `anonymous_cart` (`GET /guest/cart`), with the readiness the API computed
+    /// for it. A browser without one has an empty cart, as the API answers then, so it is not asked.
+    async fn guest_cart(&self, anonymous_cart: Option<&str>) -> Result<Cart, ApiError>;
     /// Moves a guest cart's lines into the account's cart.
     async fn merge_guest_cart(&self, anonymous_cart: &str) -> Result<(), ApiError>;
     /// The account's cart's readiness now, with `decisions` (and the guest cart's lines).
@@ -1377,6 +1385,13 @@ pub trait Checkout {
 impl Checkout for Caller<'_> {
     async fn cart(&self) -> Result<Cart, ApiError> {
         self.read(CART, CHECKOUT).await
+    }
+
+    async fn guest_cart(&self, anonymous_cart: Option<&str>) -> Result<Cart, ApiError> {
+        let Some(id) = anonymous_cart else { return Ok(Cart { items: Vec::new(), count: 0, readiness: None }) };
+        // A read, sent as `write` sends a request (its answer checked, then its JSON).
+        let req = self.request(Method::GET, "/api/marketplace/guest/cart", CHECKOUT).header(ANONYMOUS_CART_HEADER, id);
+        Ok(self.write(req).await?.0)
     }
 
     async fn merge_guest_cart(&self, anonymous_cart: &str) -> Result<(), ApiError> {

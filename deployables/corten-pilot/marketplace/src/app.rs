@@ -15,11 +15,11 @@
 //! | `GET /account/inventory/restock-decisions?<check>` | the pending restock decisions, and what the last write did |
 //! | `POST /account/inventory/restock-decisions/{id}/restock` | restock a decision's items |
 //! | `POST /account/inventory/restock-decisions/{id}/write-off` | write them off, with a damage note |
-//! | `GET /account/cart?after_write=..` | the account's cart, its readiness and total |
+//! | `GET /account/cart?after_write=..` | the account's cart, or a guest's, its readiness and total |
 //! | `POST /account/cart/quantity` | a line's quantity, one step down or up |
 //! | `POST /account/cart/remove` | remove a line |
 //! | `POST /account/cart/lock` | lock a line to its preferred listing |
-//! | `POST /account/cart/checkout` | start a checkout session, then marketplace's checkout |
+//! | `POST /account/cart/checkout` | start a checkout session (a guest's through checkout start), then the checkout |
 //! | `GET /checkout/buy/readiness?<entry>`, `POST ..` | checkout start for a listing, an offer or the cart, and Continue (see `checkout_start`) |
 //! | `GET /checkout/payments/{id}?<place>`, `POST ..`, `../status?<watch>` | a guest checkout's payment, its Retry payment and its status part (see `payment`) |
 //! | `GET /items/{slug}?<choice>` | an item, its product options and its market book, to anyone |
@@ -1677,11 +1677,11 @@ pub mod url {
         pub struct SignOut;
     }
 
-    /// The buyer's cart: the cart is the area's route, and every handler takes a `Buyer` (an
-    /// account cart).
+    /// The buyer's cart: the cart is the area's route, and every handler takes a `Buyer` (the
+    /// account's cart, or the guest cart the browser carries).
     #[corten::routes(state = crate::app::Shared, area = Cart, caller = crate::auth::Buyer)]
     pub mod cart {
-        /// The account's cart, after the write whose receipt it carries.
+        /// The cart, after the write whose receipt it carries.
         #[derive(Clone, Debug, Default)]
         #[route("/account/cart", get = crate::cart::page)]
         pub struct Cart {
