@@ -394,9 +394,7 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       return access.response;
     }
 
-    const now = new Date().toISOString();
     const result = await services.listSupportOperationsQueue({
-      now,
       limit: Number(c.req.query("limit") ?? 50),
       offset: Number(c.req.query("offset") ?? 0),
       status: c.req.query("status") || undefined,
@@ -415,8 +413,7 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       return access.response;
     }
 
-    const now = new Date().toISOString();
-    const supportRequest = await services.getSupportOperationsRequest(c.req.param("id"), now);
+    const supportRequest = await services.getSupportOperationsRequest(c.req.param("id"));
     if (!supportRequest) {
       return c.json(
         {

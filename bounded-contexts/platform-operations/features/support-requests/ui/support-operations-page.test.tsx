@@ -11,6 +11,7 @@ import type {
 } from "./contracts";
 import { getSupportFlowDefinition } from "../domain/flow-catalog";
 import { normalizeFlowType } from "../domain/common";
+import { projectSupportOperatorPolicy } from "../read-model/queries";
 
 function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {}): SupportOperationsRequestListItem {
   return {
@@ -74,7 +75,12 @@ function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): Support
     offers: [],
     ...overrides,
   };
-  return { ...request, flow: getSupportFlowDefinition(normalizeFlowType(request.flow_type)) };
+  return {
+    ...request,
+    operatorPolicy:
+      overrides.operatorPolicy ?? projectSupportOperatorPolicy(request as never, "2026-10-31T12:00:00.000Z"),
+    flow: getSupportFlowDefinition(normalizeFlowType(request.flow_type)),
+  };
 }
 
 function renderPage(props: Partial<Parameters<typeof SupportOperationsPage>[0]> = {}) {
@@ -271,7 +277,11 @@ describe("SupportOperationsPage", () => {
 
   it("shows deadline countdowns and links each row back to a drawer on the current queue", () => {
     renderPage({
-      queue: { items: [buildQueueItem()], total: 1, count: 1 },
+      queue: {
+        items: [buildQueueItem({ operatorPolicy: { deadlineAt: "2026-06-02T00:00:00.000Z" } })],
+        total: 1,
+        count: 1,
+      },
       queueNow: "2026-06-02T02:00:00.000Z",
     });
 
@@ -289,6 +299,7 @@ describe("SupportOperationsPage", () => {
       queue: {
         items: [
           buildQueueItem({
+            operatorPolicy: { deadlineAt: "2026-06-02T00:00:00.000Z" },
             seller_response_due_at: "2026-06-03T00:00:00.000Z",
             support_review_due_at: "2026-06-02T00:00:00.000Z",
           }),
@@ -352,6 +363,13 @@ describe("SupportOperationsPage", () => {
       selectedRequest: buildDetailItem({
         status: "waiting-on-seller",
         support_review_due_at: "2026-06-01T00:00:00.000Z",
+        operatorPolicy: {
+          deadlineAt: "2026-06-01T00:00:00.000Z",
+          recommendedAction: "escalate",
+          responsibilityReasons: [],
+          refundCap: null,
+          refundPrefill: null,
+        },
       }),
       queueNow: "2026-06-02T00:00:00.000Z",
     });
@@ -363,6 +381,13 @@ describe("SupportOperationsPage", () => {
       selectedRequest: buildDetailItem({
         status: "waiting-on-seller",
         support_review_due_at: "2026-06-03T00:00:00.000Z",
+        operatorPolicy: {
+          deadlineAt: "2026-06-03T00:00:00.000Z",
+          recommendedAction: "response",
+          responsibilityReasons: [],
+          refundCap: null,
+          refundPrefill: null,
+        },
       }),
       queueNow: "2026-06-02T00:00:00.000Z",
     });
