@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,6 +22,7 @@ import {
   createMarketplaceDevProcessDefinition,
   isBrowserE2eTarget,
   resolveBrowserE2eSystemTarget,
+  resolveDevBootstrapWorkspaces,
 } from "./dev-system-config.mjs";
 
 const temporaryDirectories = [];
@@ -41,9 +42,61 @@ function expectMarketplaceCliBinding(source) {
   expect(source).toContain("env: buildPlatformChildEnvironment(process.env, definition.env)");
 }
 
+function expectBootstrapLauncherBinding(source) {
+  expect(source).toContain("resolveDevBootstrapWorkspaces,");
+  expect(source).toContain("for (const workspace of resolveDevBootstrapWorkspaces(targetName)) {");
+}
+
+function readContextManifests() {
+  const contextsDirectory = new URL("../bounded-contexts/", import.meta.url);
+  return readdirSync(contextsDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => JSON.parse(readFileSync(new URL(`${entry.name}/context.json`, contextsDirectory), "utf8")));
+}
+
 function expectMarketplaceOrigin(environment) {
   expect(environment.CHASE_SETS_INTERNAL_API_ORIGIN).toBe(marketplaceSandbox.urls.platformApi);
 }
+
+describe("browser E2E bootstrap ownership", () => {
+  it("lets the API own the shared schema and seed bootstrap for browser targets", () => {
+    expect(resolveDevBootstrapWorkspaces("browser-e2e")).toEqual(["@chase-sets/app-platform-api"]);
+    expect(resolveDevBootstrapWorkspaces(browserE2eProductionTarget)).toEqual(["@chase-sets/app-platform-api"]);
+  });
+
+  it("retains both deployable bootstraps for non-browser targets", () => {
+    expect(resolveDevBootstrapWorkspaces("all")).toEqual([
+      "@chase-sets/app-platform-api",
+      "@chase-sets/app-platform-worker",
+    ]);
+    expect(resolveDevBootstrapWorkspaces("platform-worker")).toEqual([
+      "@chase-sets/app-platform-api",
+      "@chase-sets/app-platform-worker",
+    ]);
+  });
+
+  it("keeps every worker context inside the API bootstrap set for each runtime profile", () => {
+    const manifests = readContextManifests();
+    for (const profile of ["landing", "proof", "public"]) {
+      const apiContexts = new Set(
+        manifests
+          .filter(
+            ({ apiDeployables, apiRuntimeProfiles }) =>
+              apiDeployables?.includes("platform-api") && apiRuntimeProfiles?.includes(profile),
+          )
+          .map(({ contextName }) => contextName),
+      );
+      const workerContexts = manifests
+        .filter(
+          ({ runtimeDeployables, workerRuntimeProfiles }) =>
+            runtimeDeployables?.includes("platform-worker") && workerRuntimeProfiles?.includes(profile),
+        )
+        .map(({ contextName }) => contextName);
+
+      expect(workerContexts.filter((contextName) => !apiContexts.has(contextName))).toEqual([]);
+    }
+  });
+});
 
 describe("marketplace dev sandbox origin", () => {
   it("binds the shared definition into the CLI process table and all three targets", () => {
@@ -52,6 +105,16 @@ describe("marketplace dev sandbox origin", () => {
     expect(() =>
       expectMarketplaceCliBinding(source.replace("createMarketplaceDevProcessDefinition(sandbox, sandboxEnv),", "")),
     ).toThrow();
+  });
+
+  it("binds bootstrap execution to the target resolver", () => {
+    const source = readFileSync(new URL("./dev-system.mjs", import.meta.url), "utf8");
+    expectBootstrapLauncherBinding(source);
+    const revertedLauncher = source.replace(
+      "for (const workspace of resolveDevBootstrapWorkspaces(targetName)) {",
+      'for (const workspace of ["@chase-sets/app-platform-api", "@chase-sets/app-platform-worker"]) {',
+    );
+    expect(() => expectBootstrapLauncherBinding(revertedLauncher)).toThrow();
   });
 
   it.each(["browser-e2e", "marketplace", "all"])(
