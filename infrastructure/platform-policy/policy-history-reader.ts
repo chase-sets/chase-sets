@@ -14,6 +14,7 @@ import { policyDocumentIdFromStreamId, POLICY_DOCUMENT_STREAM_PREFIX } from "./p
 
 const POLICY_EVENT_TYPES = ["platform-policy.document.created", "platform-policy.document.revised"] as const;
 
+/** Raised when a policy history request, source page or event is malformed. */
 export class PolicyHistoryReaderError extends Error {
   public constructor(message: string) {
     super(message);
@@ -36,36 +37,62 @@ export type PolicyHistoryRecord = Readonly<{
   effectiveUntil: string | null;
 }>;
 
+/** A JSON-serializable cursor that resumes a policy key's history after the last raw event read. */
 export type PolicyHistoryContinuation = Readonly<{
   policyKey: string;
+  /**
+   * A fixed inclusive global-position prefix, not a time or projection watermark;
+   * a later append needs a new `start`.
+   */
   horizon: GlobalPosition;
   afterGlobalPosition: GlobalPosition;
 }>;
 
+/** The fixed horizon and first continuation for reading one policy key's history. */
 export type PolicyHistoryStart = Readonly<{
   policyKey: string;
+  /**
+   * A fixed inclusive global-position prefix, not a time or projection watermark;
+   * a later append needs a new `start`.
+   */
   horizon: GlobalPosition;
   continuation: PolicyHistoryContinuation;
 }>;
 
+/** One bounded raw event page's records for the requested policy key. */
 export type PolicyHistoryPage = Readonly<{
   records: readonly PolicyHistoryRecord[];
+  /**
+   * A fixed inclusive global-position prefix, not a time or projection watermark;
+   * a later append needs a new `start`.
+   */
   horizon: GlobalPosition;
   continuation: PolicyHistoryContinuation;
+  /** True only when the raw source is exhausted through the horizon; zero target records is not completion. */
   complete: boolean;
 }>;
 
-/** Reads bounded raw event pages through a fixed global-position horizon. */
+/**
+ * Reads bounded raw event pages through a fixed global-position horizon.
+ * A malformed identity on any key's event fails every key's page; other keys'
+ * record fields are not validated.
+ */
 export type PolicyHistoryReader = Readonly<{
   start: (policyKey: string) => Promise<PolicyHistoryStart>;
   readPage: (continuation: PolicyHistoryContinuation) => Promise<PolicyHistoryPage>;
 }>;
 
+/** The event store and Postgres pool a policy history reader reads from. */
 export type PolicyHistoryReaderDeps = Readonly<{
   eventStore: EventStore;
+  /**
+   * `start` reads its horizon from `DEFAULT_EVENTS_TABLE` (`event_store_events`)
+   * even when the event store uses another table.
+   */
   pool: PgTransactionalPool;
 }>;
 
+/** Creates a policy history reader over the given event store and pool. */
 export function createPolicyHistoryReader(deps: PolicyHistoryReaderDeps): PolicyHistoryReader {
   return {
     start: async (policyKey) => {
@@ -102,9 +129,9 @@ export function createPolicyHistoryReader(deps: PolicyHistoryReaderDeps): Policy
           throw new PolicyHistoryReaderError("Policy history source returned a non-advancing or out-of-horizon page.");
         }
         lastRawPosition = position;
-        const identity = decodePolicyHistoryEvent(event, false);
+        const identity = decodePolicyHistoryIdentity(event);
         if (identity.policyKey === policyKey) {
-          records.push(decodePolicyHistoryEvent(event, true) as PolicyHistoryRecord);
+          records.push(decodePolicyHistoryRecord(event, identity));
         }
       }
 
@@ -136,10 +163,17 @@ function parsePosition(value: unknown, label: string): GlobalPosition {
   }
 }
 
-function decodePolicyHistoryEvent(
-  event: StoredEvent,
-  full = true,
-): PolicyHistoryRecord | Readonly<{ policyKey: string }> {
+type PolicyHistoryEventIdentity = Readonly<{
+  eventType: PolicyHistoryRecord["eventType"];
+  documentId: string;
+  policyKey: string;
+  payload: Readonly<Record<string, unknown>>;
+}>;
+
+// Identity is decoded for every raw event. Full value/window validation is
+// only needed for the requested key, so an unrelated document cannot poison
+// this key while a malformed key can never be skipped unseen.
+function decodePolicyHistoryIdentity(event: StoredEvent): PolicyHistoryEventIdentity {
   const documentId = policyDocumentIdFromStreamId(event.streamId);
   if (documentId === null) {
     throw new PolicyHistoryReaderError("Policy history event has an invalid document stream identity.");
@@ -154,21 +188,25 @@ function decodePolicyHistoryEvent(
     throw new PolicyHistoryReaderError("Policy history event has an invalid stream version.");
   }
 
-  const payload = event.payload as Record<string, unknown>;
+  const payload: unknown = event.payload;
+  if (!isPayloadObject(payload)) {
+    throw new PolicyHistoryReaderError("Policy history event payload must be an object.");
+  }
   if (payload.documentId !== documentId || typeof payload.documentId !== "string") {
     throw new PolicyHistoryReaderError("Policy history event document identity does not match its stream.");
   }
   if (typeof payload.policyKey !== "string" || !isPolicyKey(payload.policyKey)) {
     throw new PolicyHistoryReaderError("Policy history event has an invalid policy key.");
   }
+  return { eventType: event.eventType, documentId, policyKey: payload.policyKey, payload };
+}
 
-  if (!full) {
-    return { policyKey: payload.policyKey };
-  }
+function isPayloadObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-  // Identity is decoded for every raw event. Full value/window validation is
-  // only needed for the requested key, so an unrelated document cannot poison
-  // this key while a malformed key can never be skipped unseen.
+function decodePolicyHistoryRecord(event: StoredEvent, identity: PolicyHistoryEventIdentity): PolicyHistoryRecord {
+  const { eventType, documentId, policyKey, payload } = identity;
   if (typeof payload.status !== "string" || !["active", "inactive"].includes(payload.status)) {
     throw new PolicyHistoryReaderError("Policy history event has an invalid status.");
   }
@@ -185,8 +223,8 @@ function decodePolicyHistoryEvent(
   const recordedAt = normalizeTimestamp(event.recordedAt, "recordedAt");
   return {
     eventId: event.eventId,
-    eventType: event.eventType,
-    policyKey: payload.policyKey,
+    eventType,
+    policyKey,
     documentId,
     streamVersion: event.streamVersion,
     globalPosition: parsePosition(event.globalPosition, "event global position"),

@@ -46,11 +46,6 @@ import {
   listPolicyRegistry,
 } from "./queries";
 import { createPolicyResolver, type ResolvedPolicy } from "./resolver";
-import {
-  policyDocumentStreamId,
-  POLICY_DOCUMENT_STREAM_PREFIX as POLICY_DOCUMENT_STREAM_PREFIX_VALUE,
-} from "./policy-document-stream";
-
 /**
  * Policy document streams are keyed by document id under this fixed,
  * mechanism-level prefix -- deliberately NOT the mounting context's own
@@ -64,7 +59,7 @@ import {
  * context's own read model would stay empty regardless of how many policy
  * documents are created).
  */
-const POLICY_DOCUMENT_STREAM_PREFIX = POLICY_DOCUMENT_STREAM_PREFIX_VALUE;
+import { policyDocumentStreamId, POLICY_DOCUMENT_STREAM_PREFIX } from "./policy-document-stream";
 
 export type PolicyRuntimeDeps = Readonly<{
   eventStore: EventStore;
