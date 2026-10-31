@@ -13,6 +13,7 @@ import {
   assertProviderKey,
   assertRfc3339Instant,
 } from "../domain/validation";
+import { allowedChannelConnectionActions } from "../domain/domain";
 
 type ChannelConnectionRow = Readonly<{
   connection_id: string;
@@ -43,11 +44,16 @@ export function toPublicChannelConnection(state: ChannelConnectionState): Public
     environment: state.environment,
     status: state.status,
     createdAt: state.createdAt,
+    allowedActions: allowedChannelConnectionActions(state.status),
   };
 }
 
 export function closePublicChannelConnection(value: PublicChannelConnection): PublicChannelConnection {
-  assertClosedRecord(value, ["connectionId", "providerKey", "environment", "status", "createdAt"], "public connection");
+  assertClosedRecord(
+    value,
+    ["connectionId", "providerKey", "environment", "status", "createdAt", "allowedActions"],
+    "public connection",
+  );
   assertOpaqueId(value.connectionId, "connectionId");
   assertProviderKey(value.providerKey);
   if (value.environment !== "sandbox" && value.environment !== "production") {
@@ -55,12 +61,23 @@ export function closePublicChannelConnection(value: PublicChannelConnection): Pu
   }
   assertConnectionStatus(value.status);
   assertRfc3339Instant(value.createdAt, "createdAt");
+  if (!Array.isArray(value.allowedActions)) {
+    throw new ChannelConnectionError("invalid-input", "public connection allowedActions is invalid.");
+  }
+  const expectedActions = allowedChannelConnectionActions(value.status);
+  if (
+    value.allowedActions.length !== expectedActions.length ||
+    value.allowedActions.some((action, index) => action !== expectedActions[index])
+  ) {
+    throw new ChannelConnectionError("invalid-input", "public connection allowedActions is invalid.");
+  }
   return {
     connectionId: value.connectionId,
     providerKey: value.providerKey,
     environment: value.environment,
     status: value.status,
     createdAt: value.createdAt,
+    allowedActions: expectedActions,
   };
 }
 
@@ -173,6 +190,7 @@ function rowToPublic(row: ChannelConnectionRow): PublicChannelConnection {
     environment: row.environment,
     status: row.status,
     createdAt: row.created_at,
+    allowedActions: allowedChannelConnectionActions(row.status),
   });
 }
 

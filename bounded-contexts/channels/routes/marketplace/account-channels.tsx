@@ -4,7 +4,6 @@ import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
-import { listConnectableChannelProviders } from "../../features/connections/api/providers";
 import { createConnectionSetupRequestApiClient } from "../../features/connections/ui/setup-api-client";
 import { ChannelConnectionListPage } from "../../features/connections/ui/connection-pages";
 import {
@@ -22,16 +21,20 @@ function statusFilterFromUrl(url: URL): ChannelConnectionStatus | "default" {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const actor = await requireActorFromAuthApi({ request, permission: "channels.view" });
-  const providers = actor.permissions.includes("channels.manage") ? await listConnectableChannelProviders() : [];
+  await requireActorFromAuthApi({ request, permission: "channels.view" });
+  const connectionApi = createChannelsConnectionsRequestApiClient(request);
   const url = new URL(request.url);
   const statusFilter = statusFilterFromUrl(url);
   const cursor = url.searchParams.get("cursor") ?? undefined;
   try {
-    const page = await createChannelsConnectionsRequestApiClient(request).listConnections({
-      ...(statusFilter === "default" ? {} : { status: statusFilter }),
-      ...(cursor ? { cursor } : {}),
-    });
+    const [page, providerIdentities] = await Promise.all([
+      connectionApi.listConnections({
+        ...(statusFilter === "default" ? {} : { status: statusFilter }),
+        ...(cursor ? { cursor } : {}),
+      }),
+      connectionApi.listConnectableProviders(),
+    ]);
+    const providers = providerIdentities.map(({ providerKey }) => providerKey);
     return { kind: "ready" as const, page, statusFilter, providers };
   } catch (error) {
     if (error instanceof ChannelsConnectionsApiError) {

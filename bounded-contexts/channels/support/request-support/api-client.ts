@@ -12,6 +12,7 @@ import {
   type ChannelConnectionStatus,
   type PublicChannelConnection,
 } from "../../features/connections/domain/contracts";
+import type { ChannelProviderIdentity } from "../../features/publication-port/domain/contracts";
 
 export {
   channelConnectionStatuses,
@@ -53,6 +54,31 @@ export function createChannelsConnectionsRequestApiClient(request: Request) {
     return body as T;
   }
   return {
+    async listConnectableProviders(): Promise<readonly ChannelProviderIdentity[]> {
+      const result = await json<unknown>("/providers");
+      if (typeof result !== "object" || result === null || Array.isArray(result) || !("items" in result)) {
+        throw new ChannelsConnectionsApiError(200, result);
+      }
+      const items = result.items;
+      if (!Array.isArray(items)) throw new ChannelsConnectionsApiError(200, result);
+      for (const item of items) {
+        const record = item as Record<string, unknown>;
+        if (
+          typeof item !== "object" ||
+          item === null ||
+          Array.isArray(item) ||
+          Object.keys(item).some((key) => !["providerKey", "environment"].includes(key)) ||
+          typeof record.providerKey !== "string" ||
+          record.providerKey.length < 1 ||
+          record.providerKey.length > 64 ||
+          !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(record.providerKey) ||
+          (record.environment !== "sandbox" && record.environment !== "production")
+        ) {
+          throw new ChannelsConnectionsApiError(200, result);
+        }
+      }
+      return items as readonly ChannelProviderIdentity[];
+    },
     listConnections(
       query: Readonly<{ cursor?: string; status?: ChannelConnectionStatus; limit?: number }> = {},
     ): Promise<ChannelConnectionPage> {
