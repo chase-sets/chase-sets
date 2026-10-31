@@ -383,6 +383,9 @@ test.describe("marketplace critical flows", () => {
     await expect(categoryPanel).toBeVisible();
     const categoryButtons = categoryPanel.getByRole("button");
     const categoryLabels = await categoryButtons.allTextContents();
+    console.log(
+      `[6111 facet-count probe] expected: one category count >= 2 and < ${initialResultCount}, then the selected advertised count equals the filtered Result Set count; observed: ${JSON.stringify(categoryLabels)}`,
+    );
     const categoryIndex = categoryLabels.findIndex((label) => {
       const count = Number(label.match(/\((\d+)\)\s*$/)?.[1]);
       return count >= 2 && count < initialResultCount;
