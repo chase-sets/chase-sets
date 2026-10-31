@@ -276,6 +276,7 @@ jobs:
             overall=1
           fi
           git status --short >"$log_dir/final-status.txt"
+          exec >/dev/null 2>&1
 
           (
             cd "$log_dir"
