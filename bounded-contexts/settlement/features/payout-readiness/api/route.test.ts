@@ -77,7 +77,7 @@ describe("settlement payout setup routes", () => {
       const getPayoutReadiness = vi.fn(async () => projection);
       const response = await createApp({ getPayoutReadiness }, ["payouts.view"]).request("/payout-readiness");
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ ...projection, ...expected });
+      expect(await response.json()).toMatchObject({ ...projection, ...expected });
       expect(getPayoutReadiness).toHaveBeenCalledWith("acc_seller");
     },
   );

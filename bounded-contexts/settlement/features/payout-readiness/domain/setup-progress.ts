@@ -43,6 +43,29 @@ export type PayoutSetupDecision = Readonly<{
   provider_management_available: boolean;
 }>;
 
+export type PayoutSetupAttention = Readonly<{
+  setup_blocked: boolean;
+  setup_stale: boolean;
+  setup_stale_after_days: 30;
+}>;
+
+export const PAYOUT_SETUP_STALE_AFTER_DAYS = 30;
+export const PAYOUT_SETUP_STALE_AFTER_MS = PAYOUT_SETUP_STALE_AFTER_DAYS * 24 * 60 * 60 * 1_000;
+
+export function derivePayoutSetupAttention(
+  readiness: Pick<SettlementPayoutReadinessRow, "status" | "provider_reference" | "updated_at">,
+  evaluatedAt = new Date().toISOString(),
+): PayoutSetupAttention {
+  const updatedAt = readiness.updated_at ? Date.parse(readiness.updated_at) : null;
+  const now = Date.parse(evaluatedAt);
+
+  return {
+    setup_blocked: readiness.status !== "ready" || !readiness.provider_reference,
+    setup_stale: updatedAt !== null && Number.isFinite(updatedAt) && now - updatedAt > PAYOUT_SETUP_STALE_AFTER_MS,
+    setup_stale_after_days: PAYOUT_SETUP_STALE_AFTER_DAYS,
+  };
+}
+
 export type PayoutSetupProgress = Readonly<{
   account_id: string;
   status: SettlementPayoutReadinessRow["status"];

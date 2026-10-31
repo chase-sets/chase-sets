@@ -17,41 +17,37 @@ import {
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow, SettlementProviderIdempotencyKeyRow } from "../read-model/queries";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
+import type { PayoutOperationsAttention } from "../read-model/payout-operations";
+import type { PayoutSetupAttention } from "../../payout-readiness/domain/setup-progress";
 
 function operationsTone(row: SettlementPayoutRow): Tone {
-  if (row.status === "failed") {
-    return "danger";
+  switch (row.operations_severity) {
+    case "critical":
+      return "danger";
+    case "warning":
+      return "warning";
+    default:
+      return "accent";
   }
-  if (!row.provider_payout_reference) {
-    return "warning";
-  }
-  return "accent";
 }
 
 function operationsLabel(row: SettlementPayoutRow) {
-  if (row.status === "failed" && row.next_retry_at) {
-    return t("settlement.features.payouts.ui.payoutOperationsPage.retry.queued");
+  switch (row.operations_state) {
+    case "retry-queued":
+      return t("settlement.features.payouts.ui.payoutOperationsPage.retry.queued");
+    case "needs-provider-reference":
+      return t("settlement.features.payouts.ui.payoutOperationsPage.needs.provider.reference");
+    case "ready-to-reconcile":
+      return t("settlement.features.payouts.ui.payoutOperationsPage.ready.to.reconcile");
+    default:
+      return t("settlement.features.payouts.ui.payoutOperationsPage.review");
   }
-  if (!row.provider_payout_reference) {
-    return t("settlement.features.payouts.ui.payoutOperationsPage.needs.provider.reference");
-  }
-  if (row.status === "in-transit") {
-    return t("settlement.features.payouts.ui.payoutOperationsPage.ready.to.reconcile");
-  }
-  return t("settlement.features.payouts.ui.payoutOperationsPage.review");
 }
 
 function payoutConfirmationLabel(row: SettlementPayoutRow) {
   return row.provider_payout_reference
     ? t("settlement.features.payouts.ui.payoutOperationsPage.confirmed")
     : t("settlement.features.payouts.ui.payoutOperationsPage.pending.confirmation");
-}
-
-function payoutReadinessIsStale(updatedAt: string | null) {
-  if (!updatedAt) {
-    return false;
-  }
-  return Date.now() - Date.parse(updatedAt) > 30 * 24 * 60 * 60 * 1000;
 }
 
 function payoutDetailHref(payoutId: string, marketplaceOrigin?: string | null) {
@@ -67,6 +63,7 @@ export function SettlementPayoutOperationsPage({
   canReconcile,
   idempotencyKeys = [],
   payoutReadiness,
+  operationsAttention,
   runResult,
   currentFilter = "all",
   lastCheckedAt,
@@ -75,7 +72,8 @@ export function SettlementPayoutOperationsPage({
   payouts: readonly SettlementPayoutRow[];
   canReconcile: boolean;
   idempotencyKeys?: readonly SettlementProviderIdempotencyKeyRow[];
-  payoutReadiness?: SettlementPayoutReadinessRow | null;
+  payoutReadiness?: (SettlementPayoutReadinessRow & Partial<PayoutSetupAttention>) | null;
+  operationsAttention?: PayoutOperationsAttention | null;
   runResult?: Readonly<{
     jobId: string;
     status: string;
@@ -98,26 +96,25 @@ export function SettlementPayoutOperationsPage({
   lastCheckedAt?: string | null;
   marketplaceOrigin?: string | null;
 }) {
+  const staleRequestedAfterMinutes = operationsAttention?.stale_requested_after_minutes ?? 15;
   const filters = [
     ["all", t("settlement.features.payouts.ui.payoutOperationsPage.all")],
     ["missing-provider-reference", t("settlement.features.payouts.ui.payoutOperationsPage.missing.reference")],
     ["in-transit", t("settlement.features.payouts.ui.payoutOperationsPage.in.transit")],
     ["failed", t("settlement.features.payouts.ui.payoutOperationsPage.failed")],
-    ["stale-requested", t("settlement.features.payouts.ui.payoutOperationsPage.older.than.15.minutes")],
+    [
+      "stale-requested",
+      t("settlement.features.payouts.ui.payoutOperationsPage.older.than.minutes", {
+        minutes: staleRequestedAfterMinutes,
+      }),
+    ],
   ] as const;
-  const failedCount = payouts.filter((payout) => payout.status === "failed").length;
-  const missingReferenceCount = payouts.filter((payout) => !payout.provider_payout_reference).length;
-  const retryQueuedCount = payouts.filter((payout) => Boolean(payout.next_retry_at)).length;
-  const staleCheckCount = payouts.filter((payout) => {
-    if (!payout.last_reconciled_at) {
-      return payout.status !== "requested";
-    }
-    return Date.now() - new Date(payout.last_reconciled_at).getTime() > 30 * 60 * 1000;
-  }).length;
-  const payoutSetupBlocked = payoutReadiness
-    ? payoutReadiness.status !== "ready" || !payoutReadiness.provider_reference
-    : false;
-  const payoutSetupStale = payoutReadiness ? payoutReadinessIsStale(payoutReadiness.updated_at) : false;
+  const failedCount = operationsAttention?.failed ?? 0;
+  const missingReferenceCount = operationsAttention?.missing_provider_reference ?? 0;
+  const retryQueuedCount = operationsAttention?.retry_queued ?? 0;
+  const staleCheckCount = operationsAttention?.stale_reconciliation ?? 0;
+  const payoutSetupBlocked = payoutReadiness?.setup_blocked ?? false;
+  const payoutSetupStale = payoutReadiness?.setup_stale ?? false;
   const payoutSetupMissingRequirementCount = payoutReadiness?.missing_requirements.length ?? 0;
   const terminalRunResult = runResult?.result ?? null;
 
@@ -165,25 +162,25 @@ export function SettlementPayoutOperationsPage({
                     </Text>
                   ) : null}
                   <Text size="sm" tone="secondary">
-                    {t("settlement.features.payouts.ui.payoutOperationsPage.checked")}
-                    {terminalRunResult?.checked ?? runResult.progress.completed}
-                    {t("settlement.features.payouts.ui.payoutOperationsPage.reconciled")}
-                    {terminalRunResult?.reconciled ?? 0}
-                    {t("settlement.features.payouts.ui.payoutOperationsPage.ignored")}
-                    {terminalRunResult?.ignored ?? 0}
-                    {t("settlement.features.payouts.ui.payoutOperationsPage.skipped")}
-                    {terminalRunResult?.skipped ?? 0}.
+                    {t("settlement.features.payouts.ui.payoutOperationsPage.reconciliation.summary", {
+                      checked: terminalRunResult?.checked ?? runResult.progress.completed,
+                      reconciled: terminalRunResult?.reconciled ?? 0,
+                      ignored: terminalRunResult?.ignored ?? 0,
+                      skipped: terminalRunResult?.skipped ?? 0,
+                    })}
                   </Text>
                   {terminalRunResult && terminalRunResult.errors.length > 0 ? (
                     <Text size="sm" tone="secondary">
-                      {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}
-                      {terminalRunResult.errors.map((error) => error.message).join("; ")}
+                      {t("settlement.features.payouts.ui.payoutOperationsPage.reconciliation.errors", {
+                        errors: terminalRunResult.errors.map((error) => error.message).join("; "),
+                      })}
                     </Text>
                   ) : null}
                   {runResult.errorMessage ? (
                     <Text size="sm" tone="secondary">
-                      {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}
-                      {runResult.errorMessage}
+                      {t("settlement.features.payouts.ui.payoutOperationsPage.reconciliation.errors", {
+                        errors: runResult.errorMessage,
+                      })}
                     </Text>
                   ) : null}
                 </Stack>

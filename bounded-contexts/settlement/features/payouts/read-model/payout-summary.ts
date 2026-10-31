@@ -46,7 +46,7 @@ export type SettlementPayoutSummary = Readonly<{
 }>;
 
 const ESTIMATED_PAYOUT_BUSINESS_DAYS = 3;
-const STALE_REQUESTED_AFTER_MS = 15 * 60 * 1_000;
+export const STALE_REQUESTED_AFTER_MS = 15 * 60 * 1_000;
 
 function addBusinessDays(instant: string, businessDays: number) {
   const date = new Date(instant);

@@ -4,7 +4,7 @@ import { resolveCurrentActorPrimaryEmail } from "./request-support/identity-curr
 import type { SettlementApiEnv } from "../../../api";
 import { PayoutAccountManagementError, type PayoutReadinessServices } from "./runtime";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import { withPayoutSetupDecision } from "../domain/setup-progress";
+import { derivePayoutSetupAttention, withPayoutSetupDecision } from "../domain/setup-progress";
 
 function requirePayoutReadinessAccess(
   c: {
@@ -100,7 +100,12 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
       return access.response;
     }
 
-    return c.json(withPayoutSetupDecision(await services.getPayoutReadiness(access.actor.accountId)));
+    const evaluatedAt = new Date().toISOString();
+    const readiness = await services.getPayoutReadiness(access.actor.accountId);
+    return c.json({
+      ...withPayoutSetupDecision(readiness),
+      ...derivePayoutSetupAttention(readiness, evaluatedAt),
+    });
   });
 
   app.get("/payout-setup/progress", async (c) => {
