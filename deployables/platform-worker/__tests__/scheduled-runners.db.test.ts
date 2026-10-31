@@ -39,6 +39,7 @@ import {
   type PlatformOperationsServices,
 } from "@chase-sets/platform-operations/server";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import type { JsonValue } from "@chase-sets/primitives/json";
 import { createChannelsOutboundRunners } from "../src/channels-outbound-runners";
 import {
   createFakeMoneyMovementGateway,
@@ -683,7 +684,8 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     return runner!;
   };
   async function clearCohortRows() {
-    await pools["platform-operations"].query(
+    const db = pools["platform-operations"];
+    await db.query(
       `TRUNCATE platform_operations_seller_compliance_cohorts,
                 platform_operations_seller_compliance_cohort_transitions,
                 platform_operations_seller_compliance_evaluation_failures,
@@ -691,9 +693,46 @@ describeDatabase("registered platform-worker scheduled runners", () => {
                 platform_operations_seller_compliance_policy_evidence,
                 platform_operations_seller_compliance_sales RESTART IDENTITY CASCADE`,
     );
+    // The cohort runtime reads policy history from the immutable event source,
+    // not just the projected policy row. Reset this test-owned stream so each
+    // scenario can install its first revision through the same command path.
+    await db.query("DELETE FROM event_store_events WHERE stream_id = $1", ["platform-policy.document-cohort-current"]);
+    await db.query("DELETE FROM event_store_streams WHERE stream_id = $1", ["platform-policy.document-cohort-current"]);
   }
   async function installCohortPolicy(value: Readonly<Record<string, unknown>>, effectiveFrom: string) {
     const db = pools["platform-operations"];
+    const operations = runtime.services["platform-operations"] as PlatformOperationsServices;
+    const definition = operations.policyConsoleEntries.find((entry) => entry.policyKey === cohortPolicyKey)?.definition;
+    if (!definition) throw new Error(`Missing policy definition ${cohortPolicyKey}`);
+    const context = {
+      tenantId: "tnt_identity" as never,
+      audit: {
+        performedByUserId: "usr_scheduled_runner_test" as never,
+        forAccountId: "acc_scheduled_runner_test" as never,
+      },
+    };
+    const state = await operations.policies.readPolicyDocumentState("cohort-current");
+    const nextVersion = state.version + 1;
+    const params = {
+      value: value as JsonValue,
+      status: "active" as const,
+      effectiveFrom,
+      effectiveUntil: null,
+      actorUserId: "usr_scheduled_runner_test",
+    };
+    if (state.version === 0) {
+      await operations.policies.createPolicyDocumentWithId(definition, "cohort-current", params, context);
+    } else {
+      await operations.policies.revisePolicyDocument(definition, "cohort-current", params, context);
+    }
+    // The command path records the event at the test clock's current instant.
+    // Pin its source timestamp to the revision instant so historical ticks can
+    // observe the same immutable authority that production would have seen.
+    await db.query(
+      `UPDATE event_store_events SET occurred_at = $1, recorded_at = $1
+       WHERE stream_id = $2 AND stream_version = $3`,
+      [effectiveFrom, "platform-policy.document-cohort-current", nextVersion],
+    );
     await db.query("DELETE FROM platform_policy_documents WHERE policy_key = $1", [cohortPolicyKey]);
     await db.query(
       `INSERT INTO platform_policy_documents
@@ -864,7 +903,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       expect(before.transitions.map((row) => row.transition_id)).toEqual(["cohort-steady:1:entered"]);
       // The identical value under a new revision effective May 15; no sale or other evidence changes.
       await installCohortPolicy(cohortPolicy(), "2025-05-15T00:00:00.000Z");
-      const revision = "cohort-current@2025-05-15T00:00:00.000Z";
+      const revision = "cohort-current@2025-05-15T00:00:00.000Z#2";
       at("2025-05-20T00:00:00.000Z");
       // The revision pass reaches the seller once and writes nothing: SELECT * is identical, stamp included.
       expect((await runCohortTick()).processed).toBe(1);
@@ -994,7 +1033,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
   });
 
   it("keeps an ordinary roll-off before a later registered revision and exits at a material revision instant", async () => {
-    const version = (effectiveFrom: string) => `cohort-current@${effectiveFrom}`;
+    const version = (effectiveFrom: string) => `cohort-current@${effectiveFrom}#2`;
     await atFrozenClock(async (at) => {
       // A due seller reached only after an identical or raised revision keeps its earlier ordinary expiry.
       for (const revision of [cohortPolicy(), cohortPolicy({ qualifyingGrossCents: "2" })]) {

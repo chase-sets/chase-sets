@@ -160,7 +160,7 @@ function thresholdEffectiveAt(
 }
 /**
  * No span of `months` calendar months exceeds 31 days each, so a sale older than that can never be admissible and
- * skips the calendar check; every other sale is decided by the shared #7144 lookback rule.
+ * skips the calendar check; every other sale is decided by the shared calendar lookback rule.
  */
 function withinCalendarHorizon(occurred: number, at: number, months: number): boolean {
   return at - occurred <= months * 31 * 86_400_000;
