@@ -146,6 +146,7 @@ pub fn app(config: Config) -> App {
         .area(|area| crate::insights::area(area, shared.clone()))
         .area(|area| crate::insights::ops::area(area, shared.clone()))
         .area(|area| crate::policy_console::area(area, shared.clone()))
+        .area(|area| crate::evidence::area(area, shared.clone()))
         .area(|area| catalog::area(area, shared.clone()))
         .area(|area| crate::access::area(area, shared.clone()))
         .area(|area| crate::reported::area(area, shared.clone()))
@@ -208,6 +209,42 @@ pub(crate) fn read_failed(req: &Req, error: ApiError, after_write: bool) -> Html
         _ => StatusCode::BAD_GATEWAY,
     };
     Err(corten::Error::new(error).with_status(status))
+}
+
+/// What a refused write answers.
+pub(crate) enum Refusal {
+    /// The page again with the API's words, at this status: the API's for a refusal it names,
+    /// else 422.
+    Again(StatusCode, String),
+    /// The session ended: sign in.
+    SignIn,
+    /// The API failed: a bad gateway.
+    Failed(ApiError),
+}
+
+/// A failed write as what it answers.
+pub(crate) fn refusal(req: &Req, error: ApiError) -> Refusal {
+    let status = match error.status() {
+        Some(StatusCode::UNAUTHORIZED) => return Refusal::SignIn,
+        Some(status) if status.is_client_error() => status,
+        _ => return Refusal::Failed(error),
+    };
+    let p: crate::text::Pilot = req.t();
+    let message = error.refusal().unwrap_or(p.access_refused()).to_owned();
+    let status = match status {
+        StatusCode::CONFLICT | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND => status,
+        _ => StatusCode::UNPROCESSABLE_ENTITY,
+    };
+    Refusal::Again(status, message)
+}
+
+/// A failed write's answer when it is not the page again.
+pub(crate) fn refusal_answer(req: &Req, refusal: Refusal) -> HtmlResult {
+    match refusal {
+        Refusal::SignIn => sign_in(req),
+        Refusal::Failed(error) => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+        Refusal::Again(status, _) => Err(corten::Error::status(status)),
+    }
 }
 
 /// A page's live part for `<corten-live>` (a list's rows, a queue), drawn on each change to `topic`

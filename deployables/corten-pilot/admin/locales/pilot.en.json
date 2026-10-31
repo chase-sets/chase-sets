@@ -100,5 +100,9 @@
     "empty_description": "Data will appear here once activity accumulates.",
     "insufficient_title": "Not enough data yet",
     "insufficient_description": "At least 2 data points are required to show a reliable trend."
+  },
+  "evidence": {
+    "show_values": "Show values",
+    "show_values_hint": "Show the values for the selector chosen"
   }
 }

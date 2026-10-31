@@ -112,6 +112,9 @@ rules! {
     InsightsView => "insights-dashboards.view";
     /// Support > Customer Feedback (admin-web's route takes its nav entry's permission).
     SupportView => "support.view";
+    /// Platform > Listing Evidence Policy: reading, and every write (each write's own permission is
+    /// checked by its handler, as the API checks it).
+    EvidenceView => "listing-evidence-policy.view";
 }
 
 /// Platform > Policy Console: reading needs `platform-policy.view`, a revision or a review's

@@ -132,6 +132,17 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["platform-policy.view"])
         } else if cookie.contains("chase_sets_session=policy-manager") {
             actor(&["platform-policy.view", "platform-policy.manage"])
+        } else if cookie.contains("chase_sets_session=evidence-viewer") {
+            actor(&["listing-evidence-policy.view"])
+        } else if cookie.contains("chase_sets_session=evidence-drafter") {
+            actor(&["listing-evidence-policy.view", "listing-evidence-policy.draft"])
+        } else if cookie.contains("chase_sets_session=evidence-manager") {
+            actor(&[
+                "listing-evidence-policy.view",
+                "listing-evidence-policy.draft",
+                "listing-evidence-policy.validate",
+                "listing-evidence-policy.activate",
+            ])
         } else if cookie.contains("chase_sets_session=shopping-viewer") {
             actor(&["google-shopping.view", "google-shopping.manage", "catalog.view"])
         } else if cookie.contains("chase_sets_session=payouts-viewer") {
@@ -207,6 +218,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if let Some(rest) = uri.path().strip_prefix("/api/platform/policy-console") {
         return policy_console(&method, rest, &body);
+    }
+    if let Some(rest) = uri.path().strip_prefix("/api/marketplace/listing-evidence-policy") {
+        return listing_evidence_policy(&method, rest, &body);
     }
     if uri.path() == "/api/platform/public-doc-reviews" {
         return Json(json!({ "items": [{ "locale": "en", "articleSlug": "fees", "articleTitle": "Seller fees",
@@ -6075,6 +6089,173 @@ async fn a_policy_revision_is_sent_in_the_operators_zone_and_a_refusal_keeps_wha
     let (status, _, html) = pilot.send(post_as(session, page, negative, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("maximumDays must be at least 0.") && html.contains(r#"value="2026-12-01T00:00""#), "{html}");
+}
+
+/// Marketplace's Listing Evidence Policy: the compiled fallback in effect, an active, a draft and a
+/// validated version, a category and an option to select, a draft that does not validate, and a
+/// draft name the API refuses.
+fn listing_evidence_policy(method: &Method, rest: &str, body: &str) -> Response {
+    let version = |id: &str, version: u64, lifecycle: &str| json!({ "policyId": id, "version": version, "lifecycle": lifecycle, "hash": format!("sha256:{id}") });
+    match (method.clone(), rest) {
+        (Method::GET, "") => Json(json!({
+            "current": { "policyId": null, "version": null, "hash": "sha256:fallback", "effectiveFrom": null, "effectiveUntil": null,
+                "value": { "rules": [{ "ruleId": "a" }, { "ruleId": "b" }] } },
+            "documents": [version("lep_1", 1, "active"), version("lep_2", 2, "draft"), version("lep_3", 3, "validated"),
+                version("lep_bad", 4, "draft")],
+        }))
+        .into_response(),
+        (Method::GET, "/selectors") => Json(json!({
+            "categories": [{ "id": "cat_1", "label": "Trading cards" }],
+            "options": [{ "id": "opt_mint", "label": "Mint", "parentId": "dim_condition" }],
+        }))
+        .into_response(),
+        (Method::POST, "/drafts") => {
+            let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            if sent["policyName"] == "refuse" {
+                refusal(StatusCode::BAD_REQUEST, "validation_failed", "The policy name is taken.")
+            } else {
+                (StatusCode::CREATED, Json(version("lep_5", 5, "draft"))).into_response()
+            }
+        }
+        (Method::POST, "/drafts/lep_bad/validate") => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "valid": false, "documentId": "lep_bad",
+                "diagnostics": [{ "path": "rules[0].priority", "code": "duplicate", "message": "Priority 100 is used twice." }],
+                "semanticDiff": { "addedRuleIds": [], "changedRuleIds": [], "removedRuleIds": [] },
+                "impactPreview": { "impactedListingCount": 0, "previewHash": "" } })),
+        )
+            .into_response(),
+        (Method::POST, "/drafts/lep_2/validate" | "/drafts/lep_3/validate") => Json(json!({
+            "valid": true, "documentId": rest.trim_start_matches("/drafts/").trim_end_matches("/validate"), "diagnostics": [],
+            "semanticDiff": { "addedRuleIds": ["rule-2"], "changedRuleIds": [], "removedRuleIds": ["a"] },
+            "impactPreview": { "impactedListingCount": 4, "previewHash": "impact_1" },
+        }))
+        .into_response(),
+        (Method::POST, "/drafts/lep_2/reject" | "/drafts/lep_3/activate" | "/documents/lep_1/rollback-draft") => {
+            Json(version("lep_3", 3, "scheduled")).into_response()
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// One rule as the guided form posts it.
+const EVIDENCE_RULE: &str = "ruleId=rule-1&explanationCode=listing-evidence.configured-rule&priority=100&selectorKind=category\
+    &selectorValue=cat_1&minimumPrice=&maximumPrice=&minimumPhotoCount=2&viewSet=condition&minimumWidthPixels=800\
+    &minimumHeightPixels=&maximumAgeHours=&minimumTrustReviews=0&acceptedBadgeKey=";
+
+#[tokio::test]
+async fn the_listing_evidence_policy_shows_what_is_in_effect_and_a_viewer_cannot_write() {
+    let pilot = Pilot::new().await;
+    let page = "/platform/listing-evidence-policy";
+    let (status, _, _) = pilot.send(get(page, Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, html) = pilot.send(get(page, Some("evidence-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Listing Evidence Policy | Platform"), "{html}");
+    assert!(
+        html.contains(">Compiled fallback<") && html.contains("2 configured rules") && html.contains(">Open ended<"),
+        "{html}"
+    );
+    assert!(html.contains("lep_2 v2") && html.contains(r#"data-tone="good">Active<"#), "{html}");
+    assert!(!html.contains(">Validate<") && !html.contains(">Reject<") && !html.contains("Guided policy draft"), "{html}");
+    let (status, _, _) = pilot.send(post_as("evidence-viewer", page, "intent=reject&policyId=lep_2", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "nor post");
+    assert!(pilot.calls_to_path("/api/marketplace/listing-evidence-policy/drafts").is_empty());
+
+    let (_, _, html) = pilot.send(get(page, Some("evidence-drafter"))).await;
+    assert!(
+        html.contains(">Reject<") && html.contains(">Create rollback draft<") && html.contains("Guided policy draft"),
+        "{html}"
+    );
+    assert!(!html.contains(">Validate<"), "a drafter cannot validate: {html}");
+    let (status, _, _) = pilot.send(post_as("evidence-drafter", page, "intent=validate&policyId=lep_2", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "nor post to");
+    let (status, headers, _) = pilot.send(post_as("evidence-drafter", page, "intent=reject&policyId=lep_2", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with(page), "back under /platform");
+}
+
+#[tokio::test]
+async fn a_guided_draft_is_drawn_again_without_writing_and_sent_as_admin_web_writes_it() {
+    let pilot = Pilot::new().await;
+    let page = "/platform/listing-evidence-policy";
+    let (_, _, html) = pilot.send(get(page, Some("evidence-manager"))).await;
+    assert!(html.contains(r#"value="Marketplace Listing Evidence Policy revision""#), "{html}");
+    assert!(
+        html.contains(r#"name="ruleId" value="rule-1""#) && !html.contains(">Remove rule<"),
+        "one rule, not removable: {html}"
+    );
+
+    let one = format!("policyName=Slabs&{EVIDENCE_RULE}&buyerAcknowledgment=0");
+    let (status, _, html) = pilot.send(post_as("evidence-manager", page, &format!("{one}&rerow=add"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="ruleId" value="rule-2""#) && html.contains(">Remove rule<"), "{html}");
+    assert!(html.contains(r#"<option value="cat_1" selected>Trading cards</option>"#), "the category kept: {html}");
+    assert!(html.contains(r#"name="buyerAcknowledgment" value="0" checked"#), "the box kept: {html}");
+    assert!(pilot.calls_to_path("/api/marketplace/listing-evidence-policy/drafts").is_empty(), "nothing written");
+
+    let option = one.replace("selectorKind=category", "selectorKind=option");
+    let (_, _, html) = pilot.send(post_as("evidence-manager", page, &format!("{option}&rerow=refresh"), false)).await;
+    assert!(html.contains(r#"<option value="opt_mint">Mint (opt_mint)</option>"#), "the option's values: {html}");
+
+    let (status, headers, _) = pilot.send(post_as("evidence-manager", page, &format!("intent=create-draft&{one}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with(page));
+    let sent = pilot.calls_to_path("/api/marketplace/listing-evidence-policy/drafts");
+    let body: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(body["policyName"], json!("Slabs"));
+    let rule = &body["rules"][0];
+    assert_eq!(rule["selector"]["categoryIds"], json!(["cat_1"]));
+    assert_eq!(rule["outcome"]["minimumPhotoCount"], json!(2.0));
+    assert_eq!(rule["outcome"]["requiredSlots"][0]["minimumWidthPixels"], json!(800.0));
+    assert_eq!(rule["outcome"]["buyerAcknowledgment"], json!("required"));
+
+    let refused = one.replace("policyName=Slabs", "policyName=refuse");
+    let (status, _, html) = pilot.send(post_as("evidence-manager", page, &format!("intent=create-draft&{refused}"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "the API's 400 is the form again: {html}");
+    assert!(html.contains("The policy name is taken.") && html.contains(r#"value="refuse""#), "the draft as typed: {html}");
+}
+
+#[tokio::test]
+async fn a_draft_that_does_not_validate_shows_why_and_activation_is_sent_in_the_operators_zone() {
+    let pilot = Pilot::new().await;
+    let page = "/platform/listing-evidence-policy";
+    let session = "evidence-manager; corten-zone=America/Chicago";
+    let (_, _, html) = pilot.send(get(page, Some(session))).await;
+    assert_eq!(html.matches(">Validate<").count(), 3, "a draft or a validated version can be validated: {html}");
+
+    let (status, _, html) = pilot.send(post_as(session, page, "intent=validate&policyId=lep_bad", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("rules[0].priority: Priority 100 is used twice."), "the diagnostics: {html}");
+    assert!(!html.contains("Activate policy version"), "{html}");
+
+    let (status, _, html) = pilot.send(post_as(session, page, "intent=validate&policyId=lep_3", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("4 listings would receive changed requirements."), "{html}");
+    assert!(html.contains("Added: rule-2") && html.contains("Removed: a"), "{html}");
+    assert!(html.contains(r#"name="policyId" value="lep_3""#) && html.contains(r#"value="impact_1""#), "{html}");
+
+    let activate =
+        "intent=activate&policyId=lep_3&impactAcknowledgmentHash=impact_1&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=";
+    let (status, _, html) = pilot.send(post_as(session, page, activate, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Review and acknowledge the current Policy Impact Preview."), "{html}");
+    let (status, _, html) =
+        pilot.send(post_as(session, page, "intent=activate&policyId=lep_3&impactAcknowledged=yes&effectiveFrom=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Choose a valid effective time before activation."), "{html}");
+    assert!(pilot.calls_to_path("/api/marketplace/listing-evidence-policy/drafts/lep_3/activate").is_empty());
+
+    let (status, headers, _) = pilot.send(post_as(session, page, &format!("{activate}&impactAcknowledged=yes"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with(page));
+    let sent = pilot.calls_to_path("/api/marketplace/listing-evidence-policy/drafts/lep_3/activate");
+    let body: Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(
+        body,
+        json!({ "effectiveFrom": "2026-12-01T06:00:00Z", "effectiveUntil": null, "impactAcknowledgmentHash": "impact_1" }),
+        "midnight in Chicago as its instant"
+    );
 }
 
 /// Platform Operations' ops dashboard: two days of GMV, one top item without a title, and a

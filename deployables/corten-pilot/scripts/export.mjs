@@ -12,8 +12,9 @@
 //   (platformOperations.reportedContent.* as reported.*) and Risk Alerts (platformOperations.riskAlerts.*
 //   as risk.*), Provider Connections'
 //   (platformOperations.providerConnections.* as pc.*), Offer Economics' (platformOperations.offerEconomics.*
-//   as oe.*), the Ops Dashboard's (platformOperations.opsDashboard.* as od.*) and the Policy Console's
-//   (platformOperations.policyConsole.* as policy.*).
+//   as oe.*), the Ops Dashboard's (platformOperations.opsDashboard.* as od.*), the Policy Console's
+//   (platformOperations.policyConsole.* as policy.*) and Listing Evidence Policy's
+//   (marketplace.features.listingEvidencePolicy.ui.* as lep.*).
 // - admin/locales/access.en.json: the access section's English catalog: Access's home, the
 //   accounts, users, memberships, invitations and API keys lists, an account's workspace (its
 //   tabs, the detail pages' actions and the API key secret reveal), the identity value labels and
@@ -658,8 +659,8 @@ const outputs = [
   ],
   [
     "admin/locales/operations.en.json",
-    json(
-      await catalog("platform-operations.ts", "platformOperationsEnglishTranslations", [
+    json({
+      ...(await catalog("platform-operations.ts", "platformOperationsEnglishTranslations", [
         ["platformOperations.operationsAttention.", "attention"],
         ["platformOperations.projectionOperations.", "projections"],
         ["platformOperations.reportedContent.", "reported"],
@@ -668,8 +669,11 @@ const outputs = [
         ["platformOperations.offerEconomics.", "oe"],
         ["platformOperations.opsDashboard.", "od"],
         ["platformOperations.policyConsole.", "policy"],
-      ]),
-    ),
+      ])),
+      ...(await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
+        ["marketplace.features.listingEvidencePolicy.ui.", "lep"],
+      ])),
+    }),
   ],
   [
     "admin/locales/support.en.json",

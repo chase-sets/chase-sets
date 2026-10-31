@@ -32,8 +32,8 @@ use serde_json::{Value, json};
 pub mod views;
 
 use crate::{
-    api::{ApiError, Method, segment},
-    app::{Shared, read_failed, sign_in},
+    api::{Method, segment},
+    app::{Refusal, Shared, read_failed, refusal, refusal_answer as answer},
     auth::{PolicyAccess, Staff, Viewer},
     growth::promo::{sent_time, zone_of},
     text::Ops,
@@ -207,41 +207,6 @@ pub struct ConfirmForm {
     pub locale: String,
     pub article_slug: String,
     pub policy_key: String,
-}
-
-/// What a refused write answers.
-enum Refusal {
-    /// The page again with the API's words, at this status: the API's for a refusal it names,
-    /// else 422.
-    Again(StatusCode, String),
-    /// The session ended: sign in.
-    SignIn,
-    /// The API failed: a bad gateway.
-    Failed(ApiError),
-}
-
-fn refusal(req: &Req, error: ApiError) -> Refusal {
-    let status = match error.status() {
-        Some(StatusCode::UNAUTHORIZED) => return Refusal::SignIn,
-        Some(status) if status.is_client_error() => status,
-        _ => return Refusal::Failed(error),
-    };
-    let p: crate::text::Pilot = req.t();
-    let message = error.refusal().unwrap_or(p.access_refused()).to_owned();
-    let status = match status {
-        StatusCode::CONFLICT | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND => status,
-        _ => StatusCode::UNPROCESSABLE_ENTITY,
-    };
-    Refusal::Again(status, message)
-}
-
-/// A failed write's answer when it is not the page again.
-fn answer(req: &Req, refusal: Refusal) -> HtmlResult {
-    match refusal {
-        Refusal::SignIn => sign_in(req),
-        Refusal::Failed(error) => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
-        Refusal::Again(status, _) => Err(corten::Error::status(status)),
-    }
 }
 
 async fn confirm(

@@ -9,6 +9,7 @@ mod app;
 mod auth;
 mod catalog;
 mod commerce;
+mod evidence;
 mod form;
 mod growth;
 mod insights;
