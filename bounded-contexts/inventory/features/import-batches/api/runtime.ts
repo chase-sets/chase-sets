@@ -2769,7 +2769,6 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             batchId,
             accountId,
             acceptedRows: censusAcceptedRows,
-            verifyAcceptedRows: input.censusAcceptedRows === undefined,
           });
           let parentResult = claim.job.result;
           if (census.complete) {
