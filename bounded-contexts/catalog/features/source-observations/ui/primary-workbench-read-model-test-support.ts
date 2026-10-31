@@ -6,11 +6,9 @@ import {
   validateCatalogPrimaryWorkbenchReadModelContract,
   type CatalogPrimaryWorkbenchReadModel,
 } from "../api/primary-workbench-admin-contracts";
-import {
-  tcgdexPokemonTcgProviderProfile,
-  tcgplayerAutomationClientProviderProfile,
-  type CatalogProviderIntegrationProfile,
-} from "../api/provider-integration-profiles";
+import { tcgdexPokemonTcgProviderProfile } from "../api/providers/tcgdex/profiles";
+import { tcgplayerAutomationClientProviderProfile } from "../api/providers/tcgplayer/profiles";
+import type { CatalogProviderIntegrationProfile } from "../api/providers/profile-types";
 import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
 import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,

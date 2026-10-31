@@ -75,6 +75,9 @@
       "@chase-sets/catalog-seed": [
         "./contracts/catalog-seed/index.ts"
       ],
+      "@chase-sets/catalog-seed/ids": [
+        "./contracts/catalog-seed/ids.ts"
+      ],
       "@chase-sets/catalog/client": [
         "./bounded-contexts/catalog/client.ts"
       ],
