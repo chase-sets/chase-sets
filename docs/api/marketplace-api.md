@@ -112,6 +112,8 @@ Buy Cart to checkout:
 5. `POST /api/marketplace/account/checkout-sessions/{sessionId}/confirm`
 6. `GET /api/marketplace/account/payments/{id}`
 
+Cancel checkout: before step 5 creates orders, the session owner can `POST /api/marketplace/account/checkout-sessions/{sessionId}/cancel` to release every held item; a repeat answers `already-cancelled` and releases nothing. After orders exist the route answers `409 checkout_session_not_cancellable`, and the holds are released by cancelling the purchase.
+
 Offer Match to Sell List review:
 
 1. `GET /api/marketplace/account/offers/matches`

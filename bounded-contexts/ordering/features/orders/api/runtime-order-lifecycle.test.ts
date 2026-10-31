@@ -1019,3 +1019,236 @@ describe("ordering order runtime: order creation and cancellation", () => {
     );
   });
 });
+
+describe("ordering order runtime: buyer cancellation across hold phases", () => {
+  /** The purchase row Ordering's read model answers for one payment phase. */
+  function purchaseRow(
+    orderId: string,
+    phase: Readonly<{
+      status: string;
+      self_service_cancellation_available: boolean;
+      cancellation_unavailable_reason: string | null;
+    }>,
+  ) {
+    return {
+      order_id: orderId,
+      source_type: "cart-checkout",
+      source_reference_id: null,
+      buyer_account_id: "acc_buyer",
+      buyer_display_name: "Buyer",
+      seller_account_id: "acc_seller",
+      seller_display_name: "Seller",
+      shipping_option: "standard",
+      item_subtotal_amount: "20.00",
+      shipping_base_amount: "4.99",
+      shipping_discount_amount: "0.00",
+      shipping_allowance_amount: "4.99",
+      shipping_overage_amount: "0.00",
+      shipping_charge_amount: "4.99",
+      sales_tax_amount: "0.00",
+      total_amount: "24.99",
+      marketplace_sales_fee_amount: "1.00",
+      seller_net_amount: "19.00",
+      seller_item_net_amount: "19.00",
+      seller_payout_amount: "23.99",
+      shipping_allowance_percentage_bps: 500,
+      taxable_amount: "24.99",
+      tax_jurisdiction_country: "US",
+      tax_jurisdiction_state: "IL",
+      tax_rate_bps: 0,
+      tax_provider_name: "local-tax-stub",
+      tax_provider_quote_reference: null,
+      tax_quoted_at: "2026-03-31T00:00:00.000Z",
+      shipping_destination_snapshot: shippingAddress,
+      shipping_origin_snapshot: shipFromAddress,
+      terms_schedule_id: "cts_default",
+      terms_agreement_id: null,
+      terms_resolved_at: "2026-03-31T00:00:00.000Z",
+      pending_payment_at: "2026-03-31T00:01:00.000Z",
+      payment_deadline_at: "2026-03-31T01:01:00.000Z",
+      payment_deadline_policy: "card-standard",
+      created_at: "2026-03-31T00:00:00.000Z",
+      updated_at: "2026-03-31T00:01:00.000Z",
+      cancelled_at: null,
+      cancellation_reason: null,
+      ready_for_fulfillment_at: null,
+      line_count: 1,
+      total_quantity: 2,
+      ...phase,
+    };
+  }
+
+  async function pendingPaymentOrders(phases: Record<string, Parameters<typeof purchaseRow>[1]>) {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("FROM ordering_order_pages")) {
+          const orderId = String(params?.[0] ?? "");
+          const phase = phases[orderId];
+          return { rows: phase && params?.[1] === "acc_buyer" ? [purchaseRow(orderId, phase)] : [] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      shippingQuotePolicy: {
+        quote: () => ({ shippingOption: "standard", baseAmount: "4.99", discountAmount: "0.00", chargeAmount: "4.99" }),
+      },
+    });
+
+    for (const orderId of Object.keys(phases)) {
+      await services.commandHandler({
+        streamId: `ordering.order-${orderId}`,
+        command: {
+          type: "CreateOrder",
+          orderId: orderId as never,
+          sourceType: "cart-checkout",
+          sourceReferenceId: null,
+          buyerAccountId: "acc_buyer" as never,
+          sellerAccountId: "acc_seller" as never,
+          shippingOption: "standard",
+          itemSubtotalAmount: "20.00",
+          shippingBaseAmount: "4.99",
+          shippingDiscountAmount: "0.00",
+          shippingChargeAmount: "4.99",
+          shippingPlanSnapshot: {} as never,
+          salesTaxAmount: "0.00",
+          taxSnapshot,
+          totalAmount: "24.99",
+          shippingDestinationSnapshot: shippingAddress,
+          shippingOriginSnapshot: shipFromAddress,
+          commercialTermsSnapshot: {
+            marketplaceSalesFeeAmount: "1.00",
+            sellerNetAmount: "19.00",
+            termsScheduleId: "cts_default",
+            termsAgreementId: null,
+            termsResolvedAt: "2026-03-31T00:00:00.000Z",
+          },
+          lines: [
+            {
+              lineId: `oli_${orderId}` as never,
+              listingId: "lst_1",
+              inventoryItemId: `inv_${orderId}`,
+              catalogItemId: "cat_1",
+              productId: "cat_1::" as never,
+              itemTitle: "Charizard",
+              itemSubtitle: null,
+              selectedOptions: [],
+              productSummary: null,
+              gradedCard: null,
+              unitPriceAmount: "10.00",
+              quantity: 2,
+              lineTotalAmount: "20.00",
+              marketplaceSalesFeeUnitAmount: "0.50",
+              marketplaceSalesFeeTotalAmount: "1.00",
+              sellerNetUnitAmount: "9.50",
+              sellerNetTotalAmount: "19.00",
+            },
+          ],
+          reservationRequests: [
+            {
+              reservationRequestId: `rsv_${orderId}`,
+              inventoryItemId: `inv_${orderId}`,
+              sellerAccountId: "acc_seller",
+              quantity: 2,
+            },
+          ],
+        },
+        context,
+      });
+      await services.commandHandler({
+        streamId: `ordering.order-${orderId}`,
+        command: {
+          type: "RecordReservationConfirmed",
+          reservationRequestId: `rsv_${orderId}`,
+          holdId: `hld_${orderId}`,
+          confirmedAt: "2026-03-31T00:01:00.000Z",
+        },
+        context,
+      });
+    }
+
+    const cancelledEvents = () => readAllEvents().filter((event) => event.eventType === "ordering.order.cancelled");
+    return { services, cancelledEvents };
+  }
+
+  const releasable = {
+    status: "pending-payment",
+    self_service_cancellation_available: true,
+    cancellation_unavailable_reason: null,
+  };
+  const paymentUnresolved = {
+    status: "pending-payment",
+    self_service_cancellation_available: false,
+    cancellation_unavailable_reason: "payment-unresolved",
+  };
+
+  it("cancels each of the buyer's pending orders and publishes one release-bearing event per order", async () => {
+    const { services, cancelledEvents } = await pendingPaymentOrders({ ord_a: releasable, ord_b: releasable });
+
+    await services.cancelPurchase({ orderId: "ord_a", buyerAccountId: "acc_buyer" }, context);
+    await services.cancelPurchase({ orderId: "ord_b", buyerAccountId: "acc_buyer" }, context);
+
+    expect(cancelledEvents().map((event) => event.payload)).toEqual([
+      expect.objectContaining({
+        orderId: "ord_a",
+        reason: "buyer-cancelled",
+        buyerAccountId: "acc_buyer",
+        statusBeforeCancellation: "pending-payment",
+        reservationRequests: [expect.objectContaining({ holdId: "hld_ord_a", quantity: 2, status: "confirmed" })],
+      }),
+      expect.objectContaining({
+        orderId: "ord_b",
+        reason: "buyer-cancelled",
+        reservationRequests: [expect.objectContaining({ holdId: "hld_ord_b", quantity: 2, status: "confirmed" })],
+      }),
+    ]);
+  });
+
+  it("refuses another account's cancellation without publishing a release", async () => {
+    const { services, cancelledEvents } = await pendingPaymentOrders({ ord_a: releasable });
+
+    await expect(services.cancelPurchase({ orderId: "ord_a", buyerAccountId: "acc_other" }, context)).rejects.toThrow(
+      "Purchase not found.",
+    );
+    expect(cancelledEvents()).toHaveLength(0);
+  });
+
+  // Each phase's read-model answer, the cancel outcome, and the steady state a
+  // later repeat (a reload the day after) must still see.
+  it.each([
+    ["no payment recorded", releasable, "cancelled"],
+    ["definite payment failure recorded", releasable, "cancelled"],
+    ["payment recorded, outcome unknown", paymentUnresolved, "protected"],
+    ["payment captured before fulfillment-ready", paymentUnresolved, "protected"],
+  ] as const)("%s → %s, and a repeat keeps that steady state", async (_phase, readModel, expected) => {
+    const phases: Record<string, Parameters<typeof purchaseRow>[1]> = { ord_a: readModel };
+    const { services, cancelledEvents } = await pendingPaymentOrders(phases);
+    const cancel = () => services.cancelPurchase({ orderId: "ord_a", buyerAccountId: "acc_buyer" }, context);
+
+    if (expected === "protected") {
+      await expect(cancel()).rejects.toThrow("payment is still being confirmed");
+      await expect(cancel()).rejects.toThrow("payment is still being confirmed");
+      expect(cancelledEvents()).toHaveLength(0);
+      return;
+    }
+
+    await cancel();
+    expect(cancelledEvents()).toHaveLength(1);
+    // A repeat while the read model still lags at pending reaches the cancelled
+    // aggregate, which publishes nothing, so no second release can follow.
+    await cancel();
+    expect(cancelledEvents()).toHaveLength(1);
+    // Once the read model answers the cancelled steady state, a repeat is refused outright.
+    phases.ord_a = {
+      status: "cancelled",
+      self_service_cancellation_available: false,
+      cancellation_unavailable_reason: "already-cancelled",
+    };
+    await expect(cancel()).rejects.toThrow("Only pending purchases can be cancelled.");
+    expect(cancelledEvents()).toHaveLength(1);
+  });
+});

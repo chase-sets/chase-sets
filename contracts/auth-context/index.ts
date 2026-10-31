@@ -400,6 +400,58 @@ export const ROLE_PERMISSIONS = {
   ],
 } satisfies Readonly<Record<string, readonly PermissionKey[]>>;
 
+/**
+ * Commerce permissions Auth withholds from a session whose primary email is not
+ * verified. Verifying that email (consuming a magic link does) lifts the
+ * restriction on the next actor resolution; nothing else grants them.
+ */
+export const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = [
+  "listings.manage",
+  "offers.manage",
+  "orders.manage",
+  "pricing.manage",
+] as const satisfies readonly PermissionKey[];
+
+/**
+ * True only when the actor's role grants `permission` and Auth withheld it
+ * pending email verification, so a surface can truthfully ask the member to
+ * verify their email rather than hide the action unexplained. Reads Auth's own
+ * role table and grants nothing; agent-scoped actors are never told to verify.
+ */
+export function permissionAwaitsEmailVerification(
+  actor: Pick<ResolvedActor, "roleKey" | "permissions" | "agentGrant"> | null | undefined,
+  permission: PermissionKey,
+): boolean {
+  if (!actor || actor.agentGrant || actor.permissions.includes(permission)) {
+    return false;
+  }
+
+  const rolePermissions: readonly string[] = ROLE_PERMISSIONS[actor.roleKey as keyof typeof ROLE_PERMISSIONS] ?? [];
+  return (
+    (EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS as readonly string[]).includes(permission) &&
+    rolePermissions.includes(permission)
+  );
+}
+
+/** Sign-in return marker naming the withheld action a member verifies their email to finish. */
+export const EMAIL_VERIFICATION_RETURN_PARAMETER = "verifyEmail";
+export type EmailVerificationPurpose = "cancel-purchase";
+
+/**
+ * The marketplace sign-in path that emails a magic link and, once the link is
+ * consumed (which verifies the email), returns to `returnPath` marked with
+ * `purpose`. `returnPath` must be a same-site path; Auth re-validates it.
+ */
+export function emailVerificationSignInHref(returnPath: string, purpose: EmailVerificationPurpose): string {
+  const returnTo = new URL(returnPath, "https://chase-sets.local");
+  returnTo.searchParams.set(EMAIL_VERIFICATION_RETURN_PARAMETER, purpose);
+  const signIn = new URLSearchParams({
+    returnTo: `${returnTo.pathname}${returnTo.search}`,
+    signInMethod: "magic-link",
+  });
+  return `/sign-in?${signIn.toString()}`;
+}
+
 export type AgentOAuthScope = AgentOAuthCommerceScope | AgentOAuthOperatorScope;
 
 export type AgentOAuthOperatorScope = "operations:read" | "operations:write";

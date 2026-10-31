@@ -29,6 +29,7 @@ import {
 } from "./checkout-economics-runtime";
 import { unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
 import { prepareBuyNowCheckout } from "./buy-now-preparation";
+import { cancelCheckout } from "./session-cancellation";
 import {
   recordAddressServiceabilityFailure,
   recordActiveSessionStaleRecovery,
@@ -1124,6 +1125,59 @@ export function createAccountCheckoutSessionRoutes(
       });
     } catch (error) {
       return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/checkout-sessions/:sessionId/cancel", async (c) => {
+    const access = requireCheckoutAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.sessions.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await cancelCheckout(
+        c.req.raw,
+        services,
+        { sessionId: c.req.param("sessionId"), accountId: access.actor.accountId as AccountId },
+        context,
+      );
+      return c.json({
+        session_id: result.sessionId,
+        status: result.status,
+        cancelled_at: result.session.cancelled_at ?? null,
+        released_reservation_ids: result.releasedReservations.map((reservation) => reservation.holdId),
+        ...checkoutCommitMetadataFromSources([result]),
+      });
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === "checkout_session_not_cancellable") {
+        return c.json({ error: { code, message: errorMessage(error) } }, 409);
+      }
+      if (errorMessage(error) === "Checkout session not found.") {
+        return c.json(
+          {
+            error: {
+              code: "not_found",
+              message: t("checkout.features.sessions.api.route.checkout.session.not.found.2"),
+            },
+          },
+          404,
+        );
+      }
+      return c.json({ error: { code, message: errorMessage(error) } }, 400);
     }
   });
 

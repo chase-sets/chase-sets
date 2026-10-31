@@ -91,6 +91,9 @@ export const authEnglishTranslations = {
   "auth.routes.marketplace.accountGate.listing.draft.description":
     "Your listing draft is saved. An account is required before inventory, payout, and listing publication can be confirmed.",
   "auth.routes.marketplace.accountGate.listing.draft.title": "Use an account to publish this listing",
+  "auth.routes.marketplace.accountGate.purchase.cancel.verify.description":
+    "Enter the email on your account. Opening the link we send verifies that email and brings you back to your purchase, where you can cancel it.",
+  "auth.routes.marketplace.accountGate.purchase.cancel.verify.title": "Verify your email to cancel this purchase",
   "auth.routes.marketplace.accountGate.seller.checkout.description":
     "Your Sell List is saved. An account is required before offer acceptance, listing publication, payout, or shipping label work starts.",
   "auth.routes.marketplace.accountGate.seller.checkout.title": "Use an account to continue seller checkout",

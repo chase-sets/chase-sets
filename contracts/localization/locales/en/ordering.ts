@@ -214,6 +214,14 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.payment.deadline.description":
     "Complete payment by {deadline} to keep this order.",
   "ordering.features.orders.ui.orderDetailPage.payment.state": "Payment State",
+  "ordering.features.orders.ui.orderDetailPage.payment.unresolved.title": "Payment is still being confirmed",
+  "ordering.features.orders.ui.orderDetailPage.payment.unresolved.description":
+    "A payment was started for this {projectionLabel}. Its items stay reserved until the payment succeeds or fails, so it cannot be cancelled yet.",
+  "ordering.features.orders.ui.orderDetailPage.verify.email.to.cancel.title":
+    "Verify your email to cancel this {projectionLabel}",
+  "ordering.features.orders.ui.orderDetailPage.verify.email.to.cancel.description":
+    "Cancelling needs a verified email. We will email you a link; opening it verifies your email and brings you back here.",
+  "ordering.features.orders.ui.orderDetailPage.verify.email": "Verify email",
   "ordering.features.orders.ui.orderDetailPage.purchase": "Purchase",
   "ordering.features.orders.ui.orderDetailPage.quantity": "Quantity",
   "ordering.features.orders.ui.orderDetailPage.quantity.2": "Quantity",

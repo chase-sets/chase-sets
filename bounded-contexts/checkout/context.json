@@ -954,6 +954,7 @@
       "strategy": "fresh-read",
       "surfaces": [
         "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions",
+        "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions/:sessionId/cancel",
         "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions/:sessionId/confirm",
         "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions/:sessionId/fulfillment-preview",
         "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions/:sessionId/optimization-goal",
