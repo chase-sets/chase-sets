@@ -54,6 +54,7 @@ import {
   type NormalizedInventoryImportRow,
 } from "../domain/import-source-adapters";
 import {
+  censusImportCommitParent,
   getImportBatch,
   listImportBatches,
   type InventoryImportBatchRow,
@@ -2757,36 +2758,28 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           message: "Committed import row.",
         },
         resolveParentUpdate: async (db) => {
-          const pending = await db.query<{ count: number | string }>(
-            `SELECT count(*)::integer AS count FROM inventory_import_batch_work_units
-             WHERE job_id = $1 AND state NOT IN ('completed', 'failed', 'skipped')`,
-            [claim.job.jobId],
-          );
-          const complete = Number(pending.rows[0]?.count ?? 0) === 0;
-          const detailResult = await db.query<{ committed_count: number; accepted_count: number }>(
-            `SELECT committed_count, accepted_count
-             FROM inventory_import_batches
-             WHERE batch_id = $1 AND account_id = $2`,
-            [batchId, accountId],
-          );
-          const detail = detailResult.rows[0];
-          if (!detail) throw new InventoryDomainError("Import batch not found.");
+          const census = await censusImportCommitParent(db, {
+            jobId: claim.job.jobId,
+            inputId: claim.job.payload.commit?.inputId ?? "",
+            batchId,
+            accountId,
+          });
           let parentResult = claim.job.result;
-          if (complete) {
+          if (census.complete) {
             const completedBatch = await getImportBatch(db, batchId, accountId, { limit: 10_000 });
             if (!completedBatch) throw new InventoryDomainError("Import batch not found.");
             parentResult = { batch: completedBatch };
           }
           return {
             parentProgress: importBatchJobProgress(
-              complete ? "completed" : "processing",
-              detail.committed_count,
-              detail.accepted_count,
-              complete ? null : row.row_id,
-              complete ? "Commit completed." : "Committing rows.",
+              census.complete ? "completed" : "processing",
+              census.completed,
+              census.total,
+              census.complete ? null : row.row_id,
+              census.complete ? "Commit completed." : "Committing rows.",
             ),
             parentResult,
-            completeJob: complete,
+            completeJob: census.complete,
           };
         },
       });
