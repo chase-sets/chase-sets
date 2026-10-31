@@ -780,29 +780,41 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         const streamId = streamIdFor(command.attemptId);
         const firstAppended = deferred();
         const secondAppended = deferred();
+        const reachedUpsert = { primary: deferred(), replica: deferred() };
         const duplicateAdmitted = deferred();
         const releaseDuplicate = deferred();
         const appended: Runtime[] = [];
-        const opened: Partial<Record<"order" | "admitted" | "first" | "duplicate", boolean>> = {};
+        const opened: Partial<Record<"order" | "rendezvous" | "admitted" | "first" | "duplicate", boolean>> = {};
         let firstHeld = false;
         let duplicateHeld = false;
         // The copies' `started` appends reach `event_store_streams` in the forced order: the second
-        // waits before its upsert, holding nothing, until the first's upsert has run. The duplicate
-        // (replica) is then admitted, and held before the attempt lock (or, without one, before its
-        // update) until its first copy and a later distinct default have both completed.
+        // waits before its upsert, holding nothing, until the first's upsert has run. The first
+        // appender waits for that second upsert to be reached before either append can commit, so
+        // both attempt-history reads observe absence. The duplicate (replica) is then held at its
+        // attempt lock until its first copy and a later distinct default have both completed.
         intercept = async (statement, run) => {
           if (streamUpsert(statement, streamId) && !appended.includes(statement.runtime)) {
-            if (statement.runtime !== firstAppender) opened.order = await bounded(firstAppended.promise);
+            reachedUpsert[statement.runtime].resolve();
+            if (statement.runtime === firstAppender) {
+              const other: Runtime = firstAppender === "primary" ? "replica" : "primary";
+              opened.rendezvous = await bounded(reachedUpsert[other].promise);
+            } else {
+              opened.order = await bounded(firstAppended.promise);
+            }
             appended.push(statement.runtime);
             const result = await run();
             (statement.runtime === firstAppender ? firstAppended : secondAppended).resolve();
             return result;
           }
-          const step = isAttemptLock(statement) || isDefaultWrite(statement.sql);
-          if (statement.runtime === "replica" && step && !duplicateHeld) {
+          if (
+            statement.runtime === "replica" &&
+            (isAttemptLock(statement) || isDefaultWrite(statement.sql)) &&
+            !duplicateHeld
+          ) {
             duplicateHeld = true;
             duplicateAdmitted.resolve();
             opened.duplicate = await bounded(releaseDuplicate.promise);
+            return run();
           }
           if (statement.runtime === "primary" && isDefaultWrite(statement.sql) && !firstHeld) {
             firstHeld = true;
@@ -817,7 +829,15 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         // next test resets the schema or the pools close.
         const copiesSettled = Promise.allSettled([first, duplicate]);
         onTestFinished(async () => {
-          for (const barrier of [firstAppended, duplicateAdmitted, releaseDuplicate]) barrier.resolve();
+          for (const barrier of [
+            reachedUpsert.primary,
+            reachedUpsert.replica,
+            firstAppended,
+            duplicateAdmitted,
+            releaseDuplicate,
+          ]) {
+            barrier.resolve();
+          }
           await copiesSettled;
         });
         try {
@@ -849,7 +869,7 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         expect(await auditRows("sci_SYNTHETIC_A")).toEqual([{ action: "set-default" }]);
         expect(await publications()).toBe(2);
         expect(appended).toEqual(firstAppender === "replica" ? ["replica", "primary"] : ["primary", "replica"]);
-        expect(opened).toEqual({ order: true, admitted: true, first: true, duplicate: true });
+        expect(opened).toEqual({ order: true, rendezvous: true, admitted: true, first: true, duplicate: true });
       },
     );
 
