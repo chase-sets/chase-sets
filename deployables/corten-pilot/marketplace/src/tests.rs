@@ -3818,7 +3818,7 @@ async fn a_guest_sees_what_an_offer_pays_and_saves_it_or_its_product_to_a_sell_l
     let (status, _, html) = pilot.send(post_signed_out(SELL_LIST, body)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(
-        html.contains(r#"role="alert">Selected offer sell-list lines must reference an Offer and exact Listing.<"#),
+        plain(&html).contains(r#"role="alert">Selected offer sell-list lines must reference an Offer and exact Listing.<"#),
         "{html}"
     );
     assert!(text(&html).contains("$722.00 after $38.00 fee"), "the refusal keeps the payout: {html}");
@@ -3941,7 +3941,10 @@ async fn the_watch_tab_is_the_pilots_with_a_form_for_listings_and_one_for_offers
     assert!(html.contains(r#"<label class="item-detail__label" for="watch-offer-price">Minimum offer price</label>"#), "{html}");
     assert!(html.contains(r#"id="watch-listing-price" type="number" name="threshold" min="0" step="0.01""#), "{html}");
     // Listings are open, offers folded; the currency starts as the listings'.
-    assert!(html.contains(&format!("{OPEN_PRODUCT_FOLD}<summary><span class=\"item-detail__strong\">Watch listings")), "{html}");
+    assert!(
+        plain(&html).contains(&format!("{OPEN_PRODUCT_FOLD}<summary><span class=\"item-detail__strong\">Watch listings")),
+        "{html}"
+    );
     assert!(
         html.contains(
             r#"name="currency" minlength="3" maxlength="3" autocapitalize="characters" placeholder="ISO 4217" value="USD""#
@@ -4008,7 +4011,7 @@ async fn a_watch_alert_marketplace_would_not_take_is_refused_in_its_own_form() {
         assert!(text(&html).contains("Enter a target price of $0.00 or more using dollars and cents."), "{html}");
         // The offers' form is open with what was typed, on the Watch tab.
         assert!(
-            html.contains(&format!("{OPEN_PRODUCT_FOLD}<summary><span class=\"item-detail__strong\">Watch offers")),
+            plain(&html).contains(&format!("{OPEN_PRODUCT_FOLD}<summary><span class=\"item-detail__strong\">Watch offers")),
             "{html}"
         );
         assert!(html.contains(&format!(r#"id="watch-offer-price" type="number" name="threshold" min="0" step="0.01" inputmode="decimal" placeholder="15.00" value="{threshold}""#)), "{html}");
@@ -4425,7 +4428,7 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
     assert!(text(&html).contains("Your active listing is $400.00. Manage listing"), "{html}");
     assert_eq!(hrefs(&html, "Manage listing"), [format!("/account/listings/{LISTED}")]);
     assert!(
-        html.contains(&format!("{OPEN_PRODUCT_FOLD}<summary><span class=\"item-detail__strong\">List this product")),
+        plain(&html).contains(&format!("{OPEN_PRODUCT_FOLD}<summary><span class=\"item-detail__strong\">List this product")),
         "{html}"
     );
     // The same form sent again (its answer lost) is the same stock and the same listing, already
@@ -4649,7 +4652,7 @@ async fn a_listing_whose_read_has_not_caught_up_says_it_was_published_and_reads_
     let page = text(&html);
     assert!(page.contains("Listing published It shows here in a moment"), "{html}");
     assert_eq!(hrefs(&html, "Manage listing"), [format!("/account/listings/{LISTED}")]);
-    assert!(html.contains(&format!("{OPEN_PRODUCT_FOLD}<summary>")), "the fold is open on it: {html}");
+    assert!(plain(&html).contains(&format!("{OPEN_PRODUCT_FOLD}<summary>")), "the fold is open on it: {html}");
     assert!(!page.contains("Listing unavailable"), "a listing on its way is not unavailable: {html}");
     assert!(!html.contains(r#"action="/items/charizard/list""#), "no second listing while the first catches up: {html}");
     assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "the page reads again: {html}");
@@ -4676,7 +4679,8 @@ async fn a_listing_the_input_or_the_api_refuses_says_why_in_its_form() {
     let (status, _, html) = pilot.send(post(LIST, "lister", &list_body(ATTEMPT, "1", "USD", "3"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(
-        html.contains(r#"<p class="item-detail__error" role="alert">Listing price is below the marketplace minimum.</p>"#),
+        plain(&html)
+            .contains(r#"<p class="item-detail__error" role="alert">Listing price is below the marketplace minimum.</p>"#),
         "{html}"
     );
     assert!(
@@ -17121,4 +17125,68 @@ async fn the_item_pages_sides_and_similar_items_send_the_rails_events() {
     let similar = &html[html.find(r#"aria-labelledby="similar-items""#).unwrap()..];
     let similar = &similar[..similar.find("</section>").unwrap()];
     assert_eq!(similar.matches(r#"data-on="click:rail_analytics.similarItem()""#).count(), 3, "{similar}");
+}
+
+#[tokio::test]
+async fn the_rails_sections_forms_refusals_payout_and_gate_send_marketplaces_events() {
+    let pilot = Pilot::new().await;
+    let q = |s: &str| s.replace('"', "&quot;");
+    // Buy: the listing's form names both sets of labels, and each section counts its opening.
+    let (_, _, buy) = pilot.send(get(SAVE_PAGE, None)).await;
+    for hook in [
+        q(
+            r#"submit:rail_analytics.submitted($e,"buy",["best_available_listing","implicit","listing_checkout",""],["listing_buy_cart","implicit","listing_buy_cart",""],"add-listing")"#,
+        ),
+        q(r#"click:rail_analytics.workflow($t,"buy","selected_product","","guest")"#),
+        q(r#"click:rail_analytics.workflow($t,"buy","make_offer","","guest")"#),
+        q(r#"submit:rail_analytics.submitted($e,"buy",["make_offer","","make_offer",""],[],"")"#),
+    ] {
+        assert!(buy.contains(&hook), "{hook}: {buy}");
+    }
+    // Sell, for a guest: the offer's payout preview is shown, and its form says which button.
+    let (_, _, sell) = pilot.send(get(SELL_PAGE, None)).await;
+    for hook in [
+        q(r#"connect:rail_analytics.payout(true,"best_offer","implicit")"#),
+        q(
+            r#"submit:rail_analytics.submitted($e,"sell",["best_offer","implicit","accept_offer","commit"],["best_offer","implicit","offer_sell_list","sell_list"],"add-to-sell-list")"#,
+        ),
+        q(r#"click:rail_analytics.workflow($t,"sell","create_listing","","guest")"#),
+    ] {
+        assert!(sell.contains(&hook), "{hook}: {sell}");
+    }
+    // An account that may not list meets the registration gate, and following it counts.
+    let (_, _, gated) = pilot.send(get(SELL_PAGE, Some("watcher"))).await;
+    for hook in [
+        q(r#"click:rail_analytics.workflow($t,"sell","create_listing","create_listing","signed_in")"#),
+        q(r#"connect:rail_analytics.gateShown($t,"sell","create_listing","create_listing","signed_in")"#),
+        q(r#"click:rail_analytics.registering("sell","create_listing","create_listing","signed_in")"#),
+    ] {
+        assert!(gated.contains(&hook), "{hook}: {gated}");
+    }
+    // Watch: each side's section and form.
+    let (_, _, watch) = pilot.send(get(WATCH_PAGE, None)).await;
+    for hook in [
+        q(r#"submit:rail_analytics.submitted($e,"watch",["watch_listings","","listing_alert",""],[],"")"#),
+        q(r#"click:rail_analytics.workflow($t,"watch","watch_offers","","guest")"#),
+    ] {
+        assert!(watch.contains(&hook), "{hook}: {watch}");
+    }
+    // A refused form's message counts as a validation failure when it joins the page.
+    let (status, _, refused) = pilot.send(post(WATCH, "watcher", &watch_body("offer", "-1", "USD"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let hook = q(r#"connect:rail_analytics.refused("watch","watch_offers","","offer_alert")"#);
+    assert!(refused.contains(&hook), "{hook}: {refused}");
+}
+
+/// `html` without its handlers (`data-on`), for an assertion about the markup itself.
+fn plain(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(at) = rest.find(" data-on=\"") {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + " data-on=\"".len()..];
+        rest = after.find('"').map_or("", |end| &after[end + 1..]);
+    }
+    out.push_str(rest);
+    out
 }

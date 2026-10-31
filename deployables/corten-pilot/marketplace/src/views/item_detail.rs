@@ -11,7 +11,7 @@ use super::on_marketplace;
 use crate::{
     api::{FieldValue, Item, Listing, MarketAggregate, MarketState, Offer, Reference, RollupPoint, SimilarItem},
     app::url,
-    buying::{BuyFields, BuyNotice, RailForm, field},
+    buying::{BuyFields, BuyNotice, Intent as BuyIntent, RailForm, field},
     items::{
         Address, Book, History, ItemScreen, ListingSetup, Market, OptionMarket, Picks, Range, active_dimensions, available,
         normalize, option_label, ordered_options,
@@ -25,6 +25,9 @@ use crate::{
 
 // The item page's and search's analytics (marketplace-web's `trackItemDetailRailEvent`).
 corten::script::script!(pub mod analytics = "rail_analytics.js");
+
+/// A rail form with one set of analytics labels, whichever button sends it.
+const ONE_WAY: [&str; 0] = [];
 
 /// The product selector, where Select options and the rail's choose-options link go.
 #[derive(Id)]
@@ -1183,6 +1186,15 @@ fn Rail<'a>(
     let offer_path = url::ItemOffer { slug }.href();
     let matches = screen.listings.len();
     let match_label = if matches == 1 { t.route_listing_matches_singular() } else { t.route_listing_matches_plural() };
+    // The rail analytics' labels (marketplace's `PurchaseSection` and `OfferSection`).
+    let viewer = screen.rail_viewer();
+    let (listing_workflow, listing_selection) = screen.rail_labels(Market::Buy);
+    let checkout_labels = [listing_workflow, listing_selection, "listing_checkout", ""];
+    let cart_labels = ["listing_buy_cart", listing_selection, "listing_buy_cart", ""];
+    let listing_refused_workflow = match from(RailForm::Listing) {
+        Some((_, input)) if input.intent == BuyIntent::AddListing => "listing_buy_cart",
+        _ => listing_workflow,
+    };
     html! {
         <section class={(Card, RailCard)} aria-labelledby="rail-title">
             <h2 class={CardTitle} id="rail-title">{title}</h2>
@@ -1221,7 +1233,12 @@ fn Rail<'a>(
                 <p class={Muted}>{t.route_product_intent_choose_options_guidance()}</p>
             }
             if let (Some(product), Some(l)) = (product, listing) {
-                <form class={Buy} method="post" action={&cart}>
+                <form
+                    class={Buy}
+                    method="post"
+                    action={&cart}
+                    on:submit={analytics::submitted(event, "buy", checkout_labels, cart_labels, BuyIntent::AddListing.as_str())}
+                >
                     {SubmitKey::field(BuyFields::FIELDS.attempt)}
                     <Hidden pairs={&page} />
                     <input type="hidden" name={field::PRODUCT} value={product}>
@@ -1233,7 +1250,13 @@ fn Rail<'a>(
                         </div>
                     }
                     if let Some(message) = error(RailForm::Listing) {
-                        <p class={Error} role="alert">{message}</p>
+                        <p
+                            class={Error}
+                            role="alert"
+                            on:connect={analytics::refused("buy", listing_refused_workflow, listing_selection, "")}
+                        >
+                            {message}
+                        </p>
                     }
                     <Quantity t={t} id="buy-listing-quantity" value={typed(RailForm::Listing)} />
                     <fieldset class={BuyActions} disabled={held}>
@@ -1254,11 +1277,16 @@ fn Rail<'a>(
             }
             if let Some(product) = product {
                 <details class={ProductBuy} open={open_product}>
-                    <summary>
+                    <summary on:click={analytics::workflow(target, "buy", "selected_product", "", viewer)}>
                         <span class={Strong}>{t.route_selected_product()}</span>
                         <span class={Muted}>{t.route_add_to_cart_workflow_helper()}</span>
                     </summary>
-                    <form class={Buy} method="post" action={&cart}>
+                    <form
+                        class={Buy}
+                        method="post"
+                        action={&cart}
+                        on:submit={analytics::submitted(event, "buy", ["product_buy_cart", "none", "product_buy_cart", ""], ONE_WAY, "")}
+                    >
                         {SubmitKey::field(BuyFields::FIELDS.attempt)}
                         <Hidden pairs={&page} />
                         <input type="hidden" name={field::PRODUCT} value={product}>
@@ -1268,7 +1296,9 @@ fn Rail<'a>(
                             <p class={Muted}>{t.route_add_to_cart_saves_buyer_intent()}</p>
                         }
                         if let Some(message) = error(RailForm::Product) {
-                            <p class={Error} role="alert">{message}</p>
+                            <p class={Error} role="alert" on:connect={analytics::refused("buy", "product_buy_cart", "none", "")}>
+                                {message}
+                            </p>
                         }
                         <Quantity t={t} id="buy-product-quantity" value={typed(RailForm::Product)} />
                         <fieldset class={BuyActions} disabled={held}>
@@ -1289,18 +1319,25 @@ fn Rail<'a>(
                     </form>
                 </details>
                 <details class={ProductBuy} open={offered.is_some()}>
-                    <summary>
+                    <summary on:click={analytics::workflow(target, "buy", "make_offer", "", viewer)}>
                         <span class={Strong}>{t.route_make_an_offer()}</span>
                         <span class={Muted}>{t.route_make_offer_action_description()}</span>
                     </summary>
-                    <form class={Buy} method="post" action={&offer_path}>
+                    <form
+                        class={Buy}
+                        method="post"
+                        action={&offer_path}
+                        on:submit={analytics::submitted(event, "buy", ["make_offer", "", "make_offer", ""], ONE_WAY, "")}
+                    >
                         <Hidden pairs={&page} />
                         <input type="hidden" name={field::PRODUCT} value={product}>
                         if let Some(lowest) = &lowest {
                             <p class={Muted}>{t.route_current_lowest_listing_summary(lowest)}</p>
                         }
                         if let Some(message) = error(RailForm::Offer) {
-                            <p class={Error} role="alert">{message}</p>
+                            <p class={Error} role="alert" on:connect={analytics::refused("buy", "make_offer", "", "make_offer")}>
+                                {message}
+                            </p>
                         }
                         <div class={OfferFields}>
                             <div class={QuantityField}>
@@ -1420,16 +1457,26 @@ fn SellForms<'a>(
     });
     let rows = offer.zip(screen.offer_terms.as_ref()).and_then(|(o, terms)| payout(t, o, terms));
     let open_product = offer.is_none() || error(SellForm::Product).is_some();
+    // The rail analytics' labels (marketplace's `OfferMatchSection` and `ProductSellListSection`).
+    let viewer = screen.rail_viewer();
+    let (offer_workflow, offer_selection) = screen.rail_labels(Market::Sell);
+    let accept_labels = [offer_workflow, offer_selection, "accept_offer", "commit"];
+    let sell_list_labels = [offer_workflow, offer_selection, "offer_sell_list", "sell_list"];
     html! {
         if let Some(o) = offer {
-            <form class={Buy} method="post" action={&action}>
+            <form
+                class={Buy}
+                method="post"
+                action={&action}
+                on:submit={analytics::submitted(event, "sell", accept_labels, sell_list_labels, SellIntent::AddOffer.as_str())}
+            >
                 <Hidden pairs={page} />
                 <input type="hidden" name={selling::field::OFFER} value={&o.offer_id}>
                 if let Some(total) = &total {
                     <p class={Strong}>{t.route_offer_total(total)}</p>
                 }
                 if let Some(rows) = &rows {
-                    <dl class={Pairs}>
+                    <dl class={Pairs} on:connect={analytics::payout(true, offer_workflow, offer_selection)}>
                         for (label, value) in rows {
                             <div>
                                 <dt>{label}</dt>
@@ -1438,10 +1485,14 @@ fn SellForms<'a>(
                         }
                     </dl>
                 } else {
-                    <p class={Muted}>{t.route_offer_terms_calculated_before_acceptance()}</p>
+                    <p class={Muted} on:connect={analytics::payout(false, offer_workflow, offer_selection)}>
+                        {t.route_offer_terms_calculated_before_acceptance()}
+                    </p>
                 }
                 if let Some(message) = error(SellForm::Offer) {
-                    <p class={Error} role="alert">{message}</p>
+                    <p class={Error} role="alert" on:connect={analytics::refused("sell", offer_workflow, offer_selection, "")}>
+                        {message}
+                    </p>
                 }
                 <fieldset class={BuyActions}>
                     <button type="submit" class={(Button, Primary)} name={selling::field::INTENT} value={accept.as_str()}>
@@ -1459,15 +1510,26 @@ fn SellForms<'a>(
         }
         if let Some(product) = product {
             <details class={ProductBuy} open={open_product}>
-                <summary>
+                <summary on:click={analytics::workflow(target, "sell", "selected_product", "", viewer)}>
                     <span class={Strong}>{t.route_add_product_to_sell_list()}</span>
                     <span class={Muted}>{t.route_add_product_to_sell_list_action_description()}</span>
                 </summary>
-                <form class={Buy} method="post" action={&action}>
+                <form
+                    class={Buy}
+                    method="post"
+                    action={&action}
+                    on:submit={analytics::submitted(event, "sell", ["selected_product", "", "product_sell_list", ""], ONE_WAY, "")}
+                >
                     <Hidden pairs={page} />
                     <input type="hidden" name={selling::field::PRODUCT} value={product}>
                     if let Some(message) = error(SellForm::Product) {
-                        <p class={Error} role="alert">{message}</p>
+                        <p
+                            class={Error}
+                            role="alert"
+                            on:connect={analytics::refused("sell", "selected_product", "", "product_sell_list")}
+                        >
+                            {message}
+                        </p>
                     }
                     <Quantity t={t} id="sell-product-quantity" value={typed} />
                     <button
@@ -1537,9 +1599,13 @@ fn ListForms<'a>(
     let ship_action = url::ItemShipFrom { slug }.href();
     let typed_ship = move |pick: fn(&listing::ShipFromInput) -> &str| ship.map(|(_, i)| pick(i));
     let f = ListFields::FIELDS;
+    // The rail analytics' labels (marketplace's `MarketplaceListingSubmissionSection` and its
+    // registration gate, `create_listing`).
+    let viewer = screen.rail_viewer();
+    let gate = if may_list { "" } else { "create_listing" };
     html! {
         <details class={ProductBuy} open={open}>
-            <summary>
+            <summary on:click={analytics::workflow(target, "sell", "create_listing", gate, viewer)}>
                 <span class={Strong}>{t.route_sell_on_chase_sets()}</span>
                 <span class={Muted}>{t.route_list_for_sale_action_description()}</span>
             </summary>
@@ -1555,7 +1621,14 @@ fn ListForms<'a>(
                     </div>
                 </dl>
                 <p class={Muted}>{t.route_reference_info_create_listing_summary()}</p>
-                <a class={(Button, Primary)} href={&register}>{register_label}</a>
+                <a
+                    class={(Button, Primary)}
+                    href={&register}
+                    on:connect={analytics::gateShown(target, "sell", "create_listing", "create_listing", viewer)}
+                    on:click={analytics::registering("sell", "create_listing", "create_listing", viewer)}
+                >
+                    {register_label}
+                </a>
             } else if let Some(id) = pending {
                 <div role="status">
                     <p class={Strong}>{p.item_listing_published()}</p>
@@ -1566,7 +1639,12 @@ fn ListForms<'a>(
                 <p class={Muted}>{t.route_your_listing_summary(&l.status, &listing_price(t, l))}</p>
                 <a class={Button} href={&manage(&l.listing_id)}>{t.route_manage_listing()}</a>
             } else {
-                <form class={Buy} method="post" action={&action}>
+                <form
+                    class={Buy}
+                    method="post"
+                    action={&action}
+                    on:submit={analytics::submitted(event, "sell", ["create_listing", "", "create_listing", ""], ONE_WAY, "")}
+                >
                     {SubmitKey::field(f.attempt)}
                     <Hidden pairs={page} />
                     <input type="hidden" name={listing::field::PRODUCT} value={product}>
@@ -1581,7 +1659,13 @@ fn ListForms<'a>(
                         }}
                     </p>
                     if let Some(message) = refused {
-                        <p class={Error} role="alert">{message}</p>
+                        <p
+                            class={Error}
+                            role="alert"
+                            on:connect={analytics::refused("sell", "create_listing", "", "create_listing")}
+                        >
+                            {message}
+                        </p>
                     }
                     if let Some(id) = draft {
                         <a class={Button} href={&manage(id)}>{t.route_manage_listing()}</a>
@@ -1728,6 +1812,12 @@ fn WatchForms<'a>(
     let currency = screen.summary.lowest_price_currency_code.as_deref().unwrap_or("USD");
     let action = url::ItemWatch { slug }.href();
     let open_offers = from(Side::Offer).is_some();
+    // The rail analytics' labels (marketplace's `ProductAlertSection`).
+    let viewer = screen.rail_viewer();
+    let labels = |side: Side| match side {
+        Side::Listing => ("watch_listings", "listing_alert"),
+        Side::Offer => ("watch_offers", "offer_alert"),
+    };
     let sides = [
         (
             Side::Listing,
@@ -1760,11 +1850,16 @@ fn WatchForms<'a>(
         if let Some(product) = product {
             for (side, title, help, label, set, placeholder, open) in sides {
                 <details class={ProductBuy} open={open}>
-                    <summary>
+                    <summary on:click={analytics::workflow(target, "watch", labels(side).0, "", viewer)}>
                         <span class={Strong}>{title}</span>
                         <span class={Muted}>{help}</span>
                     </summary>
-                    <form class={Buy} method="post" action={&action}>
+                    <form
+                        class={Buy}
+                        method="post"
+                        action={&action}
+                        on:submit={analytics::submitted(event, "watch", [labels(side).0, "", labels(side).1, ""], ONE_WAY, "")}
+                    >
                         <Hidden pairs={page} />
                         <input type="hidden" name={watching::field::PRODUCT} value={product}>
                         <input type="hidden" name={watching::field::SIDE} value={side.as_str()}>
@@ -1772,7 +1867,13 @@ fn WatchForms<'a>(
                             <p class={Muted}>{t.route_reference_info_watch_listings_line1()}</p>
                         }
                         if let Some((message, _)) = from(side) {
-                            <p class={Error} role="alert">{message}</p>
+                            <p
+                                class={Error}
+                                role="alert"
+                                on:connect={analytics::refused("watch", labels(side).0, "", labels(side).1)}
+                            >
+                                {message}
+                            </p>
                         }
                         <div class={OfferFields}>
                             <div class={QuantityField}>
