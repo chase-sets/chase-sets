@@ -23,6 +23,9 @@ use crate::{
     watching::{self, Side},
 };
 
+// The item page's and search's analytics (marketplace-web's `trackItemDetailRailEvent`).
+corten::script::script!(pub mod analytics = "rail_analytics.js");
+
 /// The product selector, where Select options and the rail's choose-options link go.
 #[derive(Id)]
 pub struct SelectOptionsId;
@@ -436,6 +439,10 @@ fn Dock<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a 
     let to_rail = move |market: Market| {
         format!("{}#rail-title", url::Item { slug, state: address.with_market(market), after: Default::default() }.href())
     };
+    let track = move |market: Market| {
+        let (workflow, selection) = screen.rail_labels(market);
+        analytics::railIntent(true, market.as_str(), workflow, selection, screen.rail_viewer(), "mobile_action_bar")
+    };
     let summary = &screen.summary;
     let price = match screen.market {
         Market::Buy if screen.selected_listing().is_some() => screen.selected_listing().map(|l| listing_price(t, l)),
@@ -452,9 +459,11 @@ fn Dock<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a 
                 if screen.product_id.is_some() {
                     <p class={DockPrice}>{&price}</p>
                     <div class={DockActions}>
-                        <a class={(Button, Primary)} href={&to_rail(Market::Buy)}>{t.page_buy_2()}</a>
-                        <a class={Button} href={&to_rail(Market::Sell)}>{t.route_sell_2()}</a>
-                        <a class={Button} href={&to_rail(Market::Watch)}>{t.route_watch()}</a>
+                        <a class={(Button, Primary)} href={&to_rail(Market::Buy)} on:click={track(Market::Buy)}>
+                            {t.page_buy_2()}
+                        </a>
+                        <a class={Button} href={&to_rail(Market::Sell)} on:click={track(Market::Sell)}>{t.route_sell_2()}</a>
+                        <a class={Button} href={&to_rail(Market::Watch)} on:click={track(Market::Watch)}>{t.route_watch()}</a>
                     </div>
                 } else {
                     <a class={(Button, Primary, Wide)} href={SelectOptionsId.fragment()}>{t.page_select_options()}</a>
@@ -548,7 +557,9 @@ fn SimilarCard<'a>(t: ItemMsg, item: &'a SimilarItem) -> impl Render {
                 if let Some(subtitle) = item.subtitle.as_deref().filter(|s| !s.is_empty()) {
                     <p class={SimilarSubtitle}>{subtitle}</p>
                 }
-                <a class={Button} href={&href} aria-describedby={&title_id}>{t.similar_view_item()}</a>
+                <a class={Button} href={&href} aria-describedby={&title_id} on:click={analytics::similarItem()}>
+                    {t.similar_view_item()}
+                </a>
             </div>
         </li>
     }
@@ -868,11 +879,22 @@ fn Stale<'a>(title: &'a str, text: &'a str) -> impl Render {
 fn Intent<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
     let link = move |market: Market| url::Item { slug, state: address.with_market(market), after: Default::default() }.href();
     let current = move |market: Market| (screen.market == market).then_some("true");
+    let track = move |market: Market| {
+        let (workflow, selection) = screen.rail_labels(market);
+        let changed = screen.market != market;
+        analytics::railIntent(changed, market.as_str(), workflow, selection, screen.rail_viewer(), "desktop_rail")
+    };
     html! {
         <nav class={Segmented} aria-label={t.page_choose_market_intent()}>
-            <a class={Segment} href={&link(Market::Buy)} aria-current={current(Market::Buy)}>{t.page_buy()}</a>
-            <a class={Segment} href={&link(Market::Sell)} aria-current={current(Market::Sell)}>{t.page_sell()}</a>
-            <a class={Segment} href={&link(Market::Watch)} aria-current={current(Market::Watch)}>{t.page_watch()}</a>
+            <a class={Segment} href={&link(Market::Buy)} aria-current={current(Market::Buy)} on:click={track(Market::Buy)}>
+                {t.page_buy()}
+            </a>
+            <a class={Segment} href={&link(Market::Sell)} aria-current={current(Market::Sell)} on:click={track(Market::Sell)}>
+                {t.page_sell()}
+            </a>
+            <a class={Segment} href={&link(Market::Watch)} aria-current={current(Market::Watch)} on:click={track(Market::Watch)}>
+                {t.page_watch()}
+            </a>
         </nav>
     }
 }

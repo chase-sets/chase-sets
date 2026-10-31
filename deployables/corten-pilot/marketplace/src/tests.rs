@@ -1610,7 +1610,7 @@ fn search(uri: &Uri) -> Option<Response> {
         "items": items, "facets": facets, "category_counts": [{ "slug": "singles-x1", "count": 7 }],
         "total": cursor.is_none().then_some(30),
         "count": shown, "nextCursor": (last < 30).then_some("c1"), "retrievalMode": "lexical",
-        "interpretation": interpretation, "resultSetKey": "k",
+        "interpretation": interpretation, "queryHash": QUERY_HASH, "resultSetKey": RESULT_SET_KEY,
     });
     if cursor == Some("gone") {
         page["cursorRestarted"] = json!(true);
@@ -3927,7 +3927,7 @@ async fn the_watch_tab_is_the_pilots_with_a_form_for_listings_and_one_for_offers
     let (status, _, html) = pilot.send(get(WATCH_PAGE, None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     // Watch is a tab of this page now, current on it.
-    assert!(html.contains(r#"href="/items/charizard?market=watch&amp;dimension.dim_condition=chc_nm&amp;dimension.dim_form=chc_raw" aria-current="true">Watch</a>"#), "{html}");
+    assert!(html.contains(r#"href="/items/charizard?market=watch&amp;dimension.dim_condition=chc_nm&amp;dimension.dim_form=chc_raw" aria-current="true""#), "{html}");
     let page = text(&html);
     assert!(page.contains("Watch listings Listings at or below your target."), "{page}");
     assert!(page.contains("Watch offers Offers at or above your target."), "{page}");
@@ -17045,4 +17045,80 @@ async fn the_offline_page_is_the_same_for_everyone() {
     assert_eq!(status, StatusCode::OK);
     assert!(!signed_in.contains("<nav"), "{signed_in}");
     assert_eq!(pilot.stand.calls.lock().unwrap().len(), before);
+}
+
+/// The search stub's analytics keys.
+const QUERY_HASH: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+const RESULT_SET_KEY: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+
+/// A beacon's post: JSON, as `sendBeacon` sends it, from the page's own origin.
+fn beacon(body: &str) -> Request<Body> {
+    Request::post("/analytics/item-detail-rail")
+        .header(header::HOST, "localhost:7791")
+        .header(header::ORIGIN, "http://localhost:7791")
+        .header("sec-fetch-site", "same-origin")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_owned()))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_rail_analytics_endpoint_takes_what_marketplace_takes_and_refuses_the_rest() {
+    let pilot = Pilot::new().await;
+    let body = format!(
+        r#"{{"event":"search_result_selected","position":2,"queryHash":"{QUERY_HASH}","resultSetKey":"{RESULT_SET_KEY}","surface":"search_results"}}"#
+    );
+    let (status, headers, text) = pilot.send(beacon(&body)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{text}");
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    let (status, _, _) = pilot.send(beacon(r#"{"event":"rail_intent_selected","intent":"buy","viewer":"guest"}"#)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    for refused in ["{", r#"{"event":"page_view"}"#, r#"{"event":"workflow_selected","intent":"buy now"}"#] {
+        let (status, _, _) = pilot.send(beacon(refused)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+        // Its Cache-Control is the error page's, `private, no-cache`, not NoStore's
+        // (todd-skelton/corten#519); a beacon's answer is read by no one either way.
+    }
+    // It reads no session and asks nothing of the API.
+    assert!(pilot.stand.calls.lock().unwrap().is_empty());
+    // Only a post.
+    let (status, _, _) = pilot.send(get("/analytics/item-detail-rail", None)).await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+}
+
+#[tokio::test]
+async fn a_search_results_picture_and_title_send_its_place_and_the_searchs_keys() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/search?q=pika", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let first = &html[html.find(r#"<li id="result-1""#).unwrap()..];
+    let first = &first[..first.find("</li>").unwrap()];
+    let opened =
+        format!(r#"data-on="click:rail_analytics.searchResult(1,&quot;{QUERY_HASH}&quot;,&quot;{RESULT_SET_KEY}&quot;)""#);
+    // The picture's link and the title's, not Buy, Sell or Watch.
+    assert_eq!(first.matches(&opened).count(), 2, "{first}");
+    assert_eq!(first.matches("data-on=").count(), 2, "{first}");
+    assert!(html.contains("rail_analytics.searchResult(24,"), "the 24th is 24: {html}");
+    // The page loads the script.
+    assert!(html.contains("rail_analytics"), "{html}");
+}
+
+#[tokio::test]
+async fn the_item_pages_sides_and_similar_items_send_the_rails_events() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(ITEM_PAGE, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let call = |changed: bool, intent: &str, workflow: &str, selection: &str, surface: &str| {
+        format!(
+            "rail_analytics.railIntent({changed},&quot;{intent}&quot;,&quot;{workflow}&quot;,&quot;{selection}&quot;,&quot;guest&quot;,&quot;{surface}&quot;)"
+        )
+    };
+    // The rail's sides: Buy is current (nothing to count), with its best listing chosen for it.
+    assert!(html.contains(&call(false, "buy", "best_available_listing", "implicit", "desktop_rail")), "{html}");
+    assert!(html.contains(&call(true, "watch", "watch", "none", "desktop_rail")), "{html}");
+    // The dock's count every tap.
+    assert!(html.contains(&call(true, "buy", "best_available_listing", "implicit", "mobile_action_bar")), "{html}");
+    let similar = &html[html.find(r#"aria-labelledby="similar-items""#).unwrap()..];
+    let similar = &similar[..similar.find("</section>").unwrap()];
+    assert_eq!(similar.matches(r#"data-on="click:rail_analytics.similarItem()""#).count(), 3, "{similar}");
 }

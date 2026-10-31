@@ -5,7 +5,10 @@
 //! of them sends every choice.
 use corten::prelude::*;
 
-use super::{item_detail::similar_image, on_marketplace};
+use super::{
+    item_detail::{analytics, similar_image},
+    on_marketplace,
+};
 use crate::{
     api::{Facet, SearchCategory, SearchItem, SearchResults},
     app::url,
@@ -64,6 +67,8 @@ static NO_RESULTS: SearchResults = SearchResults {
     lexical_count: None,
     interpretation: None,
     cursor_restarted: false,
+    query_hash: None,
+    result_set_key: None,
 };
 
 /// The sorts the page offers, by value.
@@ -756,7 +761,7 @@ fn Found<'a>(t: SearchMsg, screen: &'a SearchScreen, results: &'a SearchResults)
         } else {
             <h2 id="search-results-heading" class={ResultsTitle}>{t.page_results()}</h2>
         }
-        <ResultRows t={t} items={&results.items} terms={terms} first={0} />
+        <ResultRows t={t} items={&results.items} terms={terms} first={0} keys={results.keys()} />
         if terms.focused(&screen.category) {
             <div class={Promo}>
                 <p class={BannerTitle}>{t.page_save_this_search()}</p>
@@ -768,13 +773,19 @@ fn Found<'a>(t: SearchMsg, screen: &'a SearchScreen, results: &'a SearchResults)
     }
 }
 
-/// The results' cards, numbered from `first`.
+/// The results' cards, numbered from `first`, with the search's analytics keys.
 #[component(css = SearchPage)]
-pub fn ResultRows<'a>(t: SearchMsg, items: &'a [SearchItem], terms: &'a Terms, first: usize) -> impl Patch {
+pub fn ResultRows<'a>(
+    t: SearchMsg,
+    items: &'a [SearchItem],
+    terms: &'a Terms,
+    first: usize,
+    keys: (&'a str, &'a str),
+) -> impl Patch {
     html! {
         <ol id={ResultsId} class={Grid}>
             for (n, item) in items.iter().enumerate() {
-                <ResultCard t={t} item={item} terms={terms} index={first + n} />
+                <ResultCard t={t} item={item} terms={terms} index={first + n} keys={keys} />
             }
         </ol>
     }
@@ -822,7 +833,13 @@ pub fn LoadMore<'a>(
 /// subtitle, badges and language, its lowest price when it has listings, and the market intents:
 /// Buy first when it has listings, else Sell.
 #[component(css = SearchPage)]
-pub fn ResultCard<'a>(t: SearchMsg, item: &'a SearchItem, terms: &'a Terms, index: usize) -> impl Render {
+pub fn ResultCard<'a>(
+    t: SearchMsg,
+    item: &'a SearchItem,
+    terms: &'a Terms,
+    index: usize,
+    keys: (&'a str, &'a str),
+) -> impl Render {
     let card = &item.card;
     let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
     let options = terms.dimensions();
@@ -852,9 +869,13 @@ pub fn ResultCard<'a>(t: SearchMsg, item: &'a SearchItem, terms: &'a Terms, inde
     let priority = index < PRIORITY_IMAGES;
     let number = (index + 1).to_string();
     let (buy, sell, watch) = (at(Market::Buy), at(Market::Sell), at(Market::Watch));
+    // Opening the item from its picture or its title (marketplace's card link), not its Buy, Sell
+    // or Watch, which marketplace's card leaves uncounted.
+    let (query_hash, result_set_key) = keys;
+    let opened = analytics::searchResult(index + 1, query_hash, result_set_key);
     html! {
         <li id={ResultId(&number)} class={Card}>
-            <a class={CardMedia} href={&href} tabindex="-1" aria-hidden="true">
+            <a class={CardMedia} href={&href} tabindex="-1" aria-hidden="true" on:click={opened}>
                 match &image {
                     Some(image) => {
                         <img
@@ -874,7 +895,9 @@ pub fn ResultCard<'a>(t: SearchMsg, item: &'a SearchItem, terms: &'a Terms, inde
             </a>
             <div class={CardBody}>
                 <h3 class={CardTitle}>
-                    <a href={&href} aria-label={&t.card_view_details_for(&identity).to_string()}>{&card.title}</a>
+                    <a href={&href} aria-label={&t.card_view_details_for(&identity).to_string()} on:click={opened}>
+                        {&card.title}
+                    </a>
                 </h3>
                 if let Some(subtitle) = card.subtitle.as_deref().filter(|s| !s.trim().is_empty()) {
                     <p class={Muted}>{subtitle}</p>

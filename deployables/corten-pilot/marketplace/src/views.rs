@@ -163,14 +163,15 @@ pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMP
 /// Checkout start's components (`/checkout/buy/readiness`).
 pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
 
-/// The item page's components (`/items`): its stylesheet, the Sales tab's chart, and corten-ui's
-/// handler that makes Add to List's dialog modal when the server draws it open.
-pub const ITEM: &[Component] = &[ItemDetail, platform::chart::TimeSeries, corten_ui::dialog::COMPONENT];
+/// The item page's components (`/items`): its stylesheet, the Sales tab's chart, corten-ui's
+/// handler that makes Add to List's dialog modal when the server draws it open, and the analytics.
+pub const ITEM: &[Component] =
+    &[ItemDetail, platform::chart::TimeSeries, corten_ui::dialog::COMPONENT, item_detail::analytics::COMPONENT];
 
 /// Search's components (the home page, `/search`, `/categories`, and `/sets` for its cards): its
-/// stylesheet and the script that applies a filter as it changes. In `App::components`, since the
-/// home page is outside every area.
-pub const SEARCH: &[Component] = &[SearchPage, search_page::handlers::COMPONENT];
+/// stylesheet, the script that applies a filter as it changes, and the analytics a result's click
+/// sends. In `App::components`, since the home page is outside every area.
+pub const SEARCH: &[Component] = &[SearchPage, search_page::handlers::COMPONENT, item_detail::analytics::COMPONENT];
 
 /// A set's page (`/sets`). Its cards are search's (`ItemCards`), in `App::components`.
 pub const SET: &[Component] = &[SetPage];

@@ -15,12 +15,25 @@
 //! indexed, the index and its pages list nothing and read nothing, as the public pilot's sitemap
 //! does (marketplace's `robots.txt` closes the site then, but its sitemaps still list it).
 //!
-//! Not ported: `POST /analytics/item-detail-rail`, which counts the rail and search events
-//! marketplace-web's scripts send (`trackItemDetailRailEvent`) in an OpenTelemetry metric. No pilot
-//! page sends them, and the pilot has no metrics.
+//! `POST /analytics/item-detail-rail` takes the item page's and search's analytics events
+//! (`views/rail_analytics.js`, marketplace's `trackItemDetailRailEvent` and its root's bridge): it
+//! refuses what marketplace's refuses, a name it does not know or a label that is not one, with a
+//! 400, and logs the rest with marketplace's fields (`marketplace.item_detail_rail.analytics_event`,
+//! leaving out the position and the keys, as its log does). Marketplace also counts them in an
+//! OpenTelemetry metric (`chase_sets_marketplace_item_detail_rail_events_total`); the pilot has no
+//! metrics, so the log is the record until it gets an OpenTelemetry layer (Corten leaves metrics to
+//! the app's `tracing` subscriber). The endpoint and its vocabulary are Discovery's to own, not a
+//! web host's (chase-sets/chase-sets#3494); the pilot keeps marketplace's copy until Discovery
+//! contributes it.
 use std::time::Duration;
 
-use corten::{Media, NoStore, axum::http::StatusCode, prelude::*, seo};
+use corten::{
+    Media, NoStore,
+    axum::{body::Bytes, http::StatusCode},
+    prelude::*,
+    seo,
+};
+use serde_json::{Map, Value};
 
 use crate::{
     api::Sitemaps as _,
@@ -138,6 +151,107 @@ pub(crate) async fn devtools() -> NoStore<StatusCode> {
     NoStore(StatusCode::NO_CONTENT)
 }
 
+/// The rail and search events marketplace takes (`itemDetailRailAnalyticsEventNames`).
+const RAIL_EVENTS: [&str; 15] = [
+    "rail_intent_selected",
+    "workflow_selected",
+    "similar_item_selected",
+    "search_result_selected",
+    "reference_info_opened",
+    "payout_preview_shown",
+    "standard_preview_unavailable",
+    "registration_gate_shown",
+    "registration_started",
+    "registration_return_completed",
+    "term_delta_reviewed",
+    "intent_persisted",
+    "commit_gate_reached",
+    "intent_submit_started",
+    "validation_failed",
+];
+
+/// The labels an event may carry, each a bounded name or nothing.
+const RAIL_LABELS: [&str; 8] = ["intent", "workflow", "selection", "topic", "outcome", "gate", "viewer", "surface"];
+
+/// An analytics event marketplace's endpoint takes: its name and labels, the search result's
+/// position and keys.
+#[derive(Debug, PartialEq)]
+pub struct RailEvent {
+    pub event: String,
+    pub labels: Vec<(&'static str, Option<String>)>,
+    pub position: Option<u64>,
+    pub query_hash: Option<String>,
+    pub result_set_key: Option<String>,
+}
+
+/// `POST /analytics/item-detail-rail`: the event logged and a 204, or a 400 for one marketplace
+/// would refuse (Corten's error answer, where marketplace's is a line of text no beacon reads). It
+/// reads no session, and nothing keeps the answer.
+pub(crate) async fn rail_analytics(body: Bytes) -> NoStore<Result<StatusCode, corten::Error>> {
+    let Some(event) = rail_event(&body) else {
+        return NoStore(Err(corten::Error::status(StatusCode::BAD_REQUEST)));
+    };
+    let label = |name: &str| event.labels.iter().find(|(key, _)| *key == name).and_then(|(_, value)| value.as_deref());
+    tracing::info!(
+        r#type = "marketplace.item_detail_rail.analytics_event",
+        event = event.event,
+        intent = label("intent"),
+        workflow = label("workflow"),
+        selection = label("selection"),
+        topic = label("topic"),
+        outcome = label("outcome"),
+        gate = label("gate"),
+        viewer = label("viewer"),
+        surface = label("surface"),
+        "Item detail rail analytics event captured."
+    );
+    NoStore(Ok(StatusCode::NO_CONTENT))
+}
+
+/// The event in `body`, as marketplace's `parsePayload` reads it: a JSON object whose `event` is
+/// one it knows, each label missing, `null` or a name (ASCII letters, digits, `_`, `.` and `-`, 80
+/// at most, trimmed), the position a whole number from 1 to 10,000, and each key a SHA-256 in hex.
+/// Anything else is `None`.
+pub fn rail_event(body: &[u8]) -> Option<RailEvent> {
+    let Value::Object(body) = serde_json::from_slice::<Value>(body).ok()? else { return None };
+    let event = body.get("event").and_then(Value::as_str).and_then(name)?;
+    if !RAIL_EVENTS.contains(&event.as_str()) {
+        return None;
+    }
+    let labels = RAIL_LABELS
+        .iter()
+        .map(|key| Some((*key, optional(&body, key, |v| v.as_str().and_then(name))?)))
+        .collect::<Option<_>>()?;
+    let position = optional(&body, "position", |v| v.as_u64().filter(|n| (1..=10_000).contains(n)))?;
+    let query_hash = optional(&body, "queryHash", sha256)?;
+    let result_set_key = optional(&body, "resultSetKey", sha256)?;
+    Some(RailEvent { event, labels, position, query_hash, result_set_key })
+}
+
+/// A field that may be missing or `null` (`Some(None)`); otherwise `read`'s value, and `None` when
+/// it reads nothing.
+fn optional<T>(body: &Map<String, Value>, key: &str, read: impl Fn(&Value) -> Option<T>) -> Option<Option<T>> {
+    match body.get(key) {
+        None | Some(Value::Null) => Some(None),
+        Some(value) => read(value).map(Some),
+    }
+}
+
+/// A bounded name, trimmed (marketplace's `readBoundedString`).
+fn name(text: &str) -> Option<String> {
+    let text = text.trim();
+    let fits = !text.is_empty()
+        && text.len() <= 80
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'));
+    fits.then(|| text.to_owned())
+}
+
+/// A SHA-256 in lowercase hex, as it is (marketplace's `readOptionalSha256` does not trim).
+fn sha256(value: &Value) -> Option<String> {
+    let text = value.as_str()?;
+    (text.len() == 64 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))).then(|| text.to_owned())
+}
+
 /// The offline page, the same for everyone: the service worker fetches it when it installs, with
 /// the browser's cookies, and shows it later to whoever uses the browser, so it reads no session
 /// (`Public`) and draws no account's nav. A cache revalidates it every time (`max-age=0`), so a new
@@ -158,7 +272,7 @@ fn offline_page<For>(req: &Req) -> corten::Result<corten::HtmlResponse<For>> {
 
 #[cfg(test)]
 mod tests {
-    use super::page_number;
+    use super::{page_number, rail_event};
 
     #[test]
     fn a_sitemap_page_is_a_whole_number_from_one() {
@@ -166,6 +280,37 @@ mod tests {
         assert_eq!(page_number("12.xml"), Some(12));
         for file in ["0.xml", "1", "1.json", ".xml", "-1.xml", "+1.xml", "1.5.xml", "a.xml", "1.xml.xml"] {
             assert_eq!(page_number(file), None, "{file}");
+        }
+    }
+
+    #[test]
+    fn a_rail_event_is_one_marketplace_knows_with_bounded_labels() {
+        let hash = "a".repeat(64);
+        let body = format!(
+            r#"{{"event":"search_result_selected","surface":" search_results ","intent":null,"position":3,"queryHash":"{hash}","resultSetKey":"{hash}"}}"#
+        );
+        let event = rail_event(body.as_bytes()).expect("taken");
+        assert_eq!(event.event, "search_result_selected");
+        assert_eq!(event.position, Some(3));
+        assert_eq!(event.query_hash.as_deref(), Some(hash.as_str()));
+        assert!(event.labels.contains(&("surface", Some("search_results".to_owned()))));
+        assert!(event.labels.contains(&("intent", None)));
+
+        let long = "a".repeat(81);
+        for body in [
+            "not json".to_owned(),
+            "[]".to_owned(),
+            r#"{"event":"page_view"}"#.to_owned(),
+            r#"{"event":"workflow_selected","intent":"buy now"}"#.to_owned(),
+            format!(r#"{{"event":"workflow_selected","topic":"{long}"}}"#),
+            r#"{"event":"workflow_selected","viewer":7}"#.to_owned(),
+            r#"{"event":"search_result_selected","position":0}"#.to_owned(),
+            r#"{"event":"search_result_selected","position":10001}"#.to_owned(),
+            r#"{"event":"search_result_selected","position":1.5}"#.to_owned(),
+            r#"{"event":"search_result_selected","queryHash":"ABC"}"#.to_owned(),
+            format!(r#"{{"event":"search_result_selected","resultSetKey":"{}"}}"#, "A".repeat(64)),
+        ] {
+            assert_eq!(rail_event(body.as_bytes()), None, "{body}");
         }
     }
 }

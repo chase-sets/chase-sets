@@ -303,6 +303,10 @@ pub mod url {
 
         #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools)]
         pub struct Devtools;
+
+        /// The item page's and search's analytics events (`crate::site::rail_analytics`).
+        #[route("/analytics/item-detail-rail", post = crate::site::rail_analytics)]
+        pub struct RailAnalytics;
     }
 
     /// The offline page (`crate::site::offline`), an area for its stylesheet, which no other page

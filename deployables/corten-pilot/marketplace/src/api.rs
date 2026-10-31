@@ -2627,6 +2627,17 @@ pub struct SearchResults {
     pub lexical_count: Option<u64>,
     /// Filters the API read from the words, which the page applies with a redirect.
     pub interpretation: Option<Interpretation>,
+    /// The normalized words' SHA-256 and the result set's opaque key, which the analytics of a
+    /// result's click carry (`search_result_selected`).
+    pub query_hash: Option<String>,
+    pub result_set_key: Option<String>,
+}
+
+impl SearchResults {
+    /// The analytics keys, empty when the API sent none (a click then sends nothing).
+    pub fn keys(&self) -> (&str, &str) {
+        (self.query_hash.as_deref().unwrap_or_default(), self.result_set_key.as_deref().unwrap_or_default())
+    }
 }
 
 /// A result (`DiscoverySearchItem`): its card's fields, its language, badges and market.

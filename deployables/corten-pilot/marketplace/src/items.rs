@@ -68,7 +68,7 @@ impl Market {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Market::Buy => "buy",
             Market::Sell => "sell",
@@ -700,6 +700,28 @@ impl ItemScreen {
 
     pub fn selected_offer(&self) -> Option<&Offer> {
         self.offer_id.as_ref().and_then(|id| self.offers.iter().find(|o| &o.offer_id == id))
+    }
+
+    /// The rail analytics' workflow and selection for `market` with the page's choices
+    /// (`itemDetailRailAnalyticsWorkflow`, `itemDetailRailAnalyticsSelection`): the listing or
+    /// offer chosen, from the address (`explicit`) or the best one (`implicit`), or the product.
+    pub fn rail_labels(&self, market: Market) -> (&'static str, &'static str) {
+        let source = |explicit: bool| if explicit { "explicit" } else { "implicit" };
+        match market {
+            Market::Watch => ("watch", "none"),
+            Market::Sell if self.selected_offer().is_some() => {
+                (if self.offer_explicit { "selected_offer" } else { "best_offer" }, source(self.offer_explicit))
+            }
+            Market::Buy if self.selected_listing().is_some() => {
+                (if self.listing_explicit { "selected_listing" } else { "best_available_listing" }, source(self.listing_explicit))
+            }
+            Market::Sell | Market::Buy => ("selected_product", "none"),
+        }
+    }
+
+    /// Who is looking, for the rail analytics: `signed_in` or `guest`.
+    pub fn rail_viewer(&self) -> &'static str {
+        if self.viewer_account_id.is_some() { "signed_in" } else { "guest" }
     }
 
     /// The viewer's own listing of the product shown (marketplace's `ownListing`): the listing

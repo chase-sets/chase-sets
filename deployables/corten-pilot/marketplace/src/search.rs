@@ -632,7 +632,7 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
     let shown = terms.more;
     match caller.search(&terms.api_query_from(category, PAGE_SIZE, Some(cursor))).await {
         Ok(page) if page.cursor_restarted => req.patch(html! {
-            <views::ResultRows t={t} items={&page.items} terms={terms} first={0} />
+            <views::ResultRows t={t} items={&page.items} terms={terms} first={0} keys={page.keys()} />
             <views::LoadMore
                 t={t}
                 place={place}
@@ -643,15 +643,16 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
             />
         }),
         Ok(page) => {
-            let items = &page.items;
+            let keys = page.keys();
+            let (items, next) = (&page.items, page.next_cursor.as_deref());
             req.patch(html! {
-                {Append(views::ResultsId, html! { for (n, item) in items.iter().enumerate() { <views::ResultCard t={t} item={item} terms={terms} index={shown + n} /> } })}
+                {Append(views::ResultsId, html! { for (n, item) in items.iter().enumerate() { <views::ResultCard t={t} item={item} terms={terms} index={shown + n} keys={keys} /> } })}
                 <views::LoadMore
                     t={t}
                     place={place}
                     terms={terms}
                     shown={shown + items.len()}
-                    cursor={page.next_cursor.as_deref()}
+                    cursor={next}
                     failed={false}
                 />
             })
