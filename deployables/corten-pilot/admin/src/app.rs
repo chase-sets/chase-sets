@@ -144,6 +144,7 @@ pub fn app(config: Config) -> App {
         .area(|area| crate::support::ebay::area(area, shared.clone()))
         .area(|area| crate::support::attention::area(area, shared.clone()))
         .area(|area| crate::commerce::intake::area(area, shared.clone()))
+        .area(|area| crate::commerce::recovered::area(area, shared.clone()))
         .error_page(views::error_page, shared)
 }
 

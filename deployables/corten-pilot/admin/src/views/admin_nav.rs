@@ -46,6 +46,7 @@ fn served(path: &str) -> Option<String> {
         (<support::ebay::url::Lookup as Route>::PATH, support::ebay::url::Lookup.href()),
         (<support::attention::url::Attention as Route>::PATH, support::attention::url::Attention.href()),
         (<commerce::intake::url::Intake as Route>::PATH, commerce::intake::url::Intake::default().href()),
+        (<commerce::recovered::url::Recovered as Route>::PATH, commerce::recovered::url::Recovered::default().href()),
     ];
     pages.into_iter().find(|(at, _)| *at == path).map(|(_, href)| href)
 }

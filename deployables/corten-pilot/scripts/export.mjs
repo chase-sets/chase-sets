@@ -18,7 +18,8 @@
 //   sessions.* and session_detail.*, Auth's value labels as auth_value.*, and their titles from
 //   adminAuthHostConfig as route.sessions and route.session).
 // - admin/locales/commerce.en.json: the commerce section's English catalog: Return Intake's
-//   (fulfillment.returnIntake.* as ri.*).
+//   (fulfillment.returnIntake.* as ri.*) and Recovered Returns' (inventory.features.recoveredItems.ui.page.*
+//   as rr.*).
 // - admin/locales/support.en.json: the support section's English catalog: Reference Lookup's page
 //   (support.features.supportReferenceLookup.ui.supportReferenceLookupPage.* as lookup.*) and its
 //   route's text (support.routes.admin.supportReferenceLookup.* as lookup_route.*), and the CSAT
@@ -731,6 +732,10 @@ const outputs = [
     "admin/locales/commerce.en.json",
     json({
       ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [["fulfillment.returnIntake.", "ri"]])),
+      ...(await catalog("inventory.ts", "inventoryEnglishTranslations", [
+        ["inventory.features.recoveredItems.ui.page.", "rr"],
+        ["inventory.routes.admin.recoveredItems.title", "rr.route_title"],
+      ])),
     }),
   ],
   ["admin/nav.json", json(adminNav())],

@@ -122,6 +122,17 @@ impl Rule for IntakeAccess {
     }
 }
 
+/// Commerce > Recovered Returns: reading needs `recovered-inventory.view`, writing
+/// `recovered-inventory.manage`, as admin-web's loader and action and Inventory's API do.
+#[derive(Clone, Debug, Hash)]
+pub struct RecoveredAccess;
+
+impl Rule for RecoveredAccess {
+    fn permission(method: &Method) -> &'static str {
+        if method.is_safe() { "recovered-inventory.view" } else { "recovered-inventory.manage" }
+    }
+}
+
 /// The catalog area: reading needs `catalog.view`, writing `catalog.manage` (admin-web's
 /// actions require it; the API checks both again).
 #[derive(Clone, Debug, Hash)]

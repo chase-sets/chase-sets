@@ -113,6 +113,10 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["return-intake.view", "return-intake.manage"])
         } else if cookie.contains("chase_sets_session=intake-viewer") {
             actor(&["return-intake.view"])
+        } else if cookie.contains("chase_sets_session=recovery-manager") || cookie.contains("chase_sets_session=recovery-lag") {
+            actor(&["recovered-inventory.view", "recovered-inventory.manage"])
+        } else if cookie.contains("chase_sets_session=recovery-viewer") {
+            actor(&["recovered-inventory.view"])
         } else if cookie.contains("chase_sets_session=moderator") {
             actor(&["reported-content.view"])
         } else if cookie.contains("chase_sets_session=reader") {
@@ -165,6 +169,16 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if let Some(rest) = uri.path().strip_prefix(EBAY_DELETION) {
         return ebay_deletion(&method, rest, &body);
+    }
+    if let Some(rest) = uri.path().strip_prefix(RECOVERED) {
+        if cookie.contains("recovery-lag") && headers.contains_key("chase-sets-read-after-write") {
+            return refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            );
+        }
+        return recovered_items(&method, rest, &body);
     }
     if let Some(rest) = uri.path().strip_prefix(RETURN_INTAKE) {
         return return_intake(&method, rest, uri.query().unwrap_or_default(), &body);
@@ -4855,4 +4869,195 @@ async fn the_station_records_unidentified_packages_reconciles_them_and_corrects_
         pilot.send(post_multipart(at, "intake-manager", None, &[("intent", "other"), ("facilityId", "fac_1")], &[])).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Choose an intake action and try again."), "{html}");
+}
+
+const RECOVERED: &str = "/api/inventory/recovered-items";
+
+/// Inventory's recovered items: one quarantined item with two evidence references and one sellable,
+/// and the figures. An action on `rci_1` records it sellable; `rci_bad` is refused with the API's
+/// words, `rci_down` fails, and any other item is not found.
+fn recovered_items(method: &Method, rest: &str, body: &str) -> Response {
+    match (method.clone(), rest) {
+        (Method::GET, "") => Json(json!({
+            "items": [
+                { "recovered_item_id": "rci_1", "status": "quarantined", "custody_identifier": "CUST-1", "catalog_item_id": null,
+                  "condition_grade": null, "disposition": null, "received_at": "2026-10-29T15:00:00.000Z",
+                  "evidence_references": ["ev_1", "ev_2"], "return_shipment_id": "rsh_1" },
+                { "recovered_item_id": "rci_2", "status": "sellable", "custody_identifier": "CUST-2", "catalog_item_id": "cat_9",
+                  "condition_grade": "near-mint", "disposition": "resell", "received_at": "2026-10-28T15:00:00.000Z",
+                  "evidence_references": [] },
+            ],
+            "total": 2, "count": 2,
+        }))
+        .into_response(),
+        (Method::GET, "/metrics") => Json(json!({
+            "total_count": 2, "unidentified_count": 1, "quarantined_count": 1, "sellable_count": 1, "terminal_count": 0,
+            "recovered_count": 1, "recovery_rate": 0.5, "average_age_hours": 30.4,
+            "gross_value": "125.5", "disposition_cost": "4.25", "net_recovered_value": "121.25",
+        }))
+        .into_response(),
+        (Method::POST, "/rci_1/actions") => {
+            let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+            let status = if body.contains(r#""intent":"decide-disposition""#) { "sellable" } else { "quarantined" };
+            let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
+            (headers, Json(json!({ "recoveredItemId": "rci_1", "version": 4, "status": status }))).into_response()
+        }
+        (Method::POST, "/rci_bad/actions") => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "Unsupported recovered value type.")
+        }
+        (Method::POST, "/rci_down/actions") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        _ => refusal(StatusCode::NOT_FOUND, "not_found", "Recovered item not found."),
+    }
+}
+
+/// An action's form body: `fields` over admin-web's empty fields.
+fn recovered_body(fields: &[(&str, &str)]) -> String {
+    let names = [
+        "recoveredItemId",
+        "intent",
+        "policyVersion",
+        "evidenceReferences",
+        "catalogItemId",
+        "productId",
+        "conditionGrade",
+        "outcome",
+        "reviewReference",
+        "legalOwner",
+        "authorityKind",
+        "allowedDispositions",
+        "disposition",
+        "targetAccountId",
+        "storageLocationId",
+        "reasonCode",
+        "recoveryType",
+        "recoveryId",
+        "grossAmount",
+        "costAmount",
+        "currencyCode",
+        "correctedReturnShipmentId",
+        "canonicalRecoveredItemId",
+    ];
+    names
+        .iter()
+        .map(|name| {
+            let value = fields.iter().find(|(n, _)| n == name).map_or("", |(_, v)| v);
+            format!("{name}={}", percent_encoding::utf8_percent_encode(value, percent_encoding::NON_ALPHANUMERIC))
+        })
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+const RECOVERED_PAGE: &str = "/commerce/recovered-items";
+
+#[tokio::test]
+async fn recovered_returns_shows_the_figures_the_queue_and_the_action_form() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(RECOVERED_PAGE, Some("recovery-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "Recovered returns",
+        "Recovery health",
+        "50%",
+        ">30<",
+        "Gross recovery $125.50; disposition cost $4.25; net recovery $121.25.",
+        "CUST-1",
+        "cat_9",
+        "near-mint",
+        "2 references",
+        "0 references",
+        "Oct 29, 2026, 3:00 PM UTC",
+        "Record a custody or disposition action",
+        r#"value="USD""#,
+        r#"<option value="merge""#,
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"href="/commerce/recovered-items" aria-current="page""#), "the nav serves it: {html}");
+    assert_eq!(pilot.calls_to(RECOVERED).len(), 2, "the list and the figures");
+    assert_eq!(pilot.send(get(RECOVERED_PAGE, Some("intake-viewer"))).await.0, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_recovered_item_action_posts_admin_webs_body_and_reports_the_new_status() {
+    let pilot = Pilot::new().await;
+    let fields = [
+        ("recoveredItemId", "rci_1"),
+        ("intent", "decide-disposition"),
+        ("policyVersion", "recovery-v1"),
+        ("evidenceReferences", "ev_1, ev_2"),
+        ("disposition", "resell"),
+        ("reasonCode", "inspected"),
+        ("currencyCode", "USD"),
+    ];
+    let (status, headers, html) = pilot.send(post_as("recovery-manager", RECOVERED_PAGE, &recovered_body(&fields), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let location = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(location.starts_with("/commerce/recovered-items?item=rci_1&status=sellable&after_write="), "{location}");
+    let call = pilot.calls_to(RECOVERED).into_iter().find(|c| c.method == Method::POST).expect("the action");
+    assert_eq!(call.path, "/api/inventory/recovered-items/rci_1/actions");
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!(sent["intent"], "decide-disposition");
+    assert_eq!(sent["evidenceReferences"], json!(["ev_1", "ev_2"]));
+    assert_eq!(sent["reason"], "inspected");
+    assert_eq!(sent["targetAccountId"], "");
+
+    let (status, _, html) = pilot.send(get(&location, Some("recovery-manager"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Recovered item rci_1 is now sellable."), "{html}");
+    let (status, _, html) = pilot.send(get(&location, Some("recovery-lag"))).await;
+    assert_eq!(status, StatusCode::OK, "the page is read again without the receipt: {html}");
+    assert!(html.contains("Recovered item rci_1 is now sellable."), "{html}");
+}
+
+#[tokio::test]
+async fn a_refused_recovered_item_action_keeps_the_form_and_says_why() {
+    let pilot = Pilot::new().await;
+    let refused = |id: &'static str| {
+        recovered_body(&[("recoveredItemId", id), ("intent", "record-value"), ("recoveryType", "odd"), ("grossAmount", "9.99")])
+    };
+    let (status, _, html) = pilot.send(post_as("recovery-manager", RECOVERED_PAGE, &refused("rci_bad"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Unsupported recovered value type.") && html.contains(r#"role="alert""#), "{html}");
+    assert!(html.contains(r#"value="rci_bad""#) && html.contains(r#"value="9.99""#), "the form keeps what was sent: {html}");
+    assert!(html.contains(r#"<option value="record-value" selected"#), "{html}");
+
+    let (status, _, html) = pilot.send(post_as("recovery-manager", RECOVERED_PAGE, &refused("rci_none"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Recovered item not found."), "{html}");
+
+    let (status, _, html) = pilot.send(post_as("recovery-manager", RECOVERED_PAGE, &refused("rci_down"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains("The recovered item action could not be recorded."), "{html}");
+
+    let before = pilot.calls_to(RECOVERED).iter().filter(|c| c.method == Method::POST).count();
+    let (status, _, html) = pilot
+        .send(post_as(
+            "recovery-manager",
+            RECOVERED_PAGE,
+            &recovered_body(&[("recoveredItemId", "rci_1"), ("intent", "teleport")]),
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Choose a recovered item action."), "{html}");
+    let (status, _, _) = pilot
+        .send(post_as(
+            "recovery-manager",
+            RECOVERED_PAGE,
+            &recovered_body(&[("recoveredItemId", " "), ("intent", "inspect")]),
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot
+        .send(post_as(
+            "recovery-viewer",
+            RECOVERED_PAGE,
+            &recovered_body(&[("recoveredItemId", "rci_1"), ("intent", "inspect")]),
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "writing needs recovered-inventory.manage");
+    let after = pilot.calls_to(RECOVERED).iter().filter(|c| c.method == Method::POST).count();
+    assert_eq!(before, after, "an unknown action, a missing item and a viewer reach no API");
 }
