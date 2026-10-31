@@ -104,10 +104,11 @@ pub fn ObservationPage<C: Render>(children: C) -> impl Render {
     html! { <div class={Observation}>{children}</div> }
 }
 
-/// The observation's first image, at most 180 pixels wide (`Image width={180} fit="contain"`).
+/// The observation's first image, at most 180 pixels wide. It is at the top of the page, so it is
+/// not lazy: the browser fetches it with the page (`Image width={180} fit="contain"`).
 #[component(css = ObservationPage)]
 pub fn Picture<'a>(src: &'a str, alt: &'a str) -> impl Render {
-    html! { <img class={Image} src={src} alt={alt} width="180" loading="lazy"> }
+    html! { <img class={Image} src={src} alt={alt} width="180" decoding="async"> }
 }
 
 /// Promote and Reject, as the status allows them, with the reason Reject sends (an observed
