@@ -2,6 +2,10 @@ import { ROLE_PERMISSIONS, type OperatorAuthority, type OperatorAuthorityDecisio
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import type { MembershipServices } from "./runtime";
 
+export type OperatorGrantCreator = Readonly<{ userId: string; membershipId: string }>;
+export type IdentityOperatorAuthority = OperatorAuthority &
+  Readonly<{ forGrantCreator: (creator: OperatorGrantCreator) => Promise<OperatorAuthorityDecision> }>;
+
 function denied(reason: Extract<OperatorAuthorityDecision, { kind: "denied" }>["reason"]): OperatorAuthorityDecision {
   return { kind: "denied", reason };
 }
@@ -13,8 +17,27 @@ function denied(reason: Extract<OperatorAuthorityDecision, { kind: "denied" }>["
  */
 export function createIdentityOperatorAuthority(
   memberships: Pick<MembershipServices, "getMembershipState">,
-): OperatorAuthority {
-  return async (actor) => {
+): IdentityOperatorAuthority {
+  const forGrantCreator = async ({
+    userId,
+    membershipId,
+  }: OperatorGrantCreator): Promise<OperatorAuthorityDecision> => {
+    const membership = await memberships.getMembershipState(membershipId);
+    if (!membership?.id) return denied("authority-unavailable");
+    if (membership.userId !== userId) return denied("membership-mismatch");
+    if (membership.status !== "active") return denied("inactive");
+    if (membership.roleKey !== PLATFORM_ADMIN_ROLE_KEY) return denied("not-platform-admin");
+    const rolePermissions = ROLE_PERMISSIONS[PLATFORM_ADMIN_ROLE_KEY];
+    if (!rolePermissions.includes("catalog.manage")) return denied("not-platform-admin");
+    return {
+      kind: "granted",
+      membershipId: membership.id,
+      roleKey: PLATFORM_ADMIN_ROLE_KEY,
+      rolePermissions,
+    };
+  };
+
+  const forActor: OperatorAuthority = async (actor) => {
     if (!actor.membershipId) return denied("no-membership");
     const membership = await memberships.getMembershipState(actor.membershipId);
     if (!membership?.id) return denied("authority-unavailable");
@@ -30,4 +53,6 @@ export function createIdentityOperatorAuthority(
       rolePermissions: ROLE_PERMISSIONS[PLATFORM_ADMIN_ROLE_KEY],
     };
   };
+
+  return Object.assign(forActor, { forGrantCreator });
 }
