@@ -294,6 +294,18 @@ function parsePositiveInteger(value, label) {
   return parsed;
 }
 
+function parseShardSpec(value) {
+  const match = /^(\d+)\/(\d+)$/.exec(value);
+  if (!match) throw new Error("--shard must use the form k/n.");
+
+  const index = parsePositiveInteger(match[1], "--shard index");
+  const total = parsePositiveInteger(match[2], "--shard count");
+  if (total > 8) throw new Error("--shard count must be at most 8.");
+  if (index > total) throw new Error("--shard index must not exceed the shard count.");
+
+  return { index, total };
+}
+
 export function parseRunWorkspacesArgs(argv) {
   const [scriptName, ...rawArgs] = argv;
 
@@ -313,6 +325,9 @@ export function parseRunWorkspacesArgs(argv) {
   const commandTimeoutMs = commandTimeoutArg
     ? parsePositiveInteger(commandTimeoutArg.split("=")[1] ?? "", "--command-timeout-ms")
     : undefined;
+  const shardArgs = runnerArgs.filter((arg) => arg === "--shard" || arg.startsWith("--shard="));
+  if (shardArgs.length > 1) throw new Error("--shard may be provided only once.");
+  const shard = shardArgs.length === 1 ? parseShardSpec(shardArgs[0].slice("--shard=".length)) : undefined;
   const includeTestProfile = runnerArgs.find((arg) => arg.startsWith("--test-profile="))?.split("=")[1];
   const excludeTestProfile = runnerArgs.find((arg) => arg.startsWith("--exclude-test-profile="))?.split("=")[1];
   const groupArgs = runnerArgs.filter(
@@ -348,6 +363,7 @@ export function parseRunWorkspacesArgs(argv) {
     workspaceNames,
     concurrency,
     commandTimeoutMs,
+    ...(shard === undefined ? {} : { shard }),
   };
 }
 
@@ -365,6 +381,17 @@ function isDurationScheduledInvocation(options) {
       options.excludeTestProfile === undefined) ||
     (options.scriptName === DB_TEST_SCRIPT_SELECTOR &&
       options.includeTestProfile === undefined &&
+      options.excludeTestProfile === undefined)
+  );
+}
+
+function isShardableDurationScheduledInvocation(options) {
+  return (
+    (options.scriptName === "test" &&
+      options.excludeTestProfile === "db" &&
+      options.includeTestProfile === undefined) ||
+    (options.scriptName === "test:unit" &&
+      options.includeTestProfile === "db" &&
       options.excludeTestProfile === undefined)
   );
 }
@@ -556,6 +583,22 @@ function scheduleEligibleWorkspaces(workspaces, registry, scriptName) {
     );
 }
 
+function selectShardTasks(tasks, shard) {
+  const loads = Array.from({ length: shard.total }, () => 0);
+  const partitions = Array.from({ length: shard.total }, () => []);
+
+  for (const task of tasks) {
+    let target = 0;
+    for (let index = 1; index < loads.length; index += 1) {
+      if (loads[index] < loads[target]) target = index;
+    }
+    partitions[target].push(task);
+    loads[target] += task.estimatedDurationSeconds;
+  }
+
+  return partitions[shard.index - 1];
+}
+
 function buildRunWorkspacesSummary({ concurrency, elapsedMs, scriptName, taskResults, unhintedTasks }) {
   const passedCount = taskResults.filter((task) => task.outcome === "passed").length;
   const failedCount = taskResults.length - passedCount;
@@ -610,6 +653,10 @@ export async function runWorkspaceScripts(options) {
   } = options;
   const parsed = parseRunWorkspacesArgs(argv);
 
+  if (parsed.shard !== undefined && !isShardableDurationScheduledInvocation(parsed)) {
+    throw new Error("--shard is supported only for test --exclude-test-profile=db or test:unit --test-profile=db.");
+  }
+
   if (parsed.scriptName.startsWith("test")) {
     const includeTestDatabaseUrl =
       parsed.scriptName === "test:db" ||
@@ -631,7 +678,7 @@ export async function runWorkspaceScripts(options) {
       )
     : undefined;
   const workspaces = filterWorkspaces(allWorkspaces, parsed);
-  const tasks = durationScheduled
+  const scheduledTasks = durationScheduled
     ? scheduleEligibleWorkspaces(workspaces, registry, summaryScriptName).map((task) => ({
         ...task,
         scriptNames: workspaceScriptNames(task.workspace, parsed.scriptName),
@@ -640,6 +687,7 @@ export async function runWorkspaceScripts(options) {
         workspace,
         scriptNames: workspaceScriptNames(workspace, parsed.scriptName),
       }));
+  const tasks = parsed.shard === undefined ? scheduledTasks : selectShardTasks(scheduledTasks, parsed.shard);
 
   if (durationScheduled && (parsed.concurrency > 64 || tasks.length > 256)) {
     throw new Error("Duration-scheduled invocations require concurrency at most 64 and at most 256 eligible tasks.");
