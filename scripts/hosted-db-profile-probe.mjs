@@ -40,35 +40,89 @@ const workflowReceiptPath = `${artifactDir}/workflow-receipt.json`;
 
 const childLines = [];
 const partitions = [];
+const activePartitions = new Map();
+const runSummaries = [];
 const pendingWrites = [];
+const ansiPattern = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 let currentPartition;
+const refreshCurrentPartition = () => {
+  currentPartition = [...partitions].reverse().find((partition) => !partition.complete);
+};
 const appendLine = async (path, line) => {
   await appendFile(path, `${line}\n`);
 };
 const timestamp = () => new Date().toISOString();
 const recordChild = (line) => {
   const stamped = `${timestamp()} ${line}`;
+  const normalized = line.replace(ansiPattern, "");
+  const eventAt = stamped.slice(0, stamped.indexOf(" "));
   childLines.push(stamped);
   pendingWrites.push(appendLine(childLogPath, stamped));
-  const running = line.match(/^Running (.+) in (.+)\.\.\.$/);
+  const running = normalized.match(/^Running (.+) in (.+)\.\.\.$/);
   if (running) {
-    if (currentPartition) currentPartition.endedAt = timestamp();
-    currentPartition = {
+    const partition = {
       leg,
       workspace: running[2],
       script: running[1],
       role: /seed/i.test(running[2]) ? "seed" : leg === "api" ? "api" : "unrelated",
-      startedAt: timestamp(),
+      startedAt: eventAt,
       endedAt: null,
       complete: false,
     };
-    partitions.push(currentPartition);
+    partitions.push(partition);
+    activePartitions.set(partition.workspace, partition);
+    currentPartition = partition;
+    return;
   }
-  if (line.startsWith("RUN_WORKSPACES_SUMMARY ") && currentPartition) {
-    currentPartition.endedAt = timestamp();
-    currentPartition.complete = true;
-    currentPartition.summary = line.slice("RUN_WORKSPACES_SUMMARY ".length);
-    currentPartition = undefined;
+
+  if (normalized.startsWith("RUN_WORKSPACES_SUMMARY ")) {
+    try {
+      runSummaries.push({
+        observedAt: eventAt,
+        summary: JSON.parse(normalized.slice("RUN_WORKSPACES_SUMMARY ".length)),
+      });
+    } catch {
+      runSummaries.push({ observedAt: eventAt, summary: null });
+    }
+    return;
+  }
+
+  const commandEnd = normalized.match(/^RUN_WORKSPACES_COMMAND_END (\{.*\})$/);
+  if (commandEnd) {
+    try {
+      const details = JSON.parse(commandEnd[1]);
+      const partition = activePartitions.get(details.workspace);
+      if (partition?.script === details.script && !partition.complete) {
+        partition.endedAt = details.completedAt ?? eventAt;
+        partition.complete = true;
+        partition.outcome = details.outcome;
+        partition.completionSignal = "run-workspaces-command-end";
+        partition.commandEnd = details;
+        activePartitions.delete(details.workspace);
+        refreshCurrentPartition();
+      }
+    } catch {
+      // A malformed completion marker cannot prove partition completion.
+    }
+    return;
+  }
+
+  const prefixed = normalized.match(/^\[([^\]]+)\]\s+(.*)$/);
+  if (!prefixed || leg === "api") return;
+  const partition = activePartitions.get(prefixed[1]);
+  if (!partition || partition.complete) return;
+  const output = prefixed[2];
+  if (/\bTest Files\s+\d+.*\(\d+\)/.test(output)) partition.vitestTestFiles = output.trim();
+  if (/\bTests\s+\d+.*\(\d+\)/.test(output)) partition.vitestTests = output.trim();
+  if (partition.vitestTestFiles && partition.vitestTests) {
+    partition.endedAt = eventAt;
+    partition.complete = true;
+    partition.outcome = /\bfailed\b/i.test(`${partition.vitestTestFiles} ${partition.vitestTests}`)
+      ? "failed"
+      : "passed";
+    partition.completionSignal = "vitest-summary";
+    activePartitions.delete(partition.workspace);
+    refreshCurrentPartition();
   }
 };
 
@@ -98,11 +152,21 @@ const sample = async () => {
     const at = timestamp();
     const total = result.rows.reduce((sum, row) => sum + Number(row.clients), 0);
     for (const row of result.rows) {
-      const role = row.datname === "postgres" ? "admin" : currentPartition?.role ?? "unattributed";
+      const role = row.datname === "postgres" ? "admin" : (currentPartition?.role ?? "unattributed");
       const workspace = currentPartition?.workspace ?? "";
       const partition = currentPartition?.script ?? "";
       csv.push(
-        [at, row.datname ?? "", row.state ?? "", row.wait_event_type ?? "", row.clients, partition, workspace, role, total]
+        [
+          at,
+          row.datname ?? "",
+          row.state ?? "",
+          row.wait_event_type ?? "",
+          row.clients,
+          partition,
+          workspace,
+          role,
+          total,
+        ]
           .map((value) => JSON.stringify(String(value)))
           .join(","),
       );
@@ -169,7 +233,9 @@ await writeFile(
 const gaps = samples.slice(1).flatMap((value, index) => {
   const previous = Date.parse(samples[index].timestamp);
   const current = Date.parse(value.timestamp);
-  return current - previous > 2000 ? [{ from: samples[index].timestamp, to: value.timestamp, milliseconds: current - previous }] : [];
+  return current - previous > 2000
+    ? [{ from: samples[index].timestamp, to: value.timestamp, milliseconds: current - previous }]
+    : [];
 });
 const summary = {
   leg,
@@ -181,8 +247,12 @@ const summary = {
   settingsPost: post,
   settingsExpected: { max_connections: 300, superuser_reserved_connections: 3, reserved_connections: 0 },
   settingsMatch:
-    pre.max_connections === 300 && pre.superuser_reserved_connections === 3 && pre.reserved_connections === 0 &&
-    post.max_connections === 300 && post.superuser_reserved_connections === 3 && post.reserved_connections === 0,
+    pre.max_connections === 300 &&
+    pre.superuser_reserved_connections === 3 &&
+    pre.reserved_connections === 0 &&
+    post.max_connections === 300 &&
+    post.superuser_reserved_connections === 3 &&
+    post.reserved_connections === 0,
   monitorError: monitorError ?? null,
   sampleCount: samples.length,
   gaps,
@@ -191,18 +261,30 @@ const summary = {
   childExit,
   startedAt: new Date(startedAt).toISOString(),
   finishedAt: timestamp(),
+  runSummaries,
 };
-await writeFile(partitionPath, JSON.stringify({ leg, partitions }, null, 2) + "\n");
+await writeFile(partitionPath, JSON.stringify({ leg, partitions, runSummaries }, null, 2) + "\n");
 await writeFile(sampleLedgerPath, JSON.stringify(summary, null, 2) + "\n");
 
 const runtimeSource = await readFile("infrastructure/bounded-context-runtime/test-support.ts", "utf8");
 const seedSource = await readFile("deployables/marketplace-seed-testing/index.ts", "utf8");
-const knownContexts = [...new Set([...runtimeSource.matchAll(/contextName(?:s)?[^\n]*?['\"]([a-z0-9-]+)['\"]/gi), ...seedSource.matchAll(/['\"]([a-z0-9-]+)['\"]/g)].map((match) => match[1]))];
+const knownContexts = [
+  ...new Set(
+    [
+      ...runtimeSource.matchAll(/contextName(?:s)?[^\n]*?['\"]([a-z0-9-]+)['\"]/gi),
+      ...seedSource.matchAll(/['\"]([a-z0-9-]+)['\"]/g),
+    ].map((match) => match[1]),
+  ),
+];
 await writeFile(
   `${artifactDir}/scope-table.json`,
   JSON.stringify(
     {
-      source: ["infrastructure/bounded-context-runtime/test-support.ts", "deployables/platform-api/__tests__/bootstrap-db-test-support.ts", "deployables/marketplace-seed-testing/index.ts"],
+      source: [
+        "infrastructure/bounded-context-runtime/test-support.ts",
+        "deployables/platform-api/__tests__/bootstrap-db-test-support.ts",
+        "deployables/marketplace-seed-testing/index.ts",
+      ],
       nameFormula: "normalizedScope_normalizedContext_uuid8",
       adminDatname: "postgres",
       knownContexts,
@@ -245,7 +327,10 @@ for (const name of [
   workflowReceiptPath,
 ]) {
   const bytes = await readFile(name);
-  manifest[name.slice(artifactDir.length + 1)] = { sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length };
+  manifest[name.slice(artifactDir.length + 1)] = {
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    bytes: bytes.length,
+  };
 }
 await writeFile(`${artifactDir}/sha256-manifest.json`, JSON.stringify(manifest, null, 2) + "\n");
 if (monitorError || childExit.code !== 0) process.exitCode = childExit.code || 1;
