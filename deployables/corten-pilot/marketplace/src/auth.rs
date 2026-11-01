@@ -124,7 +124,12 @@ async fn look_up(headers: &HeaderMap, uri: &Uri, config: &Shared) -> Found {
 
 /// The receipt the address carries (`after_write`), while it is fresh.
 pub(crate) fn after_write(uri: &Uri) -> Option<Receipt> {
-    let value = uri.query()?.split('&').find_map(|pair| pair.strip_prefix("after_write="))?;
+    receipt_named(uri, "after_write")
+}
+
+/// The receipt in the address's parameter `name`, if it is one.
+pub(crate) fn receipt_named(uri: &Uri, name: &str) -> Option<Receipt> {
+    let value = uri.query()?.split('&').find_map(|pair| pair.strip_prefix(name)?.strip_prefix('='))?;
     let decoded = percent_encoding::percent_decode_str(value).decode_utf8().ok()?;
     Receipt::from_param(Some(&decoded))
 }

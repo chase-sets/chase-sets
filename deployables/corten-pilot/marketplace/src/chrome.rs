@@ -23,6 +23,9 @@ use crate::{
     cart::anonymous_cart,
 };
 
+/// The item page's parameter after Add to cart: the add's receipt (`items::After::added`).
+const ADDED: &str = "added";
+
 /// The layout's own reads, started for a request that draws it. A handler lends it to whatever
 /// draws the page, and each branch that draws the layout awaits it there. Corten has no read the
 /// app starts once for the layout, nor an `Ahead` awaited from several branches, so every handler
@@ -68,14 +71,16 @@ impl FromRequestParts<Shared> for Chrome {
 
 /// The cart's item count (`resolveCartCount`): an account's cart, or for a visitor or a guest
 /// checkout the guest cart the browser carries; 0 when there is none or it cannot be read. Read
-/// after the write the address names, as the page is, and as it stands if that read fails.
+/// after the write the address names, as the page is, and as it stands if that read fails: a
+/// page's own write (`after_write`), or the item page's Add to cart (`added`), so the count after
+/// an add has the line the add put in.
 async fn count(lookup: &Lookup, headers: &HeaderMap, uri: &Uri, config: &Shared) -> u64 {
     let account = matches!(lookup.found(headers, uri, config).await, Found::Account(viewer) if !viewer.guest());
     let read = |receipt| async move {
         let caller = config.platform.caller(headers, config.proto, receipt);
         if account { caller.cart().await } else { caller.guest_cart(anonymous_cart(headers)).await }
     };
-    let receipt = after_write(uri);
+    let receipt = after_write(uri).or_else(|| crate::auth::receipt_named(uri, ADDED));
     let read = match receipt.as_ref() {
         Some(receipt) => match read(Some(receipt)).await {
             Ok(cart) => Ok(cart),

@@ -2730,6 +2730,22 @@ async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
 }
 
 #[tokio::test]
+async fn the_nav_count_after_an_add_waits_for_the_adds_receipt() {
+    let pilot = Pilot::new().await;
+    // The add answers a receipt, and the item page it sends the browser to names it.
+    let (status, headers, body) = pilot.send(post(ITEM_CART, "buyer", &buy_body("add-product", "8", VAULT, "", ""), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/items/charizard?added=") && to.len() > "/items/charizard?added=".len(), "{to}");
+    // That page's cart count is read after the add, so it has the line the add put in.
+    let (status, _, html) = pilot.send(get(&to, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let read = calls.iter().rev().find(|c| c.method == Method::GET && c.path == CART).expect("the count reads the cart");
+    assert!(read.headers.contains_key("chase-sets-read-after-write"), "the count waits for the add: {:?}", read.headers);
+}
+
+#[tokio::test]
 async fn a_page_and_its_layout_ask_who_is_asking_once() {
     let pilot = Pilot::new().await;
     let identifies = |pilot: &Pilot| pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/session").count();
