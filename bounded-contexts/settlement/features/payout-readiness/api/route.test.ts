@@ -77,10 +77,33 @@ describe("settlement payout setup routes", () => {
       const getPayoutReadiness = vi.fn(async () => projection);
       const response = await createApp({ getPayoutReadiness }, ["payouts.view"]).request("/payout-readiness");
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ ...projection, ...expected });
+      expect(await response.json()).toMatchObject({ ...projection, ...expected });
       expect(getPayoutReadiness).toHaveBeenCalledWith("acc_seller");
     },
   );
+
+  it("returns the display-only setup attention fields at the strict boundary", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T15:00:00.000Z"));
+    try {
+      const projection = payoutReadinessFixture({
+        status: "ready",
+        provider_reference: "acct_test",
+        updated_at: "2026-06-01T15:00:00.000Z",
+      });
+      const response = await createApp({ getPayoutReadiness: async () => projection }, ["payouts.view"]).request(
+        "/payout-readiness",
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        setup_blocked: false,
+        setup_stale: false,
+        setup_stale_after_days: 30,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it.each(payoutSetupMatrix)(
     "progress and readiness share the decision contract: $name",

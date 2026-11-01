@@ -6,6 +6,7 @@ import type { SettlementApiEnv } from "../../../api";
 import { providerWebhookErrorFromUnknown } from "@chase-sets/http/provider-errors";
 import { toPayoutReconciliationJobStatus, type PayoutCommandSnapshot, type PayoutServices } from "./runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { buildPayoutOperationsResponse } from "../read-model/payout-operations";
 
 function requirePayoutAccess(
   c: {
@@ -155,9 +156,10 @@ export function createPayoutRoutes(services: PayoutServices) {
     const limit = Number(c.req.query("limit") ?? 100);
     const filter = c.req.query("filter") ?? null;
     const items = await services.listPayoutsNeedingReconciliation({ accountId: access.accountId, limit, filter });
+    const operations = buildPayoutOperationsResponse(items, new Date().toISOString());
 
     return c.json({
-      items,
+      ...operations,
       total: items.length,
       count: items.length,
     });

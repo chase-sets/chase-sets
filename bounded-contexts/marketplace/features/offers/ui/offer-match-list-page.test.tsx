@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { useState } from "react";
@@ -48,6 +48,33 @@ const offer: OfferMatchListItem = {
 
 afterEach(cleanup);
 
+async function awaitDeclineSettle(
+  router: ReturnType<typeof createMemoryRouter>,
+  form: HTMLFormElement,
+  sent: readonly string[],
+  expectedSent: readonly string[],
+) {
+  await new Promise<void>((resolve) => {
+    if (router.state.navigation.state === "idle") {
+      resolve();
+      return;
+    }
+    const unsubscribe = router.subscribe(({ navigation }) => {
+      if (navigation.state === "idle") {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(router.state.navigation.state).toBe("idle");
+  expect(form.dataset.formStatus).not.toBe("submitting");
+  expect(form.hasAttribute("aria-busy")).toBe(false);
+  expect(sent).toEqual(expectedSent);
+}
+
 describe("MarketplaceOfferMatchListPage", () => {
   it("has no Mute action or Muted buyers section and retains Add to Sell List", () => {
     const markup = renderToString(<MarketplaceOfferMatchListPage data={{ items: [offer] }} />);
@@ -93,10 +120,24 @@ describe("MarketplaceOfferMatchListPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(attempts()).toEqual(first);
     const decline = screen.getAllByRole("button", { name: "Decline" })[0]!;
+    const declineForm = decline.closest("form");
+    expect(declineForm).not.toBeNull();
+    if (!declineForm) throw new Error("Decline control must be inside a form");
+    const firstAttempt = String(first[0]!.attemptId);
     fireEvent.click(decline);
-    await waitFor(() => expect(sent).toEqual([first[0]!.attemptId]));
+    expect(declineForm.getAttribute("aria-busy")).toBe("true");
+    expect(declineForm.dataset.formStatus).toBe("submitting");
+    await awaitDeclineSettle(router, declineForm, sent, [firstAttempt]);
+    expect(sent).toEqual([firstAttempt]);
+    expect(declineForm.getAttribute("aria-busy")).toBeNull();
+    expect(declineForm.dataset.formStatus).not.toBe("submitting");
     fireEvent.click(decline);
-    await waitFor(() => expect(sent).toEqual([first[0]!.attemptId, first[0]!.attemptId]));
+    expect(declineForm.getAttribute("aria-busy")).toBe("true");
+    expect(declineForm.dataset.formStatus).toBe("submitting");
+    await awaitDeclineSettle(router, declineForm, sent, [firstAttempt, firstAttempt]);
+    expect(sent).toEqual([firstAttempt, firstAttempt]);
+    expect(declineForm.getAttribute("aria-busy")).toBeNull();
+    expect(declineForm.dataset.formStatus).not.toBe("submitting");
     expect(attempts()).toEqual(first);
   });
   it("renders the sell-list explanation as tinted furniture", () => {

@@ -1,4 +1,5 @@
 import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type {
   SupportChecklistItem,
   SupportEvidence,
@@ -7,7 +8,11 @@ import type {
   SupportResponse,
 } from "../domain/common";
 import { normalizeFlowType } from "../domain/common";
-import { normalizeSupportResolutionForReplay } from "../domain/responsibility";
+import {
+  getSupportResponsibilityReasonDefinitions,
+  normalizeSupportResolutionForReplay,
+  type SupportResponsibilityReasonDefinition,
+} from "../domain/responsibility";
 import type { RemedyCasePresentation, RemedyExecution } from "../domain/remedy";
 import { remedyApprovalExpired, type RemedyApprovalWorkflow } from "../domain/remedy-approval";
 import { projectCustomerRemedyStatus, type CustomerRemedyStatusProjection } from "../domain/domain";
@@ -93,6 +98,96 @@ export type SupportRequestDetailRow = SupportRequestListRow &
     responses: readonly SupportResponse[];
     offers: readonly SupportOffer[];
   }>;
+
+export type SupportOperatorPolicy = Readonly<{
+  deadlineAt: string | null;
+  recommendedAction: "response" | "escalate" | "resolve";
+  responsibilityReasons: readonly SupportResponsibilityReasonDefinition[];
+  refundCap: string | null;
+  refundPrefill: string | null;
+}>;
+
+export type SupportOperationsRequestListRow = SupportRequestListRow &
+  Readonly<{ operatorPolicy: Pick<SupportOperatorPolicy, "deadlineAt"> }>;
+
+export type SupportOperationsRequestDetailRow = SupportRequestDetailRow &
+  Readonly<{ operatorPolicy: SupportOperatorPolicy }>;
+
+type OperatorPolicySource = Pick<
+  SupportRequestListRow,
+  | "flow_type"
+  | "status"
+  | "seller_response_due_at"
+  | "support_review_due_at"
+  | "seller_condition_attestation_due_at"
+  | "affected_line_items"
+  | "pending_offer"
+> &
+  Readonly<{ offers?: readonly SupportOffer[] }>;
+
+function operatorDeadline(
+  row: Pick<
+    SupportRequestListRow,
+    "seller_response_due_at" | "support_review_due_at" | "seller_condition_attestation_due_at"
+  >,
+) {
+  const deadlines = [
+    row.seller_response_due_at,
+    row.support_review_due_at,
+    row.seller_condition_attestation_due_at,
+  ].filter((value): value is string => Boolean(value));
+  return deadlines.sort((left, right) => Date.parse(left) - Date.parse(right))[0] ?? null;
+}
+
+function operatorRefundCap(row: Pick<SupportRequestListRow, "affected_line_items">) {
+  if (!Array.isArray(row.affected_line_items) || row.affected_line_items.length === 0) return null;
+  let totalCents = 0n;
+  for (const rawLine of row.affected_line_items) {
+    const line = rawLine && typeof rawLine === "object" ? (rawLine as Record<string, unknown>) : null;
+    if (!line || typeof line.amount !== "string" || typeof line.currencyCode !== "string") return null;
+    const cents = tryMoneyToCents(line.amount);
+    if (cents === null) return null;
+    totalCents += cents;
+  }
+  return centsToMoneyAmount(totalCents);
+}
+
+function operatorRefundPrefill(row: OperatorPolicySource, cap: string | null) {
+  const capCents = cap === null ? null : tryMoneyToCents(cap);
+  const offers = row.offers ?? [];
+  const offersByRecency = [...offers].sort((left, right) => right.offeredAt.localeCompare(left.offeredAt));
+  const latestOfferWithRefund =
+    row.pending_offer?.refundAmount != null
+      ? row.pending_offer.refundAmount
+      : (offersByRecency.find((offer) => offer.refundAmount != null)?.refundAmount ?? null);
+  if (latestOfferWithRefund != null) {
+    const offerCents = tryMoneyToCents(latestOfferWithRefund);
+    if (offerCents !== null && (capCents === null || offerCents <= capCents)) {
+      return centsToMoneyAmount(offerCents);
+    }
+  }
+  return cap;
+}
+
+export function projectSupportOperatorPolicy(row: OperatorPolicySource, now: string): SupportOperatorPolicy {
+  const deadlineAt = operatorDeadline(row);
+  const recommendedAction =
+    row.status === "ready-for-support"
+      ? "resolve"
+      : deadlineAt !== null && Date.parse(deadlineAt) <= Date.parse(now)
+        ? "escalate"
+        : "response";
+  const refundCap = operatorRefundCap(row);
+  return {
+    deadlineAt,
+    recommendedAction,
+    responsibilityReasons: getSupportResponsibilityReasonDefinitions(normalizeFlowType(row.flow_type)).filter(
+      ({ operatorSelectable }) => operatorSelectable,
+    ),
+    refundCap,
+    refundPrefill: operatorRefundPrefill(row, refundCap),
+  };
+}
 
 /**
  * A case is contested — genuinely needing operator adjudication rather than a
@@ -370,7 +465,7 @@ export async function listSupportOperationsQueue(
     contested?: boolean;
     overdue?: boolean;
   }>,
-): Promise<{ items: SupportRequestListRow[]; total: number }> {
+): Promise<{ items: SupportOperationsRequestListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
   const now = params.now ?? new Date().toISOString();
   const values: unknown[] = [now];
@@ -477,7 +572,10 @@ export async function listSupportOperationsQueue(
   ]);
 
   return {
-    items: itemsResult.rows.map(withCompatibleResolution),
+    items: itemsResult.rows.map((row) => ({
+      ...withCompatibleResolution(row),
+      operatorPolicy: { deadlineAt: operatorDeadline(row) },
+    })),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
@@ -536,14 +634,21 @@ export async function getAccountSupportRequest(
 export async function getSupportOperationsRequest(
   db: PgQueryable,
   supportRequestId: string,
-): Promise<SupportRequestDetailRow | null> {
+  now = new Date().toISOString(),
+): Promise<SupportOperationsRequestDetailRow | null> {
   const result = await db.query<SupportRequestDetailRow>(
     `${detailSelect}
      WHERE support_request_id = $1`,
     [supportRequestId],
   );
 
-  return result.rows[0] ? withCompatibleResolution(result.rows[0]) : null;
+  const row = result.rows[0];
+  if (!row) return null;
+  const compatible = withCompatibleResolution(row);
+  return {
+    ...compatible,
+    operatorPolicy: projectSupportOperatorPolicy(compatible, now),
+  };
 }
 
 export type SupportRequestSweepCandidateRow = Readonly<{

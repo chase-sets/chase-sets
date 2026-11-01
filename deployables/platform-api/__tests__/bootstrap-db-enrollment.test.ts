@@ -3706,7 +3706,10 @@ describe("Platform API bootstrap DB enrollment", () => {
       {
         label: "Auth runtime services (#9644)",
         path: "bounded-contexts/auth/support/runtime-support/services.ts",
-        edit: replaceOnce('  "pricing.manage",\n]);', '  "pricing.manage",\n  "inventory.manage",\n]);'),
+        edit: replaceOnce(
+          '  return authenticationMethod === "google" || authenticationMethod === "facebook";\n',
+          '  return authenticationMethod === "google";\n',
+        ),
       },
     ];
 
