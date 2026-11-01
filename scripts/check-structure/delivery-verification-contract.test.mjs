@@ -182,8 +182,14 @@ function assertVerificationContract(text) {
   expect(text).toMatch(
     /^- PLAN_ONLY records a plan, not an executed local or hosted PASS\. Do not execute the selected broad local battery just to publish a draft\.$/m,
   );
-  expect(text).toMatch(
-    /^- Run `pnpm run verify:static:scoped` before every push, plus named focused tests for changed script tooling\. Do not use local full `verify:static`, full `verify`, or the complete `test:scripts` battery as delivery gates; hosted CI owns those unchanged strict full gates on every PR\.$/m,
+  expect(text).toContain(
+    "The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check -- --changed`, named non-DB focused tests, and issue-reference checks when applicable.",
+  );
+  expect(text).toContain(
+    "`pnpm run typecheck:changed` is a host-attributed diagnostic only: it runs only after host-wide heavy admission; a refusal exits 73 before reservation and is `NOT_EXECUTED`, while hosted exact-head `Typecheck` is authoritative.",
+  );
+  expect(text).toContain(
+    "Lanes run no `verify:*` gate (including `verify:static:scoped`), local DB test, workspace-wide or full battery, or other unadmitted heavy command; hosted CI owns full Static, Typecheck, Unit and DB Profile proof.",
   );
   expect(text).toMatch(
     /^- For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof\. Focused local `test:db` runs for the touched files remain useful diagnostics\. Hosted gates, timeouts, skips and reviews are unchanged\.$/m,
@@ -652,5 +658,15 @@ describe("delivery and planning skill mirrors", () => {
     const read = (root) => readFileSync(new URL(`../../${root}/skills/${skill}/SKILL.md`, import.meta.url));
 
     expect(read(".claude").equals(read(".agents"))).toBe(true);
+  });
+
+  it("pins the TCGplayer boundary invariant and removes operator-session custody wording", () => {
+    for (const root of [".agents", ".claude"]) {
+      const text = readProse(`${root}/skills/delivery/SKILL.md`);
+      expect(text).toContain(
+        "Chase Sets never contacts TCGplayer servers and never stores or uses TCGplayer auth cookies or credentials.",
+      );
+      expect(text).not.toContain("operator-session custody");
+    }
   });
 });

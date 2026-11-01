@@ -81,6 +81,8 @@ git -C <worktree> switch -c <branch> --track origin/main
 
 ## Operator boundary
 
+Chase Sets never contacts TCGplayer servers and never stores or uses TCGplayer auth cookies or credentials.
+
 Agents prepare, execute, monitor, capture evidence, clean up, and report probes
 and routine work. This boundary applies on both delivery paths; "operator
 actions no lane can perform" means only the residual human step, not a runbook
@@ -98,7 +100,7 @@ for Todd. Todd retains product priority/scope and unrelated reserved authority.
   it. A test using a live credential or real charge is not autonomous sandbox work.
 - Preserve privacy, least privilege, secret safety, and
   production credential custody,
-  including Todd's own operator-session custody: never expose secrets in chat,
+  never expose secrets in chat,
   logs, screenshots, evidence, or commits. Human private entry is only for
   credentials agents may not hold; sandbox/test safe-entry gaps are agent repair.
   Preserve provider restrictions, external approvals at their ruled lifecycle,
@@ -120,7 +122,8 @@ for Todd. Todd retains product priority/scope and unrelated reserved authority.
 - For every nonempty diff, the ordinary pre-PR gate is a dry-run plan: `pnpm run verify:ci-local -- --mode=pull-request --provenance=same-repository --dry-run`. Use `pnpm run verify:ci-local -- --mode=pull-request --provenance=fork --dry-run` for a fork candidate. Use `pnpm run verify:ci-local -- --mode=merge-group --dry-run` only when the delivery contract explicitly requires a local preview of merge-group selection; the real hosted merge group remains authoritative. Retain the exact-head plan as PLAN_ONLY before push.
 - PLAN_ONLY records a plan, not an executed local or hosted PASS. Do not execute the selected broad local battery just to publish a draft.
 - Keep `pnpm run verify` as the deliberate broad diagnostic when cross-workspace impact makes the complete local battery useful. It is not the ordinary pre-PR default.
-- Run `pnpm run verify:static:scoped` before every push, plus named focused tests for changed script tooling. Do not use local full `verify:static`, full `verify`, or the complete `test:scripts` battery as delivery gates; hosted CI owns those unchanged strict full gates on every PR.
+- The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check -- --changed`, named non-DB focused tests, and issue-reference checks when applicable. `pnpm run typecheck:changed` is a host-attributed diagnostic only: it runs only after host-wide heavy admission; a refusal exits 73 before reservation and is `NOT_EXECUTED`, while hosted exact-head `Typecheck` is authoritative. Lanes do not retry or escalate this locally. Prettier is `--write` on committed changed files.
+- Lanes run no `verify:*` gate (including `verify:static:scoped`), local DB test, workspace-wide or full battery, or other unadmitted heavy command; hosted CI owns full Static, Typecheck, Unit and DB Profile proof.
 - For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof. Focused local `test:db` runs for the touched files remain useful diagnostics. Hosted gates, timeouts, skips and reviews are unchanged.
 - Hosted CI is the proof for every product attempt, not only DB. The hosted jobs on the pushed head decide it, including E2E, DB Profile, unit, static and build. Local E2E, local `verify:test-db` and other local full or harness runs are diagnostics only and never a prerequisite for push, draft, ready or landing. A local-harness, environment or lock failure never parks, fails or classifies your candidate: push it to the draft PR and let hosted CI judge it. When a brief names a local run as a gate or a stop condition, take the hosted substitution and disclose it in the PR body.
 - An implementation attempt counts only when a pushed head receives a hosted CI verdict or an exact-head review verdict. Attempt counts are telemetry and step-back triggers, never a stop; no attempt count parks your issue. Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own tooling (helper scripts, probes, config) do not count. Fix them and continue within the same attempt instead of stopping.

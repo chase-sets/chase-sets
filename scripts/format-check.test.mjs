@@ -398,6 +398,39 @@ describe("format-check execution controls", () => {
     expect(harness.stdout.join("\n")).toContain("[FORMAT_CHECK_CONTROL_FILE_CHANGED]");
   });
 
+  it("keeps a plain nested package.json scoped and does not acquire the heavy slot", async () => {
+    const root = createFixtureRoot();
+    writeFixture(root, "nested/package.json", '{"name":"plain"}\n');
+    const harness = createRunnerHarness();
+    await runFormatCheck({
+      ...harness.options,
+      repoRoot: root,
+      argv: ["--changed"],
+      env: cleanEnvironment({ CHANGED_FILES_JSON: JSON.stringify(["nested/package.json", "src/unformatted.ts"]) }),
+    });
+
+    expect(changesFormattingControls(["nested/package.json"])).toBe(false);
+    expect(harness.acquiredKinds).toEqual([]);
+    expect(harness.prettierCalls).toEqual([
+      ["--check", "--ignore-unknown", "--", "nested/package.json", "src/unformatted.ts"],
+    ]);
+  });
+
+  it("escalates a nested package.json with a top-level prettier key at HEAD", async () => {
+    const root = createFixtureRoot();
+    writeFixture(root, "nested/package.json", '{"name":"nested","prettier":{}}\n');
+    const harness = createRunnerHarness();
+    await runFormatCheck({
+      ...harness.options,
+      repoRoot: root,
+      argv: ["--changed"],
+      env: cleanEnvironment({ CHANGED_FILES_JSON: JSON.stringify(["nested/package.json"]) }),
+    });
+
+    expect(harness.acquiredKinds).toEqual(["script-battery"]);
+    expect(harness.prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
+  });
+
   it("forces CI's opted-in static chain back to the full tree before reading CHANGED_FILES_JSON", async () => {
     const harness = createRunnerHarness();
     await runFormatCheck({
