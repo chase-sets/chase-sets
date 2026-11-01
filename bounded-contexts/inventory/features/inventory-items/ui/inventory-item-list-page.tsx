@@ -5,7 +5,6 @@ import {
   HiddenInput,
   Button,
   Badge,
-  Banner,
   Card,
   Combobox,
   DataTable,
@@ -30,14 +29,13 @@ import {
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import {
   normalizeSelectedOptionsForSchema,
-  getOptionLabel,
   isDimensionActive,
   recordToSelectionEntries,
   toInventoryProductSelectionFields,
   validateSelectedOptions,
 } from "../integrations/catalog/versioning";
 import type { InventoryStorageLocation } from "../../storage-locations/ui/contracts";
-import type { InventoryGradedCardDetails, InventoryItemListItem } from "./contracts";
+import type { InventoryItemListItem } from "./contracts";
 import { inventoryListingHref } from "./listing-handoff";
 import { OfflineSaleForm, OfflineSaleResult } from "./offline-sale-form";
 import { InventoryMutationRouterForm as Form } from "../../../support/request-support/mutation-form";
@@ -392,6 +390,18 @@ function hasCompleteSelectedOptions(item: InventoryCatalogItemSnapshot, selected
   }
 }
 
+/** Inventory names the Graded option identities; the page only checks whether the current choice is one of them. */
+function selectsGradedOption(item: InventoryCatalogItemSnapshot | null, selectedOptions: Record<string, string>) {
+  const dimensions = item?.product_schema?.dimensions ?? [];
+  return (item?.graded_selections ?? []).some(
+    (pair) =>
+      selectedOptions[pair.dimensionId] === pair.optionId &&
+      dimensions.some(
+        (dimension) => dimension.dimensionId === pair.dimensionId && isDimensionActive(dimension, selectedOptions),
+      ),
+  );
+}
+
 function displayItemLabel(item: InventoryItemListItem) {
   return item.item_title ?? item.catalog_catalog_item_id;
 }
@@ -513,33 +523,8 @@ export function InventoryItemListPage({
   const { catalogItem, selectedOptions } = picker;
   const catalogItemEntries = catalogItemPickerEntries(picker);
   const pickerStatusMessage = catalogItemPickerStatusMessage(picker.status);
-  function selectedOptionLabel(dimensionName: string) {
-    const dimension = catalogItem?.product_schema?.dimensions.find(
-      (candidate) => candidate.dimensionName === dimensionName && isDimensionActive(candidate, selectedOptions),
-    );
-    const option = dimension?.allowedOptions.find(
-      (candidate) => candidate.optionId === selectedOptions[dimension.dimensionId],
-    );
-    return option ? getOptionLabel(option) : "";
-  }
-  const isGraded = selectedOptionLabel("Form") === "Graded";
-  const gradingCompany = selectedOptionLabel("Grading Company");
-  const grade = selectedOptionLabel("Grade");
-  const gradedError =
-    isGraded && (!gradingCompany.trim() || !grade.trim())
-      ? t("inventory.features.inventoryItems.ui.inventoryItemListPage.graded.details.required")
-      : null;
-  const gradedCard: InventoryGradedCardDetails | null = isGraded
-    ? {
-        gradingCompany,
-        grade,
-        certificationNumber: certificationNumber.trim() || null,
-        population: null,
-        conditionDescriptors: [],
-      }
-    : null;
-  const canCreateItem =
-    catalogItem !== null && hasCompleteSelectedOptions(catalogItem, selectedOptions) && !gradedError;
+  const asksCertificationNumber = selectsGradedOption(catalogItem, selectedOptions);
+  const canCreateItem = catalogItem !== null && hasCompleteSelectedOptions(catalogItem, selectedOptions);
   const productSelectionFields = toInventoryProductSelectionFields(
     catalogItem?.product_schema ?? null,
     selectedOptions,
@@ -584,15 +569,7 @@ export function InventoryItemListPage({
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item")}>
         <Card elevation="tinted" data-elevation-role="furniture">
-          <Form
-            family="item-create"
-            targetId="draft"
-            spacing="none"
-            method="post"
-            onSubmit={(event) => {
-              if (gradedError) event.preventDefault();
-            }}
-          >
+          <Form family="item-create" targetId="draft" spacing="none" method="post">
             <Grid columns={{ base: 1, lg: 2 }} gap={5}>
               <HiddenInput type="hidden" name="intent" value="create-item" />
               <Stack gap={3}>
@@ -631,17 +608,14 @@ export function InventoryItemListPage({
                 />
                 <HiddenInput type="hidden" name="catalogItemId" value={catalogItem?.catalog_item_id ?? ""} />
                 <HiddenInput type="hidden" name="selectedOptions" value={serializedVersionSelection} />
-                {gradedCard ? (
-                  <>
-                    <HiddenInput type="hidden" name="gradedCard" value={JSON.stringify(gradedCard)} />
-                    <TextInput
-                      label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.certification.number")}
-                      value={certificationNumber}
-                      onChange={(event) => setCertificationNumber(event.target.value)}
-                    />
-                  </>
+                {asksCertificationNumber ? (
+                  <TextInput
+                    label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.certification.number")}
+                    name="certificationNumber"
+                    value={certificationNumber}
+                    onChange={(event) => setCertificationNumber(event.target.value)}
+                  />
                 ) : null}
-                {gradedError ? <Banner tone="danger" title={gradedError} /> : null}
                 <NativeSelect
                   label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.storage.location")}
                   name="storageLocationId"
