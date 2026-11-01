@@ -65,14 +65,14 @@ const historicalMeasuredFloorCaptures = Object.freeze({
 });
 const currentMeasuredFloorCaptures = Object.freeze({
   shipped: Object.freeze({
-    fileName: "bootstrap-db-capture-41043769783.json",
-    fixtureSha256: "a7d0015742db51a72aadb9558ecfceaf3042e628bcb79a35939f96c914e55d41",
-    artifactDigest: "sha256:75437a79c474c53835eef3d65701479a346527bb253fdcfeb8632ad80664a7c4",
+    fileName: "bootstrap-db-capture-41325439841.json",
+    fixtureSha256: "f62663e085f1f44cce3f7b83ed81a91dcabf2d335f81a2a005a66efa19bf5149",
+    artifactDigest: "sha256:8a6660550e09c0f97caf4a9f44faceb45e3c706a95b244d595faab0b88d3a601",
   }),
   paired: Object.freeze({
-    fileName: "bootstrap-db-capture-41043769783-paired.json",
-    fixtureSha256: "045afbc491c371edfdf14025af68e1944a8c61e29af66eb3b17d221c12edfaa9",
-    artifactDigest: "sha256:a967b5bf3df6fc0b34b94ce8f5f5f3fc0e1fcdee0502e33ea5d07a1457ac1016",
+    fileName: "bootstrap-db-capture-41325439841-paired.json",
+    fixtureSha256: "03ce481c853551378ac9eaa985b652d8451052c2d117d2cc0f75eea4f6e2a121",
+    artifactDigest: "sha256:cce496a7fe0edc25872a9b9a61fbba1e31b9aeb7f7f64c2d6720e5d4ba45430f",
   }),
 });
 // Generate fixture code, not an environment read by this non-DB test module.
@@ -650,7 +650,7 @@ function withUnappliedMeasuredFloor<T extends { schedule: { minimumUnitCount: nu
 // The current schedule model's own minimum unit count for the current manifest.
 // Capture-derived: an enrollment refreshes it with the projected schedule pins.
 const currentMinimumUnitCount = 3;
-const currentProjectedMakespans = [332818, 309120, 235517];
+const currentProjectedMakespans = [206150, 139666, 139661];
 const derivedShippedAssignment: Readonly<Record<string, "test:db:1" | "test:db:2" | "test:db:3">> = Object.freeze({
   "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
   "authoritative-seed-resume-core.db.test.ts": "test:db:1",
@@ -2591,8 +2591,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       },
     },
     {
-      label: "enrolls the accepted current-source three-unit capture with its paired floor provenance",
-      current: true,
+      label: "retains the superseded current-source three-unit capture with its bytes and pins unchanged",
+      current: false,
       fileName: "bootstrap-db-capture-41043769783.json",
       fixtureSha256: "a7d0015742db51a72aadb9558ecfceaf3042e628bcb79a35939f96c914e55d41",
       minimumUnitCount: 3,
@@ -2603,6 +2603,26 @@ describe("Platform API bootstrap DB enrollment", () => {
         checkoutSha: "09ddc8649cfb19990e2184cef16d2f3baa9858fb",
         sourceBase: "dd61ceffeaa375991971fab46b79bec350a6e797",
         captureParent: "dd61ceffeaa375991971fab46b79bec350a6e797",
+        event: "workflow_dispatch",
+        serialUnits: 3,
+        maxWorkers: 3,
+        modeledUnitCeilingMs: 420000,
+        modeledAggregateCeilingMs: 1080000,
+      },
+    },
+    {
+      label: "enrolls the accepted current-source three-unit capture with its paired floor provenance",
+      current: true,
+      fileName: "bootstrap-db-capture-41325439841.json",
+      fixtureSha256: "f62663e085f1f44cce3f7b83ed81a91dcabf2d335f81a2a005a66efa19bf5149",
+      minimumUnitCount: 3,
+      unitProjections: [206150, 139666, 139661],
+      provenance: {
+        runId: "41325439841",
+        jobName: "Diagnostic API Bootstrap Serial Measurement Only (current three-unit then paired two-unit)",
+        checkoutSha: "d4ae6bc4cb8e1b42a106282a3badc974b549ec75",
+        sourceBase: "24d001b97aea84601558c9b3ce0b0fdd11ebd59c",
+        captureParent: "24d001b97aea84601558c9b3ce0b0fdd11ebd59c",
         event: "workflow_dispatch",
         serialUnits: 3,
         maxWorkers: 3,
@@ -2635,6 +2655,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     "bootstrap-db-capture-40503475846.json": 4,
     "bootstrap-db-capture-40787363393.json": 4,
     "bootstrap-db-capture-41043769783.json": 4,
+    "bootstrap-db-capture-41325439841.json": 4,
   });
 
   it.each(measuredCaptures)("$label", async ({ current, fileName, fixtureSha256, ...expected }) => {
@@ -2982,7 +3003,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     return { binding: newer, baseline };
   }
 
-  const runId = "41043769783";
+  const runId = "41325439841";
   const changed = (key: string) => `${key} changed since capture ${runId}; re-enrollment required`;
   const added = (key: string) => `${key} is workload the capture ${runId} did not measure; re-enrollment required`;
   const removed = (key: string) =>
@@ -2991,7 +3012,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   // The retained current capture predates the two Catalog source changes on
   const knownCurrentCaptureDrift: readonly string[] = [];
   const expectedKnownDrift = (capture: BootstrapDbWorkloadCaptureBinding) =>
-    capture.fileName === "bootstrap-db-capture-41043769783.json" ? [...knownCurrentCaptureDrift] : [];
+    capture.fileName === "bootstrap-db-capture-41325439841.json" ? [...knownCurrentCaptureDrift] : [];
 
   async function mirrorFreshness(
     edits: Readonly<Record<string, WorkloadEdit>>,
@@ -4238,13 +4259,13 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(41917);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(3);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      2031936,
+      1232589,
     );
   });
 
@@ -4260,8 +4281,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       [32, 32],
       [19, 19],
     ]);
-    expect(schedule.aggregateMs).toBe(877455);
-    expect(schedule.aggregateWithOverheadMs).toBe(919372);
+    expect(schedule.aggregateMs).toBe(485477);
+    expect(schedule.aggregateWithOverheadMs).toBe(485480);
     expect(schedule.minimumUnitCount).toBe(currentMinimumUnitCount);
     expect(schedule.effectiveMinimumUnitCount).toBe(3);
     expect(schedule.observedUnitCount).toBe(3);
@@ -5787,19 +5808,17 @@ describe("Platform API bootstrap DB enrollment", () => {
     it("T6: binds the declared floor to its measured pair and applies it exactly when it binds the current model", () => {
       const { shipped, paired } = readCurrentMeasuredCaptures();
       const derived = deriveBootstrapDbMeasuredOneFewerUnitFloor({ shippedCapture: shipped, pairedCapture: paired });
-      expect(derived.refusal).toBeNull();
+      expect(derived.refusal).toContain("paired capture's 2-unit projection");
       expect(bootstrapDbMeasuredOneFewerUnitFloor).toEqual(derived.floor);
-      expect(bootstrapDbMeasuredOneFewerUnitFloor).not.toBeNull();
       const enrollment = defaultPathEnrollment(currentMinimumUnitCount);
       expect(enrollment.result.schedule).toMatchObject({
         measuredOneFewerUnitFloor: expectedMeasuredFloorVerdict(enrollment.floor, enrollment.model),
         minimumUnitCount: currentMinimumUnitCount,
-        effectiveMinimumUnitCount: 3,
+        effectiveMinimumUnitCount: currentMinimumUnitCount,
         observedUnitCount: 3,
       });
       expect(enrollment.result.violations).toEqual([]);
       expectDefaultPathFloorRole(enrollment);
-      expectOneFewerUnitInfeasible(enrollment);
     });
 
     it("T7: pins both paired capture fixtures to their bytes and their live artifact digests", () => {

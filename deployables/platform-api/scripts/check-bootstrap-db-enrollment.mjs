@@ -491,15 +491,15 @@ export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
  * Historical captures remain immutable; normal final-head DB CI owns qualification.
  */
 export const bootstrapDbScheduleModel = Object.freeze({
-  referenceRunId: 41043769783,
-  referenceJobId: 124022888769,
+  referenceRunId: 41325439841,
+  referenceJobId: 124904409470,
   referenceJobName: "Diagnostic API Bootstrap Serial Measurement Only (current three-unit then paired two-unit)",
-  referenceHeadSha: "09ddc8649cfb19990e2184cef16d2f3baa9858fb",
+  referenceHeadSha: "d4ae6bc4cb8e1b42a106282a3badc974b549ec75",
   referenceEvent: "workflow_dispatch",
   maxWorkersPerExecutionUnit: 3,
-  testFileFixedCostMs: 1621,
-  executionUnitFixedCostMs: 14528,
-  jobOverheadMs: 41917,
+  testFileFixedCostMs: 3,
+  executionUnitFixedCostMs: 0,
+  jobOverheadMs: 3,
   executionUnitCeilingMs: 420000,
   aggregateCeilingMs: 1080000,
   maximumCaseReferenceDurationMs: 600000,
@@ -512,8 +512,8 @@ export const bootstrapDbScheduleModel = Object.freeze({
 // model after measurement; discovery never expands this workload. The accepted
 // capture binding is not hosted qualification of the shipping topology.
 export const platformApiNonBootstrapDbCensus = Object.freeze({
-  referenceRunId: 41043769783,
-  referenceJobId: 124022888769,
+  referenceRunId: 41325439841,
+  referenceJobId: 124904409470,
   entries: {
     "__tests__/operator-session/operator-session-grant-mint.db.test.ts": "test:db:2",
     "__tests__/operator-session/operator-session-grant-scope.db.test.ts": "test:db:2",
@@ -1522,31 +1522,7 @@ function bootBearingCaseCount(partition) {
  * deriveBootstrapDbMeasuredOneFewerUnitFloor over two committed captures, which
  * the Unit test binds to those captures.
  */
-export const bootstrapDbMeasuredOneFewerUnitFloor = Object.freeze({
-  shippedReferenceRunId: 41043769783,
-  pairedReferenceRunId: 41043769783,
-  pairedReferenceJobId: 124022888769,
-  pairedArtifactSha256: "a967b5bf3df6fc0b34b94ce8f5f5f3fc0e1fcdee0502e33ea5d07a1457ac1016",
-  unitCount: 2,
-  assignment: {
-    "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
-    "authoritative-seed-resume-core.db.test.ts": "test:db:1",
-    "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
-    "bootstrap-lock-contention.db.test.ts": "test:db:1",
-    "connector-mount-gate-isolation.db.test.ts": "test:db:2",
-    "seed-command-full-pools.db.test.ts": "test:db:2",
-    "bootstrap-scenario.db.test.ts": "test:db:2",
-    "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
-    "bootstrap-shared-seed-command.db.test.ts": "test:db:2",
-    "inventory-seed-resume.db.test.ts": "test:db:2",
-    "catalog-seed-interruption-resume.db.test.ts": "test:db:2",
-    "authoritative-seed-resume-recovery.db.test.ts": "test:db:2",
-  },
-  unitMakespansMs: {
-    "test:db:1": 361766,
-    "test:db:2": 495636,
-  },
-});
+export const bootstrapDbMeasuredOneFewerUnitFloor = null;
 
 const measuredFloorProvenanceFields = Object.freeze([
   "node",
