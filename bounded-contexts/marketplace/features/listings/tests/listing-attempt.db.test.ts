@@ -331,6 +331,23 @@ async function fixture(pool: PgTransactionalPool) {
           agreementId: null,
           resolvedAt: "2026-10-28T00:00:00.000Z",
         }),
+        openListingTermsSession: async ({ accountId }: { accountId: string }) => ({
+          accountId,
+          accountType: "business" as const,
+          scheduleId: "cts_test",
+          agreementId: null,
+          resolvedAt: "2026-10-28T00:00:00.000Z",
+          quote: (amount: string) => ({
+            accountId,
+            accountType: "business" as const,
+            basisAmount: amount,
+            marketplaceSalesFeeUnitAmount: "0.50",
+            sellerNetUnitAmount: "9.50",
+            scheduleId: "cts_test",
+            agreementId: null,
+            resolvedAt: "2026-10-28T00:00:00.000Z",
+          }),
+        }),
       } as never,
     });
   const listings = restart();

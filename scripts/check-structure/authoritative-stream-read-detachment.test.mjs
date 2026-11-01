@@ -196,12 +196,12 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 19,
+      discoveredCallCandidates: 20,
       authoritativeSites: 18,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
-      insufficientReceiverContractSites: 1,
+      insufficientReceiverContractSites: 2,
       authorityAbsentCandidates: 0,
       optionalSyntaxOutcomes: 0,
       dynamicKeyOutcomes: 0,
@@ -222,8 +222,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
 
   it("derives twenty-nine green grammar instances across twenty-six live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(29);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(26);
+    expect(green).toHaveLength(31);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(28);
     const declarations = resolveGrammarSelectors(green, memberDeclarationSelectors);
     expect(declarations.errors).toEqual([]);
     expect(declarations.resolved).toHaveLength(memberDeclarationSelectors.length);
