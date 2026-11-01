@@ -929,7 +929,12 @@ describe("DB duration scheduling", () => {
   it("discovers every channels DB file exactly once across the deterministic slow-file partition", async () => {
     const channels = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/channels");
     const scripts = channels.packageJson.scripts;
-    expect(scripts["test:db"]).toBe("pnpm run test:db:1 && pnpm run test:db:2");
+    expect(scripts["test:db"].split(/\s+/).slice(0, 4)).toEqual([
+      "vitest",
+      "run",
+      "--config",
+      "./tests/vitest.config.mjs",
+    ]);
     const output = await captureDbRun({
       workspaces: [channels],
       registry: durationRegistry([durationEntry(channels.name, "test:db", 515)]),
@@ -948,11 +953,13 @@ describe("DB duration scheduling", () => {
       const onDisk = globSync("**/*.db.test.ts", { cwd: channels.dir })
         .map((file) => path.resolve(channels.dir, file).replaceAll("\\", "/"))
         .sort();
+      const aggregate = await discover(scripts["test:db"]);
+      expect(aggregate).toEqual(onDisk);
       const partitions = await Promise.all(
         [scripts["test:db:1"], scripts["test:db:2"]].map((command) => discover(command)),
       );
-      expect(partitions.flat().sort()).toEqual(onDisk);
-      expect(new Set(partitions.flat()).size).toBe(onDisk.length);
+      expect(partitions.flat().sort()).toEqual(aggregate);
+      expect(new Set(partitions.flat()).size).toBe(aggregate.length);
       expect(output.invocations.map((args) => args[3])).toEqual(["test:db:1", "test:db:2"]);
     } finally {
       await vitest.close();
