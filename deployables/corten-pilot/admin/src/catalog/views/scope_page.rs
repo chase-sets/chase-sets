@@ -4,7 +4,7 @@
 //! button (`<details>`), and Propose mapping is a dialog, so the page works without JavaScript.
 use corten::prelude::*;
 
-use super::{DetailPage, Dialog, Empty, Toasts, Tone, TonePill, Trigger};
+use super::{CatalogDialog, DetailPage, Empty, Toasts, Tone, TonePill, Trigger};
 use crate::{
     api::segment,
     catalog::{
@@ -479,7 +479,7 @@ fn ProposeDialog<'a>(t: Cat, p: Pilot, action: &'a str, back: Option<&'a (Propos
     ];
     let chosen = if input.confidence.is_empty() { "manual" } else { input.confidence.as_str() };
     html! {
-        <Dialog
+        <CatalogDialog
             id={ScopeProposeDialogId}
             title={t.coverage_propose_mapping()}
             description={None}
@@ -519,7 +519,7 @@ fn ProposeDialog<'a>(t: Cat, p: Pilot, action: &'a str, back: Option<&'a (Propos
                     <button type="submit" class={Small} name={f.accept} value="1">{t.coverage_propose_and_accept()}</button>
                 </div>
             </form>
-        </Dialog>
+        </CatalogDialog>
     }
 }
 

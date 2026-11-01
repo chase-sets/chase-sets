@@ -5,8 +5,8 @@
 use corten::prelude::*;
 
 use super::{
-    ActionBar, Bar, Bulk, BulkRows, DetailPage, Dialog, Draft, Empty, Filters, KeyValues, LifecycleForm, ListPage, ListScreen,
-    Pager, Pick, RefTypeForm, RefTypeRow, Search, Table, TextFilter, Toasts, Transition, Trigger, bulk_dialogs, ids,
+    ActionBar, Bar, Bulk, BulkRows, CatalogDialog, DetailPage, Draft, Empty, Filters, KeyValues, LifecycleForm, ListPage,
+    ListScreen, Pager, Pick, RefTypeForm, RefTypeRow, Search, Table, TextFilter, Toasts, Transition, Trigger, bulk_dialogs, ids,
     pages_around, statuses, value,
 };
 use crate::{
@@ -76,7 +76,7 @@ pub fn ref_type_list<'a>(
             />
         </Filters>
         <corten-live src={&live}>{ref_type_rows(t, p, query, screen, bulk.manage)}</corten-live>
-        <Dialog
+        <CatalogDialog
             id={ids::CREATE_DIALOG}
             title={t.ref_type_list_create_reference_type()}
             description={None}
@@ -84,7 +84,7 @@ pub fn ref_type_list<'a>(
             close={p.catalog_close()}
         >
             <RefTypeForm t={t} id={ids::CREATE} action={&create_action} create form={&create} />
-        </Dialog>
+        </CatalogDialog>
         {bulk_dialogs(t, p, bulk.preview, bulk.job)}
         <Toasts p={p} notice={notice.as_ref()} />
     }
@@ -186,7 +186,7 @@ pub fn ref_type_page<'a>(
             <KeyValues items={&items} />
         </DetailPage>
         if editable {
-            <Dialog
+            <CatalogDialog
                 id={ids::EDIT_DIALOG}
                 title={t.ref_type_edit_reference_type()}
                 description={None}
@@ -194,7 +194,7 @@ pub fn ref_type_page<'a>(
                 close={p.catalog_close()}
             >
                 <RefTypeForm t={t} id={ids::EDIT} action={&edit_action} create={false} form={&edit} />
-            </Dialog>
+            </CatalogDialog>
         }
         <Toasts p={p} notice={notice.as_ref()} />
     }

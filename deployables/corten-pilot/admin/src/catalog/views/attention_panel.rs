@@ -8,7 +8,7 @@ use corten::{
     view::{AttrValue, Id},
 };
 
-use super::{Dialog, Empty, KeyValues, Tone, TonePill, ids};
+use super::{CatalogDialog, Empty, KeyValues, Tone, TonePill, ids};
 use crate::{
     catalog::{
         api::{AttentionItem, AttentionKind, AttentionQueue, Resolution, ResolutionMode, Severity},
@@ -247,7 +247,7 @@ pub fn AttentionSheet<'a>(
                     Some(Parked::Defer(draft)) => draft.clone(),
                     _ => blank(),
                 };
-                <Dialog
+                <CatalogDialog
                     id={ids::ATTENTION_DIALOG}
                     title={&title}
                     description={Some(t.attention_drawer_description())}
@@ -277,7 +277,7 @@ pub fn AttentionSheet<'a>(
                             manage={manage}
                         />
                     </div>
-                </Dialog>
+                </CatalogDialog>
             }
         }
     }

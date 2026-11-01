@@ -9,9 +9,9 @@
 use corten::prelude::*;
 
 use super::{
-    ActionBar, Bar, Bulk, BulkRows, DetailPage, Dialog, Draft, Empty, Filters, KeyValues, LifecycleForm, ListPage, ListScreen,
-    Opens, Pager, Part, Pick, RefRecordForm, RefRecordRow, Search, Table, TextFilter, Toasts, Transition, bulk_dialogs, ids,
-    pages_around, statuses, value,
+    ActionBar, Bar, Bulk, BulkRows, CatalogDialog, DetailPage, Draft, Empty, Filters, KeyValues, LifecycleForm, ListPage,
+    ListScreen, Opens, Pager, Part, Pick, RefRecordForm, RefRecordRow, Search, Table, TextFilter, Toasts, Transition,
+    bulk_dialogs, ids, pages_around, statuses, value,
 };
 use crate::{
     catalog::{
@@ -67,7 +67,7 @@ pub struct RefRecordForms {
 pub fn RefRecordCreateDialog<'a>(t: Cat, p: Pilot, action: &'a str, draft: &'a RecordDraft) -> impl Patch {
     let RecordDraft { form, choices } = draft;
     html! {
-        <Dialog
+        <CatalogDialog
             id={ids::CREATE_DIALOG}
             title={t.ref_record_list_create_reference_record()}
             description={None}
@@ -84,7 +84,7 @@ pub fn RefRecordCreateDialog<'a>(t: Cat, p: Pilot, action: &'a str, draft: &'a R
                 records={&choices.records}
                 own=""
             />
-        </Dialog>
+        </CatalogDialog>
     }
 }
 
@@ -94,7 +94,7 @@ pub fn RefRecordEditDialog<'a>(t: Cat, p: Pilot, id: &'a str, draft: &'a RecordD
     let RecordDraft { form, choices } = draft;
     let action = url::RefRecordEdit::of(id).href();
     html! {
-        <Dialog
+        <CatalogDialog
             id={ids::EDIT_DIALOG}
             title={t.ref_record_edit_reference_record()}
             description={None}
@@ -111,7 +111,7 @@ pub fn RefRecordEditDialog<'a>(t: Cat, p: Pilot, id: &'a str, draft: &'a RecordD
                 records={&choices.records}
                 own={id}
             />
-        </Dialog>
+        </CatalogDialog>
     }
 }
 

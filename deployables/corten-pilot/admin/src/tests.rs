@@ -1942,7 +1942,7 @@ async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
     assert!(postage.contains("sections/commerce/postage-policies") && !postage.contains("sections/catalog"), "{postage}");
     let section = pilot.stylesheet(&catalog, "sections/catalog").await.unwrap();
     let shared = pilot.stylesheet(&catalog, "components").await.unwrap();
-    assert!(section.contains(".list-page__table") && section.contains(".dialog__form"), "{section}");
+    assert!(section.contains(".list-page__table") && section.contains(".catalog-dialog__form"), "{section}");
     assert!(!section.contains(".policy-table__"), "{section}");
     assert!(!shared.contains(".list-page__") && !shared.contains(".policy-table__"), "{shared}");
     assert!(shared.contains(".admin-nav__bar"), "{shared}");
@@ -1995,7 +1995,7 @@ async fn a_refused_create_comes_back_in_its_dialog() {
     let (status, headers, html) = pilot.send(post("/catalog/dimensions", body, true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(headers.contains_key("corten-patch"));
-    assert!(html.starts_with(r#"<form class="dialog__form" id="catalog-create""#), "{html}");
+    assert!(html.starts_with(r#"<form class="catalog-dialog__form" id="catalog-create""#), "{html}");
     assert!(html.contains("A dimension with this key already exists.") && html.contains(r#"value="dim_01JZ""#), "{html}");
     // Without JavaScript: the page, with the dialog open on the same form.
     let (status, _, html) = pilot.send(post("/catalog/dimensions", body, false)).await;
@@ -2763,7 +2763,10 @@ async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_w
         .await;
     assert_eq!(status, StatusCode::OK);
     assert!(headers.contains_key("corten-patch"), "{headers:?}");
-    assert!(html.starts_with(r#"<dialog class="dialog__dialog" id="catalog-bulk-preview""#) && html.contains(" open "), "{html}");
+    assert!(
+        html.starts_with(r#"<dialog class="catalog-dialog__dialog" id="catalog-bulk-preview""#) && html.contains(" open "),
+        "{html}"
+    );
     assert!(html.contains("Bulk Deprecate Preview") && html.contains("1 ready, 1 blocked."), "{html}");
     assert!(html.contains("Label dim_b") && html.contains("Only an active dimension can be deprecated."), "{html}");
     assert!(html.contains(r#"action="/catalog/dimensions/bulk/confirm?status=active""#), "{html}");
@@ -2857,7 +2860,7 @@ async fn a_refused_confirm_is_the_preview_again_with_the_apis_message() {
     let (status, _, html) =
         pilot.send(post("/catalog/dimensions/bulk/confirm", "action=archive&mode=ids&ids=dim_seed", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.starts_with(r#"<dialog class="dialog__dialog" id="catalog-bulk-preview""#), "{html}");
+    assert!(html.starts_with(r#"<dialog class="catalog-dialog__dialog" id="catalog-bulk-preview""#), "{html}");
     assert!(html.contains(r#"<p class="form-error" role="alert">Another bulk change is running.</p>"#), "{html}");
     assert!(html.contains("1 ready, 1 blocked."), "the preview is drawn again: {html}");
     let paths: Vec<_> = pilot.catalog_writes().iter().map(|c| c.path.clone()).collect();
@@ -3282,7 +3285,9 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     let (status, _, html) = pilot.send(action_get(&format!("/catalog/scopes/attention/review?status=active&item={key}"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
-        html.starts_with(r#"<dialog class="dialog__dialog" id="attention-sheet" aria-labelledby="attention-sheet-title" open"#),
+        html.starts_with(
+            r#"<dialog class="catalog-dialog__dialog" id="attention-sheet" aria-labelledby="attention-sheet-title" open"#
+        ),
         "{html}"
     );
     assert!(html.contains("<dt>Unit</dt><dd>tcgplayer:mtg:single-card:source-observation-import</dd>"), "{html}");

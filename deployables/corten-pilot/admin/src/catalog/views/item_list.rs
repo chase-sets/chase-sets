@@ -9,8 +9,8 @@ use corten::{
 };
 
 use super::{
-    Bar, BulkRows, Candidates, Dialog, Empty, Filters, Followed, Input, JobDialog, ListPage, ListScreen, MoreFilters, Pager,
-    Pick, Search, SelectRow, StatusPill, Table, TextFilter, Toasts, Trigger, ids, pages_around, value,
+    Bar, BulkRows, Candidates, CatalogDialog, Empty, Filters, Followed, Input, JobDialog, ListPage, ListScreen, MoreFilters,
+    Pager, Pick, Search, SelectRow, StatusPill, Table, TextFilter, Toasts, Trigger, ids, pages_around, value,
 };
 use crate::{
     catalog::{
@@ -192,7 +192,7 @@ pub fn item_list<'a>(
         {item_live(t, query)}
         {item_rows(t, p, query, screen, manage)}
         if manage {
-            <Dialog
+            <CatalogDialog
                 id={ids::CREATE_DIALOG}
                 title={t.item_list_create_catalog_item()}
                 description={None}
@@ -200,7 +200,7 @@ pub fn item_list<'a>(
                 close={p.catalog_close()}
             >
                 <ItemForm t={t} id={ids::CREATE} action={&create_action} form={&create} />
-            </Dialog>
+            </CatalogDialog>
         }
         match dialog {
             Some(ItemDialog::Preview { input, preview, errors, confirm, label }) => {
@@ -472,7 +472,7 @@ pub fn ItemPreviewDialog<'a>(
     // The view owns what its dialog borrows: the title and description move into the markup.
     html! {
         let (title, description) = (title, description);
-        <Dialog
+        <CatalogDialog
             id={ids::PREVIEW_DIALOG}
             title={&title}
             description={description.as_deref()}
@@ -511,7 +511,7 @@ pub fn ItemPreviewDialog<'a>(
                     </button>
                 </div>
             </form>
-        </Dialog>
+        </CatalogDialog>
     }
 }
 
@@ -591,7 +591,7 @@ pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors,
     let ready = !ids.is_empty() && errors.is_empty();
     html! {
         let description = t.item_list_remove_draft_catalog_items_description(ids.len()).to_string();
-        <Dialog
+        <CatalogDialog
             id={ids::PREVIEW_DIALOG}
             title={t.item_list_remove_draft_catalog_items()}
             description={ready.then_some(description.as_str())}
@@ -612,7 +612,7 @@ pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors,
                     </button>
                 </div>
             </form>
-        </Dialog>
+        </CatalogDialog>
     }
 }
 

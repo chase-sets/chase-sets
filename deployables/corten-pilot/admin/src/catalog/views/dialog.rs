@@ -20,8 +20,10 @@ use crate::{
 /// drawn `open` when its form came back (refused without JavaScript, or a label row added or
 /// removed), or when it is an answer (a bulk preview, a bulk job), so it is in front of the user
 /// either way; `corten_ui::dialog::modal` makes a dialog drawn open modal when it joins the page.
+/// Not `Dialog`: the kit's `platform::ui::dialog::Dialog` would share its style symbol
+/// (todd-skelton/corten#550).
 #[component(css)]
-pub fn Dialog<'a, I: Id + AttrValue + Copy, C: Render>(
+pub fn CatalogDialog<'a, I: Id + AttrValue + Copy, C: Render>(
     id: I,
     title: &'a str,
     description: Option<&'a str>,
@@ -45,7 +47,7 @@ pub fn Dialog<'a, I: Id + AttrValue + Copy, C: Render>(
 }
 
 /// The button that opens a dialog.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn Trigger<'a, I: Id + AttrValue + Copy>(dialog: I, label: &'a str, secondary: bool) -> impl Render {
     html! {
         if secondary {
@@ -59,7 +61,7 @@ pub fn Trigger<'a, I: Id + AttrValue + Copy>(dialog: I, label: &'a str, secondar
 /// The button that opens a dialog the server draws with what it needs (a reference record's
 /// form, with the records it may name): a `GET` of `action` carrying `fields`, answered with the
 /// dialog, or without JavaScript the page with it open.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn Opens<'a>(action: &'a str, fields: &'a [(FieldName, &'a str)], label: &'a str, secondary: bool) -> impl Render {
     html! {
         <form class={Opens} method="get" action={action} data-patch>
@@ -77,7 +79,7 @@ pub fn Opens<'a>(action: &'a str, fields: &'a [(FieldName, &'a str)], label: &'a
 
 /// A labelled text input, its error next to it. The error is outside the label, so it is not
 /// part of the input's name (it describes it).
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn Input<'a, I: Id>(label: &'a str, name: FieldName<String>, value: &'a str, errors: &'a Within<'a, I>) -> impl Render {
     html! {
         <div class={Field}>
@@ -91,7 +93,7 @@ pub fn Input<'a, I: Id>(label: &'a str, name: FieldName<String>, value: &'a str,
 }
 
 /// A labelled text area (three rows), its error next to it.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn TextArea<'a, I: Id>(label: &'a str, name: FieldName<String>, value: &'a str, errors: &'a Within<'a, I>) -> impl Render {
     html! {
         <div class={Field}>
@@ -104,7 +106,7 @@ pub fn TextArea<'a, I: Id>(label: &'a str, name: FieldName<String>, value: &'a s
     }
 }
 /// A labelled select.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn Choice<'a, I: Id>(
     label: &'a str,
     name: FieldName<String>,
@@ -128,7 +130,7 @@ pub fn Choice<'a, I: Id>(
 }
 
 /// A labelled checkbox.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn Check<'a, T>(label: &'a str, name: FieldName<T>, checked: bool) -> impl Render {
     html! {
         <label class={Check}>
@@ -157,7 +159,7 @@ pub fn value_types(t: Cat) -> [(&'static str, &'static str); 7] {
 }
 
 /// A dimension's create form (with the id it was drawn with) or its edit form.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn DimensionForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -186,7 +188,7 @@ pub fn DimensionForm<'a, I: Id + AttrValue + Copy>(
 }
 
 /// A field's create form or its configure form.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn FieldForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -221,7 +223,7 @@ pub fn FieldForm<'a, I: Id + AttrValue + Copy>(
 
 /// A category's create form or its edit form (`CategoryListPage`'s and `CategoryDetailPage`'s
 /// dialogs): the parent is an id, optional on create.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn CategoryForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -256,7 +258,7 @@ pub fn CategoryForm<'a, I: Id + AttrValue + Copy>(
 
 /// A component's create form or its edit form (`ComponentListPage`'s and `ComponentDetailPage`'s
 /// dialogs): its key, name and description.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn ComponentForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -283,7 +285,7 @@ pub fn ComponentForm<'a, I: Id + AttrValue + Copy>(
 }
 
 /// A component's Add Field Rule form: the field's id, typed as in admin-web, and Required.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn FieldRuleForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -308,7 +310,7 @@ pub fn FieldRuleForm<'a, I: Id + AttrValue + Copy>(
 
 /// A component's Add Dimension Rule form: the dimension's id, Required, the option ids it
 /// allows, and when it applies, typed as in admin-web.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn DimensionRuleForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -343,7 +345,7 @@ pub fn DimensionRuleForm<'a, I: Id + AttrValue + Copy>(
     }
 }
 /// A reference type's create form or its edit form; its attribute keys one per line.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn RefTypeForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -373,7 +375,7 @@ pub fn RefTypeForm<'a, I: Id + AttrValue + Copy>(
 /// A reference record's create form or its edit form. The type is picked from the active types
 /// (typed when there are none); a relationship's record is picked from `records` with
 /// corten-ui's combobox (a select without JavaScript), the record itself left out (`own`).
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -495,7 +497,7 @@ pub fn format_target(t: Cat, kind: &str, id: Option<&str>) -> String {
 /// A display template's create form or its edit form. admin-web hides Target ID for a global
 /// target; here the stylesheet does (`:has`), so it needs no script: a global target's id is
 /// not sent either way.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn TemplateForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -534,7 +536,7 @@ pub fn TemplateForm<'a, I: Id + AttrValue + Copy>(
     }
 }
 /// A blueprint's create form or its edit form.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn BlueprintForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -561,7 +563,7 @@ pub fn BlueprintForm<'a, I: Id + AttrValue + Copy>(
 }
 
 /// A blueprint's Attach Component form: the component's id, typed as in admin-web.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn AttachForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<AttachInput>) -> impl Patch {
     let f = AttachInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
@@ -577,7 +579,7 @@ pub fn AttachForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, 
 }
 
 /// A blueprint's Set Product Resolution Rules form: the canonical dimension order as ids.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn OrderForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<OrderInput>) -> impl Patch {
     let f = OrderInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
@@ -600,7 +602,7 @@ pub fn OrderForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, f
 /// A blueprint's Set Field Rules form: a row per rule. Add Rule and Remove post the form back to
 /// be drawn with a row more or less (nothing written); the hidden first button is the form's
 /// default, so Enter saves.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn FieldRulesForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -641,7 +643,7 @@ pub fn FieldRulesForm<'a, I: Id + AttrValue + Copy>(
 }
 
 /// A blueprint's Set Dimension Rules form: a row per rule, as [`FieldRulesForm`].
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn DimensionRulesForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -694,7 +696,7 @@ pub fn DimensionRulesForm<'a, I: Id + AttrValue + Copy>(
 /// Label and Remove post the form back to be drawn with a row more or less (no script, nothing
 /// written); the hidden first button is the form's default, so Enter in a field submits it
 /// rather than removing the first row.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn OptionForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -746,7 +748,7 @@ pub fn OptionForm<'a, I: Id + AttrValue + Copy>(
 }
 
 /// The order of a dimension's options, as ids separated by commas.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn ReorderForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<ReorderInput>) -> impl Patch {
     let f = ReorderInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
@@ -763,7 +765,7 @@ pub fn ReorderForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str,
 
 /// What a write did, after the page it sent the browser to (admin-web's toasts): corten-ui's
 /// toaster, its message gone after five seconds, placed at the corner of the page.
-#[component(css = Dialog)]
+#[component(css = CatalogDialog)]
 pub fn Toasts<'a>(p: Pilot, notice: Option<&'a String>) -> impl Render {
     let close = p.catalog_close();
     let message = notice.map(|n| n as &dyn Render);

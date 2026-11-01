@@ -2,7 +2,7 @@ use corten::prelude::*;
 
 use serde_json::Value;
 
-use super::{Dialog, ItemJobOutcome, StatusPill, Table, ids};
+use super::{CatalogDialog, ItemJobOutcome, StatusPill, Table, ids};
 use crate::{
     catalog::{
         api::{Candidate, ITEMS_EDIT, ITEMS_PUBLISH, Job, Outcome, Preview},
@@ -40,7 +40,7 @@ pub fn PreviewDialog<'a>(t: Cat, p: Pilot, shown: Previewed<'a>) -> impl Patch {
             Some(preview) if shown.input.mode != "filter" => &preview.ids,
             _ => &[],
         };
-        <Dialog
+        <CatalogDialog
             id={ids::PREVIEW_DIALOG}
             title={&title}
             description={description.as_deref()}
@@ -64,7 +64,7 @@ pub fn PreviewDialog<'a>(t: Cat, p: Pilot, shown: Previewed<'a>) -> impl Patch {
                     </button>
                 </div>
             </form>
-        </Dialog>
+        </CatalogDialog>
     }
 }
 
@@ -74,13 +74,13 @@ pub fn PreviewDialog<'a>(t: Cat, p: Pilot, shown: Previewed<'a>) -> impl Patch {
 pub fn JobDialog<'a>(t: Cat, p: Pilot, job: Option<&'a Job<Value>>, label: &'a str, live: Option<&'a str>) -> impl Render {
     html! {
         let title = t.bulk_result_title(label).to_string();
-        <Dialog id={ids::JOB_DIALOG} title={&title} description={None} open close={p.catalog_close()}>
+        <CatalogDialog id={ids::JOB_DIALOG} title={&title} description={None} open close={p.catalog_close()}>
             if let Some(src) = live {
                 <corten-live src={src}>{job_status(t, p, job)}</corten-live>
             } else {
                 {job_status(t, p, job)}
             }
-        </Dialog>
+        </CatalogDialog>
     }
 }
 

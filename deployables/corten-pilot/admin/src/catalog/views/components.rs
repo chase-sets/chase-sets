@@ -5,7 +5,7 @@
 use corten::prelude::*;
 
 use super::{
-    ActionBar, Bar, Bulk, BulkRows, ComponentForm, ComponentRow, DetailPage, Dialog, DimensionRuleForm, Draft, Empty,
+    ActionBar, Bar, Bulk, BulkRows, CatalogDialog, ComponentForm, ComponentRow, DetailPage, DimensionRuleForm, Draft, Empty,
     FieldRuleForm, Filters, KeyValues, LifecycleForm, ListPage, ListScreen, Pager, Part, Pick, RemoveForm, Search, Table, Toasts,
     Trigger, bulk_actions, bulk_dialogs, ids, pages_around, statuses, transitions, value,
 };
@@ -78,7 +78,7 @@ pub fn component_list<'a>(
             />
         </Filters>
         <corten-live src={&live}>{component_rows(t, p, query, screen, bulk.manage)}</corten-live>
-        <Dialog
+        <CatalogDialog
             id={ids::CREATE_DIALOG}
             title={t.component_list_create_component()}
             description={None}
@@ -86,7 +86,7 @@ pub fn component_list<'a>(
             close={p.catalog_close()}
         >
             <ComponentForm t={t} id={ids::CREATE} action={&create_action} create form={&create} />
-        </Dialog>
+        </CatalogDialog>
         {bulk_dialogs(t, p, bulk.preview, bulk.job)}
         <Toasts p={p} notice={notice.as_ref()} />
     }
@@ -229,7 +229,7 @@ pub fn component_page<'a>(
             </Part>
         </DetailPage>
         if editable {
-            <Dialog
+            <CatalogDialog
                 id={ids::EDIT_DIALOG}
                 title={t.component_edit_component()}
                 description={None}
@@ -237,8 +237,8 @@ pub fn component_page<'a>(
                 close={p.catalog_close()}
             >
                 <ComponentForm t={t} id={ids::EDIT} action={&edit_action} create={false} form={&edit} />
-            </Dialog>
-            <Dialog
+            </CatalogDialog>
+            <CatalogDialog
                 id={ids::ADD_FIELD_RULE_DIALOG}
                 title={t.component_add_field_rule_2()}
                 description={None}
@@ -246,8 +246,8 @@ pub fn component_page<'a>(
                 close={p.catalog_close()}
             >
                 <FieldRuleForm t={t} id={ids::ADD_FIELD_RULE} action={&field_action} form={&field_rule} />
-            </Dialog>
-            <Dialog
+            </CatalogDialog>
+            <CatalogDialog
                 id={ids::ADD_DIMENSION_RULE_DIALOG}
                 title={t.component_add_dimension_rule_2()}
                 description={None}
@@ -255,7 +255,7 @@ pub fn component_page<'a>(
                 close={p.catalog_close()}
             >
                 <DimensionRuleForm t={t} id={ids::ADD_DIMENSION_RULE} action={&dimension_action} form={&dimension_rule} />
-            </Dialog>
+            </CatalogDialog>
         }
         <Toasts p={p} notice={notice.as_ref()} />
     }

@@ -4,7 +4,7 @@
 use corten::prelude::*;
 
 use super::{
-    ActionBar, Bar, Bulk, BulkRows, CategoryForm, CategoryRow, DetailPage, Dialog, Draft, Empty, Filters, KeyValues,
+    ActionBar, Bar, Bulk, BulkRows, CatalogDialog, CategoryForm, CategoryRow, DetailPage, Draft, Empty, Filters, KeyValues,
     LifecycleForm, ListPage, ListScreen, Pager, Pick, Search, Table, TextFilter, Toasts, Transition, Trigger, bulk_dialogs, ids,
     pages_around, statuses, value,
 };
@@ -87,7 +87,7 @@ pub fn category_list<'a>(
             />
         </Filters>
         <corten-live src={&live}>{category_rows(t, p, query, screen, bulk.manage)}</corten-live>
-        <Dialog
+        <CatalogDialog
             id={ids::CREATE_DIALOG}
             title={t.category_list_create_category()}
             description={None}
@@ -95,7 +95,7 @@ pub fn category_list<'a>(
             close={p.catalog_close()}
         >
             <CategoryForm t={t} id={ids::CREATE} action={&create_action} create form={&create} />
-        </Dialog>
+        </CatalogDialog>
         {bulk_dialogs(t, p, bulk.preview, bulk.job)}
         <Toasts p={p} notice={notice.as_ref()} />
     }
@@ -204,7 +204,7 @@ pub fn category_page<'a>(
             <KeyValues items={&items} />
         </DetailPage>
         if editable {
-            <Dialog
+            <CatalogDialog
                 id={ids::EDIT_DIALOG}
                 title={t.category_edit_category()}
                 description={None}
@@ -212,7 +212,7 @@ pub fn category_page<'a>(
                 close={p.catalog_close()}
             >
                 <CategoryForm t={t} id={ids::EDIT} action={&edit_action} create={false} form={&edit} />
-            </Dialog>
+            </CatalogDialog>
         }
         <Toasts p={p} notice={notice.as_ref()} />
     }

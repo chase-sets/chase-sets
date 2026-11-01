@@ -107,11 +107,11 @@ const box = (page, key) => page.getByRole("row", { name: new RegExp(key) }).getB
   await page.getByLabel("Action").selectOption("activate");
   await preview.click();
   const dialog = page.locator("#catalog-bulk-preview");
-  await dialog.locator(".dialog__title").waitFor();
+  await dialog.locator(".catalog-dialog__title").waitFor();
   check(await dialog.evaluate((d) => d.matches(":modal")), "the preview is a modal dialog");
-  check((await dialog.locator(".dialog__title").textContent()) === "Bulk Activate Preview", "for the action");
+  check((await dialog.locator(".catalog-dialog__title").textContent()) === "Bulk Activate Preview", "for the action");
   check(
-    (await dialog.locator(".dialog__description").textContent()) === "2 ready, 0 blocked.",
+    (await dialog.locator(".catalog-dialog__description").textContent()) === "2 ready, 0 blocked.",
     "the API's preview: both drafts are ready",
   );
   await dialog.getByRole("button", { name: "Confirm" }).click();
@@ -191,7 +191,7 @@ const box = (page, key) => page.getByRole("row", { name: new RegExp(key) }).getB
   const dialog = page.locator("#catalog-bulk-preview");
   check((await dialog.getAttribute("open")) !== null, "the preview is the list with its dialog drawn open");
   check(
-    (await dialog.locator(".dialog__description").textContent()) === "2 ready, 1 blocked.",
+    (await dialog.locator(".catalog-dialog__description").textContent()) === "2 ready, 1 blocked.",
     "the two active dimensions are ready, the draft blocked",
   );
   await dialog.getByRole("button", { name: "Confirm" }).click();

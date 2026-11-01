@@ -9,9 +9,9 @@
 use corten::prelude::*;
 
 use super::{
-    ActionBar, AttachForm, Bar, BlueprintForm, BlueprintRow, Bulk, BulkRows, DetailPage, Dialog, DimensionRulesForm, Draft,
-    Empty, FieldRulesForm, Filters, KeyValues, LifecycleForm, ListPage, ListScreen, OrderForm, Pager, Part, Pick, RemoveForm,
-    Search, Table, Toasts, Transition, Trigger, bulk_dialogs,
+    ActionBar, AttachForm, Bar, BlueprintForm, BlueprintRow, Bulk, BulkRows, CatalogDialog, DetailPage, DimensionRulesForm,
+    Draft, Empty, FieldRulesForm, Filters, KeyValues, LifecycleForm, ListPage, ListScreen, OrderForm, Pager, Part, Pick,
+    RemoveForm, Search, Table, Toasts, Transition, Trigger, bulk_dialogs,
     components::{applicability, refused, unlisted},
     detail_page::Opener,
     ids,
@@ -126,7 +126,7 @@ pub fn blueprint_list<'a>(
             />
         </Filters>
         <corten-live src={&live}>{blueprint_rows(t, p, query, screen, bulk.manage)}</corten-live>
-        <Dialog
+        <CatalogDialog
             id={ids::CREATE_DIALOG}
             title={t.blueprint_list_create_blueprint()}
             description={None}
@@ -134,7 +134,7 @@ pub fn blueprint_list<'a>(
             close={p.catalog_close()}
         >
             <BlueprintForm t={t} id={ids::CREATE} action={&create_action} create form={&create} />
-        </Dialog>
+        </CatalogDialog>
         {bulk_dialogs(t, p, bulk.preview, bulk.job)}
         <Toasts p={p} notice={notice.as_ref()} />
     }
@@ -285,7 +285,7 @@ pub fn blueprint_page<'a>(
             </Part>
         </DetailPage>
         if editable {
-            <Dialog
+            <CatalogDialog
                 id={ids::EDIT_DIALOG}
                 title={t.blueprint_edit_blueprint()}
                 description={None}
@@ -293,10 +293,10 @@ pub fn blueprint_page<'a>(
                 close={p.catalog_close()}
             >
                 <BlueprintForm t={t} id={ids::EDIT} action={&edit_action} create={false} form={&edit} />
-            </Dialog>
+            </CatalogDialog>
         }
         if draft {
-            <Dialog
+            <CatalogDialog
                 id={ids::ATTACH_DIALOG}
                 title={t.blueprint_attach_component_2()}
                 description={None}
@@ -304,7 +304,7 @@ pub fn blueprint_page<'a>(
                 close={p.catalog_close()}
             >
                 <AttachForm t={t} id={ids::ATTACH} action={&attach_action} form={&attach} />
-            </Dialog>
+            </CatalogDialog>
             {set_dialogs(t, p, id, set)}
         }
         <Toasts p={p} notice={notice.as_ref()} />
@@ -354,7 +354,7 @@ fn unread_message(p: Pilot) -> Errors {
 pub fn FieldRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draft<FieldRulesInput>>) -> impl Patch {
     let action = url::FieldRules::of(id).href();
     html! {
-        <Dialog
+        <CatalogDialog
             id={ids::SET_FIELDS_DIALOG}
             title={t.blueprint_set_field_rules_2()}
             description={Some(t.blueprint_configure_which_fields_apply_to_this())}
@@ -366,7 +366,7 @@ pub fn FieldRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draf
             } else {
                 {unread_message(p).form_message()}
             }
-        </Dialog>
+        </CatalogDialog>
     }
 }
 
@@ -375,7 +375,7 @@ pub fn FieldRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draf
 pub fn DimensionRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draft<DimensionRulesInput>>) -> impl Patch {
     let action = url::DimensionRules::of(id).href();
     html! {
-        <Dialog
+        <CatalogDialog
             id={ids::SET_DIMENSIONS_DIALOG}
             title={t.blueprint_set_dimension_rules_2()}
             description={Some(t.blueprint_configure_which_dimensions_apply_to_this())}
@@ -387,7 +387,7 @@ pub fn DimensionRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a 
             } else {
                 {unread_message(p).form_message()}
             }
-        </Dialog>
+        </CatalogDialog>
     }
 }
 
@@ -396,7 +396,7 @@ pub fn DimensionRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a 
 pub fn OrderDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draft<OrderInput>>) -> impl Patch {
     let action = url::ProductResolutionRules::of(id).href();
     html! {
-        <Dialog
+        <CatalogDialog
             id={ids::SET_ORDER_DIALOG}
             title={t.blueprint_set_product_resolution_rules_2()}
             description={Some(t.blueprint_enter_dimension_ids_separated_by_commas())}
@@ -408,7 +408,7 @@ pub fn OrderDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draft<Ord
             } else {
                 {unread_message(p).form_message()}
             }
-        </Dialog>
+        </CatalogDialog>
     }
 }
 

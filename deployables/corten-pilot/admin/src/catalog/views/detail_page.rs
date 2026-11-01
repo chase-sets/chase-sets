@@ -2,7 +2,7 @@ use corten::{prelude::*, view::AttrValue};
 
 use super::{
     Draft, StatusPill,
-    dialog::{Dialog, OptionForm, Trigger},
+    dialog::{CatalogDialog, OptionForm, Trigger},
     ids,
     list_page::{Empty, Table},
 };
@@ -231,7 +231,7 @@ pub fn OptionRow<'a>(
                 <div class={RowActions}>
                     if dimension.dimension.status != "archived" {
                         <Trigger dialog={&dialog} label={t.dimension_edit_2()} secondary />
-                        <Dialog
+                        <CatalogDialog
                             id={&dialog}
                             title={&title}
                             description={None}
@@ -239,7 +239,7 @@ pub fn OptionRow<'a>(
                             close={p.catalog_close()}
                         >
                             <OptionForm t={t} id={&ids::option_form(option_id)} action={&edit} add={false} form={&draft} />
-                        </Dialog>
+                        </CatalogDialog>
                     }
                     <OptionLifecycleForm
                         t={t}

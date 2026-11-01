@@ -5,8 +5,8 @@
 use corten::prelude::*;
 
 use super::{
-    ActionBar, DetailPage, Dialog, Draft, Empty, Filters, KeyValues, LifecycleForm, ListPage, ListScreen, Pager, Pick, Search,
-    Table, TemplateForm, TemplateRow, Toasts, Transition, Trigger,
+    ActionBar, CatalogDialog, DetailPage, Draft, Empty, Filters, KeyValues, LifecycleForm, ListPage, ListScreen, Pager, Pick,
+    Search, Table, TemplateForm, TemplateRow, Toasts, Transition, Trigger,
     dialog::{format_target, target_kinds},
     ids, pages_around, statuses, value,
 };
@@ -72,7 +72,7 @@ pub fn template_list<'a>(
             />
         </Filters>
         <corten-live src={&live}>{template_rows(t, p, query, screen)}</corten-live>
-        <Dialog
+        <CatalogDialog
             id={ids::CREATE_DIALOG}
             title={t.template_list_create_display_template()}
             description={None}
@@ -80,7 +80,7 @@ pub fn template_list<'a>(
             close={p.catalog_close()}
         >
             <TemplateForm t={t} id={ids::CREATE} action={&create_action} create form={&create} />
-        </Dialog>
+        </CatalogDialog>
         <Toasts p={p} notice={notice.as_ref()} />
     }
 }
@@ -183,7 +183,7 @@ pub fn template_page<'a>(
             <KeyValues items={&items} />
         </DetailPage>
         if editable {
-            <Dialog
+            <CatalogDialog
                 id={ids::EDIT_DIALOG}
                 title={t.template_edit_display_template()}
                 description={None}
@@ -191,7 +191,7 @@ pub fn template_page<'a>(
                 close={p.catalog_close()}
             >
                 <TemplateForm t={t} id={ids::EDIT} action={&edit_action} create={false} form={&edit} />
-            </Dialog>
+            </CatalogDialog>
         }
         <Toasts p={p} notice={notice.as_ref()} />
     }
