@@ -11,7 +11,7 @@
 //! | `POST /support/risk-alerts/{alertId}` | a response (`action`, `note`), then the page |
 //!
 //! Request manual payout review is offered only for a candidate, as admin-web offers it; the API
-//! does not hold that rule yet (chase-sets/chase-sets#10836).
+//! refuses it for any other alert, and the page is drawn again with that refusal.
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
