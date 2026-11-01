@@ -7,8 +7,19 @@ import {
 } from "../scripts/lane-source-aliases";
 
 function canonicalReplacement(aliases: ReturnType<typeof createWorkspaceSourceAliases>, source: string) {
-  return aliases.find((alias) => (typeof alias.find === "string" ? source === alias.find : alias.find.test(source)))
-    ?.replacement;
+  const hit = aliases.find((alias) =>
+    typeof alias.find === "string" ? source === alias.find : alias.find.test(source),
+  );
+  return hit ? source.replace(hit.find, hit.replacement) : undefined;
+}
+
+function sourceForAlias(alias: ReturnType<typeof createWorkspaceSourceAliases>[number]) {
+  if (typeof alias.find === "string") return alias.find;
+  return alias.find.source
+    .replace(/^\^/, "")
+    .replace(/\$$/, "")
+    .replace(/\(\.\*\)/g, "probe")
+    .replaceAll(/\\(.)/g, "$1");
 }
 
 test("keeps non-lane aliases canonical and resolves lane aliases to the same source targets", async () => {
@@ -22,12 +33,13 @@ test("keeps non-lane aliases canonical and resolves lane aliases to the same sou
 
   const resolveId = lane.plugins?.[0]?.resolveId;
   assert.equal(typeof resolveId, "function");
-  for (const source of [
-    "@chase-sets/identity/server",
-    "@chase-sets/event-core/storage",
-    "@chase-sets/platform-policy/queries",
-    "@chase-sets/platform-runtime/api",
-  ]) {
+  const sources = canonicalAliases.map(sourceForAlias);
+  assert.equal(sources.length, 339);
+  for (const source of sources) {
+    assert.equal(await resolveId(source), canonicalReplacement(canonicalAliases, source), source);
+  }
+
+  for (const source of ["@chase-sets/checkout", "@chase-sets/http/responses"]) {
     assert.equal(await resolveId(source), canonicalReplacement(canonicalAliases, source), source);
   }
 });
