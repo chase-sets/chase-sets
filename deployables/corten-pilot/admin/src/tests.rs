@@ -640,27 +640,41 @@ fn platform_feedback(method: &Method, rest: &str, body: &str) -> Response {
     }
 }
 
-/// Customer Feedback's attention queue: an urgent case past its triage deadline, a triaged one
-/// due in 2099 with an owner, and the metrics; `attention-down` fails.
+/// Customer Feedback's attention queue: an urgent case the API says is overdue, a triaged one
+/// due in 2099 with an owner, and the metrics; `attention-down` fails. Each item's `sla` is the
+/// API's, so the page draws it as given whatever the clock says.
 fn feedback_attention(cookie: &str) -> Response {
     if cookie.contains("attention-down") {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
     }
-    let item = |id: &str, priority: &str, rating: u8, owner: Option<&str>, triaged: Option<&str>, due: Option<&str>| {
+    let item = |id: &str,
+                priority: &str,
+                rating: u8,
+                owner: Option<&str>,
+                triaged: Option<&str>,
+                due: Option<&str>,
+                overdue: bool| {
         json!({
             "attentionId": format!("att_{id}"), "caseId": id, "state": "active", "reason": "low-score", "ruleVersion": "low-score-v1",
             "rating": rating, "priority": priority, "ownerId": owner, "openedAt": "2026-05-07T10:00:00.000Z", "triagedAt": triaged,
             "dueAt": due, "triageDueAt": "2026-05-07T11:00:00.000Z", "closedAt": null, "deliveryStatus": "sent",
             "deliveryReference": null, "deliveryReportedAt": null, "followUpDeliveryStatus": "not-requested", "followUpChannel": null,
+            "sla": {
+                "triageDueAt": "2026-05-07T11:00:00.000Z", "effectiveDueAt": due.or(triaged.is_none().then_some("2026-05-07T11:00:00.000Z")),
+                "timeToTriageMs": null, "breach": if overdue { json!("triage") } else { json!(null) }, "overdue": overdue,
+            },
         })
     };
     Json(json!({
         "items": [
-            item("fbcase_1", "urgent", 1, None, None, None),
-            item("fbcase_2", "high", 2, Some("usr_ops"), Some("2026-05-07T10:30:00.000Z"), Some("2099-01-01T12:00:00.000Z")),
+            item("fbcase_1", "urgent", 1, None, None, None, true),
+            item("fbcase_2", "high", 2, Some("usr_ops"), Some("2026-05-07T10:30:00.000Z"), Some("2099-01-01T12:00:00.000Z"), false),
+            // Past its due date by the clock, but the API says it is not overdue: the page shows
+            // the API's answer, not its own.
+            item("fbcase_3", "normal", 3, None, Some("2026-05-07T10:30:00.000Z"), Some("2026-05-08T12:00:00.000Z"), false),
         ],
         "metrics": {
-            "activeCount": 2, "overdueCount": 1, "medianTimeToTriageMs": 5_400_000.0, "medianTimeToCloseMs": null, "oldestOverdueMs": 1,
+            "activeCount": 4, "overdueCount": 1, "medianTimeToTriageMs": 5_400_000.0, "medianTimeToCloseMs": null, "oldestOverdueMs": 1,
             "deliverySuccesses": 2, "deliveryFailures": 3, "digestPending": 0, "digestFailures": 0, "latestDigestAt": null,
         },
     }))
@@ -5160,7 +5174,7 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
     let (status, _, html) = pilot.send(get(at, Some("support-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     for text in [
-        "<dd>2</dd>",
+        "<dd>4</dd>",
         "<dd>1</dd>",
         "<dd>2 hours</dd>",
         "<dd>3</dd>",
@@ -5174,7 +5188,8 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
     ] {
         assert!(html.contains(text), "{text}: {html}");
     }
-    assert_eq!(html.matches("SLA breached").count(), 1, "the triaged case is within its due date: {html}");
+    assert_eq!(html.matches("SLA breached").count(), 1, "only the case the API says is overdue: {html}");
+    assert!(html.contains("May 8, 2026, 12:00 PM UTC"), "a case past its date by the clock is the API's not overdue: {html}");
     assert!(!html.contains("caseId="), "no link to the same queue (chase-sets/chase-sets#10854): {html}");
     assert!(html.contains(r#"href="/support/customer-feedback/attention" aria-current="page""#), "the nav serves it: {html}");
     assert_eq!(pilot.calls_to("/api/customer-feedback/attention").len(), 1);
@@ -5990,22 +6005,15 @@ fn terms_schedule(id: &str, kind: &str, label: &str, bps: i64, from: &str, until
     })
 }
 
-/// Commercial Terms: a business schedule in effect, one scheduled for 2099, an ended personal one and
-/// an inactive one; an override for `acc_1` that expires in 2099. Writes answer the new ID; a label
-/// of "Refused" is refused, "Down" fails, and the viewer's writes are forbidden (by cookie, upstream).
+/// Commercial Terms: a business schedule in effect, one scheduled for 2099, and an override for
+/// `acc_1` that expires in 2099. The home read answers them as the
+/// API works them out (the active terms in order with their phase, the comparison for `cts_next`,
+/// the starting terms); the list reads are not served, since the page does not use them. Writes
+/// answer the new ID; a label of "Refused" is refused, "Down" fails, and the viewer's writes are
+/// forbidden (by cookie, upstream).
 fn commercial_terms(method: &Method, rest: &str, query: &str, body: &str) -> Response {
     let in_effect = terms_schedule("cts_now", "business", "Business 2026", 650, "2026-01-01T00:00:00.000Z", None, "active");
     let scheduled = terms_schedule("cts_next", "business", "Business 2099", 600, "2099-01-01T00:00:00.000Z", None, "active");
-    let ended = terms_schedule(
-        "cts_old",
-        "personal",
-        "Personal 2025",
-        900,
-        "2025-01-01T00:00:00.000Z",
-        Some("2025-12-31T00:00:00.000Z"),
-        "active",
-    );
-    let inactive = terms_schedule("cts_off", "business", "Business draft", 700, "2026-02-01T00:00:00.000Z", None, "inactive");
     let agreement = json!({
         "agreement_id": "cag_1", "account_id": "acc_1", "account_name": "Card Vault", "account_display_name": "Vault",
         "account_type": "business", "label": "Vault override", "marketplace_sales_fee_percentage_bps": 425,
@@ -6030,11 +6038,29 @@ fn commercial_terms(method: &Method, rest: &str, query: &str, body: &str) -> Res
             ok
         }
     };
+    let launch = |label: Value| {
+        json!({ "label": label, "marketplace_sales_fee_percentage_bps": 850, "marketplace_sales_fee_fixed_amount": "0.10",
+            "shipping_allowance_percentage_bps": 500, "status": "active", "effective_from": "2026-10-30T12:00:00.000Z", "effective_until": null })
+    };
+    let from_business = json!({ "label": "Business 2026", "marketplace_sales_fee_percentage_bps": 650,
+        "marketplace_sales_fee_fixed_amount": "0.30", "shipping_allowance_percentage_bps": 400, "status": "active",
+        "effective_from": "2026-01-01T00:00:00.000Z", "effective_until": null });
     match (method.clone(), rest) {
-        (Method::GET, "/schedules") if query == "limit=250&offset=0" => {
-            Json(json!({ "items": [in_effect, scheduled, ended, inactive], "total": 4, "count": 4 })).into_response()
-        }
-        (Method::GET, "/agreements") if query == "limit=250&offset=0" => Json(json!({ "items": [agreement], "total": 1, "count": 1 })).into_response(),
+        (Method::GET, "/home") => Json(json!({
+            "resolvedAt": "2026-10-30T12:00:00.000Z",
+            "schedulesInEffect": { "personal": null, "business": in_effect, "enterprise": null },
+            "activeTerms": [
+                { "kind": "schedule", "id": "cts_next", "phase": "scheduled", "phaseAt": "2099-01-01T00:00:00.000Z", "item": scheduled },
+                { "kind": "agreement", "id": "cag_1", "phase": "expiring", "phaseAt": "2099-06-01T00:00:00.000Z", "item": agreement },
+                { "kind": "schedule", "id": "cts_now", "phase": "in_effect", "phaseAt": "2026-01-01T00:00:00.000Z", "item": in_effect },
+            ],
+            "startingTerms": {
+                "schedule": from_business,
+                "override": { "personal": launch(Value::Null), "business": from_business, "enterprise": launch(Value::Null), "default": launch(Value::Null) },
+            },
+            "scheduleComparison": if query == "schedule=cts_next" { in_effect.clone() } else { Value::Null },
+        }))
+        .into_response(),
         (Method::GET, "/agreements/account-options") => Json(json!({ "items": [
             { "account_id": "acc_personal", "account_name": "Binder", "display_name": "Binder Builder", "account_type": "personal" },
             { "account_id": "acc_1", "account_name": "Card Vault", "display_name": "Vault", "account_type": "business" },
@@ -6101,8 +6127,10 @@ async fn commercial_terms_lists_the_published_schedule_and_the_active_and_schedu
         assert!(html.contains(text), "{text}: {html}");
     }
     let order: Vec<usize> = ["Business 2099", "Vault override", "Business 2026"].iter().map(|l| html.find(l).unwrap()).collect();
-    assert!(order.windows(2).all(|w| w[0] < w[1]), "latest to start first: {order:?}");
-    assert!(!html.contains("Personal 2025") && !html.contains("Business draft"), "ended and inactive terms are left out: {html}");
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "in the home read's order: {order:?}");
+    let reads: Vec<_> = pilot.calls_to(TERMS_API).into_iter().map(|c| c.path).collect();
+    assert!(reads.iter().any(|p| p == "/api/commercial-terms/home"), "{reads:?}");
+    assert!(!reads.iter().any(|p| p.contains("/schedules?") || p.contains("/agreements?")), "no list reads: {reads:?}");
     assert!(html.contains(r#"href="/commerce/terms" aria-current="page""#), "the nav serves it: {html}");
     assert!(!html.contains("<dialog"), "no sheet: {html}");
     assert_eq!(pilot.send(get(TERMS, Some("recovery-viewer"))).await.0, StatusCode::FORBIDDEN);
@@ -6114,7 +6142,11 @@ async fn a_terms_sheet_compares_and_revises_and_the_old_addresses_open_it() {
     let (status, _, html) = pilot.send(get("/commerce/terms?schedule=cts_next", Some("terms-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("<dialog") && html.contains("Compare with active schedule"), "{html}");
-    assert!(html.contains("Business 2026") && html.contains("6.5% + $0.30"), "compared with the schedule in effect: {html}");
+    assert!(html.contains("Business 2026") && html.contains("6.5% + $0.30"), "compared with the home read's comparison: {html}");
+    assert!(
+        pilot.calls_to(TERMS_API).iter().any(|c| c.path == "/api/commercial-terms/home?schedule=cts_next"),
+        "the home read names the schedule"
+    );
     assert!(html.contains(r#"value="revise-schedule""#) && html.contains(r#"value="cts_next""#), "{html}");
     assert!(html.contains("No revisions recorded yet."), "{html}");
 
@@ -6159,7 +6191,7 @@ async fn the_create_sheets_start_from_the_schedule_in_effect_and_write_what_admi
     assert!(html.contains(r#"<option value="acc_personal" selected"#), "the first account: {html}");
     assert!(
         html.contains(r#"value="Account override""#) && html.contains(r#"value="850""#),
-        "no personal schedule in effect: the defaults: {html}"
+        "no personal schedule in effect: the API's launch terms and the page's label: {html}"
     );
     assert!(!html.contains(r#"type="hidden" name="accountId""#), "the account is the save form's select: {html}");
     let (_, _, html) = pilot.send(get("/commerce/terms?create=agreement&account=acc_1", Some("terms-viewer"))).await;

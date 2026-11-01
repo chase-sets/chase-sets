@@ -5,14 +5,12 @@
 //! makes it modal with JavaScript. Every form is a plain post or get; the script only re-reads Create
 //! account override when its account changes, which Review does without it.
 use corten::prelude::*;
-use jiff::Timestamp;
 
 use crate::{
     commerce::{
         percent,
         terms::{
-            AccountOption, Agreement, Card, Fees, HistoryItem, Phase, Published, Schedule, Sheet, TermsForm, TermsScreen, cards,
-            in_effect_for, phase, url,
+            AccountOption, Agreement, Fees, HistoryItem, Phase, Published, Schedule, Sheet, Term, TermsForm, TermsScreen, url,
         },
         usd,
     },
@@ -373,29 +371,25 @@ fn CreateAgreementSheet<C: Render>(t: Com, form: TermsForm, chooser: C) -> impl 
 
 /// An active or scheduled term (`CommercialTermCardView`).
 #[component(css = TermsPage)]
-fn TermCard<'a>(t: Com, card: Card<'a>, now: Timestamp) -> impl Render {
-    let fees = card.fees();
-    let when = match phase(card, now) {
-        Phase::Scheduled(at) => t.ct_effective(date(at)).to_string(),
-        Phase::Expires(at) => t.ct_override_expires(date(at)).to_string(),
-        Phase::Since(at) => t.ct_effective_since(date(at)).to_string(),
+fn TermCard<'a>(t: Com, term: &'a Term) -> impl Render {
+    let fees = term.fees();
+    let (phase, at) = term.phase();
+    let when = match phase {
+        Phase::Scheduled => t.ct_effective(date(at)).to_string(),
+        Phase::Expiring => t.ct_override_expires(date(at)).to_string(),
+        Phase::InEffect => t.ct_effective_since(date(at)).to_string(),
     };
-    let tone = match phase(card, now) {
-        _ if fees.status != "active" => "neutral",
-        Phase::Scheduled(_) => "warning",
-        _ => "success",
-    };
-    let (open, subtitle, account) = match &card {
-        Card::Schedule(s) => (
-            url::Open { schedule: Some(s.schedule_id.clone()), ..url::Open::default() },
-            t.ct_schedule_for(&s.account_type).to_string(),
+    // admin-web's `term.phase === "scheduled" ? "warning" : "success"`: every active term is active.
+    let tone = if phase == Phase::Scheduled { "warning" } else { "success" };
+    let (open, subtitle, account) = match term {
+        Term::Schedule { id, item, .. } => (
+            url::Open { schedule: Some(id.clone()), ..url::Open::default() },
+            t.ct_schedule_for(&item.account_type).to_string(),
             None,
         ),
-        Card::Agreement(a) => (
-            url::Open { agreement: Some(a.agreement_id.clone()), ..url::Open::default() },
-            a.account(),
-            Some(a.account_id.clone()),
-        ),
+        Term::Agreement { id, item, .. } => {
+            (url::Open { agreement: Some(id.clone()), ..url::Open::default() }, item.account(), Some(item.account_id.clone()))
+        }
     };
     html! {
         <li class={Term}>
@@ -414,11 +408,8 @@ fn TermCard<'a>(t: Com, card: Card<'a>, now: Timestamp) -> impl Render {
 
 #[component(css, js)]
 pub fn TermsPage<'a>(t: Com, p: Pilot, screen: &'a TermsScreen) -> impl Render {
-    let now = screen.now;
-    // As admin-web's `new Date().toISOString()`: milliseconds, UTC.
-    let now_text = now.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     let sent = |intent: &str| screen.sent.as_ref().filter(|s| s.intent == intent);
-    let list = cards(&screen.schedules, &screen.agreements, now);
+    let list = screen.home.as_ref().map_or(&[][..], |home| &home.active_terms);
     let asked = match &screen.sheet {
         Sheet::CreateAgreement { account } => account.as_deref(),
         _ => None,
@@ -483,8 +474,8 @@ pub fn TermsPage<'a>(t: Com, p: Pilot, screen: &'a TermsScreen) -> impl Render {
             <section class={Part} aria-labelledby="ct-active">
                 <h2 class={Heading} id="ct-active">{t.ct_active_and_scheduled()}</h2>
                 <ul class={Cards}>
-                    for card in list {
-                        <TermCard t={t} card={card} now={now} />
+                    for term in list {
+                        <TermCard t={t} term={term} />
                     }
                 </ul>
             </section>
@@ -493,7 +484,7 @@ pub fn TermsPage<'a>(t: Com, p: Pilot, screen: &'a TermsScreen) -> impl Render {
                     <ScheduleSheet
                         t={t}
                         schedule={schedule}
-                        active={in_effect_for(screen.schedules.iter().filter(|s| s.schedule_id != schedule.schedule_id), Some(&schedule.account_type), now)}
+                        active={screen.home.as_ref().and_then(|home| home.schedule_comparison.as_ref())}
                         sent={sent("revise-schedule")}
                     />
                 }
@@ -506,20 +497,23 @@ pub fn TermsPage<'a>(t: Com, p: Pilot, screen: &'a TermsScreen) -> impl Render {
                     />
                 }
                 Sheet::CreateSchedule => {
-                    <CreateScheduleSheet
-                        t={t}
-                        form={sent("create-schedule").cloned().unwrap_or_else(|| in_effect_for(&screen.schedules, Some("business"), now)
-                            .map_or_else(|| TermsForm::defaults(t.ct_new_schedule(), &now_text), |s| TermsForm::from_fees(&s.fees)))}
-                        account_type={sent("create-schedule").map_or("business", |s| s.account_type.as_str())}
-                    />
+                    if let Some(home) = &screen.home {
+                        <CreateScheduleSheet
+                            t={t}
+                            form={sent("create-schedule").cloned().unwrap_or_else(|| TermsForm::starting(&home.starting_terms.schedule, t.ct_new_schedule()))}
+                            account_type={sent("create-schedule").map_or("business", |s| s.account_type.as_str())}
+                        />
+                    }
                 }
                 Sheet::CreateAgreement { .. } => {
                     <CreateAgreementSheet
                         t={t}
                         form={sent("create-agreement").cloned().unwrap_or_else(|| {
                             let kind = screen.accounts.iter().find(|a| a.account_id == chosen_account).map(|a| a.account_type.as_str());
-                            in_effect_for(&screen.schedules, kind, now)
-                                .map_or_else(|| TermsForm::defaults(t.ct_new_override(), &now_text), |s| TermsForm::from_fees(&s.fees))
+                            match &screen.home {
+                                Some(home) => TermsForm::starting(home.starting_terms.overrides.for_type(kind), t.ct_new_override()),
+                                None => TermsForm::default(),
+                            }
                         })}
                         chooser={html! {
                             <label class={Field}>

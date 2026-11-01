@@ -1,14 +1,12 @@
 //! Customer Feedback's attention queue (`FeedbackAttentionSurface`): four figures (one column on a
 //! phone, four from 48rem), then the queue as a table that scrolls on its own on a phone.
-use std::time::SystemTime;
-
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
 
 use crate::{
-    support::attention::{AttentionScreen, Item, Sla, duration},
+    support::attention::{AttentionScreen, Item, duration},
     text::Sup,
 };
 
@@ -24,20 +22,17 @@ fn Priority<'a>(value: &'a str) -> impl Render {
 }
 
 #[component(css = FeedbackAttentionPage)]
-fn Row<'a>(t: Sup, item: &'a Item, now: SystemTime) -> impl Render {
-    let sla = item.sla(now);
-    let due = match sla {
-        Sla::Due(at) => parse_timestamp(at)
-            .map_or_else(|| at.to_owned(), |at| t.date_time(at, DateStyle::Medium, TimeStyle::Short).to_string()),
-        Sla::Breached => String::new(),
-    };
+fn Row<'a>(t: Sup, item: &'a Item) -> impl Render {
+    let at = item.sla.due();
+    let due =
+        parse_timestamp(at).map_or_else(|| at.to_owned(), |at| t.date_time(at, DateStyle::Medium, TimeStyle::Short).to_string());
     html! {
         <tr>
             <td class={Words}>{&item.case_id}</td>
             <td><Priority value={&item.priority} /></td>
             <td>{format!("{}/5", item.rating)}</td>
             <td>
-                if sla == Sla::Breached {
+                if item.sla.overdue {
                     <span class={(Pill, Danger)}>{t.cfa_sla_breached()}</span>
                 } else {
                     <span class={(Pill, Neutral)}>{&due}</span>
@@ -50,7 +45,7 @@ fn Row<'a>(t: Sup, item: &'a Item, now: SystemTime) -> impl Render {
 }
 
 #[component(css)]
-pub fn FeedbackAttentionPage<'a>(t: Sup, screen: &'a AttentionScreen, now: SystemTime) -> impl Render {
+pub fn FeedbackAttentionPage<'a>(t: Sup, screen: &'a AttentionScreen) -> impl Render {
     let m = &screen.metrics;
     html! {
         <header class={Header}>
@@ -98,7 +93,7 @@ pub fn FeedbackAttentionPage<'a>(t: Sup, screen: &'a AttentionScreen, now: Syste
                         </thead>
                         <tbody>
                             for item in &screen.items {
-                                <Row t={t} item={item} now={now} />
+                                <Row t={t} item={item} />
                             }
                         </tbody>
                     </table>

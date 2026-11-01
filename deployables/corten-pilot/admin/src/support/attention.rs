@@ -8,15 +8,13 @@
 //! |---|---|
 //! | `GET /support/customer-feedback/attention` | the metrics and the queue |
 //!
+//! Each item's SLA is the read's (`sla`, worked out by the API at one instant), as admin-web
+//! shows it.
+//!
 //! Departures from admin-web, each until its issue closes:
-//! - The read does not say whether an item is past its SLA or which deadline is in effect
-//!   (chase-sets/chase-sets#10855): the pilot works it out as admin-web does, from the item's
-//!   `triageDueAt`, `dueAt`, `triagedAt` and `closedAt`.
 //! - admin-web links each case to this queue again with a `caseId` it ignores
 //!   (chase-sets/chase-sets#10854): the pilot shows the case ID without the link.
-use std::time::SystemTime;
-
-use corten::{axum::http::HeaderMap, i18n::parse_timestamp, prelude::*};
+use corten::{axum::http::HeaderMap, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use super::views;
@@ -52,35 +50,27 @@ pub struct Item {
     pub priority: String,
     #[serde(default)]
     pub owner_id: Option<String>,
-    #[serde(default)]
-    pub triaged_at: Option<String>,
-    #[serde(default)]
-    pub due_at: Option<String>,
-    pub triage_due_at: String,
-    #[serde(default)]
-    pub closed_at: Option<String>,
+    pub sla: Sla,
     pub delivery_status: String,
     pub follow_up_delivery_status: String,
 }
 
-/// An item's SLA (admin-web's `feedbackCaseSlaState`; chase-sets/chase-sets#10855).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Sla<'a> {
+/// An item's SLA as the API works it out (`FeedbackSlaState`), as far as the queue shows it.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct Sla {
     /// Past its triage deadline untriaged, or past its due date, while open.
-    Breached,
-    /// The deadline in effect: the due date, else the triage deadline.
-    Due(&'a str),
+    pub overdue: bool,
+    /// The due date, or the triage deadline while untriaged; none once triaged without one.
+    #[serde(default)]
+    pub effective_due_at: Option<String>,
+    pub triage_due_at: String,
 }
 
-impl Item {
-    pub fn sla(&self, now: SystemTime) -> Sla<'_> {
-        let past = |at: &str| parse_timestamp(at).is_some_and(|at| now > at);
-        let open = self.closed_at.is_none();
-        let untriaged = self.triaged_at.is_none();
-        if open && ((untriaged && past(&self.triage_due_at)) || self.due_at.as_deref().is_some_and(past)) {
-            return Sla::Breached;
-        }
-        Sla::Due(self.due_at.as_deref().unwrap_or(&self.triage_due_at))
+impl Sla {
+    /// The deadline the queue shows (admin-web's `sla.effectiveDueAt ?? sla.triageDueAt`).
+    pub fn due(&self) -> &str {
+        self.effective_due_at.as_deref().unwrap_or(&self.triage_due_at)
     }
 }
 
@@ -124,7 +114,7 @@ async fn attention(
         Err(error) => return read_failed(&req, error, false),
     };
     let t: Sup = req.t();
-    let view = html! { <views::FeedbackAttentionPage t={t} screen={&screen} now={SystemTime::now()} /> };
+    let view = html! { <views::FeedbackAttentionPage t={t} screen={&screen} /> };
     req.screen(
         &screen,
         html! {
@@ -133,45 +123,4 @@ async fn attention(
             </crate::views::Layout>
         },
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::*;
-
-    fn item(triaged: Option<&str>, due: Option<&str>, closed: Option<&str>) -> Item {
-        Item {
-            attention_id: "a".into(),
-            case_id: "c".into(),
-            rating: 1,
-            priority: "high".into(),
-            owner_id: None,
-            triaged_at: triaged.map(Into::into),
-            due_at: due.map(Into::into),
-            triage_due_at: "2026-05-07T12:00:00.000Z".into(),
-            closed_at: closed.map(Into::into),
-            delivery_status: "sent".into(),
-            follow_up_delivery_status: "not-requested".into(),
-        }
-    }
-
-    #[test]
-    fn an_items_sla_is_breached_as_admin_web_works_it_out() {
-        let at = |s: &str| parse_timestamp(s).unwrap();
-        let before = at("2026-05-07T11:00:00.000Z");
-        let after = at("2026-05-07T13:00:00.000Z");
-        assert_eq!(item(None, None, None).sla(before), Sla::Due("2026-05-07T12:00:00.000Z"));
-        assert_eq!(item(None, None, None).sla(after), Sla::Breached, "untriaged past the triage deadline");
-        assert_eq!(item(Some("2026-05-07T11:30:00.000Z"), None, None).sla(after), Sla::Due("2026-05-07T12:00:00.000Z"));
-        let due = Some("2026-05-07T12:30:00.000Z");
-        assert_eq!(item(Some("2026-05-07T11:30:00.000Z"), due, None).sla(after), Sla::Breached, "past its due date");
-        assert_eq!(item(Some("2026-05-07T11:30:00.000Z"), due, None).sla(before), Sla::Due("2026-05-07T12:30:00.000Z"));
-        assert_eq!(
-            item(None, None, Some("2026-05-07T12:10:00.000Z")).sla(after + Duration::from_secs(60)),
-            Sla::Due("2026-05-07T12:00:00.000Z"),
-            "closed"
-        );
-    }
 }

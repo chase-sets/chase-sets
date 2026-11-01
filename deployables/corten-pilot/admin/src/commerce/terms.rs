@@ -14,14 +14,13 @@
 //! | `GET /commerce/terms/schedules/{id}`, `/agreements/{id}` | the page with that sheet open |
 //! | `GET /commerce/terms/accounts/{id}/agreements/new` | the page with Create account override open for the account |
 //!
-//! The page works out which schedule is in effect, which terms are active and scheduled and in what
-//! order, and what a new schedule or override starts from, as admin-web's page does; those belong to
-//! the API (chase-sets/chase-sets#10862).
+//! The home read (`GET /api/commercial-terms/home`) says which terms are active and scheduled, in
+//! what order and in what phase, which schedule a revision is compared with, and what a new schedule
+//! or override starts from, worked out by the API at one instant; the page draws them as given.
 use corten::{
     axum::http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
-use jiff::Timestamp;
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -187,90 +186,92 @@ struct List<T> {
     items: Vec<T>,
 }
 
-/// A time the API wrote, else none.
-fn instant(at: &str) -> Option<Timestamp> {
-    at.trim().parse().ok()
+/// When an active term's phase starts or ends (`CommercialTermsHomePhase`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "snake_case")]
+pub enum Phase {
+    /// Not in effect yet: from `phase_at`.
+    Scheduled,
+    /// In effect since `phase_at`.
+    InEffect,
+    /// An override in effect until `phase_at`.
+    Expiring,
 }
 
-/// That terms are active and in their window at `now` (admin-web's `isActiveWindow`).
-fn in_effect(fees: &Fees, now: Timestamp) -> bool {
-    fees.status == "active"
-        && instant(&fees.effective_from).is_some_and(|from| from <= now)
-        && fees.effective_until.as_deref().is_none_or(|until| instant(until).is_some_and(|until| until > now))
+/// An active or scheduled term, in the home read's order (`CommercialTermsHomeTerm`).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(tag = "kind", rename_all = "lowercase", rename_all_fields = "camelCase")]
+pub enum Term {
+    Schedule { id: String, phase: Phase, phase_at: String, item: Schedule },
+    Agreement { id: String, phase: Phase, phase_at: String, item: Agreement },
 }
 
-/// The schedule in effect for `account_type` at `now`, the latest to start (admin-web's
-/// `activeScheduleFor`; chase-sets/chase-sets#10862).
-pub fn in_effect_for<'a>(
-    schedules: impl IntoIterator<Item = &'a Schedule>,
-    account_type: Option<&str>,
-    now: Timestamp,
-) -> Option<&'a Schedule> {
-    schedules
-        .into_iter()
-        .filter(|s| Some(s.account_type.as_str()) == account_type && in_effect(&s.fees, now))
-        .max_by(|a, b| a.fees.effective_from.cmp(&b.fees.effective_from))
-}
-
-/// An active or scheduled term the page lists.
-pub enum Card<'a> {
-    Schedule(&'a Schedule),
-    Agreement(&'a Agreement),
-}
-
-impl Card<'_> {
-    pub fn id(&self) -> &str {
-        match self {
-            Card::Schedule(s) => &s.schedule_id,
-            Card::Agreement(a) => &a.agreement_id,
-        }
-    }
-
+impl Term {
     pub fn fees(&self) -> &Fees {
         match self {
-            Card::Schedule(s) => &s.fees,
-            Card::Agreement(a) => &a.fees,
+            Term::Schedule { item, .. } => &item.fees,
+            Term::Agreement { item, .. } => &item.fees,
+        }
+    }
+
+    pub fn phase(&self) -> (Phase, &str) {
+        match self {
+            Term::Schedule { phase, phase_at, .. } | Term::Agreement { phase, phase_at, .. } => (*phase, phase_at),
         }
     }
 }
 
-/// The active terms that have not ended, the latest to start first, then by ID (admin-web's
-/// `orderedCards`; chase-sets/chase-sets#10862).
-pub fn cards<'a>(schedules: &'a [Schedule], agreements: &'a [Agreement], now: Timestamp) -> Vec<Card<'a>> {
-    let mut cards: Vec<Card<'a>> = schedules.iter().map(Card::Schedule).chain(agreements.iter().map(Card::Agreement)).collect();
-    cards.retain(|card| {
-        let fees = card.fees();
-        fees.status == "active" && fees.effective_until.as_deref().is_none_or(|until| instant(until).is_some_and(|u| u > now))
-    });
-    cards.sort_by(|a, b| b.fees().effective_from.cmp(&a.fees().effective_from).then_with(|| a.id().cmp(b.id())));
-    cards
+/// What a create form starts from (`CommercialTermsStartingTerms`); no label leaves the page's own.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StartingTerms {
+    #[serde(default)]
+    pub label: Option<String>,
+    pub marketplace_sales_fee_percentage_bps: i64,
+    pub marketplace_sales_fee_fixed_amount: String,
+    pub shipping_allowance_percentage_bps: i64,
+    pub status: String,
+    pub effective_from: String,
+    #[serde(default)]
+    pub effective_until: Option<String>,
 }
 
-/// When a card's terms start, or when they started.
-pub enum Phase<'a> {
-    /// Not in effect yet: from this date.
-    Scheduled(&'a str),
-    /// An override in effect until this date.
-    Expires(&'a str),
-    /// In effect since this date.
-    Since(&'a str),
+/// An override's starting terms by the account's type, and for any other type.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct OverrideStart {
+    pub personal: StartingTerms,
+    pub business: StartingTerms,
+    pub enterprise: StartingTerms,
+    pub default: StartingTerms,
 }
 
-/// A card's phase (admin-web's `cardAttention`; chase-sets/chase-sets#10862).
-pub fn phase<'a>(card: &Card<'a>, now: Timestamp) -> Phase<'a> {
-    let fees: &'a Fees = match card {
-        Card::Schedule(s) => &s.fees,
-        Card::Agreement(a) => &a.fees,
-    };
-    if instant(&fees.effective_from).is_none_or(|from| from > now) {
-        return Phase::Scheduled(&fees.effective_from);
+impl OverrideStart {
+    /// For an account of `account_type` (admin-web's `overrideStartingTerms`).
+    pub fn for_type(&self, account_type: Option<&str>) -> &StartingTerms {
+        match account_type {
+            Some("personal") => &self.personal,
+            Some("business") => &self.business,
+            Some("enterprise") => &self.enterprise,
+            _ => &self.default,
+        }
     }
-    if let (Card::Agreement(_), Some(until)) = (card, fees.effective_until.as_deref())
-        && instant(until).is_some_and(|u| u > now)
-    {
-        return Phase::Expires(until);
-    }
-    Phase::Since(&fees.effective_from)
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Starting {
+    pub schedule: StartingTerms,
+    #[serde(rename = "override")]
+    pub overrides: OverrideStart,
+}
+
+/// The home read (`CommercialTermsHome`), as far as the page shows it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Home {
+    pub active_terms: Vec<Term>,
+    pub starting_terms: Starting,
+    /// The schedule in effect that the open schedule's sheet is compared with.
+    #[serde(default)]
+    pub schedule_comparison: Option<Schedule>,
 }
 
 /// The fee fields as a form shows them: what an item has, what was sent, or the defaults.
@@ -307,16 +308,16 @@ impl TermsForm {
         }
     }
 
-    /// What a new schedule or override starts from when no schedule is in effect: admin-web's
-    /// defaults (chase-sets/chase-sets#10862).
-    pub fn defaults(label: &str, now: &str) -> TermsForm {
+    /// A create form filled from the home read's starting terms, with `label` when they name none.
+    pub fn starting(terms: &StartingTerms, label: &str) -> TermsForm {
         TermsForm {
-            label: label.to_owned(),
-            marketplace_sales_fee_percentage_bps: "850".to_owned(),
-            marketplace_sales_fee_fixed_amount: "0.10".to_owned(),
-            shipping_allowance_percentage_bps: "500".to_owned(),
-            status: "active".to_owned(),
-            effective_from: now.to_owned(),
+            label: terms.label.clone().unwrap_or_else(|| label.to_owned()),
+            marketplace_sales_fee_percentage_bps: terms.marketplace_sales_fee_percentage_bps.to_string(),
+            marketplace_sales_fee_fixed_amount: terms.marketplace_sales_fee_fixed_amount.clone(),
+            shipping_allowance_percentage_bps: terms.shipping_allowance_percentage_bps.to_string(),
+            status: terms.status.clone(),
+            effective_from: terms.effective_from.clone(),
+            effective_until: terms.effective_until.clone().unwrap_or_default(),
             ..TermsForm::default()
         }
     }
@@ -356,8 +357,7 @@ pub enum Sheet {
 /// The page as drawn.
 pub struct TermsScreen {
     pub published: Option<Published>,
-    pub schedules: Vec<Schedule>,
-    pub agreements: Vec<Agreement>,
+    pub home: Option<Home>,
     pub accounts: Vec<AccountOption>,
     pub sheet: Sheet,
     /// The form as sent when a write was refused.
@@ -368,22 +368,19 @@ pub struct TermsScreen {
     pub error: Option<String>,
     /// That the page was read without the write's receipt, which it had not caught up to.
     pub catching_up: bool,
-    pub now: Timestamp,
 }
 
 /// The parts of the page the data client gets.
 #[derive(Serialize, ToJson)]
 struct TermsData<'a> {
     published: Option<&'a Published>,
-    schedules: &'a [Schedule],
-    agreements: &'a [Agreement],
+    active_terms: &'a [Term],
     error: Option<&'a str>,
     load_error: Option<&'a str>,
 }
 
 struct Read {
-    schedules: Vec<Schedule>,
-    agreements: Vec<Agreement>,
+    home: Home,
     accounts: Vec<AccountOption>,
     schedule: Option<Schedule>,
     agreement: Option<Agreement>,
@@ -391,15 +388,16 @@ struct Read {
 }
 
 async fn read(caller: &ApiCaller<'_>, open: &url::Open) -> Result<Read, ApiError> {
-    let schedules = format!("{BASE}/schedules?limit=250&offset=0");
-    let agreements = format!("{BASE}/agreements?limit=250&offset=0");
+    let home = match open.schedule.as_deref().filter(|s| !s.is_empty()) {
+        Some(id) => format!("{BASE}/home?schedule={}", segment(id)),
+        None => format!("{BASE}/home"),
+    };
     let accounts = format!("{BASE}/agreements/account-options");
     let one_schedule = open.schedule.as_deref().filter(|s| !s.is_empty()).map(|id| format!("{BASE}/schedules/{}", segment(id)));
     let one_agreement =
         open.agreement.as_deref().filter(|a| !a.is_empty()).map(|id| format!("{BASE}/agreements/{}", segment(id)));
-    let (schedules, agreements, accounts, schedule, agreement, published) = tokio::try_join!(
-        caller.read::<List<Schedule>>(&schedules, CONTEXT),
-        caller.read::<List<Agreement>>(&agreements, CONTEXT),
+    let (home, accounts, schedule, agreement, published) = tokio::try_join!(
+        caller.read::<Home>(&home, CONTEXT),
         caller.read::<List<AccountOption>>(&accounts, CONTEXT),
         async {
             match &one_schedule {
@@ -415,14 +413,7 @@ async fn read(caller: &ApiCaller<'_>, open: &url::Open) -> Result<Read, ApiError
         },
         caller.read::<Published>(PUBLISHED, CONTEXT),
     )?;
-    Ok(Read {
-        schedules: schedules.items,
-        agreements: agreements.items,
-        accounts: accounts.items,
-        schedule,
-        agreement,
-        published,
-    })
+    Ok(Read { home, accounts: accounts.items, schedule, agreement, published })
 }
 
 async fn page(
@@ -465,15 +456,13 @@ async fn draw(
     }
     let mut screen = TermsScreen {
         published: None,
-        schedules: Vec::new(),
-        agreements: Vec::new(),
+        home: None,
         accounts: Vec::new(),
         sheet: Sheet::None,
         sent,
         load_error: None,
         error,
         catching_up,
-        now: Timestamp::now(),
     };
     match found {
         Ok(found) => {
@@ -485,8 +474,7 @@ async fn draw(
                 _ => Sheet::None,
             };
             screen.published = Some(found.published);
-            screen.schedules = found.schedules;
-            screen.agreements = found.agreements;
+            screen.home = Some(found.home);
             screen.accounts = found.accounts;
         }
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
@@ -502,8 +490,7 @@ async fn draw(
     }
     let data = TermsData {
         published: screen.published.as_ref(),
-        schedules: &screen.schedules,
-        agreements: &screen.agreements,
+        active_terms: screen.home.as_ref().map_or(&[], |home| &home.active_terms),
         error: screen.error.as_deref(),
         load_error: screen.load_error.as_deref(),
     };
@@ -638,41 +625,6 @@ async fn to_new_agreement(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn fees(status: &str, from: &str, until: Option<&str>) -> Fees {
-        Fees {
-            label: "L".into(),
-            marketplace_sales_fee_percentage_bps: 850,
-            marketplace_sales_fee_fixed_amount: "0.10".into(),
-            shipping_allowance_percentage_bps: 500,
-            status: status.into(),
-            effective_from: from.into(),
-            effective_until: until.map(Into::into),
-        }
-    }
-
-    fn schedule(id: &str, kind: &str, fees: Fees) -> Schedule {
-        Schedule { schedule_id: id.into(), account_type: kind.into(), fees, history: Vec::new() }
-    }
-
-    #[test]
-    fn the_schedule_in_effect_is_the_latest_active_one_in_its_window() {
-        let now: Timestamp = "2026-10-30T12:00:00Z".parse().unwrap();
-        let all = [
-            schedule("a", "business", fees("active", "2026-01-01T00:00:00.000Z", None)),
-            schedule("b", "business", fees("active", "2026-06-01T00:00:00.000Z", None)),
-            schedule("c", "business", fees("active", "2026-12-01T00:00:00.000Z", None)),
-            schedule("d", "business", fees("inactive", "2026-09-01T00:00:00.000Z", None)),
-            schedule("e", "business", fees("active", "2026-07-01T00:00:00.000Z", Some("2026-08-01T00:00:00.000Z"))),
-            schedule("f", "personal", fees("active", "2026-09-01T00:00:00.000Z", None)),
-        ];
-        assert_eq!(in_effect_for(&all, Some("business"), now).map(|s| s.schedule_id.as_str()), Some("b"));
-        assert_eq!(in_effect_for(&all, Some("enterprise"), now).map(|s| s.schedule_id.as_str()), None);
-        let order: Vec<_> = cards(&all, &[], now).iter().map(|c| c.id().to_owned()).collect();
-        assert_eq!(order, ["c", "f", "b", "a"], "active and not ended, latest to start first");
-        assert!(matches!(phase(&Card::Schedule(&all[2]), now), Phase::Scheduled(_)));
-        assert!(matches!(phase(&Card::Schedule(&all[1]), now), Phase::Since(_)));
-    }
 
     #[test]
     fn a_number_field_reads_as_admin_webs_number() {
