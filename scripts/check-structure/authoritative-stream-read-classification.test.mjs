@@ -101,6 +101,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts", "CANONICAL"],
+      ["bounded-contexts/marketplace/features/listings/api/listing-attempt.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
       ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
       ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts", "CANONICAL"],
       [
