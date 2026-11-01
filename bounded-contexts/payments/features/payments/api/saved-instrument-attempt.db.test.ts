@@ -784,6 +784,12 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         const duplicateAdmitted = deferred();
         const releaseDuplicate = deferred();
         const appended: Runtime[] = [];
+        const trace: Array<{ event: string; runtime?: Runtime; detail?: unknown }> = [];
+        const readAbsent: Record<Runtime, boolean> = { primary: false, replica: false };
+        const startedAppendClients = new Set<string>();
+        const startedCommitRuntimes = new Set<Runtime>();
+        let firstStartedCommit: Runtime | undefined;
+        let lateSecondRead = false;
         const opened: Partial<Record<"order" | "rendezvous" | "admitted" | "first" | "duplicate", boolean>> = {};
         let firstHeld = false;
         let duplicateHeld = false;
@@ -793,7 +799,40 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         // both attempt-history reads observe absence. The duplicate (replica) is then held at its
         // attempt lock until its first copy and a later distinct default have both completed.
         intercept = async (statement, run) => {
+          const clientKey = `${statement.runtime}:${statement.client}`;
+          const readsAttemptStream =
+            /^\s*SELECT\b/i.test(statement.sql) &&
+            /\bFROM\s+event_store_events\b/i.test(statement.sql) &&
+            statement.params[0] === streamId;
+          if (readsAttemptStream) {
+            const result = await run();
+            const rows = (result as { rows?: readonly unknown[] }).rows;
+            if (!readAbsent[statement.runtime] && rows?.length === 0) {
+              readAbsent[statement.runtime] = true;
+              trace.push({ event: "readAbsent", runtime: statement.runtime });
+            }
+            return result;
+          }
+          if (
+            statement.sql === "COMMIT" &&
+            startedAppendClients.has(clientKey) &&
+            !startedCommitRuntimes.has(statement.runtime)
+          ) {
+            const result = await run();
+            startedCommitRuntimes.add(statement.runtime);
+            if (firstStartedCommit === undefined) {
+              firstStartedCommit = statement.runtime;
+              const other: Runtime = statement.runtime === "primary" ? "replica" : "primary";
+              if (!readAbsent[other]) lateSecondRead = true;
+              trace.push({ event: "firstStartedCommit", runtime: statement.runtime });
+            } else {
+              trace.push({ event: "startedCommit", runtime: statement.runtime });
+            }
+            return result;
+          }
           if (streamUpsert(statement, streamId) && !appended.includes(statement.runtime)) {
+            startedAppendClients.add(clientKey);
+            trace.push({ event: "reachedUpsert", runtime: statement.runtime });
             reachedUpsert[statement.runtime].resolve();
             if (statement.runtime === firstAppender) {
               const other: Runtime = firstAppender === "primary" ? "replica" : "primary";
@@ -840,10 +879,11 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
           }
           await copiesSettled;
         });
+        let parked: Awaited<ReturnType<typeof parkedActivity>>;
         try {
           opened.admitted = await bounded(duplicateAdmitted.promise);
           // The parked duplicate holds no transaction ID, so neither copy waits on it.
-          const parked = await parkedActivity(() => secondAppended.settled);
+          parked = await parkedActivity(() => secondAppended.settled);
           expect(parked).toContainEqual(
             expect.objectContaining({
               application_name: "payments-saved-instrument-attempt-replica",
@@ -862,6 +902,11 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
           releaseDuplicate.resolve();
         }
 
+        await copiesSettled;
+        if (appended.length !== 2) lateSecondRead = true;
+        expect(readAbsent).toEqual({ primary: true, replica: true });
+        expect(firstStartedCommit).toBeDefined();
+        expect(lateSecondRead).toBe(false);
         await expect(duplicate).resolves.toMatchObject({ instrument_id: "sci_SYNTHETIC_B", is_default: false });
         expect(await defaults()).toEqual(["sci_SYNTHETIC_A"]);
         expect(writes.filter(isDefaultWrite)).toHaveLength(2);
@@ -870,6 +915,26 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         expect(await publications()).toBe(2);
         expect(appended).toEqual(firstAppender === "replica" ? ["replica", "primary"] : ["primary", "replica"]);
         expect(opened).toEqual({ order: true, rendezvous: true, admitted: true, first: true, duplicate: true });
+        const parkedReplica = parked.find(
+          (backend) => backend.application_name === "payments-saved-instrument-attempt-replica",
+        );
+        expect(parkedReplica).toBeDefined();
+        for (const field of ["state", "wait_event_type", "wait_event", "backend_xid", "blocked_by"] as const) {
+          expect(parkedReplica).toHaveProperty(field);
+        }
+        trace.push({ event: "assertions", detail: { readAbsent, firstStartedCommit, lateSecondRead } });
+        console.info(
+          "saved-instrument-race",
+          JSON.stringify({
+            firstAppender,
+            trace,
+            opened,
+            appended,
+            captures: { parkedReplica },
+            assertions: { readAbsent, firstStartedCommit, lateSecondRead },
+            bounds: { rendezvous: opened.rendezvous === true, cleanup: true },
+          }),
+        );
       },
     );
 
