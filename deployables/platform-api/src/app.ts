@@ -66,7 +66,6 @@ import {
   createImportResolutionAttentionSourceFromReadModel,
   createInventoryHoldCleanupAuthorityForPool,
   type RecordExternalChannelSale,
-  type InventoryDraftListingCreator,
   type InventoryServices,
 } from "@chase-sets/inventory/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -632,15 +631,6 @@ export function createPlatformApiHost(
     supportReferenceLookupCrossContextSources.length > 0
       ? { sources: supportReferenceLookupCrossContextSources }
       : undefined;
-  const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
-    const marketplaceServices = runtime?.services.marketplace as MarketplaceServices | undefined;
-    const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
-    if (!createDraft) {
-      throw new Error("Marketplace draft listing service is unavailable.");
-    }
-
-    return createDraft(params, context);
-  };
   /**
    * Ordering's required cleanup-authority capability.
    *
@@ -732,7 +722,6 @@ export function createPlatformApiHost(
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
       sellerAttentionSources,
       publicPolicySources,
-      draftListingCreator,
       ...(checkoutPool
         ? { checkoutReservationAuthority: createCheckoutInventoryReservationAuthority(checkoutPool) }
         : {}),

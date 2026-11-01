@@ -21,7 +21,6 @@ describe("Shipment Group admission worker host capability", () => {
       moneyMovementGateway: createFakeMoneyMovementGateway(),
       operationsRecorder: { record: () => undefined },
       postageLabelProvider: createSandboxPostageLabelProvider(),
-      draftListingCreator: { createDraftListings: async () => [] },
       notificationAdapter: { send: async () => undefined },
       agentWebhookOrderResolvers: {
         resolveOrderRecipient: async () => null,

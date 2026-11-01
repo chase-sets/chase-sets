@@ -1026,6 +1026,14 @@ function createDurableJobRetentionTask(
         stagedInputCreatedBefore: stagedInputCreatedBefore(),
         limit: 500,
       });
+      if (result.commitJobsHeld) {
+        logger.warn("Inventory import commit-job retention held by the draft handoff scan.", {
+          complete: result.handoffs.complete,
+          pages: result.handoffs.pages,
+          counts: result.handoffs.counts,
+          findings: result.handoffs.findings.slice(0, 10),
+        });
+      }
       return result.jobs + result.stagedInputs;
     });
   }

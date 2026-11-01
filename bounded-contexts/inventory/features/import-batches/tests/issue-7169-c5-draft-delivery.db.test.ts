@@ -325,8 +325,12 @@ describeDb("issue-7169 C5 draft listing delivery durable DB proof", () => {
         [rowId, rowId.endsWith("legacy") ? 1 : rowId.endsWith("pending") ? 2 : 3, listingId],
       );
     }
-    const pending = message("imr_delivery_pending");
-    const failed = message("imr_delivery_failed");
+    const inReadBatch = (messageId: string): InventoryDraftListingMessage => {
+      const base = message(messageId);
+      return { ...base, snapshot: { ...base.snapshot, importBatchId: "imb_delivery_read" } };
+    };
+    const pending = inReadBatch("imr_delivery_pending");
+    const failed = inReadBatch("imr_delivery_failed");
     await enqueueInventoryDraftListingMessage(pools.inventory, pending);
     await enqueueInventoryDraftListingMessage(pools.inventory, failed);
     await pools.inventory.query(

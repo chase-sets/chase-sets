@@ -41,6 +41,8 @@ describe("issue-7169-c4-consumer-rollout platform-api", () => {
       });
       const port = captured.ports?.inventoryDraftListingConsumer as InventoryDraftListingConsumer;
       expect(captured.ports?.draftListingDelivery).toBe(port);
+      // direct-draft-bypass control: the composition root binds only the outbox delivery port.
+      expect(captured.ports).not.toHaveProperty("draftListingCreator");
       const owner = runtime.services.marketplace as MarketplaceServices;
       const accept = vi.spyOn(owner.inventoryDraftListingConsumer, "accept");
       const context = {
@@ -90,6 +92,7 @@ describe("issue-7169-c4-consumer-rollout platform-api", () => {
     expect(/hostPorts:\s*\{\s*inventoryDraftListingConsumer,/.test(source)).toBe(true);
     expect(source).toContain("draftListingDelivery: inventoryDraftListingConsumer");
     expect(source).toContain("runtime?.services.marketplace as MarketplaceServices | undefined");
-    expect(source).toContain("draftListingCreator,");
+    expect(source).not.toContain("draftListingCreator");
+    expect(source).not.toContain("createBatchDraftListingFromInventorySnapshot");
   });
 });

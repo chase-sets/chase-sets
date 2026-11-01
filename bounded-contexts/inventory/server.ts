@@ -12,7 +12,6 @@ export type {
   InventoryItemListItem,
   InventoryListingStockSnapshot,
 } from "./support/request-support/api-client";
-export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
 export type { InventoryServices } from "./support/runtime-support/services";
 export type { InventoryCheckoutReservationAuthority } from "./features/holds/api/checkout-reservation-authority";
 export type {
