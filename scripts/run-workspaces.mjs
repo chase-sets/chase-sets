@@ -33,8 +33,22 @@ const summaryRootKeys = [
   "unhintedTasks",
   "tasks",
 ];
+const ansiEscapePattern = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+const vitestFileResultPattern = /(?:✓|×|✗)\s+(.+?\.(?:test|spec)\.[cm]?[jt]sx?)(?:\s+\(\d+ tests?\))?\s+(\d+)ms\s*$/;
 export const DEFAULT_TEST_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 export const DB_TEST_SCRIPT_SELECTOR = "test:db*";
+
+export function parseVitestFileAttribution(line) {
+  if (typeof line !== "string") return undefined;
+  const clean = line.replace(ansiEscapePattern, "").trim();
+  const match = vitestFileResultPattern.exec(clean);
+  if (!match) return undefined;
+  return {
+    file: match[1],
+    actualDurationMs: Number(match[2]),
+    outcome: /(?:×|✗)/.test(clean) ? "failed" : "passed",
+  };
+}
 
 function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -93,10 +107,13 @@ export function validateDurationHintRegistry(registry, workspaces) {
 
   const workspaceByName = new Map(workspaces.map((workspace) => [workspace.name, workspace]));
   const seenKeys = new Set();
+  const provenanceEntries = registry.entries.filter((entry) => Object.hasOwn(entry, "sources"));
 
   for (const [index, entry] of registry.entries.entries()) {
     const label = `Duration-hint registry entries[${index}]`;
-    assertExactKeys(entry, ["workspace", "script", "estimatedDurationSeconds"], label);
+    const entryKeys = ["workspace", "script", "estimatedDurationSeconds"];
+    if (Object.hasOwn(entry, "sources")) entryKeys.push("sources");
+    assertExactKeys(entry, entryKeys, label);
     assertWorkspaceIdentity(entry.workspace, `${label}.workspace`);
     assertDurationHintScript(entry.script, `${label}.script`);
     assertBoundedInteger(entry.estimatedDurationSeconds, 1, 3600, `${label}.estimatedDurationSeconds`);
@@ -117,13 +134,46 @@ export function validateDurationHintRegistry(registry, workspaces) {
     if (!isWorkspaceEligibleForDurationHint(workspace, entry.script)) {
       throw new Error(`Duration-hint registry entry ${entry.workspace} ${entry.script} is obsolete.`);
     }
+    if (entry.sources !== undefined) {
+      if (entry.script !== "test:db" || entry.sources.length !== 5) {
+        throw new Error(`${label}.sources must contain exactly five hosted observations for test:db.`);
+      }
+      const sourceDurations = [];
+      for (const [sourceIndex, source] of entry.sources.entries()) {
+        const sourceLabel = `${label}.sources[${sourceIndex}]`;
+        assertExactKeys(source, ["runId", "jobId", "headSha", "logPath", "durationMs"], sourceLabel, { ordered: true });
+        assertBoundedInteger(source.runId, 1, Number.MAX_SAFE_INTEGER, `${sourceLabel}.runId`);
+        assertBoundedInteger(source.jobId, 1, Number.MAX_SAFE_INTEGER, `${sourceLabel}.jobId`);
+        if (typeof source.headSha !== "string" || !/^[a-f0-9]{40}$/.test(source.headSha)) {
+          throw new Error(`${sourceLabel}.headSha must be a lowercase commit SHA.`);
+        }
+        if (typeof source.logPath !== "string" || !source.logPath.includes("10766-impl-g1.hosted-")) {
+          throw new Error(`${sourceLabel}.logPath must identify a hosted lane capture.`);
+        }
+        assertBoundedInteger(source.durationMs, 1, 86_400_000, `${sourceLabel}.durationMs`);
+        sourceDurations.push(source.durationMs);
+      }
+      const middle = sourceDurations.toSorted((left, right) => left - right)[2];
+      if (entry.estimatedDurationSeconds !== Math.ceil(middle / 1000)) {
+        throw new Error(`${label}.estimatedDurationSeconds is not derived from its hosted observations.`);
+      }
+    }
+  }
+
+  if (
+    provenanceEntries.length > 0 &&
+    provenanceEntries.length !== registry.entries.filter((entry) => entry.script === "test:db").length
+  ) {
+    throw new Error("Every test:db duration hint must carry hosted provenance.");
   }
 
   return registry;
 }
 
 export function validateWorkspaceDurationReplay(fixture, registry) {
-  assertExactKeys(fixture, ["schemaVersion", "observations"], "Workspace-duration replay fixture");
+  const fixtureKeys = ["schemaVersion", "observations"];
+  if (Object.hasOwn(fixture, "hostedCaptures")) fixtureKeys.push("hostedCaptures");
+  assertExactKeys(fixture, fixtureKeys, "Workspace-duration replay fixture");
   if (fixture.schemaVersion !== "workspace-unit-duration-replay/v1") {
     throw new Error("Workspace-duration replay fixture schemaVersion must be workspace-unit-duration-replay/v1.");
   }
@@ -177,6 +227,71 @@ export function validateWorkspaceDurationReplay(fixture, registry) {
     seenObservations.add(observationKey);
   }
 
+  if (fixture.hostedCaptures !== undefined) {
+    if (!Array.isArray(fixture.hostedCaptures) || fixture.hostedCaptures.length !== 5) {
+      throw new Error("Workspace-duration replay fixture hostedCaptures must contain exactly five captures.");
+    }
+    const captureKeys = new Set();
+    for (const [index, capture] of fixture.hostedCaptures.entries()) {
+      const label = `Workspace-duration replay fixture hostedCaptures[${index}]`;
+      assertExactKeys(
+        capture,
+        ["runId", "runAttempt", "jobId", "event", "headSha", "conclusion", "logPath", "workspaceDurations", "api"],
+        label,
+        { ordered: true },
+      );
+      assertBoundedInteger(capture.runId, 1, Number.MAX_SAFE_INTEGER, `${label}.runId`);
+      assertBoundedInteger(capture.runAttempt, 1, 100, `${label}.runAttempt`);
+      assertBoundedInteger(capture.jobId, 1, Number.MAX_SAFE_INTEGER, `${label}.jobId`);
+      if (capture.event !== "merge_group" || capture.conclusion !== "success")
+        throw new Error(`${label} is not eligible.`);
+      if (!/^[a-f0-9]{40}$/.test(capture.headSha)) throw new Error(`${label}.headSha is invalid.`);
+      if (typeof capture.logPath !== "string" || !capture.logPath.includes("10766-impl-g1.hosted-")) {
+        throw new Error(`${label}.logPath is not a hosted lane capture.`);
+      }
+      const identity = `${capture.runId}\0${capture.jobId}`;
+      if (captureKeys.has(identity)) throw new Error(`${label} duplicates an earlier capture.`);
+      captureKeys.add(identity);
+      if (!isPlainObject(capture.workspaceDurations) || Object.keys(capture.workspaceDurations).length !== 24) {
+        throw new Error(`${label}.workspaceDurations must contain the full 24-workspace other census.`);
+      }
+      for (const [workspace, durationMs] of Object.entries(capture.workspaceDurations)) {
+        assertWorkspaceIdentity(workspace, `${label}.workspaceDurations.${workspace}`);
+        assertBoundedInteger(durationMs, 1, 86_400_000, `${label}.workspaceDurations.${workspace}`);
+      }
+      assertExactKeys(capture.api, ["jobId", "logPath", "durationMs"], `${label}.api`, { ordered: true });
+      assertBoundedInteger(capture.api.jobId, 1, Number.MAX_SAFE_INTEGER, `${label}.api.jobId`);
+      if (typeof capture.api.logPath !== "string" || !capture.api.logPath.includes("10766-impl-g1.hosted-")) {
+        throw new Error(`${label}.api.logPath is not a hosted lane capture.`);
+      }
+      assertBoundedInteger(capture.api.durationMs, 1, 86_400_000, `${label}.api.durationMs`);
+    }
+    if (registry) {
+      for (const entry of registry.entries.filter((candidate) => candidate.script === "test:db" && candidate.sources)) {
+        for (const source of entry.sources) {
+          const capture = fixture.hostedCaptures.find((candidate) => candidate.runId === source.runId);
+          const expected =
+            entry.workspace === "@chase-sets/app-platform-api"
+              ? capture?.api
+              : capture && {
+                  jobId: capture.jobId,
+                  logPath: capture.logPath,
+                  durationMs: capture.workspaceDurations[entry.workspace],
+                };
+          if (
+            !capture ||
+            !expected ||
+            source.jobId !== expected.jobId ||
+            source.logPath !== expected.logPath ||
+            source.durationMs !== expected.durationMs
+          ) {
+            throw new Error(`Hosted provenance does not derive ${entry.workspace} from a checked-in capture.`);
+          }
+        }
+      }
+    }
+  }
+
   return fixture;
 }
 
@@ -213,12 +328,9 @@ export function validateRunWorkspacesSummary(summary) {
 
   for (const [index, task] of summary.tasks.entries()) {
     const label = `Run-workspaces summary tasks[${index}]`;
-    assertExactKeys(
-      task,
-      ["workspace", "script", "estimatedDurationSeconds", "usedFallback", "actualDurationMs", "outcome"],
-      label,
-      { ordered: true },
-    );
+    const taskKeys = ["workspace", "script", "estimatedDurationSeconds", "usedFallback", "actualDurationMs", "outcome"];
+    if (Object.hasOwn(task, "fileAttributions")) taskKeys.push("fileAttributions");
+    assertExactKeys(task, taskKeys, label, { ordered: true });
     assertWorkspaceIdentity(task.workspace, `${label}.workspace`);
     assertDurationHintScript(task.script, `${label}.script`);
     if (task.script !== summary.scriptName) {
@@ -231,6 +343,23 @@ export function validateRunWorkspacesSummary(summary) {
     assertBoundedInteger(task.actualDurationMs, 0, 3_600_000, `${label}.actualDurationMs`);
     if (task.outcome !== "passed" && task.outcome !== "failed") {
       throw new Error(`${label}.outcome must be passed or failed.`);
+    }
+    if (task.fileAttributions !== undefined) {
+      if (!Array.isArray(task.fileAttributions)) throw new Error(`${label}.fileAttributions must be an array.`);
+      const seenFiles = new Set();
+      for (const [fileIndex, attribution] of task.fileAttributions.entries()) {
+        const fileLabel = `${label}.fileAttributions[${fileIndex}]`;
+        assertExactKeys(attribution, ["file", "actualDurationMs", "outcome"], fileLabel, { ordered: true });
+        if (typeof attribution.file !== "string" || attribution.file.length < 1 || attribution.file.length > 512) {
+          throw new Error(`${fileLabel}.file is invalid.`);
+        }
+        assertBoundedInteger(attribution.actualDurationMs, 0, 3_600_000, `${fileLabel}.actualDurationMs`);
+        if (attribution.outcome !== "passed" && attribution.outcome !== "failed") {
+          throw new Error(`${fileLabel}.outcome must be passed or failed.`);
+        }
+        if (seenFiles.has(attribution.file)) throw new Error(`${fileLabel}.file is duplicated.`);
+        seenFiles.add(attribution.file);
+      }
     }
   }
 
@@ -455,7 +584,16 @@ async function runWorkspace(workspace, options) {
     );
   try {
     await run(invocation.command, invocation.args, {
-      ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
+      ...(options.collectFileAttributions
+        ? {
+            prefix: usePrefixedLogs ? workspace.name : undefined,
+            stderrToStderr: true,
+            onStdoutLine: options.onLine,
+            onStderrLine: options.onLine,
+          }
+        : usePrefixedLogs
+          ? { prefix: workspace.name }
+          : { stdio: "inherit" }),
       ...(commandTimeoutMs ? { timeoutMs: commandTimeoutMs } : {}),
     });
     outcome = "passed";
@@ -518,7 +656,17 @@ async function runConcurrent(tasks, options) {
 
       try {
         for (const scriptName of task.scriptNames ?? [options.scriptName]) {
-          await runWorkspace(workspace, { ...options, scriptName });
+          await runWorkspace(workspace, {
+            ...options,
+            onLine: (line) => {
+              const attribution = parseVitestFileAttribution(line);
+              if (attribution && taskResult) {
+                taskResult.fileAttributions ??= [];
+                taskResult.fileAttributions.push(attribution);
+              }
+            },
+            scriptName,
+          });
         }
       } catch (error) {
         if (taskResult) {
@@ -632,6 +780,14 @@ function renderRunWorkspacesSummaryMarkdown(summary) {
       lines.push(
         `| ${task.workspace} | ${task.script} | ${task.estimatedDurationSeconds} | ${task.usedFallback ? "yes" : "no"} | ${task.actualDurationMs} | ${task.outcome} |`,
       );
+      if (task.fileAttributions?.length) {
+        lines.push(`| ↳ ${task.workspace} file attribution | — | — | — | — | — |`);
+        for (const attribution of task.fileAttributions) {
+          lines.push(
+            `| ↳ ${attribution.file} | ${task.script} | — | — | ${attribution.actualDurationMs} | ${attribution.outcome} |`,
+          );
+        }
+      }
     }
   }
 
@@ -715,6 +871,7 @@ export async function runWorkspaceScripts(options) {
       now,
       run,
       taskResults: durationScheduled || dbExecution ? taskResults : undefined,
+      collectFileAttributions: dbExecution && run === runCommand,
       usePrefixedLogs: parsed.concurrency > 1,
     });
   } finally {

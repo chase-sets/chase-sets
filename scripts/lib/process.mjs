@@ -114,25 +114,24 @@ export function buildPackageManagerInvocation(args, options = {}) {
   };
 }
 
-function wirePrefixedStream(stream, prefix, write = console.log) {
+function wireObservedStream(stream, { prefix, write = console.log, onLine } = {}) {
   let buffer = "";
+
+  const emit = (part) => {
+    if (part.length === 0) return;
+    onLine?.(part);
+    write(prefix ? `[${prefix}] ${part}` : part);
+  };
 
   stream.on("data", (chunk) => {
     buffer += chunk.toString();
     const parts = buffer.split(/\r?\n/);
     buffer = parts.pop() ?? "";
-
-    for (const part of parts) {
-      if (part.length > 0) {
-        write(`[${prefix}] ${part}`);
-      }
-    }
+    for (const part of parts) emit(part);
   });
 
   stream.on("end", () => {
-    if (buffer.length > 0) {
-      write(`[${prefix}] ${buffer}`);
-    }
+    if (buffer.length > 0) emit(buffer);
   });
 }
 
@@ -152,9 +151,13 @@ export function spawnCommand(command, args, options = {}) {
     windowsHide: true,
   });
 
-  if (options.prefix && child.stdout && child.stderr) {
-    wirePrefixedStream(child.stdout, options.prefix);
-    wirePrefixedStream(child.stderr, options.prefix, options.stderrToStderr ? console.error : console.log);
+  if (child.stdout && child.stderr && (options.prefix || options.onStdoutLine || options.onStderrLine)) {
+    wireObservedStream(child.stdout, { prefix: options.prefix, onLine: options.onStdoutLine });
+    wireObservedStream(child.stderr, {
+      prefix: options.prefix,
+      write: options.stderrToStderr ? console.error : console.log,
+      onLine: options.onStderrLine,
+    });
   }
 
   return child;

@@ -70,30 +70,1055 @@
     { "workspace": "@chase-sets/platform-runtime", "script": "test:unit", "estimatedDurationSeconds": 42 },
     { "workspace": "@chase-sets/pricing", "script": "test:unit", "estimatedDurationSeconds": 26 },
     { "workspace": "@chase-sets/settlement", "script": "test:unit", "estimatedDurationSeconds": 54 },
-    { "workspace": "@chase-sets/app-platform-api", "script": "test:db", "estimatedDurationSeconds": 927 },
-    { "workspace": "@chase-sets/app-platform-worker", "script": "test:db", "estimatedDurationSeconds": 31 },
-    { "workspace": "@chase-sets/auth", "script": "test:db", "estimatedDurationSeconds": 12 },
-    { "workspace": "@chase-sets/bounded-context-runtime", "script": "test:db", "estimatedDurationSeconds": 20 },
-    { "workspace": "@chase-sets/catalog", "script": "test:db", "estimatedDurationSeconds": 124 },
-    { "workspace": "@chase-sets/channels", "script": "test:db", "estimatedDurationSeconds": 190 },
-    { "workspace": "@chase-sets/checkout", "script": "test:db", "estimatedDurationSeconds": 27 },
-    { "workspace": "@chase-sets/collections", "script": "test:db", "estimatedDurationSeconds": 5 },
-    { "workspace": "@chase-sets/commercial-terms", "script": "test:db", "estimatedDurationSeconds": 3 },
-    { "workspace": "@chase-sets/customer-feedback", "script": "test:db", "estimatedDurationSeconds": 4 },
-    { "workspace": "@chase-sets/discovery", "script": "test:db", "estimatedDurationSeconds": 105 },
-    { "workspace": "@chase-sets/event-core-postgres", "script": "test:db", "estimatedDurationSeconds": 8 },
-    { "workspace": "@chase-sets/fulfillment", "script": "test:db", "estimatedDurationSeconds": 13 },
-    { "workspace": "@chase-sets/identity", "script": "test:db", "estimatedDurationSeconds": 20 },
-    { "workspace": "@chase-sets/inventory", "script": "test:db", "estimatedDurationSeconds": 300 },
-    { "workspace": "@chase-sets/marketplace", "script": "test:db", "estimatedDurationSeconds": 26 },
-    { "workspace": "@chase-sets/marketplace-seed-testing", "script": "test:db", "estimatedDurationSeconds": 346 },
-    { "workspace": "@chase-sets/notifications", "script": "test:db", "estimatedDurationSeconds": 5 },
-    { "workspace": "@chase-sets/ordering", "script": "test:db", "estimatedDurationSeconds": 47 },
-    { "workspace": "@chase-sets/payments", "script": "test:db", "estimatedDurationSeconds": 24 },
-    { "workspace": "@chase-sets/platform-operations", "script": "test:db", "estimatedDurationSeconds": 12 },
-    { "workspace": "@chase-sets/platform-policy", "script": "test:db", "estimatedDurationSeconds": 3 },
-    { "workspace": "@chase-sets/platform-runtime", "script": "test:db", "estimatedDurationSeconds": 9 },
-    { "workspace": "@chase-sets/pricing", "script": "test:db", "estimatedDurationSeconds": 150 },
-    { "workspace": "@chase-sets/settlement", "script": "test:db", "estimatedDurationSeconds": 24 }
+    {
+      "workspace": "@chase-sets/app-platform-api",
+      "script": "test:db",
+      "estimatedDurationSeconds": 774,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841731,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841731.log",
+          "durationMs": 773276
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100616,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100616.log",
+          "durationMs": 810378
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753293,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753293.log",
+          "durationMs": 495587
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179483,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179483.log",
+          "durationMs": 776121
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769645,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769645.log",
+          "durationMs": 627829
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/app-platform-worker",
+      "script": "test:db",
+      "estimatedDurationSeconds": 85,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 88331
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 83010
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 88990
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 67010
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 84706
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/auth",
+      "script": "test:db",
+      "estimatedDurationSeconds": 169,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 168841
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 179372
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 183222
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 120252
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 166694
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/bounded-context-runtime",
+      "script": "test:db",
+      "estimatedDurationSeconds": 41,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 40502
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 39121
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 42360
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 30291
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 41343
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/catalog",
+      "script": "test:db",
+      "estimatedDurationSeconds": 987,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 997339
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 986920
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 1045536
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 670067
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 974420
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/channels",
+      "script": "test:db",
+      "estimatedDurationSeconds": 515,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 522896
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 505889
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 544296
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 386096
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 514591
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/checkout",
+      "script": "test:db",
+      "estimatedDurationSeconds": 121,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 120751
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 120519
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 127305
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 87866
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 121971
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/collections",
+      "script": "test:db",
+      "estimatedDurationSeconds": 26,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 25578
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 25125
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 25476
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 17650
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 25177
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/commercial-terms",
+      "script": "test:db",
+      "estimatedDurationSeconds": 4,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 3720
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 4029
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 4287
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 2468
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 3643
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/customer-feedback",
+      "script": "test:db",
+      "estimatedDurationSeconds": 12,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 12166
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 10928
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 11056
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 7363
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 11868
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/discovery",
+      "script": "test:db",
+      "estimatedDurationSeconds": 334,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 337870
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 328416
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 354022
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 254691
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 333469
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/event-core-postgres",
+      "script": "test:db",
+      "estimatedDurationSeconds": 14,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 13113
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 14848
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 16642
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 11176
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 13210
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/fulfillment",
+      "script": "test:db",
+      "estimatedDurationSeconds": 25,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 25065
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 24864
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 26236
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 16561
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 24853
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/identity",
+      "script": "test:db",
+      "estimatedDurationSeconds": 39,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 38075
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 38884
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 41605
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 26556
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 38105
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/inventory",
+      "script": "test:db",
+      "estimatedDurationSeconds": 415,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 424583
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 414894
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 443506
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 270023
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 412616
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/marketplace",
+      "script": "test:db",
+      "estimatedDurationSeconds": 112,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 112332
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 106993
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 111634
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 72502
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 111396
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/marketplace-seed-testing",
+      "script": "test:db",
+      "estimatedDurationSeconds": 1120,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 1120775
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 1119013
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 1195364
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 760805
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 1088145
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/notifications",
+      "script": "test:db",
+      "estimatedDurationSeconds": 6,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 5747
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 7227
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 6573
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 3897
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 5531
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/ordering",
+      "script": "test:db",
+      "estimatedDurationSeconds": 84,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 83891
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 84944
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 88004
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 57773
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 82390
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/payments",
+      "script": "test:db",
+      "estimatedDurationSeconds": 90,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 90150
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 84252
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 89352
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 66378
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 89514
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/platform-operations",
+      "script": "test:db",
+      "estimatedDurationSeconds": 111,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 109359
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 111706
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 110775
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 67024
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 110295
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/platform-policy",
+      "script": "test:db",
+      "estimatedDurationSeconds": 5,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 4588
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 4437
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 4161
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 2977
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 4688
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/platform-runtime",
+      "script": "test:db",
+      "estimatedDurationSeconds": 28,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 27904
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 28745
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 32486
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 20120
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 25403
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/pricing",
+      "script": "test:db",
+      "estimatedDurationSeconds": 256,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 259527
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 254607
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 271347
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 191108
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 255339
+        }
+      ]
+    },
+    {
+      "workspace": "@chase-sets/settlement",
+      "script": "test:db",
+      "estimatedDurationSeconds": 48,
+      "sources": [
+        {
+          "runId": 41296486752,
+          "jobId": 124818841702,
+          "headSha": "aa67b85273c8443f25b771e850255a8a9c5e42f9",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log",
+          "durationMs": 47651
+        },
+        {
+          "runId": 41286534242,
+          "jobId": 124789100638,
+          "headSha": "6b06a1f70969eb2126f354e2dec09a3d37da12ba",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log",
+          "durationMs": 50230
+        },
+        {
+          "runId": 41273034278,
+          "jobId": 124749753264,
+          "headSha": "f06a6b4e054167e8e4539d162c19e970157f4566",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log",
+          "durationMs": 54211
+        },
+        {
+          "runId": 40855476569,
+          "jobId": 123386179586,
+          "headSha": "4fa5addf2187d672159806ab76f7a630bcc1228c",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log",
+          "durationMs": 36806
+        },
+        {
+          "runId": 41260724592,
+          "jobId": 124713769634,
+          "headSha": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+          "logPath": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log",
+          "durationMs": 46207
+        }
+      ]
+    }
   ]
 }

@@ -14,6 +14,7 @@ import {
   DEFAULT_TEST_COMMAND_TIMEOUT_MS,
   loadTestEnvironment,
   parseRunWorkspacesArgs,
+  parseVitestFileAttribution,
   runWorkspaceScripts,
   validateDurationHintRegistry,
   validateRunWorkspacesSummary,
@@ -173,6 +174,24 @@ async function captureConsole(action) {
 }
 
 describe("run-workspaces", () => {
+  it("parses file-level Vitest durations from hosted reporter output without accepting test-case lines", () => {
+    expect(
+      parseVitestFileAttribution(
+        "[@chase-sets/channels]  ✓ features/reconciliation/tests/channel-reconciliation-runtime.db.test.ts (215 tests) 464784ms",
+      ),
+    ).toEqual({
+      file: "features/reconciliation/tests/channel-reconciliation-runtime.db.test.ts",
+      actualDurationMs: 464784,
+      outcome: "passed",
+    });
+    expect(parseVitestFileAttribution("  ✓ features/foo.test.ts > a case 123ms")).toBeUndefined();
+    expect(parseVitestFileAttribution("  × features/foo.test.ts (1 test) 23ms")).toEqual({
+      file: "features/foo.test.ts",
+      actualDurationMs: 23,
+      outcome: "failed",
+    });
+  });
+
   it("relevance DB excluded from non-DB callers", async () => {
     const discovery = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/discovery");
     expect(discovery.packageJson.chaseSets.testProfile).toBe("db");
@@ -907,6 +926,39 @@ describe("DB duration scheduling", () => {
     }
   });
 
+  it("discovers every channels DB file exactly once across the deterministic slow-file partition", async () => {
+    const channels = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/channels");
+    const scripts = channels.packageJson.scripts;
+    expect(scripts["test:db"]).toBe("pnpm run test:db:1 && pnpm run test:db:2");
+    const output = await captureDbRun({
+      workspaces: [channels],
+      registry: durationRegistry([durationEntry(channels.name, "test:db", 515)]),
+    });
+    const vitest = await createVitest("test", {
+      root: channels.dir,
+      config: "./tests/vitest.config.mjs",
+      watch: false,
+    });
+    try {
+      const discover = async (command) => {
+        const args = command.split(/\s+/);
+        expect(args.slice(0, 4)).toEqual(["vitest", "run", "--config", "./tests/vitest.config.mjs"]);
+        return (await vitest.globTestSpecifications(args.slice(4))).map((spec) => spec.moduleId).sort();
+      };
+      const onDisk = globSync("**/*.db.test.ts", { cwd: channels.dir })
+        .map((file) => path.resolve(channels.dir, file).replaceAll("\\", "/"))
+        .sort();
+      const partitions = await Promise.all(
+        [scripts["test:db:1"], scripts["test:db:2"]].map((command) => discover(command)),
+      );
+      expect(partitions.flat().sort()).toEqual(onDisk);
+      expect(new Set(partitions.flat()).size).toBe(onDisk.length);
+      expect(output.invocations.map((args) => args[3])).toEqual(["test:db:1", "test:db:2"]);
+    } finally {
+      await vitest.close();
+    }
+  });
+
   it("keeps all real API DB entries in the API cell and out of unit and fast discovery", async () => {
     const api = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/app-platform-api");
     const scripts = api.packageJson.scripts;
@@ -1253,45 +1305,26 @@ describe("DB duration scheduling", () => {
     ]);
   });
 
-  it("DB hints equal the named hosted sweep", () => {
-    // Green merge-group run 36392844721, job 108832742783, attempt 1.
-    // Each row records the immutable log line(s) and observed seconds, not lane timings.
-    // commercial-terms: Platform PR run 37353357078, job 111909665450, attempt 1, head a2be85f750267106cc7d30a595841d7c2d272702 (first DB sweep after its profile registration, #8723).
-    const source = [
-      ["app-platform-api", [24616, 42321], [516.11, 410.29]],
-      ["app-platform-worker", [999], [30.37]],
-      ["auth", [1496], [11.08]],
-      ["bounded-context-runtime", [3032], [19.66]],
-      ["catalog", [10950], [123.79]],
-      ["channels", [20802], [189.07]],
-      ["checkout", [22038], [26.03]],
-      ["collections", [22163], [4.55]],
-      ["commercial-terms", [555], [2.32]],
-      ["customer-feedback", [22385], [3.66]],
-      ["discovery", [24665], [104.08]],
-      ["event-core-postgres", [24688], [7.34]],
-      ["fulfillment", [24832], [12.37]],
-      ["identity", [25477], [19.22]],
-      ["inventory", [40897], [299.77]],
-      ["marketplace", [41754], [25.12]],
-      ["marketplace-seed-testing", [45647], [345.7]],
-      ["notifications", [42417], [4.73]],
-      ["ordering", [42726], [46.94]],
-      ["payments", [43140], [23.24]],
-      ["platform-operations", [43292], [11.19]],
-      ["platform-policy", [43437], [2.48]],
-      ["platform-runtime", [43590], [8.56]],
-      ["pricing", [45132], [149.6]],
-      ["settlement", [45330], [23.14]],
+  it("DB hints equal the five-capture hosted sweep", () => {
+    const replay = readJson("scripts/fixtures/workspace-unit-duration-replay-v1.json");
+    const expectedWorkspaces = [
+      ...new Set(replay.hostedCaptures.flatMap((capture) => Object.keys(capture.workspaceDurations))),
+      "@chase-sets/app-platform-api",
     ];
-    const expected = source.map(([name, lines, seconds]) => {
-      expect(lines).toHaveLength(seconds.length);
-      return durationEntry(`@chase-sets/${name}`, "test:db", Math.ceil(seconds.reduce((sum, value) => sum + value, 0)));
+    const expected = expectedWorkspaces.toSorted().map((workspace) => {
+      const durations = replay.hostedCaptures
+        .map((capture) =>
+          workspace === "@chase-sets/app-platform-api" ? capture.api.durationMs : capture.workspaceDurations[workspace],
+        )
+        .toSorted((left, right) => left - right);
+      return durationEntry(workspace, "test:db", Math.ceil(durations[2] / 1000));
     });
     const candidates = listWorkspacePackages();
     const assertHints = (candidateRegistry) => {
       validateDurationHintRegistry(candidateRegistry, candidates);
-      expect(candidateRegistry.entries.filter((entry) => entry.script === "test:db")).toEqual(expected);
+      expect(
+        candidateRegistry.entries.filter((entry) => entry.script === "test:db").map(({ sources, ...entry }) => entry),
+      ).toEqual(expected);
       expect(new Set(expected.map((entry) => entry.workspace))).toEqual(
         new Set(
           candidates
@@ -1306,6 +1339,9 @@ describe("DB duration scheduling", () => {
     };
     const checkedIn = readJson("scripts/workspace-test-duration-hints-v1.json");
     assertHints(checkedIn);
+    expect(
+      checkedIn.entries.filter((entry) => entry.script === "test:db").every((entry) => entry.sources.length === 5),
+    ).toBe(true);
     const mutants = [
       durationRegistry(
         checkedIn.entries.filter((entry) => entry.workspace !== expected[0].workspace || entry.script !== "test:db"),
@@ -1358,6 +1394,8 @@ describe("closed duration scheduling contracts", () => {
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
     expect(unitEntries).toHaveLength(69);
     expect(replay.observations).toHaveLength(93);
+    expect(replay.hostedCaptures).toHaveLength(5);
+    expect(new Set(replay.hostedCaptures.map((capture) => capture.runId)).size).toBe(5);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {
