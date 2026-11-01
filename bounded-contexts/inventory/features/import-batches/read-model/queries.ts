@@ -52,6 +52,8 @@ export type InventoryImportBatchRow = Readonly<{
   committed_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Opaque resolve fence: `updated_at` as UTC microsecond text. */
+  row_version: string;
   needs_seller: boolean;
 }>;
 
@@ -381,7 +383,7 @@ export async function getImportBatch(
        rejected_count,
        committed_count,
        created_at,
-       updated_at::text AS updated_at
+       updated_at
      FROM inventory_import_batches
      WHERE batch_id = $1
        AND account_id = $2`,
@@ -425,7 +427,8 @@ export async function getImportBatch(
             ELSE import_row.committed_listing_id END AS committed_listing_id,
        committed_at,
        import_row.created_at,
-       import_row.updated_at::text AS updated_at
+       import_row.updated_at,
+       to_char(import_row.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS row_version
      FROM inventory_import_batch_rows AS import_row
      LEFT JOIN inventory_import_draft_listing_outbox AS outbox
        ON outbox.message_id = import_row.row_id

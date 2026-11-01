@@ -25,6 +25,8 @@ type AttemptContext = EventStoreContext & {
   readonly [requestingAccount]?: string;
 };
 
+export const INVENTORY_ATTEMPT_INTENT_CONFLICT = "Inventory mutation attempt conflicts with its accepted intent.";
+
 export function hasInventoryMutationAttempt(context: EventStoreContext): boolean {
   return (context as AttemptContext)[attemptIdentity] !== undefined;
 }
@@ -253,7 +255,7 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
               existing.target_id === targetId &&
               existing.fingerprint_version === identity.intentVersion &&
               existing.intent_hash === intentHash,
-            "Inventory mutation attempt conflicts with its accepted intent.",
+            INVENTORY_ATTEMPT_INTENT_CONFLICT,
           );
           validateReceipt(existing);
           return existing.result;

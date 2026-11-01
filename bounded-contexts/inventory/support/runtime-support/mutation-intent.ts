@@ -216,20 +216,21 @@ export function normalizeInventoryMutationIntent(
         "selectedOptions",
         "storageLocationId",
       ]);
+      // Caller-held row facts are part of the intent verbatim; they are never defaulted or trimmed.
       assert(
-        input.expectedRowVersion === undefined || typeof input.expectedRowVersion === "string",
+        typeof input.expectedRowVersion === "string" && input.expectedRowVersion.length > 0,
         "Invalid import row version.",
       );
       assert(
-        input.expectedRowFingerprint === undefined || typeof input.expectedRowFingerprint === "string",
+        typeof input.expectedRowFingerprint === "string" && input.expectedRowFingerprint.length > 0,
         "Invalid import row fingerprint.",
       );
       return {
         accountId: text(input.accountId),
         batchId: text(input.batchId),
         rowId: text(input.rowId),
-        expectedRowVersion: input.expectedRowVersion ?? null,
-        expectedRowFingerprint: input.expectedRowFingerprint ?? null,
+        expectedRowVersion: input.expectedRowVersion,
+        expectedRowFingerprint: input.expectedRowFingerprint,
         catalogItemId: text(input.catalogItemId),
         selectedOptions: options(input.selectedOptions),
         storageLocationId: text(input.storageLocationId),

@@ -39,8 +39,10 @@ import {
   withInventoryMutationChildAttempt,
   inventoryMutationAttemptFromSource,
   hasInventoryMutationAttempt,
+  INVENTORY_ATTEMPT_INTENT_CONFLICT,
 } from "../../../support/runtime-support/mutation-attempt";
 import { buildNativeInventoryExportCsv, buildNativeInventoryImportCsvTemplate, type ImportCsvRow } from "../domain/csv";
+import { ImportRowResolveConflict, isImportRowFingerprint, isImportRowVersion } from "../domain/row-resolve-conflict";
 import {
   INVENTORY_IMPORT_COMMIT_JOB_KIND,
   INVENTORY_IMPORT_CREATE_JOB_KINDS,
@@ -155,16 +157,15 @@ export type InventoryImportBatchServices = Readonly<{
       batchId: string;
       rowId: string;
       accountId: AccountId;
-      expectedRowVersion?: string;
-      expectedRowFingerprint?: string;
-      // Compatibility aliases for callers that use the shorter row-fact names.
-      rowVersion?: string;
-      rowFingerprint?: string;
+      /** The `row_version` the caller last read; never defaulted from the server row. */
+      expectedRowVersion: string;
+      /** The `row_fingerprint` the caller last read; never defaulted from the server row. */
+      expectedRowFingerprint: string;
       catalogItemId: string;
       selectedOptions: readonly InventorySelectedOptionEntry[];
       storageLocationId: string;
     }>,
-    context?: EventStoreContext,
+    context: EventStoreContext,
   ) => Promise<InventoryImportBatchResolution>;
   commitBatch: (
     params: Readonly<{ batchId: string; accountId: AccountId }>,
@@ -819,6 +820,14 @@ function accountSkuMappingConflictMessage(
   return `Seller SKU '${sellerSku}' has multiple mappings for this account: ${choices}.`;
 }
 
+/** Batch states a row fix may land in; validating, committing, failed-safe, ambiguous and expired fail closed. */
+const RESOLVABLE_BATCH_STATUSES: ReadonlySet<InventoryImportBatchDetail["status"]> = new Set([
+  "uploaded",
+  "ready-to-commit",
+  "partial",
+  "committed",
+]);
+
 async function refreshBatchCounts(db: PgQueryable, batchId: string) {
   await db.query(
     `UPDATE inventory_import_batches AS batch
@@ -1239,82 +1248,88 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     };
   }
 
+  /**
+   * The single resolve authority. Every caller supplies the row facts it last read; the decision and the
+   * one fenced UPDATE run inside the caller's mutation attempt when one is present, so a same-attempt
+   * retry replays its receipt before any current-state check.
+   */
   async function resolveBatchRow(
     params: Parameters<InventoryImportBatchServices["resolveRow"]>[0],
-    context: EventStoreContext = {
-      tenantId: "tnt_legacy" as EventStoreContext["tenantId"],
-      audit: {
-        performedByUserId: "usr_legacy" as EventStoreContext["audit"]["performedByUserId"],
-        forAccountId: params.accountId,
-      },
-    },
+    context: EventStoreContext,
   ): Promise<InventoryImportBatchResolution> {
-    const detail = await readBatch(params.batchId, params.accountId);
-    if (!detail) {
-      throw new InventoryDomainError("Import batch not found.");
+    if (params.expectedRowVersion === "" || params.expectedRowFingerprint === "") {
+      throw new ImportRowResolveConflict("missing_row_facts");
     }
+    if (!isImportRowVersion(params.expectedRowVersion) || !isImportRowFingerprint(params.expectedRowFingerprint)) {
+      throw new ImportRowResolveConflict("invalid_row_facts");
+    }
+    const expectedRowVersion = params.expectedRowVersion;
+    const expectedRowFingerprint = params.expectedRowFingerprint;
 
-    const row = detail.rows.find((candidate) => candidate.row_id === params.rowId);
-    if (!row) {
-      throw new InventoryDomainError("Import row not found.");
-    }
-    if (row.status === "committed") {
-      throw new InventoryDomainError("Import row resolve conflict: terminal row.");
-    }
+    const decide = async () => {
+      const detail = await readBatch(params.batchId, params.accountId);
+      const row = detail?.rows.find((candidate) => candidate.row_id === params.rowId);
+      if (!detail || !row) {
+        throw new ImportRowResolveConflict("row_not_found");
+      }
+      if (row.status === "committed") {
+        throw new ImportRowResolveConflict("terminal_row");
+      }
+      if (!RESOLVABLE_BATCH_STATUSES.has(detail.status)) {
+        throw new ImportRowResolveConflict("batch_not_resolvable");
+      }
+      if (row.row_fingerprint === "") {
+        // Legacy rows kept the migration default; they fail closed rather than accept any fingerprint.
+        throw new ImportRowResolveConflict("missing_row_facts");
+      }
 
-    const expectedRowVersion = params.expectedRowVersion ?? params.rowVersion ?? row.updated_at;
-    const expectedRowFingerprint = params.expectedRowFingerprint ?? params.rowFingerprint ?? row.row_fingerprint;
-    if (!expectedRowVersion || !expectedRowFingerprint) {
-      throw new InventoryDomainError("Import row resolve conflict: missing current row facts.");
-    }
+      const validated = await validateRow(
+        params.accountId,
+        rowForManualResolution(detail, row, params),
+        row.quantity_mode,
+        params.selectedOptions,
+      );
+      if (validated.validationErrors.length > 0 || !validated.catalogItemId || !validated.productId) {
+        throw new InventoryDomainError(`Import row fix is incomplete: ${validated.validationErrors.join(" ")}`);
+      }
+      if (!validated.storageLocationId) {
+        throw new InventoryDomainError("Import row fix is incomplete: Storage location was not found.");
+      }
+      const catalogItemId = validated.catalogItemId;
 
-    const validated = await validateRow(
-      params.accountId,
-      rowForManualResolution(detail, row, params),
-      row.quantity_mode,
-      params.selectedOptions,
-    );
-    if (validated.validationErrors.length > 0 || !validated.catalogItemId || !validated.productId) {
-      throw new InventoryDomainError(`Import row fix is incomplete: ${validated.validationErrors.join(" ")}`);
-    }
-    if (!validated.storageLocationId) {
-      throw new InventoryDomainError("Import row fix is incomplete: Storage location was not found.");
-    }
-
-    const catalogItemId = validated.catalogItemId;
-    if (!catalogItemId) {
-      throw new InventoryDomainError("Import row fix is incomplete: Catalog item was not found.");
-    }
-    const write = async () => {
-      const updated = await deps.db.query(
+      const updated = await deps.db.query<{ row_id: string }>(
         `UPDATE inventory_import_batch_rows
-       SET status = $2,
-           external_reference = $3::jsonb,
-           row_fingerprint = $4,
-           quantity_mode = $5,
-           quantity_delta = $6,
-           set_quantity = $7,
-           source_price_amount = $8,
-           resolution_status = 'resolved',
-           catalog_item_id = $9,
-           product_id = $10,
-            selected_options = $11::jsonb,
-            storage_location_id = $12,
-            total_quantity = $13,
-            acquisition_occurred_at = $14,
-            acquisition_cost_amount = $15,
-            seller_sku = $16,
-            listing_price_amount = $17,
-            listing_quantity_cap = $18,
-            row_note = $19,
-            validation_errors = $20::jsonb,
-            updated_at = now()
-        WHERE row_id = $1
-          AND batch_id = $21
-          AND status <> 'committed'
-          AND updated_at = $22::timestamptz
-          AND row_fingerprint = $23
-        RETURNING row_id`,
+         SET status = $2,
+             external_reference = $3::jsonb,
+             row_fingerprint = $4,
+             quantity_mode = $5,
+             quantity_delta = $6,
+             set_quantity = $7,
+             source_price_amount = $8,
+             resolution_status = 'resolved',
+             catalog_item_id = $9,
+             product_id = $10,
+             selected_options = $11::jsonb,
+             storage_location_id = $12,
+             total_quantity = $13,
+             acquisition_occurred_at = $14,
+             acquisition_cost_amount = $15,
+             seller_sku = $16,
+             listing_price_amount = $17,
+             listing_quantity_cap = $18,
+             row_note = $19,
+             validation_errors = $20::jsonb,
+             updated_at = clock_timestamp()
+         WHERE row_id = $1
+           AND batch_id = $21
+           AND status <> 'committed'
+           AND updated_at = $22::timestamptz
+           AND row_fingerprint = $23
+           AND EXISTS (
+             SELECT 1 FROM inventory_import_batches AS batch
+             WHERE batch.batch_id = $21 AND batch.account_id = $24
+           )
+         RETURNING row_id`,
         [
           row.row_id,
           validated.status,
@@ -1339,37 +1354,46 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           params.batchId,
           expectedRowVersion,
           expectedRowFingerprint,
+          params.accountId,
         ],
       );
-      if (updated.rowCount !== undefined && Number(updated.rowCount) !== 1) {
-        throw new InventoryDomainError("Import row resolve conflict: row facts are stale or terminal.");
+      if (updated.rows.length !== 1 || updated.rows[0]?.row_id !== row.row_id) {
+        throw new ImportRowResolveConflict("stale_row_facts");
       }
 
       if (detail.source_key === "native-csv") {
         await persistAccountSkuMapping(params.accountId, validated.sellerSku, catalogItemId, validated.selectedOptions);
       }
       await refreshBatchCounts(deps.db, params.batchId);
+      return { batchId: params.batchId, rowId: row.row_id } as const;
     };
 
-    const mutationParams = {
-      accountId: params.accountId,
-      batchId: params.batchId,
-      rowId: params.rowId,
-      expectedRowVersion,
-      expectedRowFingerprint,
-      catalogItemId: params.catalogItemId,
-      selectedOptions: params.selectedOptions,
-      storageLocationId: params.storageLocationId,
-    };
     if (deps.executeMutation && hasInventoryMutationAttempt(context)) {
-      await deps.executeMutation("import-resolve-row", params.rowId, params.accountId, mutationParams, context, write);
+      const intent = {
+        accountId: params.accountId,
+        batchId: params.batchId,
+        rowId: params.rowId,
+        expectedRowVersion,
+        expectedRowFingerprint,
+        catalogItemId: params.catalogItemId,
+        selectedOptions: params.selectedOptions,
+        storageLocationId: params.storageLocationId,
+      };
+      try {
+        await deps.executeMutation("import-resolve-row", params.rowId, params.accountId, intent, context, decide);
+      } catch (error) {
+        if (error instanceof InventoryDomainError && error.message === INVENTORY_ATTEMPT_INTENT_CONFLICT) {
+          throw new ImportRowResolveConflict("attempt_conflict");
+        }
+        throw error;
+      }
     } else {
-      await write();
+      await decide();
     }
 
     const nextDetail = await readBatch(params.batchId, params.accountId);
     if (!nextDetail) {
-      throw new InventoryDomainError("Import batch not found.");
+      throw new ImportRowResolveConflict("row_not_found");
     }
     return {
       ...nextDetail,
