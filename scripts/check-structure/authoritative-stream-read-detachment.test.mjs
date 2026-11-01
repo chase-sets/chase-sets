@@ -220,10 +220,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives twenty-nine green grammar instances across twenty-six live locations without a registry", () => {
+  it("derives thirty-one green grammar instances across twenty-seven live locations without a registry", () => {
     const green = productionGrammar;
     expect(green).toHaveLength(31);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(28);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(27);
     const declarations = resolveGrammarSelectors(green, memberDeclarationSelectors);
     expect(declarations.errors).toEqual([]);
     expect(declarations.resolved).toHaveLength(memberDeclarationSelectors.length);
