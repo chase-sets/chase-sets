@@ -2219,7 +2219,14 @@ describe("busy-group-pass-attribution Postgres", () => {
       };
       const signals = createPostgresWorkSignalStore(pools.platform, {
         readConsistencyGateway: {},
-        observer: { projectionWakeIntentEnqueued: () => wakeLoop!.nudge() },
+        observer: {
+          projectionWakeIntentEnqueued: (event) => {
+            if (event.priorityLane === "hot") {
+              pollLoop!.nudge([worker.name]);
+            }
+            wakeLoop!.nudge();
+          },
+        },
       });
       const observer: WorkerRuntimeObserver = {
         runnerCompleted: (event) => trace("runner-completed", event),

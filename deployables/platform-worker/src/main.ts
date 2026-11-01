@@ -83,7 +83,10 @@ import {
 } from "@chase-sets/platform-runtime/projection-interest-index";
 import { listProjectionInterestOverridesForPushMigration } from "@chase-sets/platform-runtime/projection-push-migration";
 import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/source-context-wake-registry";
-import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
+import {
+  createPostgresWorkSignalStore,
+  type ProjectionWakeIntentEnqueuedEvent,
+} from "@chase-sets/platform-runtime/work-signal-store";
 import {
   collectRetentionSweepTargets,
   createRetentionSweepLogObserver,
@@ -172,9 +175,27 @@ const evidenceWindowCorrelation =
     ? createEvidenceWindowCorrelation(createPostgresEvidenceWindowRegistration(pools.control))
     : createNullEvidenceWindowCorrelation();
 let projectionWakeRunnerLoop: WorkerRunnerLoop | null = null;
+let projectionRunnerLoop: WorkerRunnerLoop | null = null;
+const pendingHotProjectionWakeKeys = new Set<string>();
+const projectionWakeKey = (targetContextName: string, projectionName: string): string =>
+  `${targetContextName}.${projectionName}`;
+const requestProjectionWakeLeaseHandoff = (event: ProjectionWakeIntentEnqueuedEvent): void => {
+  if (event.priorityLane !== "hot" || event.outcome === "blocked") {
+    return;
+  }
+  const runnerName = projectionWakeKey(event.targetContextName, event.projectionName);
+  pendingHotProjectionWakeKeys.add(runnerName);
+  projectionRunnerLoop?.nudge([runnerName]);
+};
+const completeProjectionWakeLeaseHandoff = (event: ProjectionWakeIntentLifecycleEvent): void => {
+  if (event.priorityLane === "hot") {
+    pendingHotProjectionWakeKeys.delete(projectionWakeKey(event.targetContextName, event.projectionName));
+  }
+};
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   observer: {
     projectionWakeIntentEnqueued: (event) => {
+      requestProjectionWakeLeaseHandoff(event);
       recordProjectionWakeIntentEnqueueOutcome({
         outcome: event.outcome,
         sourceContextName: event.sourceContextName,
@@ -530,7 +551,9 @@ const projectionWakeRunners = config.projectionWakeScheduler.enabled
       retryBackoffBaseMs: config.projectionWakeScheduler.retryBackoffBaseMs,
       retryBackoffMaxMs: config.projectionWakeScheduler.retryBackoffMaxMs,
       maxAttempts: config.projectionWakeScheduler.maxAttempts,
-      observer: createProjectionWakeSchedulerLogObserver(),
+      observer: createProjectionWakeSchedulerLogObserver({
+        onTerminal: completeProjectionWakeLeaseHandoff,
+      }),
     })
   : [];
 const runnerGroups = [
@@ -580,6 +603,10 @@ const runnerLoops = runnerGroups.map((group) => ({
     },
   }),
 }));
+projectionRunnerLoop = runnerLoops.find((runnerLoop) => runnerLoop.name === "projections")?.loop ?? null;
+if (projectionRunnerLoop && pendingHotProjectionWakeKeys.size > 0) {
+  projectionRunnerLoop.nudge([...pendingHotProjectionWakeKeys]);
+}
 projectionWakeRunnerLoop = runnerLoops.find((runnerLoop) => runnerLoop.name === "wakes")?.loop ?? null;
 const projectionWakePushDispatcher =
   config.projectionWakeScheduler.pushDispatchEnabled && projectionWakeRunnerLoop
@@ -587,6 +614,26 @@ const projectionWakePushDispatcher =
         listenerPool: pools.workSignal,
         listenRetryCooldownMs: config.projectionWakeScheduler.pollIntervalMs,
         listenerObserver: {
+          notificationReceived: (event) => {
+            const envelope = event.notification.envelope;
+            if (envelope?.kind !== "projection.wake-intent") {
+              return;
+            }
+            const payload = envelope.payload as Partial<{
+              priorityLane: string;
+              targetContextName: string;
+              projectionName: string;
+            }>;
+            if (
+              payload.priorityLane === "hot" &&
+              typeof payload.targetContextName === "string" &&
+              typeof payload.projectionName === "string"
+            ) {
+              const runnerName = projectionWakeKey(payload.targetContextName, payload.projectionName);
+              pendingHotProjectionWakeKeys.add(runnerName);
+              projectionRunnerLoop?.nudge([runnerName]);
+            }
+          },
           listenerUnavailable: ({ error }) => {
             logger.warn("Projection wake push dispatcher listener unavailable; relying on wake polling.", {
               type: "projection-wake-push.listener_unavailable",
@@ -1259,7 +1306,11 @@ function createProjectionWakeRelayLogObserver(): ProjectionWakeRelayRuntimeObser
   };
 }
 
-function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObserver {
+function createProjectionWakeSchedulerLogObserver(
+  options: Readonly<{
+    onTerminal?: (event: ProjectionWakeIntentLifecycleEvent) => void;
+  }> = {},
+): ProjectionWakeSchedulerObserver {
   const recordIntentOutcome = (
     event: ProjectionWakeIntentLifecycleEvent,
     outcome: ProjectionWakeIntentOutcomeSignal["outcome"],
@@ -1284,6 +1335,7 @@ function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObse
         ...event,
       }),
     wakeIntentCompleted: (event) => {
+      options.onTerminal?.(event);
       recordIntentOutcome(event, event.outcome === "ran" ? "completed" : "already-satisfied", {
         processingDurationMs: event.processingDurationMs,
         requeued: event.requeued,
@@ -1308,6 +1360,7 @@ function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObse
       });
     },
     wakeIntentUnknownTarget: (event) => {
+      options.onTerminal?.(event);
       recordIntentOutcome(event, "unknown-target");
       logger.warn("Projection wake intent targeted an unknown projection group or checkpoint.", {
         type: "projection-wake.intent.unknown_target",
@@ -1322,6 +1375,7 @@ function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObse
       });
     },
     wakeIntentAttemptsExhausted: (event) => {
+      options.onTerminal?.(event);
       recordIntentOutcome(event, "attempts-exhausted");
       logger.error("Projection wake intent exhausted its scheduler attempts.", {
         type: "projection-wake.intent.attempts_exhausted",

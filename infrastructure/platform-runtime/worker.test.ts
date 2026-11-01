@@ -917,6 +917,52 @@ describe("worker runner loop", () => {
     }
   });
 
+  it("hands off a productive projection-group lease when a matching hot wake is nudged", async () => {
+    const events: WorkerHolderLifecycleEvent[] = [];
+    const firstPass = holderTestGate();
+    const releaseLease = vi.fn(async () => {});
+    let runs = 0;
+    const runner: WorkerRunner = {
+      name: "auth.auth-identity-user-projection",
+      kind: "projection-group",
+      runOnce: async (context) => {
+        runs += 1;
+        if (runs === 1) {
+          await firstPass.promise;
+        } else {
+          await holderTestAbort(context);
+        }
+        return { processed: 1, lastGlobalPosition: "1" as never, state: "running" };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "auth-worker",
+      controlPlane: createAlwaysLeasedControlPlane({ releaseLease }),
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1_000,
+      observer: { holderLifecycle: (event) => events.push(event) },
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(events.some((event) => event.phase === "run-start")).toBe(true));
+      loop.nudge([runner.name]);
+      firstPass.resolve();
+      await vi.waitFor(() => expect(releaseLease).toHaveBeenCalledTimes(1));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ phase: "pass-end", outcome: "success", disposition: "release-pending" }),
+          expect.objectContaining({ phase: "released", reason: "idle" }),
+        ]),
+      );
+    } finally {
+      await loop.stop();
+    }
+  });
+
   it("busy-group-exact-receipt-read: selection of another group does not retain an inactive holder", async () => {
     vi.useFakeTimers();
     const leases = new Map<string, PlatformLease>();

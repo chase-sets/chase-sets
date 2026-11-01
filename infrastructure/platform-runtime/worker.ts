@@ -103,7 +103,11 @@ export type WorkerRunner = Readonly<{
 
 export type WorkerRunnerLoop = Readonly<{
   start: () => void;
-  nudge: () => void;
+  /**
+   * Nudge scheduling, optionally requesting a completed projection-group
+   * holder to yield its retained lease for a matching hot wake.
+   */
+  nudge: (runnerNames?: readonly string[]) => void;
   stop: () => Promise<void>;
   status: () => Readonly<{
     workerId: string;
@@ -555,6 +559,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let scheduleQueued = false;
   let scheduling = false;
   let scheduleAgainAfterCurrentPass = false;
+  const requestedLeaseYields = new Set<string>();
   const heldRunnerLeases = new Map<string, HeldRunnerLease>();
   const retainedProjectionLeases = new Set<HeldRunnerLease>();
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
@@ -646,6 +651,27 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     }
     if (scheduleAfterRelease) {
       queueImmediateSchedule();
+    }
+  };
+
+  const releaseRequestedProjectionLeases = (): void => {
+    if (requestedLeaseYields.size === 0) {
+      return;
+    }
+    for (const heldLease of heldRunnerLeases.values()) {
+      if (
+        heldLease.runner.kind !== "projection-group" ||
+        !requestedLeaseYields.has(heldLease.runner.name) ||
+        heldLease.activeRunCount > 0 ||
+        !heldLease.leaseActive
+      ) {
+        continue;
+      }
+      requestedLeaseYields.delete(heldLease.runner.name);
+      retainedProjectionLeases.delete(heldLease);
+      void releaseHeldRunnerLease(heldLease, false, "idle").catch((error: unknown) => {
+        options.onError?.(error, heldLease.runner);
+      });
     }
   };
 
@@ -772,6 +798,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
               runAbortController.signal,
               statusPublishState,
               notifyHolderLifecycle,
+              () => requestedLeaseYields.has(runner.name),
             )
           : ({ leaseAcquired: false } satisfies LeasedRunnerOutcome);
       })
@@ -807,6 +834,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           activeSharedSlotCount -= 1;
         }
         if (leaseAcquired) {
+          const leaseYieldRequested = requestedLeaseYields.has(runner.name);
           // A projection-group runner that finished an idle pass (processed
           // nothing) must not keep holding the shared `projection-group:<name>`
           // lease. Two consumer classes acquire that exact lease, frequently
@@ -825,18 +853,22 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           //   during post-rollout replay.
           // Productive continuations reuse the lease; schedule releases a
           // retained holder only after selection leaves it inactive.
-          if (acquiredLease && shouldYieldIdleProjectionGroupLease(runner, completedResult)) {
+          if (
+            acquiredLease &&
+            (shouldYieldIdleProjectionGroupLease(runner, completedResult) || requestedLeaseYields.has(runner.name))
+          ) {
             // Release without an immediate reschedule: the group runner has no
             // work of its own, so let the normal poll tick re-run it while the
             // freed lease stays available for queued wakes and operations.
             void releaseHeldRunnerLease(acquiredLease, false, "idle").catch((error: unknown) => {
               options.onError?.(error, runner);
             });
+            requestedLeaseYields.delete(runner.name);
           } else if (acquiredLease && runner.kind === "projection-group" && (completedResult?.processed ?? 0) > 0) {
             retainedProjectionLeases.add(acquiredLease);
           }
           try {
-            if (shouldRescheduleAfterCompletion(runner, completedResult)) {
+            if (!leaseYieldRequested && shouldRescheduleAfterCompletion(runner, completedResult)) {
               queueImmediateSchedule();
             }
           } catch (error) {
@@ -1008,7 +1040,13 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       startPriorityRefreshTimer();
       schedule();
     },
-    nudge: () => queueImmediateSchedule(),
+    nudge: (runnerNames) => {
+      for (const runnerName of runnerNames ?? []) {
+        requestedLeaseYields.add(runnerName);
+      }
+      releaseRequestedProjectionLeases();
+      queueImmediateSchedule();
+    },
     stop: async () => {
       stopped = true;
       if (timer) {
@@ -1211,6 +1249,7 @@ async function runLeasedRunner(
   runSignal?: AbortSignal,
   statusPublishState?: WorkerStatusPublishState,
   notifyHolderLifecycle?: (runner: WorkerRunner, event: WorkerHolderLifecycleEvent) => void,
+  leaseYieldRequested?: () => boolean,
 ): Promise<LeasedRunnerOutcome> {
   if (runSignal?.aborted) {
     return { leaseAcquired: true };
@@ -1374,7 +1413,9 @@ async function runLeasedRunner(
         outcome: observedOutcome(passSucceeded),
         disposition: heldLeaseLost()
           ? "lost"
-          : stoppedCooperatively() || (passSucceeded && shouldYieldIdleProjectionGroupLease(runner, result))
+          : stoppedCooperatively() ||
+              (passSucceeded &&
+                (shouldYieldIdleProjectionGroupLease(runner, result) || leaseYieldRequested?.() === true))
             ? "release-pending"
             : "retained",
         ...(result === undefined ? {} : { processed: result.processed }),
