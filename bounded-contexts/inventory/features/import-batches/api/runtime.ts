@@ -182,7 +182,8 @@ export type InventoryImportBatchServices = Readonly<{
   /**
    * Commit jobs are deleted only after every draft handoff of their batch has
    * a durable Marketplace acknowledgement and the batch has no orphan, and not
-   * at all while the resume-window handoff scan is incomplete or holds.
+   * at all while the resume-window handoff scan holds an orphan, ambiguous or
+   * uncommitted handoff. An incomplete scan is reported, not treated as clean.
    */
   pruneImportBatchJobRetention: (input?: {
     completedBefore?: string | Date;

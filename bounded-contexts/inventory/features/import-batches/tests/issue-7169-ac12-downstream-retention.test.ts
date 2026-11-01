@@ -154,7 +154,7 @@ describe("issue-7169-ac12 downstream retention (unit)", () => {
     expect(scan.counts.orphan).toBe(1);
   });
 
-  it("truncated control: exhausting maxPages before the window ends is incomplete and holds retention", async () => {
+  it("truncated control: exhausting maxPages is reported incomplete, never as no orphan, and is not itself a hold", async () => {
     const rows = [handoffRow(1), handoffRow(2), handoffRow(3, { outbox_state: null })];
     const scan = await scanInventoryDraftListingHandoffs(scanDb(rows).db, {
       since: "2026-10-24T00:00:00Z",
@@ -163,7 +163,15 @@ describe("issue-7169-ac12 downstream retention (unit)", () => {
     });
     expect(scan).toMatchObject({ complete: false, pages: 1, scannedRows: 2 });
     expect(scan.counts.orphan).toBe(0);
-    expect(draftListingHandoffScanHoldsRetention(scan)).toBe(true);
+    // The unpaged per-batch predicate gates every deletion, so truncation cannot stop retention for good.
+    expect(draftListingHandoffScanHoldsRetention(scan)).toBe(false);
+    // What the truncated scan did read still holds.
+    const heldTruncated = await scanInventoryDraftListingHandoffs(
+      scanDb([handoffRow(1, { outbox_state: null }), handoffRow(2), handoffRow(3)]).db,
+      { since: "2026-10-24T00:00:00Z", pageLimit: 2, maxPages: 1 },
+    );
+    expect(heldTruncated).toMatchObject({ complete: false, counts: { orphan: 1 } });
+    expect(draftListingHandoffScanHoldsRetention(heldTruncated)).toBe(true);
   });
 
   it("no-outbox lineage control: without any outbox write, committed listing rows stay legacy", async () => {
@@ -311,6 +319,24 @@ describe("issue-7169-ac12 downstream retention (unit)", () => {
       expect(commitDeletes(calls)).toHaveLength(1);
       // The per-job orphan backstop receives the scan's causal lineage, not a fresh guess.
       expect(commitDeletes(calls)[0]?.values[3]).toBe("2026-10-27T00:00:00.000Z");
+    });
+
+    it("leaves an over-budget window to the per-batch gate instead of stopping commit-job retention", async () => {
+      // 50 pages of 500 rows plus one decisive row: more settled handoffs than one scan may read.
+      const rows = Array.from({ length: 50 * 500 + 1 }, (_, index) => handoffRow(index + 1));
+      const { db, calls } = scanDb(rows);
+      const result = await runtimeOver(db).pruneImportBatchJobRetention({
+        completedBefore: "2026-10-25T00:00:00.000Z",
+      });
+      expect(result).toMatchObject({
+        commitJobsHeld: false,
+        handoffs: { complete: false, pages: 50, scannedRows: 50 * 500, counts: { accepted: 50 * 500, orphan: 0 } },
+      });
+      const deletes = commitDeletes(calls);
+      expect(deletes).toHaveLength(1);
+      // The only deletion that runs still carries both per-batch NOT EXISTS gates.
+      expect(deletes[0]?.sql.match(/NOT EXISTS/g)).toHaveLength(2);
+      expect(deletes[0]?.sql).toContain("receipt->>'messageId' = outbox.message_id");
     });
   });
 });

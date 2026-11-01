@@ -135,10 +135,16 @@ export function classifyDraftListingHandoff(row: DraftListingHandoffRow): DraftL
   }
 }
 
+/**
+ * A scanned orphan, ambiguous or uncommitted handoff holds every commit-job
+ * deletion. An incomplete scan never claims "no orphan" (`complete: false`),
+ * but it does not hold by itself: each deletion is still gated by its own
+ * unpaged per-batch predicate in `pruneAcknowledgedImportCommitJobs`, so a
+ * window larger than the page budget cannot stop retention for good.
+ */
 export function draftListingHandoffScanHoldsRetention(scan: DraftListingHandoffScan): boolean {
-  return (
-    !scan.complete ||
-    draftListingHandoffClasses.some((handoff) => RETENTION_HOLDING_CLASSES.has(handoff) && scan.counts[handoff] > 0)
+  return draftListingHandoffClasses.some(
+    (handoff) => RETENTION_HOLDING_CLASSES.has(handoff) && scan.counts[handoff] > 0,
   );
 }
 
@@ -149,8 +155,8 @@ export function draftListingHandoffScanHoldsRetention(scan: DraftListingHandoffS
  * classified. Pages walk `inventory_import_batch_rows_handoff_scan_idx`
  * `(created_at, row_id)` with one look-ahead row, so a decisive row just
  * beyond a page is always read by the next page. When `maxPages` ends the
- * scan before the window is exhausted the result is `complete: false`, which
- * holds retention instead of reporting "no orphan".
+ * scan before the window is exhausted the result is `complete: false`, never
+ * a "no orphan" report.
  *
  * Lineage is causal: the earliest outbox write (one endpoint read of
  * `inventory_import_draft_listing_outbox_lineage_idx`) proves the durable

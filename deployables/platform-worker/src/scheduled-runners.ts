@@ -1026,8 +1026,9 @@ function createDurableJobRetentionTask(
         stagedInputCreatedBefore: stagedInputCreatedBefore(),
         limit: 500,
       });
-      if (result.commitJobsHeld) {
-        logger.warn("Inventory import commit-job retention held by the draft handoff scan.", {
+      if (result.commitJobsHeld || !result.handoffs.complete) {
+        logger.warn("Inventory import draft handoff scan held commit-job retention or did not finish its window.", {
+          commitJobsHeld: result.commitJobsHeld,
           complete: result.handoffs.complete,
           pages: result.handoffs.pages,
           counts: result.handoffs.counts,
