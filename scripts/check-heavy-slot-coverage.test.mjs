@@ -516,7 +516,6 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/route-census/publication.test.mjs": "route census does not spawn the guard",
   "scripts/run-e2e-suite.test.mjs": "suite test does not spawn a guarded child",
   "scripts/run-workspaces.test.mjs": "workspace test owns its child admission",
-  "scripts/verify-static-scoped.test.mjs": "scoped gate owns its aggregate admission",
   "scripts/check-heavy-slot-coverage.test.mjs": "inventory owner; inert fixture controllers only",
 });
 
@@ -567,7 +566,7 @@ function classifyInheritedOwnerCandidates(
 test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
   const candidates = deriveInheritedOwnerCandidates();
   const classification = classifyInheritedOwnerCandidates(candidates);
-  assert.equal(candidates.length, 31);
+  assert.equal(candidates.length, 29);
   assert.equal(inheritedOwnerScriptTests.length, 5);
   assert.deepEqual(classification, {
     unclassified: [],

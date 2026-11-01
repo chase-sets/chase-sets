@@ -175,7 +175,6 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         "scripts/check-structure/run.mjs",
         "scripts/lib/heavy-slot.mjs",
         "scripts/verify-static-surfaces.mjs",
-        "scripts/verify-static-scoped.mjs",
         "tsconfig.json",
         "tsconfig.base.json",
       ]),

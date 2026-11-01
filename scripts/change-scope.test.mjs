@@ -6,7 +6,9 @@ import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   classifyChanges,
+  deriveStaticChangedFiles,
   listChangedFiles,
+  parseNameStatusZ,
   resolveChangeScope,
   toGithubOutputMap,
   toOutputMap,
@@ -15,7 +17,40 @@ import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
-import { selectVerifyStaticGuardTests } from "./verify-static-scoped.mjs";
+import { selectVerifyStaticGuardTests } from "./verify-static-surfaces.mjs";
+
+describe("changed-path parsing and derivation", () => {
+  it("parses added, deleted, and rename name-status records", () => {
+    expect(parseNameStatusZ("A\0added.ts\0D\0deleted.ts\0R100\0old.ts\0new.ts\0")).toEqual([
+      "added.ts",
+      "deleted.ts",
+      "old.ts",
+      "new.ts",
+    ]);
+  });
+
+  it("derives explicit changed paths without consulting git", () => {
+    expect(
+      deriveStaticChangedFiles({ repoRoot: process.cwd(), env: { CHANGED_FILES_JSON: '["contracts/added.ts"]' } }),
+    ).toEqual({ source: "CHANGED_FILES_JSON", files: ["contracts/added.ts"] });
+  });
+
+  it("derives the merge-base diff and fails closed on malformed records", () => {
+    const calls = [];
+    const execGit = (args) => {
+      calls.push(args);
+      if (args[0] === "rev-parse") return "true";
+      if (args[0] === "merge-base") return "base\n";
+      return "M\0scripts/changed.mjs\0";
+    };
+    expect(deriveStaticChangedFiles({ repoRoot: process.cwd(), env: {}, execGit })).toEqual({
+      source: "git merge-base",
+      files: ["scripts/changed.mjs"],
+    });
+    expect(calls.map(([command]) => command)).toEqual(["rev-parse", "merge-base", "diff"]);
+    expect(() => parseNameStatusZ("R100\0old.ts\0")).toThrow(/incomplete/);
+  });
+});
 
 it("uses the synthetic merge commit first parent for a PR's own changed files", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "change-scope-pr-merge-"));
@@ -996,8 +1031,8 @@ const hostedDbConsumerInventory = [
   { name: "platform-pr/preview-deploy-smoke admission", changesAdmission: true },
   { name: "scripts/release-deployment-scope.mjs", changesAdmission: false },
   { name: "scripts/release-qualification-scope.mjs", changesAdmission: false },
-  { name: "scripts/verify-static-scoped.mjs", changesAdmission: false },
-  { name: "scripts/verify-static-scoped.test.mjs", changesAdmission: false },
+  { name: "scripts/verify-static-surfaces.mjs", changesAdmission: false },
+  { name: "scripts/verify-static-surfaces.test.mjs", changesAdmission: false },
   { name: "scripts/public-web-route-smoke-workflows.test.mjs", changesAdmission: false },
   { name: "scripts/change-scope.test.mjs", changesAdmission: false },
   { name: "scripts/lib/risk-policy-v1.test.mjs", changesAdmission: false },
@@ -2627,8 +2662,8 @@ describe("change-scope", () => {
       "platform-pr/preview-deploy-smoke admission",
       "scripts/release-deployment-scope.mjs",
       "scripts/release-qualification-scope.mjs",
-      "scripts/verify-static-scoped.mjs",
-      "scripts/verify-static-scoped.test.mjs",
+      "scripts/verify-static-surfaces.mjs",
+      "scripts/verify-static-surfaces.test.mjs",
       "scripts/public-web-route-smoke-workflows.test.mjs",
       "scripts/change-scope.test.mjs",
       "scripts/lib/risk-policy-v1.test.mjs",
@@ -2647,8 +2682,8 @@ describe("change-scope", () => {
         'import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";',
       ],
       ["scripts/release-qualification-scope.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
-      ["scripts/verify-static-scoped.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
-      ["scripts/verify-static-scoped.test.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
+      ["scripts/verify-static-surfaces.mjs", 'from "./change-scope.mjs";'],
+      ["scripts/verify-static-surfaces.test.mjs", 'from "./change-scope.mjs";'],
       ["scripts/public-web-route-smoke-workflows.test.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
       [
         "scripts/change-scope.test.mjs",
