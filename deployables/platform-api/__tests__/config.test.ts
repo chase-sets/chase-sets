@@ -324,6 +324,7 @@ describe("platform api config", () => {
   it("mounts the staging persona verifier only on staging and rejects malformed values", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.PLATFORM_INTERNAL_AUTH_SECRET = "synthetic-platform-internal-auth-secret";
     process.env.DEPLOYMENT_ENVIRONMENT = "staging";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_staging_connect_test";
     process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 = "a".repeat(64);
