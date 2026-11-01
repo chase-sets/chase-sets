@@ -98,19 +98,22 @@ jobs:
           const markerContract = {
             config_import: [
               /vite:\s*config/i,
-              /(?:loaded|loading|import(?:ed|ing))[^\r\n]*(?:vitest|vite)[^\r\n]*config/i,
+              /(?:loaded|loading|import(?:ed|ing)|config)[^\r\n]*(?:vitest|vite)[^\r\n]*config/i,
               /(?:vitest|vite)\.config\.(?:ts|mts|mjs|js)\b/i,
             ],
-            setup: [/^\s*RUN\s+v\d+(?:\.\d+){1,2}\b/i, /\bvitest\b[^\r\n]*(?:start|run|setup)/i],
+            setup: [/\bRUN\s+v\d+(?:\.\d+){1,2}\b/i, /\bvitest\s+(?:v?\d+(?:\.\d+){1,2}\s+)?run\b/i],
             test_start: [
-              /(?:^|[\\/])capability-administration-host-port\.test\.(?:ts|tsx|mts|mjs|js)\b/i,
-              /(?:test|suite)[^\r\n]*capability-administration-host-port/i,
+              /capability-administration-host-port\.test\.(?:ts|tsx|mts|mjs|js)\b/i,
+              /(?:test|suite|file|collect)[^\r\n]*capability-administration-host-port/i,
             ],
           };
-          const findMarkers = (events) => Object.fromEntries(Object.entries(markerContract).map(([name, patterns]) => {
-            const match = events.find((event) => patterns.some((pattern) => pattern.test(event.line)));
+          const findMarkers = (events, output) => {
+            const observed = [...events, ...String(output).split(/\r?\n/).map((line) => ({ at: null, line }))];
+            return Object.fromEntries(Object.entries(markerContract).map(([name, patterns]) => {
+            const match = observed.find((event) => patterns.some((pattern) => pattern.test(event.line)));
             return [name, match ? { at: match.at, line: match.line } : null];
-          }));
+            }));
+          };
           const markerMissing = (markers) => Object.entries(markers).filter(([, value]) => !value).map(([name]) => name);
 
           rmSync(root, { recursive: true, force: true });
@@ -218,6 +221,7 @@ jobs:
             receipt.phases.preparation_started = install.started;
             receipt.phases.preparation_finished = install.ended;
             receipt.install_exit = install.code;
+            receipt.command_exit = install.code;
             writeBoundedText(artifactFile(name, "install.log"), install.output);
             if (install.code !== 0 || install.timedOut) {
               receipt.exit = install.code;
@@ -231,13 +235,14 @@ jobs:
             receipt.phases.test_spawn = testStarted;
             const test = await runChild(["--filter", "@chase-sets/app-platform-api", "exec", "vitest", "run", "--config", "./vitest.config.ts", "__tests__/capability-administration-host-port.test.ts"], caseDir, env, testLog);
             const lines = stripAnsi(test.output).split(/\r?\n/);
-            const markers = findMarkers(test.events);
+            const markers = findMarkers(test.events, test.output);
             const missingMarkers = markerMissing(markers);
             receipt.phases.config_import = markers.config_import?.at ?? null;
             receipt.phases.setup = markers.setup?.at ?? null;
             receipt.phases.test = markers.test_start?.at ?? null;
             receipt.phases.exit = test.ended;
             receipt.exit = test.code;
+            receipt.command_exit = test.code;
             receipt.timed_out = test.timedOut;
             receipt.markers = markers;
             receipt.missing_markers = missingMarkers;
@@ -338,8 +343,38 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: 10796-impl-g3-probe-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/10796-impl-g3-probe-evidence
-          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/run-metadata.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/failure.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/pair-table.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/mutant-receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/host-identity-receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/sha256-manifest.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/completed.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/mutant.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/host-command-1.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/host-command-2.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-1/receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-1/marker-diagnostics.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-1/install.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-1/test.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-1/module-transform-trace.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-1/receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-1/marker-diagnostics.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-1/install.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-1/test.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-1/module-transform-trace.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-2/receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-2/marker-diagnostics.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-2/install.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-2/test.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-2/module-transform-trace.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-2/receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-2/marker-diagnostics.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-2/install.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-2/test.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-2/module-transform-trace.log
+          if-no-files-found: warn
           retention-days: 14
 
 
