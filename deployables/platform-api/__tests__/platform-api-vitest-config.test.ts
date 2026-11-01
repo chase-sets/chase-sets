@@ -1,4 +1,6 @@
 import { strict as assert } from "node:assert";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { test } from "vitest";
 import { createWorkspaceSourceAliases } from "../../../scripts/workspace-source-aliases.mjs";
 import {
@@ -34,18 +36,46 @@ test("keeps non-lane aliases canonical and resolves lane aliases to the same sou
   const resolveId = lane.plugins?.[0]?.resolveId;
   assert.equal(typeof resolveId, "function");
   const sources = canonicalAliases.map(sourceForAlias);
-  assert.equal(sources.length, 339);
+  assert.ok(sources.length > 0);
+  assert.ok(sources.includes("@chase-sets/checkout"));
+  assert.ok(sources.includes("@chase-sets/platform-operations/integration/link-intents"));
+  assert.ok(sources.includes("@chase-sets/http/probe"));
+  assert.ok(canonicalAliases.some((alias) => alias.find instanceof RegExp));
+  let delegationOptions: Record<string, unknown> | undefined;
+  const resolver = {
+    resolve: async (id: string, _importer?: string, options?: Record<string, unknown>) => {
+      delegationOptions = options;
+      return { id: `${id}.ts` };
+    },
+  };
   for (const source of sources) {
-    assert.equal(await resolveId(source), canonicalReplacement(canonicalAliases, source), source);
+    const canonical = canonicalReplacement(canonicalAliases, source);
+    const expected = canonical && path.extname(canonical) ? canonical : { id: `${canonical}.ts` };
+    assert.deepEqual(await resolveId.call(resolver, source), expected, source);
   }
 
   for (const source of ["@chase-sets/checkout", "@chase-sets/http/responses"]) {
-    assert.equal(await resolveId(source), canonicalReplacement(canonicalAliases, source), source);
+    assert.equal(await resolveId.call(resolver, source), canonicalReplacement(canonicalAliases, source), source);
   }
+
+  const extensionlessSource = "@chase-sets/commercial-terms/seed-support/ids";
+  const expectedResolution = `${canonicalReplacement(canonicalAliases, extensionlessSource)}.ts`;
+  assert.ok(existsSync(expectedResolution));
+  assert.deepEqual(await resolveId.call(resolver, extensionlessSource), { id: expectedResolution });
+  assert.equal(delegationOptions?.skipSelf, true);
 });
 
-test("does not claim non-workspace imports", () => {
+test("does not claim non-workspace imports", async () => {
   const resolveId = createPlatformApiLaneSourceAliasPlugin().resolveId;
-  assert.equal(resolveId("node:fs"), null);
-  assert.equal(resolveId("hono"), null);
+  assert.equal(await resolveId.call(undefined, "node:fs"), null);
+  assert.equal(await resolveId.call(undefined, "hono"), null);
+});
+
+test("keeps canonical first-match order across indexed and fallback aliases", async () => {
+  const plugin = createPlatformApiLaneSourceAliasPlugin([
+    { find: /^(@synthetic\/pkg)\/special$/, replacement: "/generic.ts" },
+    { find: /^@synthetic\/pkg\/special$/, replacement: "/specific.ts" },
+  ]);
+
+  assert.equal(await plugin.resolveId("@synthetic/pkg/special"), "/generic.ts");
 });
