@@ -134,7 +134,7 @@ export type CheckoutSessionState = Readonly<{
   paymentId: PaymentId | null;
   /**
    * The confirmation inputs bound when orders were recorded and when payment
-   * started (#9994). Absent on Sessions recorded before the hashes existed, so
+   * started. Absent on Sessions recorded before the hashes existed, so
    * those keep their shipped confirm results.
    */
   orderHash?: string | null;

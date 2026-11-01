@@ -501,7 +501,7 @@ function checkoutAttemptConflictResponse() {
 
 /**
  * The deterministic Session id one keyed entry opens. Unchanged by the entry
- * attempt (#9994), so a Session opened before attempts were recorded still
+ * attempt, so a Session opened before attempts were recorded still
  * replays through it; a keyless cart entry keeps its server-issued readiness
  * snapshot scope.
  */

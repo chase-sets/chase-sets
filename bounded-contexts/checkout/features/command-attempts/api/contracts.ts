@@ -31,7 +31,7 @@ export const CHECKOUT_CART_ATTEMPT_KINDS = [
 
 export type CheckoutCartAttemptKind = (typeof CHECKOUT_CART_ATTEMPT_KINDS)[number];
 
-/** The one kind a Checkout Session entry records (#9994); its result names the Session it opened. */
+/** The one kind a Checkout Session entry records; its result names the Session it opened. */
 export const CHECKOUT_ENTRY_ATTEMPT_KIND = "checkout-entry";
 
 /** The target every entry attempt names, so a reused key with any changed source addresses the same stream. */

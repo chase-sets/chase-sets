@@ -3,7 +3,7 @@ import type { CheckoutSessionRow } from "../read-model/queries";
 
 /**
  * The confirm inputs a Checkout Session binds once their side effect is
- * recorded (#9994 Decision 4). Orders bind the order hash; payment start binds
+ * recorded (Decision 4). Orders bind the order hash; payment start binds
  * the payment hash. A later confirm that differs in a bound hash is refused
  * before any owner call; inputs no recorded side effect depends on proceed.
  */

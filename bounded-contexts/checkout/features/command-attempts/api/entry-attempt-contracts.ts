@@ -1,5 +1,5 @@
 /**
- * The Checkout Session entry attempt contract (#9994), shared by the session
+ * The Checkout Session entry attempt contract, shared by the session
  * route and every caller that resolves an entry by lookup.
  *
  * The owner and the caller derive the same canonical payload from the same
