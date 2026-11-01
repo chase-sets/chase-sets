@@ -136,6 +136,9 @@ pub fn app(config: Config) -> App {
     App::new(crate::site::files::router(shared.clone()))
         .assets(Static)
         .pwa(crate::site::pwa())
+        // Sign-in and account selection redirect to admin-web for a page the pilot does not serve,
+        // and browsers apply `form-action` to the redirects a form's submission follows.
+        .policy(corten::security::Policy::new().form_action(admin_web_origin()))
         .messages::<Msg>()
         // Return Intake reads a receipt time in the operator's zone.
         .client_zone()

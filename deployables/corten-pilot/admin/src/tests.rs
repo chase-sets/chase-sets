@@ -1002,6 +1002,9 @@ async fn a_password_starts_the_session_and_goes_back_to_the_page() {
     let at = "/access/sign-in?returnTo=%2Fnowhere";
     let (_, headers, _) = pilot.send(visitor_post(at, None, "intent=password&email=staff%40example.test&password=right")).await;
     assert_eq!(headers[header::LOCATION], "http://localhost:7752/nowhere");
+    // The browser follows it: `form-action` applies to a form's redirects.
+    let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+    assert!(csp.contains("form-action 'self' http://localhost:7752;"), "{csp}");
     // Another site is never where it goes.
     let at = "/access/sign-in?returnTo=%2F%2Fevil.example";
     let (_, headers, _) = pilot.send(visitor_post(at, None, "intent=password&email=staff%40example.test&password=right")).await;
