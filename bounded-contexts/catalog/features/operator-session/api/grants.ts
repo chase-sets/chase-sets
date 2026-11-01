@@ -1,15 +1,34 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
-import type { ResolvedActor } from "@chase-sets/auth-context";
+import type { OperatorAuthority, OperatorAuthorityDecision, ResolvedActor } from "@chase-sets/auth-context";
 import { withOperatorSessionBackend } from "./operation";
 import { OperatorSessionRequestError, readGrantBearer, requireEmptyBody } from "./request";
 
 type Action = "metadata" | "mint" | "disconnect" | "unpair";
 type GrantRow = { id: string; active: boolean; created_at: Date; last_used_at: Date; idle_expires_at: Date };
+type GrantAuthorizationRow = { id: string; creator_user_id: string; creator_membership_id: string };
+export type OperatorGrantCreator = Readonly<{ userId: string; membershipId: string }>;
+export type CatalogOperatorAuthority = Readonly<{
+  forActor: OperatorAuthority;
+  forGrantCreator: (creator: OperatorGrantCreator) => Promise<OperatorAuthorityDecision>;
+}>;
 const invalid = () => new OperatorSessionRequestError("grant-invalid", 401);
+const authorityLost = () => new OperatorSessionRequestError("authority-lost", 403);
+function grantsCatalogManage(
+  decision: OperatorAuthorityDecision,
+): decision is Extract<OperatorAuthorityDecision, { kind: "granted" }> {
+  return (
+    decision.kind === "granted" &&
+    decision.roleKey === "platform-admin" &&
+    decision.rolePermissions.includes("catalog.manage")
+  );
+}
 
-export function createOperatorSessionGrants(pool: PgTransactionalPool) {
+export function createOperatorSessionGrants(
+  pool: PgTransactionalPool,
+  catalogOperatorAuthority?: Pick<CatalogOperatorAuthority, "forActor" | "forGrantCreator">,
+) {
   const globalLimit = createInMemoryRateLimiter({ max: 120, windowMs: 60_000, maxBuckets: 1 });
   const grantLimit = createInMemoryRateLimiter({ max: 6, windowMs: 60_000 });
   let operations = 0;
@@ -33,7 +52,65 @@ export function createOperatorSessionGrants(pool: PgTransactionalPool) {
     if (!result.rows[0]) throw invalid();
     return result.rows[0].id;
   }
+  async function revokeForLostAuthority(db: PgTransactionalPool, id: string, hash: Buffer) {
+    await withPgTransaction(db, async (tx) => {
+      await tx.query(
+        `UPDATE catalog_operator_session_grants
+            SET revoked_at = clock_timestamp(), revoke_reason = 'authority-lost'
+          WHERE id = $1 AND token_hash = $2 AND revoked_at IS NULL
+          RETURNING id`,
+        [id, hash],
+      );
+    });
+  }
+  async function authorizeObservationGrant(request: Request) {
+    const bearer = readGrantBearer(request);
+    const hash = createHash("sha256").update(bearer, "ascii").digest();
+    return withOperatorSessionBackend(pool, async (bound) => {
+      const result = await bound.query<GrantAuthorizationRow>(
+        `SELECT id, creator_user_id, creator_membership_id
+           FROM catalog_operator_session_grants
+          WHERE token_hash = $1 AND revoked_at IS NULL AND clock_timestamp() < idle_expires_at`,
+        [hash],
+      );
+      const grant = result.rows[0];
+      if (!grant) throw invalid();
+
+      let decision: OperatorAuthorityDecision;
+      try {
+        if (!catalogOperatorAuthority?.forGrantCreator) throw new Error("catalog-operator-authority-unavailable");
+        decision = await catalogOperatorAuthority.forGrantCreator({
+          userId: grant.creator_user_id,
+          membershipId: grant.creator_membership_id,
+        });
+      } catch {
+        await revokeForLostAuthority(bound, grant.id, hash);
+        throw authorityLost();
+      }
+      if (!decision || !grantsCatalogManage(decision)) {
+        await revokeForLostAuthority(bound, grant.id, hash);
+        throw authorityLost();
+      }
+
+      const renewed = await withPgTransaction(bound, async (db) =>
+        db.query<{ id: string }>(
+          `UPDATE catalog_operator_session_grants
+              SET last_used_at = clock_timestamp(), idle_expires_at = clock_timestamp() + interval '30 days'
+            WHERE id = $1 AND token_hash = $2 AND revoked_at IS NULL AND clock_timestamp() < idle_expires_at
+            RETURNING id`,
+          [grant.id, hash],
+        ),
+      );
+      if (!renewed.rows[0]) throw invalid();
+      return {
+        grantId: grant.id,
+        creatorUserId: grant.creator_user_id,
+        creatorMembershipId: grant.creator_membership_id,
+      };
+    });
+  }
   return {
+    authorizeObservationGrant,
     async execute(action: Action, request: Request, actor?: ResolvedActor | null): Promise<Response> {
       let admitted = false;
       try {
@@ -70,6 +147,14 @@ export function createOperatorSessionGrants(pool: PgTransactionalPool) {
           }
           if (action === "mint") {
             if (!actor) throw new OperatorSessionRequestError("forbidden", 403);
+            let authority: OperatorAuthorityDecision;
+            try {
+              if (!catalogOperatorAuthority?.forActor) throw new Error("catalog-operator-authority-unavailable");
+              authority = await catalogOperatorAuthority.forActor(actor);
+            } catch {
+              throw new OperatorSessionRequestError("forbidden", 403);
+            }
+            if (!authority || !grantsCatalogManage(authority)) throw new OperatorSessionRequestError("forbidden", 403);
             const bearer = randomBytes(32).toString("base64url");
             return withPgTransaction(bound, async (db) => {
               await revoke(db, "replaced");

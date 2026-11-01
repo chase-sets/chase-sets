@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-import type { ResolvedActor } from "@chase-sets/auth-context";
+import type { OperatorAuthorityDecision, ResolvedActor } from "@chase-sets/auth-context";
 import { module as catalogModule } from "@chase-sets/catalog";
 import type { PgPoolClient, PgQueryable, PgQueryResult, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createApiHost } from "@chase-sets/platform-runtime/api";
@@ -27,17 +27,27 @@ export function operator(overrides: Partial<ResolvedActor> = {}): ResolvedActor 
     ...overrides,
   };
 }
+const grantedAuthority: OperatorAuthorityDecision = {
+  kind: "granted",
+  membershipId: "mbr_01K6H0Q9R80000000000000004",
+  roleKey: "platform-admin",
+  rolePermissions: ["catalog.manage"],
+};
+const testCatalogOperatorAuthority = {
+  forActor: async () => grantedAuthority,
+  forGrantCreator: async () => grantedAuthority,
+};
 export function mounted(
   catalogManifest: Parameters<typeof createApiHost>[0][number]["manifest"],
   pool: PgTransactionalPool,
-  options: { actor?: ResolvedActor | null } = {},
+  options: { actor?: ResolvedActor | null; catalogOperatorAuthority?: typeof testCatalogOperatorAuthority } = {},
 ) {
   const runtime = createApiHost(
     [{ contextName: "catalog", packageName: "@chase-sets/catalog", manifest: catalogManifest, module: catalogModule }],
     "platform-api",
     {
       pools: { catalog: pool },
-      hostPorts: {},
+      hostPorts: { catalogOperatorAuthority: options.catalogOperatorAuthority ?? testCatalogOperatorAuthority },
     },
   );
   const actor = options.actor === undefined ? operator() : options.actor;
