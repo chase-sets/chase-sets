@@ -72,16 +72,23 @@ describe("owner-local lost-update exceptions", () => {
     const root = await fixture(siblingPath, source);
     const entries = await exceptions(root, siblingPath, source);
     await mkdir(path.join(root, ".git"), { recursive: true });
-    const runGit = (_file, args) => ({
-      status: 0,
-      stdout: `${siblingPath}.lost-update-exceptions.json\0`,
-    });
+    const runGit = (_file, args, options) =>
+      options.timeout === undefined && options.killSignal === undefined
+        ? { status: 0, stdout: `${siblingPath}.lost-update-exceptions.json\0` }
+        : {
+            status: null,
+            signal: "SIGTERM",
+            stdout: "",
+            error: Object.assign(new Error("spawnSync git ETIMEDOUT"), { code: "ETIMEDOUT" }),
+          };
     expect((await candidateGuard({ repoRoot: root, runGit })).violations).toEqual([]);
     expect(entries).toHaveLength(1);
   });
 
   it.each([
     ["nonzero", () => ({ status: 1, stdout: "", stderr: "fatal" }), "status 1"],
+    ["terminated", () => ({ status: null, signal: "SIGTERM", stdout: "" }), "terminated by SIGTERM"],
+    ["error", () => ({ status: null, stdout: "", error: new Error("spawnSync git ETIMEDOUT") }), "ETIMEDOUT"],
     ["missing", () => undefined, "no result"],
     ["malformed", () => ({ status: 0, stdout: null }), "malformed output"],
   ])("rejects %s Git inspection state", (_name, runGit, message) => {
@@ -89,8 +96,8 @@ describe("owner-local lost-update exceptions", () => {
   });
 
   it("does not retain the removed tracked-sidecar deadline", async () => {
-    const source = await readFile("scripts/check-structure/lost-update-write-guard.mjs", "utf8");
-    expect(source).not.toContain("timeout: 10000");
+    const source = await readFile("scripts/lib/git-listing.mjs", "utf8");
+    expect(source).not.toMatch(/(?:timeout|killSignal)\s*:/);
   });
 
   it("enrols the actual credential store SQL and rejects loss of its two-counter guard", async () => {

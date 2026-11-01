@@ -163,7 +163,15 @@ function fixture() {
 describe("operator-only hosted evidence", () => {
   it("accepts delayed correct exact-head output without elapsed-time assertions", () => {
     const f = fixture();
-    const runGit = () => ({ status: 0, stdout: `${f.identity.checkoutHead}\n` });
+    const runGit = (_file, args, options) =>
+      options.timeout === undefined && options.killSignal === undefined
+        ? { status: 0, stdout: `${f.identity.checkoutHead}\n` }
+        : {
+            status: null,
+            signal: "SIGTERM",
+            stdout: "",
+            error: Object.assign(new Error("spawnSync git ETIMEDOUT"), { code: "ETIMEDOUT" }),
+          };
     const env = {
       OPERATOR_EVIDENCE_SOURCE_HEAD: f.identity.sourceHead,
       GITHUB_RUN_ID: f.identity.runId,
@@ -177,14 +185,16 @@ describe("operator-only hosted evidence", () => {
   it.each([
     ["malformed identity", () => ({ status: 0, stdout: "not-a-head\n" }), "malformed HEAD"],
     ["nonzero", () => ({ status: 1, stdout: "", stderr: "fatal" }), "status 1"],
+    ["terminated", () => ({ status: null, signal: "SIGTERM", stdout: "" }), "terminated by SIGTERM"],
+    ["error", () => ({ status: null, stdout: "", error: new Error("spawnSync git ETIMEDOUT") }), "ETIMEDOUT"],
     ["missing", () => undefined, "no result"],
   ])("rejects %s exact-head Git state", (_name, runGit, message) => {
     expect(() => operatorEvidenceIdentity(fixture().input, {}, { runGit })).toThrow(message);
   });
 
   it("does not retain the removed exact-head deadline", async () => {
-    const source = readFileSync("scripts/prepare-operator-extension-evidence.mjs", "utf8");
-    expect(source).not.toContain("timeout: 10000");
+    const source = readFileSync("scripts/lib/git-listing.mjs", "utf8");
+    expect(source).not.toMatch(/(?:timeout|killSignal)\s*:/);
   });
 
   it("publishes only validated closed JSON with source and distinct checkout/run/job identity and every emitted digest", () => {
