@@ -647,8 +647,14 @@ const gradedCreateSchema: NonNullable<InventoryCatalogItemSnapshot["product_sche
 
 describe("inventory create-item graded submission", () => {
   afterEach(() => window.sessionStorage.clear());
+  const gradedSelections = [{ dimensionId: "dim_form", optionId: "opt_graded" }];
+  const certificationLabel = "Certification number (optional)";
 
-  function setup(action: ActionFunction, schema = gradedCreateSchema) {
+  function setup(
+    action: ActionFunction,
+    schema = gradedCreateSchema,
+    metadata: "graded-selections" | "none" = "graded-selections",
+  ) {
     const hydration = deferredResponse();
     stubPickerFetch(() => hydration.promise);
     const view = renderCreateItemForm(
@@ -662,14 +668,34 @@ describe("inventory create-item graded submission", () => {
       ...view,
       hydrate: () =>
         act(async () => {
-          hydration.resolve(Response.json(catalogSnapshot({ product_schema: schema })));
+          hydration.resolve(
+            Response.json(
+              catalogSnapshot({
+                product_schema: schema,
+                ...(metadata === "none" ? {} : { graded_selections: gradedSelections }),
+              }),
+            ),
+          );
         }),
     };
   }
 
-  it.each(["raw", "cert-123", "   "])(
-    "submits once through pending to the item redirect: %s",
-    async (certification) => {
+  const gradedOptions = JSON.stringify([
+    { dimensionId: "dim_form", optionId: "opt_graded" },
+    { dimensionId: "dim_company", optionId: "opt_psa" },
+    { dimensionId: "dim_grade", optionId: "opt_ten" },
+  ]);
+  const rawOptions = JSON.stringify([{ dimensionId: "dim_form", optionId: "opt_raw" }]);
+
+  it.each([
+    { form: "cert", certification: "cert-123", selectedOptions: gradedOptions },
+    { form: "blank", certification: "   ", selectedOptions: gradedOptions },
+    { form: "raw", certification: undefined, selectedOptions: rawOptions },
+    { form: "raw-after-cert", certification: undefined, selectedOptions: rawOptions },
+    { form: "no-metadata", certification: undefined, selectedOptions: gradedOptions },
+  ])(
+    "submits the $form form once through pending to the item redirect",
+    async ({ form: variant, certification, selectedOptions }) => {
       const user = userEvent.setup();
       const completion = deferredResponse();
       const submissions: FormData[] = [];
@@ -677,21 +703,30 @@ describe("inventory create-item graded submission", () => {
         submissions.push(await request.formData());
         return completion.promise;
       });
-      const { form, router, hydrate } = setup(action);
+      const { form, router, hydrate } = setup(
+        action,
+        gradedCreateSchema,
+        variant === "no-metadata" ? "none" : "graded-selections",
+      );
       expect(createButton().disabled).toBe(true);
       expect(screen.getByText("Loading catalog item...")).toBeTruthy();
       expect(new FormData(form).get("catalogItemId")).toBe("");
       await hydrate();
       await waitFor(() => expect(createButton().disabled).toBe(false));
-      await user.selectOptions(screen.getByLabelText("Form"), "opt_graded");
-      await waitFor(() => expect((screen.getByLabelText("Grade") as HTMLSelectElement).value).toBe("opt_ten"));
-      await user.type(
-        screen.getByLabelText("Certification number (optional)"),
-        certification === "raw" ? "stale-cert" : certification,
-      );
-      if (certification === "raw") {
+      expect(screen.queryByLabelText(certificationLabel)).toBeNull();
+      if (variant !== "raw") {
+        await user.selectOptions(screen.getByLabelText("Form"), "opt_graded");
+        await waitFor(() => expect((screen.getByLabelText("Grade") as HTMLSelectElement).value).toBe("opt_ten"));
+      }
+      if (variant === "no-metadata") {
+        expect(screen.queryByLabelText(certificationLabel)).toBeNull();
+      } else if (variant !== "raw") {
+        await user.type(screen.getByLabelText(certificationLabel), certification ?? "stale-cert");
+      }
+      if (variant === "raw-after-cert") {
         await user.selectOptions(screen.getByLabelText("Form"), "opt_raw");
         await waitFor(() => expect(screen.queryByLabelText("Grade")).toBeNull());
+        expect(screen.queryByLabelText(certificationLabel)).toBeNull();
       }
       await user.selectOptions(screen.getByLabelText("Storage location"), "loc_1");
       fireEvent.change(screen.getByLabelText("Total quantity"), { target: { value: "3" } });
@@ -699,31 +734,14 @@ describe("inventory create-item graded submission", () => {
       expect(Object.fromEntries(payload)).toMatchObject({
         intent: "create-item",
         catalogItemId: "cat_etb",
+        selectedOptions,
         storageLocationId: "loc_1",
         totalQuantity: "3",
         acquisitionCostAmount: "",
         acquisitionCostCurrencyCode: "",
-        selectedOptions: JSON.stringify(
-          certification === "raw"
-            ? [{ dimensionId: "dim_form", optionId: "opt_raw" }]
-            : [
-                { dimensionId: "dim_form", optionId: "opt_graded" },
-                { dimensionId: "dim_company", optionId: "opt_psa" },
-                { dimensionId: "dim_grade", optionId: "opt_ten" },
-              ],
-        ),
       });
-      if (certification === "raw") {
-        expect(payload.has("gradedCard")).toBe(false);
-      } else {
-        expect(JSON.parse(String(payload.get("gradedCard")))).toEqual({
-          gradingCompany: "PSA",
-          grade: "10",
-          certificationNumber: certification.trim() || null,
-          population: null,
-          conditionDescriptors: [],
-        });
-      }
+      expect(payload.getAll("certificationNumber")).toEqual(certification === undefined ? [] : [certification]);
+      expect(["gradedCard", "gradingCompany", "grade"].filter((key) => payload.has(key))).toEqual([]);
       await user.click(createButton());
       await waitFor(() => expect(router.state.navigation.state).toBe("submitting"));
       await waitFor(() => expect(createButton().matches(":disabled")).toBe(true));
@@ -743,34 +761,36 @@ describe("inventory create-item graded submission", () => {
     },
   );
 
-  it.each(["dim_company", "dim_grade"])(
-    "announces missing %s and sends no create request",
-    async (missingDimension) => {
-      const user = userEvent.setup();
-      const action = vi.fn<ActionFunction>();
-      const schema = {
-        ...gradedCreateSchema,
-        dimensions: gradedCreateSchema.dimensions.map((dimension) =>
-          dimension.dimensionId === missingDimension ? { ...dimension, allowedOptions: [] } : dimension,
-        ),
-      };
-      const { form, hydrate } = setup(action, schema);
-      await hydrate();
-      await user.selectOptions(await screen.findByLabelText("Form"), "opt_graded");
-      const error = await screen.findByRole("alert");
-      expect(error.textContent).toContain(
-        "Choose a grading company and grade before creating a Graded inventory item.",
-      );
-      expect(hasTranslation("inventory.features.inventoryItems.ui.inventoryItemListPage.graded.details.required")).toBe(
-        true,
-      );
-      expect(createButton().disabled).toBe(true);
-      await act(async () => {
-        fireEvent.submit(form);
-      });
-      expect(action).not.toHaveBeenCalled();
-    },
-  );
+  it("leaves missing grading details to Inventory and shows its answer in the existing error card", async () => {
+    const user = userEvent.setup();
+    const message = "Choose a grading company and grade before creating a Graded inventory item.";
+    const action = vi.fn<ActionFunction>(async () => ({ error: message }));
+    const schema = {
+      ...gradedCreateSchema,
+      dimensions: gradedCreateSchema.dimensions.map((dimension) =>
+        dimension.dimensionId === "dim_company" ? { ...dimension, required: false } : dimension,
+      ),
+    };
+    const { form, hydrate } = setup(action, schema);
+    await hydrate();
+    await user.selectOptions(await screen.findByLabelText("Form"), "opt_graded");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.selectOptions(screen.getByLabelText("Storage location"), "loc_1");
+    fireEvent.change(screen.getByLabelText("Total quantity"), { target: { value: "1" } });
+    expect(new FormData(form).get("selectedOptions")).toBe(
+      JSON.stringify([
+        { dimensionId: "dim_form", optionId: "opt_graded" },
+        { dimensionId: "dim_grade", optionId: "opt_ten" },
+      ]),
+    );
+    expect(createButton().disabled).toBe(false);
+    await user.click(createButton());
+    await screen.findByText(message);
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(hasTranslation("inventory.features.inventoryItems.ui.inventoryItemListPage.graded.details.required")).toBe(
+      false,
+    );
+  });
 
   it("settles a refused Graded submission without redirecting or resending", async () => {
     const user = userEvent.setup();
@@ -795,7 +815,6 @@ describe("inventory create-item graded submission", () => {
     expect(action).toHaveBeenCalledTimes(1);
   });
 });
-
 describe("inventory create-item Catalog picker", () => {
   afterEach(() => window.sessionStorage.clear());
 

@@ -750,6 +750,38 @@ function itemIdForRow(rowId: string): InventoryItemId {
   return rowId.replace(/^imr_/, "inv_") as InventoryItemId;
 }
 
+/**
+ * Item creation shared by the batch and per-row commit paths. An import has no certification
+ * column, so it sends an explicit null and Inventory derives any graded card from the options.
+ */
+function importRowCreateItemParams(
+  accountId: AccountId,
+  row: Pick<
+    InventoryImportCommitInputRow,
+    | "row_id"
+    | "selected_options"
+    | "acquisition_occurred_at"
+    | "acquisition_cost_amount"
+    | "acquisition_cost_currency_code"
+  >,
+  target: Readonly<{ catalogItemId: string; storageLocationId: string; totalQuantity: number }>,
+): Parameters<InventoryItemServices["createItem"]>[0] {
+  return {
+    accountId,
+    catalogItemId: target.catalogItemId,
+    selectedOptions: row.selected_options,
+    certificationNumber: null,
+    storageLocationId: target.storageLocationId,
+    totalQuantity: target.totalQuantity,
+    acquisitionCostAmount: row.acquisition_cost_amount,
+    acquisitionCostCurrencyCode: row.acquisition_cost_currency_code,
+    acquisitionOccurrence: row.acquisition_occurred_at
+      ? { kind: "occurred", occurredAt: row.acquisition_occurred_at, source: "import-supplied" }
+      : { kind: "unknown" },
+    itemIdOverride: itemIdForRow(row.row_id),
+  };
+}
+
 function importRowInventoryAdjustmentKey(rowId: string): string {
   return `inventory-import-row:${rowId}:adjustment`;
 }
@@ -1466,19 +1498,11 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       let inventoryItemId: string | null = existingItem?.item_id ?? null;
       if (!existingItem && quantityDelta > 0) {
         const itemResult = await itemServices.createItem(
-          {
-            accountId: params.accountId,
+          importRowCreateItemParams(params.accountId, row, {
             catalogItemId: row.catalog_item_id,
-            selectedOptions: row.selected_options,
             storageLocationId: row.storage_location_id,
             totalQuantity: quantityDelta,
-            acquisitionCostAmount: row.acquisition_cost_amount,
-            acquisitionCostCurrencyCode: row.acquisition_cost_currency_code,
-            acquisitionOccurrence: row.acquisition_occurred_at
-              ? { kind: "occurred", occurredAt: row.acquisition_occurred_at, source: "import-supplied" }
-              : { kind: "unknown" },
-            itemIdOverride: itemIdForRow(row.row_id),
-          },
+          }),
           itemContext,
         );
         inventoryItemId = itemResult.itemId;
@@ -1673,19 +1697,11 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       let inventoryItemId: string | null = existingItem?.item_id ?? null;
       if (!existingItem && quantityDelta > 0) {
         const itemResult = await deps.items.createItem(
-          {
-            accountId: params.accountId,
+          importRowCreateItemParams(params.accountId, row, {
             catalogItemId: row.catalog_item_id,
-            selectedOptions: row.selected_options,
             storageLocationId: row.storage_location_id,
             totalQuantity: quantityDelta,
-            acquisitionCostAmount: row.acquisition_cost_amount,
-            acquisitionCostCurrencyCode: row.acquisition_cost_currency_code,
-            acquisitionOccurrence: row.acquisition_occurred_at
-              ? { kind: "occurred", occurredAt: row.acquisition_occurred_at, source: "import-supplied" }
-              : { kind: "unknown" },
-            itemIdOverride: itemIdForRow(row.row_id),
-          },
+          }),
           context,
         );
         inventoryItemId = itemResult.itemId;
