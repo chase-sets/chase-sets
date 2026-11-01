@@ -244,18 +244,20 @@ describe("auth host", () => {
     });
   }
 
+  const serverMintedRegistrationConsent = {
+    bundleKey: "registration",
+    requirements: [],
+    resolvedAt: "2026-07-25T00:00:00.000Z",
+    signature: "server-minted-test-signature",
+  };
+
   function registrationFetchStub(sources: readonly SourceCommitPosition[]) {
     const registrationCalls: string[] = [];
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const url = String(input instanceof Request ? input.url : input);
       registrationCalls.push(new URL(url).pathname);
       if (url.endsWith("/registration-consent")) {
-        return Response.json({
-          bundleKey: "registration",
-          requirements: [],
-          resolvedAt: "2026-07-25T00:00:00.000Z",
-          signature: "server-minted-test-signature",
-        });
+        return Response.json(serverMintedRegistrationConsent);
       }
       return authJsonResponse(createSessionStartedResult(), sources);
     });
@@ -441,6 +443,21 @@ describe("auth host", () => {
     expect(location.searchParams.get("authPrompt")).toBe("add-passkey");
     expect(readFreshWriteToken(location)).toMatchObject({
       sources: [identitySource],
+    });
+  });
+
+  it("registers with exactly the registration consent resolution it fetched, unaffirmed", async () => {
+    const { fetch } = registrationFetchStub([identitySource]);
+    vi.stubGlobal("fetch", fetch);
+
+    await host.createRegisterAction()(createActionArgs(createPasswordRegistrationRequest()));
+
+    const registration = fetch.mock.calls.find(([input]) => new URL(String(input)).pathname === "/api/auth/register");
+    expect(JSON.parse(String(registration?.[1]?.body))).toEqual({
+      displayName: "New Seller",
+      email: "seller@example.test",
+      password: "correct-password",
+      registrationConsent: { resolution: serverMintedRegistrationConsent, affirmed: false },
     });
   });
 
