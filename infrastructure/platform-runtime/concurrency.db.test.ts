@@ -1985,6 +1985,11 @@ describe("busy-group-pass-attribution Postgres", () => {
     });
     let connectionId = 0;
     const committedPositions = new Map<string, string>();
+    let initialPosition: bigint | undefined;
+    let resolveInitialCheckpointCommitted!: () => void;
+    const initialCheckpointCommitted = new Promise<void>((resolve) => {
+      resolveInitialCheckpointCommitted = resolve;
+    });
     const observedPool = (contextName: "inventory" | "catalog" | "marketplace"): PgTransactionalPool => ({
       ...pools[contextName],
       query: <Row = Record<string, unknown>>(...[sql, values]: Parameters<PgQueryFunction>) =>
@@ -2022,6 +2027,13 @@ describe("busy-group-pass-attribution Postgres", () => {
             if (command === "COMMIT" && checkpoint) {
               committedPositions.set(`${contextName}:${String(checkpoint.checkpointKey)}`, String(checkpoint.position));
               trace("checkpoint-committed", { contextName, connection, ...checkpoint });
+              if (
+                contextName === "marketplace" &&
+                initialPosition !== undefined &&
+                String(checkpoint.position) === initialPosition.toString()
+              ) {
+                resolveInitialCheckpointCommitted();
+              }
             }
             if (command === "COMMIT" || command === "ROLLBACK") checkpoint = undefined;
             return result;
@@ -2045,7 +2057,13 @@ describe("busy-group-pass-attribution Postgres", () => {
       const identity = { eventId: event.id, position: event.globalPosition, streamId: event.streamId };
       trace("apply-start", identity);
       try {
-        if (targetPassGate && !targetPassGateEntered && event.streamId === streamId) {
+        if (
+          targetPassGate &&
+          initialPosition !== undefined &&
+          BigInt(event.globalPosition) > initialPosition &&
+          !targetPassGateEntered &&
+          event.streamId === streamId
+        ) {
           targetPassGateEntered = true;
           targetPassGate.enter();
           await targetPassGate.promise;
@@ -2342,6 +2360,7 @@ describe("busy-group-pass-attribution Postgres", () => {
         })),
         context: eventContext,
       });
+      initialPosition = BigInt(initial.at(-1)!.globalPosition);
       trace("initial-appended", { position: initial.at(-1)!.globalPosition, count: initial.length });
       // Both competitors consume Inventory's finite backlog, independently of the target.
       {
@@ -2382,8 +2401,8 @@ describe("busy-group-pass-attribution Postgres", () => {
       });
       pollLoop.start();
       if (targetPassGate) {
-        await targetPassGate.entered;
-        trace("productive-pass-entered", { runnerName: workerRunnerName });
+        await initialCheckpointCommitted;
+        trace("initial-checkpoint-committed", { runnerName: workerRunnerName, position: initialPosition });
       } else {
         await handoff;
         expect(retainedPass).toMatchObject({ processed: 1, disposition: "retained", outcome: "success" });
@@ -2410,6 +2429,10 @@ describe("busy-group-pass-attribution Postgres", () => {
       });
       const position = appended.at(-1)!.globalPosition;
       const eventIds = appended.map((event) => event.eventId);
+      if (targetPassGate) {
+        await targetPassGate.entered;
+        trace("productive-pass-entered", { runnerName: workerRunnerName, position });
+      }
       const observedAtMs = Date.now();
       const receipt = encodeFreshWriteReceipt({
         observedAtMs,
