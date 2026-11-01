@@ -600,8 +600,7 @@ describe("seller compliance production registration", () => {
       expect(platformOperationsModule.schemaSql).toContain(statement);
     }
 
-    // The sales migration must not claim the cohort checkpoint table. The aggregate
-    // platform schema intentionally includes that table from the cohort slice.
-    expect(sellerComplianceSalesSchemaStatements.join("\n")).not.toContain("seller_compliance_sweep_checkpoints");
+    // No worker, scheduled runner, checkpoint table, or policy surface belongs to this slice.
+    expect(platformOperationsModule.schemaSql).not.toContain("seller_compliance_sweep_checkpoints");
   });
 });

@@ -224,8 +224,8 @@ function oracleLifecycle(
     throw new Error("The winning window never crosses its threshold.");
   };
   const grid = [
-    ...new Set(
-      ordered.flatMap((entry) => {
+    ...new Set([
+      ...ordered.flatMap((entry) => {
         const end = addMonthsMs(entry.at, rule.windowMonths);
         const expiry = addMonthsMs(entry.at, rule.lookbackMonths);
         return [entry.at - 1, entry.at, entry.at + 1, end - 1, end, end + 1, expiry, expiry + 1, expiry + 2];
@@ -237,7 +237,7 @@ function oracleLifecycle(
         window.admissibleThrough,
         window.admissibleThrough + 1,
       ]),
-    ),
+    ]),
   ].sort((a, b) => a - b);
   const firstInstant = (lower: number, upper: number, holds: (value: ReturnType<typeof verdict>) => boolean) => {
     const instants = [...new Set([lower + 1, ...grid.filter((at) => at > lower && at < upper), upper])].sort(

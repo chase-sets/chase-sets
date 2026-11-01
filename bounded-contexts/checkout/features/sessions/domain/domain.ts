@@ -132,6 +132,13 @@ export type CheckoutSessionState = Readonly<{
   orderWriteCommitPositions: readonly CheckoutSourceCommitPosition[];
   checkoutReservations: readonly CheckoutSessionReservation[];
   paymentId: PaymentId | null;
+  /**
+   * The confirmation inputs bound when orders were recorded and when payment
+   * started. Absent on Sessions recorded before the hashes existed, so
+   * those keep their shipped confirm results.
+   */
+  orderHash?: string | null;
+  paymentHash?: string | null;
   submittedOfferId: string | null;
   cancelledAt: string | null;
   createdAt: string | null;
@@ -218,6 +225,7 @@ export type RecordOrdersCreatedCommand = Readonly<{
   fulfilledLineKeys?: readonly string[];
   orderIds: readonly OrderId[];
   orderWriteCommitPositions?: readonly CheckoutSourceCommitPosition[];
+  orderHash?: string | null;
   recordedAt: string;
 }>;
 
@@ -235,6 +243,7 @@ export type RecordCheckoutReservationsCommand = Readonly<{
 export type RecordPaymentStartedCommand = Readonly<{
   type: "RecordPaymentStarted";
   paymentId: PaymentId;
+  paymentHash?: string | null;
   recordedAt: string;
 }>;
 
@@ -336,6 +345,7 @@ export type CheckoutOrdersCreatedEvent = DomainEvent<
     orderIds: OrderId[];
     orderCartCleanupPlan?: OrderCartCleanupPlan;
     orderWriteCommitPositions: CheckoutSourceCommitPosition[];
+    orderHash?: string;
     recordedAt: string;
   }>
 >;
@@ -359,6 +369,7 @@ export type CheckoutPaymentStartedEvent = DomainEvent<
   Readonly<{
     sessionId: CheckoutSessionId;
     paymentId: PaymentId;
+    paymentHash?: string;
     recordedAt: string;
   }>
 >;
@@ -840,6 +851,7 @@ export const decideCheckoutSession: AggregateDecider<
         return [];
       }
       const cleanupPlan = orderCartCleanupPlan(state, command.fulfilledLineKeys);
+      const orderHash = normalizeOptionalText(command.orderHash);
       return [
         {
           type: "checkout.session.orders-created",
@@ -848,6 +860,7 @@ export const decideCheckoutSession: AggregateDecider<
             orderIds: normalizeOrderIds(command.orderIds),
             ...(cleanupPlan ? { orderCartCleanupPlan: cleanupPlan } : {}),
             orderWriteCommitPositions: normalizeCommitPositions(command.orderWriteCommitPositions),
+            ...(orderHash ? { orderHash } : {}),
             recordedAt: normalizeRequiredText(command.recordedAt, "Order recording must include a timestamp."),
           },
         },
@@ -893,12 +906,14 @@ export const decideCheckoutSession: AggregateDecider<
       if (state.paymentId) {
         return [];
       }
+      const paymentHash = normalizeOptionalText(command.paymentHash);
       return [
         {
           type: "checkout.session.payment-started",
           data: {
             sessionId: state.sessionId,
             paymentId: command.paymentId,
+            ...(paymentHash ? { paymentHash } : {}),
             recordedAt: normalizeRequiredText(command.recordedAt, "Payment recording must include a timestamp."),
           },
         },
@@ -1038,6 +1053,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
           status: "converted",
         })),
         orderWriteCommitPositions: event.data.orderWriteCommitPositions ?? [],
+        orderHash: event.data.orderHash ?? null,
         updatedAt: event.data.recordedAt,
       };
       retainedOrderCartCleanup(next);
@@ -1058,6 +1074,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
       return {
         ...state,
         paymentId: event.data.paymentId,
+        paymentHash: event.data.paymentHash ?? null,
         updatedAt: event.data.recordedAt,
       };
     case "checkout.session.offer-submitted":

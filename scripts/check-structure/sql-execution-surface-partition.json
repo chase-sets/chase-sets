@@ -384,9 +384,6 @@
     "bounded-contexts/platform-operations/features/reported-content/read-model/queries.ts",
     "bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts",
     "bounded-contexts/platform-operations/features/risk-alerts/read-model/queries.ts",
-    "bounded-contexts/platform-operations/features/seller-compliance-cohorts/api/cohort-evaluation-runtime.ts",
-    "bounded-contexts/platform-operations/features/seller-compliance-cohorts/read-model/cohort-queries.ts",
-    "bounded-contexts/platform-operations/features/seller-compliance-cohorts/read-model/cohort-store.ts",
     "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/projection.ts",
     "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/queries.ts",
     "bounded-contexts/platform-operations/features/support-requests/api/runtime.ts",
@@ -529,7 +526,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 298,
+    "count": 299,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -559,6 +556,7 @@
       "bounded-contexts/channels/features/listing-composition/api/route.ts": 2,
       "bounded-contexts/channels/features/manual-sync/api/route.ts": 1,
       "bounded-contexts/channels/features/outbound-sync/api/route.ts": 4,
+      "bounded-contexts/checkout/features/command-attempts/api/route.ts": 1,
       "bounded-contexts/checkout/features/sell-list/api/route.ts": 1,
       "bounded-contexts/collections/features/saved-lists/api/query-route.ts": 1,
       "bounded-contexts/collections/features/saved-lists/api/recovery-route.ts": 1,

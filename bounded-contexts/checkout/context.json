@@ -962,6 +962,25 @@
         "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions/:sessionId/shipping-option",
         "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions/:sessionId/authenticity-check-opt-in"
       ],
+      "entryAttempt": {
+        "writes": [
+          { "surface": "POST /checkout-sessions", "kind": "checkout-entry", "target": "session" },
+          { "surface": "route-action:checkout-start", "kind": "checkout-entry", "target": "session" },
+          { "surface": "route-action:checkout-start guest", "kind": "checkout-entry", "target": "session" },
+          { "surface": "ucp:create_checkout", "kind": "checkout-entry", "target": "session" }
+        ],
+        "exempt": [
+          {
+            "surface": "post-form:cart-page Checkout to /checkout/buy/readiness",
+            "reason": "Keyless cart entry keeps its server-issued readinessSnapshotId scope (#9994 Decision 2)."
+          }
+        ],
+        "key": "Checkout start renders the loader-minted entryAttemptKey; Discovery item-detail and public-listing Buy send their page-view keys (#9997); UCP create_checkout uses base64url SHA-256 of its retry key. A malformed key, or a keyless non-cart entry, is 400 checkout_attempt_required with zero appends.",
+        "stream": "checkout.command-attempt-v1-<fingerprint> (kind checkout-entry, target session) appended with checkout.session-<id> in one appendToStreams, both at no_stream",
+        "lookup": "GET /account/command-attempts/:attemptId?kind=checkout-entry&target=session&requestHash= (guest-buyer Accounts included)",
+        "replay": "Same key and canonical payload (quantity and presented anonymous cart included, display-only fields excluded) returns the first Session with zero appends and no owner call; a changed payload is 409 checkout_attempt_conflict, shown at Checkout start as attempt-changed. A possible-send loss does one lookup, never a resend.",
+        "confirmation": "Confirm and payment start take no client attempt id: every owner dedupes by the Session. RecordOrdersCreated binds the order hash and RecordPaymentStarted the payment hash; a confirm differing in a bound hash is 409 checkout_confirmation_changed with zero owner calls. A confirm possible-send loss does one Session read, never a resend."
+      },
       "visibleDestination": {
         "routeId": "buy-checkout-session",
         "apiContextName": "checkout",
@@ -975,6 +994,10 @@
       "proof": {
         "tests": [
           "bounded-contexts/checkout/features/sessions/api/route.test.ts",
+          "bounded-contexts/checkout/features/sessions/api/entry-attempt.db.test.ts",
+          "bounded-contexts/checkout/features/command-attempts/api/attempt-caller-inventory.test.ts",
+          "bounded-contexts/checkout/tests/checkout-confirmation-support.test.ts",
+          "bounded-contexts/checkout/routes/checkout-session-recovery.test.tsx",
           "bounded-contexts/checkout/routes/checkout-start-route.test.ts",
           "bounded-contexts/checkout/routes/checkout-session-action.test.ts",
           "bounded-contexts/checkout/routes/checkout-session-loader.test.ts",
