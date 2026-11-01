@@ -340,8 +340,18 @@ class ImportBatchDb implements PgQueryable {
 
     if (sql.includes("UPDATE inventory_import_batch_rows") && sql.includes("resolution_status = 'resolved'")) {
       const rowId = String(values[0]);
+      const matched = this.rows.find(
+        (row) =>
+          row.row_id === rowId &&
+          row.batch_id === values[20] &&
+          row.updated_at === values[21] &&
+          row.row_fingerprint === values[22],
+      );
       this.rows = this.rows.map((row) =>
-        row.row_id === rowId && row.batch_id === values[20]
+        row.row_id === rowId &&
+        row.batch_id === values[20] &&
+        row.updated_at === values[21] &&
+        row.row_fingerprint === values[22]
           ? {
               ...row,
               status: values[1] as StoredRow["status"],
@@ -368,7 +378,7 @@ class ImportBatchDb implements PgQueryable {
             }
           : row,
       );
-      return this.result([]);
+      return this.result(matched ? ([{ row_id: rowId }] as unknown as Row[]) : []);
     }
 
     if (sql.includes("UPDATE inventory_import_batch_rows")) {

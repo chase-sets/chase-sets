@@ -25,6 +25,10 @@ type AttemptContext = EventStoreContext & {
   readonly [requestingAccount]?: string;
 };
 
+export function hasInventoryMutationAttempt(context: EventStoreContext): boolean {
+  return (context as AttemptContext)[attemptIdentity] !== undefined;
+}
+
 export function withInventoryMutationTargetAccount(
   context: EventStoreContext,
   targetAccountId: string,

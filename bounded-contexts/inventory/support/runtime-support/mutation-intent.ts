@@ -13,6 +13,7 @@ export const inventoryMutationFamilies = [
   "location-archive",
   "restock-record",
   "import-create",
+  "import-resolve-row",
   "import-commit",
   "import-commit-row",
 ] as const;
@@ -203,6 +204,36 @@ export function normalizeInventoryMutationIntent(
     case "import-commit": {
       const input = object(value, ["accountId", "batchId"]);
       return { accountId: text(input.accountId), batchId: text(input.batchId) };
+    }
+    case "import-resolve-row": {
+      const input = object(value, [
+        "accountId",
+        "batchId",
+        "rowId",
+        "expectedRowVersion",
+        "expectedRowFingerprint",
+        "catalogItemId",
+        "selectedOptions",
+        "storageLocationId",
+      ]);
+      assert(
+        input.expectedRowVersion === undefined || typeof input.expectedRowVersion === "string",
+        "Invalid import row version.",
+      );
+      assert(
+        input.expectedRowFingerprint === undefined || typeof input.expectedRowFingerprint === "string",
+        "Invalid import row fingerprint.",
+      );
+      return {
+        accountId: text(input.accountId),
+        batchId: text(input.batchId),
+        rowId: text(input.rowId),
+        expectedRowVersion: input.expectedRowVersion ?? null,
+        expectedRowFingerprint: input.expectedRowFingerprint ?? null,
+        catalogItemId: text(input.catalogItemId),
+        selectedOptions: options(input.selectedOptions),
+        storageLocationId: text(input.storageLocationId),
+      };
     }
     case "import-commit-row": {
       const input = object(value, ["accountId", "batchId", "rowId", "claimToken"]);

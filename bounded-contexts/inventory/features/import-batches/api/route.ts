@@ -83,7 +83,22 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
 async function parseResolveRowRequest(c: Context<InventoryApiEnv>) {
   const body = (await c.req.json().catch(() => ({}))) as Readonly<Record<string, unknown>>;
 
+  const expectedRowVersion =
+    typeof body.expectedRowVersion === "string"
+      ? body.expectedRowVersion
+      : typeof body.rowVersion === "string"
+        ? body.rowVersion
+        : undefined;
+  const expectedRowFingerprint =
+    typeof body.expectedRowFingerprint === "string"
+      ? body.expectedRowFingerprint
+      : typeof body.rowFingerprint === "string"
+        ? body.rowFingerprint
+        : undefined;
+
   return {
+    ...(expectedRowVersion === undefined ? {} : { expectedRowVersion }),
+    ...(expectedRowFingerprint === undefined ? {} : { expectedRowFingerprint }),
     catalogItemId: String(body.catalogItemId ?? "").trim(),
     storageLocationId: String(body.storageLocationId ?? "").trim(),
     selectedOptions: parseSelectedOptionsInput(body.selectedOptions),
@@ -257,8 +272,12 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
           catalogItemId: body.catalogItemId,
           selectedOptions: body.selectedOptions,
           storageLocationId: body.storageLocationId,
+          ...(body.expectedRowVersion === undefined ? {} : { expectedRowVersion: body.expectedRowVersion }),
+          ...(body.expectedRowFingerprint === undefined ? {} : { expectedRowFingerprint: body.expectedRowFingerprint }),
         },
-        c.get("context"),
+        c.req.header("Inventory-Mutation-Attempt")
+          ? withInventoryMutationAttempt(c.get("context"), c.req.header("Inventory-Mutation-Attempt") ?? "")
+          : c.get("context"),
       );
       return c.json(detail);
     } catch (error) {
