@@ -63,6 +63,10 @@ export type CheckoutSessionMutationResult = Readonly<{
   commitPositions?: readonly { sourceContextName: string; maxGlobalPosition: string; eventIds: readonly string[] }[];
 }>;
 export { OrderCartCleanupError };
+export type CheckoutSessionCancellationRead = Readonly<{
+  status: "already-cancelled" | "cancellable";
+  session: CheckoutSessionRow;
+}>;
 export type CheckoutSessionCreateResult = Readonly<{
   sessionId: CheckoutSessionId;
   commitPosition?: string;
@@ -201,6 +205,15 @@ export type CheckoutSessionServices = Readonly<{
     params: Readonly<{ sessionId: string; accountId: AccountId }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
+  /**
+   * The buyer's own session read from its stream, not the page projection, for
+   * owner cancellation: already cancelled, or holding only reservations. Throws
+   * `checkout_session_not_cancellable` once orders, payment or purchase intent
+   * exist; those holds belong to Ordering and Payments.
+   */
+  readSessionForCancellation: (
+    params: Readonly<{ sessionId: string; accountId: AccountId }>,
+  ) => Promise<CheckoutSessionCancellationRead>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
   /** The buyer's session's last recorded quote, read from its stream; null when unknown or never quoted. */
   getLastRecordedQuote: (sessionId: string, accountId: string) => Promise<CheckoutFulfillmentPreview | null>;
@@ -401,6 +414,20 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         { ...params, command: { type: "CancelCheckoutSession", cancelledAt: new Date().toISOString() } },
         context,
       ),
+    readSessionForCancellation: async (params) => {
+      const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      const session = stateToCheckoutSessionRow(state);
+      if (state.cancelledAt) {
+        return { status: "already-cancelled", session };
+      }
+      if (state.paymentId || state.orderIds.length > 0 || state.submittedOfferId) {
+        throw new CheckoutDomainError(
+          "This checkout already created orders or started payment, so cancel it from your purchases instead.",
+          "checkout_session_not_cancellable",
+        );
+      }
+      return { status: "cancellable", session };
+    },
     getPaymentSummary: (paymentId) => getCheckoutPaymentSummary(deps.db, paymentId),
     getPaymentConfirmation: async (sessionId, accountId) => {
       const payment = await getCheckoutPaymentConfirmationProjection(deps.db, sessionId, accountId);

@@ -425,12 +425,10 @@ describe("Admin page projections", () => {
       numericValue: null,
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
-      type: "ConfigureComponentRules",
+      type: "ReviseComponent",
       key: "base-card-info",
       name: l10n("Base Card Info V2"),
       description: l10n("Core fields"),
-      fieldRules: [{ fieldId, required: true }],
-      dimensionRules: [{ dimensionId, required: true, allowedOptionIds: [optionId] }],
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "ReviseBlueprint",

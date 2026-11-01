@@ -53,7 +53,12 @@ export interface OrderingOrderProjection {
   cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
   self_service_cancellation_available: boolean;
-  cancellation_unavailable_reason: "payment-pending" | "fulfillment-started" | "already-cancelled" | null;
+  cancellation_unavailable_reason:
+    | "payment-pending"
+    | "payment-unresolved"
+    | "fulfillment-started"
+    | "already-cancelled"
+    | null;
   line_count: number;
   total_quantity: number;
   item_titles: readonly string[];

@@ -851,6 +851,21 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async cancelCheckoutSession(sessionId: string): Promise<
+      CheckoutMutationResult<{
+        session_id: string;
+        status: "cancelled" | "already-cancelled";
+        cancelled_at: string | null;
+        released_reservation_ids: readonly string[];
+      }>
+    > {
+      return parseJsonResponse(
+        await client.account["checkout-sessions"][":sessionId"].cancel.$post({
+          param: { sessionId },
+          header: headers,
+        }),
+      );
+    },
     async confirmCheckoutSession(
       sessionId: string,
       body: Readonly<{
