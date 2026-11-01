@@ -1,4 +1,21 @@
 export const marketplaceBrowserE2eSeedContract = {
+  // Pinned browse corpus for the signed-out search journey. The q=pokemon
+  // projection intentionally resolves to these ten catalog identities.
+  browse: {
+    searchQuery: "pokemon",
+    itemCatalogIds: [
+      "cat_seed_bulbasaur_base_set",
+      "cat_seed_charizard_base_set",
+      "cat_seed_japanese_charizard_base_set",
+      "cat_seed_lugia_neo_genesis",
+      "cat_seed_mewtwo_black_star_promo",
+      "cat_seed_pikachu_jungle",
+      "cat_seed_pikachu_prismatic_evolutions",
+      "cat_seed_prismatic_evolutions_booster_pack",
+      "cat_seed_surging_sparks_booster_box",
+      "cat_seed_twilight_masquerade_elite_trainer_box",
+    ],
+  },
   marketFollowing: {
     offerId: "off_seed_surging_sparks_restock",
     heldOfferId: "off_seed_pikachu_jungle_collector_lot",

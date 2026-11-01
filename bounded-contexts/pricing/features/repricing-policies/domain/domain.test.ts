@@ -387,6 +387,108 @@ describe("RepricingPolicy validation matrix", () => {
     return () => decideRepricingPolicy(initialRepricingPolicyState, { ...createCommand, ...overrides });
   }
 
+  it("normalizer output preservation", () => {
+    const events = decideRepricingPolicy(initialRepricingPolicyState, {
+      ...createCommand,
+      rules: [
+        {
+          ...defaultRule,
+          directive: {
+            ...defaultRule.directive,
+            floor: { mode: "absolute", amount: "  1.5  " },
+            ceiling: { mode: "absolute", amount: "0002.5" },
+          },
+        },
+      ],
+    });
+
+    expect(events[0]).toMatchObject({
+      data: {
+        rules: [
+          {
+            directive: {
+              floor: { amount: "1.5" },
+              ceiling: { amount: "0002.5" },
+            },
+          },
+        ],
+      },
+    });
+    expect(
+      createWith({
+        rules: [
+          {
+            ...defaultRule,
+            directive: {
+              ...defaultRule.directive,
+              ceiling: { mode: "absolute", amount: "9999999999.99" },
+            },
+          },
+        ],
+      })(),
+    ).toBeTruthy();
+  });
+
+  it("normalizer range rejection", () => {
+    for (const amount of ["10000000000.00", "-1.00", "1e2", "1.005"]) {
+      expect(
+        createWith({
+          rules: [{ ...defaultRule, directive: { ...defaultRule.directive, floor: { mode: "absolute", amount } } }],
+        }),
+      ).toThrow("Floor amount must be a valid decimal amount.");
+    }
+  });
+
+  it("normalizer zero matrix", () => {
+    expect(
+      createWith({
+        rules: [
+          {
+            ...defaultRule,
+            directive: { ...defaultRule.directive, floor: { mode: "absolute", amount: "0.00" } },
+          },
+        ],
+      }),
+    ).toThrow("Floor amount must be greater than zero.");
+  });
+
+  function absoluteOffsetRule(amount: string): RepricingRule {
+    return { ...defaultRule, directive: { ...defaultRule.directive, offset: { mode: "absolute", amount } } };
+  }
+
+  it.each(["10000000000.00", "-10000000000.00"])("rejects absolute offset %s beyond the money range", (amount) => {
+    const create = createWith({ rules: [absoluteOffsetRule(amount)] });
+    expect(create).toThrow(RepricingPolicyValidationError);
+    expect(create).toThrow("Offset amount must be a valid signed decimal amount.");
+  });
+
+  it("absolute offset output preservation", () => {
+    for (const [amount, emitted] of [
+      ["9999999999.99", "9999999999.99"],
+      ["-9999999999.99", "-9999999999.99"],
+      ["-0", "-0"],
+      ["0", "0"],
+      ["  -1.5  ", "-1.5"],
+      ["-0002.5", "-0002.5"],
+    ] as const) {
+      const events = decideRepricingPolicy(initialRepricingPolicyState, {
+        ...createCommand,
+        rules: [absoluteOffsetRule(amount)],
+      });
+      expect(events[0]).toMatchObject({
+        data: { rules: [{ directive: { offset: { mode: "absolute", amount: emitted } } }] },
+      });
+    }
+  });
+
+  it("absolute offset syntax rejection", () => {
+    for (const amount of ["1e2", "-1.005", "+1", "--1", "- 1", "-"]) {
+      const create = createWith({ rules: [absoluteOffsetRule(amount)] });
+      expect(create).toThrow(RepricingPolicyValidationError);
+      expect(create).toThrow("Offset amount must be a valid signed decimal amount.");
+    }
+  });
+
   it("rejects a blank name", () => {
     expect(createWith({ name: "   " })).toThrow("must not be blank");
   });

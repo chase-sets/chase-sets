@@ -138,12 +138,10 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
     const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: {
-        type: "ConfigureComponentRules",
+        type: "ReviseComponent",
         key: body.key,
         name: coerceLocalizedTextMap(body.name),
-        description: coerceLocalizedTextMap(body.description ?? ""),
-        fieldRules: body.fieldRules,
-        dimensionRules: body.dimensionRules,
+        description: body.description === undefined ? undefined : coerceLocalizedTextMap(body.description),
       },
       context,
     });

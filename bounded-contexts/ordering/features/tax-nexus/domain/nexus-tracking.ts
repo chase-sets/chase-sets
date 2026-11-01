@@ -1,3 +1,5 @@
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
+
 export type TaxJurisdictionCode =
   | "AL"
   | "AK"
@@ -197,13 +199,14 @@ export const defaultTaxNexusThresholdPolicies: readonly TaxNexusThresholdPolicy[
   },
 );
 
-function normalizeMoneyAmount(value: string, fieldName: string) {
+function normalizeMoneyAmount(value: string, fieldName: string): string {
   const normalized = value.trim();
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+  const cents = tryMoneyToCents(normalized);
+  if (cents === null) {
     throw new Error(`${fieldName} must be a non-negative money amount.`);
   }
 
-  return Number.parseFloat(normalized).toFixed(2);
+  return centsToMoneyAmount(cents);
 }
 
 function normalizeTransactionCount(value: number, fieldName: string) {
