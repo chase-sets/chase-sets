@@ -319,10 +319,14 @@ describe("marketplace listings workbench", () => {
         data={{ items: [buildListingRow()] }}
         listingAvailability={availableListings}
         orderCapacity={defaultOrderCapacity}
-        bulkActionOutcomes={[
-          { listingId: "lst_1", label: "Listing lst_1", outcome: "success", message: null },
-          { listingId: "lst_2", label: "Listing lst_2", outcome: "error", message: "Listing is withdrawn." },
-        ]}
+        bulkBatch={{
+          batchId: "batch_listing_page_outcomes",
+          intent: "bulk-withdraw-listings",
+          outcomes: [
+            { listingId: "lst_1", label: "Listing lst_1", outcome: "succeeded", message: null },
+            { listingId: "lst_2", label: "Listing lst_2", outcome: "error", message: "Listing is withdrawn." },
+          ],
+        }}
       />,
     );
 

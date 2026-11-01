@@ -79,6 +79,9 @@ export function PricingBulkRepricePage({
 }) {
   const { job: activeJob, reconnecting } = useBulkRepriceJob(activeJobId, initialActiveJob);
   const hasActiveJob = activeJob?.status === "queued" || activeJob?.status === "running";
+  // One upload attempt per selected CSV: a resubmitted upload of that file returns its first job. The page keeps
+  // only this id, never the CSV bytes.
+  const [uploadAttemptId, setUploadAttemptId] = useState(() => crypto.randomUUID());
   const isTerminal = activeJob?.status === "completed" || activeJob?.status === "failed";
 
   return (
@@ -117,6 +120,7 @@ export function PricingBulkRepricePage({
 
       <PageSection title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload")}>
         <Form spacing="none" method="post" encType="multipart/form-data">
+          <HiddenInput type="hidden" name="attemptId" value={uploadAttemptId} />
           <Stack data-testid="bulk-reprice-upload-furniture" gap={4}>
             <Text>{t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload.description")}</Text>
             <TextInput
@@ -125,6 +129,7 @@ export function PricingBulkRepricePage({
               type="file"
               required
               disabled={hasActiveJob}
+              onChange={() => setUploadAttemptId(crypto.randomUUID())}
             />
             <Inline>
               <Button type="submit" name="intent" value="upload-bulk-reprice" tone="primary" disabled={hasActiveJob}>

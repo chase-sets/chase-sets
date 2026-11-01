@@ -1,5 +1,7 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { Text } from "@chase-sets/design-system";
+import { MarketplaceCommandRecoveryError } from "../client";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
 import {
@@ -168,6 +170,8 @@ async function handleAction(intent: string, { request, params, formData }: FormA
   const api = createMarketplaceRequestApiClient(request);
   const priceDraftAmount = String(formData.get("priceAmount") ?? "");
   const priceDraftCurrencyCode = String(formData.get("priceCurrencyCode") ?? "");
+  // The page's attempt; every Listing command binds it to its own kind and this Listing.
+  const attempt = { idempotencyKey: String(formData.get("attemptId") ?? "") };
 
   try {
     const pathname = new URL(request.url).pathname;
@@ -190,6 +194,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
                 typeof formData.get("feeQuoteFingerprint") === "string"
                   ? String(formData.get("feeQuoteFingerprint"))
                   : null,
+              ...attempt,
             }),
             pathname,
           ),
@@ -200,6 +205,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
             await api.updateListingQuantityCap(params.listingId!, {
               quantityCap: Number(formData.get("quantityCap") ?? 0),
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
+              ...attempt,
             }),
             pathname,
           ),
@@ -213,6 +219,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
                 maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
                 maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
               },
+              ...attempt,
             }),
             pathname,
           ),
@@ -270,16 +277,19 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.publishListing(params.listingId!, {
-              feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
+              feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? "") || null,
+              ...attempt,
             }),
             `${pathname}?evidenceEvent=publication_succeeded`,
           ),
         );
       case "pause":
-        return redirect(await navigateToAccountListingAfterWrite(await api.pauseListing(params.listingId!), pathname));
+        return redirect(
+          await navigateToAccountListingAfterWrite(await api.pauseListing(params.listingId!, attempt), pathname),
+        );
       case "withdraw":
         return redirect(
-          await navigateToAccountListingAfterWrite(await api.withdrawListing(params.listingId!), pathname),
+          await navigateToAccountListingAfterWrite(await api.withdrawListing(params.listingId!, attempt), pathname),
         );
       default:
         break;
@@ -287,6 +297,18 @@ async function handleAction(intent: string, { request, params, formData }: FormA
 
     return redirect(pathname);
   } catch (error) {
+    // A possibly-sent command was looked up once and is unconfirmed (ambiguous) or was never sent (failed-safe).
+    if (error instanceof MarketplaceCommandRecoveryError)
+      return {
+        recovery: error.phase,
+        priceDraftAmount,
+        priceDraftCurrencyCode,
+        error: t(
+          error.phase === "ambiguous"
+            ? "marketplace.listingRecovery.ambiguous"
+            : "marketplace.listingRecovery.failedSafe",
+        ),
+      };
     if (error instanceof MarketplaceApiError) {
       const currentQuote = staleQuoteFromError(error);
       const currentEvidenceReadiness = evidenceReadinessFromError(error);
@@ -348,8 +370,24 @@ export default function MarketplaceAccountListingRoute() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const lastEvidenceAnalyticsKey = useRef<string | null>(null);
-  const readiness = actionData?.evidenceReadiness ?? data.listing?.evidence_readiness ?? null;
-  const requestedEvidenceEvent = actionData?.evidenceAnalyticsEvent ?? searchParams.get("evidenceEvent");
+  const readiness =
+    (actionData && "evidenceReadiness" in actionData ? actionData.evidenceReadiness : null) ??
+    data.listing?.evidence_readiness ??
+    null;
+  const recovery = actionData && "recovery" in actionData ? actionData.recovery : null;
+  const recoveryNotice = useRef<HTMLParagraphElement>(null);
+  // A fresh attempt per confirmed Listing version; an unconfirmed attempt keeps its key until it resolves.
+  const listingVersion = data.listing
+    ? `${data.listing.listing_stream_version ?? ""}:${data.listing.updated_at}`
+    : null;
+  // `listingVersion` is the deliberate dependency: the attempt renews only when the Listing version changes.
+  const attemptId = useMemo(() => crypto.randomUUID(), [listingVersion]);
+  useEffect(() => {
+    if (recovery) recoveryNotice.current?.focus();
+  }, [recovery]);
+  const requestedEvidenceEvent =
+    (actionData && "evidenceAnalyticsEvent" in actionData ? actionData.evidenceAnalyticsEvent : null) ??
+    searchParams.get("evidenceEvent");
 
   useEffect(() => {
     if (
@@ -379,18 +417,39 @@ export default function MarketplaceAccountListingRoute() {
     return <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />;
   }
 
-  const currentListing = actionData?.evidenceReadiness
-    ? { ...data.listing, evidence_readiness: actionData.evidenceReadiness }
-    : data.listing;
+  const currentListing =
+    actionData && "evidenceReadiness" in actionData && actionData.evidenceReadiness
+      ? { ...data.listing, evidence_readiness: actionData.evidenceReadiness }
+      : data.listing;
   return (
-    <MarketplaceListingDetailPage
-      listing={currentListing as MarketplaceListingDetail}
-      feeHistory={data.feeHistory.items as MarketplaceListingFeeHistoryEntry[]}
-      priceDraftAmount={actionData?.priceDraftAmount ?? null}
-      priceDraftCurrencyCode={actionData?.priceDraftCurrencyCode ?? null}
-      pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
-      errorMessage={actionData?.error ?? null}
-      evidenceAltTextRecovery={actionData?.evidenceAltTextRecovery ?? null}
-    />
+    <>
+      {recovery ? (
+        <Text ref={recoveryNotice} tabIndex={-1} role={recovery === "ambiguous" ? "alert" : "status"}>
+          {t(
+            recovery === "ambiguous"
+              ? "marketplace.listingRecovery.ambiguous"
+              : "marketplace.listingRecovery.failedSafe",
+          )}
+        </Text>
+      ) : null}
+      <MarketplaceListingDetailPage
+        listing={currentListing as MarketplaceListingDetail}
+        feeHistory={data.feeHistory.items as MarketplaceListingFeeHistoryEntry[]}
+        priceDraftAmount={actionData?.priceDraftAmount ?? null}
+        priceDraftCurrencyCode={actionData?.priceDraftCurrencyCode ?? null}
+        pricePreview={
+          (actionData && "pricePreview" in actionData ? actionData.pricePreview : null) as
+            | MarketplaceListingTermsPreview
+            | null
+            | undefined
+        }
+        errorMessage={recovery ? null : (actionData?.error ?? null)}
+        evidenceAltTextRecovery={
+          (actionData && "evidenceAltTextRecovery" in actionData ? actionData.evidenceAltTextRecovery : null) ?? null
+        }
+        attemptId={attemptId}
+        writesDisabled={recovery === "ambiguous"}
+      />
+    </>
   );
 }

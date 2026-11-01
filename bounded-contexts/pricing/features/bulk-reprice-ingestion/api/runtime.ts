@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -54,7 +55,12 @@ export type BulkRepriceListingOutcome = Readonly<{
 export type BulkRepriceMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
     body: Readonly<{
-      updates: readonly Readonly<{ listingId: string; priceAmount: string; priceCurrencyCode: string }>[];
+      updates: readonly Readonly<{
+        listingId: string;
+        priceAmount: string;
+        priceCurrencyCode: string;
+        idempotencyKey: string;
+      }>[];
     }>,
   ) => Promise<Readonly<{ items: readonly BulkRepriceListingOutcome[] }>>;
 }>;
@@ -124,6 +130,47 @@ function storableMoneyOrNull(value: string | null): string | null {
 }
 
 const BULK_REPRICE_CANCELLED_ERROR = "Bulk reprice job was cancelled by the seller.";
+const BULK_REPRICE_ATTEMPT_CONFLICT_ERROR =
+  "This upload attempt was already used for a different file. Reload the page and upload again.";
+
+type BulkRepriceUploadAttempt = Readonly<{ accountId: string; jobId: string; inputId: string; rowsHash: string }>;
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object")
+    return `{${Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
+}
+
+/** The canonical parsed-rows hash: key order and stored JSON shape never change it, row content always does. */
+export function bulkRepriceRowsHash(rows: readonly unknown[]): string {
+  return createHash("sha256").update(canonicalJson(rows)).digest("hex");
+}
+
+function attemptDigestId(prefix: string, parts: readonly string[]): string {
+  const hex = createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+  return `${prefix}_${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** One job per account + attempt; the job and its stored rows are addressed by the attempt, never minted twice. */
+export function bulkRepriceUploadAttempt(
+  accountId: string,
+  attemptId: string,
+  rows: readonly unknown[],
+): BulkRepriceUploadAttempt {
+  if (!/^[A-Za-z0-9_-]{22,128}$/.test(attemptId))
+    throw new BulkRepriceIngestionDomainError("A valid bulk reprice upload attempt is required.");
+  return {
+    accountId,
+    jobId: attemptDigestId("job", ["bulk-reprice-job", accountId, attemptId]),
+    inputId: attemptDigestId("bri", ["bulk-reprice-input", accountId, attemptId]),
+    rowsHash: bulkRepriceRowsHash(rows),
+  };
+}
 const ACTIVE_JOB_INDEX_NAME = "pricing_bulk_reprice_jobs_one_active_per_account_idx";
 
 function isActiveJobUniqueConflict(error: unknown): boolean {
@@ -147,6 +194,8 @@ export type BulkRepriceIngestionServices = Readonly<{
       csvText?: string;
       rows?: readonly Readonly<{ sellerSku?: unknown; listingId?: unknown; newPriceAmount?: unknown }>[];
       sourceFilename?: string | null;
+      /** One caller attempt per selected CSV: it binds one job, so an identical retry returns that job. */
+      attemptId?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<BulkRepriceJob>;
@@ -257,22 +306,34 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       );
     }
 
-    const inputId = createInternalId("bri");
-    await deps.db.query(
+    const attempt =
+      params.attemptId === undefined ? null : bulkRepriceUploadAttempt(params.accountId, params.attemptId, rows);
+    if (attempt) {
+      const first = await jobStore.get(attempt.jobId);
+      if (first) return replayBulkRepriceUpload(first, attempt);
+    }
+    const inputId = attempt?.inputId ?? createInternalId("bri");
+    const inserted = await deps.db.query(
       `INSERT INTO pricing_bulk_reprice_job_inputs (input_id, account_id, rows, row_count, source_filename, created_at)
-       VALUES ($1, $2, $3::jsonb, $4, $5, now())`,
+       VALUES ($1, $2, $3::jsonb, $4, $5, now())
+       ON CONFLICT (input_id) DO NOTHING`,
       [inputId, params.accountId, JSON.stringify(rows), rows.length, params.sourceFilename ?? null],
     );
+    // An interrupted attempt may have stored its rows without its job; the stored rows must be this upload's rows.
+    if (attempt && inserted.rowCount === 0 && bulkRepriceRowsHash(await loadInputRows(inputId)) !== attempt.rowsHash)
+      throw new BulkRepriceIngestionDomainError(BULK_REPRICE_ATTEMPT_CONFLICT_ERROR);
 
     try {
       return await jobStore.enqueue({
-        jobId: createInternalId("job"),
+        jobId: attempt?.jobId ?? createInternalId("job"),
         jobKind: BULK_REPRICE_JOB_KIND,
         payload: { accountId: params.accountId, inputId, rowCount: rows.length },
         progress: jobProgress("queued", 0, rows.length, "Bulk reprice job queued."),
         eventContext: context,
       });
     } catch (error) {
+      const raced = attempt ? await jobStore.get(attempt.jobId).catch(() => null) : null;
+      if (raced && attempt) return replayBulkRepriceUpload(raced, attempt);
       await deps.db
         .query(`DELETE FROM pricing_bulk_reprice_job_inputs WHERE input_id = $1`, [inputId])
         .catch(() => undefined);
@@ -284,6 +345,14 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       throw error;
     }
   };
+
+  async function replayBulkRepriceUpload(job: BulkRepriceJob, attempt: BulkRepriceUploadAttempt) {
+    if (job.payload.accountId !== attempt.accountId)
+      throw new BulkRepriceIngestionDomainError("Bulk reprice job not found.");
+    if (bulkRepriceRowsHash(await loadInputRows(job.payload.inputId)) !== attempt.rowsHash)
+      throw new BulkRepriceIngestionDomainError(BULK_REPRICE_ATTEMPT_CONFLICT_ERROR);
+    return job;
+  }
 
   const cancelJob: BulkRepriceIngestionServices["cancelJob"] = async (jobId, accountId) => {
     const job = await jobStore.get(jobId);
@@ -297,6 +366,10 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       allowedStatuses: ["queued", "running"],
     });
     if (!cancelled) {
+      // A cancel whose response was lost converges on the job it already cancelled.
+      const current = await jobStore.get(jobId);
+      if (current && current.status === "failed" && current.errorMessage === BULK_REPRICE_CANCELLED_ERROR)
+        return current;
       throw new BulkRepriceIngestionDomainError("Bulk reprice job could not be cancelled.");
     }
     return finalizeCancelledJob(cancelled, await loadInputRows(cancelled.payload.inputId));
@@ -648,12 +721,16 @@ async function processBulkRepriceWave(params: {
   }
 
   if (updatesByListingId.size > 0) {
+    // One target attempt per Listing within this job: a re-claimed wave replays committed targets.
+    const idempotencyKey = `bulk-reprice_${jobId.replace(/[^A-Za-z0-9_-]+/g, "_")}`.slice(0, 128);
     const updates = [...updatesByListingId.entries()].map(([listingId, entry]) => ({
       listingId,
       priceAmount: entry.priceAmount,
       priceCurrencyCode: entry.priceCurrencyCode,
     }));
-    const bulkResult = await marketplaceGateway.applyBulkListingPriceUpdates({ updates });
+    const bulkResult = await marketplaceGateway.applyBulkListingPriceUpdates({
+      updates: updates.map((update) => ({ ...update, idempotencyKey })),
+    });
     const outcomeByListingId = new Map(bulkResult.items.map((item) => [item.listingId, item] as const));
 
     for (const [listingId, entry] of updatesByListingId) {

@@ -137,6 +137,7 @@ describe("marketplace listings workbench route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "disable-listing-availability");
+    form.set("attemptId", "listings_page_attempt_001");
     form.set("reasonCategory", "operations");
 
     const result = await listingsAction({
@@ -324,6 +325,7 @@ describe("marketplace listings workbench route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "bulk-pause-listings");
+    form.set("batchId", "listings_bulk_batch_00001");
     form.append("listingIds", "lst_1");
     form.append("listingIds", "lst_2");
 
@@ -338,15 +340,18 @@ describe("marketplace listings workbench route", () => {
     } as never);
 
     expect(result).not.toBeInstanceOf(Response);
-    const bulkResult = result as {
-      bulkActionOutcomes: Array<{ listingId: string; outcome: string; message: string | null }>;
-    };
-    expect(bulkResult.bulkActionOutcomes).toHaveLength(2);
-    expect(bulkResult.bulkActionOutcomes.find((outcome) => outcome.listingId === "lst_1")).toMatchObject({
-      outcome: "success",
+    const bulkResult = (
+      result as {
+        bulkBatch: { batchId: string; outcomes: Array<{ listingId: string; outcome: string; message: string | null }> };
+      }
+    ).bulkBatch;
+    expect(bulkResult.batchId).toBe("listings_bulk_batch_00001");
+    expect(bulkResult.outcomes).toHaveLength(2);
+    expect(bulkResult.outcomes.find((outcome) => outcome.listingId === "lst_1")).toMatchObject({
+      outcome: "succeeded",
       message: null,
     });
-    expect(bulkResult.bulkActionOutcomes.find((outcome) => outcome.listingId === "lst_2")).toMatchObject({
+    expect(bulkResult.outcomes.find((outcome) => outcome.listingId === "lst_2")).toMatchObject({
       outcome: "error",
     });
   });
@@ -400,6 +405,7 @@ describe("marketplace listings workbench route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "bulk-withdraw-listings");
+    form.set("batchId", "listings_bulk_batch_00002");
     form.append("listingIds", "lst_3");
 
     const result = await listingsAction({
@@ -413,9 +419,9 @@ describe("marketplace listings workbench route", () => {
     } as never);
 
     expect(withdrawnIds).toEqual(["lst_3"]);
-    const bulkResult = result as { bulkActionOutcomes: Array<{ listingId: string; outcome: string }> };
-    expect(bulkResult.bulkActionOutcomes).toEqual([
-      { listingId: "lst_3", label: expect.any(String), outcome: "success", message: null },
+    const bulkResult = result as { bulkBatch: { outcomes: Array<{ listingId: string; outcome: string }> } };
+    expect(bulkResult.bulkBatch.outcomes).toEqual([
+      { listingId: "lst_3", label: expect.any(String), outcome: "succeeded", message: null },
     ]);
   });
 });

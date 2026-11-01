@@ -1,4 +1,5 @@
 import { formatBpsPercent, formatDateTime, formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
+import { useState } from "react";
 import {
   HiddenInput,
   Form,
@@ -147,8 +148,14 @@ export function MarketplaceListingDetailPage({
   pricePreview,
   errorMessage,
   evidenceAltTextRecovery,
+  attemptId: routeAttemptId,
+  writesDisabled = false,
 }: {
   listing: MarketplaceListingDetail;
+  /** The Listing attempt every command form on this page sends; the route renews it after each confirmed write. */
+  attemptId?: string;
+  /** True while a possibly-sent command is unconfirmed, so no second write can start. */
+  writesDisabled?: boolean;
   feeHistory?: readonly MarketplaceListingFeeHistoryEntry[];
   priceDraftAmount?: string | null;
   priceDraftCurrencyCode?: string | null;
@@ -157,6 +164,8 @@ export function MarketplaceListingDetailPage({
   /** A closed image-description rejection; replaces the generic error notice. */
   evidenceAltTextRecovery?: ListingEvidenceAltTextRecovery | null;
 }) {
+  const [ownAttemptId] = useState(() => crypto.randomUUID());
+  const attemptId = routeAttemptId ?? ownAttemptId;
   const publishDisabled =
     listing.status === "active" ||
     listing.status === "withdrawn" ||
@@ -461,6 +470,7 @@ export function MarketplaceListingDetailPage({
         <Stack gap={4}>
           <Card elevation="tinted">
             <Form spacing="none" method="post">
+              <HiddenInput type="hidden" name="attemptId" value={attemptId} />
               <Stack gap={3}>
                 <TextInput
                   label={t("marketplace.features.listings.ui.listingDetailPage.price.2")}
@@ -485,7 +495,7 @@ export function MarketplaceListingDetailPage({
                   value={pricePreview?.fee_quote_fingerprint ?? listing.fee_quote_fingerprint ?? undefined}
                 />
                 <Stack gap={2}>
-                  <Button type="submit" name="intent" value="update-price" tone="secondary">
+                  <Button type="submit" name="intent" value="update-price" tone="secondary" disabled={writesDisabled}>
                     {t("marketplace.features.listings.ui.listingDetailPage.save.price")}
                   </Button>
                   <Button type="submit" name="intent" value="preview-price" tone="secondary">
@@ -523,6 +533,7 @@ export function MarketplaceListingDetailPage({
 
           <Card elevation="tinted">
             <Form spacing="none" method="post">
+              <HiddenInput type="hidden" name="attemptId" value={attemptId} />
               <Stack gap={3}>
                 <HiddenInput type="hidden" name="intent" value="update-quantity-cap" />
                 <HiddenInput
@@ -540,7 +551,7 @@ export function MarketplaceListingDetailPage({
                 <Text size="sm" tone="secondary">
                   {t("marketplace.features.listings.ui.listingDetailPage.quantity.cap.exposure.copy")}
                 </Text>
-                <Button type="submit" tone="secondary">
+                <Button type="submit" tone="secondary" disabled={writesDisabled}>
                   {t("marketplace.features.listings.ui.listingDetailPage.save.quantity.cap")}
                 </Button>
               </Stack>
@@ -554,6 +565,7 @@ export function MarketplaceListingDetailPage({
           >
             <Card elevation="tinted">
               <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="attemptId" value={attemptId} />
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="intent" value="update-purchase-limits" />
                   <Inline>
@@ -579,7 +591,7 @@ export function MarketplaceListingDetailPage({
                   <Text size="sm" tone="secondary">
                     {t("marketplace.features.listings.ui.listingDetailPage.purchase.limits.copy")}
                   </Text>
-                  <Button type="submit" tone="secondary">
+                  <Button type="submit" tone="secondary" disabled={writesDisabled}>
                     {t("marketplace.features.listings.ui.listingDetailPage.save.purchase.limits")}
                   </Button>
                 </Stack>
@@ -590,6 +602,7 @@ export function MarketplaceListingDetailPage({
           <Card elevation="tinted">
             <Stack gap={3}>
               <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="attemptId" value={attemptId} />
                 <HiddenInput type="hidden" name="intent" value="publish" />
                 <HiddenInput
                   type="hidden"
@@ -597,7 +610,7 @@ export function MarketplaceListingDetailPage({
                   value={listing.fee_quote_fingerprint ?? undefined}
                 />
                 <AuthoredTextGuidance />
-                <Button type="submit" disabled={publishDisabled}>
+                <Button type="submit" disabled={publishDisabled || writesDisabled}>
                   {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}
                 </Button>
                 {listing.status !== "active" && listing.status !== "withdrawn" && !listing.product_measure_snapshot ? (
@@ -615,8 +628,9 @@ export function MarketplaceListingDetailPage({
                 ) : null}
               </Form>
               <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="attemptId" value={attemptId} />
                 <HiddenInput type="hidden" name="intent" value="pause" />
-                <Button type="submit" tone="secondary" disabled={listing.status !== "active"}>
+                <Button type="submit" tone="secondary" disabled={writesDisabled || listing.status !== "active"}>
                   {t("marketplace.features.listings.ui.listingDetailPage.pause.listing")}
                 </Button>
               </Form>
@@ -624,15 +638,16 @@ export function MarketplaceListingDetailPage({
                 title={t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}
                 description={t("marketplace.features.listings.ui.listingDetailPage.withdraw.confirm.description")}
                 trigger={
-                  <Button type="button" tone="danger" disabled={listing.status === "withdrawn"}>
+                  <Button type="button" tone="danger" disabled={writesDisabled || listing.status === "withdrawn"}>
                     {t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}
                   </Button>
                 }
               >
                 <Form spacing="none" method="post">
+                  <HiddenInput type="hidden" name="attemptId" value={attemptId} />
                   <Stack gap={3}>
                     <HiddenInput type="hidden" name="intent" value="withdraw" />
-                    <Button type="submit" tone="danger">
+                    <Button type="submit" tone="danger" disabled={writesDisabled}>
                       {t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}
                     </Button>
                   </Stack>

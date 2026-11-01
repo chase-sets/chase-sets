@@ -441,7 +441,13 @@ async function publishTwoSellerListings(
     );
     const listing = await successfulJson<{ id: string; feeQuoteFingerprint: string }>(
       await page.request.post("/api/marketplace/account/listings", {
-        data: { inventoryItemId: item.id, priceAmount: "5.00", priceCurrencyCode: "USD", quantityCap: 2 },
+        data: {
+          inventoryItemId: item.id,
+          priceAmount: "5.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 2,
+          idempotencyKey: randomUUID(),
+        },
       }),
     );
     const path = `/api/marketplace/account/listings/${listing.id}`;

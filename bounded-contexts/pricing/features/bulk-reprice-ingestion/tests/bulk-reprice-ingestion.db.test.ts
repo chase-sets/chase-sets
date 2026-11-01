@@ -525,6 +525,69 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     expect(marketplaceGateway.calls).toBe(0);
   });
 
+  describe("bulk reprice attempt identity", () => {
+    const attemptId = "upload_attempt_00000000000001";
+    const rows = [
+      { listingId: "lst_1", newPriceAmount: "11.00" },
+      { listingId: "lst_3", newPriceAmount: "16.00" },
+    ];
+    const countFor = async (table: string) =>
+      Number(
+        (
+          await pools.pricing.query<{ count: string }>(`SELECT count(*) AS count FROM ${table} WHERE account_id = $1`, [
+            "acc_seller",
+          ])
+        ).rows[0]?.count ?? 0,
+      );
+
+    it("returns one job for an identical upload retry and conflicts on changed rows with nothing stored", async () => {
+      await seedListings(pools.pricing);
+      const runtime = createBulkRepriceIngestionRuntime({ db: pools.pricing });
+      const first = await runtime.enqueueJob({ accountId: "acc_seller", rows, attemptId }, eventContext("acc_seller"));
+      // The response was lost; the browser resubmits the same selected file under its attempt from a new replica.
+      const retried = await createBulkRepriceIngestionRuntime({ db: pools.pricing }).enqueueJob(
+        {
+          accountId: "acc_seller",
+          rows: rows.map((row) => ({ newPriceAmount: row.newPriceAmount, listingId: row.listingId })),
+          attemptId,
+        },
+        eventContext("acc_seller"),
+      );
+      expect(retried.jobId).toBe(first.jobId);
+      expect(await countFor("pricing_bulk_reprice_job_inputs")).toBe(1);
+
+      await expect(
+        runtime.enqueueJob(
+          { accountId: "acc_seller", rows: [{ listingId: "lst_1", newPriceAmount: "12.00" }], attemptId },
+          eventContext("acc_seller"),
+        ),
+      ).rejects.toThrow(/already used for a different file/);
+      expect(await countFor("pricing_bulk_reprice_job_inputs")).toBe(1);
+      // Another account's identical attempt id binds its own job, never this one.
+      expect(
+        (await runtime.enqueueJob({ accountId: "acc_other", rows, attemptId }, eventContext("acc_other"))).jobId,
+      ).not.toBe(first.jobId);
+    });
+
+    it("converges a cancel whose response was lost and replays the cancelled job on an identical retry", async () => {
+      await seedListings(pools.pricing);
+      const runtime = createBulkRepriceIngestionRuntime({ db: pools.pricing });
+      const job = await runtime.enqueueJob({ accountId: "acc_seller", rows, attemptId }, eventContext("acc_seller"));
+      const cancelled = await runtime.cancelJob(job.jobId, "acc_seller");
+      expect(cancelled.status).toBe("failed");
+      await expect(runtime.cancelJob(job.jobId, "acc_seller")).resolves.toMatchObject({
+        jobId: job.jobId,
+        status: "failed",
+      });
+      const replayed = await runtime.enqueueJob(
+        { accountId: "acc_seller", rows, attemptId },
+        eventContext("acc_seller"),
+      );
+      expect(replayed).toMatchObject({ jobId: job.jobId, status: "failed" });
+      expect(await countFor("pricing_bulk_reprice_job_inputs")).toBe(1);
+    });
+  });
+
   it("rejects an upload with more rows than the policy allows", async () => {
     const pool = pools.pricing;
     const runtime = createBulkRepriceIngestionRuntime({ db: pool });

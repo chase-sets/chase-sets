@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { MarketplaceListingServices } from "../../listings/api/runtime";
+import { listingAttempt } from "../../listings/api/listing-attempt";
 import {
   MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS,
   MARKETPLACE_CHANNEL_INBOUND_CLAMP_PAGE_SIZE,
@@ -150,6 +152,40 @@ async function engage(
   };
 }
 
+/** One release attempt per clamp run and Listing; the engage pause stays fenced by its observed stream version. */
+export function clampReleaseAttemptKey(input: MarketplaceChannelInboundClampInput, listingId: string): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify([input.accountId, input.connectionId, input.runId, listingId]))
+    .digest("hex");
+  return `channel-clamp-release_${digest.slice(0, 48)}`;
+}
+
+/**
+ * Whether the authoritative Listing stream already holds this run's release publish: its first stamped event,
+ * by the attempt's deterministic id, owner account and recorded request hash. The projection is never consulted.
+ */
+async function releaseAlreadyRecorded(
+  pool: PgQueryable,
+  input: MarketplaceChannelInboundClampInput,
+  listingId: string,
+): Promise<boolean> {
+  const attempt = listingAttempt({
+    idempotencyKey: clampReleaseAttemptKey(input, listingId),
+    mutationKind: "listing.publish",
+    accountId: input.accountId,
+    targetId: listingId,
+    request: { listingId },
+  });
+  const result = await pool.query(
+    `SELECT 1
+       FROM event_store_events
+      WHERE event_id=$1 AND stream_id=$2 AND for_account_id=$3
+        AND metadata->'marketplaceAttempt'->>'requestHash'=$4`,
+    [`${attempt.eventIdPrefix}:0`, attempt.streamId, input.accountId, attempt.binding.canonicalRequestHash],
+  );
+  return result.rows.length > 0;
+}
+
 async function markPendingEngaged(
   pool: PgQueryable,
   input: MarketplaceChannelInboundClampInput,
@@ -219,6 +255,12 @@ async function recover(
       retainedListingCount += released;
       continue;
     }
+    if (await releaseAlreadyRecorded(pool, input, row.listing_id)) {
+      // A resumed recover: this run's release publish already committed before the interruption, so the
+      // run converges on it without a second publish.
+      releasedListingCount += await releaseOwnership(pool, input, row.listing_id, pausedVersion);
+      continue;
+    }
     const current = await readCurrentListing(pool, input.accountId, row.listing_id);
     const state = await listings.loadListingState(row.listing_id);
     if (
@@ -232,7 +274,15 @@ async function recover(
       continue;
     }
     try {
-      await listings.publishListing({ accountId: input.accountId, listingId: row.listing_id }, context);
+      // The release is this run's one publish of this Listing: a repeated or resumed recover replays it.
+      await listings.publishListing(
+        {
+          accountId: input.accountId,
+          listingId: row.listing_id,
+          idempotencyKey: clampReleaseAttemptKey(input, row.listing_id),
+        },
+        context,
+      );
       releasedListingCount += await releaseOwnership(pool, input, row.listing_id, pausedVersion);
     } catch {
       await markRecovery(pool, input, row.listing_id, pausedVersion);

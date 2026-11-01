@@ -46,9 +46,14 @@ function errorMessage(error: unknown) {
 
 type BulkRepriceJsonRowInput = Readonly<{ sellerSku?: unknown; listingId?: unknown; newPriceAmount?: unknown }>;
 
-async function parseCreateJobRequest(
-  c: Context<PricingApiEnv>,
-): Promise<Readonly<{ csvText?: string; rows?: readonly BulkRepriceJsonRowInput[]; sourceFilename: string | null }>> {
+async function parseCreateJobRequest(c: Context<PricingApiEnv>): Promise<
+  Readonly<{
+    csvText?: string;
+    rows?: readonly BulkRepriceJsonRowInput[];
+    sourceFilename: string | null;
+    attemptId?: string;
+  }>
+> {
   const contentType = c.req.header("content-type") ?? "";
   if (contentType.includes("multipart/form-data")) {
     const formData = await c.req.formData();
@@ -58,18 +63,21 @@ async function parseCreateJobRequest(
     const sourceFilename = uploadedFile
       ? uploadedFile.name
       : String(formData.get("sourceFilename") ?? "").trim() || null;
-    return { csvText, sourceFilename };
+    const attemptId = String(formData.get("attemptId") ?? "") || undefined;
+    return { csvText, sourceFilename, ...(attemptId ? { attemptId } : {}) };
   }
 
   const body = (await c.req.json().catch(() => ({}))) as Readonly<{
     csvText?: unknown;
     rows?: readonly BulkRepriceJsonRowInput[];
     sourceFilename?: unknown;
+    attemptId?: unknown;
   }>;
   return {
     csvText: typeof body.csvText === "string" ? body.csvText : undefined,
     rows: Array.isArray(body.rows) ? body.rows : undefined,
     sourceFilename: typeof body.sourceFilename === "string" ? body.sourceFilename : null,
+    ...(typeof body.attemptId === "string" ? { attemptId: body.attemptId } : {}),
   };
 }
 
@@ -135,6 +143,7 @@ export function createBulkRepriceIngestionRoutes(services: BulkRepriceIngestionS
           csvText: body.csvText,
           rows: body.rows,
           sourceFilename: body.sourceFilename,
+          ...(body.attemptId === undefined ? {} : { attemptId: body.attemptId }),
         },
         context,
       );

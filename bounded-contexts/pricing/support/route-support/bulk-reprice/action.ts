@@ -18,7 +18,9 @@ export async function action({ request }: ActionFunctionArgs) {
       const file = formData.get("file");
       const csvText = file instanceof File ? await file.text() : String(formData.get("csvText") ?? "");
       const sourceFilename = file instanceof File ? file.name : null;
-      const job = await api.createBulkRepriceJob({ csvText, sourceFilename });
+      // The selected file's attempt: a resubmitted upload returns its first job instead of a second one.
+      const attemptId = String(formData.get("attemptId") ?? "") || undefined;
+      const job = await api.createBulkRepriceJob({ csvText, sourceFilename, ...(attemptId ? { attemptId } : {}) });
       return redirect(`/account/bulk-reprice?jobId=${encodeURIComponent(job.jobId)}`);
     }
 

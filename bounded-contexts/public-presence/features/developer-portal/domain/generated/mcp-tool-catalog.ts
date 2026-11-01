@@ -3503,6 +3503,7 @@ export const mcpToolCatalog = [
         "priceCurrencyCode",
         "quantityCap",
         "idempotencyKey",
+        "requestHash",
         "confirmationText",
       ],
       properties: {
@@ -3552,7 +3553,12 @@ export const mcpToolCatalog = [
         idempotencyKey: {
           type: "string",
           description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+            "Opaque Listing attempt id (22-128 base64url characters), retained across retries of this one Listing command.",
+        },
+        requestHash: {
+          type: "string",
+          description:
+            "SHA-256 of the canonical Listing command (every business field; amount and currency together), excluding rail and actor identity.",
         },
         confirmationText: {
           type: "string",
@@ -4225,7 +4231,7 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "listingId", "idempotencyKey", "confirmationText"],
+      required: ["accountId", "listingId", "idempotencyKey", "requestHash", "confirmationText"],
       properties: {
         accountId: {
           type: "string",
@@ -4242,7 +4248,12 @@ export const mcpToolCatalog = [
         idempotencyKey: {
           type: "string",
           description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+            "Opaque Listing attempt id (22-128 base64url characters), retained across retries of this one Listing command.",
+        },
+        requestHash: {
+          type: "string",
+          description:
+            "SHA-256 of the canonical Listing command (every business field; amount and currency together), excluding rail and actor identity.",
         },
         confirmationText: {
           type: "string",
@@ -4542,7 +4553,7 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "listingId", "reason", "idempotencyKey", "confirmationText"],
+      required: ["accountId", "listingId", "reason", "idempotencyKey", "requestHash", "confirmationText"],
       properties: {
         accountId: {
           type: "string",
@@ -4559,7 +4570,12 @@ export const mcpToolCatalog = [
         idempotencyKey: {
           type: "string",
           description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+            "Opaque Listing attempt id (22-128 base64url characters), retained across retries of this one Listing command.",
+        },
+        requestHash: {
+          type: "string",
+          description:
+            "SHA-256 of the canonical Listing command (every business field; amount and currency together), excluding rail and actor identity.",
         },
         confirmationText: {
           type: "string",
@@ -4640,7 +4656,15 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "listingId", "priceAmount", "priceCurrencyCode", "idempotencyKey", "confirmationText"],
+      required: [
+        "accountId",
+        "listingId",
+        "priceAmount",
+        "priceCurrencyCode",
+        "idempotencyKey",
+        "requestHash",
+        "confirmationText",
+      ],
       properties: {
         accountId: {
           type: "string",
@@ -4665,7 +4689,12 @@ export const mcpToolCatalog = [
         idempotencyKey: {
           type: "string",
           description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+            "Opaque Listing attempt id (22-128 base64url characters), retained across retries of this one Listing command.",
+        },
+        requestHash: {
+          type: "string",
+          description:
+            "SHA-256 of the canonical Listing command (every business field; amount and currency together), excluding rail and actor identity.",
         },
         confirmationText: {
           type: "string",

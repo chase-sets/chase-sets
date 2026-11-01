@@ -303,6 +303,7 @@ describe("marketplace listing create route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "create-and-publish-listing");
+    form.set("attemptId", "create_page_attempt_0001");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
     form.set("priceCurrencyCode", "USD");
@@ -373,6 +374,7 @@ describe("marketplace listing create route", () => {
     );
     const form = new URLSearchParams({
       intent: "create-and-publish-listing",
+      attemptId: "create_page_attempt_0001",
       inventoryItemId: "inv_1",
       priceAmount: "24.99",
       priceCurrencyCode: "USD",
@@ -420,6 +422,7 @@ describe("marketplace listing create route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "create-listing");
+    form.set("attemptId", "create_page_attempt_0001");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
     form.set("priceCurrencyCode", "USD");
@@ -495,6 +498,7 @@ describe("marketplace listing create route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "create-listing");
+    form.set("attemptId", "create_page_attempt_0001");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
     form.set("priceCurrencyCode", "USD");
@@ -562,6 +566,7 @@ describe("marketplace listing create route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "create-listing");
+    form.set("attemptId", "create_page_attempt_0001");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
     form.set("priceCurrencyCode", "USD");

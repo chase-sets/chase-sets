@@ -141,6 +141,14 @@ const marketplaceShippingDestinationInputProperty: McpJsonSchemaProperty = {
   },
 };
 
+// Listing writes extend the shipped key as their attempt (#7161 D5); there is no parallel Listing attemptId.
+const listingAttemptKeyProperty = stringProperty(
+  "Opaque Listing attempt id (22-128 base64url characters), retained across retries of this one Listing command.",
+);
+const listingRequestHashProperty = stringProperty(
+  "SHA-256 of the canonical Listing command (every business field; amount and currency together), excluding rail and actor identity.",
+);
+
 const marketplaceSubmitOfferInputSchema = objectSchema(
   {
     attemptId: stringProperty("Opaque Marketplace attempt id (22-128 base64url characters), retained across retries."),
@@ -653,7 +661,8 @@ export const marketplaceService = {
             quantityCap: integerProperty("Maximum listed quantity."),
             purchaseLimits: listingPurchaseLimitsInputProperty,
             listingIdOverride: stringProperty("Optional deterministic listing id for idempotent handoffs."),
-            idempotencyKey: idempotencyKeyProperty(),
+            idempotencyKey: listingAttemptKeyProperty,
+            requestHash: listingRequestHashProperty,
             confirmationText: stringProperty("Exact user or policy confirmation text."),
             dryRun: booleanProperty("Validate the action without committing it."),
           },
@@ -664,6 +673,7 @@ export const marketplaceService = {
             "priceCurrencyCode",
             "quantityCap",
             "idempotencyKey",
+            "requestHash",
             "confirmationText",
           ],
         ),
@@ -687,11 +697,20 @@ export const marketplaceService = {
             priceAmount: stringProperty("New listing unit price in decimal currency format."),
             priceCurrencyCode: stringProperty("Seller-authored three-letter ISO-4217 listing price currency code."),
             feeQuoteFingerprint: stringProperty("Current marketplace sales-fee quote fingerprint."),
-            idempotencyKey: idempotencyKeyProperty(),
+            idempotencyKey: listingAttemptKeyProperty,
+            requestHash: listingRequestHashProperty,
             confirmationText: stringProperty("Exact user or policy confirmation text."),
             dryRun: booleanProperty("Validate the action without committing it."),
           },
-          ["accountId", "listingId", "priceAmount", "priceCurrencyCode", "idempotencyKey", "confirmationText"],
+          [
+            "accountId",
+            "listingId",
+            "priceAmount",
+            "priceCurrencyCode",
+            "idempotencyKey",
+            "requestHash",
+            "confirmationText",
+          ],
         ),
         "listing",
         ["Use after reading the listing and confirming the current marketplace terms preview."],
@@ -711,11 +730,12 @@ export const marketplaceService = {
             accountId: stringProperty("Authenticated account scope."),
             listingId: stringProperty("Listing to publish."),
             feeQuoteFingerprint: stringProperty("Current marketplace sales-fee quote fingerprint."),
-            idempotencyKey: idempotencyKeyProperty(),
+            idempotencyKey: listingAttemptKeyProperty,
+            requestHash: listingRequestHashProperty,
             confirmationText: stringProperty("Exact user or policy confirmation text."),
             dryRun: booleanProperty("Validate the action without committing it."),
           },
-          ["accountId", "listingId", "idempotencyKey", "confirmationText"],
+          ["accountId", "listingId", "idempotencyKey", "requestHash", "confirmationText"],
         ),
         "listing",
         ["Use after confirming inventory, pricing, photos when required, and commercial terms."],
@@ -730,7 +750,18 @@ export const marketplaceService = {
         "Unpublish Listing",
         "Remove a listing from buyer discovery while keeping it seller-manageable.",
         "listings.manage",
-        mutationInput("listingId", "Listing to unpublish."),
+        objectSchema(
+          {
+            accountId: stringProperty("Authenticated account scope."),
+            listingId: stringProperty("Listing to unpublish."),
+            reason: stringProperty("Business reason for the action."),
+            idempotencyKey: listingAttemptKeyProperty,
+            requestHash: listingRequestHashProperty,
+            confirmationText: stringProperty("Exact user or policy confirmation text."),
+            dryRun: booleanProperty("Validate the action without committing it."),
+          },
+          ["accountId", "listingId", "reason", "idempotencyKey", "requestHash", "confirmationText"],
+        ),
         "listing",
         ["Use when the seller wants to stop buyer discovery without withdrawing the listing permanently."],
       ),

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { t } from "@chase-sets/localization";
 import {
   Button,
@@ -22,6 +23,8 @@ import type { InventoryItemDetail } from "./contracts";
 // of a cross-context dependency.
 export function ListFromInventoryDrawer({ item }: { item: InventoryItemDetail }) {
   const itemLabel = item.item_title ?? item.catalog_catalog_item_id;
+  // The Marketplace create route's Listing attempt: a resubmitted drawer returns its first Listing.
+  const [attemptId] = useState(() => crypto.randomUUID());
 
   return (
     <SideSheet
@@ -34,6 +37,7 @@ export function ListFromInventoryDrawer({ item }: { item: InventoryItemDetail })
       <Form spacing="none" method="post" action="/account/listings/new" encType="multipart/form-data">
         <Stack gap={3}>
           <HiddenInput type="hidden" name="inventoryItemId" value={item.item_id} />
+          <HiddenInput type="hidden" name="attemptId" value={attemptId} />
           <Text tone="secondary">
             {t("inventory.features.inventoryItems.ui.listFromInventoryDrawer.available", {
               item: itemLabel,

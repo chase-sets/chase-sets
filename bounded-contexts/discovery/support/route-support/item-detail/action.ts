@@ -630,6 +630,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
       const priceCurrencyCode = String(formData.get("priceCurrencyCode") ?? "");
       const quantityCap = parsePositiveQuantity(formData.get("quantityCap"));
+      // One browser attempt per submitted form; each Listing command binds it to its own kind and target.
+      const idempotencyKey = String(formData.get("attemptId") ?? "");
 
       if (listingId) {
         await requireActorFromAuthApi({
@@ -641,10 +643,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
           priceAmount,
           priceCurrencyCode,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
+          idempotencyKey,
         });
         const result = await marketplaceApi.updateListingQuantityCap(listingId, {
           quantityCap,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
+          idempotencyKey,
         });
         return redirect(
           await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
@@ -688,12 +692,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
             priceAmount,
             priceCurrencyCode,
             quantityCap,
+            idempotencyKey,
           }
         : {
             inventoryItemId: "",
             priceAmount,
             priceCurrencyCode,
             quantityCap,
+            idempotencyKey,
             inventorySnapshot: (
               await inventoryApi.ensureListingStock({
                 catalogItemId: item.catalog_item_id,
@@ -702,7 +708,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
               })
             ).snapshot,
           };
-      const result = (await marketplaceApi.createListing(listingBody)) as ListingCommandResult;
+      const result = (await marketplaceApi.createListing({ ...listingBody, idempotencyKey })) as ListingCommandResult;
       const createdListingId = listingCommandId(result);
       const writeResults: unknown[] = [result];
 
@@ -710,6 +716,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         writeResults.push(
           await marketplaceApi.publishListing(createdListingId, {
             feeQuoteFingerprint: listingFeeQuoteFingerprint(result),
+            idempotencyKey,
           }),
         );
       } else {

@@ -31,6 +31,9 @@ export function buildMarketplaceSettlementNegativeBalanceProjectionHandlers(
           reasonCategory: "operations",
           availableAgainOn: null,
           availableAgainAt: null,
+          // The source fact is the attempt: a projection replay of this event returns the first receipt and
+          // never disables a seller who re-enabled after it.
+          idempotencyKey: `negative-balance_${event.id.replace(/[^A-Za-z0-9_-]/g, "_")}`.slice(0, 128),
         },
         marketplaceSystemContext(data.accountId),
       );

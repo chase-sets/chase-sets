@@ -92,6 +92,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
           priceAmount: "150.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
+          idempotencyKey: randomUUID(),
           inventorySnapshot: {
             inventoryItemId: item.item_id,
             catalogItemId: item.catalog_catalog_item_id,
@@ -113,7 +114,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
     listingId = listing.id;
     await committed(
       await page.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
-        data: { feeQuoteFingerprint: listing.feeQuoteFingerprint },
+        data: { feeQuoteFingerprint: listing.feeQuoteFingerprint, idempotencyKey: randomUUID() },
       }),
       200,
     );

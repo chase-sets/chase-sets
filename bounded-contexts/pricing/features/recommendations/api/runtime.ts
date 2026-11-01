@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -70,7 +71,13 @@ export type PricingMarketplaceListingOutcome = Readonly<{
 export type PricingMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
     body: Readonly<{
-      updates: readonly Readonly<{ listingId: string; priceAmount: string; priceCurrencyCode: string }>[];
+      batchId: string;
+      updates: readonly Readonly<{
+        listingId: string;
+        priceAmount: string;
+        priceCurrencyCode: string;
+        idempotencyKey: string;
+      }>[];
     }>,
     options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<Readonly<{ items: readonly PricingMarketplaceListingOutcome[] }>>;
@@ -81,6 +88,7 @@ export type PricingMarketplaceListingGateway = Readonly<{
       priceCurrencyCode: string;
       quantityCap: number;
       listingIdOverride?: string;
+      idempotencyKey: string;
     }>,
     options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<{ id?: string; listing_id?: string }>;
@@ -731,10 +739,12 @@ export function createPricingRecommendationRuntime(
       const bulkResult = await runPricingJobSideEffect(jobContext, (signal) =>
         params.marketplaceListings.applyBulkListingPriceUpdates(
           {
-            updates: bulkUpdates.map(({ listingId, priceAmount, priceCurrencyCode }) => ({
+            batchId: recommendationApplyBatchId(bulkUpdates.map((update) => update.recommendationId)),
+            updates: bulkUpdates.map(({ recommendationId, listingId, priceAmount, priceCurrencyCode }) => ({
               listingId,
               priceAmount,
               priceCurrencyCode,
+              idempotencyKey: recommendationAttemptKey(recommendationId),
             })),
           },
           { signal },
@@ -791,6 +801,7 @@ export function createPricingRecommendationRuntime(
                 priceCurrencyCode: row.market_currency,
                 quantityCap,
                 listingIdOverride: listingIdForPricingRecommendation(row.recommendation_id),
+                idempotencyKey: recommendationAttemptKey(row.recommendation_id),
               },
               { signal },
             ),
@@ -1249,6 +1260,23 @@ function pricingRecommendationCommandSnapshot(
 
 function listingIdForPricingRecommendation(recommendationId: string): string {
   return `lst_pricing_${recommendationId.replace(/[^A-Za-z0-9_]+/g, "_")}`;
+}
+
+/**
+ * One target attempt per recommendation: a recommendation applies at most once, so a retried apply job
+ * replays its Marketplace receipt instead of re-pricing or re-creating the Listing.
+ */
+function recommendationAttemptKey(recommendationId: string): string {
+  // A digest keeps every recommendation id, whatever its length or alphabet, inside the attempt-id shape.
+  return `rec-apply_${createHash("sha256").update(recommendationId).digest("hex").slice(0, 48)}`;
+}
+
+/** The batch id for one apply run's bulk call, stable for the same selected recommendations. */
+function recommendationApplyBatchId(recommendationIds: readonly string[]): string {
+  return `rec-batch_${createHash("sha256")
+    .update(JSON.stringify([...recommendationIds].sort()))
+    .digest("hex")
+    .slice(0, 48)}`;
 }
 
 function createPricingRecommendationJobId(): string {

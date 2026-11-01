@@ -430,6 +430,8 @@ export function MarketplaceListingCreatePage({
   hasListingStockLocation,
   evidenceReadinessApiUrl = DEFAULT_EVIDENCE_READINESS_API_URL,
   backHref = "/account/listings",
+  attemptId: routeAttemptId,
+  writesDisabled = false,
 }: {
   inventoryItems: readonly MarketplaceListingInventoryItemOption[];
   createForm?: {
@@ -449,7 +451,13 @@ export function MarketplaceListingCreatePage({
   hasListingStockLocation: boolean;
   evidenceReadinessApiUrl?: string;
   backHref?: string;
+  /** One create attempt per page: a resubmitted create returns its first Listing and never mints a second. */
+  attemptId?: string;
+  /** True while a possibly-sent create is unconfirmed. */
+  writesDisabled?: boolean;
 }) {
+  const [ownAttemptId] = useState(() => crypto.randomUUID());
+  const attemptId = routeAttemptId ?? ownAttemptId;
   const [inventoryItemId, setInventoryItemId] = useState(createForm?.inventoryItemId?.trim() ?? "");
   const [priceAmount, setPriceAmount] = useState(createForm?.priceAmount?.trim() ?? "");
   const [priceCurrencyCode, setPriceCurrencyCode] = useState(createForm?.priceCurrencyCode?.trim() ?? "");
@@ -614,6 +622,7 @@ export function MarketplaceListingCreatePage({
                   )}
                 />
               ) : null}
+              <HiddenInput type="hidden" name="attemptId" value={attemptId} />
               <HiddenInput type="hidden" name="catalogItemId" value={submittedCatalogItemId} />
               <HiddenInput type="hidden" name="selectedOptions" value={serializedSelectedOptions} />
               <Grid columns={{ base: 1, lg: 2 }} gap={5}>
@@ -843,6 +852,7 @@ export function MarketplaceListingCreatePage({
                   name="intent"
                   value="create-and-publish-listing"
                   disabled={
+                    writesDisabled ||
                     catalogSelectionBlocksMutation ||
                     selectedInventoryBlocksPublication ||
                     !evidenceReadiness?.coverage.complete
@@ -864,7 +874,7 @@ export function MarketplaceListingCreatePage({
                   name="intent"
                   value="create-listing"
                   tone="ghost"
-                  disabled={catalogSelectionBlocksMutation}
+                  disabled={writesDisabled || catalogSelectionBlocksMutation}
                 >
                   {t("marketplace.features.listings.ui.listingCreatePage.save.as.draft")}
                 </Button>

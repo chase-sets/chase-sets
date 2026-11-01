@@ -23,6 +23,8 @@ function actionArgs(intent: string) {
       method: "POST",
       body: new URLSearchParams({
         intent,
+        attemptId: "browser_attempt_00000001",
+        batchId: "browser_batch_000000001",
         listingIds: "lst_1",
         inventoryItemId: "inv_1",
         priceAmount: "10.00",
@@ -44,23 +46,20 @@ describe("presents only allowlisted Listing feedback", () => {
     new Error("postgres password=secret"),
     { body: { nested: "nested-secret-body" } },
     json({ secret: "nested-secret-body" }, 500),
-  ])("redacts unknown action rejections before the root boundary: %s", async (failure) => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request) => {
-        if (String(input).includes("/api/auth/session")) return json({ actor });
-        throw failure;
-      }),
-    );
-    let result: unknown;
-    try {
-      await listingsAction(actionArgs("set-order-capacity"));
-    } catch (error) {
-      result = error;
-    }
-    expect(result).toBeInstanceOf(Response);
-    expect((result as Response).status).toBe(500);
-    expect(await (result as Response).text()).not.toMatch(/password=secret|nested-secret-body/);
+  ])("turns a possibly-sent command failure into one redacted lookup and an ambiguous result: %s", async (failure) => {
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes("/api/auth/session")) return json({ actor });
+      throw failure;
+    });
+    vi.stubGlobal("fetch", fetch);
+    const result = await listingsAction(actionArgs("set-order-capacity"));
+    expect(result).toMatchObject({ recovery: "ambiguous", error: t("marketplace.listingRecovery.ambiguous") });
+    expect(inspect(result, { depth: null })).not.toMatch(/password=secret|nested-secret-body/);
+    const commandCalls = fetch.mock.calls
+      .map(([input]) => String(input))
+      .filter((url) => !url.includes("/api/auth/session"));
+    expect(commandCalls).toHaveLength(2);
+    expect(commandCalls[1]).toContain("/mutation-attempts/browser_attempt_00000001?");
   });
   it.each([
     [listingsAction, "set-order-capacity", "order_capacity_invalid", "orderCapacityInvalid"],
@@ -80,44 +79,58 @@ describe("presents only allowlisted Listing feedback", () => {
   });
 
   it.each([
-    [listingsAction, "set-order-capacity"],
-    [listingsAction, "bulk-pause-listings"],
-    [listingsAction, "bulk-withdraw-listings"],
-    [listingsNewAction, "create-listing"],
-    [listingsNewAction, "create-and-publish-listing"],
-    [listingsNewAction, "preview-listing"],
-  ] as const)("sends unknown 5xx to the existing boundary, never seller action data: %s %s", async (action, intent) => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request) =>
-        String(input).includes("/api/auth/session")
-          ? json({ actor })
-          : json(
-              {
-                error: {
-                  code: "internal_error",
-                  message: "postgres password=secret",
-                  nested: { body: "nested-secret-body" },
+    [listingsAction, "set-order-capacity", "ambiguous"],
+    [listingsAction, "bulk-pause-listings", "unknown"],
+    [listingsAction, "bulk-withdraw-listings", "unknown"],
+    [listingsNewAction, "create-listing", "ambiguous"],
+    [listingsNewAction, "create-and-publish-listing", "ambiguous"],
+    [listingsNewAction, "preview-listing", "boundary"],
+  ] as const)(
+    "redacts an unknown 5xx for %s %s without exposing seller action data",
+    async (action, intent, expected) => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/api/auth/session")
+            ? json({ actor })
+            : json(
+                {
+                  error: {
+                    code: "internal_error",
+                    message: "postgres password=secret",
+                    nested: { body: "nested-secret-body" },
+                  },
                 },
-              },
-              500,
-            ),
-      ),
-    );
-    let failure: unknown;
-    try {
-      await action(actionArgs(intent));
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(Response);
-    const response = failure as Response;
-    expect(response.status).toBe(500);
-    expect([await response.text(), inspect(log.mock.calls, { depth: null })].join()).not.toMatch(
-      /password=secret|nested-secret-body/,
-    );
-  });
+                500,
+              ),
+        ),
+      );
+      let failure: unknown;
+      let result: unknown;
+      try {
+        result = await action(actionArgs(intent));
+      } catch (error) {
+        failure = error;
+      }
+      if (expected === "boundary") {
+        // A read-only preview has no possible-send state, so it keeps the existing root boundary.
+        expect(failure).toBeInstanceOf(Response);
+        expect((failure as Response).status).toBe(500);
+        expect(await (failure as Response).text()).not.toMatch(/password=secret|nested-secret-body/);
+      } else if (expected === "unknown") {
+        // A possibly-sent bulk target is `unknown`, the only state a retry may send again.
+        expect(result).toMatchObject({
+          bulkBatch: { outcomes: [{ listingId: "lst_1", outcome: "unknown", message: null }] },
+        });
+      } else {
+        expect(result).toMatchObject({ recovery: "ambiguous" });
+      }
+      expect([inspect(result, { depth: null }), inspect(log.mock.calls, { depth: null })].join()).not.toMatch(
+        /password=secret|nested-secret-body/,
+      );
+    },
+  );
 
   it("keeps a non-admitted bulk 4xx as a redacted per-row outcome", async () => {
     vi.stubGlobal(
@@ -129,7 +142,7 @@ describe("presents only allowlisted Listing feedback", () => {
       ),
     );
     const result = await listingsAction(actionArgs("bulk-pause-listings"));
-    expect(result).toMatchObject({ bulkActionOutcomes: [{ listingId: "lst_1", outcome: "error" }] });
+    expect(result).toMatchObject({ bulkBatch: { outcomes: [{ listingId: "lst_1", outcome: "error" }] } });
     expect(inspect(result, { depth: null })).not.toContain("password=secret");
   });
 
@@ -148,11 +161,12 @@ describe("presents only allowlisted Listing feedback", () => {
         ),
       ),
     });
-    await expect(client.pauseListing("lst_1")).rejects.toMatchObject({
+    const attempt = { idempotencyKey: "browser_attempt_00000001" };
+    await expect(client.pauseListing("lst_1", attempt)).rejects.toMatchObject({
       status: 400,
       body: { error: { code: "listing_command_rejected" } },
       message: t("marketplace.features.listings.api.route.error.commandRejected"),
     });
-    await expect(client.pauseListing("lst_1")).rejects.toBeInstanceOf(MarketplaceApiError);
+    await expect(client.pauseListing("lst_1", attempt)).rejects.toBeInstanceOf(MarketplaceApiError);
   });
 });

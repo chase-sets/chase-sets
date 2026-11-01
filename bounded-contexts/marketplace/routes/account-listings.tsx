@@ -3,6 +3,15 @@ import { listingActionFeedback, throwListingActionFailure } from "../features/li
 import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
+import { useEffect, useState } from "react";
+import { MarketplaceCommandRecoveryError } from "../client";
+import {
+  mergeListingBatchVector,
+  readStoredListingBatch,
+  storeListingBatch,
+  unknownListingBatchTargets,
+  type ListingBatchVector,
+} from "../features/listings/ui/listing-batch";
 import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
@@ -354,8 +363,18 @@ async function fetchSellerOpenOrderCount(request: Request): Promise<number | nul
   }
 }
 
+/** A bulk target's terminal outcome; only a possibly-sent, unconfirmed command is `unknown`. */
+function bulkTargetOutcome(error: unknown): MarketplaceListingBulkActionOutcome["outcome"] {
+  if (error instanceof MarketplaceCommandRecoveryError) return error.phase === "ambiguous" ? "unknown" : "error";
+  const status = marketplaceApiErrorAdapter.getStatus(error);
+  if (status === 409) return "conflict";
+  return status !== null && status >= 400 && status < 500 ? "error" : "unknown";
+}
+
 async function handleAction(intent: string, { request, formData }: FormActionContext) {
   const api = createMarketplaceRequestApiClient(request);
+  // The page's seller-account attempt; each command binds it to its own kind.
+  const attempt = { idempotencyKey: String(formData.get("attemptId") ?? "") };
 
   try {
     if (intent === "disable-listing-availability") {
@@ -369,6 +388,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
             // never ran, which the domain treats as informational-only,
             // same as before this instant existed.
             availableAgainAt: String(formData.get("availableAgainAt") ?? ""),
+            ...attempt,
           }),
           `/account/listings?${AVAILABILITY_ACTION_PARAM}=disabled`,
         ),
@@ -378,7 +398,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
     if (intent === "enable-listing-availability") {
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.enableSellerListingAvailability(),
+          await api.enableSellerListingAvailability(attempt),
           `/account/listings?${AVAILABILITY_ACTION_PARAM}=enabled`,
         ),
       );
@@ -397,6 +417,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
             // the disable form's availableAgainAt.
             startsAt,
             endsAt,
+            ...attempt,
           }),
           settingsDestination(SETTINGS_ACTIONS.scheduleAwayWindow, {
             awayWindowReasonCategory: reasonCategory,
@@ -410,7 +431,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
     if (intent === "cancel-away-window") {
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.cancelScheduledAwayWindow(),
+          await api.cancelScheduledAwayWindow(attempt),
           settingsDestination(SETTINGS_ACTIONS.cancelAwayWindow),
         ),
       );
@@ -420,7 +441,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       const maxOpenOrders = Number(formData.get("maxOpenOrders") ?? "");
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.setSellerOrderCapacity(maxOpenOrders),
+          await api.setSellerOrderCapacity(maxOpenOrders, attempt),
           settingsDestination(SETTINGS_ACTIONS.setOrderCapacity, { maxOpenOrders: String(maxOpenOrders) }),
         ),
       );
@@ -429,7 +450,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
     if (intent === "clear-order-capacity") {
       return redirect(
         await navigateToAccountListingsAfterWrite(
-          await api.clearSellerOrderCapacity(),
+          await api.clearSellerOrderCapacity(attempt),
           settingsDestination(SETTINGS_ACTIONS.clearOrderCapacity),
         ),
       );
@@ -444,34 +465,52 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
             .filter(Boolean),
         ),
       ];
+      // One batch id, one target attempt per Listing: a retried batch carries only its `unknown` targets.
+      const batchAttempt = { idempotencyKey: String(formData.get("batchId") ?? "") };
       const bulkActionOutcomes: MarketplaceListingBulkActionOutcome[] = await Promise.all(
         listingIds.map(async (listingId) => {
           try {
-            await (intent === "bulk-pause-listings" ? api.pauseListing(listingId) : api.withdrawListing(listingId));
+            await (intent === "bulk-pause-listings"
+              ? api.pauseListing(listingId, batchAttempt)
+              : api.withdrawListing(listingId, batchAttempt));
             return {
               listingId,
               label: bulkActionOutcomeLabel(listingId),
-              outcome: "success" as const,
+              outcome: "succeeded" as const,
               message: null,
             };
           } catch (error) {
-            const status = marketplaceApiErrorAdapter.getStatus(error);
-            if (status === null || status < 400 || status >= 500) throwListingActionFailure(error);
+            const outcome = bulkTargetOutcome(error);
             return {
               listingId,
               label: bulkActionOutcomeLabel(listingId),
-              outcome: "error" as const,
-              message: bulkActionOutcomeErrorMessage(error),
+              outcome,
+              message: outcome === "unknown" ? null : bulkActionOutcomeErrorMessage(error),
             };
           }
         }),
       );
 
-      return { bulkActionOutcomes };
+      return {
+        bulkBatch: {
+          batchId: batchAttempt.idempotencyKey,
+          intent,
+          outcomes: bulkActionOutcomes,
+        } satisfies ListingBatchVector,
+      };
     }
 
     return redirect("/account/listings");
   } catch (error) {
+    if (error instanceof MarketplaceCommandRecoveryError)
+      return {
+        recovery: error.phase,
+        error: t(
+          error.phase === "ambiguous"
+            ? "marketplace.listingRecovery.ambiguous"
+            : "marketplace.listingRecovery.failedSafe",
+        ),
+      };
     const feedback = listingActionFeedback(error);
     if (feedback !== null) {
       return {
@@ -610,6 +649,21 @@ function MarketplaceAccountListingsRealtimeView({
       }),
     onSyncRequired: reloadForRealtimeSync,
   });
+  const actionBatch = actionData && "bulkBatch" in actionData ? actionData.bulkBatch : null;
+  const [batch, setBatch] = useState<ListingBatchVector | null>(null);
+  // The retained vector survives a reload; a returned retry result only fills targets left `unknown`.
+  useEffect(() => {
+    const storage = typeof window === "undefined" ? null : window.sessionStorage;
+    const merged = actionBatch
+      ? mergeListingBatchVector(readStoredListingBatch(storage), actionBatch)
+      : readStoredListingBatch(storage);
+    storeListingBatch(storage, merged);
+    setBatch(merged);
+  }, [actionBatch]);
+  const [nextBatchId, setNextBatchId] = useState(() => crypto.randomUUID());
+  useEffect(() => {
+    if (batch && unknownListingBatchTargets(batch).length === 0) setNextBatchId(crypto.randomUUID());
+  }, [batch]);
 
   return (
     <MarketplaceListingListPage
@@ -621,8 +675,10 @@ function MarketplaceAccountListingsRealtimeView({
       orderCapacity={data.orderCapacity as MarketplaceSellerOrderCapacity}
       openOrderCount={data.openOrderCount}
       filters={data.filters}
-      bulkActionOutcomes={actionData?.bulkActionOutcomes ?? null}
-      errorMessage={actionData?.error ?? null}
+      bulkBatch={batch}
+      bulkBatchId={unknownListingBatchTargets(batch).length > 0 ? batch!.batchId : nextBatchId}
+      recovery={actionData && "recovery" in actionData ? actionData.recovery : null}
+      errorMessage={actionData && "recovery" in actionData ? null : (actionData?.error ?? null)}
       sellerBehavioralMetrics={data.sellerBehavioralMetrics}
     />
   );

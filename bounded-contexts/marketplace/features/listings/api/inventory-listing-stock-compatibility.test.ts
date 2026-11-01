@@ -1,3 +1,4 @@
+import { sendListingCommandsWithFreshAttempts } from "../tests/listing-attempt-test-support";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as inventoryModule } from "@chase-sets/inventory";
@@ -99,7 +100,7 @@ function harness() {
     feeQuoteFingerprint: null,
     state: initialMarketplaceListingState,
   });
-  const app = new Hono<MarketplaceApiEnv>();
+  const app = sendListingCommandsWithFreshAttempts(new Hono<MarketplaceApiEnv>());
   app.use("*", async (c, next) => {
     c.set("actor", {
       sessionId: "ses_snapshot",

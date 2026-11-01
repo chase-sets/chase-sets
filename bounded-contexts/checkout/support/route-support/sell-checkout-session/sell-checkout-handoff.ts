@@ -229,18 +229,23 @@ export async function performMarketplaceHandoff(
 
     if ((readinessAction === "fallback-listing" || review.fallbackListing) && review.fallbackListing) {
       const listingIdOverride = reviewedListingId(confirmationId, line.line_id);
+      // The reviewed Listing id is deterministic per confirmation line, so it is also the line's Listing attempt;
+      // the attempt fingerprint binds each key to its own inventory item or Listing target.
+      const idempotencyKey = listingIdOverride.slice(0, 128);
       const createdListing = await marketplaceApi.createListing({
         inventoryItemId: review.fallbackListing.inventoryItemId,
         priceAmount: review.fallbackListing.priceAmount,
         priceCurrencyCode: review.fallbackListing.priceCurrencyCode,
         quantityCap: review.fallbackListing.quantityCap,
         listingIdOverride,
+        idempotencyKey,
       });
       writeResults.push(createdListing);
       listingId = responseString(createdListing, "id", "listingId", "listing_id") || listingIdOverride;
       try {
         const result = await marketplaceApi.publishListing(listingId, {
           feeQuoteFingerprint: responseString(createdListing, "feeQuoteFingerprint", "fee_quote_fingerprint") || null,
+          idempotencyKey,
         });
         writeResults.push(result);
       } catch (error) {

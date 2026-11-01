@@ -330,6 +330,7 @@ describe("marketplace listing detail route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "publish");
+    form.set("attemptId", "listing_page_attempt_0001");
     form.set("feeQuoteFingerprint", "quote-1");
 
     const result = await listingAction({
@@ -384,6 +385,7 @@ describe("marketplace listing detail route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "update-price");
+    form.set("attemptId", "listing_page_attempt_0001");
     form.set("priceAmount", "20.00");
     form.set("priceCurrencyCode", "USD");
     form.set("feeQuoteFingerprint", "stale-fingerprint");
@@ -427,7 +429,11 @@ describe("marketplace listing detail route", () => {
         );
       }),
     );
-    const form = new URLSearchParams({ intent: "publish", feeQuoteFingerprint: "quote-1" });
+    const form = new URLSearchParams({
+      intent: "publish",
+      feeQuoteFingerprint: "quote-1",
+      attemptId: "listing_page_attempt_0001",
+    });
 
     const result = await listingAction({
       request: new Request("http://localhost/account/listings/lst_1", {
@@ -505,6 +511,7 @@ describe("marketplace listing detail route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "update-price");
+    form.set("attemptId", "listing_page_attempt_0001");
     form.set("priceAmount", "20.00");
     form.set("priceCurrencyCode", "USD");
     form.set("feeQuoteFingerprint", "current-fingerprint");

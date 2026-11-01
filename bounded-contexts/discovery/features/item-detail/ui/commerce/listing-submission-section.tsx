@@ -109,6 +109,8 @@ export function MarketplaceListingSubmissionSection({
   errorMessage?: string | null;
 }) {
   const [priceCurrencyCode, setPriceCurrencyCode] = useState("");
+  // One Listing attempt per mounted form: a resubmission of the same form replays its first result.
+  const [attemptId] = useState(() => crypto.randomUUID());
   const listing = ownListing ?? null;
   const listPrice = listing?.price_amount ?? bestListing?.price_amount ?? "";
   const defaultQuantity = listing?.quantity_cap ?? 1;
@@ -160,6 +162,7 @@ export function MarketplaceListingSubmissionSection({
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
         <HiddenInput type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
+        <HiddenInput type="hidden" name="attemptId" value={attemptId} />
         {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">

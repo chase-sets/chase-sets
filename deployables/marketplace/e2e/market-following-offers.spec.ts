@@ -377,6 +377,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
               priceAmount: fixture.amount,
               priceCurrencyCode: "USD",
               quantityCap: 2,
+              idempotencyKey: crypto.randomUUID(),
             },
           });
           expect(listing.status(), "create test-owned stock; the seeded demo Listing is withdrawn").toBe(201);
@@ -384,7 +385,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           const draft = await listing.json();
           listingId = draft.id;
           const published = await seller.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
-            data: { feeQuoteFingerprint: draft.feeQuoteFingerprint },
+            data: { feeQuoteFingerprint: draft.feeQuoteFingerprint, idempotencyKey: crypto.randomUUID() },
           });
           expect(published.ok(), "publish the test-owned two-unit Listing through its normal gates").toBe(true);
           rememberWrite(published);

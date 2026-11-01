@@ -50,8 +50,11 @@ import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRo
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
 import {
+  enumerateListingAttemptCallers,
   enumerateMarketplaceAttemptCallers,
+  listingCallerPattern,
   readTrackedMarketplaceCallerSources,
+  unpartitionedListingCallers,
   unpartitionedMarketplaceOfferCallers,
 } from "./marketplace-attempt-callers.mjs";
 import { scanTcgplayerHostCredentialPolicy } from "./tcgplayer-host-credential-guard.mjs";
@@ -3961,6 +3964,11 @@ export async function runStructureCheck(options = {}) {
     ...unpartitionedMarketplaceOfferCallers(
       enumerateMarketplaceAttemptCallers(readTrackedMarketplaceCallerSources(repoRoot)),
     ).map(({ path, line, method }) => `${path}:${line}: Unpartitioned Marketplace attempt caller: ${method}`),
+  );
+  violations.push(
+    ...unpartitionedListingCallers(
+      enumerateListingAttemptCallers(readTrackedMarketplaceCallerSources(repoRoot, listingCallerPattern)),
+    ).map(({ path, line, method }) => `${path}:${line}: Unpartitioned Listing attempt caller: ${method}`),
   );
 
   const retentionSweepCoverageResult = await validateRetentionSweepCoverage({ repoRoot });

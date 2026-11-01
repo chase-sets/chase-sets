@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
@@ -906,6 +907,7 @@ export async function seedMarketplaceDatabase(
           quantityCap: listing.quantityCap,
           listingIdOverride: seededListingId,
           listingPhotoUploads: [],
+          idempotencyKey: seedListingAttemptKey("create", seededListingId),
         },
         listingContext,
       );
@@ -936,33 +938,35 @@ export async function seedMarketplaceDatabase(
             listingId: seededListingId,
             feeQuoteFingerprint:
               feeQuoteFingerprint ?? (await services.listings.loadListingState(seededListingId)).feeQuoteFingerprint,
+            idempotencyKey: seedListingAttemptKey(
+              "publish",
+              seededListingId,
+              (await loadSeedListingState(services.db, seededListingId)).committed.length,
+            ),
           },
           listingContext,
         );
       }
     }
 
-    if (
-      listing.finalStatus === "paused" &&
-      (await loadSeedListingState(services.db, seededListingId)).state.status !== "paused"
-    ) {
+    const beforeFinal = await loadSeedListingState(services.db, seededListingId);
+    if (listing.finalStatus === "paused" && beforeFinal.state.status !== "paused") {
       await services.listings.pauseListing(
         {
           accountId,
           listingId: seededListingId,
+          idempotencyKey: seedListingAttemptKey("pause", seededListingId, beforeFinal.committed.length),
         },
         listingContext,
       );
     }
 
-    if (
-      listing.finalStatus === "withdrawn" &&
-      (await loadSeedListingState(services.db, seededListingId)).state.status !== "withdrawn"
-    ) {
+    if (listing.finalStatus === "withdrawn" && beforeFinal.state.status !== "withdrawn") {
       await services.listings.withdrawListing(
         {
           accountId,
           listingId: seededListingId,
+          idempotencyKey: seedListingAttemptKey("withdraw", seededListingId, beforeFinal.committed.length),
         },
         listingContext,
       );
@@ -1050,7 +1054,7 @@ const identityAnchorCatalogItemIds = [
   catalogScenarioItems.charizardBaseSet,
 ] as const;
 
-async function withdrawStrayRepresentativeListings(
+export async function withdrawStrayRepresentativeListings(
   services: MarketplaceServices,
   context: EventStoreContext,
 ): Promise<void> {
@@ -1063,9 +1067,33 @@ async function withdrawStrayRepresentativeListings(
     [identityAnchorCatalogItemIds],
   );
 
+  // The projection only nominates candidates; the authoritative stream decides, so a lagging projection on a
+  // same-boot repeat or restart never re-authors a withdrawal, and the deterministic attempt replays.
   for (const row of result.rows) {
-    await services.listings.withdrawListing({ accountId: row.account_id, listingId: row.listing_id }, context);
+    const authoritative = await loadSeedListingState(services.db, row.listing_id);
+    if (authoritative.state.listingId === null || authoritative.state.status === "withdrawn") continue;
+    if (authoritative.state.accountId !== row.account_id) continue;
+    await services.listings.withdrawListing(
+      {
+        accountId: row.account_id,
+        listingId: row.listing_id,
+        idempotencyKey: seedListingAttemptKey("withdraw-stray", row.listing_id, authoritative.committed.length),
+      },
+      context,
+    );
   }
+}
+
+/**
+ * A seed-authored Listing command's deterministic attempt, bound to the authoritative stream version it was
+ * decided at: a repeated or resumed boot at that version replays the first receipt and appends nothing, while a
+ * later seller change moves the version, so a re-decided command is a new attempt rather than a stale replay.
+ */
+export function seedListingAttemptKey(command: string, listingId: string, observedVersion = 0): string {
+  const key = `seed-listing-${command}_v${observedVersion}_${listingId.replace(/[^A-Za-z0-9_-]+/g, "_")}`;
+  return key.length <= 128
+    ? key
+    : `seed-listing-${command}_v${observedVersion}_${createHash("sha256").update(listingId).digest("hex")}`;
 }
 
 function createReputationSeedContext(accountId: string, userId: string): EventStoreContext {

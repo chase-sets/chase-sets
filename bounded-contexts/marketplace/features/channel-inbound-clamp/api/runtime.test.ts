@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS } from "../domain/contracts";
-import { createMarketplaceChannelInboundClampRuntime } from "./runtime";
+import { clampReleaseAttemptKey, createMarketplaceChannelInboundClampRuntime } from "./runtime";
+import { listingAttempt } from "../../listings/api/listing-attempt";
 
 const context: EventStoreContext = {
   tenantId: "tenant-synthetic" as never,
@@ -72,6 +73,84 @@ describe("marketplace-channel-inbound-clamp membership reconciliation", () => {
     expect(listings.commandHandler).not.toHaveBeenCalled();
   });
 });
+
+describe("marketplace-channel-inbound-clamp release attempts", () => {
+  it("converges a resumed recover on its recorded release with no second publish", async () => {
+    const database = recoverDatabase({ releaseRecorded: true });
+    const listings = { ...unreachableListings(), publishListing: vi.fn() };
+    const runtime = createMarketplaceChannelInboundClampRuntime(database as never, listings as never);
+
+    await expect(runtime.recover(input(), context)).resolves.toMatchObject({
+      kind: "released",
+      releasedListingCount: 1,
+      recoveryListingCount: 0,
+    });
+    expect(listings.publishListing).not.toHaveBeenCalled();
+    expect(listings.loadListingState).not.toHaveBeenCalled();
+    const expected = listingAttempt({
+      idempotencyKey: clampReleaseAttemptKey(input(), "listing-a"),
+      mutationKind: "listing.publish",
+      accountId: input().accountId,
+      targetId: "listing-a",
+      request: { listingId: "listing-a" },
+    });
+    expect(database.lookups).toEqual([
+      [
+        `${expected.eventIdPrefix}:0`,
+        "marketplace.listing-listing-a",
+        input().accountId,
+        expected.binding.canonicalRequestHash,
+      ],
+    ]);
+  });
+
+  it("sends one stable release attempt per run and Listing across a same-boot repeat and a restart", async () => {
+    const database = recoverDatabase({ releaseRecorded: false });
+    const listings = {
+      ...unreachableListings(),
+      publishListing: vi.fn(async () => ({ listingId: "listing-a", version: 4 })),
+      loadListingState: vi.fn(async () => ({
+        listingId: "listing-a",
+        accountId: "account-synthetic",
+        status: "paused",
+        pauseReason: "channel-inbound-dark",
+      })),
+    };
+    await createMarketplaceChannelInboundClampRuntime(database as never, listings as never).recover(input(), context);
+    await createMarketplaceChannelInboundClampRuntime(database as never, listings as never).recover(input(), context);
+
+    expect(listings.publishListing).toHaveBeenCalledTimes(2);
+    const keys = listings.publishListing.mock.calls.map(
+      (call) => (call as unknown as [{ idempotencyKey: string }])[0].idempotencyKey,
+    );
+    expect(new Set(keys)).toEqual(new Set([clampReleaseAttemptKey(input(), "listing-a")]));
+    expect(clampReleaseAttemptKey({ ...input(), runId: "run-other" }, "listing-a")).not.toBe(keys[0]);
+  });
+});
+
+function recoverDatabase(options: Readonly<{ releaseRecorded: boolean }>) {
+  const lookups: unknown[][] = [];
+  return {
+    lookups,
+    connect: vi.fn(),
+    query: vi.fn(async (sql: string, parameters?: readonly unknown[]) => {
+      if (sql.includes("WITH requested AS")) {
+        return { rows: [{ listing_id: "listing-requested", inventory_item_id: "inventory-shared" }] };
+      }
+      if (sql.includes("SELECT listing_id,paused_stream_version")) {
+        return { rows: [{ listing_id: "listing-a", paused_stream_version: 3 }] };
+      }
+      if (sql.includes("AS owner")) return { rows: [] };
+      if (sql.includes("FROM event_store_events")) {
+        lookups.push([...(parameters ?? [])]);
+        return { rows: options.releaseRecorded ? [{ "?column?": 1 }] : [] };
+      }
+      if (sql.includes("SELECT stream.current_version")) return { rows: [{ current_version: 3 }] };
+      if (sql.includes("SET state='released'")) return { rows: [], rowCount: 1 };
+      throw new Error(`Unexpected recover query: ${sql}`);
+    }),
+  };
+}
 
 function input() {
   return {

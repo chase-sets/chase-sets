@@ -142,6 +142,11 @@ export type RepresentativeListingPhotoUpload = Readonly<{
   altText?: string | null;
 }>;
 
+/** A representative refresh's deterministic Listing attempt: a resumed or repeated refresh replays its first receipt. */
+function representativeListingAttemptKey(command: string, listingId: string): string {
+  return `repr-listing-${command}_${listingId}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 128);
+}
+
 export type RepresentativeMarketplaceServices = Readonly<{
   db: RepresentativeQueryable;
   listings: Readonly<{
@@ -154,11 +159,17 @@ export type RepresentativeMarketplaceServices = Readonly<{
         quantityCap: number;
         listingIdOverride?: ListingId;
         listingPhotoUploads?: readonly RepresentativeListingPhotoUpload[] | null;
+        idempotencyKey: string;
       }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ listingId: string; version: number; feeQuoteFingerprint: string }>>;
     publishListing: (
-      params: Readonly<{ accountId: AccountId; listingId: string; feeQuoteFingerprint: string }>,
+      params: Readonly<{
+        accountId: AccountId;
+        listingId: string;
+        feeQuoteFingerprint: string;
+        idempotencyKey: string;
+      }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ listingId: string; version: number }>>;
     updateListingPrice: (
@@ -167,6 +178,7 @@ export type RepresentativeMarketplaceServices = Readonly<{
         listingId: string;
         priceAmount: string;
         priceCurrencyCode: string;
+        idempotencyKey: string;
       }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ listingId: string; version: number }>>;
@@ -829,6 +841,11 @@ export async function publishRepresentativeListings(
             listingId,
             priceAmount,
             priceCurrencyCode: "USD",
+            // Bound to the observed version: a later price change makes a re-repair a new attempt, not a replay.
+            idempotencyKey: representativeListingAttemptKey(
+              `price-${priceAmount}-v${existing.listingStreamVersion ?? 0}`,
+              listingId,
+            ),
           },
           representativeSeedContext,
         );
@@ -853,17 +870,21 @@ export async function publishRepresentativeListings(
       continue;
     }
 
+    const quantityCap = Math.max(1, Math.min(stock.totalQuantity, index % 2 === 0 ? 2 : 4));
     const created = await services.listings.createListing(
       {
         accountId: stock.accountId as AccountId,
         inventoryItemId: stock.inventoryItemId,
         priceAmount,
         priceCurrencyCode: "USD",
-        quantityCap: Math.max(1, Math.min(stock.totalQuantity, index % 2 === 0 ? 2 : 4)),
+        quantityCap,
         listingIdOverride: listingId as ListingId,
         // A retained draft already carries its creation photo evidence;
         // re-uploading on resume would append duplicate photo events.
         listingPhotoUploads: existing?.status === "draft" ? null : buildRepresentativeListingPhotoUpload(listingId),
+        // Every create fact is in the key, so a refresh whose stock moved resumes the retained draft (the
+        // explicit Listing id) instead of conflicting with its own earlier attempt.
+        idempotencyKey: representativeListingAttemptKey(`create-${priceAmount}-${quantityCap}`, listingId),
       },
       representativeSeedContext,
     );
@@ -873,6 +894,7 @@ export async function publishRepresentativeListings(
         accountId: stock.accountId as AccountId,
         listingId: created.listingId,
         feeQuoteFingerprint: created.feeQuoteFingerprint,
+        idempotencyKey: representativeListingAttemptKey("publish", created.listingId),
       },
       representativeSeedContext,
     );

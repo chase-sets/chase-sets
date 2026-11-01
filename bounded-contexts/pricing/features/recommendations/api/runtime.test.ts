@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
@@ -409,7 +410,17 @@ describe("pricing recommendation runtime", () => {
     // previewListingTerms + updateListingPrice pair per listing.
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(1);
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
-      { updates: [{ listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" }] },
+      {
+        batchId: expect.stringMatching(/^rec-batch_[a-f0-9]{48}$/),
+        updates: [
+          {
+            listingId: "lst_1",
+            priceAmount: "17.99",
+            priceCurrencyCode: "USD",
+            idempotencyKey: recommendationAttemptKeyFor("rec_active"),
+          },
+        ],
+      },
       expect.any(Object),
     );
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.applied");
@@ -452,14 +463,54 @@ describe("pricing recommendation runtime", () => {
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(1);
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
       {
+        batchId: expect.stringMatching(/^rec-batch_[a-f0-9]{48}$/),
         updates: [
-          { listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" },
-          { listingId: "lst_2", priceAmount: "24.99", priceCurrencyCode: "USD" },
+          {
+            listingId: "lst_1",
+            priceAmount: "17.99",
+            priceCurrencyCode: "USD",
+            idempotencyKey: recommendationAttemptKeyFor("rec_active"),
+          },
+          {
+            listingId: "lst_2",
+            priceAmount: "24.99",
+            priceCurrencyCode: "USD",
+            idempotencyKey: recommendationAttemptKeyFor("rec_active_2"),
+          },
         ],
       },
       expect.any(Object),
     );
     expect(events.filter((event) => event.eventType === "pricing.recommendation.applied")).toHaveLength(2);
+  });
+
+  it("retries an interrupted apply with the same batch and per-recommendation target attempts", async () => {
+    const calls: unknown[] = [];
+    const gateway: PricingMarketplaceListingGateway = {
+      applyBulkListingPriceUpdates: vi.fn(async (body) => {
+        calls.push(body);
+        // The first response is lost after Marketplace committed; the retry replays the recorded target.
+        if (calls.length === 1) throw new Error("socket hang up");
+        return { items: [{ listingId: "lst_1", outcome: "applied" as const, version: 2 }] };
+      }),
+      createListing: vi.fn(async () => ({ id: "lst_created" })),
+    };
+    const { services } = createRuntime(queryStub({ recommendations: [proposedRecommendation] }));
+    await seedRecommendation(services, proposedRecommendation);
+    const apply = () =>
+      services
+        .applyRecommendations(
+          { accountId: "acc_1", recommendationIds: ["rec_active"], marketplaceListings: gateway },
+          context,
+        )
+        .catch(() => null);
+
+    await apply();
+    await apply();
+
+    expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(2);
+    expect(calls[1]).toEqual(calls[0]);
+    expect(calls[0]).toMatchObject({ updates: [{ idempotencyKey: recommendationAttemptKeyFor("rec_active") }] });
   });
 
   it("creates draft listings for unlisted inventory recommendations", async () => {
@@ -512,6 +563,7 @@ describe("pricing recommendation runtime", () => {
         priceCurrencyCode: "USD",
         quantityCap: 3,
         listingIdOverride: "lst_pricing_rec_create",
+        idempotencyKey: recommendationAttemptKeyFor("rec_create"),
       },
       expect.any(Object),
     );
@@ -671,3 +723,7 @@ describe("pricing recommendation runtime", () => {
     });
   });
 });
+
+function recommendationAttemptKeyFor(recommendationId: string) {
+  return `rec-apply_${createHash("sha256").update(recommendationId).digest("hex").slice(0, 48)}`;
+}

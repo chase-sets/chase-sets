@@ -4,6 +4,31 @@ import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createMarketplaceListingMcpHandlers } from "./mcp";
 import type { MarketplaceListingServices } from "./runtime";
+import { hashMarketplaceRequest } from "../../mutation-recovery/api/attempt";
+import { marketplaceCanonicalRequest } from "../../mutation-recovery/domain/contracts";
+
+const attempt = (
+  key: string,
+  kind: Parameters<typeof marketplaceCanonicalRequest>[0],
+  request: Record<string, unknown>,
+) => ({
+  idempotencyKey: key,
+  requestHash: hashMarketplaceRequest(marketplaceCanonicalRequest(kind, request)),
+});
+const createAttempt = attempt("mcp_create_attempt_000001", "listing.create", {
+  inventoryItemId: "inv_1",
+  priceAmount: "20.00",
+  priceCurrencyCode: "USD",
+  quantityCap: 2,
+  purchaseLimits: { maxUnitsPerOrder: 1 },
+});
+const priceAttempt = attempt("mcp_price_attempt_0000001", "listing.update-price", {
+  listingId: "lst_1",
+  priceAmount: "24.00",
+  priceCurrencyCode: "EUR",
+});
+const publishAttempt = attempt("mcp_publish_attempt_00001", "listing.publish", { listingId: "lst_1" });
+const unpublishAttempt = attempt("mcp_unpublish_attempt_001", "listing.pause", { listingId: "lst_1" });
 
 const actor = {
   sessionId: "sess_1",
@@ -140,6 +165,7 @@ describe("marketplace listing MCP handlers", () => {
         priceCurrencyCode: "USD",
         quantityCap: 2,
         purchaseLimits: { maxUnitsPerOrder: 1 },
+        ...createAttempt,
       },
       request: new Request("https://api.test/mcp"),
       protocol: legacyMcpProtocol,
@@ -167,6 +193,7 @@ describe("marketplace listing MCP handlers", () => {
           maxUnitsPerDay: null,
           maxUnitsPerCustomerAccount: null,
         },
+        ...createAttempt,
       }),
       expect.objectContaining({
         audit: {
@@ -190,6 +217,7 @@ describe("marketplace listing MCP handlers", () => {
         priceAmount: "24.00",
         priceCurrencyCode: "EUR",
         feeQuoteFingerprint: "24.00|1.20|22.80|cts_default|",
+        ...priceAttempt,
       },
       request: new Request("https://api.test/mcp"),
       protocol: legacyMcpProtocol,
@@ -203,6 +231,7 @@ describe("marketplace listing MCP handlers", () => {
         priceAmount: "24.00",
         priceCurrencyCode: "EUR",
         feeQuoteFingerprint: "24.00|1.20|22.80|cts_default|",
+        ...priceAttempt,
       },
       expect.objectContaining({
         audit: expect.objectContaining({ performedByUserId: "usr_1", forAccountId: "acc_1" }),
@@ -249,7 +278,7 @@ describe("marketplace listing MCP handlers", () => {
       handlers.toolHandlers["marketplace.publish-listing"]?.({
         actor,
         tool: null as never,
-        arguments: { accountId: "acc_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
+        arguments: { accountId: "acc_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1", ...publishAttempt },
         request: new Request("https://api.test/mcp"),
         protocol: legacyMcpProtocol,
       }),
@@ -258,20 +287,84 @@ describe("marketplace listing MCP handlers", () => {
       handlers.toolHandlers["marketplace.unpublish-listing"]?.({
         actor,
         tool: null as never,
-        arguments: { accountId: "acc_1", listingId: "lst_1" },
+        arguments: { accountId: "acc_1", listingId: "lst_1", ...unpublishAttempt },
         request: new Request("https://api.test/mcp"),
         protocol: legacyMcpProtocol,
       }),
     ).resolves.toMatchObject({ listingId: "lst_1", version: 4, status: "unpublished" });
 
     expect(fakeServices.publishListing).toHaveBeenCalledWith(
-      { accountId: "acc_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
+      { accountId: "acc_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1", ...publishAttempt },
       expect.any(Object),
     );
     expect(fakeServices.pauseListing).toHaveBeenCalledWith(
-      { accountId: "acc_1", listingId: "lst_1" },
+      { accountId: "acc_1", listingId: "lst_1", ...unpublishAttempt },
       expect.any(Object),
     );
+  });
+
+  it.each([
+    [
+      "marketplace.create-listing",
+      { inventoryItemId: "inv_1", priceAmount: "20.00", priceCurrencyCode: "USD", quantityCap: 2 },
+    ],
+    ["marketplace.update-listing-price", { listingId: "lst_1", priceAmount: "24.00", priceCurrencyCode: "EUR" }],
+    ["marketplace.publish-listing", { listingId: "lst_1" }],
+    ["marketplace.unpublish-listing", { listingId: "lst_1" }],
+  ])("%s rejects a missing attempt or hash before any Listing service call", async (tool, args) => {
+    const fakeServices = services();
+    const handler = createMarketplaceListingMcpHandlers(fakeServices).toolHandlers[tool]!;
+    const call = (extra: Record<string, unknown>) =>
+      handler({
+        actor,
+        tool: null as never,
+        arguments: { accountId: "acc_1", ...args, ...extra },
+        request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
+      });
+    await expect(call({})).rejects.toMatchObject({ code: "invalid_attempt" });
+    await expect(call({ idempotencyKey: "mcp_missing_hash_0000001" })).rejects.toMatchObject({
+      code: "invalid_attempt",
+    });
+    await expect(call({ requestHash: "a".repeat(64) })).rejects.toMatchObject({ code: "invalid_attempt" });
+    await expect(call({ idempotencyKey: "short", requestHash: "a".repeat(64) })).rejects.toMatchObject({
+      code: "invalid_attempt",
+    });
+    for (const method of ["createListing", "updateListingPrice", "publishListing", "pauseListing"] as const)
+      expect(fakeServices[method]).not.toHaveBeenCalled();
+  });
+
+  it("replays exactly by forwarding the same attempt and hash unchanged on every retry", async () => {
+    const fakeServices = services();
+    const publish = createMarketplaceListingMcpHandlers(fakeServices).toolHandlers["marketplace.publish-listing"]!;
+    const call = () =>
+      publish({
+        actor,
+        tool: null as never,
+        arguments: { accountId: "acc_1", listingId: "lst_1", ...publishAttempt },
+        request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
+      });
+    await call();
+    await call();
+    const [first, second] = vi.mocked(fakeServices.publishListing).mock.calls.map(([params]) => params);
+    expect(first).toMatchObject({ accountId: "acc_1", listingId: "lst_1", ...publishAttempt });
+    expect(second).toEqual(first);
+  });
+
+  it("never lets a rail identity act for another account, even with a valid attempt", async () => {
+    const fakeServices = services();
+    const publish = createMarketplaceListingMcpHandlers(fakeServices).toolHandlers["marketplace.publish-listing"]!;
+    await expect(
+      publish({
+        actor,
+        tool: null as never,
+        arguments: { accountId: "acc_other", listingId: "lst_1", ...publishAttempt },
+        request: new Request("https://api.test/mcp", { headers: { "Idempotency-Key": "rail_key_for_acc_other_01" } }),
+        protocol: legacyMcpProtocol,
+      }),
+    ).rejects.toThrow("accountId must match the authenticated actor account.");
+    expect(fakeServices.publishListing).not.toHaveBeenCalled();
   });
 
   it("rejects account mismatches and dry-run writes before mutating listings", async () => {

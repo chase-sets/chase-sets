@@ -262,7 +262,7 @@ export function createPricingApiClient({
       );
     },
     async createBulkRepriceJob(
-      body: Readonly<{ csvText?: string; sourceFilename?: string | null }>,
+      body: Readonly<{ csvText?: string; sourceFilename?: string | null; attemptId?: string }>,
     ): Promise<BulkRepriceJobStatus> {
       return parseJsonResponse(
         await client.account["bulk-reprice"].$post({

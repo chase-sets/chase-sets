@@ -4,6 +4,8 @@ import { MutationFormProvider } from "../support/ui-support/mutation-form";
 import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { MarketplaceCommandRecoveryError } from "../client";
 import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { Card, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
@@ -225,6 +227,7 @@ async function createListingFromMarketplaceSupplySnapshot(
     maxUnitsPerCustomerAccount: number | null;
   }>,
   listingPhotoFiles: readonly File[],
+  idempotencyKey: string,
 ) {
   const quantityCap = Number(createForm.quantityCap ?? 0);
   const inventoryItem = await loadSelectedMarketplaceSupplyItem(api, createForm.inventoryItemId);
@@ -238,13 +241,14 @@ async function createListingFromMarketplaceSupplySnapshot(
     priceCurrencyCode: createForm.priceCurrencyCode,
     quantityCap,
     purchaseLimits,
+    idempotencyKey,
     inventorySnapshot: inventorySnapshotFromMarketplaceSupplyItem(inventoryItem),
   };
 
   return (
     listingPhotoFiles.length > 0
-      ? await api.createListingWithPhotos(createListingApiForm(listingBody, listingPhotoFiles))
-      : await api.createListing(listingBody)
+      ? await api.createListingWithPhotos(createListingApiForm({ ...listingBody, idempotencyKey }, listingPhotoFiles))
+      : await api.createListing({ ...listingBody, idempotencyKey })
   ) as { id: string; feeQuoteFingerprint?: string };
 }
 
@@ -436,6 +440,8 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       };
       const listingPhotoFiles = listingPhotoFilesFromForm(formData);
       const quantityCap = Number(createForm.quantityCap ?? 0);
+      // The page's create attempt: a resubmission returns the first Listing, and publish binds it to that Listing.
+      const idempotencyKey = String(formData.get("attemptId") ?? "");
       const listingBody = createForm.inventoryItemId
         ? {
             inventoryItemId: createForm.inventoryItemId,
@@ -443,6 +449,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
             priceCurrencyCode: createForm.priceCurrencyCode,
             quantityCap,
             purchaseLimits,
+            idempotencyKey,
           }
         : {
             inventoryItemId: "",
@@ -450,6 +457,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
             priceCurrencyCode: createForm.priceCurrencyCode,
             quantityCap,
             purchaseLimits,
+            idempotencyKey,
             inventorySnapshot: (
               await createInventoryRequestApiClient(request, {
                 mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
@@ -465,8 +473,10 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       try {
         result = (
           listingPhotoFiles.length > 0
-            ? await api.createListingWithPhotos(createListingApiForm(listingBody, listingPhotoFiles))
-            : await api.createListing(listingBody)
+            ? await api.createListingWithPhotos(
+                createListingApiForm({ ...listingBody, idempotencyKey }, listingPhotoFiles),
+              )
+            : await api.createListing({ ...listingBody, idempotencyKey })
         ) as { id: string; feeQuoteFingerprint?: string };
       } catch (error) {
         if (!createForm.inventoryItemId || marketplaceApiErrorCode(error) !== "inventory_item_not_found") {
@@ -483,6 +493,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
           },
           purchaseLimits,
           listingPhotoFiles,
+          idempotencyKey,
         );
         if (recovered === null) {
           return { createForm, error: t("marketplace.routes.accountListingsNew.inventory.item.preparing") };
@@ -498,6 +509,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
           redirectReceipts.push(
             await api.publishListing(result.id, {
               feeQuoteFingerprint: result.feeQuoteFingerprint,
+              idempotencyKey,
             }),
           );
           published = true;
@@ -527,6 +539,16 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
 
     return redirect("/account/listings/new");
   } catch (error) {
+    if (error instanceof MarketplaceCommandRecoveryError)
+      return {
+        createForm,
+        recovery: error.phase,
+        error: t(
+          error.phase === "ambiguous"
+            ? "marketplace.listingRecovery.ambiguous"
+            : "marketplace.listingRecovery.failedSafe",
+        ),
+      };
     const feedback = listingActionFeedback(error);
     if (feedback !== null) {
       return {
@@ -558,6 +580,13 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountListingsNewRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  // One create attempt per mounted page; an unconfirmed create keeps it so a retry can only replay.
+  const [attemptId] = useState(() => crypto.randomUUID());
+  const recovery = actionData && "recovery" in actionData ? actionData.recovery : null;
+  const recoveryNotice = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (recovery) recoveryNotice.current?.focus();
+  }, [recovery]);
 
   if (data.accountAccessRequired) {
     return (
@@ -575,12 +604,23 @@ export default function MarketplaceAccountListingsNewRoute() {
       key={`${data.recoveryAuthority!.accountId}/${data.recoveryAuthority!.actorUserId}`}
     >
       <MutationFormProvider value={InventoryMutationForm}>
+        {recovery ? (
+          <Text ref={recoveryNotice} tabIndex={-1} role={recovery === "ambiguous" ? "alert" : "status"}>
+            {t(
+              recovery === "ambiguous"
+                ? "marketplace.listingRecovery.ambiguous"
+                : "marketplace.listingRecovery.failedSafe",
+            )}
+          </Text>
+        ) : null}
         <MarketplaceListingCreatePage
+          attemptId={attemptId}
+          writesDisabled={recovery === "ambiguous"}
           inventoryItems={data.inventoryItems}
           hasListingStockLocation={data.hasListingStockLocation}
           createForm={actionData?.createForm ?? data.createForm ?? undefined}
           createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
-          errorMessage={actionData?.error ?? data.claimError ?? null}
+          errorMessage={recovery ? null : (actionData?.error ?? data.claimError ?? null)}
           evidenceReadiness={actionData?.evidenceReadiness ?? data.evidenceReadiness}
         />
       </MutationFormProvider>

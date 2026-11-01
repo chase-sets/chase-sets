@@ -1,3 +1,4 @@
+import { sendListingCommandsWithFreshAttempts } from "../tests/listing-attempt-test-support";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -145,7 +146,7 @@ async function fixture(resolveRateLimitRule?: RateLimitRuleResolver, source?: Bu
   });
   let currentActor: MarketplaceApiEnv["Variables"]["actor"] = actor;
   const errors: Error[] = [];
-  const app = new Hono<MarketplaceApiEnv>();
+  const app = sendListingCommandsWithFreshAttempts(new Hono<MarketplaceApiEnv>());
   app.use("*", async (c, next) => {
     c.set("actor", currentActor);
     await next();

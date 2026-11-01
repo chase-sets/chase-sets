@@ -109,10 +109,11 @@ export interface MarketplaceSellerListingStatusCounts {
   withdrawn: number;
 }
 
+/** One target of a bulk Listing batch; `unknown` means the command may have been sent and is the only retryable state. */
 export interface MarketplaceListingBulkActionOutcome {
   listingId: string;
   label: string;
-  outcome: "success" | "error";
+  outcome: "succeeded" | "conflict" | "error" | "unknown";
   message: string | null;
 }
 
@@ -279,7 +280,13 @@ export interface MarketplaceListingPriceInput {
   priceCurrencyCode: string;
 }
 
-export interface MarketplaceCreateListingInput extends MarketplaceListingPriceInput {
+/** The shipped Listing carrier every browser, MCP, Discovery, Checkout and Pricing command sends. */
+export interface MarketplaceListingAttemptInput {
+  idempotencyKey: string;
+  requestHash?: string;
+}
+
+export interface MarketplaceCreateListingInput extends MarketplaceListingPriceInput, MarketplaceListingAttemptInput {
   inventoryItemId: string;
   quantityCap: number;
   purchaseLimits?: Readonly<{
@@ -291,7 +298,8 @@ export interface MarketplaceCreateListingInput extends MarketplaceListingPriceIn
   listingIdOverride?: string;
 }
 
-export interface MarketplaceUpdateListingPriceInput extends MarketplaceListingPriceInput {
+export interface MarketplaceUpdateListingPriceInput
+  extends MarketplaceListingPriceInput, MarketplaceListingAttemptInput {
   feeQuoteFingerprint?: string | null;
 }
 
@@ -343,7 +351,10 @@ export interface MarketplaceBulkListingPriceUpdateInput {
    */
   expectedVersion?: number;
   minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
+  /** The target's attempt: a browser batch id or an exempt engine `repricing:` key. */
   idempotencyKey?: string;
+  /** Canonical listingId + amount + currency hash; a changed value under the same key conflicts. */
+  requestHash?: string;
 }
 
 /** Per-listing outcome of a bulk price-update run -- failure isolation means one listing's conflict or error never prevents the others from applying. */

@@ -12,7 +12,8 @@ describe("marketplace settlement negative-balance projection", () => {
     };
     const handlers = buildMarketplaceSettlementNegativeBalanceProjectionHandlers(listings);
 
-    await handlers["settlement.wallet.negative-balance-collections-opened"]!({
+    const event = {
+      id: "evt_01JNEGATIVEBALANCE00000001",
       data: {
         accountId: "acc_seller",
         balanceAmount: "-125.00",
@@ -21,7 +22,10 @@ describe("marketplace settlement negative-balance projection", () => {
         gracePeriodDays: 14,
         openedAt: "2026-04-16T00:02:00.000Z",
       },
-    } as never);
+    } as never;
+    await handlers["settlement.wallet.negative-balance-collections-opened"]!(event);
+    // A projection replay of the same source fact carries the same attempt, so Marketplace replays its receipt.
+    await handlers["settlement.wallet.negative-balance-collections-opened"]!(event);
 
     expect(listings.disableSellerListingAvailability).toHaveBeenCalledWith(
       {
@@ -29,6 +33,7 @@ describe("marketplace settlement negative-balance projection", () => {
         reasonCategory: "operations",
         availableAgainOn: null,
         availableAgainAt: null,
+        idempotencyKey: "negative-balance_evt_01JNEGATIVEBALANCE00000001",
       },
       expect.objectContaining({
         tenantId: "tnt_marketplace_system",
@@ -37,5 +42,7 @@ describe("marketplace settlement negative-balance projection", () => {
         }),
       }),
     );
+    const [first, second] = listings.disableSellerListingAvailability.mock.calls as unknown as [unknown[], unknown[]];
+    expect(second[0]).toEqual(first[0]);
   });
 });

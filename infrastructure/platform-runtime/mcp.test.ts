@@ -1945,6 +1945,7 @@ describe("MCP runtime routes", () => {
             listingId: "lst_1",
             feeQuoteFingerprint: "fee_1",
             idempotencyKey: "idem_publish",
+            requestHash: "a".repeat(64),
             confirmationText: "Publish Listing.",
           },
           confirmation: {

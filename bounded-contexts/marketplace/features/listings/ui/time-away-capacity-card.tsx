@@ -1,5 +1,5 @@
 import { formatDateTime, t } from "@chase-sets/localization";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Badge,
   Button,
@@ -102,7 +102,13 @@ function reasonItems() {
   ];
 }
 
-function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapacitySnapshot) {
+type SellerAttemptProps = TimeAwayCapacitySnapshot & Readonly<{ attemptId: string }>;
+
+function SellerAttemptInput({ attemptId }: Readonly<{ attemptId: string }>) {
+  return <HiddenInput type="hidden" name="attemptId" value={attemptId} />;
+}
+
+function AvailabilitySection({ availability, activeListingCount, attemptId }: SellerAttemptProps) {
   const isFormHydrated = useFormHydrated();
   const isAvailable = availability.status === "available";
 
@@ -152,6 +158,7 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
             />
           ) : (
             <Form spacing="none" method="post">
+              <SellerAttemptInput attemptId={attemptId} />
               <Button type="submit" name="intent" value="enable-listing-availability">
                 {t("marketplace.features.listings.ui.listingListPage.turn.on.listings")}
               </Button>
@@ -167,6 +174,7 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
             ])
           }
         >
+          <SellerAttemptInput attemptId={attemptId} />
           <Stack gap={3}>
             <Grid columns={{ base: 1, md: 2 }} gap={3}>
               <NativeSelect
@@ -203,7 +211,7 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
   );
 }
 
-function AwayWindowSection({ availability }: TimeAwayCapacitySnapshot) {
+function AwayWindowSection({ availability, attemptId }: SellerAttemptProps) {
   const isFormHydrated = useFormHydrated();
 
   return (
@@ -235,6 +243,7 @@ function AwayWindowSection({ availability }: TimeAwayCapacitySnapshot) {
             }
           />
           <Form spacing="none" method="post">
+            <SellerAttemptInput attemptId={attemptId} />
             <Button type="submit" name="intent" value="cancel-away-window" tone="secondary">
               {t("marketplace.features.listings.ui.listingListPage.cancel.away.window")}
             </Button>
@@ -251,6 +260,7 @@ function AwayWindowSection({ availability }: TimeAwayCapacitySnapshot) {
             ])
           }
         >
+          <SellerAttemptInput attemptId={attemptId} />
           <Stack gap={3}>
             <Text tone="secondary">
               {t("marketplace.features.listings.ui.listingListPage.away.window.description")}
@@ -297,7 +307,7 @@ function AwayWindowSection({ availability }: TimeAwayCapacitySnapshot) {
   );
 }
 
-function OrderCapacitySection({ orderCapacity, openOrderCount }: TimeAwayCapacitySnapshot) {
+function OrderCapacitySection({ orderCapacity, openOrderCount, attemptId }: SellerAttemptProps) {
   const cap = orderCapacity.max_open_orders;
   const hasCap = cap !== null;
 
@@ -336,6 +346,7 @@ function OrderCapacitySection({ orderCapacity, openOrderCount }: TimeAwayCapacit
       </Stack>
 
       <Form spacing="none" method="post">
+        <SellerAttemptInput attemptId={attemptId} />
         <Stack gap={3}>
           <Grid columns={{ base: 1, md: 2 }} gap={3}>
             <TextInput
@@ -370,12 +381,17 @@ function OrderCapacitySection({ orderCapacity, openOrderCount }: TimeAwayCapacit
  * only; all copy localized.
  */
 export function TimeAwayCapacityCard(snapshot: TimeAwayCapacitySnapshot) {
+  // One seller-account attempt per confirmed state: it renews once availability or capacity changes, and an
+  // unconfirmed command keeps it so a resubmission can only replay the first result.
+  const stateKey = JSON.stringify([snapshot.availability, snapshot.orderCapacity]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the attempt renews only when the confirmed state changes
+  const attemptId = useMemo(() => crypto.randomUUID(), [stateKey]);
   return (
     <Card elevation="tinted">
       <Stack gap={6}>
-        <AvailabilitySection {...snapshot} />
-        <AwayWindowSection {...snapshot} />
-        <OrderCapacitySection {...snapshot} />
+        <AvailabilitySection {...snapshot} attemptId={attemptId} />
+        <AwayWindowSection {...snapshot} attemptId={attemptId} />
+        <OrderCapacitySection {...snapshot} attemptId={attemptId} />
       </Stack>
     </Card>
   );

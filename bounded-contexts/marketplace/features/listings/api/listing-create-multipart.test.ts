@@ -1,3 +1,4 @@
+import { sendListingCommandsWithFreshAttempts } from "../tests/listing-attempt-test-support";
 import { Hono } from "hono";
 import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -93,7 +94,7 @@ async function submitPhotoCreate(stockPath: StockPath, intent: string, limits: P
     listingId: "lst_photo",
     version: 2,
   }));
-  const app = new Hono<MarketplaceApiEnv>();
+  const app = sendListingCommandsWithFreshAttempts(new Hono<MarketplaceApiEnv>());
   app.use("*", async (c, next) => {
     c.set("actor", actor);
     c.set("context", {
@@ -137,6 +138,8 @@ async function submitPhotoCreate(stockPath: StockPath, intent: string, limits: P
   const form = new FormData();
   for (const [key, value] of Object.entries({
     intent,
+    // The create page renders one Listing attempt per form, which the create and publish commands both carry.
+    attemptId: "create_page_attempt_0001",
     inventoryItemId: stockPath === "Listing stock" ? "" : "inv_1",
     catalogItemId: "cat_charizard",
     priceAmount: "987.00",

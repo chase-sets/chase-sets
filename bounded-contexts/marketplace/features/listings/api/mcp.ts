@@ -10,6 +10,8 @@ import {
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceListingPurchaseLimits } from "../domain/domain";
 import type { MarketplaceListingServices } from "./runtime";
+import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
+import { marketplaceAttemptIdSchema, recoveryHashSchema } from "../../mutation-recovery/domain/contracts";
 
 export type MarketplaceListingMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
@@ -25,6 +27,18 @@ function rejectDryRun(args: Readonly<Record<string, unknown>>) {
 function rejectUnknownArguments(args: Readonly<Record<string, unknown>>, allowedKeys: readonly string[]) {
   const unknownKey = Object.keys(args).find((key) => !allowedKeys.includes(key));
   if (unknownKey) throw new Error(`Unknown Marketplace listing argument '${unknownKey}'.`);
+}
+
+/**
+ * Listing MCP writes carry the Listing attempt (`idempotencyKey`) and the canonical request hash. The key and
+ * hash bind the scoped actor's account; no rail identity can act for another account.
+ */
+function readListingAttempt(args: Readonly<Record<string, unknown>>) {
+  if (!marketplaceAttemptIdSchema.safeParse(args.idempotencyKey).success)
+    throw new MarketplaceAttemptError("invalid_attempt", "A valid Listing attempt identity is required.");
+  if (!recoveryHashSchema.safeParse(args.requestHash).success)
+    throw new MarketplaceAttemptError("invalid_attempt", "The Listing request hash is required.");
+  return { idempotencyKey: args.idempotencyKey as string, requestHash: args.requestHash as string };
 }
 
 function readRequiredString(args: Readonly<Record<string, unknown>>, key: string) {
@@ -214,12 +228,14 @@ export function createMarketplaceListingMcpHandlers(
       "purchaseLimits",
       "listingIdOverride",
       "idempotencyKey",
+      "requestHash",
       "confirmationText",
       "dryRun",
     ]);
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
+    const attempt = readListingAttempt(args);
     const result = await services.createListing(
       {
         accountId: scopedActor.accountId as AccountId,
@@ -229,6 +245,7 @@ export function createMarketplaceListingMcpHandlers(
         quantityCap: readPositiveInteger(args, "quantityCap"),
         purchaseLimits: readPurchaseLimits(args),
         listingIdOverride: readOptionalMcpTypedIdArgument(args, "listingIdOverride", "lst") ?? undefined,
+        ...attempt,
       },
       createActorEventStoreContext(scopedActor),
     );
@@ -247,12 +264,14 @@ export function createMarketplaceListingMcpHandlers(
       "priceCurrencyCode",
       "feeQuoteFingerprint",
       "idempotencyKey",
+      "requestHash",
       "confirmationText",
       "dryRun",
     ]);
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
+    const attempt = readListingAttempt(args);
     const result = await services.updateListingPrice(
       {
         accountId: scopedActor.accountId,
@@ -260,6 +279,7 @@ export function createMarketplaceListingMcpHandlers(
         priceAmount: readRequiredString(args, "priceAmount"),
         priceCurrencyCode: readRequiredPriceCurrencyCode(args),
         feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
+        ...attempt,
       },
       createActorEventStoreContext(scopedActor),
     );
@@ -271,11 +291,13 @@ export function createMarketplaceListingMcpHandlers(
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
+    const attempt = readListingAttempt(args);
     const result = await services.publishListing(
       {
         accountId: scopedActor.accountId,
         listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
         feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
+        ...attempt,
       },
       createActorEventStoreContext(scopedActor),
     );
@@ -287,10 +309,12 @@ export function createMarketplaceListingMcpHandlers(
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
+    const attempt = readListingAttempt(args);
     const result = await services.pauseListing(
       {
         accountId: scopedActor.accountId,
         listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
+        ...attempt,
       },
       createActorEventStoreContext(scopedActor),
     );

@@ -5,7 +5,7 @@ import {
   formatMoney as formatMoneyDisplay,
   t,
 } from "@chase-sets/localization";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   HiddenInput,
   Form,
@@ -45,6 +45,7 @@ import type {
   SellerBehavioralMetricsSummary,
 } from "../../../support/request-support/seller-metrics-client";
 import { TimeAwayCapacityCard } from "./time-away-capacity-card";
+import { unknownListingBatchTargets, type ListingBatchVector } from "./listing-batch";
 
 const SELLER_LISTING_STATUS_FILTERS = ["all", "draft", "active", "paused", "withdrawn"] as const;
 
@@ -211,7 +212,9 @@ export function MarketplaceListingListPage({
   orderCapacity,
   openOrderCount = null,
   filters = { status: "all", search: "" },
-  bulkActionOutcomes,
+  bulkBatch = null,
+  bulkBatchId,
+  recovery = null,
   errorMessage,
   sellerBehavioralMetrics = { status: "unavailable" },
 }: {
@@ -224,12 +227,19 @@ export function MarketplaceListingListPage({
   /** Ordering-sourced live Open Order count for the "N of M" display; null when that cross-context read was unavailable. Never counted client-side. */
   openOrderCount?: number | null;
   filters?: Readonly<{ status: string; search: string }>;
-  bulkActionOutcomes?: readonly MarketplaceListingBulkActionOutcome[] | null;
+  /** The retained bulk vector; only its `unknown` targets can be retried, under the same batch id. */
+  bulkBatch?: ListingBatchVector | null;
+  /** The batch id the next bulk submission sends; a standalone page mints its own. */
+  bulkBatchId?: string;
+  /** A seller-account command whose result is unconfirmed (ambiguous) or was never sent (failed-safe). */
+  recovery?: "ambiguous" | "failed-safe" | null;
   errorMessage?: string | null;
   /** The seller's own rolling-window behavioral metrics, own-account read only -- no display gating (a seller may always see their own raw counts). Unavailable when the read failed or was not made; never rendered as insufficient history. */
   sellerBehavioralMetrics?: SellerBehavioralMetricsAvailability;
 }) {
   const [selectedListingIds, setSelectedListingIds] = useState<Set<string>>(new Set());
+  const [ownBatchId] = useState(() => crypto.randomUUID());
+  const batchId = bulkBatchId ?? ownBatchId;
   const activeListings = statusCounts
     ? statusCounts.active
     : data.items.filter((item) => item.status === "active").length;
@@ -245,8 +255,15 @@ export function MarketplaceListingListPage({
   const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
   const showPagination = Boolean(pagination && (pagination.total > pageSize || pagination.offset > 0));
   const appliedFilters = buildAppliedFilters(filters);
-  const succeededOutcomeCount = bulkActionOutcomes?.filter((outcome) => outcome.outcome === "success").length ?? 0;
-  const failedOutcomeCount = bulkActionOutcomes?.filter((outcome) => outcome.outcome === "error").length ?? 0;
+  const bulkActionOutcomes: readonly MarketplaceListingBulkActionOutcome[] = bulkBatch?.outcomes ?? [];
+  const succeededOutcomeCount = bulkActionOutcomes.filter((outcome) => outcome.outcome === "succeeded").length;
+  const failedOutcomeCount = bulkActionOutcomes.length - succeededOutcomeCount;
+  const unknownListingIds = unknownListingBatchTargets(bulkBatch);
+  const recoveryNotice = useRef<HTMLDivElement>(null);
+  const partial = unknownListingIds.length > 0;
+  useEffect(() => {
+    if (partial || recovery) recoveryNotice.current?.focus();
+  }, [partial, recovery]);
 
   return (
     <Page>
@@ -366,7 +383,34 @@ export function MarketplaceListingListPage({
             }
           />
 
-          {bulkActionOutcomes && bulkActionOutcomes.length > 0 ? (
+          {recovery || partial ? (
+            <div ref={recoveryNotice} tabIndex={-1} role={recovery === "failed-safe" ? "status" : "alert"}>
+              <MarketplaceNotice
+                tone={recovery === "failed-safe" ? "info" : "warning"}
+                title={t(
+                  partial
+                    ? "marketplace.listingRecovery.partial"
+                    : `marketplace.listingRecovery.${recovery === "ambiguous" ? "ambiguous" : "failedSafe"}`,
+                  {
+                    succeeded: succeededOutcomeCount,
+                    total: bulkActionOutcomes.length,
+                  },
+                )}
+              />
+            </div>
+          ) : null}
+          {bulkBatch && partial ? (
+            <Form spacing="none" method="post">
+              <HiddenInput type="hidden" name="batchId" value={bulkBatch.batchId} />
+              {unknownListingIds.map((listingId) => (
+                <HiddenInput key={listingId} type="hidden" name="listingIds" value={listingId} />
+              ))}
+              <Button type="submit" name="intent" value={bulkBatch.intent} size="sm">
+                {t("marketplace.listingRecovery.retryUnknown")}
+              </Button>
+            </Form>
+          ) : null}
+          {bulkActionOutcomes.length > 0 ? (
             <Card elevation="tinted">
               <Stack gap={2}>
                 <Text weight="semibold">
@@ -377,10 +421,24 @@ export function MarketplaceListingListPage({
                 </Text>
                 {bulkActionOutcomes.map((outcome) => (
                   <Inline key={outcome.listingId} align="center">
-                    <Badge tone={outcome.outcome === "success" ? "success" : "danger"}>
-                      {outcome.outcome === "success"
-                        ? t("marketplace.features.listings.ui.listingListPage.bulk.action.succeeded")
-                        : t("marketplace.features.listings.ui.listingListPage.bulk.action.failed")}
+                    <Badge
+                      tone={
+                        outcome.outcome === "succeeded"
+                          ? "success"
+                          : outcome.outcome === "unknown"
+                            ? "warning"
+                            : "danger"
+                      }
+                    >
+                      {t(
+                        outcome.outcome === "succeeded"
+                          ? "marketplace.features.listings.ui.listingListPage.bulk.action.succeeded"
+                          : outcome.outcome === "conflict"
+                            ? "marketplace.features.listings.ui.listingListPage.bulk.action.conflict"
+                            : outcome.outcome === "unknown"
+                              ? "marketplace.features.listings.ui.listingListPage.bulk.action.unknown"
+                              : "marketplace.features.listings.ui.listingListPage.bulk.action.failed",
+                      )}
                     </Badge>
                     <Text size="sm">{outcome.label}</Text>
                     {outcome.message ? (
@@ -395,6 +453,7 @@ export function MarketplaceListingListPage({
           ) : null}
 
           <Form spacing="none" method="post">
+            <HiddenInput type="hidden" name="batchId" value={batchId} />
             {[...selectedListingIds].map((listingId) => (
               <HiddenInput key={listingId} type="hidden" name="listingIds" value={listingId} />
             ))}
@@ -512,10 +571,17 @@ export function MarketplaceListingListPage({
                   }
                   primaryActions={
                     <Inline gap={2} align="end">
-                      <Button type="submit" name="intent" value="bulk-pause-listings" size="sm">
+                      <Button type="submit" name="intent" value="bulk-pause-listings" size="sm" disabled={partial}>
                         {t("marketplace.features.listings.ui.listingListPage.pause.selected")}
                       </Button>
-                      <Button type="submit" name="intent" value="bulk-withdraw-listings" tone="secondary" size="sm">
+                      <Button
+                        type="submit"
+                        name="intent"
+                        value="bulk-withdraw-listings"
+                        tone="secondary"
+                        size="sm"
+                        disabled={partial}
+                      >
                         {t("marketplace.features.listings.ui.listingListPage.withdraw.selected")}
                       </Button>
                     </Inline>
