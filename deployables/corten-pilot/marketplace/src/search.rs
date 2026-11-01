@@ -352,8 +352,11 @@ fn encode(pairs: &[(String, String)]) -> String {
 #[derive(Route, Fields)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TermsQuery<'a> {
+pub struct TermsQuery<'a> {
     q: Option<&'a str>,
+    /// The words' older name, read when there is no `q` and never written: a `FromQuery` set's
+    /// `Read` takes only names its `Link` has (todd-skelton/corten#577).
+    search: Option<&'a str>,
     category: Option<&'a str>,
     tag: Option<&'a str>,
     language: Option<&'a str>,
@@ -363,33 +366,82 @@ pub(crate) struct TermsQuery<'a> {
     in_stock: Option<&'a str>,
     sort: Option<&'a str>,
     #[route(prefix = "dimension.")]
-    dimensions: &'a [(String, String)],
+    #[serde(default)]
+    dimensions: Vec<(String, String)>,
     #[route(prefix = "field.")]
-    fields: &'a [(String, String)],
+    #[serde(default)]
+    fields: Vec<(String, String)>,
     #[route(prefix = "reference.")]
-    references: &'a [(String, String)],
+    #[serde(default)]
+    references: Vec<(String, String)>,
     interpreted: Option<&'a str>,
     more: Option<usize>,
 }
 
-/// The terms read from the whole query, as `read` reads them, so the routes' `Params` take them.
-impl<'de> serde::Deserialize<'de> for Terms {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Raw::deserialize(deserializer).map(|raw| Terms::read(&raw))
+/// The terms' parameters as sent, every value of each, for `Terms::read` to judge.
+#[derive(Route)]
+#[route(query)]
+#[serde(rename_all = "camelCase")]
+pub struct TermsRead {
+    q: Vec<String>,
+    search: Vec<String>,
+    category: Vec<String>,
+    tag: Vec<String>,
+    language: Vec<String>,
+    market_activity: Vec<String>,
+    price_min: Vec<String>,
+    price_max: Vec<String>,
+    in_stock: Vec<String>,
+    sort: Vec<String>,
+    #[route(prefix = "dimension.")]
+    dimensions: Vec<(String, String)>,
+    #[route(prefix = "field.")]
+    fields: Vec<(String, String)>,
+    #[route(prefix = "reference.")]
+    references: Vec<(String, String)>,
+    interpreted: Vec<String>,
+    more: Vec<String>,
+}
+
+impl TermsRead {
+    /// As a form's fields read (`Raw`), so the page's address and the search form's post are
+    /// read by one rule.
+    fn into_raw(self) -> Raw {
+        let mut raw = Raw::new();
+        let f = TermsQuery::FIELDS;
+        for (key, values) in [
+            (f.q.as_str(), self.q),
+            (f.search.as_str(), self.search),
+            (f.category.as_str(), self.category),
+            (f.tag.as_str(), self.tag),
+            (f.language.as_str(), self.language),
+            (f.market_activity.as_str(), self.market_activity),
+            (f.price_min.as_str(), self.price_min),
+            (f.price_max.as_str(), self.price_max),
+            (f.in_stock.as_str(), self.in_stock),
+            (f.sort.as_str(), self.sort),
+            (f.interpreted.as_str(), self.interpreted),
+            (f.more.as_str(), self.more),
+        ] {
+            for value in values {
+                crate::items::put(&mut raw, key.to_owned(), value);
+            }
+        }
+        for (prefix, entries) in [("dimension.", self.dimensions), ("field.", self.fields), ("reference.", self.references)] {
+            for (id, value) in entries {
+                crate::items::put(&mut raw, format!("{prefix}{id}"), value);
+            }
+        }
+        raw
     }
 }
 
-/// Read from the whole query, as `read` reads it (see `items::Address`).
-impl<'c> corten::route::__private::ReadQuery<'c> for Terms {
-    fn read_query(pairs: &[corten::route::__private::Pair<'_>]) -> Result<Self, corten::form::FormError> {
-        Ok(Terms::read(&crate::items::raw_of(pairs)))
-    }
-}
+/// Every page that searches reads its terms with the rule, and writes them in the order above.
+impl corten::route::FromQuery for Terms {
+    type Link<'a> = TermsQuery<'a>;
+    type Read = TermsRead;
 
-impl corten::route::QueryParams for Terms {
-    const __KEYS: &'static [corten::route::__private::Key] = <TermsQuery<'static> as corten::route::QueryParams>::__KEYS;
-
-    fn write_params(&self, first: &mut bool, html: bool, out: &mut String) {
+    fn link(&self) -> TermsQuery<'_> {
         let family = |kind: Kind| -> Vec<(String, String)> {
             self.filters.iter().filter(|f| f.kind == kind).map(|f| (f.id.clone(), f.value.clone())).collect()
         };
@@ -405,13 +457,17 @@ impl corten::route::QueryParams for Terms {
             price_max: Some(self.price_max.as_str()).filter(|t| given(t)),
             in_stock: self.in_stock.then_some("true"),
             sort: Some(self.sort.as_str()).filter(|s| *s != RELEVANCE && given(s)),
-            dimensions: &dimensions,
-            fields: &fields,
-            references: &references,
+            dimensions,
+            fields,
+            references,
+            search: None,
             interpreted: self.interpreted.as_deref(),
             more: (self.more > 0).then_some(self.more),
         }
-        .write_params(first, html, out)
+    }
+
+    fn from_query(read: TermsRead) -> Result<Self, corten::form::FormError> {
+        Ok(Terms::read(&read.into_raw()))
     }
 }
 

@@ -5076,6 +5076,84 @@ fn the_search_forms_names_are_the_ones_its_links_write() {
     assert_eq!(written.len(), names.len() + 1, "and the field filter: {written:?}");
 }
 
+/// The search's terms and the item's address are `FromQuery` sets: a link's `href()` requested
+/// through the router reads back as the value that wrote it, every value of a repeated key kept
+/// for the rule, and the words' older name still read.
+#[tokio::test]
+async fn the_search_terms_and_the_item_address_read_back_through_the_router_as_their_links_write_them() {
+    use corten::Route;
+
+    use crate::{
+        items::{Address, Market},
+        search::{Filter, Kind, Terms},
+    };
+    let pilot = Pilot::new().await;
+    let field = |value: &str| Filter { kind: Kind::Field, id: "f".into(), value: value.into() };
+    let terms = Terms {
+        q: "pika".into(),
+        tag: "t".into(),
+        price_min: "1.50".into(),
+        in_stock: true,
+        sort: "newest".into(),
+        filters: vec![Filter { kind: Kind::Dimension, id: "dim_form".into(), value: "chc_raw".into() }, field("a"), field("b")],
+        ..Terms::default()
+    };
+    let href = crate::app::url::Search { terms }.href();
+    assert_eq!(
+        href,
+        "/search?q=pika&tag=t&priceMin=1.50&inStock=true&sort=newest&dimension.dim_form=chc_raw&field.f=a&field.f=b"
+    );
+    let (status, _, html) = pilot.send(get(&href, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let read = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|c| c.path.starts_with("/api/marketplace/items?"))
+        .unwrap()
+        .path
+        .clone();
+    for part in [
+        "search=pika",
+        "tag=t",
+        "priceMin=1.50",
+        "inStock=true",
+        "sort=newest",
+        "dimension.dim_form=chc_raw",
+        "field.f=a&field.f=b",
+    ] {
+        assert!(read.contains(part), "{part} in {read}");
+    }
+    // `search=` is the words when there is no `q`, and is never written back.
+    let (status, _, html) = pilot.send(get("/search?search=pika", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(search_reads(&pilot).pop().unwrap().get("search").map(String::as_str), Some("pika"));
+    assert!(!crate::app::url::Search { terms: Terms { q: "pika".into(), ..Terms::default() } }.href().contains("search="));
+
+    let state = Address {
+        market: Market::Sell,
+        options: vec![("dim_form".into(), "chc_graded".into())],
+        filtered: true,
+        ..Address::default()
+    };
+    let href = crate::app::url::Item { slug: "charizard", state, after: Default::default() }.href();
+    assert_eq!(href, "/items/charizard?market=sell&dimension.dim_form=chc_graded");
+    let (_, _, html) = pilot.send(get(&href, None)).await;
+    let form = html.split(r#"<form class="#).nth(1).and_then(|f| f.split("</form>").next()).expect("the grade's form");
+    assert!(form.contains(r#"<input type="hidden" name="market" value="sell">"#), "{form}");
+    assert!(form.contains(r#"<input type="hidden" name="dimension.dim_form" value="chc_graded">"#), "{form}");
+    // The same listing twice is one the address chose; two different ones are none, so the page
+    // chooses by itself.
+    let explicit = "&quot;selected_listing&quot;,&quot;explicit&quot;";
+    let (_, _, twice) = pilot.send(get("/items/charizard?listing=lst_chase&listing=lst_chase", None)).await;
+    assert!(twice.contains(explicit), "{twice}");
+    let (_, _, two) = pilot.send(get("/items/charizard?listing=lst_chase&listing=lst_vault", None)).await;
+    assert!(!two.contains(explicit), "{two}");
+}
+
 #[tokio::test]
 async fn a_category_page_searches_in_it_and_the_landing_offers_categories() {
     let pilot = Pilot::new().await;

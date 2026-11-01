@@ -175,6 +175,18 @@ impl Values {
 /// The parameters as sent: a map, because `dimension.<id>` keys are data.
 pub type Raw = BTreeMap<String, Values>;
 
+/// Adds `value` to `key`'s values, as a form that sends the key again is read.
+pub(crate) fn put(raw: &mut Raw, key: String, value: String) {
+    match raw.remove(&key) {
+        None => raw.insert(key, Values::One(value)),
+        Some(Values::One(one)) => raw.insert(key, Values::Many(vec![one, value])),
+        Some(Values::Many(mut many)) => {
+            many.push(value);
+            raw.insert(key, Values::Many(many))
+        }
+    };
+}
+
 /// The value that clears a product option the page would otherwise choose by itself: a
 /// `dimension.*` filter that names no option, so marketplace's `hasInitialSelectedOptionFilters`
 /// holds and the normalized selection is empty.
@@ -296,7 +308,7 @@ impl Address {
 /// then `dimension.<id>=<option>` in the schema's order.
 #[derive(Route)]
 #[route(query)]
-struct AddressQuery<'a> {
+pub struct AddressLink<'a> {
     market: Option<&'a str>,
     listing: Option<&'a str>,
     offer: Option<&'a str>,
@@ -306,43 +318,48 @@ struct AddressQuery<'a> {
     dimensions: &'a [(String, String)],
 }
 
-/// The address read from the whole query, as `read` reads it, so the route's `Params` take it.
-impl<'de> Deserialize<'de> for Address {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Raw::deserialize(deserializer).map(|raw| Address::read(&raw))
-    }
+/// The address's parameters as sent, every value of each, for `Address::read` to judge.
+#[derive(Route)]
+#[route(query)]
+pub struct AddressRead {
+    market: Vec<String>,
+    listing: Vec<String>,
+    offer: Vec<String>,
+    book: Vec<String>,
+    range: Vec<String>,
+    #[route(prefix = "dimension.")]
+    dimensions: Vec<(String, String)>,
 }
 
-/// The parameters as sent, from the pairs Corten read: a key sent more than once keeps every value.
-pub(crate) fn raw_of(pairs: &[corten::route::__private::Pair<'_>]) -> Raw {
-    let mut raw = Raw::new();
-    for (key, value) in pairs {
-        let value = value.clone().into_owned();
-        match raw.remove(key.as_ref()) {
-            None => raw.insert(key.clone().into_owned(), Values::One(value)),
-            Some(Values::One(one)) => raw.insert(key.clone().into_owned(), Values::Many(vec![one, value])),
-            Some(Values::Many(mut many)) => {
-                many.push(value);
-                raw.insert(key.clone().into_owned(), Values::Many(many))
+impl AddressRead {
+    /// As a form's fields read: a key's values together, so a page reads its address and the
+    /// forms that post it by one rule.
+    fn into_raw(self) -> Raw {
+        let mut raw = Raw::new();
+        for (key, values) in [
+            ("market", self.market),
+            ("listing", self.listing),
+            ("offer", self.offer),
+            ("book", self.book),
+            ("range", self.range),
+        ] {
+            for value in values {
+                put(&mut raw, key.to_owned(), value);
             }
-        };
-    }
-    raw
-}
-
-/// Read from the whole query, as `read` reads it. Corten has no public way for a set to read
-/// itself (todd-skelton/corten gap), so this implements its hidden reader.
-impl<'c> corten::route::__private::ReadQuery<'c> for Address {
-    fn read_query(pairs: &[corten::route::__private::Pair<'_>]) -> Result<Self, corten::form::FormError> {
-        Ok(Address::read(&raw_of(pairs)))
+        }
+        for (dimension, option) in self.dimensions {
+            put(&mut raw, format!("dimension.{dimension}"), option);
+        }
+        raw
     }
 }
 
-impl corten::route::QueryParams for Address {
-    const __KEYS: &'static [corten::route::__private::Key] = <AddressQuery<'static> as corten::route::QueryParams>::__KEYS;
+impl corten::route::FromQuery for Address {
+    type Link<'a> = AddressLink<'a>;
+    type Read = AddressRead;
 
-    fn write_params(&self, first: &mut bool, html: bool, out: &mut String) {
-        AddressQuery {
+    fn link(&self) -> AddressLink<'_> {
+        AddressLink {
             market: (self.market != Market::Buy).then(|| self.market.as_str()),
             listing: self.listing.as_deref(),
             offer: self.offer.as_deref(),
@@ -350,7 +367,10 @@ impl corten::route::QueryParams for Address {
             range: (self.range != Range::default()).then(|| self.range.as_str()),
             dimensions: &self.options,
         }
-        .write_params(first, html, out)
+    }
+
+    fn from_query(read: AddressRead) -> Result<Self, corten::form::FormError> {
+        Ok(Address::read(&read.into_raw()))
     }
 }
 
