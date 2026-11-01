@@ -60,6 +60,63 @@ fn written(status: StatusCode, id: &str) -> Response {
     (status, headers, Json(json!({ "id": id, "version": 2 }))).into_response()
 }
 
+/// Auth's sign-in routes, as far as the sign-in page uses them: `staff@example.test` with `right`
+/// starts a session, `member@example.test` must choose an account first (`sel_1`), and
+/// `limited@example.test` is rate limited.
+fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
+    if *method != Method::POST || !path.starts_with("/api/auth/") {
+        return None;
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let text = |name: &str| sent[name].as_str().unwrap_or_default().to_owned();
+    let later = "2099-01-01T00:00:00.000Z";
+    let started = |token: &str| {
+        Json(json!({
+            "type": "session-started", "userId": "usr_1", "sessionId": "ses_1", "sessionToken": token,
+            "session": { "expires_at": later }, "memberships": [],
+        }))
+        .into_response()
+    };
+    let unknown = || refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Authentication required.");
+    Some(match path {
+        "/api/auth/password-sign-in" => match (text("email").as_str(), text("password").as_str()) {
+            ("staff@example.test", "right") => started("tok_staff"),
+            ("member@example.test", "right") => Json(json!({
+                "type": "account-selection-required", "userId": "usr_2", "selectionToken": "sel_1",
+                "selectionExpiresAt": later, "memberships": [],
+            }))
+            .into_response(),
+            ("limited@example.test", _) => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down."),
+            _ => unknown(),
+        },
+        "/api/auth/magic-link/request" => Json(json!({ "tokenId": "ml_1", "expiresAt": later })).into_response(),
+        "/api/auth/magic-link/consume" => match text("token").as_str() {
+            "good" => started("tok_magic"),
+            _ => unknown(),
+        },
+        "/api/auth/phone-code/request" => {
+            Json(json!({ "tokenId": "pc_1", "phone": text("phone"), "expiresAt": later })).into_response()
+        }
+        "/api/auth/phone-code/consume" => match (text("tokenId").as_str(), text("code").as_str()) {
+            ("pc_1", "123456") => started("tok_phone"),
+            _ => unknown(),
+        },
+        "/api/auth/account-selection/resolve" if text("selectionToken") == "sel_1" => Json(json!({
+            "memberships": [
+                { "accountId": "acc_platform", "accountName": "Chase Sets Platform", "roleLabel": "Platform admin" },
+                { "accountId": "acc_ops", "accountName": "Chase Sets Operations", "roleLabel": "Operator" },
+            ],
+        }))
+        .into_response(),
+        "/api/auth/account-selection/complete" if text("selectionToken") == "sel_1" && text("accountId") == "acc_ops" => {
+            started("tok_ops")
+        }
+        "/api/auth/account-selection/resolve" | "/api/auth/account-selection/complete" => unknown(),
+        "/api/auth/sign-out" => Json(json!({ "ok": true })).into_response(),
+        _ => return None,
+    })
+}
+
 /// The platform API, as far as the screen uses it. The session cookie's value says who is
 /// asking: `staff` may see the screen, `reader` may not, `down` makes the lookup fail.
 async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers: HeaderMap, body: String) -> Response {
@@ -70,6 +127,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         body: body.clone(),
     });
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    if let Some(answer) = auth(&method, uri.path(), &body) {
+        return answer;
+    }
     if uri.path() == "/api/auth/session" {
         let actor = |permissions: &[&str]| {
             Json(json!({ "actor": { "userId": "usr_1", "accountId": "acc_platform", "roleKey": "platform_admin", "permissions": permissions } }))
@@ -869,18 +929,181 @@ fn fresh_receipt() -> String {
 }
 
 #[tokio::test]
-async fn a_signed_out_visitor_signs_in_through_admin_web() {
+async fn a_signed_out_visitor_signs_in_through_the_pilot() {
     let pilot = Pilot::new().await;
     for session in [None, Some("expired")] {
         let (status, headers, _) = pilot.send(get("/commerce/postage-policies", session)).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "{session:?}");
-        assert_eq!(
-            headers[header::LOCATION],
-            "http://localhost:7752/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies",
-            "{session:?}"
-        );
+        assert_eq!(headers[header::LOCATION], "/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies", "{session:?}");
     }
     assert!(pilot.policy_calls().is_empty(), "nothing is read for a visitor who is not signed in");
+}
+
+/// A form a browser posts without a session, with `cookie` when it has one.
+fn visitor_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
+    let mut req = Request::post(uri)
+        .header(header::HOST, "localhost:7790")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+    if let Some(cookie) = cookie {
+        req = req.header(header::COOKIE, cookie);
+    }
+    req.body(Body::from(body.to_owned())).unwrap()
+}
+
+/// The cookies an answer sets.
+fn set_cookies(headers: &HeaderMap) -> Vec<String> {
+    headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect()
+}
+
+#[tokio::test]
+async fn the_sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/access/sign-in?returnTo=%2Fcatalog", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains(r#"href="http://localhost:7752/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog""#),
+        "Google Workspace through admin-web, back to the page: {html}"
+    );
+    assert!(html.contains(r#"<form class="sign-in-page__form" method="get" action="/access/sign-in">"#), "{html}");
+    assert!(html.contains(r#"name="noindex""#) || html.contains(r#"content="noindex""#), "not indexed: {html}");
+    let email = "/access/sign-in?returnTo=%2Fcatalog&signInIdentifier=staff%40example.test&signInMethod=password";
+    let (status, _, html) = pilot.send(get(email, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"type="password""#) && html.contains(r#"value="password""#), "the password's form: {html}");
+    assert!(html.contains("signInMethod=magic-link") && html.contains("signInMethod=passkey"), "a link per method: {html}");
+    let phone = "/access/sign-in?signInIdentifier=%2B15550100&signInMethod=password";
+    let (_, _, html) = pilot.send(get(phone, None)).await;
+    assert!(html.contains(r#"value="phone-code-request""#) && !html.contains(r#"type="password""#), "a phone has a code: {html}");
+    // admin-web serves the same page at the catalog's address.
+    let (status, headers, _) = pilot.send(get("/catalog/sign-in?returnTo=%2Fcatalog", None)).await;
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/access/sign-in?returnTo=%2Fcatalog"))
+    );
+    // A social sign-in's refusal, by its code.
+    let (_, _, html) = pilot.send(get("/access/sign-in?socialLoginError=admin_user_required", None)).await;
+    assert!(html.contains("This Workspace user is not set up in Chase Sets."), "{html}");
+}
+
+#[tokio::test]
+async fn a_password_starts_the_session_and_goes_back_to_the_page() {
+    let pilot = Pilot::new().await;
+    let at = "/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies";
+    let (status, headers, _) =
+        pilot.send(visitor_post(at, None, "intent=password&email=staff%40example.test&password=right")).await;
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/commerce/postage-policies"))
+    );
+    let cookies = set_cookies(&headers);
+    assert!(cookies.iter().any(|c| c.starts_with("chase_sets_session=tok_staff;") && c.contains("HttpOnly")), "{cookies:?}");
+    assert!(cookies.iter().any(|c| c.starts_with("chase_sets_account_selection=;")), "no selection left: {cookies:?}");
+    // A page the pilot does not serve is admin-web's.
+    let at = "/access/sign-in?returnTo=%2Fnowhere";
+    let (_, headers, _) = pilot.send(visitor_post(at, None, "intent=password&email=staff%40example.test&password=right")).await;
+    assert_eq!(headers[header::LOCATION], "http://localhost:7752/nowhere");
+    // Another site is never where it goes.
+    let at = "/access/sign-in?returnTo=%2F%2Fevil.example";
+    let (_, headers, _) = pilot.send(visitor_post(at, None, "intent=password&email=staff%40example.test&password=right")).await;
+    assert!(!headers[header::LOCATION].to_str().unwrap().contains("evil"), "{headers:?}");
+    let sent = pilot.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/password-sign-in").count();
+    assert_eq!(sent, 3);
+
+    let (status, headers, html) =
+        pilot.send(visitor_post(at, None, "intent=password&email=staff%40example.test&password=wrong")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"role="alert""#) && html.contains(r#"type="password""#), "the form again with why: {html}");
+    assert!(set_cookies(&headers).is_empty(), "no session");
+    let (status, _, _) = pilot.send(visitor_post(at, None, "intent=password&email=limited%40example.test&password=x")).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn a_magic_link_or_a_phone_code_signs_in() {
+    let pilot = Pilot::new().await;
+    let at = "/access/sign-in?returnTo=%2Fcatalog";
+    let (status, _, html) = pilot.send(visitor_post(at, None, "intent=magic-link-request&email=staff%40example.test")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sent: Value = serde_json::from_str(
+        &pilot.calls.lock().unwrap().iter().find(|c| c.path == "/api/auth/magic-link/request").unwrap().body,
+    )
+    .unwrap();
+    assert_eq!(sent["landingPath"], "/access/sign-in/magic", "the link comes back to the pilot");
+    assert_eq!(sent["returnTo"], "/catalog");
+    let (status, headers, _) =
+        pilot.send(get("/access/sign-in/magic?token=good&returnTo=%2Fcommerce%2Fpostage-policies", None)).await;
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/commerce/postage-policies"))
+    );
+    assert!(set_cookies(&headers).iter().any(|c| c.starts_with("chase_sets_session=tok_magic;")));
+    let (status, _, html) = pilot.send(get("/access/sign-in/magic?token=used", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(html.contains(r#"href="/access/sign-in?returnTo=%2F""#), "sign in again: {html}");
+    let (status, _, _) = pilot.send(get("/access/sign-in/magic", None)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (_, _, html) = pilot.send(visitor_post(at, None, "intent=phone-code-request&phone=%2B15550100")).await;
+    assert!(html.contains(r#"value="phone-code-consume""#) && html.contains(r#"value="pc_1""#), "the code's form: {html}");
+    let body = "intent=phone-code-consume&tokenId=pc_1&phone=%2B15550100&code=123456";
+    let (status, headers, _) =
+        pilot.send(visitor_post("/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies", None, body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(set_cookies(&headers).iter().any(|c| c.starts_with("chase_sets_session=tok_phone;")));
+}
+
+#[tokio::test]
+async fn a_user_of_two_accounts_chooses_one() {
+    let pilot = Pilot::new().await;
+    let at = "/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies";
+    let (status, headers, _) =
+        pilot.send(visitor_post(at, None, "intent=password&email=member%40example.test&password=right")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/access/account-select?returnTo=%2Fcommerce%2Fpostage-policies");
+    assert!(set_cookies(&headers).iter().any(|c| c.starts_with("chase_sets_account_selection=sel_1;")));
+    let chosen = "/access/account-select?returnTo=%2Fcommerce%2Fpostage-policies";
+    let mut req = get(chosen, None);
+    req.headers_mut().insert(header::COOKIE, "chase_sets_account_selection=sel_1".parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Chase Sets Platform") && html.contains("Chase Sets Operations"), "{html}");
+    assert_eq!(html.matches(r#"name="accountId""#).count(), 2, "a form each: {html}");
+    let (status, headers, _) =
+        pilot.send(visitor_post(chosen, Some("chase_sets_account_selection=sel_1"), "accountId=acc_ops")).await;
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/commerce/postage-policies"))
+    );
+    let cookies = set_cookies(&headers);
+    assert!(cookies.iter().any(|c| c.starts_with("chase_sets_session=tok_ops;")), "{cookies:?}");
+    // A refused choice is the page again; no choice to make is the sign-in.
+    let (status, _, html) =
+        pilot.send(visitor_post(chosen, Some("chase_sets_account_selection=sel_1"), "accountId=acc_platform")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let (status, headers, _) = pilot.send(get(chosen, None)).await;
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies"))
+    );
+}
+
+#[tokio::test]
+async fn the_account_menu_signs_out_and_the_cookies_go() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/commerce/postage-policies", Some("staff"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains(r#"action="/access/sign-out""#), "{shell}");
+    assert!(shell.contains("Switch account") && shell.contains("Sessions"), "{shell}");
+    let (status, headers, _) = pilot.send(post_as("staff", "/access/sign-out", "", false)).await;
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/access/sign-in"))
+    );
+    let cookies = set_cookies(&headers);
+    for name in ["chase_sets_session", "chase_sets_account_selection", "chase_sets_guest_checkout"] {
+        assert!(cookies.iter().any(|c| c.starts_with(&format!("{name}=;")) && c.contains("Max-Age=0")), "{name}: {cookies:?}");
+    }
+    assert_eq!(pilot.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/sign-out").count(), 1);
 }
 
 #[tokio::test]
@@ -1668,7 +1891,7 @@ async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(get("/catalog/dimensions/dim_seed", None)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers[header::LOCATION], "http://localhost:7752/access/sign-in?returnTo=%2Fcatalog%2Fdimensions");
+    assert_eq!(headers[header::LOCATION], "/access/sign-in?returnTo=%2Fcatalog%2Fdimensions");
     let (status, _, _) = pilot.send(get("/catalog/dimensions", Some("reader"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view is needed to read");
     let (status, _, _) = pilot.send(get("/catalog/dimensions", Some("catalog-reader"))).await;
@@ -4108,10 +4331,7 @@ async fn access_is_an_area_each_list_needs_its_nav_entrys_permission() {
     let (status, headers, _) = pilot.send(get("/access/users", None)).await;
     assert_eq!(
         (status, &headers[header::LOCATION]),
-        (
-            StatusCode::SEE_OTHER,
-            &"http://localhost:7752/access/sign-in?returnTo=%2Faccess%2Fusers".parse::<header::HeaderValue>().unwrap()
-        )
+        (StatusCode::SEE_OTHER, &"/access/sign-in?returnTo=%2Faccess%2Fusers".parse::<header::HeaderValue>().unwrap())
     );
     for (path, status) in [
         ("/access", StatusCode::OK),

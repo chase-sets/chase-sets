@@ -12,8 +12,8 @@ use crate::{
     invite::{self, AcceptForm, Invitation, InviteScreen},
     register::{self, Join, RegisterForm, RegisterScreen},
     sign_in::{
-        Ask, Back, DEFAULT_SUCCESS, Kind, Membership, Method, Notice, SelectForm, SignInForm, SignInScreen, on_marketplace,
-        safe_return_to,
+        Ask, Back, DEFAULT_SUCCESS, Kind, Label as _, Membership, Method, Notice, SelectForm, SignInForm, SignInScreen,
+        on_marketplace, safe_return_to,
     },
     text::SignInMsg,
 };

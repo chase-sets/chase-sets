@@ -3,7 +3,8 @@ use corten::prelude::*;
 use super::{admin_web, link_to};
 use crate::{
     auth::{self, NavItem, Viewer},
-    text::Pilot,
+    sign_in,
+    text::{Pilot, SignInMsg},
 };
 
 /// Where a nav entry goes.
@@ -47,6 +48,7 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     let sections = auth::sections(viewer);
     let here = section_of(path);
     let items = auth::section_items(viewer, here);
+    let m: SignInMsg = req.t();
     html! {
         <header class={Bar}>
             <a class={Brand} href={admin_web("/").map(|u| u.to_string()).unwrap_or_default()}>{p.shell_admin()}</a>
@@ -66,6 +68,25 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
                     }
                 </ul>
             </nav>
+            // admin-web's account menu (`AdminAccountMenu`): switch account, sessions and sign out.
+            <details class={Account}>
+                <summary class={Section} aria-label={m.menu_account_menu()}>{m.menu_account()}</summary>
+                <ul class={Menu}>
+                    <li>
+                        <a class={Item} href={link_to(req, "/access/account-select").unwrap_or_default()}>
+                            {m.menu_switch_account()}
+                        </a>
+                    </li>
+                    <li>
+                        <a class={Item} href={link_to(req, "/access/sessions").unwrap_or_default()}>{m.menu_sessions()}</a>
+                    </li>
+                    <li>
+                        <form method="post" action={sign_in::sign_out::SignOut}>
+                            <button type="submit" class={(Item, Plain)}>{m.menu_sign_out()}</button>
+                        </form>
+                    </li>
+                </ul>
+            </details>
         </header>
         <nav class={Side} aria-label={p.shell_section_navigation(section_label(p, here))}>
             <ul>

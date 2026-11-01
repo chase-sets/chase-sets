@@ -49,13 +49,12 @@ impl Config {
     }
 }
 
-/// admin-web's sign-in, coming back to the page the request was for there: admin-web only
-/// returns to its own paths, and the pilot's are admin-web's, so the page is the path's section
-/// and screen (`/catalog/dimensions` for `/catalog/dimensions/dim_1/edit`).
+/// The pilot's sign-in, coming back to the screen the request was for: the path's section and
+/// screen (`/catalog/dimensions` for `/catalog/dimensions/dim_1/edit`), as admin-web returns.
 pub(crate) fn sign_in_at(path: &str) -> Option<corten::axum::http::Uri> {
     let page: String = path.split('/').filter(|s| !s.is_empty()).take(2).map(|s| format!("/{s}")).collect();
     let page = if page.is_empty() { "/".to_owned() } else { page };
-    views::admin_web(&format!("/access/sign-in?returnTo={}", crate::api::segment(&page)))
+    crate::sign_in::url::SignIn { ask: crate::sign_in::Ask::back_to(&page) }.href().parse().ok()
 }
 
 /// admin-web's origin (`ADMIN_WEB_ORIGIN`), for sign-in and the admin pages the pilot links to.
@@ -169,6 +168,10 @@ pub fn app(config: Config) -> App {
         .area(|area| crate::growth::waitlist::area(area, shared.clone()))
         .area(|area| crate::growth::campaign::area(area, shared.clone()))
         .area(|area| crate::growth::promo::area(area, shared.clone()))
+        .area(|area| crate::sign_in::url::area(area, shared.clone()).components(views::SIGN_IN))
+        .area(|area| crate::sign_in::catalog::area(area, shared.clone()))
+        .area(|area| crate::sign_in::account_select::area(area, shared.clone()).components(views::SIGN_IN))
+        .area(|area| crate::sign_in::sign_out::area(area, shared.clone()))
         .area(|area| crate::site::offline_page::area(area, shared.clone()).components(views::OFFLINE))
         .error_page(views::error_page, shared)
 }

@@ -15,6 +15,10 @@
 //   as oe.*), the Ops Dashboard's (platformOperations.opsDashboard.* as od.*), the Policy Console's
 //   (platformOperations.policyConsole.* as policy.*) and Listing Evidence Policy's
 //   (marketplace.features.listingEvidencePolicy.ui.* as lep.*).
+// - admin/locales/sign_in.en.json: admin-web's sign-in, magic-link landing and account selection
+//   (the same Auth catalog marketplace/locales/sign_in.en.json takes, without registration and
+//   invitations), its account menu (adminWeb.app.adminSectionLayout.* as menu.*), and its titles
+//   from adminAuthHostConfig as route.sign_in and route.account_selection.
 // - admin/locales/access.en.json: the access section's English catalog: Access's home, the
 //   accounts, users, memberships, invitations and API keys lists, an account's workspace (its
 //   tabs, the detail pages' actions and the API key secret reveal), the identity value labels and
@@ -764,6 +768,29 @@ const outputs = [
       ...(await catalog("customer-feedback.ts", "customerFeedbackEnglishTranslations", [
         ["customer-feedback.attention.", "cfa"],
       ])),
+    }),
+  ],
+  [
+    "admin/locales/sign_in.en.json",
+    json({
+      ...(await catalog("auth.ts", "authEnglishTranslations", [
+        ["auth.features.signIn.ui.signInPage.", "page"],
+        ["auth.support.routeSupport.authHost.", "host"],
+        ["auth.support.routeSupport.magicLinkLanding.", "magic"],
+        ["auth.support.apiSupport.passwordRoutes.", "password"],
+        ["auth.support.apiSupport.phoneCodeRoutes.", "phone"],
+        ["auth.support.apiSupport.registrationGates.", "gate"],
+        ["auth.support.apiSupport.accountSelectionRoutes.", "selection_api"],
+        ["auth.support.apiSupport.socialLoginRoutes.", "social"],
+        ["auth.support.apiSupport.support.authentication.required", "social.authentication.required"],
+        ["auth.features.accountSelection.ui.accountSelectionPage.", "select"],
+      ])),
+      ...(await catalog("identity.ts", "identityEnglishTranslations", [
+        ["identity.api.display.name.already.taken", "social.identity.conflict"],
+      ])),
+      ...(await catalog("admin-web.ts", "adminWebEnglishTranslations", [["adminWeb.app.adminSectionLayout.", "menu"]])),
+      "route.sign_in": adminAuthHostConfig.titles.signIn,
+      "route.account_selection": adminAuthHostConfig.titles.accountSelection,
     }),
   ],
   [

@@ -27,35 +27,27 @@
 //! transport does: the API limits failed sign-ins by that address, and without it every browser
 //! would share the web host's
 //! ([chase-sets/chase-sets#10686](https://github.com/chase-sets/chase-sets/issues/10686)).
-use std::time::{Duration, SystemTime};
-
 use corten::{
     ClientIp, Local,
     axum::http::{HeaderMap, StatusCode, Uri},
-    i18n::parse_timestamp,
     prelude::*,
-    security::cookie::{self, SetCookie},
+    security::cookie::SetCookie,
 };
-use platform::{receipt::Receipt, session::SESSION_COOKIE};
-use serde::{Deserialize, de::DeserializeOwned};
+pub(crate) use platform::auth::{Authenticated, call, call_written, safe_return_to};
+pub use platform::auth::{GUEST_CHECKOUT_COOKIE, Kind, Membership, Method, SELECTION_COOKIE};
+use platform::auth::{PhoneCodeSent, Refusal, selection_token};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    api::{ApiError, Caller, Method as Http, segment},
+    api::{ApiError, Caller, segment},
     app::{Config, Shared, url},
     text::{Pilot, SignInMsg},
     views::{self, Layout},
 };
 
-/// The account selection a sign-in that may act for more than one account waits on.
-pub const SELECTION_COOKIE: &str = "chase_sets_account_selection";
-/// A guest checkout's session, which signing out ends.
-pub const GUEST_CHECKOUT_COOKIE: &str = "chase_sets_guest_checkout";
 /// Where a sign-in goes without a `returnTo` (the host's `defaultSuccessPath`).
 pub const DEFAULT_SUCCESS: &str = "/account";
-/// marketplace retries a password sign-in the API never received, after these waits.
-const RETRIES: [Duration; 2] = [Duration::from_millis(100), Duration::from_millis(250)];
-const AUTH: &str = "auth";
 
 /// The page's address, named as marketplace's.
 #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
@@ -107,28 +99,13 @@ pub struct Link {
     pub return_to: Option<String>,
 }
 
-/// A way to sign in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Method {
-    Password,
-    PhoneCode,
-    MagicLink,
-    Passkey,
+/// A method's name on marketplace's page.
+pub trait Label {
+    fn label(self, t: SignInMsg) -> &'static str;
 }
 
-impl Method {
-    pub const ALL: [Method; 4] = [Method::Password, Method::PhoneCode, Method::MagicLink, Method::Passkey];
-
-    pub fn key(self) -> &'static str {
-        match self {
-            Method::Password => "password",
-            Method::PhoneCode => "phone-code",
-            Method::MagicLink => "magic-link",
-            Method::Passkey => "passkey",
-        }
-    }
-
-    pub fn label(self, t: SignInMsg) -> &'static str {
+impl Label for Method {
+    fn label(self, t: SignInMsg) -> &'static str {
         match self {
             Method::Password => t.page_password(),
             Method::PhoneCode => t.page_phone_code(),
@@ -136,45 +113,6 @@ impl Method {
             Method::Passkey => t.page_passkey(),
         }
     }
-
-    fn parse(key: &str) -> Option<Method> {
-        Method::ALL.into_iter().find(|m| m.key() == key)
-    }
-}
-
-/// What the identifier is: marketplace reads anything with an `@` as an email.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind {
-    Email,
-    Phone,
-}
-
-impl Kind {
-    pub fn of(identifier: &str) -> Kind {
-        if identifier.contains('@') { Kind::Email } else { Kind::Phone }
-    }
-
-    /// The methods the identifier offers, in marketplace's order (`EMAIL_METHOD_PRIORITY`).
-    pub fn methods(self) -> &'static [Method] {
-        match self {
-            Kind::Email => &[Method::Passkey, Method::MagicLink, Method::Password],
-            Kind::Phone => &[Method::PhoneCode],
-        }
-    }
-
-    /// The method shown: the one asked for when the identifier offers it, else its first.
-    pub fn shown(self, asked: Option<&str>) -> Method {
-        let methods = self.methods();
-        asked.and_then(Method::parse).filter(|m| methods.contains(m)).unwrap_or(methods[0])
-    }
-}
-
-/// Auth's `getSafeReturnTo`: a path on this site (`Local`), else `fallback`. `/\host`, which a
-/// browser reads as `//host`, another site, is refused, as Auth refuses it since
-/// [chase-sets/chase-sets#10687](https://github.com/chase-sets/chase-sets/issues/10687); so are a
-/// control character and a `.` or `..` segment.
-pub fn safe_return_to(value: Option<&str>, fallback: &str) -> String {
-    value.and_then(Local::parse).map_or_else(|| fallback.to_owned(), |path| path.to_string())
 }
 
 /// Where a path on the site is: the pilot's page when it has one there (`Req::serves`),
@@ -289,106 +227,21 @@ impl SignInScreen {
     }
 }
 
-/// A sign-in the API answered: a session, or a choice of account first (`InteractiveAuthResult`).
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-pub enum Authenticated {
-    #[serde(rename_all = "camelCase")]
-    SessionStarted { session_token: String, session: SessionRow },
-    #[serde(rename_all = "camelCase")]
-    AccountSelectionRequired { selection_token: String, selection_expires_at: String },
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SessionRow {
-    pub expires_at: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PhoneCodeSent {
-    token_id: String,
-}
-
-/// An account the user may act for.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Membership {
-    pub account_id: String,
-    pub account_name: String,
-    pub role_label: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct Memberships {
-    #[serde(default)]
-    memberships: Vec<Membership>,
-}
-
-/// An auth call: the browser's cookies and host, as every call sends them, and its address.
-pub(crate) async fn call<T: DeserializeOwned>(
-    caller: &Caller<'_>,
-    client: Option<ClientIp>,
-    path: &str,
-    body: Value,
-) -> Result<T, ApiError> {
-    call_written(caller, client, path, body).await.map(|(answer, _)| answer)
-}
-
-/// An auth call that writes, and the receipt the next read waits for (a new identity's).
-pub(crate) async fn call_written<T: DeserializeOwned>(
-    caller: &Caller<'_>,
-    client: Option<ClientIp>,
-    path: &str,
-    body: Value,
-) -> Result<(T, Option<Receipt>), ApiError> {
-    let mut req = caller.request(Http::POST, path, AUTH).json(&body);
-    if let Some(ClientIp(ip)) = client {
-        req = req.header("x-forwarded-for", ip.to_string());
-    }
-    caller.write::<T>(req).await
-}
-
-/// Whether the API never received the request: marketplace retries a password sign-in then.
-fn unsent(error: &ApiError) -> bool {
-    matches!(error, ApiError::Transport(error) if error.is_connect())
-}
-
 /// A sign-in's refusal in the page's words (`authApiActionError`), and the status the page has.
 pub(crate) fn refusal(t: SignInMsg, intent: &str, error: &ApiError) -> (StatusCode, String) {
-    let failed = (StatusCode::UNPROCESSABLE_ENTITY, t.host_request_failed().to_owned());
-    let Some(status) = error.status() else {
-        tracing::warn!("a sign-in call failed: {error}");
-        return (StatusCode::SERVICE_UNAVAILABLE, t.host_sign_in_temporarily_unavailable().to_owned());
+    let refused = Refusal::of(intent, error);
+    let message = match refused {
+        Refusal::Unavailable => t.host_sign_in_temporarily_unavailable(),
+        Refusal::InvalidEmailOrPassword => t.password_invalid_email_or_password(),
+        Refusal::InvalidPhoneCode => t.phone_phone_code_is_invalid_or_has(),
+        Refusal::InvalidSelection => t.selection_api_account_selection_is_invalid_or_has(),
+        Refusal::InvitationRequired => t.gate_registration_requires_an_invitation(),
+        Refusal::DisposableEmail => t.gate_disposable_email_domains_are_not_allowed(),
+        Refusal::ConsentUnavailable => t.social_registration_consent_unavailable(),
+        Refusal::RateLimited => t.host_rate_limited(),
+        Refusal::Failed => t.host_request_failed(),
     };
-    let code = error.code();
-    let say = |message: &str| (StatusCode::UNPROCESSABLE_ENTITY, message.to_owned());
-    match status.as_u16() {
-        401 if code.is_none_or(|c| c == "authentication_required") => match intent {
-            "password" => say(t.password_invalid_email_or_password()),
-            "phone-code-consume" => say(t.phone_phone_code_is_invalid_or_has()),
-            "account-selection" => say(t.selection_api_account_selection_is_invalid_or_has()),
-            _ => failed,
-        },
-        403 if code == Some("registration_admission_required") => say(t.gate_registration_requires_an_invitation()),
-        403 if code == Some("disposable_email_domain") => say(t.gate_disposable_email_domains_are_not_allowed()),
-        400 if matches!(
-            code,
-            Some(
-                "registration_consent_not_server_minted"
-                    | "registration_consent_expired"
-                    | "registration_consent_affirmation_required"
-            )
-        ) && matches!(intent, "password" | "phone-code-consume") =>
-        {
-            say(t.social_registration_consent_unavailable())
-        }
-        429 if code.is_none_or(|c| c == "rate_limited") => (StatusCode::TOO_MANY_REQUESTS, t.host_rate_limited().to_owned()),
-        _ => {
-            tracing::warn!("a sign-in was refused: {error}");
-            failed
-        }
-    }
+    (refused.status(), message.to_owned())
 }
 
 /// A cookie, Secure only when browsers reach the pilot over https.
@@ -396,25 +249,11 @@ fn secure(config: &Config, cookie: SetCookie) -> SetCookie {
     if config.proto == "https" { cookie } else { cookie.insecure() }
 }
 
-/// Seconds until `expires_at`, none past it (`maxAgeSecondsFromExpiry`).
-fn seconds_until(expires_at: &str) -> i64 {
-    let Some(at) = parse_timestamp(expires_at) else { return 0 };
-    at.duration_since(SystemTime::now()).map_or(0, |left| left.as_secs_f64().ceil() as i64)
-}
-
 /// The browser signed in (`completeBrowserAuthentication`): the session's cookie and back to
 /// `return_to`, or the selection's cookie and the choice of account, which then goes there.
 pub(crate) fn complete(req: &Req, config: &Config, return_to: &str, result: Authenticated) -> HtmlResult {
     // A token the API wrote that a cookie cannot carry is the API's mistake: 502, not a panic.
-    let keep = match &result {
-        Authenticated::SessionStarted { session_token, session } => {
-            SetCookie::try_new(SESSION_COOKIE, session_token).map(|c| c.max_age(seconds_until(&session.expires_at)))
-        }
-        Authenticated::AccountSelectionRequired { selection_token, selection_expires_at } => {
-            SetCookie::try_new(SELECTION_COOKIE, selection_token).map(|c| c.max_age(seconds_until(selection_expires_at)))
-        }
-    };
-    let keep = keep.map_err(|_| corten::Error::status(StatusCode::BAD_GATEWAY))?;
+    let keep = result.cookie().ok_or_else(|| corten::Error::status(StatusCode::BAD_GATEWAY))?;
     let res = match &result {
         Authenticated::SessionStarted { .. } => {
             let to = destination(req, return_to).or_else(|| views::marketplace(DEFAULT_SUCCESS));
@@ -507,19 +346,7 @@ pub(crate) async fn write(
             started
         }
         // Marketplace's default intent is a password.
-        _ => {
-            let body = json!({ "email": form.email, "password": form.password });
-            let mut waits = RETRIES.iter();
-            loop {
-                match call::<Authenticated>(&caller, client, "/api/auth/password-sign-in", body.clone()).await {
-                    Err(error) if unsent(&error) => match waits.next() {
-                        Some(wait) => tokio::time::sleep(*wait).await,
-                        None => break Err(error),
-                    },
-                    answer => break answer,
-                }
-            }
-        }
+        _ => platform::auth::password(&caller, client, &form.email, &form.password).await,
     };
     match started {
         Ok(result) => complete(&req, &config, &return_to, result),
@@ -573,11 +400,6 @@ pub(crate) async fn magic(
     }
 }
 
-/// The selection's token: none without the cookie.
-fn selection_token(headers: &HeaderMap) -> Option<&str> {
-    cookie::get(headers, SELECTION_COOKIE).filter(|token| !token.is_empty())
-}
-
 /// No choice to make, or one that ended: the sign-in again, back to the same place
 /// (`requireAccountSelectionTokenOrRedirect`).
 fn sign_in_again(req: &Req, back: &Back) -> HtmlResult {
@@ -593,15 +415,8 @@ async fn select_render(
     back: &Back,
     error: Option<(StatusCode, String)>,
 ) -> HtmlResult {
-    let memberships = match call::<Memberships>(
-        caller,
-        client,
-        "/api/auth/account-selection/resolve",
-        json!({ "selectionToken": token }),
-    )
-    .await
-    {
-        Ok(found) => found.memberships,
+    let memberships = match platform::auth::memberships(caller, client, token).await {
+        Ok(found) => found,
         // The choice ended: sign in again, back to the same place.
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => return sign_in_again(req, back),
         Err(error) => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
@@ -662,62 +477,10 @@ pub(crate) async fn select(
 /// (the host's `signedOutReturnTo`).
 pub(crate) async fn sign_out(req: Req, State(config): State<Shared>, headers: HeaderMap, client: Option<ClientIp>) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
-    if cookie::get(&headers, GUEST_CHECKOUT_COOKIE).is_some()
-        && let Err(error) = call::<Value>(&caller, client, "/api/auth/guest-checkout/exit", json!({})).await
-    {
-        tracing::warn!("a guest checkout could not be ended: {error}");
-    }
-    if let Err(error) = call::<Value>(&caller, client, "/api/auth/sign-out", json!({})).await {
-        tracing::warn!("a session could not be ended: {error}");
-    }
+    let cleared = platform::auth::sign_out(&caller, client, &headers).await;
     let mut res = req.redirect(&url::Search::default())?;
-    for name in [SELECTION_COOKIE, SESSION_COOKIE, GUEST_CHECKOUT_COOKIE] {
+    for name in cleared {
         res = res.with_cookie(secure(&config, SetCookie::remove(name)));
     }
     Ok(res)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_return_address_is_a_path_on_this_site() {
-        assert_eq!(safe_return_to(Some("/account/cart?x=1"), "/account"), "/account/cart?x=1");
-        assert_eq!(safe_return_to(None, "/account"), "/account");
-        assert_eq!(safe_return_to(Some("https://example.com/"), "/account"), "/account");
-        assert_eq!(safe_return_to(Some("//example.com/"), "/account"), "/account");
-        assert_eq!(safe_return_to(Some("/\\example.com/"), "/account"), "/account", "a browser reads it as //example.com");
-        assert_eq!(safe_return_to(Some("/a\nb"), "/account"), "/account");
-    }
-
-    #[test]
-    fn an_email_offers_a_password_and_a_phone_a_code() {
-        assert_eq!(Kind::of("collector@chasesets.test"), Kind::Email);
-        assert_eq!(Kind::of("+1 555 0100"), Kind::Phone);
-        assert_eq!(Kind::Email.shown(Some("password")), Method::Password);
-        assert_eq!(Kind::Email.shown(None), Method::Passkey, "marketplace's first, as its page shows with JavaScript");
-        assert_eq!(Kind::Phone.shown(Some("password")), Method::PhoneCode, "a phone has no password");
-        assert_eq!(Kind::Email.shown(Some("phone-code")), Method::Passkey);
-    }
-
-    #[test]
-    fn the_api_answers_a_session_or_a_choice() {
-        let started: Authenticated = serde_json::from_value(json!({
-            "type": "session-started", "userId": "usr_1", "sessionId": "ses_1", "sessionToken": "tok",
-            "session": { "expires_at": "2099-01-01T00:00:00.000Z" }, "memberships": [],
-        }))
-        .unwrap();
-        assert!(matches!(started, Authenticated::SessionStarted { ref session_token, .. } if session_token == "tok"));
-        let choice: Authenticated = serde_json::from_value(json!({
-            "type": "account-selection-required", "userId": "usr_1", "selectionToken": "sel",
-            "selectionExpiresAt": "2099-01-01T00:00:00.000Z", "memberships": [],
-        }))
-        .unwrap();
-        assert!(
-            matches!(choice, Authenticated::AccountSelectionRequired { ref selection_token, .. } if selection_token == "sel")
-        );
-        assert!(seconds_until("2099-01-01T00:00:00.000Z") > 0);
-        assert_eq!(seconds_until("2000-01-01T00:00:00.000Z"), 0);
-    }
 }

@@ -20,6 +20,52 @@
   font-size: 0.75rem;
   font-weight: 600;
 }
+/* The account menu, at the bar's end: its entries drop below it, over the page. */
+.account {
+  position: relative;
+  margin-left: auto;
+}
+.account > summary {
+  min-height: var(--control-height);
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+.account > summary::-webkit-details-marker {
+  display: none;
+}
+.menu {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  display: grid;
+  gap: var(--space-1);
+  min-width: 12rem;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+  list-style: none;
+}
+.menu form {
+  margin: 0;
+}
+.menu .item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--control-height);
+}
+.plain {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .sections {
   display: flex;
   flex-wrap: wrap;

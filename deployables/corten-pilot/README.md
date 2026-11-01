@@ -58,6 +58,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Growth > Google Shopping, `/growth/google-shopping` (filters, a row's detail, the three dry runs, a dry run followed live; live runs stay gated) |
 | `admin/` | Growth > Waitlist, `/growth/waitlist`, with its CSV export, `/growth/waitlist/export`. Growth's pages call the same Public Presence routes as admin-web and inherit their access; see the private advisory GHSA-2v8j-2hqx-92fq before giving anyone the pilot's admin |
 | `admin/` | Growth > Campaign Analytics, `/growth/campaign-analytics` |
+| `admin/` | Sign in, `/access/sign-in` (and `/catalog/sign-in`, the same page), `/access/sign-in/magic`, `/access/account-select` and `/access/sign-out`, with Google Workspace and a passkey on admin-web; a signed-out page now signs in here. The frame's account menu has Switch account, Sessions and Sign out. Both apps sign in through `platform::auth` |
 | `admin/` | The site's own files: `/favicon.svg`, `/favicon.ico`, the web app manifest and service worker (Corten's PWA, leaving admin-web's sign-in, the API and the health checks to the network) and `/offline` |
 | `admin/` | Growth > Promo Bar, `/growth/promo-bar` (`?edit=`, `?delete=`), with Create, Edit, Activate, Deactivate and Delete |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` |

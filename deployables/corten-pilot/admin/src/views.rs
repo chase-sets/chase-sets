@@ -25,6 +25,7 @@ mod offline_page;
 mod policy_fields;
 mod policy_sheet;
 mod policy_table;
+mod sign_in_page;
 
 pub use admin_nav::AdminNav;
 pub use badge::Badge;
@@ -35,10 +36,14 @@ pub use platform::section::{Banner, PageHeader, Section};
 pub use policy_fields::{CreateForm, PolicyFields, ReviseForm};
 pub use policy_sheet::{PolicySheet, PreviewResult};
 pub use policy_table::{Pagination, PolicyTable};
+pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};
 
 /// The components every page renders (the frame and the shared parts), tokens first: their
 /// stylesheets are `components.css`.
 pub const COMPONENTS: &[Component] = &[theme::TOKENS, AdminNav, Section];
+
+/// Signing in (`/access/sign-in`, its magic link and account selection): the page's stylesheet.
+pub const SIGN_IN: &[Component] = &[SignInPage];
 
 /// The offline page (`/offline`), which the service worker keeps for a navigation it cannot make.
 pub const OFFLINE: &[Component] = &[OfflinePage];

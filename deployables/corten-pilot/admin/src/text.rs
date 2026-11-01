@@ -9,6 +9,7 @@ pub use growth::Gro;
 pub use operations::Ops;
 pub use ordering::Msg;
 pub use pilot::Pilot;
+pub use sign_in::SignInMsg;
 pub use site::SiteMsg;
 pub use support::Sup;
 
@@ -29,6 +30,13 @@ pub fn snake_case(name: &str) -> String {
 mod ordering {
     corten::i18n::messages! {
         pub struct Msg { "en" => "locales/en.json" }
+    }
+}
+
+/// admin-web's sign-in, magic-link landing, account selection and account menu.
+mod sign_in {
+    corten::i18n::messages! {
+        pub struct SignInMsg { "en" => "locales/sign_in.en.json" }
     }
 }
 
