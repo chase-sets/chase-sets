@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
 import type { PayoutSetupAttention } from "../../payout-readiness/domain/setup-progress";
-import type { SettlementPayoutRow } from "../read-model/queries";
+import type { PayoutOperationsRow } from "../read-model/payout-operations";
 import { SettlementPayoutOperationsPage } from "./payout-operations-page";
 
 function readiness(
@@ -35,7 +35,7 @@ function readiness(
   };
 }
 
-function payout(): SettlementPayoutRow {
+function payout(overrides: Partial<PayoutOperationsRow> = {}): PayoutOperationsRow {
   return {
     payout_id: "pyo_fee_reader",
     account_id: "acc_test",
@@ -66,6 +66,7 @@ function payout(): SettlementPayoutRow {
     retry_reason: null,
     operations_state: "ready-to-reconcile",
     operations_severity: "normal",
+    ...overrides,
   };
 }
 
