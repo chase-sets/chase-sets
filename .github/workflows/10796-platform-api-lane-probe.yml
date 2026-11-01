@@ -1,0 +1,381 @@
+name: PROBE ONLY - do not merge - platform-api lane evidence
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  platform-api-lane-probe:
+    name: Probe only (windows-2025, AC1-AC3)
+    if: startsWith(github.head_ref, 'codex/10796-probe-g3')
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      PROBE_BASE_SHA: 36dbf479dc07ce129f00bff253988f4790f4c861
+      PROBE_CANDIDATE_SHA: 62a5f9e68a98ea303c3aade5608a4a4ea7996682
+      CHASE_SETS_LANE_MODE: "1"
+      DEBUG: vite:*
+    steps:
+      - name: Checkout probe workflow
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.0.9
+          run_install: false
+
+      - name: Configure Node and pnpm cache
+        id: setup-node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      - name: Write probe runner
+        shell: pwsh
+        run: |
+          @'
+          import { execFile, execFileSync, spawn } from "node:child_process";
+          import { createHash } from "node:crypto";
+          import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+          import { basename, join, resolve } from "node:path";
+          import { promisify } from "node:util";
+
+          const execFileAsync = promisify(execFile);
+          const workspace = process.env.GITHUB_WORKSPACE;
+          const root = join(process.env.RUNNER_TEMP, "10796-impl-g3-probe");
+          const artifactRoot = join(process.env.RUNNER_TEMP, "10796-impl-g3-probe-evidence");
+          const maxLogBytes = 256 * 1024;
+          const maxEvents = 4096;
+          const runAttempt = Number(process.env.GITHUB_RUN_ATTEMPT);
+          const runId = Number(process.env.GITHUB_RUN_ID);
+          const jobId = process.env.GITHUB_JOB;
+          const baseSha = process.env.PROBE_BASE_SHA;
+          const candidateSha = process.env.PROBE_CANDIDATE_SHA;
+          const command = [
+            "pnpm",
+            "--filter",
+            "@chase-sets/app-platform-api",
+            "exec",
+            "vitest",
+            "run",
+            "--config",
+            "./vitest.config.ts",
+            "__tests__/capability-administration-host-port.test.ts",
+          ];
+          const cleanupCommand = [...command.slice(0, -1), "__tests__/cleanup-authority-host-capability.test.ts"];
+          const now = () => new Date().toISOString();
+          const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
+          const writeJson = (file, value) => writeFileSync(file, JSON.stringify(value, null, 2) + "\n", "utf8");
+          const runGit = (args, cwd = workspace) => execFileSync("git.exe", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+          const stripAnsi = (value) => String(value).replace(/[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, "");
+          const boundedText = (value, limit = maxLogBytes) => {
+            const text = String(value);
+            if (Buffer.byteLength(text, "utf8") <= limit) return { text, truncated: false };
+            const head = Math.floor(limit * 0.75);
+            const tail = limit - head;
+            const headText = Buffer.from(text, "utf8").subarray(0, head).toString("utf8");
+            const tailText = Buffer.from(text, "utf8").subarray(-tail).toString("utf8");
+            return { text: `${headText}\n[probe log truncated at ${limit} bytes]\n${tailText}`, truncated: true };
+          };
+          const writeBoundedText = (file, value) => {
+            const bounded = boundedText(value);
+            writeFileSync(file, bounded.text, "utf8");
+            return bounded.truncated;
+          };
+          const artifactFile = (...parts) => {
+            const file = join(artifactRoot, ...parts);
+            mkdirSync(join(file, ".."), { recursive: true });
+            return file;
+          };
+          const markerContract = {
+            config_import: [
+              /vite:\s*config/i,
+              /(?:loaded|loading|import(?:ed|ing)|config)[^\r\n]*(?:vitest|vite)[^\r\n]*config/i,
+              /(?:vitest|vite)\.config\.(?:ts|mts|mjs|js)\b/i,
+            ],
+            setup: [/\bRUN\s+v\d+(?:\.\d+){1,2}\b/i, /\bvitest\s+(?:v?\d+(?:\.\d+){1,2}\s+)?run\b/i],
+            test_start: [
+              /capability-administration-host-port\.test\.(?:ts|tsx|mts|mjs|js)\b/i,
+              /(?:test|suite|file|collect)[^\r\n]*capability-administration-host-port/i,
+            ],
+          };
+          const findMarkers = (events, output) => {
+            const observed = [...events, ...String(output).split(/\r?\n/).map((line) => ({ at: null, line }))];
+            return Object.fromEntries(Object.entries(markerContract).map(([name, patterns]) => {
+            const match = observed.find((event) => patterns.some((pattern) => pattern.test(event.line)));
+            return [name, match ? { at: match.at, line: match.line } : null];
+            }));
+          };
+          const markerMissing = (markers) => Object.entries(markers).filter(([, value]) => !value).map(([name]) => name);
+
+          rmSync(root, { recursive: true, force: true });
+          rmSync(artifactRoot, { recursive: true, force: true });
+          mkdirSync(root, { recursive: true });
+          mkdirSync(artifactRoot, { recursive: true });
+          const recordProcessFailure = (error) => {
+            writeJson(artifactFile("failure.json"), { error: String(error?.stack ?? error?.message ?? error), run_id: runId, run_attempt: runAttempt, job_id: jobId, base_sha: baseSha, candidate_sha: candidateSha, runner_image: "windows-2025" });
+            console.error(error);
+            process.exitCode = 1;
+          };
+          process.on("uncaughtException", recordProcessFailure);
+          process.on("unhandledRejection", recordProcessFailure);
+          if (!workspace || !baseSha || !candidateSha || runAttempt !== 1) {
+            writeJson(artifactFile("failure.json"), { error: `probe identity invalid workspace=${workspace} base=${baseSha} candidate=${candidateSha} attempt=${runAttempt}`, run_id: runId, run_attempt: runAttempt, job_id: jobId, runner_image: "windows-2025" });
+            throw new Error(`probe identity invalid workspace=${workspace} base=${baseSha} candidate=${candidateSha} attempt=${runAttempt}`);
+          }
+          runGit(["fetch", "--no-tags", "origin", `${baseSha}:refs/remotes/origin/probe-base`, `${candidateSha}:refs/remotes/origin/probe-candidate`]);
+          const metadata = {
+            run_id: runId,
+            run_attempt: runAttempt,
+            job_id: jobId,
+            runner: process.env.RUNNER_NAME,
+            runner_image: "windows-2025",
+            runner_arch: process.env.RUNNER_ARCH,
+            base_sha: baseSha,
+            candidate_sha: candidateSha,
+            github_sha: process.env.GITHUB_SHA,
+            cache_key: `windows-2025-platform-api-${process.env.RUNNER_ARCH}-pnpm-${process.env.GITHUB_SHA}`,
+            cache_hit: process.env.PNPM_CACHE_HIT ?? "unknown",
+            command,
+            cleanup_command: cleanupCommand,
+            started_at: now(),
+          };
+          writeJson(join(root, "run-metadata.json"), metadata);
+          writeJson(artifactFile("run-metadata.json"), metadata);
+
+          function resourceSnapshot() {
+            const script = "$ErrorActionPreference='Stop'; $c=Get-Counter '\\Processor(_Total)\\% Processor Time','\\PhysicalDisk(_Total)\\Disk Bytes/sec'; $c.CounterSamples | ForEach-Object { [pscustomobject]@{path=$_.Path;value=$_.CookedValue;timestamp=$_.Timestamp.ToUniversalTime().ToString('o')} } | ConvertTo-Json -Compress";
+            try {
+              return { ok: true, samples: JSON.parse(execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8" })) };
+            } catch (error) {
+              return { ok: false, error: String(error?.message ?? error) };
+            }
+          }
+
+          function runChild(args, cwd, env, logFile, timeoutMs = 590000) {
+            return new Promise((resolvePromise, rejectPromise) => {
+              const started = now();
+              let output = "";
+              let outputBytes = 0;
+              let outputTruncated = false;
+              const events = [];
+              let pending = "";
+              // Windows requires shell dispatch for .cmd/.bat files under current Node hardening.
+              // The executable and all arguments are fixed by this probe; no external input is interpolated.
+              const child = spawn("pnpm.cmd", args, { cwd, env, shell: true, windowsHide: true });
+              const append = (chunk) => {
+                const text = String(chunk);
+                if (outputBytes < maxLogBytes) {
+                  const remaining = maxLogBytes - outputBytes;
+                  const bytes = Buffer.from(text, "utf8");
+                  output += bytes.subarray(0, remaining).toString("utf8");
+                  outputBytes += Math.min(bytes.length, remaining);
+                  outputTruncated ||= bytes.length > remaining;
+                } else {
+                  outputTruncated = true;
+                }
+                pending += text;
+                for (const line of pending.split(/\r?\n/).slice(0, -1)) {
+                  if (events.length < maxEvents) events.push({ at: now(), line: stripAnsi(line) });
+                }
+                pending = pending.split(/\r?\n/).at(-1) ?? "";
+                writeBoundedText(logFile, output);
+              };
+              child.stdout.on("data", append);
+              child.stderr.on("data", append);
+              let timedOut = false;
+              const timer = setTimeout(() => {
+                timedOut = true;
+                execFile("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+              }, timeoutMs);
+              child.on("error", rejectPromise);
+              child.on("close", (code, signal) => {
+                clearTimeout(timer);
+                if (pending && events.length < maxEvents) events.push({ at: now(), line: stripAnsi(pending) });
+                if (outputTruncated) output += `\n[probe log truncated at ${maxLogBytes} bytes]\n`;
+                const result = { code: code ?? 1, signal, timedOut, started, ended: now(), output, events, output_truncated: outputTruncated };
+                writeBoundedText(logFile, output);
+                resolvePromise(result);
+              });
+            });
+          }
+
+          async function runCase({ name, sha, state, pair, worktree }) {
+            const caseDir = join(root, name);
+            runGit(["worktree", "add", "--detach", caseDir, sha]);
+            const store = join(caseDir, ".probe-store");
+            const installLog = join(caseDir, "install.log");
+            const testLog = join(caseDir, "test.log");
+            const receipt = { name, sha, state, pair, command, run_id: runId, run_attempt: runAttempt, job_id: jobId, runner_image: "windows-2025", worktree: caseDir, spawn: now(), phases: {}, resources: {} };
+            const env = { ...process.env, CHASE_SETS_LANE_MODE: "1", DEBUG: "vite:*", PNPM_STORE_DIR: store };
+            const before = resourceSnapshot();
+            const install = await runChild(["install", "--frozen-lockfile", "--store-dir", store], caseDir, env, installLog);
+            receipt.phases.preparation_started = install.started;
+            receipt.phases.preparation_finished = install.ended;
+            receipt.install_exit = install.code;
+            receipt.command_exit = install.code;
+            writeBoundedText(artifactFile(name, "install.log"), install.output);
+            if (install.code !== 0 || install.timedOut) {
+              receipt.exit = install.code;
+              receipt.timed_out = install.timedOut;
+              receipt.phases.exit = install.ended;
+              writeJson(artifactFile(name, "receipt.json"), receipt);
+              writeJson(artifactFile(name, "marker-diagnostics.json"), { name, command: ["pnpm", "install", "--frozen-lockfile", "--store-dir", store], exit: install.code, signal: install.signal, timed_out: install.timedOut, missing_markers: ["config_import", "setup", "test_start"], marker_contract: Object.fromEntries(Object.entries(markerContract).map(([key, patterns]) => [key, patterns.map((pattern) => String(pattern))])) });
+              throw new Error(`${name} install failed code=${install.code} timeout=${install.timedOut}`);
+            }
+            const testStarted = now();
+            receipt.phases.test_spawn = testStarted;
+            const test = await runChild(["--filter", "@chase-sets/app-platform-api", "exec", "vitest", "run", "--config", "./vitest.config.ts", "__tests__/capability-administration-host-port.test.ts"], caseDir, env, testLog);
+            const lines = stripAnsi(test.output).split(/\r?\n/);
+            const markers = findMarkers(test.events, test.output);
+            const missingMarkers = markerMissing(markers);
+            receipt.phases.config_import = markers.config_import?.at ?? null;
+            receipt.phases.setup = markers.setup?.at ?? null;
+            receipt.phases.test = markers.test_start?.at ?? null;
+            receipt.phases.exit = test.ended;
+            receipt.exit = test.code;
+            receipt.command_exit = test.code;
+            receipt.timed_out = test.timedOut;
+            receipt.markers = markers;
+            receipt.missing_markers = missingMarkers;
+            receipt.config_trace_present = Boolean(markers.config_import);
+            receipt.transform_trace_count = test.events.filter((event) => /vite:transform/i.test(event.line)).length;
+            receipt.resolve_trace_count = test.events.filter((event) => /vite:resolve/i.test(event.line)).length;
+            receipt.resources.before = before;
+            receipt.resources.after = resourceSnapshot();
+            writeJson(join(caseDir, "receipt.json"), receipt);
+            writeFileSync(join(caseDir, "module-transform-trace.log"), lines.filter((line) => /vite:(resolve|transform)/i.test(line)).slice(0, maxEvents).join("\n") + "\n", "utf8");
+            writeJson(artifactFile(name, "receipt.json"), receipt);
+            writeJson(artifactFile(name, "marker-diagnostics.json"), { name, command, exit: test.code, signal: test.signal, timed_out: test.timedOut, markers, missing_markers: missingMarkers, marker_contract: Object.fromEntries(Object.entries(markerContract).map(([key, patterns]) => [key, patterns.map((pattern) => String(pattern))])) });
+            writeBoundedText(artifactFile(name, "install.log"), readFileSync(installLog, "utf8"));
+            writeBoundedText(artifactFile(name, "test.log"), test.output);
+            writeBoundedText(artifactFile(name, "module-transform-trace.log"), lines.filter((line) => /vite:(resolve|transform)/i.test(line)).slice(0, maxEvents).join("\n") + "\n");
+            if (missingMarkers.length) throw new Error(`${name} recorder incomplete: missing marker(s): ${missingMarkers.join(", ")}`);
+            if (test.code !== 0 || test.timedOut) throw new Error(`${name} test failed code=${test.code} timeout=${test.timedOut}`);
+            return receipt;
+          }
+
+          const cases = [];
+          try {
+            for (const [name, sha, state, pair] of [
+              ["hosted-before-1", baseSha, "cold", 1],
+              ["hosted-after-1", candidateSha, "cold", 1],
+              ["hosted-before-2", baseSha, "cold", 2],
+              ["hosted-after-2", candidateSha, "cold", 2],
+            ]) {
+              cases.push(await runCase({ name, sha, state, pair }));
+            }
+          } catch (error) {
+            writeJson(artifactFile("failure.json"), { error: String(error?.message ?? error), cases, run_id: runId, run_attempt: runAttempt, job_id: jobId, base_sha: baseSha, candidate_sha: candidateSha, runner_image: "windows-2025" });
+            throw error;
+          }
+          const pairTable = [1, 2].map((pair) => {
+            const control = cases.find((entry) => entry.pair === pair && entry.sha === baseSha);
+            const candidate = cases.find((entry) => entry.pair === pair && entry.sha === candidateSha);
+            const seconds = (value) => (Date.parse(value) - Date.parse(control.phases.test_spawn)) / 1000;
+            const controlImport = (Date.parse(control.phases.config_import) - Date.parse(control.phases.test_spawn)) / 1000;
+            const candidateImport = (Date.parse(candidate.phases.config_import) - Date.parse(candidate.phases.test_spawn)) / 1000;
+            const controlTotal = (Date.parse(control.phases.exit) - Date.parse(control.spawn)) / 1000;
+            const candidateTotal = (Date.parse(candidate.phases.exit) - Date.parse(candidate.spawn)) / 1000;
+            return { pair, state: control.state, control: control.name, candidate: candidate.name, control_import_seconds: controlImport, candidate_import_seconds: candidateImport, control_end_to_end_seconds: controlTotal, candidate_end_to_end_seconds: candidateTotal, candidate_exit: candidate.exit, candidate_under_590: candidate.exit === 0 && candidateTotal < 590, import_half_control: candidateImport <= controlImport / 2, lower_end_to_end: candidateTotal < controlTotal };
+          });
+          writeJson(join(root, "pair-table.json"), pairTable);
+          writeJson(artifactFile("pair-table.json"), pairTable);
+          if (pairTable.some((row) => !row.candidate_under_590 || !row.import_half_control || !row.lower_end_to_end)) throw new Error(`AC2 bar failed: ${JSON.stringify(pairTable)}`);
+          if (pairTable.some((row) => row.control_import_seconds < pairTable.find((candidate) => candidate.pair === row.pair).control_end_to_end_seconds / 2)) throw new Error("baseline import is under half spawn-to-exit (non-reproduction)");
+
+          const candidateDir = join(root, "hosted-after-2");
+          const appFile = join(candidateDir, "deployables", "platform-api", "src", "app.ts");
+          const appBefore = sha256(appFile);
+          const appSource = readFileSync(appFile, "utf8");
+          const importNeedle = '  createIdentityTermsAcceptanceResolver,\n';
+          const importReplacement = '  createIdentityTermsAcceptanceResolver,\n  DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,\n';
+          const hostNeedle = "      ...options.hostPorts,\n";
+          if (!appSource.includes(importNeedle) || !appSource.includes(hostNeedle)) throw new Error("mutant anchors missing");
+          writeFileSync(appFile, appSource.replace(importNeedle, importReplacement).replace(hostNeedle, `${hostNeedle}      capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,\n`), "utf8");
+          const mutant = await runChild(["--filter", "@chase-sets/app-platform-api", "exec", "vitest", "run", "--config", "./vitest.config.ts", "__tests__/capability-administration-host-port.test.ts"], candidateDir, { ...process.env, CHASE_SETS_LANE_MODE: "1", DEBUG: "vite:*", PNPM_STORE_DIR: join(candidateDir, ".probe-store") }, join(root, "mutant.log"));
+          writeBoundedText(artifactFile("mutant.log"), mutant.output);
+          const mutantOutput = mutant.output;
+          const mutantExpected = /capability-administration-host-port\.test\.ts(?::(?:78|131))?/i.test(mutantOutput);
+          const mutantReferenceError = /ReferenceError/i.test(mutantOutput);
+          runGit(["restore", "--source", candidateSha, "--", "deployables/platform-api/src/app.ts"], candidateDir);
+          const appAfter = sha256(appFile);
+          const status = runGit(["status", "--short"], candidateDir);
+          const mutantReceipt = { command, exit: mutant.code, timed_out: mutant.timedOut, expected_test_failure: mutantExpected, reference_error: mutantReferenceError, pre_mutation_sha256: appBefore, post_restore_sha256: appAfter, hashes_match: appBefore === appAfter, status_after_restore: status };
+          writeJson(join(root, "mutant-receipt.json"), mutantReceipt);
+          writeJson(artifactFile("mutant-receipt.json"), mutantReceipt);
+          if (mutant.code === 0 || !mutantExpected || mutantReferenceError || appBefore !== appAfter || status.trim()) throw new Error(`AC3 mutant proof failed: ${JSON.stringify(mutantReceipt)}`);
+
+          const hostCommand1 = await runChild(command.slice(1), candidateDir, { ...process.env, CHASE_SETS_LANE_MODE: "1", DEBUG: "vite:*", PNPM_STORE_DIR: join(candidateDir, ".probe-store") }, join(root, "host-command-1.log"));
+          const hostCommand2 = await runChild(cleanupCommand.slice(1), candidateDir, { ...process.env, CHASE_SETS_LANE_MODE: "1", DEBUG: "vite:*", PNPM_STORE_DIR: join(candidateDir, ".probe-store") }, join(root, "host-command-2.log"));
+          writeBoundedText(artifactFile("host-command-1.log"), hostCommand1.output);
+          writeBoundedText(artifactFile("host-command-2.log"), hostCommand2.output);
+          const hostReceipt = { run_id: runId, run_attempt: runAttempt, job_id: jobId, runner_image: "windows-2025", base_sha: baseSha, candidate_sha: candidateSha, command_1: command, command_2: cleanupCommand, command_1_exit: hostCommand1.code, command_2_exit: hostCommand2.code, mutant: "mutant-receipt.json", host_identity: "real createPlatformApiHost and Identity forwarding assertions", completed_at: now() };
+          writeJson(join(root, "host-identity-receipt.json"), hostReceipt);
+          writeJson(artifactFile("host-identity-receipt.json"), hostReceipt);
+          if (hostCommand1.code !== 0 || hostCommand2.code !== 0 || hostCommand1.timedOut || hostCommand2.timedOut) throw new Error(`AC3 real host proof failed: ${JSON.stringify(hostReceipt)}`);
+
+          const manifestFiles = ["run-metadata.json", "pair-table.json", "mutant-receipt.json", "host-identity-receipt.json", "hosted-before-1/receipt.json", "hosted-before-2/receipt.json", "hosted-after-1/receipt.json", "hosted-after-2/receipt.json"];
+          const manifest = manifestFiles.map((relative) => ({ path: relative, sha256: sha256(join(root, relative)) }));
+          writeJson(join(root, "sha256-manifest.json"), manifest);
+          writeJson(artifactFile("sha256-manifest.json"), manifest);
+          writeJson(join(root, "completed.json"), { completed_at: now(), run_id: runId, run_attempt: runAttempt, job_id: jobId, pair_table: pairTable, candidate_sha: candidateSha, base_sha: baseSha });
+          writeJson(artifactFile("completed.json"), { completed_at: now(), run_id: runId, run_attempt: runAttempt, job_id: jobId, pair_table: pairTable, candidate_sha: candidateSha, base_sha: baseSha });
+          console.log(JSON.stringify({ status: "AC1_AC2_AC3_OK", baseSha, candidateSha, runId, runAttempt, pairTable }));
+          '@ | Set-Content -LiteralPath "$env:RUNNER_TEMP\10796-probe-runner.mjs" -Encoding utf8
+
+      - name: Execute one paired probe and AC3
+        shell: pwsh
+        env:
+          PNPM_CACHE_HIT: ${{ steps.setup-node.outputs.cache-hit }}
+        run: node "$env:RUNNER_TEMP\10796-probe-runner.mjs"
+
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 10796-impl-g3-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/run-metadata.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/failure.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/pair-table.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/mutant-receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/host-identity-receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/sha256-manifest.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/completed.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/mutant.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/host-command-1.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/host-command-2.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-1/receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-1/marker-diagnostics.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-1/install.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-1/test.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-1/module-transform-trace.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-1/receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-1/marker-diagnostics.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-1/install.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-1/test.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-1/module-transform-trace.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-2/receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-2/marker-diagnostics.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-2/install.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-2/test.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-before-2/module-transform-trace.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-2/receipt.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-2/marker-diagnostics.json
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-2/install.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-2/test.log
+            ${{ runner.temp }}/10796-impl-g3-probe-evidence/hosted-after-2/module-transform-trace.log
+          if-no-files-found: warn
+          retention-days: 14
+
+
+
