@@ -233,13 +233,17 @@ export const action = defineFormAction({
   }),
   intents: {
     "create-item": async ({ request, formData }) => {
-      const gradedCard = formData.get("gradedCard");
+      const certificationNumber = formData.get("certificationNumber");
+      // A form cached before Inventory derived graded cards still posts one; forwarding it unread lets
+      // Inventory refuse it instead of this action guessing at its contents.
+      const staleGradedCard = formData.get("gradedCard");
       const result = (await createInventoryRequestApiClient(request, {
         mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
       }).createItem({
         catalogItemId: formData.get("catalogItemId"),
         selectedOptions: formData.get("selectedOptions"),
-        ...(typeof gradedCard === "string" && gradedCard ? { gradedCard: JSON.parse(gradedCard) } : {}),
+        ...(typeof certificationNumber === "string" ? { certificationNumber: certificationNumber.trim() || null } : {}),
+        ...(typeof staleGradedCard === "string" && staleGradedCard ? { gradedCard: staleGradedCard } : {}),
         storageLocationId: formData.get("storageLocationId"),
         totalQuantity: Number(formData.get("totalQuantity") ?? 0),
         acquisitionCostAmount: String(formData.get("acquisitionCostAmount") ?? "").trim() || null,

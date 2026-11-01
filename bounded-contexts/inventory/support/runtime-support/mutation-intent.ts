@@ -230,6 +230,7 @@ export function normalizeInventoryMutationIntent(
         "catalogItemId",
         "selectedOptions",
         "gradedCard",
+        "certificationNumber",
         "storageLocationId",
         "totalQuantity",
         "acquisitionCostAmount",
@@ -241,7 +242,11 @@ export function normalizeInventoryMutationIntent(
         (input.acquisitionCostAmount == null) === (input.acquisitionCostCurrencyCode == null),
         "Acquisition cost amount and currency must be supplied together.",
       );
+      // Seed and listing-stock creates carry a trusted card; seller creates send only a certification
+      // number, which joins the intent only when present so earlier raw and seed fingerprints stay stable.
+      const certificationNumber = optionalText(input.certificationNumber);
       return {
+        ...(certificationNumber === null ? {} : { certificationNumber }),
         accountId: text(input.accountId),
         catalogItemId: text(input.catalogItemId),
         selectedOptions: options(input.selectedOptions),
