@@ -35,6 +35,7 @@ deployables/corten-pilot/marketplace/agent-scopes.json
 deployables/corten-pilot/public/developers.json
 deployables/corten-pilot/public/help.json
 deployables/corten-pilot/public/policies.json
+deployables/corten-pilot/platform/tokens/
 deployables/corten-pilot/*/locales/*.en.json
 !deployables/corten-pilot/*/locales/pilot.en.json
 **/*.md
