@@ -22,7 +22,7 @@ import {
 import type { CheckoutCartLineCommandInput } from "../../command-attempts/api/cart-attempt";
 import type { CheckoutCartServices } from "./runtime";
 import type { CheckoutSessionServices } from "../../sessions/api/runtime";
-import { releaseCheckoutInventoryReservations } from "../../../support/request-support/checkout-confirmation";
+import { cancelCheckout } from "../../sessions/api/session-cancellation";
 
 export type CheckoutCartMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
@@ -31,7 +31,10 @@ export type CheckoutCartMcpHandlers = Readonly<{
 
 export type CheckoutCartMcpServices = Readonly<{
   cart: Pick<CheckoutCartServices, "executeCartAttempt" | "listAuthorizedCartLines">;
-  sessions: Pick<CheckoutSessionServices, "cancelSession" | "getSession" | "setShippingAddress">;
+  sessions: Pick<
+    CheckoutSessionServices,
+    "cancelSession" | "getSession" | "readSessionForCancellation" | "setShippingAddress"
+  >;
   listSavedShippingAddresses: (accountId: string) => Promise<readonly CheckoutShipFromAddressRow[]>;
 }>;
 
@@ -423,31 +426,9 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const sessionId = readMcpTypedIdArgument(args, "sessionId", "chk");
-    const session = await services.sessions.getSession(sessionId, scopedActor.accountId);
-    if (!session) {
-      throw new Error("Checkout session not found.");
-    }
-    const resourceUri = `chase-sets://checkout/${encodeURIComponent(scopedActor.accountId)}/sessions/${encodeURIComponent(
-      sessionId,
-    )}`;
-    // A repeated cancel returns the first cancelled Session as it stands: no
-    // release and no Session write beyond what the first cancel recorded.
-    if (session.cancelled_at) {
-      return {
-        accountId: scopedActor.accountId,
-        id: sessionId,
-        sessionId,
-        status: "cancelled",
-        cancelledAt: session.cancelled_at,
-        releasedReservationIds: session.checkout_reservations
-          .filter((reservation) => reservation.status === "released")
-          .map((reservation) => reservation.holdId),
-        resourceUri,
-      };
-    }
-
-    const releasedReservations = await releaseCheckoutInventoryReservations(request, session);
-    const result = await services.sessions.cancelSession(
+    const result = await cancelCheckout(
+      request,
+      services.sessions,
       {
         sessionId,
         accountId: scopedActor.accountId as AccountId,
@@ -459,10 +440,12 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
       accountId: scopedActor.accountId,
       id: result.sessionId,
       sessionId: result.sessionId,
-      status: result.session.cancelled_at ? "cancelled" : "already-cancelled",
+      status: result.status,
       cancelledAt: result.session.cancelled_at,
-      releasedReservationIds: releasedReservations.map((reservation) => reservation.holdId),
-      resourceUri,
+      releasedReservationIds: result.releasedReservations.map((reservation) => reservation.holdId),
+      resourceUri: `chase-sets://checkout/${encodeURIComponent(scopedActor.accountId)}/sessions/${encodeURIComponent(
+        result.sessionId,
+      )}`,
       ...(result.commitPosition ? { commitPosition: result.commitPosition } : {}),
       ...(result.commitEventIds ? { commitEventIds: result.commitEventIds } : {}),
       ...(result.commitPositions ? { commitPositions: result.commitPositions } : {}),

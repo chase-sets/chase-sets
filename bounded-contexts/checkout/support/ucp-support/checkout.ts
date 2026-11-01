@@ -10,10 +10,7 @@ import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { sumMoneyAmounts, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { UcpPaymentHandlerHandoff } from "@chase-sets/payments/server";
-import {
-  previewBuyNowCheckoutSupplyThroughOrdering,
-  releaseCheckoutInventoryReservations,
-} from "../request-support/checkout-confirmation";
+import { previewBuyNowCheckoutSupplyThroughOrdering } from "../request-support/checkout-confirmation";
 import type { CheckoutServices } from "../runtime-support/services";
 import { CheckoutDomainError } from "../runtime-support/common";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
@@ -23,6 +20,7 @@ import {
   checkoutEntryPayload,
   computeCheckoutEntryRequestHash,
 } from "../../features/command-attempts/api/entry-attempt-contracts";
+import { cancelCheckout } from "../../features/sessions/api/session-cancellation";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
 type UcpPreflight = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope | null>;
@@ -258,8 +256,9 @@ export function createCheckoutUcpHandlers(
       if (session.cancelled_at) return resourceEnvelope(await payload(input, session));
       if (!["Signature-Input", "Signature", "Content-Digest"].some((name) => input.request.headers.has(name)))
         return resourceEnvelope(await payload(input, session));
-      await releaseCheckoutInventoryReservations(input.request, session);
-      const result = await checkout.sessions.cancelSession(
+      const result = await cancelCheckout(
+        input.request,
+        checkout.sessions,
         { sessionId: session.session_id, accountId: input.actor!.accountId as AccountId },
         input.context!,
       );

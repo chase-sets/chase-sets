@@ -10,7 +10,11 @@ import {
   type SupportParticipantPolicy,
 } from "./support-flow-projection";
 import type { SupportRequestDetailResponse, SupportRequestParticipantDetailResponse } from "../ui/contracts";
-import type { SupportRequestDetailRow } from "../read-model/queries";
+import type {
+  SupportOperationsRequestDetailRow,
+  SupportOperationsRequestListRow,
+  SupportRequestDetailRow,
+} from "../read-model/queries";
 import type { SupportRequesterRole } from "../domain/common";
 import type { SupportRequestServices } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
@@ -385,6 +389,9 @@ describe("operations response preservation", () => {
       const empty = field.offerResolutionType === "";
       it(`${empty ? "operations empty resolution remains refused" : "operations offer omission remains refused"}: ${scenario.responseType} ${JSON.stringify(field)}`, async () => {
         const f = await operationsResponseFixture(scenario.responseType, "Offer");
+        f.db.query.mockResolvedValue({
+          rows: [{ support_request_id: f.id, flow_type: scenario.flowType, status: "open", resolution: null }],
+        } as never);
         const before = f.allEvents.length;
         const response = await f.app.request(`/support-requests/ops/${f.id}/responses`, {
           method: "POST",
@@ -406,6 +413,9 @@ describe("operations response preservation", () => {
     if (scenario.resolutionType) {
       it(`operations explicit offer remains supported: ${scenario.responseType}`, async () => {
         const f = await operationsResponseFixture(scenario.responseType, "Offer");
+        f.db.query.mockResolvedValue({
+          rows: [{ support_request_id: f.id, flow_type: scenario.flowType, status: "open", resolution: null }],
+        } as never);
         const response = await f.app.request(`/support-requests/ops/${f.id}/responses`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1422,8 +1432,15 @@ async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer
   return { runtime, eventStore, allEvents, storage, reference };
 }
 
-function supportRequestDetail(): SupportRequestDetailRow {
+function supportRequestDetail(): SupportOperationsRequestDetailRow {
   return {
+    operatorPolicy: {
+      deadlineAt: null,
+      recommendedAction: "response",
+      responsibilityReasons: [],
+      refundCap: null,
+      refundPrefill: null,
+    },
     support_request_id: "sup_1",
     display_reference: "SUP-00000001",
     order_id: "ord_1",
@@ -1466,6 +1483,14 @@ function supportRequestDetail(): SupportRequestDetailRow {
     remedy_repair_guidance: [],
     contested: false,
   };
+}
+
+function supportOperationsListRow(
+  supportRequestId: string,
+  deadlineAt: string | null,
+): SupportOperationsRequestListRow {
+  const { evidence: _evidence, responses: _responses, offers: _offers, ...listRow } = supportRequestDetail();
+  return { ...listRow, support_request_id: supportRequestId, operatorPolicy: { deadlineAt } };
 }
 
 function createServices(overrides: Partial<SupportRequestServices> = {}): SupportRequestServices {
@@ -1531,18 +1556,22 @@ describe("support request routes", () => {
     "projects detail flow action arrays for %s from server role and state",
     async (_label, accountId, escalatedAt, allowedResponses, allowedResolutions) => {
       const detail = { ...supportRequestDetail(), escalated_at: escalatedAt };
+      const participantDetail = (() => {
+        const { operatorPolicy: _operatorPolicy, ...plainDetail } = detail;
+        return plainDetail;
+      })();
       const services = createServices({
         getSupportOperationsRequest: vi.fn(async () => detail as never),
-        getAccountSupportRequest: vi.fn(async () => detail as never),
+        getAccountSupportRequest: vi.fn(async () => participantDetail as never),
       });
       const permissions = accountId === "acc_operator" ? ["support.manage"] : ["support.view"];
       const response = await buildApp(services, permissions, accountId).request(
         accountId === "acc_operator" ? "/support-requests/ops/sup_1" : "/support-requests/sup_1",
       );
       expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toMatchObject({
-        flow: { allowedResponses, allowedResolutions, flowType: "product-not-received" },
-      });
+      const body = await response.json();
+      expect(body).toMatchObject({ flow: { allowedResponses, allowedResolutions, flowType: "product-not-received" } });
+      if (accountId !== "acc_operator") expect(body).not.toHaveProperty("operatorPolicy");
     },
   );
 
@@ -1799,7 +1828,11 @@ describe("support request routes", () => {
   });
 
   it("forwards status, priority, and search query params to the operations queue read model", async () => {
-    const listSupportOperationsQueue = vi.fn(async () => ({ items: [], total: 0 }));
+    const items: SupportOperationsRequestListRow[] = [
+      supportOperationsListRow("sup_1", "2026-06-01T01:00:00.000Z"),
+      supportOperationsListRow("sup_2", "2026-06-01T02:00:00.000Z"),
+    ];
+    const listSupportOperationsQueue = vi.fn(async () => ({ items, total: 5 }));
     const services = createServices({ listSupportOperationsQueue });
 
     const response = await buildApp(services).request(
@@ -1807,7 +1840,14 @@ describe("support request routes", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ items: [], total: 0, count: 0 });
+    const body = await response.json();
+    expect(body).toEqual({ items, total: 5, count: 2 });
+    expect(
+      body.items.map((item: SupportOperationsRequestListRow) => [item.support_request_id, item.operatorPolicy]),
+    ).toEqual([
+      ["sup_1", { deadlineAt: "2026-06-01T01:00:00.000Z" }],
+      ["sup_2", { deadlineAt: "2026-06-01T02:00:00.000Z" }],
+    ]);
     expect(listSupportOperationsQueue).toHaveBeenCalledWith({
       limit: 25,
       offset: 50,
@@ -1988,13 +2028,17 @@ describe("support request routes", () => {
 
   it("lets support operators read request details outside participant account scope", async () => {
     const services = createServices();
-    const response = await buildApp(services).request("/support-requests/ops/sup_1");
+    const response = await buildApp(services).request(
+      "/support-requests/ops/sup_1?now=2000-01-01T00:00:00Z&deadlineAt=forged&recommendedAction=resolve&refundCap=999.00",
+      { headers: { "X-Now": "2000-01-01T00:00:00Z" } },
+    );
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       support_request_id: "sup_1",
       buyer_account_id: "acc_buyer",
       seller_account_id: "acc_seller",
+      operatorPolicy: supportRequestDetail().operatorPolicy,
     });
     expect(services.getSupportOperationsRequest).toHaveBeenCalledWith("sup_1");
   });

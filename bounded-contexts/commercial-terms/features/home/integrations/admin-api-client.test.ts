@@ -77,6 +77,42 @@ describe("createCommercialTermsRequestApiClient", () => {
     expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("commercial-terms");
   });
 
+  it.each([
+    ["cts_active", "https://platform-api.internal/api/commercial-terms/home?schedule=cts_active"],
+    ["cts a&b", "https://platform-api.internal/api/commercial-terms/home?schedule=cts+a%26b"],
+    [null, "https://platform-api.internal/api/commercial-terms/home"],
+  ])("reads the home answer for schedule %s with the forwarded admin session", async (scheduleId, url) => {
+    vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://platform-api.internal");
+    const home = { resolvedAt: "2026-07-15T12:00:00.000Z", activeTerms: [], scheduleComparison: null };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(home));
+    const request = new Request("https://admin.chasesets.com/commerce/terms", {
+      headers: { authorization: "Bearer admin-session", cookie: "session=admin" },
+    });
+
+    await expect(createCommercialTermsRequestApiClient(request).getHome(scheduleId)).resolves.toMatchObject(home);
+
+    const [input, init] = fetchMock.mock.calls[0];
+    expect(input).toBe(url);
+    const headers = new Headers(init?.headers);
+    expect(headers.get("authorization")).toBe("Bearer admin-session");
+    expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("commercial-terms");
+  });
+
+  it("surfaces an incomplete home answer as an API error instead of a partial envelope", async () => {
+    vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://platform-api.internal");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json(
+        { error: { code: "commercial_terms_home_incomplete", message: "Commercial Terms unavailable" } },
+        { status: 503 },
+      ),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(
+      createCommercialTermsRequestApiClient(new Request("https://admin.chasesets.com/commerce/terms")).getHome(null),
+    ).rejects.toMatchObject({ status: 503, message: "Commercial Terms unavailable" });
+  });
+
   it("reports non-json API topology failures with sanitized diagnostics", async () => {
     vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://platform-api.internal");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

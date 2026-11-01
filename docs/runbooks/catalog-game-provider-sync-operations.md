@@ -49,13 +49,13 @@ A per-game production-signoff reference env var (named in each game section) mus
 
 - Public transports (MTGJSON, Scryfall, TCGdex, YGOPRODeck, YGOJSON, LorcanaJSON, Lorcast) do not require credentials.
 - Scrydex requires a shared runtime API key and team identifier in the API and worker environments that execute provider transport. Configure `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` once per environment for all Scrydex-backed product lines; do not create game-specific Scrydex secrets.
-- TCGplayer uses the stored operator session; the environment cookie is retired. API and worker requests resolve the newest custody revision per request; unreadable custody fails closed. Pairing, recovery, offboarding, and revision-bound verification are owned by [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
+- TCGplayer needs no credential: Chase Sets never contacts TCGplayer servers and never stores or uses a TCGplayer cookie, session, or credential. Catalog credential readiness reports TCGplayer `not-required` with diagnostic `provider-retired`, never `configured`; see [TCGplayer boundary](#tcgplayer-boundary).
 
-### Shared-transport handling (TCGplayer and Scrydex)
+### Shared-provider handling (TCGplayer and Scrydex)
 
 Provider-scoped controls accept one provider key, a comma-separated provider list, or `all`. Use the narrowest provider scope first so one provider can stop without stopping the others.
 
-Because TCGplayer and Scrydex are used by more than one product line, do not use a broad TCGplayer or Scrydex enablement as proof that a specific game's units are approved. Production enablement for a game must name that game's unit/profile evidence, and shared-provider work must stay unit-aware so the other games' units remain independently governed.
+Because TCGplayer and Scrydex units serve more than one product line, do not use a broad TCGplayer or Scrydex enablement as proof that a specific game's units are approved. Production enablement for a game must name that game's unit/profile evidence, and shared-provider work must stay unit-aware so the other games' units remain independently governed.
 
 | Control | Behavior | Code-supported reference |
 | --- | --- | --- |
@@ -114,16 +114,17 @@ After a Scrydex import completes, record job id, provider key, unit key, profile
 
 When Scrydex readiness is degraded, credits are low, usage checks fail, rate limits are active, cache state is unavailable, or preflight estimates look too large: stop the affected Scrydex unit with `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS=<unit key>` or keep selectors cache-only with `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_CACHE_ONLY=<unit key>`; do not start or resume imports until the Admin preflight shows the provider, unit, source scope, estimated request count/credit impact or `estimate-unavailable`, usage-check state, and bulk-first plan; prefer a smaller bulk/list/search source scope over per-record fallback; after recovery run a dry-run or smallest approved import and record the actual usage diagnostics; and escalate to provider-account review only with redacted usage summaries and provider-safe diagnostic codes.
 
-### TCGplayer session operations
+### TCGplayer boundary
 
-Use [TCGplayer Automation Operations](./tcgplayer-automation-operations.md#rate-limits-and-recovery)
-as the single session-rotation procedure, including its passive gate, extension
-pairing, custody recovery, and ordinary-capture verification. Do not replace the
-env cookie or redeploy/restart to adopt a stored session. Preserve shared rate
-state; a `429` is cooldown evidence, not expiry, and a lone `403` is ambiguous.
-The provider/unit emergency stops above remain available for unsafe traffic or
-suspected exposure. A session push does not clear a stop or approve another
-game's units; remove a stop only through the approved incident/rollout workflow.
+TCGplayer has no server transport and no session to rotate. Chase Sets never
+contacts TCGplayer servers; any TCGplayer request must happen in the operator's
+own browser. Pairing the operator extension hands it a grant that carries no
+provider credential, and neither the grant nor the `not-required` /
+`provider-retired` readiness proves that TCGplayer accepted anything; see
+[TCGplayer Automation Operations](./tcgplayer-automation-operations.md#pairing).
+The provider/unit emergency stops above remain available. A grant does not
+clear a stop or approve another game's units; remove a stop only through the
+approved incident/rollout workflow.
 
 ### Credential rotation (Scrydex shared secrets)
 
@@ -197,18 +198,18 @@ A run fails closed, with no receipt, when it refuses, aborts publication, or fin
 
 ## Magic
 
-Magic Catalog sync draws from MTGJSON, Scryfall, and TCGplayer. The three Magic provider keys are `mtgjson`, `scryfall`, and `tcgplayer`; the production default for `CATALOG_INTEGRATION_IMPORTS_DISABLED`, `CATALOG_INTEGRATION_PROMOTION_DISABLED`, and `CATALOG_INTEGRATION_REAPPLY_DISABLED` is `mtgjson,scryfall,tcgplayer` when unset.
+Magic Catalog sync draws from MTGJSON and Scryfall; TCGplayer remains a Magic provider key whose server transport is retired. The three Magic provider keys are `mtgjson`, `scryfall`, and `tcgplayer`; the production default for `CATALOG_INTEGRATION_IMPORTS_DISABLED`, `CATALOG_INTEGRATION_PROMOTION_DISABLED`, and `CATALOG_INTEGRATION_REAPPLY_DISABLED` is `mtgjson,scryfall,tcgplayer` when unset.
 
 | Provider | Credentials | Role |
 | --- | --- | --- |
 | MTGJSON | None (public) | Set-reference data promoted into Reference Records (never plans Catalog Item commands). |
 | Scryfall | None (public) | Card data. |
-| TCGplayer | Stored operator session primary, env cookie fallback | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
+| TCGplayer | None; server transport retired (`provider-retired`) | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
 
 Operator notes:
 
-- MTGJSON and Scryfall public transports do not require credentials; TCGplayer uses stored operator session primary, env cookie fallback, under the shared credential posture above.
-- Staging UAT readiness check: MTGJSON and Scryfall are `not-required`; TCGplayer is `configured`. Inspect Operator session metadata for custody/grant state; the readiness badge is not source or provider-success proof. Keep provider option queries open only for the selected Magic set scope.
+- MTGJSON and Scryfall public transports do not require credentials; TCGplayer needs none because its server transport is retired, under the shared credential posture above.
+- Staging UAT readiness check: MTGJSON and Scryfall are `not-required`; TCGplayer is `not-required` with diagnostic `provider-retired`, and that badge never proves that TCGplayer accepted anything. Keep provider option queries open only for the selected Magic set scope.
 - MTGJSON set-reference promotion/reapply must keep the same Reference Record identity and plan fingerprint across repeated reapply; TCGplayer sealed-product reapply/retry must keep the same Catalog Item identity, SKU selected options, and plan fingerprint without creating a replacement Catalog Item.
 - Post-UAT launch requires Magic production signoff evidence (provider policy approval, profile versions, dry-run/import/promotion outcomes, conflicts, duplicate-prevention blocks, emergency-stop proof, and redaction review) before production imports or promotions are enabled.
 
@@ -234,17 +235,17 @@ Use this map when staging UAT records an expected failure mode. The automated te
 
 ## Pokemon
 
-Pokemon Catalog sync draws from TCGdex and the existing Chase Sets TCGplayer provider path. Pokemon is the foundational importer baseline, so `CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE` must name the accepted provider-data approval and the regression-baseline UAT evidence (#2039, #2285, and milestone #50 `all-provider-regression`) before production-like Pokemon writes are opened. The Pokemon provider keys are `tcgdex` and `tcgplayer`.
+Pokemon Catalog sync draws from TCGdex; TCGplayer remains a Pokemon provider key whose server transport is retired. Pokemon is the foundational importer baseline, so `CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE` must name the accepted provider-data approval and the regression-baseline UAT evidence (#2039, #2285, and milestone #50 `all-provider-regression`) before production-like Pokemon writes are opened. The Pokemon provider keys are `tcgdex` and `tcgplayer`.
 
 | Provider | Credentials | Role |
 | --- | --- | --- |
 | TCGdex | None (public) | Card-print, series/expansion, language, and image-evidence data; bulk/list ingestion first. |
-| TCGplayer | Stored operator session primary, env cookie fallback | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
+| TCGplayer | None; server transport retired (`provider-retired`) | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
 
 Operator notes:
 
-- TCGdex public transport does not require credentials; TCGplayer uses stored operator session primary, env cookie fallback, under the shared credential posture above.
-- Because TCGplayer is shared with Magic, Yu-Gi-Oh!, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Pokemon TCGplayer units are approved; production Pokemon enablement must name the Pokemon unit/profile evidence, and credential rotation must confirm the other domains' TCGplayer units remain independently governed.
+- TCGdex public transport does not require credentials; TCGplayer needs none because its server transport is retired, under the shared credential posture above.
+- Because TCGplayer is shared with Magic, Yu-Gi-Oh!, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Pokemon TCGplayer units are approved; production Pokemon enablement must name the Pokemon unit/profile evidence, and the other domains' TCGplayer units must remain independently governed.
 - Only TCGdex and TCGplayer Pokemon image URI evidence may enter the shared importer/review surfaces, and only when the provider-data signoff covers image evidence for that source. Official Pokemon (pokemon.com) images remain comparison-only.
 - Pokemon is the shared regression anchor: every other product domain's UAT must repeat UI-only smoke proof for one Pokemon set through the same shared importer controls.
 
@@ -257,18 +258,18 @@ Operator notes:
 
 ## Yu-Gi-Oh!
 
-Yu-Gi-Oh! Catalog sync draws from YGOPRODeck, YGOJSON, and the existing Chase Sets TCGplayer provider path. `CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE` must name the accepted provider-data approval and milestone #44 (#2126) UAT evidence before production-like Yu-Gi-Oh! writes are opened. The Yu-Gi-Oh! provider keys are `ygoprodeck`, `ygojson`, and `tcgplayer`.
+Yu-Gi-Oh! Catalog sync draws from YGOPRODeck and YGOJSON; TCGplayer remains a Yu-Gi-Oh! provider key whose server transport is retired. `CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE` must name the accepted provider-data approval and milestone #44 (#2126) UAT evidence before production-like Yu-Gi-Oh! writes are opened. The Yu-Gi-Oh! provider keys are `ygoprodeck`, `ygojson`, and `tcgplayer`.
 
 | Provider | Credentials | Role |
 | --- | --- | --- |
 | YGOPRODeck | None (public) | Card, printing, set, archetype, banlist/format, and image-evidence baseline; bulk/list ingestion first. |
 | YGOJSON | None (public) | Structured set/product, sealed-product, and pack-metadata reference and normalization cross-check; set-file/bulk ingestion first. |
-| TCGplayer | Stored operator session primary, env cookie fallback | Marketplace product ids, group/set identity, SKU mapping, condition/language/printing/edition variants, and price-reference evidence; shared provider key. |
+| TCGplayer | None; server transport retired (`provider-retired`) | Marketplace product ids, group/set identity, SKU mapping, condition/language/printing/edition variants, and price-reference evidence; shared provider key. |
 
 Operator notes:
 
 - YGOPRODeck and YGOJSON public transports do not require credentials; their normal path must be bulk/list/search or set-file first and must not make one provider call per card, printing, or sealed product.
-- TCGplayer uses stored operator session primary, env cookie fallback; because it is shared with Magic, Pokemon, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Yu-Gi-Oh! TCGplayer units are approved, and credential rotation must confirm the other domains' TCGplayer units remain independently governed.
+- TCGplayer needs no credential because its server transport is retired; because it is shared with Magic, Pokemon, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Yu-Gi-Oh! TCGplayer units are approved, and the other domains' TCGplayer units must remain independently governed.
 - Only YGOPRODeck and TCGplayer Yu-Gi-Oh! image URI evidence may enter the shared importer/review surfaces, and only when the provider-data signoff covers image evidence for that source. Official Konami database images remain comparison-only.
 - Regression: repeat UI-only smoke proof for one Pokemon set, one MTG set, and one One Piece set through the same shared importer controls.
 
@@ -281,7 +282,7 @@ Operator notes:
 
 ## One Piece
 
-One Piece Catalog sync draws from Scrydex and the existing Chase Sets TCGplayer provider path. `CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE` must name the accepted provider-data approval and #2285 UAT evidence before production-like One Piece writes are opened.
+One Piece Catalog sync draws from Scrydex; TCGplayer remains a One Piece provider key whose server transport is retired. `CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE` must name the accepted provider-data approval and #2285 UAT evidence before production-like One Piece writes are opened.
 
 | Provider | Role | Operator note |
 | --- | --- | --- |
@@ -293,7 +294,7 @@ One Piece Catalog sync draws from Scrydex and the existing Chase Sets TCGplayer 
 Operator notes:
 
 - Only Scrydex and TCGplayer One Piece image URI evidence may enter the shared importer/review surfaces, and only when the provider-data signoff covers image evidence for that source. Bandai official and fallback/community images remain comparison-only.
-- Because TCGplayer is shared with Pokemon and Magic, do not use a broad TCGplayer enablement as proof that One Piece TCGplayer units are approved; production One Piece enablement must name the One Piece unit/profile evidence, and credential rotation must confirm Pokemon and MTG TCGplayer units remain independently governed.
+- Because TCGplayer is shared with Pokemon and Magic, do not use a broad TCGplayer enablement as proof that One Piece TCGplayer units are approved; production One Piece enablement must name the One Piece unit/profile evidence, and Pokemon and MTG TCGplayer units must remain independently governed.
 - Regression: repeat UI-only smoke proof for one Pokemon set and one MTG set through the same shared importer controls.
 
 ### One Piece staging UAT evidence
@@ -320,7 +321,7 @@ The packet must not include Scrydex API keys, team ids, account identifiers, raw
 
 ## Lorcana
 
-Disney Lorcana Catalog sync draws from LorcanaJSON, Lorcast, Scrydex, and the existing Chase Sets TCGplayer provider path. `CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE` must name the accepted provider-data approval and milestone #50 UAT evidence before production-like Lorcana writes are opened.
+Disney Lorcana Catalog sync draws from LorcanaJSON, Lorcast, and Scrydex; TCGplayer remains a Lorcana provider key whose server transport is retired. `CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE` must name the accepted provider-data approval and milestone #50 UAT evidence before production-like Lorcana writes are opened.
 
 | Provider | Role | Operator note |
 | --- | --- | --- |

@@ -2373,6 +2373,7 @@ describe("Checkout session entry and read relocation parity", () => {
         "listSavedPaymentInstruments",
         "lookupEntryAttempt",
         "projectors",
+        "readSessionForCancellation",
         "recordCheckoutReservations",
         "recordFulfillmentPreview",
         "recordOfferSubmitted",

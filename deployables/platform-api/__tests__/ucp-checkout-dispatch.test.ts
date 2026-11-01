@@ -126,6 +126,13 @@ function fixture(
     sessionId: id,
     session: (current = { ...current, cancelled_at: new Date().toISOString() }),
   }));
+  const readSessionForCancellation = vi.fn(async ({ accountId }: { sessionId: string; accountId: string }) => {
+    if (accountId !== current.buyer_account_id) throw new Error("Checkout session not found.");
+    return {
+      status: current.cancelled_at ? ("already-cancelled" as const) : ("cancellable" as const),
+      session: current,
+    };
+  });
   const createBuyNow = vi.fn(async (input: { sessionIdOverride?: string }) => {
     const sessionId = input.sessionIdOverride ?? id;
     createdSessionIds.add(sessionId);
@@ -173,6 +180,7 @@ function fixture(
         sessions: {
           getSession,
           cancelSession,
+          readSessionForCancellation,
           createBuyNow,
           resolveEntryAttempt: vi.fn(async () => null),
           recordFulfillmentPreview,
@@ -396,6 +404,7 @@ function fixture(
     call,
     reserve,
     cancelSession,
+    readSessionForCancellation,
     createBuyNow,
     recordFulfillmentPreview,
     recordOrdersCreated,
@@ -499,6 +508,7 @@ describe.each<Transport>(["rest", "legacy", "modern"])("composed checkout dispat
     const f = fixture();
     for (let attempt = 0; attempt < 2; attempt++)
       expect((await f.call(transport, "cancel_checkout", { signature: "valid" })).status).toBe("canceled");
+    expect(f.readSessionForCancellation).toHaveBeenCalledTimes(1);
     expect(f.cancelSession).toHaveBeenCalledTimes(1);
     const complete = await f.call(transport, "complete_checkout", { signature: "valid", key: "complete-key" });
     expect(complete.status).toBe("canceled");

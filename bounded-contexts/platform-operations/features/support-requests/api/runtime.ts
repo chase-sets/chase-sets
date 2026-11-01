@@ -495,7 +495,10 @@ export type SupportRequestServices = Readonly<{
     supportRequestId: string,
     accountId: string,
   ) => ReturnType<typeof getAccountSupportRequest>;
-  getSupportOperationsRequest: (supportRequestId: string) => ReturnType<typeof getSupportOperationsRequest>;
+  getSupportOperationsRequest: (
+    supportRequestId: string,
+    now?: string,
+  ) => ReturnType<typeof getSupportOperationsRequest>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -2242,7 +2245,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     listSellerSupportRequests: (params) => listSellerSupportRequests(deps.db, params),
     getAccountSupportRequest: (supportRequestId, accountId) =>
       getAccountSupportRequest(deps.db, supportRequestId, accountId),
-    getSupportOperationsRequest: (supportRequestId) => getSupportOperationsRequest(deps.db, supportRequestId),
+    getSupportOperationsRequest: (supportRequestId, now) => getSupportOperationsRequest(deps.db, supportRequestId, now),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "support-request-projection",

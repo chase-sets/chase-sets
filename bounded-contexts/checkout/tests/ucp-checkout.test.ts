@@ -17,6 +17,7 @@ import type { CheckoutFulfillmentPreview } from "../features/sessions/domain/ful
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
 import { CheckoutEntryAttemptConflict } from "../features/command-attempts/api/entry-attempt";
+import { CheckoutDomainError } from "../support/runtime-support/common";
 
 const ports = vi.hoisted(() => ({
   previewBuyNowCheckoutSupplyThroughOrdering: vi.fn(),
@@ -171,6 +172,12 @@ function fixture(overrides: Partial<CheckoutSessionRow> = {}) {
       },
     })),
     getSession: vi.fn(async (_id: string, account: string) => (account === current.buyer_account_id ? current : null)),
+    readSessionForCancellation: vi.fn<CheckoutSessionServices["readSessionForCancellation"]>(async () => {
+      if (current.cancelled_at) return { status: "already-cancelled", session: current };
+      if (current.payment_id || current.order_ids.length > 0)
+        throw new CheckoutDomainError("Checkout already created orders.", "checkout_session_not_cancellable");
+      return { status: "cancellable", session: current };
+    }),
     getPaymentSummary: vi.fn(async () => null),
   } as unknown as CheckoutSessionServices;
   const getPublicListingById = vi.fn(async () => listing as CheckoutUcpListing | null);
@@ -574,6 +581,19 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     expect(replay).toEqual(first);
     expect(ports.releaseCheckoutInventoryReservations).toHaveBeenCalledTimes(1);
     expect(f.writes.cancelSession).toHaveBeenCalledTimes(1);
+  });
+  it("signed cancel shares Cancel checkout: one release, and none once orders exist", async () => {
+    const f = fixture();
+    await f.restHandlers.cancel_checkout(input({}, false, true));
+    expect(ports.releaseCheckoutInventoryReservations).toHaveBeenCalledTimes(1);
+    expect(f.writes.cancelSession).toHaveBeenCalledTimes(1);
+
+    vi.clearAllMocks();
+    const converted = fixture({ order_ids: ["ord_1"] });
+    const refused = await converted.restHandlers.cancel_checkout(input({}, false, true));
+    expect(refused).toMatchObject({ messages: [{ code: "checkout_session_not_cancellable" }] });
+    expect(ports.releaseCheckoutInventoryReservations).not.toHaveBeenCalled();
+    noWrites(converted);
   });
   it("preserves authentication, authorization and closed-rail refusals", async () => {
     const f = fixture();

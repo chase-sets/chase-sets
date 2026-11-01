@@ -864,6 +864,13 @@ async function handleAction(intent: string, { request, params, formData }: FormA
   const writeApi = createCheckoutRequestApiClient(internalApiRequest);
 
   try {
+    if (intent === "cancel-checkout") {
+      const result = await writeApi.cancelCheckoutSession(params.sessionId);
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(result, `/checkout/buy/session/${params.sessionId}`),
+      );
+    }
+
     if (intent === "select-optimization-goal") {
       const result = await writeApi.selectOptimizationGoal(params.sessionId, {
         optimizationGoal: formData.get("optimizationGoal") === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
@@ -1120,6 +1127,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
 export const action = defineFormAction({
   prepare: async (args) => ({ ...args, request: await resolveCheckoutSessionPostWriteRequest(args.request) }),
   intents: {
+    "cancel-checkout": (context) => handleAction("cancel-checkout", context),
     "confirm-checkout": (context) => handleAction("confirm-checkout", context),
     "retry-wallet-balance": (context) => handleAction("retry-wallet-balance", context),
     "refresh-checkout-preview": (context) => handleAction("refresh-checkout-preview", context),

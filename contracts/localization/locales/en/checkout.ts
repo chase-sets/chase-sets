@@ -229,6 +229,13 @@ export const checkoutEnglishTranslations = {
     "Retry to check your current wallet balance before starting payment. Your checkout details are saved.",
   "checkout.features.sessions.ui.checkoutPage.retry.wallet": "Retry wallet balance",
   "checkout.features.sessions.ui.checkoutPage.reserved.for.you": "Reserved for you - {time}",
+  "checkout.features.sessions.ui.checkoutPage.cancel.checkout": "Cancel checkout",
+  "checkout.features.sessions.ui.checkoutPage.cancel.checkout.title": "Not buying now?",
+  "checkout.features.sessions.ui.checkoutPage.cancel.checkout.description":
+    "Cancel this checkout to release the items held for you so other buyers can get them.",
+  "checkout.features.sessions.ui.checkoutPage.checkout.cancelled": "Checkout cancelled",
+  "checkout.features.sessions.ui.checkoutPage.checkout.cancelled.description":
+    "The items held for this checkout were released for other buyers.",
   "checkout.features.sessions.ui.checkoutPage.reservation.expired": "Reservation expired",
   "checkout.features.sessions.ui.checkoutPage.reservation.expired.description":
     "Reserve again to continue checkout if the item is still available.",

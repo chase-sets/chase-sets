@@ -21,7 +21,9 @@ const {
   mockPreviewCheckoutFulfillmentThroughOrdering,
   mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   mockSubmitPurchaseIntentThroughMarketplace,
+  mockReleaseCheckoutInventoryReservations,
 } = vi.hoisted(() => ({
+  mockReleaseCheckoutInventoryReservations: vi.fn(),
   mockCreateCheckoutInventoryReservations: vi.fn(),
   mockCreateCheckoutOrdersThroughOrdering: vi.fn(),
   mockCreateCheckoutPaymentThroughPayments: vi.fn(),
@@ -37,6 +39,7 @@ vi.mock("../../../support/request-support/checkout-confirmation", () => ({
   previewCheckoutFulfillmentThroughOrdering: mockPreviewCheckoutFulfillmentThroughOrdering,
   previewBuyNowCheckoutSupplyThroughOrdering: mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   submitPurchaseIntentThroughMarketplace: mockSubmitPurchaseIntentThroughMarketplace,
+  releaseCheckoutInventoryReservations: mockReleaseCheckoutInventoryReservations,
   normalizeRequestedBalanceCreditAmount: (value: unknown) =>
     value === null || value === undefined ? null : String(value),
 }));
@@ -285,6 +288,10 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     cancelSession: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    readSessionForCancellation: vi.fn(async ({ sessionId }) => ({
+      status: "cancellable" as const,
+      session: createSession({ session_id: sessionId }),
+    })),
     getSession: vi.fn(async () => createSession()),
     getLastRecordedQuote: vi.fn(async () => null),
     getPaymentSummary: vi.fn(async () => null),
@@ -4432,5 +4439,227 @@ describe("confirmation bound-hash conflict", () => {
     await expect(response.json()).resolves.toEqual({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
     expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancel checkout", () => {
+  const sessionId = "chk_held";
+  const ownerContext = {
+    tenantId: "tnt_identity" as never,
+    audit: { performedByUserId: "usr_1" as never, forAccountId: "acc_buyer" as never },
+  };
+  const heldReservations = [
+    {
+      holdId: "hld_a",
+      lineKey: "cli_a",
+      sellerAccountId: "acc_seller",
+      inventoryItemId: "inv_a",
+      quantity: 2,
+      expiresAt: "2099-01-01T00:15:00.000Z",
+      extensionCount: 0,
+      status: "active",
+    },
+    {
+      holdId: "hld_b",
+      lineKey: "cli_b",
+      sellerAccountId: "acc_seller",
+      inventoryItemId: "inv_b",
+      quantity: 1,
+      expiresAt: "2099-01-01T00:15:00.000Z",
+      extensionCount: 0,
+      status: "active",
+    },
+  ] as const;
+
+  /**
+   * Inventory as the release endpoint sees it: on-hand stock per item and the
+   * checkout holds against it. Available quantity is on-hand less active holds,
+   * so a released hold is measured as returned stock, not just a status flag.
+   */
+  function inventoryDouble() {
+    const onHand = new Map([
+      ["inv_a", 3],
+      ["inv_b", 1],
+    ]);
+    const holds = new Map<string, { inventoryItemId: string; quantity: number; status: string }>(
+      heldReservations.map((reservation) => [reservation.holdId, { ...reservation }]),
+    );
+    const releaseCalls: string[] = [];
+    const available = () =>
+      Object.fromEntries(
+        [...onHand].map(([itemId, quantity]) => [
+          itemId,
+          quantity -
+            [...holds.values()]
+              .filter((hold) => hold.inventoryItemId === itemId && hold.status === "active")
+              .reduce((sum, hold) => sum + hold.quantity, 0),
+        ]),
+      );
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const holdId = /checkout-reservations\/([^/]+)\/release/.exec(String(input))?.[1] ?? "";
+      const hold = holds.get(holdId);
+      if (!hold) {
+        return new Response(JSON.stringify({ error: { code: "checkout_reservation_not_found" } }), { status: 404 });
+      }
+      releaseCalls.push(holdId);
+      hold.status = "released";
+      return new Response(JSON.stringify({ holdId, ...hold }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    return { available, fetch, releaseCalls };
+  }
+
+  async function sessionHarness(extraEvents: readonly Readonly<{ type: string; data: unknown }>[] = []) {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const startedAt = "2099-01-01T00:00:00.000Z";
+    const events = [
+      {
+        type: "checkout.session.started",
+        data: {
+          sessionId,
+          buyerAccountId: "acc_buyer",
+          sourceType: "buy-now",
+          optimizationGoal: "lowest-total",
+          fulfillmentPreviewRevision: null,
+          fulfillmentPreviewSnapshot: null,
+          cartReadinessSnapshot: null,
+          presentedAnonymousCartId: null,
+          splitGroupHandoff: null,
+          shippingOption: "standard",
+          lines: [],
+          handoffExpiresAt: null,
+          createdAt: startedAt,
+        },
+      },
+      {
+        type: "checkout.session.reservations-recorded",
+        data: { sessionId, reservations: heldReservations, recordedAt: startedAt },
+      },
+      ...extraEvents,
+    ];
+    await eventStore.appendToStream({
+      streamId: `checkout.session-${sessionId}`,
+      expectedVersion: "no_stream",
+      context: ownerContext,
+      events: events.map((event) => ({ eventType: event.type, payload: event.data as never })),
+    });
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: {} as never,
+    });
+    const cancelledEvents = () => readAllEvents().filter((event) => event.eventType === "checkout.session.cancelled");
+    return { services, cancelledEvents };
+  }
+
+  function cancelRequest() {
+    return new Request(`http://checkout.test/account/checkout-sessions/${sessionId}/cancel`, { method: "POST" });
+  }
+
+  beforeEach(async () => {
+    const actual = await vi.importActual<typeof import("../../../support/request-support/checkout-confirmation")>(
+      "../../../support/request-support/checkout-confirmation",
+    );
+    mockReleaseCheckoutInventoryReservations.mockImplementation(actual.releaseCheckoutInventoryReservations);
+  });
+
+  afterEach(() => {
+    mockReleaseCheckoutInventoryReservations.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  it("lets the owner release every reservations-only hold once and answers a repeat as already cancelled", async () => {
+    const inventory = inventoryDouble();
+    vi.stubGlobal("fetch", inventory.fetch);
+    const { services, cancelledEvents } = await sessionHarness();
+    const app = buildApp(services);
+
+    expect(inventory.available()).toEqual({ inv_a: 1, inv_b: 0 });
+
+    const first = await app.fetch(cancelRequest());
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({
+      session_id: sessionId,
+      status: "cancelled",
+      released_reservation_ids: ["hld_a", "hld_b"],
+    });
+    expect(inventory.available()).toEqual({ inv_a: 3, inv_b: 1 });
+    expect(inventory.releaseCalls).toEqual(["hld_a", "hld_b"]);
+    expect(cancelledEvents()).toHaveLength(1);
+    expect(cancelledEvents()[0]?.payload).toMatchObject({ releasedReservationIds: ["hld_a", "hld_b"] });
+
+    const repeat = await app.fetch(cancelRequest());
+    expect(repeat.status).toBe(200);
+    await expect(repeat.json()).resolves.toMatchObject({
+      session_id: sessionId,
+      status: "already-cancelled",
+      released_reservation_ids: [],
+    });
+    expect(inventory.releaseCalls).toEqual(["hld_a", "hld_b"]);
+    expect(inventory.available()).toEqual({ inv_a: 3, inv_b: 1 });
+    expect(cancelledEvents()).toHaveLength(1);
+  });
+
+  it("refuses another account's session without touching its holds", async () => {
+    const inventory = inventoryDouble();
+    vi.stubGlobal("fetch", inventory.fetch);
+    const { services, cancelledEvents } = await sessionHarness();
+    const app = buildApp(services, createBuyerActor({ accountId: "acc_other" as never, userId: "usr_other" as never }));
+
+    const response = await app.fetch(cancelRequest());
+
+    expect(response.status).toBe(404);
+    expect(inventory.releaseCalls).toEqual([]);
+    expect(inventory.available()).toEqual({ inv_a: 1, inv_b: 0 });
+    expect(cancelledEvents()).toHaveLength(0);
+  });
+
+  const ordersCreated = {
+    type: "checkout.session.orders-created",
+    data: { sessionId, orderIds: ["ord_1"], recordedAt: "2099-01-01T00:01:00.000Z" },
+  };
+  const paymentStarted = {
+    type: "checkout.session.payment-started",
+    data: { sessionId, paymentId: "pay_1", recordedAt: "2099-01-01T00:02:00.000Z" },
+  };
+
+  it.each([
+    ["orders exist", [ordersCreated]],
+    ["payment started", [ordersCreated, paymentStarted]],
+  ])("refuses cancel checkout once %s and leaves the holds to Ordering and Payments", async (_label, extra) => {
+    const inventory = inventoryDouble();
+    vi.stubGlobal("fetch", inventory.fetch);
+    const { services, cancelledEvents } = await sessionHarness(extra);
+    const app = buildApp(services);
+
+    const response = await app.fetch(cancelRequest());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "checkout_session_not_cancellable" } });
+    expect(inventory.releaseCalls).toEqual([]);
+    expect(cancelledEvents()).toHaveLength(0);
+  });
+
+  it("records no cancellation when a hold release fails, so a retry still releases", async () => {
+    const inventory = inventoryDouble();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: { code: "conflict" } }), { status: 409 })),
+    );
+    const { services, cancelledEvents } = await sessionHarness();
+    const app = buildApp(services);
+
+    const failed = await app.fetch(cancelRequest());
+    expect(failed.status).toBe(400);
+    expect(cancelledEvents()).toHaveLength(0);
+
+    vi.stubGlobal("fetch", inventory.fetch);
+    const retried = await app.fetch(cancelRequest());
+    expect(retried.status).toBe(200);
+    expect(inventory.available()).toEqual({ inv_a: 3, inv_b: 1 });
+    expect(cancelledEvents()).toHaveLength(1);
   });
 });
