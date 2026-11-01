@@ -74,14 +74,11 @@ function detailsFromBody(body: unknown): readonly ApiErrorDetail[] | undefined {
  * Classifies a caught wallet-adjustment API failure into the closed
  * `WalletAdjustmentFlowError` shape the guided-flow UI renders.
  *
- * Two conflict cases have no dedicated machine-coded error yet at the API
- * layer -- "requires a second, elevated approval" (thrown by the
- * `ApproveWalletAdjustment` decider when elevation is required but no
- * elevated approver was supplied) and "self-benefiting ... cannot be
- * approved" -- so they are recognized by their known, stable domain-error
- * message text. A follow-up should promote these to dedicated
- * `ApiErrorDetail.code`s on the API surface; until then this is the single
- * place that string-matches them, isolating the coupling.
+ * Kinds come from the top-level error code, an `ApiErrorDetail.code`, or the
+ * HTTP status, never from message text: the approve route's `409 conflict`
+ * carries `elevated_approval_required` or `self_benefiting_blocked` as its
+ * detail code, and a conflict without a known detail code stays a generic
+ * `conflict`.
  */
 export function describeWalletAdjustmentFlowError(error: unknown, fallbackMessage: string): WalletAdjustmentFlowError {
   if (!(error instanceof SettlementApiError)) {
@@ -103,10 +100,10 @@ export function describeWalletAdjustmentFlowError(error: unknown, fallbackMessag
   if (codes.includes("stale_balance_revision")) {
     return { kind: "stale-preview", message, fieldErrors };
   }
-  if (error.status === 409 && message.includes("elevated approval")) {
+  if (codes.includes("elevated_approval_required")) {
     return { kind: "requires-elevated-approval", message, fieldErrors };
   }
-  if (error.status === 409 && message.includes("self-benefiting")) {
+  if (codes.includes("self_benefiting_blocked")) {
     return { kind: "self-benefiting-blocked", message, fieldErrors };
   }
   if (code === "validation_failed") {
