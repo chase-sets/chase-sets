@@ -113,16 +113,23 @@ describe("OfferMatchDeclineAttemptProvider", () => {
     expect(heldAttemptId(view.container, "off_2")).toBe(second);
   });
 
-  it("gives an account switch a new id and keeps each account's held id within the session", () => {
+  it("gives each account switch, including a switch back, a new id within the session", () => {
     const view = render(listUnder(seller, [offer]));
     const sellerAttempt = heldAttemptId(view.container, "off_1");
+
+    view.rerender(listUnder({ ...seller }, [offer]));
+    expect(heldAttemptId(view.container, "off_1"), "an unchanged session and account keep their id").toBe(
+      sellerAttempt,
+    );
 
     view.rerender(listUnder({ ...seller, accountId: "acc_other" }, [offer]));
     const otherAttempt = heldAttemptId(view.container, "off_1");
     expect(otherAttempt).not.toBe(sellerAttempt);
 
     view.rerender(listUnder(seller, [offer]));
-    expect(heldAttemptId(view.container, "off_1")).toBe(sellerAttempt);
+    const switchedBackAttempt = heldAttemptId(view.container, "off_1");
+    expect(switchedBackAttempt, "switching back clears the earlier account's id").not.toBe(sellerAttempt);
+    expect(switchedBackAttempt).not.toBe(otherAttempt);
   });
 
   it("gives a new same-account session a new id", () => {

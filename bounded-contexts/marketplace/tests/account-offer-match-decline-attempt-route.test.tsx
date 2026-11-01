@@ -320,6 +320,14 @@ describe("Offer Match decline attempt identity through the real routes", () => {
     expect(listAttemptId(container, "off_2")).toBe(otherAttempt);
     expect(new Set([heldAttempt, otherAttempt, listAttemptId(container, "off_3")]).size).toBe(3);
 
+    // The replaced view's unmount has run; re-rendering the remounted view (same key) must still find the held id.
+    await act(async () => {
+      await router.revalidate();
+    });
+    await settleAt(router, LIST_PATH);
+    expect(formAfterRemount.isConnected, "an unchanged list re-renders without remounting").toBe(true);
+    expect(listAttemptId(container, "off_1"), "the held id outlives the replaced view's unmount").toBe(heldAttempt);
+
     submit(formAfterRemount);
     await act(async () => {
       await api.declineArrived(1);
@@ -388,27 +396,30 @@ describe("Offer Match decline attempt identity through the real routes", () => {
     expect(api.declines.map(({ attemptId }) => attemptId)).toEqual([heldAttempt, heldAttempt]);
   });
 
-  it("gives an account switch and a new same-account session a new id", async () => {
+  it("gives an account switch, a switch back and a new same-account session a new id", async () => {
     const api = marketplaceApi();
     const { router, container } = mountOfferMatches(api);
     await settleAt(router, LIST_PATH);
     const sellerAttempt = listAttemptId(container, "off_1");
+    const actorAs = async (actor: Actor) => {
+      api.actor = actor;
+      await act(async () => {
+        await router.revalidate();
+      });
+      await settleAt(router, LIST_PATH);
+      return listAttemptId(container, "off_1");
+    };
 
-    api.actor = { ...seller, accountId: "acc_other" };
-    await act(async () => {
-      await router.revalidate();
-    });
-    await settleAt(router, LIST_PATH);
-    const switchedAttempt = listAttemptId(container, "off_1");
+    expect(await actorAs({ ...seller }), "an unchanged session and account keep their id").toBe(sellerAttempt);
+
+    const switchedAttempt = await actorAs({ ...seller, accountId: "acc_other" });
     expect(switchedAttempt).not.toBe(sellerAttempt);
 
-    api.actor = { ...seller, sessionId: "ses_next" };
-    await act(async () => {
-      await router.revalidate();
-    });
-    await settleAt(router, LIST_PATH);
-    const nextSessionAttempt = listAttemptId(container, "off_1");
-    expect(nextSessionAttempt).not.toBe(sellerAttempt);
-    expect(nextSessionAttempt).not.toBe(switchedAttempt);
+    const switchedBackAttempt = await actorAs(seller);
+    expect(switchedBackAttempt, "switching back clears the earlier account's id").not.toBe(sellerAttempt);
+    expect(switchedBackAttempt).not.toBe(switchedAttempt);
+
+    const nextSessionAttempt = await actorAs({ ...seller, sessionId: "ses_next" });
+    expect(new Set([sellerAttempt, switchedAttempt, switchedBackAttempt, nextSessionAttempt]).size).toBe(4);
   });
 });

@@ -3,6 +3,7 @@ import type { OfferMatchListItem } from "./contracts";
 
 type HeldDeclineAttempts = Readonly<{
   sessionId: string | null;
+  accountId: string | null;
   accounts: Map<string, Map<string, string>>;
 }>;
 
@@ -10,8 +11,8 @@ type DeclinableOfferMatch = Pick<OfferMatchListItem, "offer_id" | "status">;
 
 const OfferMatchDeclineAttemptContext = createContext<Map<string, string> | null>(null);
 
-function holdDeclineAttempts(sessionId: string | null): HeldDeclineAttempts {
-  return { sessionId, accounts: new Map() };
+function holdDeclineAttempts(sessionId: string | null, accountId: string | null): HeldDeclineAttempts {
+  return { sessionId, accountId, accounts: new Map() };
 }
 
 function heldOffersFor(held: HeldDeclineAttempts, accountId: string) {
@@ -28,8 +29,8 @@ function heldOffersFor(held: HeldDeclineAttempts, accountId: string) {
  * signed-in Auth session. Mounted above the Offer Match routes, it keeps a
  * decline's id through detail navigation, back and the list's realtime-keyed
  * remount, so a retry recovers the first result. Each mounted tree (each server
- * render) holds its own ids; a new session or a signed-out actor drops them
- * before the next render.
+ * render) holds its own ids; a new session, an account switch (including a
+ * switch back) or a signed-out actor drops them before the next render.
  */
 export function OfferMatchDeclineAttemptProvider({
   sessionId,
@@ -40,10 +41,10 @@ export function OfferMatchDeclineAttemptProvider({
   accountId: string | null;
   children: ReactNode;
 }>) {
-  const [held, setHeld] = useState(() => holdDeclineAttempts(sessionId));
+  const [held, setHeld] = useState(() => holdDeclineAttempts(sessionId, accountId));
   let current = held;
-  if (current.sessionId !== sessionId) {
-    current = holdDeclineAttempts(sessionId);
+  if (current.sessionId !== sessionId || current.accountId !== accountId) {
+    current = holdDeclineAttempts(sessionId, accountId);
     setHeld(current);
   }
 
