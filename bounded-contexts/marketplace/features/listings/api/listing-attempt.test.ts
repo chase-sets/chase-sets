@@ -204,4 +204,78 @@ describe("Listing attempt carrier", () => {
     expect(services.pauseListing).not.toHaveBeenCalled();
     expect(services.publishListing).not.toHaveBeenCalled();
   });
+
+  it("keeps keyed commands usable after an owner stream grows beyond the Offer history cap", async () => {
+    const store = createInMemoryEventStore();
+    const streamId = "marketplace.listing-lst_1";
+    await store.eventStore.appendToStream({
+      streamId,
+      expectedVersion: "any",
+      context: context("acc_seller"),
+      events: Array.from({ length: 10_001 }, (_, index) => ({
+        eventId: `evt_unrelated:${index}`,
+        eventType: "marketplace.listing.evidence-requirements-refreshed",
+        payload: {},
+      })),
+    });
+    const attempt = priceAttempt({ ...priceRequest, priceAmount: "11.00" }, "large_owner_stream_attempt");
+    const run = vi.fn(async () => {
+      await store.eventStore.appendToStream({
+        streamId,
+        expectedVersion: 10_001,
+        context: context("acc_seller"),
+        events: stampListingAttemptEvents(attempt, [
+          {
+            eventType: "marketplace.listing.price-updated",
+            payload: { priceAmount: "11.00", priceCurrencyCode: "USD" },
+          },
+        ]),
+      });
+      return { listingId: "lst_1", version: 10_002 };
+    });
+
+    await expect(
+      runListingAttempt(store.eventStore, attempt, (receipt) => ({ listingId: "lst_1", ...receipt }), run),
+    ).resolves.toMatchObject({
+      version: 10_002,
+    });
+    await expect(
+      runListingAttempt(store.eventStore, attempt, (receipt) => ({ listingId: "lst_1", ...receipt }), run),
+    ).resolves.toMatchObject({
+      version: 10_002,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(store.allEvents).toHaveLength(10_002);
+  });
+
+  it("fails closed when the owner stream reader is non-contiguous", async () => {
+    const attempt = priceAttempt();
+    const reader = {
+      readStream: vi.fn(async () => [
+        {
+          eventId: `${attempt.eventIdPrefix}:0`,
+          eventType: "marketplace.listing.price-updated",
+          streamId: attempt.streamId,
+          streamVersion: 2,
+          forAccountId: "acc_seller",
+          payload: { priceAmount: "10.00", priceCurrencyCode: "USD" },
+          metadata: listingAttemptMetadataForTest(attempt),
+        },
+      ]),
+    };
+    await expect(readListingAttemptReceipt(reader as never, attempt)).rejects.toMatchObject({
+      code: "history_incomplete",
+    });
+  });
 });
+
+function listingAttemptMetadataForTest(attempt: ReturnType<typeof priceAttempt>) {
+  return {
+    marketplaceAttempt: {
+      schemaVersion: 1,
+      mutationKind: attempt.binding.mutationKind,
+      attemptKeyFingerprint: attempt.binding.attemptKeyFingerprint,
+      requestHash: attempt.binding.canonicalRequestHash,
+    },
+  };
+}

@@ -632,6 +632,7 @@ export function createMarketplaceApiClient({
           headers: {
             "content-type": "application/json",
             ...headersToRecord(headers),
+            "Idempotency-Key": derivedListingAttemptKey(),
           },
           body: JSON.stringify(body),
           signal: options.signal,
@@ -642,7 +643,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"]["quantity-cap"].$post({
           param: { id },
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -651,7 +652,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"]["purchase-limits"].$post({
           param: { id },
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );

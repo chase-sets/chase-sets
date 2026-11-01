@@ -19,7 +19,7 @@ import { module as marketplaceModule } from "../../../index";
 import { buildMarketplaceInventoryProjectionHandlers } from "../integrations/supply/supply-projection";
 import { buildMarketplaceListingProjectionHandlers } from "../read-model/projection";
 import { createMarketplaceListingRuntime } from "../api/runtime";
-import { attemptListingId } from "../api/listing-attempt";
+import { attemptListingId, listingAttempt, stampListingAttemptEvents } from "../api/listing-attempt";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Listing attempt DB proof.");
@@ -128,6 +128,151 @@ describeDb("Listing attempts on PostgreSQL", () => {
         context,
       ),
     );
+  });
+
+  it("coalesces concurrent identical Listing edits into one terminal event", async () => {
+    const f = await fixture(pools.marketplace);
+    const listingId = await f.activeListing("lst_concurrent");
+    const command = {
+      accountId: "acc_seller",
+      listingId,
+      priceAmount: "11.00",
+      priceCurrencyCode: "USD",
+      idempotencyKey: key("concurrent-price"),
+    };
+    const results = await Promise.allSettled([
+      f.listings.updateListingPrice(command, context),
+      f.restart().updateListingPrice(command, context),
+    ]);
+    expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+    expect(results.map((result) => (result.status === "fulfilled" ? result.value.version : null))).toEqual([3, 3]);
+    expect((await f.eventTypes(listingId)).filter((type) => type === "marketplace.listing.price-updated")).toHaveLength(
+      1,
+    );
+  });
+
+  it("rejects a stale owner-stream writer and preserves the newer generation", async () => {
+    const f = await fixture(pools.marketplace);
+    const listingId = await f.activeListing("lst_interleaving");
+    const streamId = `marketplace.listing-${listingId}`;
+    const store = createPostgresEventStore({ pool: pools.marketplace });
+    const loaded = await store.readStream({ streamId });
+    const newer = await store.appendToStream({
+      streamId,
+      expectedVersion: loaded.length,
+      context,
+      events: [{ eventType: "marketplace.listing.evidence-requirements-refreshed", payload: {} }],
+    });
+    const guardStream = "marketplace.listing-atomic-guard";
+    await store.appendToStream({
+      streamId: guardStream,
+      expectedVersion: "any",
+      context,
+      events: [{ eventType: "marketplace.listing.evidence-requirements-refreshed", payload: {} }],
+    });
+    await expect(
+      store.appendToStreams!([
+        {
+          streamId,
+          expectedVersion: loaded.length,
+          context,
+          events: [
+            {
+              eventType: "marketplace.listing.price-updated",
+              payload: { priceAmount: "11.00", priceCurrencyCode: "USD" },
+            },
+          ],
+        },
+        { streamId: guardStream, expectedVersion: 0, context, events: [] },
+      ]),
+    ).rejects.toThrow();
+    expect((await store.readStream({ streamId })).at(-1)?.eventId).toBe(newer.at(-1)?.eventId);
+    expect((await store.readStream({ streamId: guardStream })).length).toBe(1);
+  });
+
+  it("refuses poisoned Listing attempt histories without appending", async () => {
+    const f = await fixture(pools.marketplace);
+    const listingId = await f.activeListing("lst_poisoned");
+    const store = createPostgresEventStore({ pool: pools.marketplace });
+    const baseRequest = { listingId, priceAmount: "11.00", priceCurrencyCode: "USD" };
+    const cases = [
+      {
+        name: "missing terminal",
+        context,
+        event: { eventType: "marketplace.listing.evidence-requirements-refreshed", payload: {} },
+      },
+      {
+        name: "wrong actor",
+        context: { ...context, audit: { ...context.audit, forAccountId: "acc_other" as never } },
+        event: {
+          eventType: "marketplace.listing.price-updated",
+          payload: { priceAmount: "11.00", priceCurrencyCode: "USD" },
+        },
+      },
+    ] as const;
+    for (const poisoned of cases) {
+      const attemptKey = key(`poison-${poisoned.name.replaceAll(" ", "-")}`);
+      const attempt = listingAttempt({
+        idempotencyKey: attemptKey,
+        mutationKind: "listing.update-price",
+        accountId: "acc_seller",
+        targetId: listingId,
+        request: baseRequest,
+      });
+      const before = (await store.readStream({ streamId: attempt.streamId })).length;
+      await store.appendToStream({
+        streamId: attempt.streamId,
+        expectedVersion: before,
+        context: poisoned.context,
+        events: stampListingAttemptEvents(attempt, [poisoned.event]),
+      });
+      const after = (await store.readStream({ streamId: attempt.streamId })).length;
+      await expect(
+        f
+          .restart()
+          .updateListingPrice({ ...baseRequest, accountId: "acc_seller", idempotencyKey: attemptKey }, context),
+      ).rejects.toMatchObject({
+        code: expect.any(String),
+      });
+      expect((await store.readStream({ streamId: attempt.streamId })).length).toBe(after);
+    }
+  });
+
+  it("refuses a Listing attempt whose recorded request hash was poisoned", async () => {
+    const f = await fixture(pools.marketplace);
+    const listingId = await f.activeListing("lst_poisoned_hash");
+    const store = createPostgresEventStore({ pool: pools.marketplace });
+    const attemptKey = key("poison-hash");
+    const request = { listingId, priceAmount: "11.00", priceCurrencyCode: "USD" };
+    const attempt = listingAttempt({
+      idempotencyKey: attemptKey,
+      mutationKind: "listing.update-price",
+      accountId: "acc_seller",
+      targetId: listingId,
+      request,
+    });
+    const stamped = stampListingAttemptEvents(attempt, [
+      { eventType: "marketplace.listing.price-updated", payload: request },
+    ]);
+    const poisoned = {
+      ...stamped[0]!,
+      metadata: {
+        ...(stamped[0]!.metadata ?? {}),
+        marketplaceAttempt: {
+          ...((stamped[0]!.metadata as Record<string, unknown>).marketplaceAttempt as Record<string, unknown>),
+          requestHash: "f".repeat(64),
+        },
+      },
+    } as never;
+    const before = (await store.readStream({ streamId: attempt.streamId })).length;
+    await store.appendToStream({ streamId: attempt.streamId, expectedVersion: before, context, events: [poisoned] });
+    const after = (await store.readStream({ streamId: attempt.streamId })).length;
+    await expect(
+      f.restart().updateListingPrice({ ...request, accountId: "acc_seller", idempotencyKey: attemptKey }, context),
+    ).rejects.toMatchObject({
+      code: "attempt_conflict",
+    });
+    expect((await store.readStream({ streamId: attempt.streamId })).length).toBe(after);
   });
 
   it.each([

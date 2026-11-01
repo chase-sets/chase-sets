@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventRecordToStore, StoredEvent } from "@chase-sets/event-core/storage";
 import type { EventId, ListingId } from "@chase-sets/primitives/typed-ids";
 import { MarketplaceAttemptError, marketplaceAttemptBinding } from "../../mutation-recovery/api/attempt";
 import { withMarketplaceAttemptReceipt } from "../../mutation-recovery/api/receipt";
-import { readMarketplaceRecoveryHistory } from "../../mutation-recovery/domain/history";
 import {
   canonicalMarketplaceMoneyAmount,
   marketplaceMutationRecoveryResultSchema,
@@ -175,15 +175,26 @@ type RecordedAttempt = Readonly<{ version: number; matches: boolean; terminal: b
 
 async function readRecordedAttempt(store: Pick<EventStore, "readStream">, attempt: ListingAttempt) {
   const prefix = `${attempt.eventIdPrefix}:`;
-  return readMarketplaceRecoveryHistory<RecordedAttempt | null>(store, attempt.streamId, null, (state, event) => {
-    if (!event.eventId.startsWith(prefix)) return state;
-    return {
-      version: event.streamVersion,
-      matches: state?.matches !== false && recordedAttemptMatches(attempt, event),
-      terminal: state?.terminal === true || attempt.terminalEventTypes.includes(event.eventType),
-      last: event,
-    };
-  });
+  let history: readonly StoredEvent[];
+  try {
+    // Listing attempts live on ordinary owner streams, so they must retain the
+    // complete-stream contiguity checks without the bounded S1 attempt-stream cap.
+    history = await readCompleteStream(store, { streamId: attempt.streamId });
+  } catch {
+    return { complete: false as const, reason: "history-incomplete" as const };
+  }
+  return {
+    complete: true as const,
+    state: history.reduce<RecordedAttempt | null>((state, event) => {
+      if (!event.eventId.startsWith(prefix)) return state;
+      return {
+        version: event.streamVersion,
+        matches: state?.matches !== false && recordedAttemptMatches(attempt, event),
+        terminal: state?.terminal === true || attempt.terminalEventTypes.includes(event.eventType),
+        last: event,
+      };
+    }, null),
+  };
 }
 
 /**
