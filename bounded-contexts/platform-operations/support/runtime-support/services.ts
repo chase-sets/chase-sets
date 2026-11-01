@@ -12,7 +12,6 @@ import type { ProviderConnectionsCrossContextPort } from "../../features/provide
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
-import { createPolicyHistoryReader } from "@chase-sets/platform-policy/policy-history-reader";
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
@@ -48,7 +47,6 @@ import type { ProjectionOperationsSnapshot } from "../../features/projection-ope
 import type { WakeStoreStatus } from "../../features/projection-operations/read-model/wake-status-contracts";
 import { buildAccountAppealProjectionHandlerSet } from "../../features/account-appeals/read-model/projection";
 import { sellerComplianceCohortPolicy } from "../../features/seller-compliance-cohorts/domain/seller-compliance-cohort-policy";
-import { createSellerComplianceCohortRuntime } from "../../features/seller-compliance-cohorts/api/cohort-evaluation-runtime";
 
 export type OperationsAttentionRuntimeReads = Readonly<{
   loadBlockedProjections: () => Promise<ProjectionOperationsSnapshot["blockedProjections"]>;
@@ -122,7 +120,6 @@ export type PlatformOperationsServices = Readonly<{
   supportReferenceLookup: ReturnType<typeof createSupportReferenceLookupRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   accountAppeals: AccountAppealRuntime;
-  sellerComplianceCohort: ReturnType<typeof createSellerComplianceCohortRuntime>;
   operationsAttentionRuntimeReads?: OperationsAttentionRuntimeReads;
 }>;
 
@@ -150,8 +147,6 @@ export function createPlatformOperationsServices(
   const riskAlerts = createRiskAlertRuntime({ db, eventStore });
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const policies = createPolicyRuntime({ eventStore, db });
-  const policyHistory = createPolicyHistoryReader({ eventStore, pool });
-  const sellerComplianceCohort = createSellerComplianceCohortRuntime({ db, pool, policies, policyHistory });
   const supportRequests = createSupportRequestRuntime({
     eventStore,
     checkpointStore,
@@ -254,7 +249,6 @@ export function createPlatformOperationsServices(
       buildAccountAppealProjectionHandlerSet(db),
     ],
     accountAppeals,
-    sellerComplianceCohort,
     operationsAttentionRuntimeReads: ports.operationsAttentionRuntimeReads,
   };
 }
