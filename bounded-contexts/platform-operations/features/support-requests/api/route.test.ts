@@ -10,7 +10,11 @@ import {
   type SupportParticipantPolicy,
 } from "./support-flow-projection";
 import type { SupportRequestDetailResponse, SupportRequestParticipantDetailResponse } from "../ui/contracts";
-import type { SupportOperationsRequestDetailRow, SupportRequestDetailRow } from "../read-model/queries";
+import type {
+  SupportOperationsRequestDetailRow,
+  SupportOperationsRequestListRow,
+  SupportRequestDetailRow,
+} from "../read-model/queries";
 import type { SupportRequesterRole } from "../domain/common";
 import type { SupportRequestServices } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
@@ -1481,6 +1485,14 @@ function supportRequestDetail(): SupportOperationsRequestDetailRow {
   };
 }
 
+function supportOperationsListRow(
+  supportRequestId: string,
+  deadlineAt: string | null,
+): SupportOperationsRequestListRow {
+  const { evidence: _evidence, responses: _responses, offers: _offers, ...listRow } = supportRequestDetail();
+  return { ...listRow, support_request_id: supportRequestId, operatorPolicy: { deadlineAt } };
+}
+
 function createServices(overrides: Partial<SupportRequestServices> = {}): SupportRequestServices {
   return {
     stageParticipantIntakeAttachments: vi.fn(),
@@ -1816,13 +1828,11 @@ describe("support request routes", () => {
   });
 
   it("forwards status, priority, and search query params to the operations queue read model", async () => {
-    const listSupportOperationsQueue = vi.fn(async () => ({
-      items: [
-        { support_request_id: "sup_1", operatorPolicy: { deadlineAt: "2026-06-01T01:00:00.000Z" } },
-        { support_request_id: "sup_2", operatorPolicy: { deadlineAt: "2026-06-01T02:00:00.000Z" } },
-      ],
-      total: 5,
-    }));
+    const items: SupportOperationsRequestListRow[] = [
+      supportOperationsListRow("sup_1", "2026-06-01T01:00:00.000Z"),
+      supportOperationsListRow("sup_2", "2026-06-01T02:00:00.000Z"),
+    ];
+    const listSupportOperationsQueue = vi.fn(async () => ({ items, total: 5 }));
     const services = createServices({ listSupportOperationsQueue });
 
     const response = await buildApp(services).request(
@@ -1830,14 +1840,14 @@ describe("support request routes", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      items: [
-        { support_request_id: "sup_1", operatorPolicy: { deadlineAt: "2026-06-01T01:00:00.000Z" } },
-        { support_request_id: "sup_2", operatorPolicy: { deadlineAt: "2026-06-01T02:00:00.000Z" } },
-      ],
-      total: 5,
-      count: 2,
-    });
+    const body = await response.json();
+    expect(body).toEqual({ items, total: 5, count: 2 });
+    expect(
+      body.items.map((item: SupportOperationsRequestListRow) => [item.support_request_id, item.operatorPolicy]),
+    ).toEqual([
+      ["sup_1", { deadlineAt: "2026-06-01T01:00:00.000Z" }],
+      ["sup_2", { deadlineAt: "2026-06-01T02:00:00.000Z" }],
+    ]);
     expect(listSupportOperationsQueue).toHaveBeenCalledWith({
       limit: 25,
       offset: 50,

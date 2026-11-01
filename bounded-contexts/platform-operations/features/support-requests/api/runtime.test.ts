@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import type { PgQueryable, PgQueryFunction } from "@chase-sets/event-core-postgres";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -46,29 +47,38 @@ const operatorSellerNonShipmentFinding = {
   responsibilityReasonCode: "product-not-received.seller-did-not-ship",
 } as const;
 
-function completeRuntimeDb(db: { query: (...args: never[]) => Promise<{ rows: unknown[] }> }) {
-  return {
-    async query(...args: never[]) {
-      const result = await db.query(...args);
-      return {
-        ...result,
-        rows: result.rows.map((row) => {
-          if (!row || typeof row !== "object") return row;
-          const value = row as Record<string, unknown>;
-          return {
-            ...value,
-            flow_type: value.flow_type ?? "product-not-received",
-            status: value.status ?? "open",
-          };
-        }),
-      };
-    },
-  };
+type RuntimeFixtureQuery = (...args: Parameters<PgQueryFunction>) => Promise<Readonly<{ rows: readonly unknown[] }>>;
+
+function runtimeFixtureDb(query: RuntimeFixtureQuery): PgQueryable {
+  return { query: query as PgQueryFunction };
+}
+
+// Method syntax so fixtures may declare the optional `values` parameter as required, as `pg` callers pass it.
+type RuntimeFixtureDb = Readonly<{
+  query(...args: Parameters<PgQueryFunction>): Promise<Readonly<{ rows: readonly unknown[] }>>;
+}>;
+
+function completeRuntimeDb(db: RuntimeFixtureDb): PgQueryable {
+  return runtimeFixtureDb(async (...args) => {
+    const result = await db.query(...args);
+    return {
+      ...result,
+      rows: result.rows.map((row) => {
+        if (!row || typeof row !== "object") return row;
+        const value = row as Record<string, unknown>;
+        return {
+          ...value,
+          flow_type: value.flow_type ?? "product-not-received",
+          status: value.status ?? "open",
+        };
+      }),
+    };
+  });
 }
 
 const OPERATOR_POLICY_NOW = "2026-06-01T01:00:00.000Z";
 
-function operatorPolicyRow(overrides: Record<string, unknown> = {}) {
+function operatorPolicyRow(overrides: Readonly<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
     support_request_id: "sup_1",
     flow_type: "product-not-received",
@@ -82,15 +92,15 @@ function operatorPolicyRow(overrides: Record<string, unknown> = {}) {
     resolution: null,
     remedy_approval: null,
     ...overrides,
-  } as never;
+  };
 }
 
-async function readOperatorPolicy(row: unknown) {
+async function readOperatorPolicy(row: Readonly<Record<string, unknown>>) {
   const { eventStore } = createInMemoryEventStore();
   const runtime = createSupportRequestRuntime({
     eventStore,
     checkpointStore: createCheckpointStore(),
-    db: { query: vi.fn(async () => ({ rows: [row] })) } as never,
+    db: runtimeFixtureDb(vi.fn(async () => ({ rows: [row] }))),
   });
   const result = await runtime.getSupportOperationsRequest("sup_1", OPERATOR_POLICY_NOW);
   return result?.operatorPolicy;
@@ -337,7 +347,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
     const input = {
       orderId: "ord_1",
@@ -438,7 +448,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
       attachmentStorage: storage,
     });
 
@@ -495,7 +505,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
       now: () => "2026-05-09T12:00:00.000Z",
     });
 
@@ -530,7 +540,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
       policies: { resolvePolicy: resolvePolicy as never },
     });
 
@@ -559,7 +569,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
 
     const flows = await runtime.listFlowDefinitions();
@@ -609,7 +619,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
 
     await expect(
@@ -679,7 +689,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
 
     await expect(runtime.getSupportOrderContext({ orderId: "ord_1", accountId: "acc_buyer" })).resolves.toMatchObject({
@@ -721,7 +731,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
 
     const result = await runtime.openSupportRequest(
@@ -785,7 +795,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
     const opened = await runtime.openSupportRequest(
       { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-damaged" },
@@ -843,7 +853,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
 
     await expect(
@@ -890,7 +900,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
       policies: { resolvePolicy: resolvePolicy as never },
     });
 
@@ -941,7 +951,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
 
     await runtime.openSupportRequest(
@@ -972,7 +982,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
 
     await expect(
@@ -1002,7 +1012,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
 
     await expect(
@@ -1043,7 +1053,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
 
     await expect(
@@ -1105,7 +1115,7 @@ describe("support request runtime", () => {
     const runtime = createSupportRequestRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: completeRuntimeDb(db as never),
+      db: completeRuntimeDb(db),
     });
 
     const opened = await runtime.openSupportRequest(
@@ -1160,7 +1170,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: completeRuntimeDb(db as never),
+        db: completeRuntimeDb(db),
       });
 
       const result = await runtime.escalateOverdueSupportRequests(
@@ -1190,7 +1200,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: completeRuntimeDb(db as never),
+        db: completeRuntimeDb(db),
       });
 
       const result = await runtime.escalateOverdueSupportRequests(
@@ -1238,7 +1248,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: completeRuntimeDb(db as never),
+        db: completeRuntimeDb(db),
       });
 
       const opened = await runtime.openSupportRequest(
@@ -1304,7 +1314,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: completeRuntimeDb(db as never),
+        db: completeRuntimeDb(db),
       });
 
       const opened = await runtime.openSupportRequest(
@@ -1364,7 +1374,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: completeRuntimeDb(db as never),
+        db: completeRuntimeDb(db),
       });
 
       const opened = await runtime.openSupportRequest(
@@ -1447,7 +1457,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: completeRuntimeDb(db as never),
+        db: completeRuntimeDb(db),
       });
 
       const responseCase = await runtime.openSupportRequest(
@@ -1531,7 +1541,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: completeRuntimeDb(db as never),
+        db: completeRuntimeDb(db),
       });
 
       const opened = await runtime.openSupportRequest(
@@ -1696,7 +1706,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: completeRuntimeDb(db as never),
+        db: completeRuntimeDb(db),
       });
 
       await openAndResolveReturnRequest(
@@ -1746,7 +1756,7 @@ describe("support request runtime", () => {
       const runtime = createSupportRequestRuntime({
         eventStore,
         checkpointStore: createCheckpointStore(),
-        db: completeRuntimeDb(db as never),
+        db: completeRuntimeDb(db),
       });
 
       await openAndResolveReturnRequest(

@@ -619,10 +619,11 @@ describe("SupportOperationsPage", () => {
     // Evidence attachment renders inline.
     const attachment = screen.getByRole("link", { name: /Attachment 1/ }) as HTMLAnchorElement;
     expect(attachment.href).toBe("https://cdn.example.com/photo-1.jpg");
-    // Decision panel prefills the refund from the declined offer, within the 40.00 cap.
+    // Decision panel prefill and cap follow operatorPolicy, not the raw 40.00 line or the 15.00 declined offer.
     const refundAmount = screen.getByLabelText("Refund amount") as HTMLInputElement;
     expect(refundAmount.value).toBe("11.00");
-    expect(screen.getByText("Maximum refund: 12.00")).toBeTruthy();
+    expect(screen.getByText("Refund is prefilled from the affected lines and capped at 12.00.")).toBeTruthy();
+    expect(screen.queryByText("Refund is prefilled from the affected lines and capped at 40.00.")).toBeNull();
     // Only the flow's allowed resolutions are offered.
     const resolution = screen.getByLabelText("Resolution") as HTMLSelectElement;
     expect([...resolution.options].map((option) => option.value)).toEqual([
