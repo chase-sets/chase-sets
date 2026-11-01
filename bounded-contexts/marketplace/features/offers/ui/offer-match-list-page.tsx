@@ -35,8 +35,7 @@ function statusTone(status: string) {
   }
 }
 
-function DeclineOfferMatchForm({ offer }: { offer: OfferMatchListItem }) {
-  const [attemptId] = useState(() => crypto.randomUUID());
+function DeclineOfferMatchForm({ offer, attemptId }: { offer: OfferMatchListItem; attemptId: string }) {
   return (
     <RouterForm spacing="none" method="post" action={`/account/offers/matches/${offer.offer_id}`}>
       <HiddenInput type="hidden" name="intent" value="decline-offer" />
@@ -55,6 +54,15 @@ export function MarketplaceOfferMatchListPage({
   data: { items: readonly OfferMatchListItem[] };
   errorMessage?: string | null;
 }) {
+  const [declineAttemptIds] = useState(() => new Map<string, string>());
+  const attemptIdFor = (offerId: string) => {
+    const existingAttemptId = declineAttemptIds.get(offerId);
+    if (existingAttemptId) return existingAttemptId;
+
+    const attemptId = crypto.randomUUID();
+    declineAttemptIds.set(offerId, attemptId);
+    return attemptId;
+  };
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
   const atOrAboveAskCount = data.items.filter((item) => item.offer_to_listing_price_bps >= 10000).length;
   const bestMatchPercentage = data.items.length
@@ -259,7 +267,7 @@ export function MarketplaceOfferMatchListPage({
                   <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
                     {t("marketplace.features.offers.ui.offerMatchListPage.open")}
                   </LinkButton>
-                  <DeclineOfferMatchForm key={row.offer_id} offer={row} />
+                  <DeclineOfferMatchForm key={row.offer_id} offer={row} attemptId={attemptIdFor(row.offer_id)} />
                 </Stack>
               ),
             },

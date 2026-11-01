@@ -84,6 +84,7 @@
     "check:env-examples": "node ./scripts/check-env-examples.mjs",
     "check:node-types-runtime": "node ./scripts/check-node-types-runtime.mjs",
     "typecheck": "node ./scripts/verify-typecheck.mjs",
+    "typecheck:changed": "node ./scripts/typecheck-changed.mjs",
     "typecheck:watch": "tsc -p ./tsconfig.json --noEmit --watch --preserveWatchOutput",
     "test": "pnpm run test:fast",
     "test:fast": "pnpm run verify:test",
