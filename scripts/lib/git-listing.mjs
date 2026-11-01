@@ -34,6 +34,14 @@ export function readGitText({ cwd, args, runGit = defaultGitRunner }) {
   return result.stdout;
 }
 
+export function readTrackedSidecarPaths({ cwd, runGit = defaultGitRunner }) {
+  return readGitText({
+    cwd,
+    runGit,
+    args: ["ls-files", "-z", "--", ":(glob)bounded-contexts/**/*.lost-update-exceptions.json"],
+  });
+}
+
 export function readGitHead({ cwd, runGit = defaultGitRunner }) {
   const head = readGitText({ cwd, args: ["rev-parse", "HEAD"], runGit }).trim();
   if (!/^[a-f0-9]{40}$/.test(head)) throw new Error("Git inspection returned a malformed HEAD.");

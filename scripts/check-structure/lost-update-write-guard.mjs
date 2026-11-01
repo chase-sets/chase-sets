@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
-import { readGitText } from "../lib/git-listing.mjs";
+import { readTrackedSidecarPaths } from "../lib/git-listing.mjs";
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const guardedPredicate =
@@ -26,10 +26,9 @@ export async function validateLostUpdateWriteGuard({ repoRoot, runGit } = {}) {
   const sidecars = await sidecarFiles(path.join(repoRoot, "bounded-contexts"));
   const trackedSidecars = existsSync(path.join(repoRoot, ".git"))
     ? new Set(
-        readGitText({
+        readTrackedSidecarPaths({
           cwd: repoRoot,
           runGit,
-          args: ["ls-files", "-z", "--", ":(glob)bounded-contexts/**/*.lost-update-exceptions.json"],
         })
           .split("\0")
           .filter(Boolean),

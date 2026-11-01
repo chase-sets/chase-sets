@@ -1,6 +1,6 @@
 {
   "schema": "deterministic-git-inspection-caller-inventory/v1",
-  "seam": "scripts/lib/git-listing.mjs:readGitText/readGitHead",
+  "seam": "scripts/lib/git-listing.mjs:readGitText/readTrackedSidecarPaths/readGitHead",
   "callers": [
     {
       "path": "scripts/check-structure/lost-update-write-guard.mjs",

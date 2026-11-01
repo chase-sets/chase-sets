@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { discoverWrites, validateLostUpdateWriteGuard as candidateGuard } from "./lost-update-write-guard.mjs";
-import { readGitText } from "../lib/git-listing.mjs";
+import { readTrackedSidecarPaths } from "../lib/git-listing.mjs";
 
 const roots = [];
 const repoRoot = process.cwd();
@@ -74,7 +74,7 @@ describe("owner-local lost-update exceptions", () => {
     await mkdir(path.join(root, ".git"), { recursive: true });
     const runGit = (_file, args) => ({
       status: 0,
-      stdout: args[0] === "ls-files" ? `${siblingPath}.lost-update-exceptions.json\0` : "",
+      stdout: `${siblingPath}.lost-update-exceptions.json\0`,
     });
     expect((await candidateGuard({ repoRoot: root, runGit })).violations).toEqual([]);
     expect(entries).toHaveLength(1);
@@ -85,7 +85,7 @@ describe("owner-local lost-update exceptions", () => {
     ["missing", () => undefined, "no result"],
     ["malformed", () => ({ status: 0, stdout: null }), "malformed output"],
   ])("rejects %s Git inspection state", (_name, runGit, message) => {
-    expect(() => readGitText({ cwd: repoRoot, args: ["ls-files"], runGit })).toThrow(message);
+    expect(() => readTrackedSidecarPaths({ cwd: repoRoot, runGit })).toThrow(message);
   });
 
   it("does not retain the removed tracked-sidecar deadline", async () => {
