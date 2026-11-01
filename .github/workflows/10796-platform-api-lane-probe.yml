@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 90
     env:
       PROBE_BASE_SHA: 36dbf479dc07ce129f00bff253988f4790f4c861
-      PROBE_CANDIDATE_SHA: 5a6e8b738eb9002cf6f3c627208f5fa2100e68c1
+      PROBE_CANDIDATE_SHA: 62a5f9e68a98ea303c3aade5608a4a4ea7996682
       CHASE_SETS_LANE_MODE: "1"
       DEBUG: vite:*
     steps:
@@ -112,7 +112,9 @@ jobs:
               const output = [];
               const events = [];
               let pending = "";
-              const child = spawn("pnpm.cmd", args, { cwd, env, windowsHide: true });
+              // Windows requires shell dispatch for .cmd/.bat files under current Node hardening.
+              // The executable and all arguments are fixed by this probe; no external input is interpolated.
+              const child = spawn("pnpm.cmd", args, { cwd, env, shell: true, windowsHide: true });
               const append = (chunk) => {
                 const text = String(chunk);
                 output.push(text);
