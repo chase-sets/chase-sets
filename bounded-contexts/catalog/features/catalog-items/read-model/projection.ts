@@ -275,6 +275,10 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
           event.timing.recordedAt,
         ],
       );
+      await projectionDb.query(
+        `UPDATE catalog_items SET updated_at = GREATEST(updated_at, $2) WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
+      );
     },
 
     "catalog.catalog-item.external-catalog-item-reference-linked": async (event, context) => {
@@ -297,10 +301,15 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
            updated_at = EXCLUDED.updated_at`,
         [providerKey, externalKey, itemId, event.timing.recordedAt],
       );
+      await projectionDb.query(
+        `UPDATE catalog_items SET updated_at = GREATEST(updated_at, $2) WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
+      );
     },
 
     "catalog.catalog-item.external-product-reference-unlinked": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { providerKey, externalKey } = event.data as {
         providerKey: string;
         externalKey: string;
@@ -312,10 +321,15 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
            AND external_key = $2`,
         [providerKey, externalKey],
       );
+      await projectionDb.query(
+        `UPDATE catalog_items SET updated_at = GREATEST(updated_at, $2) WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
+      );
     },
 
     "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { providerKey, externalKey } = event.data as {
         providerKey: string;
         externalKey: string;
@@ -326,6 +340,10 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
          WHERE provider_key = $1
            AND external_key = $2`,
         [providerKey, externalKey],
+      );
+      await projectionDb.query(
+        `UPDATE catalog_items SET updated_at = GREATEST(updated_at, $2) WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
       );
     },
 

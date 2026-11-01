@@ -23,8 +23,10 @@ import {
   createImportResolutionAttentionSourceFromReadModel,
   importResolutionRowPredicateSql,
 } from "../read-model/seller-attention-source";
-import { unresolvedResolutionRowIds } from "../ui/resolution-flow";
 import { inventoryImportSourceProfiles } from "../domain/import-source-profiles";
+import { INVENTORY_IMPORT_CREATE_JOB_KINDS } from "../domain/job-kinds";
+import { withInventoryMutationAttempt } from "../../../support/runtime-support/mutation-attempt";
+import { randomUUID } from "node:crypto";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -123,6 +125,83 @@ describeDb("Import Product durable maintenance AC-04 through AC-09", () => {
   async function job() {
     return (await runtime().getImportBatchJob(PRODUCT_RESOLUTION_JOB_ID))!;
   }
+
+  const commitStates = [
+    { status: "uploaded", total: 0, accepted: 1, committed: 0 },
+    { status: "uploaded", total: 0, accepted: 0, committed: 0 },
+    { status: "ready-to-commit", total: 1, accepted: 1, committed: 0 },
+    { status: "ready-to-commit", total: 1, accepted: 0, committed: 0 },
+    { status: "partial", total: 2, accepted: 2, committed: 1 },
+    { status: "partial", total: 1, accepted: 0, committed: 1 },
+    { status: "committed", total: 1, accepted: 1, committed: 1 },
+    ...(["expired", "validating", "failed-safe", "ambiguous", "committing"] as const).flatMap((status) =>
+      [0, 1].map((ready) => ({ status, total: 1, accepted: ready, committed: 0 })),
+    ),
+  ];
+  it.each(commitStates.flatMap((state) => [undefined, true, false].map((rollout) => ({ ...state, rollout }))))(
+    "commit enqueue refuses exactly when can_commit is false: $status/$accepted/$committed/rollout=$rollout",
+    async ({ status, total, accepted, committed, rollout }) => {
+      await seedRows(1, "native-csv", "imb_readiness");
+      await pools.inventory.query(
+        `UPDATE inventory_import_batches SET status = $1, total_count = $2,
+        accepted_count = $3, committed_count = $4 WHERE batch_id = 'imb_readiness'`,
+        [status === "expired" ? "expired" : "uploaded", total, accepted, committed],
+      );
+      await pools.inventory.query(`UPDATE inventory_import_batch_rows SET status = 'accepted',
+        catalog_item_id = 'cat_active', product_id = 'cat_active::', resolution_status = 'resolved',
+        validation_errors = '[]'::jsonb WHERE batch_id = 'imb_readiness'`);
+      if (["validating", "failed-safe", "ambiguous", "committing"].includes(status)) {
+        await pools.inventory.query(
+          `INSERT INTO inventory_import_batch_jobs
+          (job_id, job_kind, status, payload, progress, created_at, updated_at)
+          VALUES ('job_state', $1, $2, $3::jsonb, '{"total":2}', now(), now())`,
+          [
+            status === "committing" ? "commit" : INVENTORY_IMPORT_CREATE_JOB_KINDS[0],
+            status === "failed-safe" ? "failed" : status === "ambiguous" ? "completed" : "queued",
+            JSON.stringify({ batchId: "imb_readiness", accountId }),
+          ],
+        );
+      }
+      const services = createInventoryServices(pools.inventory, {
+        importProductRollout:
+          rollout === undefined ? undefined : { normalizationEnabled: true, stockProgressionEnabled: rollout },
+      }).importBatches;
+      const detail = (await services.getBatch("imb_readiness", accountId, { limit: 1 }))!;
+      const ready = Math.max(0, accepted - committed);
+      const expected = ["uploaded", "ready-to-commit", "partial"].includes(status) && ready > 0 && rollout !== false;
+      expect(detail).toMatchObject({ status, can_commit: expected, commit_ready_count: ready });
+      const counts = () =>
+        pools.inventory.query(`SELECT
+        (SELECT count(*)::integer FROM inventory_import_batch_jobs) AS jobs,
+        (SELECT count(*)::integer FROM inventory_import_commit_inputs) AS inputs,
+        (SELECT count(*)::integer FROM inventory_mutation_attempts) AS receipts`);
+      const before = await counts();
+      const attempt = withInventoryMutationAttempt(context, randomUUID());
+      const enqueue = () => services.enqueueCommitBatchJob({ batchId: "imb_readiness", accountId }, attempt);
+      if (!expected) {
+        const message =
+          status === "expired"
+            ? "Import batch expired; create a new import from the source."
+            : ["validating", "failed-safe", "ambiguous"].includes(status)
+              ? "Import validation must finish before committing rows."
+              : rollout === false
+                ? "Import stock progression is disabled; Product review remains available."
+                : status === "committing"
+                  ? "Import commit is already running."
+                  : "Import batch has no accepted rows waiting to commit.";
+        await expect(enqueue()).rejects.toThrow(message);
+        expect((await counts()).rows).toEqual(before.rows);
+      } else {
+        const queued = await enqueue();
+        expect((await enqueue()).jobId).toBe(queued.jobId);
+        expect((await counts()).rows).toEqual([{ jobs: 1, inputs: 1, receipts: 1 }]);
+        const input = await pools.inventory.query<{ accepted_rows: Record<string, unknown>[] }>(
+          "SELECT accepted_rows FROM inventory_import_commit_inputs",
+        );
+        expect(input.rows[0]?.accepted_rows[0]).not.toHaveProperty("needs_seller");
+      }
+    },
+  );
 
   it("AC-04 bootstraps a valid keyset scan index through an idempotent migration", async () => {
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
@@ -461,7 +540,7 @@ describeDb("Import Product durable maintenance AC-04 through AC-09", () => {
         "stock progression is disabled",
       );
       const detail = (await rollback.getBatch("batch_legacy", accountId))!;
-      expect(unresolvedResolutionRowIds(detail).length).toBeGreaterThan(0);
+      expect(detail.rows.filter((row) => row.needs_seller).length).toBeGreaterThan(0);
       const items = await createImportResolutionAttentionSourceFromReadModel(pools.inventory).load({
         accountId,
         now: new Date().toISOString(),
@@ -486,7 +565,9 @@ describeDb("Import Product durable maintenance AC-04 through AC-09", () => {
         WHERE batch.account_id = $1 AND batch.batch_id = $2 AND ${importResolutionRowPredicateSql} ORDER BY row.row_number`,
         [accountId, sourceKey],
       );
-      expect(ids.rows.map((row) => row.row_id)).toEqual(unresolvedResolutionRowIds(batch));
+      expect(ids.rows.map((row) => row.row_id)).toEqual(
+        batch.rows.filter((row) => row.needs_seller).map((row) => row.row_id),
+      );
       expect(ids.rows).toHaveLength(sourceKey === "saved-list" ? 3 : 2);
       expect(ids.rows.some((row) => row.row_id.endsWith(":0003"))).toBe(sourceKey === "saved-list");
     }

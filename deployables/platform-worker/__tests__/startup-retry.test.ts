@@ -1,5 +1,18 @@
+import { spawnSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { runStartupRetry } from "../src/startup-retry";
+
+const startupRetryModuleUrl = pathToFileURL(fileURLToPath(new URL("../src/startup-retry.ts", import.meta.url))).href;
+const startupRetryWorkingDirectory = fileURLToPath(new URL("..", import.meta.url));
+
+function runStartupRetryChild(source: string) {
+  return spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", source], {
+    cwd: startupRetryWorkingDirectory,
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+}
 
 describe("runStartupRetry", () => {
   it("returns successful startup operation results without logging retries", async () => {
@@ -81,5 +94,45 @@ describe("runStartupRetry", () => {
         retryBudgetMs: 1_000,
       }),
     );
+  });
+
+  it("keeps the real retry sleep alive for a transient failure in a child process", () => {
+    const result = runStartupRetryChild(`
+      import { runStartupRetry } from ${JSON.stringify(startupRetryModuleUrl)};
+      let attempts = 0;
+      const value = await runStartupRetry({
+        operationName: "child-transient",
+        retryBudgetMs: 5_000,
+        retryDelayMs: 250,
+        run: async () => {
+          attempts += 1;
+          if (attempts === 1) throw new Error("transient");
+          return "ready";
+        },
+      });
+      process.stdout.write(JSON.stringify({ attempts, value }));
+    `);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('{"attempts":2,"value":"ready"}');
+  });
+
+  it("logs exhaustion and exits non-zero in a child process using the real retry sleep", () => {
+    const result = runStartupRetryChild(`
+      import { runStartupRetry } from ${JSON.stringify(startupRetryModuleUrl)};
+      await runStartupRetry({
+        operationName: "child-exhausted",
+        retryBudgetMs: 1_000,
+        retryDelayMs: 250,
+        logger: {
+          error: (message, fields) => process.stdout.write(JSON.stringify({ message, fields }) + "\\n"),
+        },
+        run: async () => { throw new Error("persistent"); },
+      });
+    `);
+
+    expect(result.signal).toBeNull();
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('"type":"platform-worker.startup_retry.exhausted"');
   });
 });

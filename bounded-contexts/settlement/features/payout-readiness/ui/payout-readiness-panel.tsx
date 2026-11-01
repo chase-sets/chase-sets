@@ -14,10 +14,10 @@ import {
   Text,
   type Tone,
 } from "@chase-sets/design-system";
-import type { SettlementPayoutReadinessRow } from "../read-model/queries";
+import type { SettlementPayoutReadinessRow } from "../../../client";
 import {
   buildMissingRequirementGroups,
-  buildPayoutSetupProgress,
+  buildPayoutSetupProgressDetails,
   type MissingRequirementGroup,
 } from "../domain/setup-progress";
 
@@ -168,36 +168,36 @@ function recoveryGuidance(
   payoutReadiness: SettlementPayoutReadinessRow,
   missingRequirementGroups: readonly MissingRequirementGroup[],
 ) {
-  if (payoutReadiness.status === "ready") {
-    return null;
-  }
-
-  if (payoutReadiness.status === "restricted") {
-    const disabledReason = payoutReadiness.disabled_reason?.toLowerCase() ?? "";
-    const description = disabledReason.includes("past_due")
-      ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.past.due")
-      : disabledReason.includes("review") || disabledReason.includes("pending")
-        ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.review")
-        : disabledReason.includes("rejected") || disabledReason.includes("fraud")
-          ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.rejected")
-          : disabledReason.includes("paused") || disabledReason.includes("inactivity")
-            ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.paused")
-            : t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.is.restricted.description");
+  if (
+    payoutReadiness.next_step === "restricted_past_due" ||
+    payoutReadiness.next_step === "restricted_review" ||
+    payoutReadiness.next_step === "restricted_rejected" ||
+    payoutReadiness.next_step === "restricted_paused" ||
+    payoutReadiness.next_step === "restricted"
+  ) {
+    const description =
+      payoutReadiness.next_step === "restricted_past_due"
+        ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.past.due")
+        : payoutReadiness.next_step === "restricted_review"
+          ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.review")
+          : payoutReadiness.next_step === "restricted_rejected"
+            ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.rejected")
+            : payoutReadiness.next_step === "restricted_paused"
+              ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.paused")
+              : t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.is.restricted.description");
     return {
       tone: "warning" as const,
       title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.is.restricted"),
       description,
-      supportEscalationRecommended: true,
     };
   }
 
-  if (missingRequirementGroups.length > 0) {
-    if (missingRequirementGroups.every((group) => group.id === "platform-review")) {
+  if (payoutReadiness.next_step === "platform_review" || payoutReadiness.next_step === "complete_requirements") {
+    if (payoutReadiness.next_step === "platform_review") {
       return {
         tone: "warning" as const,
         title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.platform.review"),
         description: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.platform.review.description"),
-        supportEscalationRecommended: true,
       };
     }
     const groupLabels = missingRequirementGroups.map(localizedRequirementGroupLabel).join(", ");
@@ -207,42 +207,37 @@ function recoveryGuidance(
       description: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.complete.requested.groups", {
         groups: groupLabels,
       }),
-      supportEscalationRecommended: false,
     };
   }
 
-  if (payoutReadiness.payout_destination_status === "missing") {
+  if (payoutReadiness.next_step === "add_destination") {
     return {
       tone: "warning" as const,
       title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.a.payout.destination"),
       description: t(
         "settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.a.payout.destination.description",
       ),
-      supportEscalationRecommended: false,
     };
   }
 
-  if (
-    payoutReadiness.onboarding_status === "pending" ||
-    payoutReadiness.transfer_capability_status === "pending" ||
-    payoutReadiness.payout_capability_status === "pending" ||
-    payoutReadiness.payout_destination_status === "pending"
-  ) {
+  if (payoutReadiness.next_step === "provider_review") {
     return {
       tone: "info" as const,
       title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.provider.review.in.progress"),
       description: t(
         "settlement.features.payoutReadiness.ui.payoutReadinessPanel.provider.review.in.progress.description",
       ),
-      supportEscalationRecommended: false,
     };
+  }
+
+  if (payoutReadiness.next_step !== "none" || payoutReadiness.provider_setup_available !== true) {
+    return null;
   }
 
   return {
     tone: "info" as const,
     title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.can.continue"),
     description: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.can.continue.description"),
-    supportEscalationRecommended: false,
   };
 }
 
@@ -257,12 +252,10 @@ export function PayoutReadinessPanel({
   showActions?: boolean;
   showSupportEscalation?: boolean;
 }) {
-  const hasProviderAccount = Boolean(payoutReadiness.provider_reference);
+  const hasProviderAccount = payoutReadiness.provider_management_available === true;
   const missingRequirementGroups = buildMissingRequirementGroups(payoutReadiness.missing_requirements);
   const advisoryRequirementGroups = buildMissingRequirementGroups(payoutReadiness.advisory_requirements);
-  const onlyPlatformReview =
-    missingRequirementGroups.length > 0 && missingRequirementGroups.every((group) => group.id === "platform-review");
-  const progress = buildPayoutSetupProgress(payoutReadiness);
+  const progress = buildPayoutSetupProgressDetails(payoutReadiness);
   const recovery = recoveryGuidance(payoutReadiness, missingRequirementGroups);
   const canReceivePayouts = payoutReadiness.status === "ready";
   const firstMissingRequirementGroup = missingRequirementGroups[0];
@@ -298,7 +291,7 @@ export function PayoutReadinessPanel({
           title={recovery.title}
           description={recovery.description}
           actions={
-            showSupportEscalation || recovery.supportEscalationRecommended ? (
+            showSupportEscalation || payoutReadiness.support_recommended === true ? (
               <LinkButton href="/account/support" tone="secondary" size="sm">
                 {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.contact.support")}
               </LinkButton>
@@ -405,12 +398,12 @@ export function PayoutReadinessPanel({
       ) : null}
       {showActions ? (
         <Inline>
-          {payoutReadiness.status === "ready" || onlyPlatformReview ? null : (
+          {payoutReadiness.provider_setup_available === true ? (
             <Form spacing="none" method="post">
               <HiddenInput type="hidden" name="intent" value="start-payout-setup" />
               <Button type="submit">{primaryActionLabel(payoutReadiness.status)}</Button>
             </Form>
-          )}
+          ) : null}
           {hasProviderAccount ? (
             <Form spacing="none" method="post">
               <HiddenInput type="hidden" name="intent" value="manage-payout-account" />

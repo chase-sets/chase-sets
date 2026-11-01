@@ -120,6 +120,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
     const offer = await committed(
       await buyer.request.post("/api/marketplace/account/offers/submitted", {
         data: {
+          attemptId: randomUUID(),
           catalogItemId,
           productId: `${catalogItemId}::`,
           itemTitle: "Surging Sparks Booster Box",
@@ -149,7 +150,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
       data: {
         listingId,
         feeQuoteFingerprint: quote.fee_quote_fingerprint,
-        sourceActionKey: `handoff:${unique}`,
+        sourceActionKey: randomUUID(),
       },
     });
     await committed(accepted, 201);

@@ -5,7 +5,7 @@
   "ownedNouns": ["shipment", "return-shipment"],
   "streamPrefix": "fulfillment.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["shipments", "return-shipments"],
+  "slices": ["shipments", "return-shipments", "seller-checkout-readiness"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
@@ -753,6 +753,11 @@
       "classification": "slice",
       "purpose": "Own buyer-to-seller and buyer-to-platform return-shipment behavior, label issuance and voiding, destination selection, facility intake and discrepancy workflow, unidentified package reconciliation, and customer-safe and operator read models.",
       "expectedConsumers": ["Internal fulfillment module composition"]
+    },
+    "seller-checkout-readiness": {
+      "classification": "slice",
+      "purpose": "Own the Fulfillment pre-checkout seller checkout label and provider readiness read for an account or anonymous owner, Ship-From Location and label preference; missing, stale, conflicting or unavailable owner facts block.",
+      "expectedConsumers": ["Checkout seller checkout adapter at readiness and immediately before confirm"]
     },
     "request-support": {
       "classification": "support",

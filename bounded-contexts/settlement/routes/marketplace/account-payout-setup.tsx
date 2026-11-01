@@ -104,16 +104,26 @@ function accountAccessRequired(returnTo: string) {
       account_id: "",
       status: "not-started" as const,
       missing_requirements: [],
+      advisory_requirements: [],
+      disabled_reason: null,
+      requirements_deadline: null,
       provider_reference: null,
+      contact_email: null,
       onboarding_status: "not-started" as const,
       transfer_capability_status: "inactive" as const,
       payout_capability_status: "inactive" as const,
       payout_destination_status: "missing" as const,
+      payout_destination_fingerprint: null,
+      payout_destination_changed_at: null,
       payout_account_dashboard: "unknown" as const,
       losses_collector: "unknown" as const,
       fees_collector: "unknown" as const,
       requirements_collector: "unknown" as const,
       updated_at: null,
+      next_step: "none" as const,
+      support_recommended: false,
+      provider_setup_available: false,
+      provider_management_available: false,
     },
     mode: "setup" as const,
     returnTo: null,
@@ -152,7 +162,7 @@ export function resolvePayoutSetupMode(
   requestUrl: URL,
   payoutReadiness: SettlementPayoutReadinessRow,
 ): PayoutSetupMode {
-  if (requestUrl.searchParams.get("mode") === "manage" && payoutReadiness.provider_reference) {
+  if (requestUrl.searchParams.get("mode") === "manage" && payoutReadiness.provider_management_available === true) {
     return "management";
   }
 
@@ -173,7 +183,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
   const settlementApi = createSettlementRequestApiClient(request);
   const payoutReadiness = await settlementApi.getPayoutReadiness();
-  const mode = resolvePayoutSetupMode(requestUrl, payoutReadiness as SettlementPayoutReadinessRow);
+  const mode = resolvePayoutSetupMode(requestUrl, payoutReadiness);
   const returnTo = safeAccountReturnTo(requestUrl.searchParams.get("returnTo"));
 
   return {
@@ -268,12 +278,8 @@ function AuthorizedPayoutSetupRoute({ data }: { data: Awaited<ReturnType<typeof 
 
   return (
     <PayoutSetupPage
-      payoutReadiness={
-        providerReadinessSnapshot ??
-        actionData?.payoutReadiness ??
-        (data.payoutReadiness as SettlementPayoutReadinessRow)
-      }
-      mode={data.mode as PayoutSetupMode}
+      payoutReadiness={providerReadinessSnapshot ?? actionData?.payoutReadiness ?? data.payoutReadiness}
+      mode={data.mode}
       stripePublishableKey={data.stripePublishableKey}
       contactEmail={contactEmail}
       setupNotice={actionData?.setupNotice ?? data.setupNotice}

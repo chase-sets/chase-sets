@@ -126,10 +126,32 @@ export function canonicalParticipantRequest(actionKind: ParticipantAction, input
   let payload: Record<string, unknown>;
   switch (actionKind) {
     case "open-support-request": {
-      const b = closedObject(input, ["orderId", "flowType", "affectedLineIds"]);
+      const b = closedObject(input, [
+        "orderId",
+        "flowType",
+        "affectedLineIds",
+        "intakePhotoReferences",
+        "attachmentOperationId",
+        "photoRequired",
+        "openedByRole",
+        "role",
+      ]);
       const orderId = text(b.orderId, 128);
       if (!/^ord_[A-Za-z0-9_-]+$/.test(orderId)) throw new ParticipantAttemptError(400, "invalid-order-id");
-      payload = { orderId, flowType: normalizeFlowType(text(b.flowType, 80)), affectedLineIds: ids(b.affectedLineIds) };
+      const affectedLineIds = ids(b.affectedLineIds);
+      const intakePhotoReferences = ids(b.intakePhotoReferences, true);
+      const attachmentOperationId =
+        b.attachmentOperationId == null || b.attachmentOperationId === "" ? null : text(b.attachmentOperationId, 80);
+      const legacyEmptyIntake = !intakePhotoReferences?.length && attachmentOperationId === null;
+      payload = legacyEmptyIntake
+        ? { orderId, flowType: normalizeFlowType(text(b.flowType, 80)), affectedLineIds }
+        : {
+            orderId,
+            flowType: normalizeFlowType(text(b.flowType, 80)),
+            affectedLineIds,
+            intakePhotoReferences: intakePhotoReferences ?? [],
+            ...(attachmentOperationId === null ? {} : { attachmentOperationId }),
+          };
       break;
     }
     case "submit-evidence": {

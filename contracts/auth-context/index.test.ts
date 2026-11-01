@@ -13,7 +13,41 @@ import {
   resolveRecentAuthenticationStatus,
   agentOAuthScopesForPermissions,
   resolveAgentOAuthScopedPermissions,
+  emailVerificationSignInHref,
+  permissionAwaitsEmailVerification,
 } from "./index";
+
+describe("email verification of withheld permissions", () => {
+  const member = { roleKey: "owner", permissions: ["orders.view"] } as const;
+
+  it("names orders.manage as awaiting verification only when the role grants it and Auth withheld it", () => {
+    expect(permissionAwaitsEmailVerification(member, "orders.manage")).toBe(true);
+    expect(
+      permissionAwaitsEmailVerification({ ...member, permissions: ["orders.view", "orders.manage"] }, "orders.manage"),
+    ).toBe(false);
+    expect(permissionAwaitsEmailVerification({ ...member, roleKey: "viewer" }, "orders.manage")).toBe(false);
+    expect(permissionAwaitsEmailVerification({ ...member, roleKey: "guest-buyer" }, "orders.manage")).toBe(false);
+    expect(permissionAwaitsEmailVerification(null, "orders.manage")).toBe(false);
+    expect(
+      permissionAwaitsEmailVerification(
+        { ...member, agentGrant: { grantId: "agr_1", scopes: [] } as never },
+        "orders.manage",
+      ),
+    ).toBe(false);
+    // A permission Auth never withholds for verification is never blamed on it.
+    expect(permissionAwaitsEmailVerification({ ...member, permissions: [] }, "orders.view")).toBe(false);
+  });
+
+  it("builds a magic-link sign-in that returns to the marked same-site path", () => {
+    const href = new URL(
+      emailVerificationSignInHref("/account/purchases/ord_1", "cancel-purchase"),
+      "http://localhost",
+    );
+    expect(href.pathname).toBe("/sign-in");
+    expect(href.searchParams.get("signInMethod")).toBe("magic-link");
+    expect(href.searchParams.get("returnTo")).toBe("/account/purchases/ord_1?verifyEmail=cancel-purchase");
+  });
+});
 
 describe("auth request context helpers", () => {
   it("maps capability scopes without widening role permissions or native read-tool visibility", () => {

@@ -5,6 +5,7 @@ export type {
   SettlementPayoutEmbeddedSession,
   SettlementLedgerEntryRow,
   SettlementPayoutRow,
+  SettlementPayoutSummary,
   SettlementPayoutPreview,
   SettlementPayoutQuickAmounts,
   SettlementProviderIdempotencyKeyRow,

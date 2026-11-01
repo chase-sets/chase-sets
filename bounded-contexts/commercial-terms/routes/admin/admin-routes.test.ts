@@ -35,6 +35,7 @@ const {
     mockCreateCommercialTermsPublicRequestApiClient: vi.fn(),
     mockPublicApi: { getMarketplaceSalesFeeSchedule: vi.fn() },
     mockApi: {
+      getHome: vi.fn(),
       listSchedules: vi.fn(),
       getSchedule: vi.fn(),
       createSchedule: vi.fn(),
@@ -61,6 +62,12 @@ import { loader as agreementsRedirectLoader } from "./agreements";
 import { loader as agreementRedirectLoader } from "./agreements-detail";
 import { loader as accountAgreementRedirectLoader } from "./account-agreement-new";
 import contextManifest from "../../context.json";
+
+const home = {
+  resolvedAt: "2026-07-15T12:00:00.000Z",
+  activeTerms: [{ kind: "schedule", id: "cts_active", phase: "in_effect", phaseAt: "2026-07-01T00:00:00.000Z" }],
+  scheduleComparison: null,
+};
 
 function formRequest(values: Record<string, string>) {
   return new Request("https://admin.chasesets.com/commerce/terms", {
@@ -89,8 +96,7 @@ describe("commercial terms admin home route", () => {
     mockCreateCommercialTermsPublicRequestApiClient.mockReturnValue(mockPublicApi);
     mockPublicApi.getMarketplaceSalesFeeSchedule.mockResolvedValue(null);
     mockCreateCommercialTermsRequestApiClient.mockReturnValue(mockApi);
-    mockApi.listSchedules.mockResolvedValue({ items: [], total: 0, count: 0 });
-    mockApi.listAgreements.mockResolvedValue({ items: [], total: 0, count: 0 });
+    mockApi.getHome.mockResolvedValue(home);
     mockApi.listAccountOptions.mockResolvedValue([]);
     mockApi.getSchedule.mockResolvedValue(null);
     mockApi.getAgreement.mockResolvedValue(null);
@@ -132,8 +138,7 @@ describe("commercial terms admin home route", () => {
       } as never),
     ).resolves.toMatchObject({
       publishedSchedule: null,
-      schedules: [],
-      agreements: [],
+      home: null,
       accounts: [],
       selectedAgreement: null,
       loadError: "Policy unavailable",
@@ -149,9 +154,7 @@ describe("commercial terms admin home route", () => {
     expect(routes.filter((route) => route.routeId !== "commercial-terms-home")).toHaveLength(5);
   });
 
-  it("loads schedules, agreements, account picker options, and selected drawer detail together", async () => {
-    mockApi.listSchedules.mockResolvedValue({ items: [{ schedule_id: "cts_active" }], total: 1, count: 1 });
-    mockApi.listAgreements.mockResolvedValue({ items: [{ agreement_id: "cag_launch" }], total: 1, count: 1 });
+  it("loads the API home answer for the selected schedule, account picker options, and drawer detail together", async () => {
     mockApi.listAccountOptions.mockResolvedValue([{ accountId: "acc_seller" }]);
     mockApi.getSchedule.mockResolvedValue({ schedule_id: "cts_active", history: [] });
 
@@ -161,15 +164,45 @@ describe("commercial terms admin home route", () => {
         params: {},
         context: undefined,
       } as never),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        home,
+        accounts: [{ accountId: "acc_seller" }],
+        selectedSchedule: { schedule_id: "cts_active", history: [] },
+        loadError: null,
+      }),
+    );
+    expect(mockApi.getHome).toHaveBeenCalledWith("cts_active");
+    expect(mockApi.getSchedule).toHaveBeenCalledWith("cts_active");
+    expect(mockApi.listSchedules).not.toHaveBeenCalled();
+    expect(mockApi.listAgreements).not.toHaveBeenCalled();
+  });
+
+  it("asks the API home answer without a schedule when none is selected", async () => {
+    await homeLoader({
+      request: new Request("https://admin.chasesets.com/commerce/terms?agreement=cag_launch"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(mockApi.getHome).toHaveBeenCalledWith(null);
+    expect(mockApi.getAgreement).toHaveBeenCalledWith("cag_launch");
+  });
+
+  it("shows an incomplete home answer as the existing unavailable state", async () => {
+    mockApi.getHome.mockRejectedValue(new MockCommercialTermsApiError("Commercial Terms unavailable"));
+    await expect(
+      homeLoader({
+        request: new Request("https://admin.chasesets.com/commerce/terms?create=schedule"),
+        params: {},
+        context: undefined,
+      } as never),
     ).resolves.toMatchObject({
-      schedules: [{ schedule_id: "cts_active" }],
-      agreements: [{ agreement_id: "cag_launch" }],
-      accounts: [{ accountId: "acc_seller" }],
-      selectedSchedule: { schedule_id: "cts_active", history: [] },
-      loadError: null,
+      home: null,
+      accounts: [],
+      createKind: "schedule",
+      loadError: "Commercial Terms unavailable",
     });
-    expect(mockApi.listSchedules).toHaveBeenCalledWith("limit=250&offset=0");
-    expect(mockApi.listAgreements).toHaveBeenCalledWith("limit=250&offset=0");
   });
 
   it.each([
@@ -196,7 +229,7 @@ describe("commercial terms admin home route", () => {
   });
 
   it("keeps API lag inside the home-owned unavailable state", async () => {
-    mockApi.listSchedules.mockRejectedValue(new Error("Commercial Terms projection is catching up."));
+    mockApi.getHome.mockRejectedValue(new Error("Commercial Terms projection is catching up."));
     await expect(
       homeLoader({
         request: new Request("https://admin.chasesets.com/commerce/terms"),
@@ -204,8 +237,7 @@ describe("commercial terms admin home route", () => {
         context: undefined,
       } as never),
     ).resolves.toMatchObject({
-      schedules: [],
-      agreements: [],
+      home: null,
       accounts: [],
       loadError: "Commercial Terms projection is catching up.",
     });

@@ -99,17 +99,27 @@ export function createSettlementPayoutMcpHandlers(services: PayoutServices): Set
   const listPayouts: McpToolHandler = async ({ actor, arguments: args }) => {
     const scopedActor = ensureMcpActorAccount(actor, readRequiredString(args, "accountId"));
     requirePermission(scopedActor, "payouts.view");
-    const result = await services.listPayouts({
-      accountId: scopedActor.accountId,
-      limit: readOptionalPositiveInteger(args, "limit", 50),
-      offset: readOptionalNonNegativeInteger(args, "offset", 0),
-    });
+    const [page, summary] = await Promise.all([
+      services.listPayouts({
+        accountId: scopedActor.accountId,
+        limit: readOptionalPositiveInteger(args, "limit", 50),
+        offset: readOptionalNonNegativeInteger(args, "offset", 0),
+      }),
+      services.getPayoutSummary({
+        accountId: scopedActor.accountId,
+        canRequestPayouts: scopedActor.permissions.includes("payouts.request"),
+      }),
+    ]);
 
     return {
       accountId: scopedActor.accountId,
-      items: result.items,
-      total: result.total,
-      count: result.items.length,
+      items: page.items,
+      total: page.total,
+      count: page.items.length,
+      completeness: summary.completeness,
+      next_payout: summary.next_payout,
+      blocked_payouts: summary.blocked_payouts,
+      availability: summary.availability,
     };
   };
 

@@ -1,26 +1,8 @@
 import { Badge, LinkText, Stack, Surface, Text } from "@chase-sets/design-system";
 import { formatMoney, t } from "@chase-sets/localization";
-import type { RemedyEffect, RemedyExecution } from "../domain/remedy";
-import type { RemedyApprovalWorkflow } from "../domain/remedy-approval";
-import type { SupportRequestListItem } from "./contracts";
-
-export type CustomerRemedyRole = "buyer" | "seller";
-
-export type CustomerRemedyState =
-  | "proposed-under-review"
-  | "awaiting-coverage-approval"
-  | "return-label-ready"
-  | "in-transit"
-  | "awaiting-intake"
-  | "refund-submitted"
-  | "refund-confirmed"
-  | "settlement-reconciliation-pending"
-  | "completed"
-  | "expired-deadline"
-  | "carrier-exception"
-  | "refund-failure"
-  | "manual-review"
-  | "resolution-in-progress";
+import type { CustomerRemedyState, CustomerRemedyStatusProjection } from "../domain/domain";
+import type { CustomerSupportRequestListItem } from "./contracts";
+export type { CustomerRemedyRole } from "../domain/domain";
 
 type CustomerRemedyStatusView = Readonly<{
   state: CustomerRemedyState;
@@ -35,168 +17,94 @@ type CustomerRemedyStatusView = Readonly<{
   terminal: boolean;
 }>;
 
-function effect(remedy: RemedyExecution, effectName: RemedyEffect["effect"]) {
-  return remedy.effects.find((candidate) => candidate.effect === effectName);
-}
-
-function effectSucceeded(remedy: RemedyExecution, effectName: RemedyEffect["effect"]) {
-  const current = effect(remedy, effectName);
-  return current?.status === "satisfied" || current?.status === "waived";
-}
-
-function failedEffect(remedy: RemedyExecution) {
-  return remedy.effects.find(
-    (candidate) => candidate.status === "failed-retryable" || candidate.status === "failed-terminal",
-  );
-}
-
-function approvalState(workflow: RemedyApprovalWorkflow): CustomerRemedyState {
-  if (workflow.status === "reservation-pending") return "awaiting-coverage-approval";
-  if (workflow.status === "expired") return "expired-deadline";
-  if (workflow.status === "reservation-rejected" || workflow.status === "correction-requested") {
-    return "manual-review";
-  }
-  return "proposed-under-review";
-}
-
-function executionState(remedy: RemedyExecution, role: CustomerRemedyRole): CustomerRemedyState {
-  if (remedy.status === "completed") return "completed";
-
-  const failed = failedEffect(remedy);
-  if (failed?.effect === "refund-completion") return "refund-failure";
-  if (
-    failed &&
-    ["return-label-available", "carrier-accepted", "return-delivered", "facility-intake"].includes(failed.effect)
-  ) {
-    return "carrier-exception";
-  }
-  if (failed) return "manual-review";
-
-  if (effectSucceeded(remedy, "refund-completion")) {
-    return role === "buyer" ? "refund-confirmed" : "settlement-reconciliation-pending";
-  }
-  if (remedy.refundReleasedAt) return "refund-submitted";
-  if (effectSucceeded(remedy, "return-delivered") && effect(remedy, "facility-intake")?.status === "pending") {
-    return "awaiting-intake";
-  }
-  if (effectSucceeded(remedy, "carrier-accepted") && effect(remedy, "return-delivered")?.status === "pending") {
-    return "in-transit";
-  }
-  if (effectSucceeded(remedy, "return-label-available")) {
-    return "return-label-ready";
-  }
-  return "resolution-in-progress";
-}
-
-function statePresentation(state: CustomerRemedyState): Pick<CustomerRemedyStatusView, "title" | "tone" | "terminal"> {
+function statePresentation(state: CustomerRemedyState): Pick<CustomerRemedyStatusView, "title" | "tone"> {
   switch (state) {
     case "proposed-under-review":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.proposed"),
         tone: "neutral",
-        terminal: false,
       };
     case "awaiting-coverage-approval":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.awaitingCoverage"),
         tone: "warning",
-        terminal: false,
       };
     case "return-label-ready":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.labelReady"),
         tone: "warning",
-        terminal: false,
       };
     case "in-transit":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.inTransit"),
         tone: "neutral",
-        terminal: false,
       };
     case "awaiting-intake":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.awaitingIntake"),
         tone: "neutral",
-        terminal: false,
       };
     case "refund-submitted":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.refundSubmitted"),
         tone: "neutral",
-        terminal: false,
       };
     case "refund-confirmed":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.refundConfirmed"),
         tone: "success",
-        terminal: false,
       };
     case "settlement-reconciliation-pending":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.reconciliationPending"),
         tone: "neutral",
-        terminal: false,
       };
     case "completed":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.completed"),
         tone: "success",
-        terminal: true,
       };
     case "expired-deadline":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.expired"),
         tone: "danger",
-        terminal: false,
       };
     case "carrier-exception":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.carrierException"),
         tone: "danger",
-        terminal: false,
       };
     case "refund-failure":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.refundFailure"),
         tone: "danger",
-        terminal: false,
       };
     case "manual-review":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.manualReview"),
         tone: "warning",
-        terminal: false,
       };
     case "resolution-in-progress":
       return {
         title: t("support.features.supportRequests.ui.customerRemedyStatus.state.inProgress"),
         tone: "neutral",
-        terminal: false,
       };
   }
 }
 
-function outcomeCopy(
-  workflow: RemedyApprovalWorkflow | null,
-  remedy: RemedyExecution | null,
-  role: CustomerRemedyRole,
-) {
-  const terms = remedy ?? workflow?.terms ?? null;
-  if (!terms) return "";
+function outcomeCopy(status: CustomerRemedyStatusProjection) {
+  const remedyAmount = formatMoney(status.amount, status.currencyCode);
+  const sellerAmount = formatMoney(status.sellerAmount, status.allocationCurrencyCode);
+  const platformAmount = formatMoney(status.platformAmount, status.allocationCurrencyCode);
 
-  const remedyAmount = formatMoney(terms.remedy.amount, terms.remedy.currencyCode);
-  const sellerAmount = formatMoney(terms.allocation.sellerFundedAmount, terms.allocation.currencyCode);
-  const platformAmount = formatMoney(terms.allocation.platformFundedAmount, terms.allocation.currencyCode);
-
-  if (!remedy) {
+  if (status.outcome === "underReview") {
     return t("support.features.supportRequests.ui.customerRemedyStatus.outcome.underReview", {
       amount: remedyAmount,
     });
   }
-  if (role === "buyer") {
+  if (status.outcome === "fullRefund" || status.outcome === "partialRefund") {
     const approved =
-      terms.remedy.kind === "full-refund"
+      status.outcome === "fullRefund"
         ? t("support.features.supportRequests.ui.customerRemedyStatus.outcome.fullRefund", {
             amount: remedyAmount,
           })
@@ -206,12 +114,12 @@ function outcomeCopy(
     return approved;
   }
 
-  if (terms.allocation.fundingKind === "seller-funded") {
+  if (status.outcome === "sellerFunded") {
     return t("support.features.supportRequests.ui.customerRemedyStatus.sellerAllocation.sellerFunded", {
       sellerAmount,
     });
   }
-  if (remedy.status === "completed") {
+  if (status.outcome === "completedCovered") {
     return t("support.features.supportRequests.ui.customerRemedyStatus.sellerAllocation.completedCovered", {
       sellerAmount,
       platformAmount,
@@ -223,26 +131,19 @@ function outcomeCopy(
   });
 }
 
-function coverageCopy(
-  workflow: RemedyApprovalWorkflow | null,
-  remedy: RemedyExecution | null,
-  role: CustomerRemedyRole,
-) {
-  if (role !== "buyer" || !remedy) return null;
-  const terms = remedy ?? workflow?.terms;
-  if (terms.allocation.fundingKind === "platform-funded") {
+function coverageCopy(status: CustomerRemedyStatusProjection) {
+  if (status.coverage === "full") {
     return t("support.features.supportRequests.ui.customerRemedyStatus.coverage.full");
   }
-  if (terms.allocation.fundingKind === "split") {
+  if (status.coverage === "partial") {
     return t("support.features.supportRequests.ui.customerRemedyStatus.coverage.partial", {
-      amount: formatMoney(terms.allocation.platformFundedAmount, terms.allocation.currencyCode),
+      amount: formatMoney(status.platformAmount, status.allocationCurrencyCode),
     });
   }
   return null;
 }
 
-function returnCopy(workflow: RemedyApprovalWorkflow | null, remedy: RemedyExecution | null, role: CustomerRemedyRole) {
-  const directive = (remedy ?? workflow?.terms)?.returnDirective;
+function returnCopy({ returnDirective: directive, role }: CustomerRemedyStatusProjection) {
   if (directive === "return-to-platform") {
     return role === "buyer"
       ? t("support.features.supportRequests.ui.customerRemedyStatus.return.buyer.platform")
@@ -256,8 +157,8 @@ function returnCopy(workflow: RemedyApprovalWorkflow | null, remedy: RemedyExecu
   return t("support.features.supportRequests.ui.customerRemedyStatus.return.none");
 }
 
-function refundTimingCopy(workflow: RemedyApprovalWorkflow | null, remedy: RemedyExecution | null) {
-  switch ((remedy ?? workflow?.terms)?.refundTrigger) {
+function refundTimingCopy(status: CustomerRemedyStatusProjection) {
+  switch (status.refundTrigger) {
     case "carrier-accepted":
       return t("support.features.supportRequests.ui.customerRemedyStatus.refundTiming.carrierAccepted");
     case "delivered":
@@ -271,55 +172,39 @@ function refundTimingCopy(workflow: RemedyApprovalWorkflow | null, remedy: Remed
   }
 }
 
-function nextActionCopy(state: CustomerRemedyState, role: CustomerRemedyRole) {
-  if (state === "completed") return null;
-  if (state === "return-label-ready" && role === "buyer") {
+function nextActionCopy(action: CustomerRemedyStatusProjection["nextAction"]) {
+  if (action === null) return null;
+  if (action === "ship") {
     return t("support.features.supportRequests.ui.customerRemedyStatus.nextAction.ship");
   }
-  if (state === "resolution-in-progress" && role === "buyer") {
+  if (action === "waitForLabel") {
     return t("support.features.supportRequests.ui.customerRemedyStatus.nextAction.waitForLabel");
   }
-  if (state === "expired-deadline" || state === "carrier-exception" || state === "manual-review") {
+  if (action === "followSupport") {
     return t("support.features.supportRequests.ui.customerRemedyStatus.nextAction.followSupport");
   }
-  if (state === "refund-failure") {
+  if (action === "refundFailure") {
     return t("support.features.supportRequests.ui.customerRemedyStatus.nextAction.refundFailure");
   }
   return t("support.features.supportRequests.ui.customerRemedyStatus.nextAction.none");
 }
 
-export function deriveCustomerRemedyStatus(
-  request: SupportRequestListItem,
-  role: CustomerRemedyRole,
-): CustomerRemedyStatusView | null {
-  if (!request.remedy && !request.remedy_approval) return null;
-
-  const state = request.remedy ? executionState(request.remedy, role) : approvalState(request.remedy_approval!);
-  const presentation = statePresentation(state);
-  const terms = request.remedy ?? request.remedy_approval?.terms;
-  const hasPlatformCoverage = terms?.allocation.fundingKind !== "seller-funded";
-
-  return {
-    state,
-    ...presentation,
-    outcome: outcomeCopy(request.remedy_approval, request.remedy, role),
-    coverageExplanation: coverageCopy(request.remedy_approval, request.remedy, role),
-    faultExplanation:
-      role === "seller" && hasPlatformCoverage
-        ? t("support.features.supportRequests.ui.customerRemedyStatus.coverage.noFaultFinding")
-        : null,
-    returnInstructions: returnCopy(request.remedy_approval, request.remedy, role),
-    refundTiming: refundTimingCopy(request.remedy_approval, request.remedy),
-    nextAction: nextActionCopy(state, role),
+export function CustomerRemedyStatus({ request }: Readonly<{ request: CustomerSupportRequestListItem }>) {
+  const status = request.customerRemedyStatus;
+  if (!status) return null;
+  const view: CustomerRemedyStatusView = {
+    state: status.state,
+    ...statePresentation(status.state),
+    terminal: status.terminal,
+    outcome: outcomeCopy(status),
+    coverageExplanation: coverageCopy(status),
+    faultExplanation: status.noFaultFinding
+      ? t("support.features.supportRequests.ui.customerRemedyStatus.coverage.noFaultFinding")
+      : null,
+    returnInstructions: returnCopy(status),
+    refundTiming: refundTimingCopy(status),
+    nextAction: nextActionCopy(status.nextAction),
   };
-}
-
-export function CustomerRemedyStatus({
-  request,
-  role,
-}: Readonly<{ request: SupportRequestListItem; role: CustomerRemedyRole }>) {
-  const view = deriveCustomerRemedyStatus(request, role);
-  if (!view) return null;
 
   return (
     <Stack gap={2}>

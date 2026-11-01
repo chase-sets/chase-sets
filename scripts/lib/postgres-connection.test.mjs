@@ -91,4 +91,16 @@ describe("managed PostgreSQL connection trust", () => {
       classification: "unclassified-failure",
     });
   });
+
+  it("only emits bounded context identifiers", () => {
+    expect(
+      safeFailureFields("managed-postgres-state-invalid", {
+        context: "https://secret.example/UPPER",
+      }),
+    ).toEqual({ classification: "managed-postgres-state-invalid" });
+    expect(safeFailureFields("managed-postgres-state-invalid", { context: "reputation" })).toEqual({
+      classification: "managed-postgres-state-invalid",
+      context: "reputation",
+    });
+  });
 });

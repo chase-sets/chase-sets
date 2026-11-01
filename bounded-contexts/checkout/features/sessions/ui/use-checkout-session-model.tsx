@@ -75,6 +75,15 @@ export function useCheckoutSessionModel({
   const reservationExpired = Boolean(
     activeReservations.length > 0 && reservationMsRemaining !== null && reservationMsRemaining <= 0,
   );
+  const checkoutCancelled = Boolean(session.cancelled_at);
+  // Cancel checkout is the owner's release for holds alone; once orders, payment
+  // or purchase intent exist, those holds belong to the purchase instead.
+  const canCancelCheckout =
+    !checkoutCancelled &&
+    !hasPayment &&
+    session.order_ids.length === 0 &&
+    !session.submitted_offer_id &&
+    activeReservations.length > 0;
   const readyCount = isOfferIntent ? 0 : (preview?.readyLineKeys.length ?? lines.length);
   const unavailableCount = isOfferIntent ? lines.length : (preview?.unavailableLineKeys.length ?? 0);
   const needsPaymentQuote = !isOfferIntent && !hasPayment && !payment;
@@ -291,6 +300,8 @@ export function useCheckoutSessionModel({
     reservationExpired,
     reservationMsRemaining,
     activeReservations,
+    checkoutCancelled,
+    canCancelCheckout,
     firstDeliveryGroup,
     savedAddressesForCheckout,
     canManageAddressBookInCheckout,

@@ -713,6 +713,10 @@ describe("checkout sell list page", () => {
       );
 
       expect(screen.getByText("Your Sell List is updating.")).toBeTruthy();
+      const panel = screen.getByText("Your Sell List is updating.").closest(".rounded-tokenLg");
+      expect(panel).toBeTruthy();
+      expect(panel?.querySelectorAll("article.inset-surface")).toHaveLength(2);
+      expect(panel?.querySelector("article.rounded-tokenLg")).toBeNull();
       expect(screen.getByText(isAutoRevalidating ? "Updating Sell List" : "Refreshing Sell List")).toBeTruthy();
       expect(screen.getByText("Unavailable")).toBeTruthy();
       expect(screen.getAllByText("Charizard").length).toBeGreaterThan(0);

@@ -1,4 +1,4 @@
-import type { ProviderConnectionRow } from "../api/contracts";
+import type { ProviderConnectionRow } from "./contracts";
 
 function timestampMillis(value: string | null) {
   if (!value || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return NaN;
@@ -8,12 +8,12 @@ function timestampMillis(value: string | null) {
   return calendarDay.toISOString().slice(0, 10) === value.slice(0, 10) ? millis : NaN;
 }
 
-export function providerConnectionAge(row: ProviderConnectionRow, evaluatedAt: string) {
+export function providerConnectionFreshness(row: ProviderConnectionRow, evaluatedAt: string) {
   const ageSeconds = (timestampMillis(evaluatedAt) - timestampMillis(row.observedAt)) / 1000;
-  if (!Number.isFinite(ageSeconds) || ageSeconds < 0) return { state: "unknown", ageSeconds: null } as const;
-  if (!row.freshness) return { state: "ageOnly", ageSeconds } as const;
+  if (!Number.isFinite(ageSeconds) || ageSeconds < 0) return { freshnessState: "unknown", ageSeconds: null } as const;
+  if (!row.freshness) return { freshnessState: "ageOnly", ageSeconds } as const;
   const limits = row.freshness;
-  const state =
+  const freshnessState =
     ageSeconds > limits.unavailableAfterSeconds
       ? "unavailable"
       : ageSeconds > limits.staleAfterSeconds
@@ -21,5 +21,5 @@ export function providerConnectionAge(row: ProviderConnectionRow, evaluatedAt: s
         : ageSeconds > limits.freshWithinSeconds
           ? "aging"
           : "fresh";
-  return { state, ageSeconds };
+  return { freshnessState, ageSeconds } as const;
 }

@@ -13,6 +13,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { checkoutStartHeaderCopy } from "./checkout-start-copy";
+import { CheckoutAttemptResultNotice } from "./checkout-attempt-result-notice";
 import {
   CheckoutStartMobileSummary,
   CheckoutStartSourceFields,
@@ -59,6 +60,9 @@ export function CheckoutStartPage({
     new URLSearchParams(data.signInPath.split("?")[1] ?? "").get("returnTo") ?? "/checkout/buy/readiness";
   const registerPath = `/register?returnTo=${encodeURIComponent(signInReturnTo)}`;
   const sourceFields = <CheckoutStartSourceFields source={source} entryAttemptKey={data.entryAttemptKey} />;
+  // An entry that may already have opened a Session is never sent again from
+  // this page: the page's fresh key would open a second one.
+  const entryAmbiguous = Boolean(actionData && "entryState" in actionData && actionData.entryState === "ambiguous");
   const summaryProps = {
     source,
     cartCount: data.cartCount,
@@ -114,6 +118,19 @@ export function CheckoutStartPage({
         />
       ) : null}
 
+      {entryAmbiguous ? (
+        <CheckoutAttemptResultNotice
+          id="checkout-start-entry-result"
+          title={t("checkout.routes.checkoutStart.entry.ambiguous.title")}
+          description={t("checkout.routes.checkoutStart.entry.ambiguous.description")}
+          action={
+            <LinkButton href="/account/cart" leadingIcon="cart" tone="secondary">
+              {t("checkout.routes.checkoutStart.review.buy.cart")}
+            </LinkButton>
+          }
+        />
+      ) : null}
+
       {actionData && "error" in actionData ? (
         <Banner
           title={t("checkout.routes.checkoutStart.sign.in.required")}
@@ -144,7 +161,7 @@ export function CheckoutStartPage({
                     : t("checkout.routes.checkoutStart.continue.with.your.account.any.saved.guest")}
                 </Text>
                 {sourceFields}
-                <Button type="submit" size="lg" leadingIcon="lock">
+                <Button type="submit" size="lg" leadingIcon="lock" disabled={entryAmbiguous}>
                   {t("checkout.routes.checkoutStart.continue.to.checkout")}
                 </Button>
               </Stack>

@@ -6,6 +6,7 @@ import type { SettlementApiEnv } from "../../../api";
 import { providerWebhookErrorFromUnknown } from "@chase-sets/http/provider-errors";
 import { toPayoutReconciliationJobStatus, type PayoutCommandSnapshot, type PayoutServices } from "./runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { buildPayoutOperationsResponse } from "../read-model/payout-operations";
 
 function requirePayoutAccess(
   c: {
@@ -115,18 +116,25 @@ export function createPayoutRoutes(services: PayoutServices) {
       return access.response;
     }
 
-    const limit = Number(c.req.query("limit") ?? 50);
-    const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listPayouts({
-      accountId: access.actor.accountId,
-      limit,
-      offset,
-    });
+    const [page, summary] = await Promise.all([
+      services.listPayouts({
+        accountId: access.actor.accountId,
+        limit: Number(c.req.query("limit") ?? 50),
+        offset: Number(c.req.query("offset") ?? 0),
+      }),
+      services.getPayoutSummary({
+        accountId: access.actor.accountId,
+        canRequestPayouts: access.actor.permissions.includes("payouts.request"),
+      }),
+    ]);
 
     return c.json({
-      items: result.items,
-      total: result.total,
-      count: result.items.length,
+      ...page,
+      count: page.items.length,
+      completeness: summary.completeness,
+      next_payout: summary.next_payout,
+      blocked_payouts: summary.blocked_payouts,
+      availability: summary.availability,
     });
   });
 
@@ -148,9 +156,10 @@ export function createPayoutRoutes(services: PayoutServices) {
     const limit = Number(c.req.query("limit") ?? 100);
     const filter = c.req.query("filter") ?? null;
     const items = await services.listPayoutsNeedingReconciliation({ accountId: access.accountId, limit, filter });
+    const operations = buildPayoutOperationsResponse(items, new Date().toISOString());
 
     return c.json({
-      items,
+      ...operations,
       total: items.length,
       count: items.length,
     });

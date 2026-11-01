@@ -11,8 +11,7 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type {
   SettlementLedgerEntryRow,
   SettlementPayoutPreview,
-  SettlementPayoutReadinessRow,
-  SettlementPayoutRow,
+  SettlementPayoutSummary,
   SettlementWalletRow,
   SettlementWalletAdjustmentAccountDetail,
 } from "../../support/request-support/api-client";
@@ -51,11 +50,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
         throw error;
       })
     : Promise.resolve(null);
-  const [wallet, entries, payouts, payoutReadiness, quickAmounts, selectedWalletAdjustment] = await Promise.all([
+  const [wallet, entries, payoutSummary, quickAmounts, selectedWalletAdjustment] = await Promise.all([
     settlementApi.getWallet(),
     settlementApi.listWalletEntries(),
     settlementApi.listPayouts(),
-    settlementApi.getPayoutReadiness(),
     settlementApi.getPayoutQuickAmounts(),
     walletAdjustment,
   ]);
@@ -63,12 +61,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     wallet,
     entries,
-    payouts,
-    payoutReadiness,
+    payoutSummary,
     quickAmounts,
     selectedWalletAdjustment,
-    evaluatedAt: new Date().toISOString(),
-    canRequestPayouts: actor.permissions.includes("payouts.request"),
     canSetupPayouts: actor.permissions.includes("payouts.setup"),
     canReconcilePayouts: actor.permissions.includes("payouts.reconcile"),
   };
@@ -151,12 +146,9 @@ export default function MarketplaceAccountDeskMoneyRoute() {
     <SettlementMoneyDashboardPage
       wallet={data.wallet as SettlementWalletRow}
       entries={(data.entries.items ?? []) as SettlementLedgerEntryRow[]}
-      payouts={(data.payouts.items ?? []) as SettlementPayoutRow[]}
-      payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow}
+      payoutSummary={data.payoutSummary as SettlementPayoutSummary}
       quickAmounts={data.quickAmounts}
       selectedWalletAdjustment={data.selectedWalletAdjustment as SettlementWalletAdjustmentAccountDetail | null}
-      evaluatedAt={data.evaluatedAt}
-      canRequestPayouts={data.canRequestPayouts}
       canSetupPayouts={data.canSetupPayouts}
       canReconcilePayouts={data.canReconcilePayouts}
       actionState={

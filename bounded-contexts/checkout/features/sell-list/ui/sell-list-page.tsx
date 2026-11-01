@@ -6,6 +6,7 @@ import {
   CheckoutLayout,
   Form,
   Inline,
+  Inset,
   KeyValueList,
   LinkButton,
   MarketplaceEmptyState,
@@ -218,7 +219,7 @@ export function CheckoutSellListPage({
               {sellListLines.length > 0 ? (
                 <Stack gap={3}>
                   {sellListLines.map((line) => (
-                    <Surface key={line.line_id} element="article" tone="default" padding={3} elevation="outlined">
+                    <Inset key={line.line_id} element="article" padding={3}>
                       <Stack gap={2}>
                         <Text weight="semibold" wrap="anywhere">
                           {line.item_title}
@@ -241,7 +242,7 @@ export function CheckoutSellListPage({
                           ]}
                         />
                       </Stack>
-                    </Surface>
+                    </Inset>
                   ))}
                 </Stack>
               ) : null}

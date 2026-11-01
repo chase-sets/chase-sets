@@ -1,5 +1,10 @@
 import { ZodError } from "zod";
-import { MarketplaceApiError, type BuyerOfferPolicySnapshot, type createMarketplaceApiClient } from "../../../client";
+import {
+  MarketplaceApiError,
+  MarketplaceCommandRecoveryError,
+  type BuyerOfferPolicySnapshot,
+  type createMarketplaceApiClient,
+} from "../../../client";
 import { buyerOfferPolicyIdSchema, buyerOfferPolicyRequestSchema } from "../domain/contracts";
 
 export async function submittedOfferPolicyAction(request: Request, api: ReturnType<typeof createMarketplaceApiClient>) {
@@ -21,11 +26,13 @@ export async function submittedOfferPolicyAction(request: Request, api: ReturnTy
         type: "CreateBuyerOfferPolicy",
         expectedVersion: 0,
         operationId: `create_${policyId}`,
+        attemptId: policyId.padEnd(22, "_"),
       });
       return await afterCommand(api.commandBuyerOfferPolicy(policyId, { ...command, expectedVersion: draft.version }));
     }
     return await afterCommand(api.commandBuyerOfferPolicy(policyId, command));
   } catch (error) {
+    if (error instanceof MarketplaceCommandRecoveryError) return { policy: null, error: error.phase };
     if (error instanceof ZodError || error instanceof SyntaxError) return { policy: null, error: "invalid_authority" };
     if (error instanceof MarketplaceApiError) {
       const body = error.body as { error?: { code?: string } } | null;

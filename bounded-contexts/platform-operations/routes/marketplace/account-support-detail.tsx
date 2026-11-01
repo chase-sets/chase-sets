@@ -67,13 +67,11 @@ async function handleParticipantAction(
         actionResult = "evidence";
         break;
       case "response": {
-        const offerResolutionType = formValue(formData, "offerResolutionType");
         const refundAmount = formValue(formData, "refundAmount");
         commandResult = await api.recordSupportResponse(supportRequestId, {
           submittedByRole: formValue(formData, "submittedByRole"),
           responseType: formValue(formData, "responseType"),
           summary: formValue(formData, "summary"),
-          ...(offerResolutionType ? { offerResolutionType } : {}),
           ...(refundAmount ? { refundAmount } : {}),
         });
         actionResult = "response";

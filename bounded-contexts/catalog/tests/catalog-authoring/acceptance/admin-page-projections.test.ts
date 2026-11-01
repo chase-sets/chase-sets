@@ -15,7 +15,9 @@ import { module as catalogModule } from "../../../index";
 import { createCatalogServices, type CatalogServices } from "../../../support/authoring-support/index";
 import { buildCatalogAuthoringTestApp } from "../../../support/authoring-support/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { toTransportEvent } from "@chase-sets/event-core";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { buildCatalogAdminCatalogItemProjectionHandlers } from "../../../features/catalog-items/read-model/admin-projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const catalogContextNames = ["catalog"] as const;
@@ -423,12 +425,10 @@ describe("Admin page projections", () => {
       numericValue: null,
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
-      type: "ConfigureComponentRules",
+      type: "ReviseComponent",
       key: "base-card-info",
       name: l10n("Base Card Info V2"),
       description: l10n("Core fields"),
-      fieldRules: [{ fieldId, required: true }],
-      dimensionRules: [{ dimensionId, required: true, allowedOptionIds: [optionId] }],
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "ReviseBlueprint",
@@ -485,6 +485,177 @@ describe("Admin page projections", () => {
     expect(updatedItemDetail.json.blueprint.name).toBe("Raw Pokemon Card V2");
     expect(updatedItemDetail.json.field_values[0].fieldName).toBe("Card Title");
     expect(updatedItemDetail.json.categories[0].name).toBe("Generation I Singles");
+  });
+
+  it("converges list and detail pages when admin applies metadata before the item projection", async () => {
+    const itemId = "cat_adverse_order";
+    const blueprintId = "bpr_adverse_order";
+
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "CreateBlueprint",
+      blueprintId,
+      key: "adverse-order",
+      name: l10n("Adverse Order Blueprint"),
+      description: l10n("Adverse order test blueprint"),
+    });
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "CreateCatalogItem",
+      itemId,
+      title: l10n("Before"),
+      subtitle: null,
+      description: l10n("Before description"),
+    });
+    await drainCatalogProjectionSubscriptions();
+
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "ReviseCatalogItemMetadata",
+      languageCode: "en",
+      title: l10n("After"),
+      subtitle: null,
+      description: l10n("After description"),
+    });
+
+    const adminRunner = subscriptionRunners.find(
+      (runner) => runner.projectionName === "catalog-admin-catalog-item-projection",
+    );
+    const itemRunner = subscriptionRunners.find((runner) => runner.projectionName === "catalog-item-projection");
+    if (!adminRunner || !itemRunner) {
+      throw new Error("Catalog item projection runners were not mounted for the adverse-order proof.");
+    }
+
+    await adminRunner.runOnce();
+    await itemRunner.runOnce();
+
+    const itemList = await getJson("/api/catalog/items?limit=10&offset=0");
+    expect(itemList.response.status).toBe(200);
+    expect(itemList.json.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ catalog_item_id: itemId, title: "After" })]),
+    );
+    const itemDetail = await getJson(`/api/catalog/items/${itemId}`);
+    expect(itemDetail.response.status).toBe(200);
+    expect(itemDetail.json).toMatchObject({ title: "After", description: "After description" });
+  });
+
+  it("converges list and detail blueprint names after an external reference link", async () => {
+    const itemId = "cat_blueprint_name_refresh";
+    const blueprintId = "bpr_blueprint_name_refresh";
+
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "CreateBlueprint",
+      blueprintId,
+      key: "blueprint-name-refresh",
+      name: l10n("Old Blueprint"),
+      description: l10n("Blueprint name refresh proof"),
+    });
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "CreateCatalogItem",
+      itemId,
+      title: l10n("Blueprint Name Refresh Item"),
+      subtitle: null,
+      description: l10n("Blueprint name refresh proof"),
+    });
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "AssignBlueprintToCatalogItem",
+      blueprintId,
+    });
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "LinkExternalProductReference",
+      providerKey: "synthetic-provider",
+      externalKey: "synthetic-product",
+      selectedOptions: [],
+    });
+    await drainCatalogProjectionSubscriptions();
+
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "ReviseBlueprint",
+      key: "blueprint-name-refresh",
+      name: l10n("New Blueprint"),
+      description: l10n("Blueprint name refresh proof"),
+    });
+    await drainCatalogProjectionSubscriptions();
+
+    const itemList = await getJson(`/api/catalog/items?limit=10&offset=0&blueprintId=${blueprintId}`);
+    expect(itemList.response.status).toBe(200);
+    expect(itemList.json.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ catalog_item_id: itemId, blueprint: { blueprintId, name: "New Blueprint" } }),
+      ]),
+    );
+    const itemDetail = await getJson(`/api/catalog/items/${itemId}`);
+    expect(itemDetail.response.status).toBe(200);
+    expect(itemDetail.json.blueprint.name).toBe("New Blueprint");
+  });
+
+  it("rejects a stale source-history page rebuild and preserves the newer list and detail revision", async () => {
+    const itemId = "cat_stale_history_guard";
+    const streamId = `catalog.item-${itemId}`;
+    const blueprintId = "bpr_stale_history_guard";
+
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "CreateBlueprint",
+      blueprintId,
+      key: "stale-history-guard",
+      name: l10n("Guard Blueprint"),
+      description: l10n("Stale history guard proof"),
+    });
+    await sendCommand(services.items.commandHandler, streamId, {
+      type: "CreateCatalogItem",
+      itemId,
+      title: l10n("Older"),
+      subtitle: null,
+      description: l10n("Older"),
+    });
+    await sendCommand(services.items.commandHandler, streamId, {
+      type: "AssignBlueprintToCatalogItem",
+      blueprintId,
+    });
+    await drainCatalogProjectionSubscriptions();
+    await sendCommand(services.items.commandHandler, streamId, {
+      type: "ReviseCatalogItemMetadata",
+      languageCode: "en",
+      title: l10n("Older"),
+      subtitle: null,
+      description: l10n("Older"),
+    });
+    await drainCatalogProjectionSubscriptions();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await sendCommand(services.items.commandHandler, streamId, {
+      type: "ReviseCatalogItemMetadata",
+      languageCode: "en",
+      title: l10n("Newer"),
+      subtitle: null,
+      description: l10n("Newer"),
+    });
+    await drainCatalogProjectionSubscriptions();
+
+    const eventStore = createPostgresEventStore({ pool });
+    const storedEvents = await eventStore.readStream({ streamId });
+    const sourceEvents = storedEvents.map(toTransportEvent);
+    const metadataEvents = sourceEvents.filter((event) => event.type === "catalog.catalog-item.metadata-revised");
+    const olderEvent = metadataEvents.at(-2);
+    const newerEvent = metadataEvents.at(-1);
+    if (!olderEvent || !newerEvent) {
+      throw new Error("Expected two stored metadata revision events for the stale-history guard proof.");
+    }
+    expect(Date.parse(olderEvent.timing.recordedAt)).toBeLessThan(Date.parse(newerEvent.timing.recordedAt));
+    expect((olderEvent.data as { title: { values: { en: string } } }).title.values.en).not.toBe(
+      (newerEvent.data as { title: { values: { en: string } } }).title.values.en,
+    );
+
+    // Replaying the older event rebuilds from the stored prefix through that event only.
+    const handlers = buildCatalogAdminCatalogItemProjectionHandlers(pool);
+    await handlers["catalog.catalog-item.metadata-revised"]?.(olderEvent);
+
+    const itemList = await getJson(`/api/catalog/items?limit=10&offset=0&blueprintId=${blueprintId}`);
+    expect(itemList.json.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ catalog_item_id: itemId, title: "Newer" })]),
+    );
+    const itemDetail = await getJson(`/api/catalog/items/${itemId}`);
+    expect(itemDetail.json.title).toBe("Newer");
+    // The API serializes microseconds (".449000Z") and the event milliseconds (".449Z"): compare instants.
+    const newerRecordedAt = Date.parse(newerEvent.timing.recordedAt);
+    expect(Number.isFinite(newerRecordedAt)).toBe(true);
+    expect(Date.parse(itemDetail.json.updated_at)).toBe(newerRecordedAt);
   });
 
   it("expands rich reference records from catalog item field values", async () => {

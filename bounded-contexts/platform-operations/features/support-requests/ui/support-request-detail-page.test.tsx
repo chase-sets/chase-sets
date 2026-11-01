@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { getSupportFlowDefinition } from "../domain/flow-catalog";
 import { projectSupportParticipantPolicy, type SupportParticipantPolicy } from "../api/support-flow-projection";
@@ -231,6 +231,25 @@ describe("SupportRequestDetailPage", () => {
     expect(screen.queryByRole("button", { name: "Submit evidence" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel case" })).toBeNull();
   });
+
+  it.each(["accept-return", "offer-partial-refund", "offer-replacement"])(
+    "response form omits derived resolution: %s",
+    (responseType) => {
+      renderPage(
+        buildRequest({
+          checklist: buildRequest().checklist.map((item) => ({ ...item, satisfiedAt: now })),
+        }),
+        "seller",
+      );
+      fireEvent.change(screen.getByLabelText("Response"), { target: { value: responseType } });
+      const form = screen.getByRole("button", { name: "Send response" }).closest("form")!;
+      const data = new FormData(form);
+      expect(data.get("responseType")).toBe(responseType);
+      expect(data.has("offerResolutionType")).toBe(false);
+      expect(data.has("refundAmount")).toBe(responseType === "offer-partial-refund");
+      expect(form.elements.namedItem("summary")).toBeTruthy();
+    },
+  );
 
   it("lets only the party holding a pending offer accept or decline it", () => {
     const pendingOffer = {
