@@ -678,9 +678,13 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       }
       requestedLeaseYields.delete(heldLease.runner.name);
       retainedProjectionLeases.delete(heldLease);
-      void releaseHeldRunnerLease(heldLease, false, "idle").catch((error: unknown) => {
-        options.onError?.(error, heldLease.runner);
-      });
+      void releaseHeldRunnerLease(heldLease, false, "idle")
+        .then(() => {
+          projectionWakeHandoffBlockedUntil.set(heldLease.runner.name, Date.now() + options.leaseTtlMs);
+        })
+        .catch((error: unknown) => {
+          options.onError?.(error, heldLease.runner);
+        });
     }
   };
 
@@ -815,6 +819,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       .then((outcome) => {
         if (!outcome.leaseAcquired) {
           leaseMissCount += 1;
+          requestedLeaseYields.delete(runner.name);
           return;
         }
         leaseAcquired = true;
@@ -822,6 +827,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         failedRunnerBackoffs.delete(runner.name);
       })
       .catch((error) => {
+        requestedLeaseYields.delete(runner.name);
         const previous = failedRunnerBackoffs.get(runner.name);
         const attempt = (previous?.attempt ?? 0) + 1;
         const backoffMs =
@@ -865,17 +871,28 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           // retained holder only after selection leaves it inactive.
           if (
             acquiredLease &&
-            (shouldYieldIdleProjectionGroupLease(runner, completedResult) || requestedLeaseYields.has(runner.name))
+            (shouldYieldIdleProjectionGroupLease(runner, completedResult) ||
+              (requestedLeaseYields.has(runner.name) && acquiredLease.lastPassSucceeded))
           ) {
+            const handoffRequested = requestedLeaseYields.has(runner.name);
             // Release without an immediate reschedule: the group runner has no
             // work of its own, so let the normal poll tick re-run it while the
             // freed lease stays available for queued wakes and operations.
-            void releaseHeldRunnerLease(acquiredLease, false, "idle").catch((error: unknown) => {
-              options.onError?.(error, runner);
-            });
+            void releaseHeldRunnerLease(acquiredLease, false, "idle")
+              .then(() => {
+                if (handoffRequested) {
+                  projectionWakeHandoffBlockedUntil.set(runner.name, Date.now() + options.leaseTtlMs);
+                }
+              })
+              .catch((error: unknown) => {
+                options.onError?.(error, runner);
+              });
             requestedLeaseYields.delete(runner.name);
           } else if (acquiredLease && runner.kind === "projection-group" && (completedResult?.processed ?? 0) > 0) {
             retainedProjectionLeases.add(acquiredLease);
+            requestedLeaseYields.delete(runner.name);
+          } else {
+            requestedLeaseYields.delete(runner.name);
           }
           try {
             if (!leaseYieldRequested && shouldRescheduleAfterCompletion(runner, completedResult)) {
@@ -982,6 +999,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           activeRunnerNames,
           failedRunnerBackoffs,
           projectionWakeHandoffBlockedUntil,
+          requestedLeaseYields,
           nextReservedRunnerIndex,
           now,
         );
@@ -1005,6 +1023,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           activeRunnerNames,
           failedRunnerBackoffs,
           projectionWakeHandoffBlockedUntil,
+          requestedLeaseYields,
           nextRunnerIndex,
           now,
         );
@@ -1064,7 +1083,6 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           continue;
         }
         requestedLeaseYields.add(runnerName);
-        projectionWakeHandoffBlockedUntil.set(runnerName, Date.now() + options.leaseTtlMs);
       }
       releaseRequestedProjectionLeases();
       queueImmediateSchedule();
@@ -1140,6 +1158,7 @@ function selectNextRunner(
   activeRunnerNames: ReadonlySet<string>,
   failedRunnerBackoffs: ReadonlyMap<string, Readonly<{ eligibleAt: number }>>,
   projectionWakeHandoffBlockedUntil: Map<string, number>,
+  requestedLeaseYields: Set<string>,
   startIndex: number,
   now: number,
 ): Readonly<{ runner: WorkerRunner; index: number }> | null {
@@ -1157,6 +1176,7 @@ function selectNextRunner(
         continue;
       }
       projectionWakeHandoffBlockedUntil.delete(runner.name);
+      requestedLeaseYields.delete(runner.name);
     }
     const failedBackoff = failedRunnerBackoffs.get(runner.name);
     if (failedBackoff && failedBackoff.eligibleAt > now) {
