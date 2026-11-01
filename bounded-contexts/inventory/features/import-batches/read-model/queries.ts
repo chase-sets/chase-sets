@@ -381,7 +381,7 @@ export async function getImportBatch(
        rejected_count,
        committed_count,
        created_at,
-       updated_at
+       updated_at::text AS updated_at
      FROM inventory_import_batches
      WHERE batch_id = $1
        AND account_id = $2`,
@@ -425,7 +425,7 @@ export async function getImportBatch(
             ELSE import_row.committed_listing_id END AS committed_listing_id,
        committed_at,
        import_row.created_at,
-       import_row.updated_at
+       import_row.updated_at::text AS updated_at
      FROM inventory_import_batch_rows AS import_row
      LEFT JOIN inventory_import_draft_listing_outbox AS outbox
        ON outbox.message_id = import_row.row_id
