@@ -30,6 +30,7 @@ import {
   type CheckoutCartAttemptKind,
   type CheckoutCommandAttemptResult,
 } from "./features/command-attempts/api/contracts";
+import type { CheckoutEntryAttemptQuery } from "./features/command-attempts/api/entry-attempt-contracts";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -493,6 +494,18 @@ export function createCheckoutApiClient({
     },
     /** The owner lookup for one attempt; the answer is re-validated against the closed result schema. */
     async getCartCommandAttempt(query: CheckoutCartCommandAttemptQuery): Promise<CheckoutCommandAttemptResult> {
+      return parseCommandAttemptLookup(
+        await parseJsonResponse<{ attempt: unknown }>(
+          await client.account["command-attempts"][":attemptId"].$get({
+            param: { attemptId: query.attemptId },
+            query: { kind: query.kind, target: query.target, requestHash: query.requestHash },
+            header: headers,
+          }),
+        ),
+      );
+    },
+    /** The owner lookup for one Session entry attempt of the presenting Account (guest-buyer included). */
+    async getCheckoutEntryAttempt(query: CheckoutEntryAttemptQuery): Promise<CheckoutCommandAttemptResult> {
       return parseCommandAttemptLookup(
         await parseJsonResponse<{ attempt: unknown }>(
           await client.account["command-attempts"][":attemptId"].$get({

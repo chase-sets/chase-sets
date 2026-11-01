@@ -614,6 +614,68 @@ describe("RepricingPolicy validation matrix", () => {
     ).toThrow("zero or greater");
   });
 
+  function absoluteToleranceRule(amount: string): RepricingRule {
+    return { ...defaultRule, directive: { ...defaultRule.directive, tolerance: { mode: "absolute", amount } } };
+  }
+
+  it("rejects an over-max absolute tolerance on create and revise with the site error", () => {
+    const rules = [absoluteToleranceRule("10000000000.00")];
+    const create = createWith({ rules });
+    expect(create).toThrow(RepricingPolicyValidationError);
+    expect(create).toThrow("Tolerance amount must be a valid non-negative decimal amount.");
+
+    const created = fold(
+      initialRepricingPolicyState,
+      decideRepricingPolicy(initialRepricingPolicyState, createCommand),
+    );
+    expect(() =>
+      decideRepricingPolicy(created, {
+        type: "ReviseRepricingPolicy",
+        name: "Revised policy",
+        scope: { kind: "all-listings" },
+        rules,
+        maxChangesPerDay: 50,
+        revisedAt: "2026-07-12T00:00:00.000Z",
+      }),
+    ).toThrow(RepricingPolicyValidationError);
+    expect(() =>
+      decideRepricingPolicy(created, {
+        type: "ReviseRepricingPolicy",
+        name: "Revised policy",
+        scope: { kind: "all-listings" },
+        rules,
+        maxChangesPerDay: 50,
+        revisedAt: "2026-07-12T00:00:00.000Z",
+      }),
+    ).toThrow("Tolerance amount must be a valid non-negative decimal amount.");
+  });
+
+  it("accepts in-range absolute tolerances and preserves trimmed authored output", () => {
+    for (const [amount, emitted] of [
+      ["9999999999.99", "9999999999.99"],
+      ["0", "0"],
+      ["0.00", "0.00"],
+      ["  1.5  ", "1.5"],
+      ["0002.5", "0002.5"],
+    ] as const) {
+      const events = decideRepricingPolicy(initialRepricingPolicyState, {
+        ...createCommand,
+        rules: [absoluteToleranceRule(amount)],
+      });
+      expect(events[0]).toMatchObject({
+        data: { rules: [{ directive: { tolerance: { mode: "absolute", amount: emitted } } }] },
+      });
+    }
+  });
+
+  it("rejects invalid absolute tolerance syntax with the site error", () => {
+    for (const amount of ["-1", "-0", "1.005", "1e2", "+1", ""]) {
+      const create = createWith({ rules: [absoluteToleranceRule(amount)] });
+      expect(create).toThrow(RepricingPolicyValidationError);
+      expect(create).toThrow("Tolerance amount must be a valid non-negative decimal amount.");
+    }
+  });
+
   it("rejects a max move percent of zero", () => {
     expect(
       createWith({

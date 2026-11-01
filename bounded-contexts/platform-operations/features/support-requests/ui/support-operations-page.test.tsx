@@ -3,13 +3,22 @@ import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import { SupportOperationsPage } from "./support-operations-page";
-import type { SupportRequestDetail, SupportRequestDetailResponse, SupportRequestListItem } from "./contracts";
+import type {
+  SupportOperationsRequestDetailResponse,
+  SupportOperationsRequestListItem,
+  SupportOperationsRequestDetail,
+  SupportRequestDetail,
+} from "./contracts";
 import { getSupportFlowDefinition } from "../domain/flow-catalog";
 import { normalizeFlowType } from "../domain/common";
+import { projectSupportOperatorPolicy, type SupportOperatorPolicy } from "../read-model/queries";
 
-function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): SupportRequestListItem {
+function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {}): SupportOperationsRequestListItem {
   return {
     support_request_id: "sup_1",
+    operatorPolicy: {
+      deadlineAt: null,
+    },
     display_reference: "SUP-TEST1234",
     order_id: "ord_1",
     buyer_account_id: "acc_buyer",
@@ -51,15 +60,29 @@ function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): Suppor
   };
 }
 
-function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): SupportRequestDetailResponse {
-  const request = {
+type DetailFixtureOverrides = Partial<SupportRequestDetail> & Readonly<{ operatorPolicy?: SupportOperatorPolicy }>;
+
+function buildDetailItem(overrides: DetailFixtureOverrides = {}): SupportOperationsRequestDetailResponse {
+  const request: SupportOperationsRequestDetail = {
     ...buildQueueItem(),
+    operatorPolicy: {
+      deadlineAt: null,
+      recommendedAction: "response",
+      responsibilityReasons: [],
+      refundCap: null,
+      refundPrefill: null,
+    },
     evidence: [],
     responses: [],
     offers: [],
     ...overrides,
   };
-  return { ...request, flow: getSupportFlowDefinition(normalizeFlowType(request.flow_type)) };
+  return {
+    ...request,
+    operatorPolicy:
+      overrides.operatorPolicy ?? projectSupportOperatorPolicy(request as never, "2026-10-31T12:00:00.000Z"),
+    flow: getSupportFlowDefinition(normalizeFlowType(request.flow_type)),
+  };
 }
 
 function renderPage(props: Partial<Parameters<typeof SupportOperationsPage>[0]> = {}) {
@@ -256,7 +279,11 @@ describe("SupportOperationsPage", () => {
 
   it("shows deadline countdowns and links each row back to a drawer on the current queue", () => {
     renderPage({
-      queue: { items: [buildQueueItem()], total: 1, count: 1 },
+      queue: {
+        items: [buildQueueItem({ operatorPolicy: { deadlineAt: "2026-06-02T00:00:00.000Z" } })],
+        total: 1,
+        count: 1,
+      },
       queueNow: "2026-06-02T02:00:00.000Z",
     });
 
@@ -269,13 +296,14 @@ describe("SupportOperationsPage", () => {
     expect(open.getAttribute("href")).toContain("search=ord_1");
   });
 
-  it("shows the earliest applicable deadline when a request has multiple deadlines", () => {
+  it("renders the API-provided queue policy deadline instead of raw deadline columns", () => {
     renderPage({
       queue: {
         items: [
           buildQueueItem({
-            seller_response_due_at: "2026-06-03T00:00:00.000Z",
-            support_review_due_at: "2026-06-02T00:00:00.000Z",
+            operatorPolicy: { deadlineAt: "2026-06-03T00:00:00.000Z" },
+            seller_response_due_at: "2026-06-02T00:00:00.000Z",
+            support_review_due_at: "2026-06-04T00:00:00.000Z",
           }),
         ],
         total: 1,
@@ -284,7 +312,7 @@ describe("SupportOperationsPage", () => {
       queueNow: "2026-06-01T00:00:00.000Z",
     });
 
-    expect(screen.getAllByText("Due in 24 hours").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Due in 2 days").length).toBeGreaterThan(0);
   });
 
   it("renders actionable buyer/seller marketplace order links when a marketplace origin is configured", () => {
@@ -314,7 +342,22 @@ describe("SupportOperationsPage", () => {
   });
   it("renders a ready-for-support request with resolve as the primary drawer action", () => {
     renderPage({
-      selectedRequest: buildDetailItem(),
+      selectedRequest: buildDetailItem({
+        operatorPolicy: {
+          deadlineAt: null,
+          recommendedAction: "resolve",
+          responsibilityReasons: [
+            {
+              code: "product-not-received.carrier-loss",
+              responsibility: "carrier",
+              operatorLabel: "Synthetic policy reason",
+              operatorSelectable: true,
+            },
+          ],
+          refundCap: null,
+          refundPrefill: null,
+        },
+      }),
       queueNow: "2026-06-01T12:00:00.000Z",
       marketplaceOrigin: "https://marketplace.chasesets.com",
     });
@@ -323,7 +366,7 @@ describe("SupportOperationsPage", () => {
     const evidenceBasis = screen.getByLabelText("Evidence basis") as HTMLSelectElement;
     expect(document.querySelector('[data-support-primary-action="resolve"]')).toBeTruthy();
     expect(reason.required).toBe(true);
-    expect([...reason.options].map((option) => option.text)).toContain("Carrier lost the shipment (carrier)");
+    expect([...reason.options].map((option) => option.text)).toEqual(["Synthetic policy reason (carrier)"]);
     expect(evidenceBasis.required).toBe(true);
     expect([...evidenceBasis.options].map((option) => option.text)).toEqual([
       "Operator finding",
@@ -337,10 +380,17 @@ describe("SupportOperationsPage", () => {
       selectedRequest: buildDetailItem({
         status: "waiting-on-seller",
         support_review_due_at: "2026-06-01T00:00:00.000Z",
+        operatorPolicy: {
+          deadlineAt: "2026-06-03T00:00:00.000Z",
+          recommendedAction: "response",
+          responsibilityReasons: [],
+          refundCap: null,
+          refundPrefill: null,
+        },
       }),
       queueNow: "2026-06-02T00:00:00.000Z",
     });
-    expect(document.querySelector('[data-support-primary-action="escalate"]')).toBeTruthy();
+    expect(document.querySelector('[data-support-primary-action="response"]')).toBeTruthy();
 
     cleanup();
 
@@ -348,10 +398,17 @@ describe("SupportOperationsPage", () => {
       selectedRequest: buildDetailItem({
         status: "waiting-on-seller",
         support_review_due_at: "2026-06-03T00:00:00.000Z",
+        operatorPolicy: {
+          deadlineAt: "2026-06-01T00:00:00.000Z",
+          recommendedAction: "escalate",
+          responsibilityReasons: [],
+          refundCap: null,
+          refundPrefill: null,
+        },
       }),
       queueNow: "2026-06-02T00:00:00.000Z",
     });
-    expect(document.querySelector('[data-support-primary-action="response"]')).toBeTruthy();
+    expect(document.querySelector('[data-support-primary-action="escalate"]')).toBeTruthy();
   });
 
   it("shows support notes, structured offers, and the audit trail in the drawer", () => {
@@ -494,6 +551,13 @@ describe("SupportOperationsPage", () => {
         status: "ready-for-support",
         contested: true,
         affected_line_items: [{ lineId: "line_1", amount: "40.00", currencyCode: "usd" }],
+        operatorPolicy: {
+          deadlineAt: null,
+          recommendedAction: "resolve",
+          responsibilityReasons: [],
+          refundCap: "12.00",
+          refundPrefill: "11.00",
+        },
         escalated_at: "2026-06-01T05:00:00.000Z",
         escalated_by_role: "buyer",
         escalation_reason: "Seller refused the return.",
@@ -555,8 +619,11 @@ describe("SupportOperationsPage", () => {
     // Evidence attachment renders inline.
     const attachment = screen.getByRole("link", { name: /Attachment 1/ }) as HTMLAnchorElement;
     expect(attachment.href).toBe("https://cdn.example.com/photo-1.jpg");
-    // Decision panel prefills the refund from the declined offer, within the 40.00 cap.
-    expect((screen.getByLabelText("Refund amount") as HTMLInputElement).value).toBe("15.00");
+    // Decision panel prefill and cap follow operatorPolicy, not the raw 40.00 line or the 15.00 declined offer.
+    const refundAmount = screen.getByLabelText("Refund amount") as HTMLInputElement;
+    expect(refundAmount.value).toBe("11.00");
+    expect(screen.getByText("Refund is prefilled from the affected lines and capped at 12.00.")).toBeTruthy();
+    expect(screen.queryByText("Refund is prefilled from the affected lines and capped at 40.00.")).toBeNull();
     // Only the flow's allowed resolutions are offered.
     const resolution = screen.getByLabelText("Resolution") as HTMLSelectElement;
     expect([...resolution.options].map((option) => option.value)).toEqual([
