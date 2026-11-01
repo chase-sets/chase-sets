@@ -6,6 +6,7 @@ import { MarketplaceEvidenceGovernanceError } from "../domain/evidence-governanc
 import { MarketplaceListingGatePolicyError } from "../domain/listing-gate-policy";
 import { listingErrorContract, type ListingErrorCode } from "../ui/listing-error-contract";
 import { MarketplaceListingRequestError } from "./listing-request-error";
+import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
 import { MarketplaceListingEvidenceIncompleteError, MarketplaceSalesFeeQuoteStaleError } from "./runtime";
 import {
   AuthoredTextRejectedError,
@@ -21,6 +22,13 @@ const authoredTextListingErrorCodes = {
 
 /** Allowed on every endpoint whose request can carry a new Listing Evidence description. */
 export const authoredTextListingErrors: readonly ListingErrorCode[] = Object.values(authoredTextListingErrorCodes);
+
+/** Allowed on every Listing command endpoint: a missing key, a changed request, or unreadable owner history. */
+export const listingAttemptErrors: readonly ListingErrorCode[] = [
+  "attempt-invalid",
+  "attempt-conflict",
+  "attempt-history-incomplete",
+];
 
 function classifyListingError(error: unknown): ListingErrorCode | null {
   if (error instanceof AuthoredTextRejectedError) return authoredTextListingErrorCodes[error.code];
@@ -64,6 +72,12 @@ function classifyListingError(error: unknown): ListingErrorCode | null {
         return null;
     }
   }
+  if (error instanceof MarketplaceAttemptError)
+    return error.code === "invalid_attempt"
+      ? "attempt-invalid"
+      : error.code === "attempt_conflict"
+        ? "attempt-conflict"
+        : "attempt-history-incomplete";
   if (error instanceof MarketplaceListingGatePolicyError) return "listing-gate-policy-invalid";
   if (error instanceof MarketplaceListingEvidenceIncompleteError) return "evidence-incomplete";
   if (error instanceof MarketplaceSalesFeeQuoteStaleError) return "fee-quote-stale";

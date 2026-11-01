@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
-import { marketplaceMutationKindSchema, recoveryHashSchema } from "../domain/contracts";
+import { marketplaceMutationKindSchema, marketplaceRecoveryTargetKind, recoveryHashSchema } from "../domain/contracts";
 import type { createMarketplaceMutationLookup } from "./lookup";
 import { marketplaceReceiptResponse } from "./receipt";
 
@@ -20,11 +20,11 @@ export function createMarketplaceMutationRecoveryRoutes(lookup: ReturnType<typeo
         accountId: actor.accountId,
         mutationKind: kind.data,
         requestHash: hash.data,
-        target: {
-          kind:
-            kind.data === "offer.submit" ? "product" : kind.data === "offer-policy.command" ? "offer-policy" : "offer",
-          id: target,
-        },
+        // A seller-account attempt targets the signed-in account; a supplied target never acts for another.
+        target:
+          marketplaceRecoveryTargetKind(kind.data) === "seller"
+            ? { kind: "seller", id: actor.accountId }
+            : { kind: marketplaceRecoveryTargetKind(kind.data), id: target },
       });
       return marketplaceReceiptResponse(c.json(result), result);
     } catch {

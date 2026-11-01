@@ -6,7 +6,7 @@ import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-c
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import {
   canonicalMarketplaceRequest,
-  marketplaceOfferCanonicalRequest,
+  marketplaceCanonicalRequest,
   marketplaceAcceptanceKeySchema,
   marketplaceAttemptIdSchema,
   marketplaceMutationRecoveryResultSchema,
@@ -97,11 +97,7 @@ export function marketplaceAttemptBinding(input: MarketplaceAttemptInput): Marke
   const parser = input.mutationKind === "offer.accept" ? marketplaceAcceptanceKeySchema : marketplaceAttemptIdSchema;
   if (!parser.safeParse(input.attemptId).success)
     throw new MarketplaceAttemptError("invalid_attempt", "A valid Marketplace attempt identity is required.");
-  const canonicalRequestHash = hashMarketplaceRequest(
-    input.mutationKind === "offer-policy.command" || input.request === null
-      ? input.request
-      : marketplaceOfferCanonicalRequest(input.mutationKind, input.request as Record<string, unknown>),
-  );
+  const canonicalRequestHash = hashMarketplaceRequest(marketplaceCanonicalRequest(input.mutationKind, input.request));
   if (
     input.requestHash !== undefined &&
     (!recoveryHashSchema.safeParse(input.requestHash).success || input.requestHash !== canonicalRequestHash)

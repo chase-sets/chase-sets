@@ -1,3 +1,4 @@
+import { sendListingCommandsWithFreshAttempts } from "../tests/listing-attempt-test-support";
 import { inspect } from "node:util";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -44,7 +45,7 @@ function buildApp(
     resolver?: RateLimitRuleResolver;
   } = {},
 ) {
-  const app = new Hono<MarketplaceApiEnv>();
+  const app = sendListingCommandsWithFreshAttempts(new Hono<MarketplaceApiEnv>());
   app.onError(errorHandler);
   app.use("*", async (c, next) => {
     c.set("actor", options.actor === undefined ? actor : options.actor);
@@ -339,7 +340,7 @@ describe("safe Listing errors", () => {
         commercialTermsResolver: services.commercialTermsResolver,
         checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
       });
-      const app = new Hono<MarketplaceApiEnv>();
+      const app = sendListingCommandsWithFreshAttempts(new Hono<MarketplaceApiEnv>());
       app.onError(errorHandler);
       app.use("*", async (c, next) => {
         c.set("actor", actor);
