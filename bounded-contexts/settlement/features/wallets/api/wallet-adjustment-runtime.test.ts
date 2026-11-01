@@ -8,7 +8,11 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { EVENT_STORE_READ_PAGE_SIZE_MAX, ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { WALLET_ADJUSTMENT_CONTROLS_DEFAULT, type WalletAdjustmentControls } from "../domain/wallet-adjustment";
+import {
+  WALLET_ADJUSTMENT_CONTROLS_DEFAULT,
+  WalletAdjustmentRefusal,
+  type WalletAdjustmentControls,
+} from "../domain/wallet-adjustment";
 import {
   WALLET_ADJUSTMENT_LIMITS_DEFAULT,
   walletAdjustmentLimitsPolicy,
@@ -264,6 +268,52 @@ describe("wallet adjustment runtime", () => {
     expect(wallet.availableBalanceAmount).toBe("-5.00");
     expect(wallet.negativeBalanceStatus).toBe("negative");
   });
+
+  it.each([
+    {
+      code: "elevated_approval_required",
+      message: "This Wallet Adjustment requires a second, elevated approval.",
+      request: { idempotencyKey: "corr-refused-elevation", direction: "debit", amount: "30.00", selfBenefiting: false },
+    },
+    {
+      code: "self_benefiting_blocked",
+      message: "A self-benefiting Wallet Adjustment is blocked outright and cannot be approved.",
+      request: { idempotencyKey: "corr-refused-self", direction: "credit", amount: "5.00", selfBenefiting: true },
+    },
+  ] as const)(
+    "refuses approveAndPost with the coded $code refusal and leaves events, adjustment, and wallet unchanged",
+    async (refusal) => {
+      const { wallets, adjustments, allEvents } = createRuntimes();
+      await seedAvailable(wallets, "acc_seller", "25.00");
+      const requestInput = {
+        ...refusal.request,
+        targetAccountId: "acc_seller" as never,
+        reasonCode: "operational-error",
+        requestedBy: "usr_requester" as never,
+      } as const;
+      const requested = await adjustments.request(requestInput, context);
+      const eventsBefore = [...allEvents];
+      const walletBefore = await wallets.loadWalletState("acc_seller" as never);
+
+      const refused = adjustments.approveAndPost(
+        { adjustmentId: requested.adjustment_id as never, approvedBy: "usr_approver" as never },
+        context,
+      );
+      await expect(refused).rejects.toBeInstanceOf(WalletAdjustmentRefusal);
+      await expect(refused).rejects.toMatchObject({ code: refusal.code, message: refusal.message });
+
+      expect(allEvents).toEqual(eventsBefore);
+      expect(
+        allEvents.filter(
+          (event) =>
+            event.eventType === "settlement.wallet-adjustment.approved" ||
+            event.eventType === "settlement.wallet-adjustment.posted",
+        ),
+      ).toEqual([]);
+      expect(await adjustments.request(requestInput, context)).toEqual(requested);
+      expect(await wallets.loadWalletState("acc_seller" as never)).toEqual(walletBefore);
+    },
+  );
 
   it("reverses a posted credit with a linked opposite entry and restores the balance", async () => {
     const { wallets, adjustments } = createRuntimes();

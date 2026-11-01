@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import { SettlementApiError } from "../../../client";
+import { describeWalletAdjustmentFlowError } from "../../../support/request-support/wallet-adjustment-flow-error";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
 import type { SettlementWalletAdjustmentRow } from "../read-model/wallet-adjustment-queries";
 import { SettlementWalletWorkbenchPage, type SettlementWalletWorkbenchPageProps } from "./wallet-workbench-page";
@@ -318,8 +320,11 @@ describe("SettlementWalletWorkbenchPage", () => {
     expect(screen.queryByRole("button", { name: "Confirm & submit" })).toBeNull();
   });
 
-  it("reveals the elevated-approver field when approval requires a second, elevated approval", () => {
-    const pending = adjustment({ adjustment_id: "wad_elevated", requested_by: "usr_someone_else" });
+  function renderApprovalConflict(message: string, detailCode: string | null) {
+    const pending = adjustment({ adjustment_id: "wad_refused", requested_by: "usr_someone_else" });
+    const body = {
+      error: { code: "conflict", message, ...(detailCode ? { details: [{ code: detailCode, message }] } : {}) },
+    };
 
     renderWorkbench({
       wallet: wallet(),
@@ -327,17 +332,34 @@ describe("SettlementWalletWorkbenchPage", () => {
       actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.approve"],
       lastAction: {
         intent: "approve-adjustment",
-        adjustmentId: "wad_elevated",
-        error: {
-          kind: "requires-elevated-approval",
-          message: "This Wallet Adjustment requires a second, elevated approval.",
-          fieldErrors: [],
-        },
+        adjustmentId: "wad_refused",
+        error: describeWalletAdjustmentFlowError(new SettlementApiError(409, body), "fallback"),
       },
     });
+  }
+
+  it("reveals the elevated-approver retry field for an elevated_approval_required conflict", () => {
+    renderApprovalConflict("Reworded second-approver copy.", "elevated_approval_required");
 
     expect(screen.getAllByText("Second approval required").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Reworded second-approver copy.").length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText("Elevated approver user id").length).toBeGreaterThan(0);
+  });
+
+  it("shows the blocked banner without the retry field for a self_benefiting_blocked conflict", () => {
+    renderApprovalConflict("Reworded blocked copy.", "self_benefiting_blocked");
+
+    expect(screen.getAllByText("Self-benefiting adjustment blocked").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Reworded blocked copy.").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Elevated approver user id")).toBeNull();
+  });
+
+  it("renders a generic conflict, not either refusal state, for the old refusal text without a detail code", () => {
+    renderApprovalConflict("This Wallet Adjustment requires a second, elevated approval.", null);
+
+    expect(screen.getAllByText("Action could not be completed").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Second approval required")).toBeNull();
+    expect(screen.queryByLabelText("Elevated approver user id")).toBeNull();
   });
 
   it("surfaces a classified action-conflict error without discarding the loaded data", () => {
