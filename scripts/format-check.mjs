@@ -231,12 +231,14 @@ function nestedPackageEscalationReason({ file, repoRoot, source, execGit }) {
   try {
     headContents = readFileSync(headPath, "utf8");
   } catch {
-    return "nested package.json is absent or unreadable at HEAD";
+    if (source !== "git merge-base") return "nested package.json is absent or unreadable at HEAD";
   }
-  try {
-    if (packageDeclaresPrettier(headContents)) return "nested package.json declares a top-level prettier key at HEAD";
-  } catch {
-    return "nested package.json is unreadable at HEAD";
+  if (headContents !== undefined) {
+    try {
+      if (packageDeclaresPrettier(headContents)) return "nested package.json declares a top-level prettier key at HEAD";
+    } catch {
+      return "nested package.json is unreadable at HEAD";
+    }
   }
 
   let mergeBase;
@@ -248,9 +250,14 @@ function nestedPackageEscalationReason({ file, repoRoot, source, execGit }) {
   }
   let baseContents;
   try {
+    execGit(["cat-file", "-e", `${mergeBase}:${file}`]);
+  } catch {
+    return null;
+  }
+  try {
     baseContents = execGit(["show", `${mergeBase}:${file}`]);
   } catch {
-    return "nested package.json is absent or unreadable at merge-base";
+    return "nested package.json is unreadable at merge-base";
   }
   try {
     if (packageDeclaresPrettier(baseContents))
@@ -309,8 +316,8 @@ export async function runFormatCheck({
     );
   }
 
-  const nestedControl = derived.files.find((file) => isNestedPackageJson(file));
-  if (nestedControl) {
+  const nestedControls = derived.files.filter((file) => isNestedPackageJson(file));
+  for (const nestedControl of nestedControls) {
     const reason = nestedPackageEscalationReason({
       file: nestedControl,
       repoRoot,

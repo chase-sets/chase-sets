@@ -11,7 +11,8 @@ const require = createRequire(import.meta.url);
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const typecheckRoots = new Set(["bounded-contexts", "contracts", "deployables", "infrastructure", "packages"]);
 const typeScriptPath = /\.(?:ts|tsx)$/i;
-const globalInputPath = /(?:^|\/)(?:tsconfig(?:\.[^/]+)?\.json|package\.json|pnpm-lock\.yaml)$|\.d\.ts$/i;
+const globalInputPath =
+  /^(?:package\.json|pnpm-lock\.yaml|tsconfig(?:\.[^/]+)?\.json|vitest\.shared\.mjs|[^/]+\.d\.ts)$/i;
 
 export class TypecheckChangedError extends Error {
   constructor(code, message, exitCode = 2) {
@@ -94,6 +95,18 @@ function isUnmappedTypeScriptFile(file, workspaces, repoRoot) {
   });
 }
 
+function workspacePath(workspace, repoRoot) {
+  return path.relative(repoRoot, workspace.dir).split(path.sep).join("/").replace(/\/$/, "");
+}
+
+function workspaceForChangedFile(file, workspaces, repoRoot) {
+  const normalized = file.replaceAll("\\", "/").replace(/^\.\//, "");
+  return [...workspaces]
+    .map((workspace) => ({ workspace, prefix: workspacePath(workspace, repoRoot) }))
+    .filter(({ prefix }) => normalized === prefix || normalized.startsWith(`${prefix}/`))
+    .sort((left, right) => right.prefix.length - left.prefix.length)[0]?.workspace;
+}
+
 export function selectChangedTests({ changedFiles, workspaces, repoRoot = rootDir } = {}) {
   const scope = classifyChanges({ changedFiles, workspaces, baseDir: repoRoot });
   for (const file of changedFiles) {
@@ -104,7 +117,14 @@ export function selectChangedTests({ changedFiles, workspaces, repoRoot = rootDi
       );
     }
   }
-  const selectedWorkspaces = workspaces.filter((workspace) => scope.affectedWorkspaces.includes(workspace.name));
+  const selectedWorkspaces = [
+    ...new Map(
+      changedFiles
+        .map((file) => workspaceForChangedFile(file, workspaces, repoRoot))
+        .filter(Boolean)
+        .map((workspace) => [workspace.name, workspace]),
+    ).values(),
+  ].sort((left, right) => left.name.localeCompare(right.name));
   const tests = [];
   const ambient = [...rootAmbientFiles(repoRoot)];
   for (const workspace of selectedWorkspaces) {
@@ -131,7 +151,16 @@ function createTempProgram(repoRoot, files) {
   const extendsPath = path.relative(tempRoot, path.join(repoRoot, "tsconfig.tests.json")).split(path.sep).join("/");
   writeFileSync(
     configPath,
-    `${JSON.stringify({ extends: extendsPath, files: files.map((file) => path.resolve(repoRoot, file)), compilerOptions: { noEmit: true } }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        extends: extendsPath,
+        files: files.map((file) => path.resolve(repoRoot, file)),
+        include: [],
+        compilerOptions: { noEmit: true },
+      },
+      null,
+      2,
+    )}\n`,
   );
   return { tempRoot, configPath };
 }
@@ -155,7 +184,6 @@ export async function runTypecheckChanged({
   listWorkspaces = () => listWorkspacePackages({ repoRoot, assertRootCoverage: false }),
   acquireSlot = acquireHeavySlot,
   runCompiler = (configPath) => runTsc(configPath, repoRoot),
-  releaseSlot,
   stdout = console.log,
   stderr = console.error,
 } = {}) {
@@ -163,13 +191,13 @@ export async function runTypecheckChanged({
   const derived = deriveChangedFiles({ repoRoot, env, execFile });
   const workspaces = listWorkspaces();
   const selected = selectChangedTests({ changedFiles: derived.files, workspaces, repoRoot });
-  if (selected.workspaces.length === 0) {
-    stdout("[TYPECHECK_CHANGED_NO_WORKSPACE] No affected workspace test program.");
-    return 0;
-  }
   const globals = globalInputs(derived.files);
   if (globals.length > 0) {
     stdout(`[TYPECHECK_CHANGED_GLOBAL_INPUT] ${globals.join(", ")}; hosted Typecheck remains authoritative.`);
+  }
+  if (selected.workspaces.length === 0) {
+    stdout("[TYPECHECK_CHANGED_NO_WORKSPACE] No affected workspace test program.");
+    return 0;
   }
   stdout(
     `[TYPECHECK_CHANGED_SCOPED] workspaces=${selected.workspaces.map((workspace) => workspace.name).join(",")} ` +
@@ -177,7 +205,7 @@ export async function runTypecheckChanged({
   );
   const admitted = acquireSlot("repository-gate");
   if (admitted === false) {
-    stderr("[TYPECHECK_CHANGED_NOT_EXECUTED] heavy admission refused; exit 73");
+    stderr("[TYPECHECK_CHANGED_NOT_EXECUTED] no heavy-slot client found or admission refused; exit 73");
     return 73;
   }
   let program;
@@ -186,7 +214,6 @@ export async function runTypecheckChanged({
     return runCompiler(program.configPath);
   } finally {
     if (program) rmSync(program.tempRoot, { recursive: true, force: true });
-    if (releaseSlot) releaseSlot();
   }
 }
 

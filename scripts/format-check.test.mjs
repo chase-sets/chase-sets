@@ -431,6 +431,104 @@ describe("format-check execution controls", () => {
     expect(harness.prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
   });
 
+  it("evaluates every nested manifest instead of stopping at the first", async () => {
+    const root = createFixtureRoot();
+    writeFixture(root, "first/package.json", '{"name":"first"}\n');
+    writeFixture(root, "second/package.json", '{"name":"second","prettier":{}}\n');
+    const harness = createRunnerHarness();
+    await runFormatCheck({
+      ...harness.options,
+      repoRoot: root,
+      argv: ["--changed"],
+      env: cleanEnvironment({
+        CHANGED_FILES_JSON: JSON.stringify(["first/package.json", "second/package.json"]),
+      }),
+    });
+
+    expect(harness.acquiredKinds).toEqual(["script-battery"]);
+    expect(harness.prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
+  });
+
+  it("keeps an added Git manifest without a prettier key scoped", async () => {
+    const root = createFixtureRoot();
+    execFileSync("git", ["init", "--quiet"], { cwd: root });
+    commitFixture(root, "base");
+    execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: root });
+    writeFixture(root, "added/package.json", '{"name":"added"}\n');
+    commitFixture(root, "add plain manifest");
+    const harness = createRunnerHarness();
+
+    await runFormatCheck({
+      ...harness.options,
+      repoRoot: root,
+      argv: ["--changed"],
+      env: cleanEnvironment(),
+    });
+
+    expect(harness.acquiredKinds).toEqual([]);
+    expect(harness.prettierCalls).toEqual([["--check", "--ignore-unknown", "--", "added/package.json"]]);
+  });
+
+  it("escalates a deleted Git manifest when its merge-base had a prettier key", async () => {
+    const root = createFixtureRoot();
+    execFileSync("git", ["init", "--quiet"], { cwd: root });
+    writeFixture(root, "deleted/package.json", '{"name":"deleted","prettier":{}}\n');
+    commitFixture(root, "base with prettier manifest");
+    execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: root });
+    rmSync(path.join(root, "deleted", "package.json"));
+    commitFixture(root, "delete manifest");
+    const harness = createRunnerHarness();
+
+    await runFormatCheck({ ...harness.options, repoRoot: root, argv: ["--changed"], env: cleanEnvironment() });
+
+    expect(harness.acquiredKinds).toEqual(["script-battery"]);
+    expect(harness.prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
+  });
+
+  it("escalates an unreadable and an absent-at-HEAD env manifest", async () => {
+    for (const file of ["broken/package.json", "missing/package.json"]) {
+      const root = createFixtureRoot();
+      if (file.startsWith("broken")) writeFixture(root, file, '{"name":\n');
+      const harness = createRunnerHarness();
+      await runFormatCheck({
+        ...harness.options,
+        repoRoot: root,
+        argv: ["--changed"],
+        env: cleanEnvironment({ CHANGED_FILES_JSON: JSON.stringify([file]) }),
+      });
+      expect(harness.acquiredKinds).toEqual(["script-battery"]);
+      expect(harness.prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
+      rmSync(root, { recursive: true, force: true });
+      tempRoots.splice(tempRoots.indexOf(root), 1);
+    }
+  });
+
+  it("names a misformatted file beside a plain nested manifest without acquiring a slot", async () => {
+    const root = createFixtureRoot();
+    writeFixture(root, "nested/package.json", '{"name":"plain"}\n');
+    const harness = createRunnerHarness();
+    harness.options.runPrettier = (args) => {
+      harness.prettierCalls.push(args);
+      return 1;
+    };
+    const status = await runFormatCheck({
+      ...harness.options,
+      repoRoot: root,
+      argv: ["--changed"],
+      env: cleanEnvironment({ CHANGED_FILES_JSON: JSON.stringify(["nested/package.json", "src/bad.ts"]) }),
+    });
+
+    expect(status).toBe(1);
+    expect(harness.acquiredKinds).toEqual([]);
+    expect(harness.prettierCalls[0]).toEqual([
+      "--check",
+      "--ignore-unknown",
+      "--",
+      "nested/package.json",
+      "src/bad.ts",
+    ]);
+  });
+
   it("forces CI's opted-in static chain back to the full tree before reading CHANGED_FILES_JSON", async () => {
     const harness = createRunnerHarness();
     await runFormatCheck({
