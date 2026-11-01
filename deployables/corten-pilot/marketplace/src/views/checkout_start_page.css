@@ -144,6 +144,13 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+/* A result notice's heading (marketplace's `CheckoutAttemptResultNotice`), sized as the banner's
+   other strong line. */
+.banner h2 {
+  margin: 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
 .banner[data-tone="warning"] {
   border-color: var(--color-warning, var(--color-border));
   background: var(--color-warning-soft, var(--color-surface-2));

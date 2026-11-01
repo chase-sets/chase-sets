@@ -622,7 +622,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = cart_commands(&stand, session, &method, uri.path(), &headers, &body) {
         return answer;
     }
-    if let Some(answer) = checkout_sessions(&method, &uri, &headers, &body) {
+    if let Some(answer) = checkout_sessions(&stand, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(answer) = account_payments(&method, &uri, &headers, &body) {
@@ -631,7 +631,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = payment_methods(session, &method, uri.path(), &body) {
         return answer;
     }
-    if let Some(answer) = checkout(session, &method, uri.path(), &body) {
+    if let Some(answer) = checkout(&stand, session, &method, uri.path(), &body) {
         return answer;
     }
     if let Some(answer) = imports_api(&method, &uri, &headers, &body) {
@@ -717,10 +717,30 @@ fn restock(stand: &Stand, method: &Method, rest: &str, headers: &HeaderMap, body
 
 /// Starting checkout, as the stand-in answers it: the readiness is read again with the posted
 /// decision (`cr_fresh`); `buyer`'s session starts as `chk_1` with a receipt, and `blocked`'s is
-/// refused as the API refuses a cart that changed. A guest cart merges one line.
-fn checkout(session: &str, method: &Method, path: &str, body: &str) -> Option<Response> {
+/// refused as the API refuses a cart that changed. A guest cart merges one line. An entry key says
+/// what else happens: `chkentry_lost_`'s session opens as `chk_lost` and its answer is lost (the
+/// attempt is kept), `chkentry_unknown_`'s answer is lost and nothing is kept, and
+/// `chkentry_closed_`'s is refused as Checkout refuses a closed checkout.
+fn checkout(stand: &Stand, session: &str, method: &Method, path: &str, body: &str) -> Option<Response> {
     if *method != Method::POST {
         return None;
+    }
+    const SESSIONS: &str = "/api/marketplace/account/checkout-sessions";
+    let keyed = |prefix: &str| body.contains(&format!(r#""entryAttemptKey":"{prefix}"#));
+    if path == SESSIONS && keyed("chkentry_lost_") {
+        let sent: Value = serde_json::from_str(body).unwrap_or_default();
+        let kept = json!({
+            "kind": "checkout-entry", "ownerStatus": "committed", "sessionId": "chk_lost",
+            "commitReceipt": { "eventId": "evt_entry", "globalPosition": "17" },
+        });
+        stand.kept.lock().unwrap().insert(sent["entryAttemptKey"].as_str().unwrap_or_default().to_owned(), kept);
+        return Some(StatusCode::GATEWAY_TIMEOUT.into_response());
+    }
+    if path == SESSIONS && keyed("chkentry_unknown_") {
+        return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    }
+    if path == SESSIONS && keyed("chkentry_closed_") {
+        return Some(refusal(StatusCode::SERVICE_UNAVAILABLE, "checkout_closed", "Checkout is closed."));
     }
     Some(match path {
         "/api/marketplace/guest/cart/merge-to-account" => Json(json!({ "mergedLineCount": 1 })).into_response(),
@@ -769,6 +789,7 @@ fn checkout_session(id: &str) -> Value {
         }
         "chk_paid" => session["payment_id"] = json!("pay_1"),
         "chk_paydown" => session["payment_id"] = json!("pay_down"),
+        "chk_cancelled" => session["cancelled_at"] = json!("2026-10-28T00:00:00.000Z"),
         _ => {}
     }
     session
@@ -785,8 +806,10 @@ const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions/";
 /// starts `pay_1`, but `chk_stale`'s quote is stale, and `chk_offer`'s Submit offer becomes the
 /// offer `ofr_1` (`chk_offered` already did). Payments quotes $620.00 as the sandbox
 /// does; the wallet holds $25.00. `pay_1`'s summary is $638.83 ready for payment; `pay_down`'s
-/// read fails (`chk_paydown` started it).
-fn checkout_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+/// read fails (`chk_paydown` started it). `chk_lostpay`'s Pay now starts `pay_1` and its answer is
+/// lost, `chk_unsure`'s is lost and starts nothing, and `chk_moved`'s is refused as already
+/// started with other details.
+fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     if path == "/api/settlement/wallet" {
         return Some(Json(json!({ "available_balance_amount": "25.00", "currency_code": "USD" })).into_response());
@@ -858,7 +881,13 @@ fn checkout_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str
                 "projection_freshness_timeout",
                 "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
             ),
-            _ => Json(checkout_session(id)).into_response(),
+            _ => {
+                let mut session = checkout_session(id);
+                if stand.kept.lock().unwrap().contains_key(&format!("confirm:{id}")) {
+                    session["payment_id"] = json!("pay_1");
+                }
+                Json(session).into_response()
+            }
         });
     }
     if *method != Method::POST {
@@ -879,6 +908,16 @@ fn checkout_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str
         "authenticity-check-opt-in" => committed(StatusCode::OK, "checkout", "13", json!({})),
         "fulfillment-preview" => committed(StatusCode::OK, "checkout", "14", json!({})),
         "confirm" if id == "chk_stale" => refusal(StatusCode::CONFLICT, "fee_quote_stale", "The checkout fee changed."),
+        "confirm" if id == "chk_lostpay" => {
+            stand.kept.lock().unwrap().insert(format!("confirm:{id}"), json!({}));
+            StatusCode::GATEWAY_TIMEOUT.into_response()
+        }
+        "confirm" if id == "chk_unsure" => StatusCode::BAD_GATEWAY.into_response(),
+        "confirm" if id == "chk_moved" => refusal(
+            StatusCode::CONFLICT,
+            "checkout_confirmation_changed",
+            "This checkout already started with different order or payment details.",
+        ),
         "confirm" if id == "chk_offer" => {
             committed(StatusCode::OK, "checkout", "16", json!({ "offer_id": "ofr_1", "status": "purchase-intent-submitted" }))
         }
@@ -11526,6 +11565,44 @@ async fn pay_now_reviews_again_when_the_review_changed_or_payments_quote_went_st
 }
 
 #[tokio::test]
+async fn pay_now_whose_answer_may_be_lost_is_read_once_and_never_sent_again() {
+    let pilot = Pilot::new().await;
+    let confirms = |pilot: &Pilot| checkout_writes(pilot).iter().filter(|(p, _)| p == "confirm").count();
+    // The read shows the payment it started: the page shows it.
+    let (status, headers, html) =
+        pilot.send(post("/checkout/buy/session/chk_lostpay", "payer", &checkout_body("intent=confirm-checkout"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_lostpay"), "{headers:?}");
+    assert_eq!(confirms(&pilot), 1);
+
+    // The read shows neither a payment nor an offer: Pay now is off until the buyer refreshes.
+    let (status, _, html) =
+        pilot.send(post("/checkout/buy/session/chk_unsure", "payer", &checkout_body("intent=confirm-checkout"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm whether your order went through."), "{html}");
+    assert!(html.contains(r#"id="checkout-confirmation-result""#), "{html}");
+    assert!(html.contains(r#"href="/checkout/buy/session/chk_unsure">Refresh checkout</a>"#), "{html}");
+    assert!(html.contains(r#"data-commit="pay" disabled"#) && !html.contains(r#"data-commit="pay">"#), "{html}");
+    assert_eq!(confirms(&pilot), 2, "each Pay now was sent once");
+}
+
+#[tokio::test]
+async fn pay_now_on_a_session_that_changed_or_was_cancelled_sends_nothing_new() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(post("/checkout/buy/session/chk_moved", "payer", &checkout_body("intent=confirm-checkout"), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This checkout already started with different order or payment details"), "{html}");
+
+    let before = checkout_writes(&pilot).len();
+    let (status, headers, html) =
+        pilot.send(post("/checkout/buy/session/chk_cancelled", "payer", &checkout_body("intent=confirm-checkout"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_cancelled"), "{headers:?}");
+    assert_eq!(checkout_writes(&pilot).len(), before, "a cancelled session writes nothing");
+}
+
+#[tokio::test]
 async fn a_session_that_is_not_the_buyers_checkout_says_what_it_is() {
     let pilot = Pilot::new().await;
     for (id, status, words) in [
@@ -16912,13 +16989,13 @@ async fn checkout_start_shows_the_listing_and_continue_for_an_account_and_sign_i
 #[tokio::test]
 async fn checkout_start_continue_starts_an_accounts_session_once_per_entry_key() {
     let pilot = Pilot::new().await;
-    let body = "entryAttemptKey=chkentry_01TEST";
+    let body = "entryAttemptKey=chkentry_01JBXQ5V7Z3N4M8K2R6T9W1Y0A";
     let (status, headers, html) = pilot.send(post(START_LISTING, "buyer", body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1?afterWrite="), "{headers:?}");
     let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/checkout-sessions")).cloned().unwrap();
     let sent: Value = serde_json::from_str(&call.body).unwrap();
-    assert_eq!(sent["entryAttemptKey"], "chkentry_01TEST");
+    assert_eq!(sent["entryAttemptKey"], "chkentry_01JBXQ5V7Z3N4M8K2R6T9W1Y0A");
     assert_eq!(
         (&sent["source"]["type"], &sent["source"]["listingId"], &sent["source"]["quantity"], &sent["source"]["fulfillmentMode"]),
         (&json!("buy-now"), &json!("lst_vault"), &json!(2), &json!("locked-listing"))
@@ -16945,7 +17022,8 @@ async fn checkout_start_for_the_cart_reads_its_readiness_and_a_refusal_shows_its
 async fn checkout_start_for_a_visitor_starts_a_guest_checkout_and_keeps_its_token() {
     let pilot = Pilot::new().await;
     let cookie = "chase_sets_anonymous_cart=anon_full";
-    let (status, headers, html) = pilot.send(visitor_post(START_LISTING, Some(cookie), "entryAttemptKey=chkentry_01GUEST")).await;
+    let (status, headers, html) =
+        pilot.send(visitor_post(START_LISTING, Some(cookie), "entryAttemptKey=chkentry_01JBXQ5V7Z3N4M8K2R6T9GUEST")).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1"), "{headers:?}");
     let set: Vec<_> = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
@@ -16968,6 +17046,96 @@ async fn checkout_start_for_a_visitor_starts_a_guest_checkout_and_keeps_its_toke
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Your Buy Cart is empty"), "{html}");
     assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
+}
+
+/// The checkout-session entries and entry attempt lookups the stand-in received.
+fn entry_calls(pilot: &Pilot) -> (Vec<Call>, Vec<Call>) {
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let sent = calls.iter().filter(|c| c.method == Method::POST && c.path.ends_with("/checkout-sessions")).cloned().collect();
+    let looked = calls.iter().filter(|c| c.path.starts_with(CART_ATTEMPTS)).cloned().collect();
+    (sent, looked)
+}
+
+#[tokio::test]
+async fn checkout_start_looks_an_entry_whose_answer_was_lost_up_once_and_never_sends_it_again() {
+    let pilot = Pilot::new().await;
+    let key = "chkentry_lost_0000000000000000";
+    let (status, headers, html) = pilot.send(post(START_LISTING, "buyer", &format!("entryAttemptKey={key}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/checkout/buy/session/chk_lost?afterWrite="), "the kept attempt's session, after its commit: {to}");
+    let (sent, looked) = entry_calls(&pilot);
+    assert_eq!(sent.len(), 1, "the entry is sent once");
+    // The lookup names exactly what was sent: its key, kind, target and the owner's request hash.
+    let body: Value = serde_json::from_str(&sent[0].body).unwrap();
+    let hash = crate::checkout_entry::request_hash(&body, None);
+    let paths: Vec<_> = looked.iter().map(|c| c.path.clone()).collect();
+    assert_eq!(paths, [format!("{CART_ATTEMPTS}{key}?kind=checkout-entry&target=session&requestHash={hash}")]);
+}
+
+#[tokio::test]
+async fn checkout_start_an_entry_no_lookup_can_show_pauses_continue_and_sends_nothing_more() {
+    let pilot = Pilot::new().await;
+    let body = "entryAttemptKey=chkentry_unknown_000000000000000";
+    let (status, _, html) = pilot.send(post(START_LISTING, "buyer", body, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm whether your checkout started."), "{html}");
+    assert!(html.contains(r#"id="checkout-start-entry-result""#), "{html}");
+    assert!(html.contains(r#"checkout-start-page__large" disabled>"#), "Continue is off: {html}");
+    let (sent, looked) = entry_calls(&pilot);
+    assert_eq!((sent.len(), looked.len()), (1, 1), "sent once, looked up once");
+
+    // A closed checkout is Checkout's decided refusal, not a lost answer: nothing is looked up.
+    let body = "entryAttemptKey=chkentry_closed_00000000000000000";
+    let (status, _, html) = pilot.send(post(START_LISTING, "buyer", body, false)).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{html}");
+    assert!(text(&html).contains("Checkout is closed"), "{html}");
+    assert_eq!(entry_calls(&pilot).1.len(), 1, "no second lookup");
+}
+
+#[tokio::test]
+async fn checkout_start_sends_nothing_for_a_key_that_is_not_one_and_a_used_one_is_out_of_date() {
+    let pilot = Pilot::new().await;
+    // Malformed, or missing on an entry that is not the cart's: refused before anything is sent.
+    for body in ["entryAttemptKey=short", "entryAttemptKey=has+a+space+but+is+long+enough", ""] {
+        let (status, _, html) = pilot.send(post(START_LISTING, "buyer", body, false)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body:?}: {html}");
+        assert!(text(&html).contains("This checkout page is out of date"), "{body:?}: {html}");
+        assert!(html.contains(r#">Refresh checkout</a>"#), "{body:?}: {html}");
+    }
+    let (status, _, html) = pilot.send(visitor_post(START_LISTING, None, "entryAttemptKey=short")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().all(|c| !c.path.ends_with("/checkout-sessions")), "nothing was sent");
+    assert!(calls.iter().all(|c| c.path != "/api/auth/guest-checkout/start"), "no guest was started");
+
+    // A key Checkout already kept for other details: the same recovery.
+    let (status, _, html) =
+        pilot.send(post(START_LISTING, "buyer", "entryAttemptKey=conflict-0000000000000000000000", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("This checkout page is out of date"), "{html}");
+}
+
+#[tokio::test]
+async fn checkout_start_for_a_visitor_whose_entry_is_ambiguous_keeps_the_one_guest_it_started_as() {
+    let pilot = Pilot::new().await;
+    let body = "entryAttemptKey=chkentry_unknown_000000000000000";
+    let (status, headers, html) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm whether your checkout started."), "{html}");
+    let set: Vec<_> = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
+    assert!(set.iter().any(|c| c.starts_with("chase_sets_guest_checkout=gst_new;")), "{set:?}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert_eq!(calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
+    let looked = calls.iter().find(|c| c.path.starts_with(CART_ATTEMPTS)).expect("one lookup");
+    assert_eq!(looked.headers[header::COOKIE].to_str().unwrap(), "chase_sets_guest_checkout=gst_new", "as the new guest");
+
+    // A visitor's refusal is the page's, with no second guest started.
+    let body = "entryAttemptKey=chkentry_closed_00000000000000000";
+    let (status, headers, html) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{html}");
+    assert!(headers.get(header::SET_COOKIE).is_none(), "{headers:?}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 2);
 }
 
 /// A request as a guest checkout's browser sends it: the guest checkout's cookie and no session.

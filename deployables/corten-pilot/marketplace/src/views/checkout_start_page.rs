@@ -53,6 +53,12 @@ fn recovery(t: CheckoutMsg, kind: Recovery, screen: &StartScreen) -> (&'static s
     let sign_in = || (screen.sign_in.clone(), t.route_sign_in_to_continue());
     match kind {
         Recovery::Closed => (t.recovery_checkout_closed(), t.recovery_checkout_closed_description(), cart(), None),
+        Recovery::AttemptChanged => (
+            t.recovery_checkout_attempt_changed(),
+            t.recovery_checkout_attempt_changed_description(),
+            (screen.here.clone(), t.recovery_refresh_checkout()),
+            Some(cart()),
+        ),
         Recovery::AccessRequired => {
             (t.route_checkout_access_required(), t.route_checkout_access_required_description(), browse(), Some(sign_in()))
         }
@@ -115,6 +121,15 @@ pub fn CheckoutStartPage<'a>(t: CheckoutMsg, screen: &'a StartScreen) -> impl Re
                         Some(Said::Recovery(kind)) => {
                             <RecoveryBanner t={t} kind={kind} screen={screen} />
                         }
+                        Some(Said::EntryAmbiguous) => {
+                            <section class={Banner} data-tone="warning" aria-labelledby="checkout-start-entry-result">
+                                <h2 class={Strong} id="checkout-start-entry-result">{t.start_entry_ambiguous_title()}</h2>
+                                <p role="status">{t.start_entry_ambiguous_description()}</p>
+                                <p class={Row}>
+                                    <a class={(Button, Secondary)} href="/account/cart">{t.start_review_buy_cart()}</a>
+                                </p>
+                            </section>
+                        }
                         Some(Said::SignInRequired) => {
                             <div class={Banner} data-tone="warning" role="alert">
                                 <p class={Strong}>{t.start_sign_in_required()}</p>
@@ -151,7 +166,9 @@ pub fn CheckoutStartPage<'a>(t: CheckoutMsg, screen: &'a StartScreen) -> impl Re
                                     None => { <input type="hidden" name="source" value="cart"> }
                                 }
                                 <p class={Row}>
-                                    <button type="submit" class={(Button, Large)}>{t.start_continue_to_checkout()}</button>
+                                    <button type="submit" class={(Button, Large)} disabled={screen.entry_ambiguous()}>
+                                        {t.start_continue_to_checkout()}
+                                    </button>
                                 </p>
                             </form>
                         </section>

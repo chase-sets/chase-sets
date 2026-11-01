@@ -210,6 +210,20 @@ pub fn CheckoutPage<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                                 <p>{t.route_fulfillment_preview_temporarily_unavailable()}</p>
                             </div>
                         }
+                        if screen.ambiguous {
+                            <section class={Banner} data-tone="warning" aria-labelledby="checkout-confirmation-result">
+                                <h2 class={Strong} id="checkout-confirmation-result">{t.page_confirmation_ambiguous_title()}</h2>
+                                <p role="status">{t.page_confirmation_ambiguous_description()}</p>
+                                <p>
+                                    <a
+                                        class={(Button, Secondary)}
+                                        href={url::BuyCheckout { id: &screen.session.session_id, place: Place::default() }}
+                                    >
+                                        {t.page_confirmation_ambiguous_refresh()}
+                                    </a>
+                                </p>
+                            </section>
+                        }
                         <PageNotice t={t} screen={screen} />
                         if !screen.expired {
                             if let Some(payment) = &screen.session.payment_id {
@@ -774,7 +788,15 @@ fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render 
     };
     html! {
         if screen.offer {
-            <button type="submit" class={(Button, Wide)} form={form} name={f.intent} value="confirm-checkout" data-commit="offer">
+            <button
+                type="submit"
+                class={(Button, Wide)}
+                form={form}
+                name={f.intent}
+                value="confirm-checkout"
+                data-commit="offer"
+                disabled={screen.ambiguous}
+            >
                 {t.page_place_purchase_intent()}
             </button>
         } else if !screen.can_confirm {
@@ -787,6 +809,7 @@ fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render 
                 name={f.intent}
                 value="refresh-checkout-preview"
                 data-commit="refresh"
+                disabled={screen.ambiguous}
             >
                 {t.page_update_totals()}
             </button>
@@ -798,6 +821,7 @@ fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render 
                 name={f.intent}
                 value="confirm-checkout"
                 data-commit="pay"
+                disabled={screen.ambiguous}
             >
                 {pay}
             </button>
@@ -808,6 +832,7 @@ fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render 
                 name={f.intent}
                 value="refresh-checkout-preview"
                 data-commit="refresh"
+                disabled={screen.ambiguous}
             >
                 {t.page_update_totals()}
             </button>

@@ -123,7 +123,7 @@ pub fn request_hash(body: &Value) -> String {
 
 /// `canonicalJson`: arrays in order, object keys sorted by code unit, values as `JSON.stringify`
 /// writes them.
-fn canonical(value: &Value, out: &mut String) {
+pub(crate) fn canonical(value: &Value, out: &mut String) {
     match value {
         Value::Array(items) => {
             out.push('[');

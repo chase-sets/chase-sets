@@ -33,10 +33,11 @@ use platform::{api::segment, receipt::Receipt};
 use serde_json::{Value, json};
 
 use crate::{
-    api::{ApiError, Caller as ApiCaller, Checkout as _, CheckoutStart as _, Decisions, GuestCheckout, Started},
+    api::{ApiError, Caller as ApiCaller, Checkout as _, CheckoutStart as _, Decisions, Entry, GuestCheckout, Started},
     app::{GUEST_CHECKOUT, Shared, read_failed, sign_in_back_to, url},
     auth::{Session, Viewer},
     cart::{ANONYMOUS_CART_COOKIE, anonymous_cart},
+    checkout_entry::{self, Opened},
     items::Raw,
     listing_new::first,
     sign_in::GUEST_CHECKOUT_COOKIE,
@@ -242,6 +243,9 @@ fn who(session: Option<&Session>) -> Result<(Who, Option<&Viewer>), corten::Erro
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Recovery {
     AccessRequired,
+    /// The entry's key was already used with other details, or the page's key is not one; nothing
+    /// was started.
+    AttemptChanged,
     CartEmpty,
     Closed,
     Preparing,
@@ -264,6 +268,7 @@ impl Recovery {
                 Who::Account => Recovery::WrongAccount,
             },
             404 => Recovery::NotFound,
+            409 if code == "checkout_attempt_conflict" => Recovery::AttemptChanged,
             503 if code == "checkout_closed" => Recovery::Closed,
             503 if code == "projection_freshness_timeout" => Recovery::Preparing,
             400 if code == "cart_empty" => Recovery::CartEmpty,
@@ -286,6 +291,7 @@ impl Recovery {
             Recovery::Closed => StatusCode::SERVICE_UNAVAILABLE,
             Recovery::Preparing => StatusCode::ACCEPTED,
             Recovery::NotFound => StatusCode::NOT_FOUND,
+            Recovery::AttemptChanged => StatusCode::CONFLICT,
             Recovery::WrongAccount => StatusCode::FORBIDDEN,
         }
     }
@@ -297,6 +303,9 @@ pub enum Said {
     /// An offer needs an account.
     SignInRequired,
     Recovery(Recovery),
+    /// The entry may have started a session, but neither its answer nor one lookup showed it:
+    /// Continue is off, since the page's new key would start a second one.
+    EntryAmbiguous,
 }
 
 /// The account's cart, when it is what checkout starts from.
@@ -329,6 +338,10 @@ impl StartScreen {
 
     pub fn offer(&self) -> bool {
         self.source.as_ref().is_some_and(|s| s.kind == Kind::OfferIntent)
+    }
+
+    pub fn entry_ambiguous(&self) -> bool {
+        self.said == Some(Said::EntryAmbiguous)
     }
 }
 
@@ -397,27 +410,30 @@ pub(crate) async fn page(
 }
 
 /// Starts the session with `caller`: the cart's from a fresh readiness snapshot (the guest cart
-/// moved in first, best effort) read with the cart page's `decisions`, or the entry's, once per
-/// entry key.
+/// moved in first, best effort) read with the cart page's `decisions`, or the entry's; sent once
+/// with the page's `key` (`openCheckoutSessionOnce`).
 async fn begin(
     caller: &ApiCaller<'_>,
     source: Option<&Source>,
-    entry: &str,
+    key: Option<&str>,
     anonymous: Option<&str>,
     decisions: &Decisions,
-) -> Result<(Started, Option<Receipt>), ApiError> {
-    match source {
-        Some(source) => caller.buy_now(entry, &source.session()).await,
-        None => {
+) -> Result<Opened, ApiError> {
+    let entry = match (source, key) {
+        (Some(source), Some(key)) => Entry::source(key, &source.session()),
+        // `refused_before_send` keeps a keyless entry from coming here.
+        (Some(_), None) => unreachable!("an entry is only sent with its key"),
+        (None, key) => {
             if let Some(id) = anonymous
                 && let Err(error) = caller.merge_guest_cart(id).await
             {
                 tracing::warn!("the guest cart was not merged before checkout: {error}");
             }
             let snapshot = caller.cart_readiness(decisions, anonymous).await?;
-            caller.start_checkout(&snapshot, decisions, anonymous).await
+            Entry::cart(&snapshot, decisions, anonymous, key)
         }
-    }
+    };
+    checkout_entry::open_once(caller, &entry).await
 }
 
 /// A fresh guest identity and the session started under it.
@@ -425,10 +441,10 @@ async fn begin_as_guest(
     config: &Shared,
     headers: &HeaderMap,
     source: Option<&Source>,
-    entry: &str,
+    key: Option<&str>,
     anonymous: Option<&str>,
     decisions: &Decisions,
-) -> Result<(Started, Option<Receipt>, GuestCheckout), ApiError> {
+) -> Result<(Opened, GuestCheckout), ApiError> {
     let guest = config.platform.caller(headers, config.proto, None).start_guest_checkout().await?;
     let mut as_guest = HeaderMap::new();
     if let Some(host) = headers.get(header::HOST) {
@@ -444,8 +460,7 @@ async fn begin_as_guest(
         })?,
     );
     let caller = config.platform.caller(&as_guest, config.proto, None);
-    let (started, receipt) = begin(&caller, source, entry, anonymous, decisions).await?;
-    Ok((started, receipt, guest))
+    Ok((begin(&caller, source, key, anonymous, decisions).await?, guest))
 }
 
 /// A cookie as this deployment sends them: `Secure` only over HTTPS.
@@ -467,13 +482,17 @@ fn session_page<'a>(started: &'a Started, receipt: Option<&Receipt>) -> url::Buy
     url::BuyCheckout { id: &started.session_id, place: crate::checkout::Place::started(receipt) }
 }
 
+/// The guest's token, kept for as long as Auth gives it.
+fn keep_guest(config: &Shared, guest: &GuestCheckout) -> cookie::SetCookie {
+    secure(config, cookie::SetCookie::new(GUEST_CHECKOUT_COOKIE, &guest.guest_token).max_age(guest_seconds(&guest.expires_at)))
+}
+
 /// Sends a guest whose session started to its checkout, keeping the guest's token and forgetting
 /// the guest cart.
 fn guest_started(req: &Req, config: &Shared, started: &Started, receipt: Option<&Receipt>, guest: &GuestCheckout) -> HtmlResult {
-    let keep = cookie::SetCookie::new(GUEST_CHECKOUT_COOKIE, &guest.guest_token).max_age(guest_seconds(&guest.expires_at));
     Ok(req
         .redirect(&session_page(started, receipt))?
-        .with_cookie(secure(config, keep))
+        .with_cookie(keep_guest(config, guest))
         .with_cookie(secure(config, cookie::SetCookie::remove(ANONYMOUS_CART_COOKIE))))
 }
 
@@ -541,7 +560,9 @@ pub(crate) async fn cart_as_guest(
 }
 
 /// Starts the checkout the entry at `uri` (or else the posted form) names, for whoever is asking;
-/// a cart's with `decisions`.
+/// a cart's with `decisions`. Each session is started as an account the request presents, and
+/// sent once: a page whose key is missing or not one sends nothing (an entry other than the cart's
+/// needs one), and an answer that may have been lost is looked up once, never sent again.
 async fn start_at(
     req: &Req,
     session: Option<&Session>,
@@ -553,27 +574,45 @@ async fn start_at(
 ) -> HtmlResult {
     let (who, viewer) = who(session)?;
     let source = Source::read(&query_pairs(uri.query())).or_else(|| Source::read(posted));
-    let entry = posted.get("entryAttemptKey").filter(|k| !k.is_empty()).cloned().unwrap_or_else(new_entry_key);
+    let presented = posted.get("entryAttemptKey").map_or("", String::as_str);
+    let key = checkout_entry::key(presented);
+    let refused_before_send = checkout_entry::refused_before_send(presented, source.is_none());
     let anonymous = anonymous_cart(headers);
-    let refuse = |who: Who, error: ApiError| {
+    let said = |who: Who, said: Said, status: StatusCode| {
         let source = source.clone();
-        async move {
-            match Recovery::of(&error, who) {
-                Some(kind) => draw(req, viewer, uri, who, source, None, 1, Some(Said::Recovery(kind)), kind.status()).await,
-                None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
-            }
+        async move { draw(req, viewer, uri, who, source, None, 1, Some(said), status).await }
+    };
+    let refuse = |who: Who, error: ApiError| async move {
+        match Recovery::of(&error, who) {
+            Some(kind) => said(who, Said::Recovery(kind), kind.status()).await,
+            None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         }
     };
+    let changed = || said(who, Said::Recovery(Recovery::AttemptChanged), Recovery::AttemptChanged.status());
+    // A guest whose start was ambiguous keeps the guest it started as, so the page and a later
+    // look are that guest's.
+    let guest_ambiguous = |guest: GuestCheckout| async move {
+        let res = said(Who::Guest, Said::EntryAmbiguous, StatusCode::OK).await?;
+        Ok(res.with_cookie(keep_guest(config, &guest)))
+    };
     if who != Who::Visitor {
+        if refused_before_send {
+            return changed().await;
+        }
         let caller = config.platform.caller(headers, config.proto, None);
-        return match begin(&caller, source.as_ref(), &entry, anonymous, decisions).await {
-            Ok((started, receipt)) => {
+        return match begin(&caller, source.as_ref(), key, anonymous, decisions).await {
+            Ok(Opened::Started(started, receipt)) => {
                 let res = req.redirect(&session_page(&started, receipt.as_ref()))?;
                 Ok(forget_cart(res, config, anonymous))
             }
+            Ok(Opened::Ambiguous) => said(who, Said::EntryAmbiguous, StatusCode::OK).await,
+            // A guest's access no longer matches: one fresh guest, which never recovers again.
             Err(error) if who == Who::Guest && forbidden(&error) && may_start_again(source.as_ref(), anonymous) => {
-                match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous, decisions).await {
-                    Ok((started, receipt, guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
+                match begin_as_guest(config, headers, source.as_ref(), key, anonymous, decisions).await {
+                    Ok((Opened::Started(started, receipt), guest)) => {
+                        guest_started(req, config, &started, receipt.as_ref(), &guest)
+                    }
+                    Ok((Opened::Ambiguous, guest)) => guest_ambiguous(guest).await,
                     Err(again) if forbidden(&again) => refuse(who, error).await,
                     Err(again) => refuse(who, again).await,
                 }
@@ -583,6 +622,9 @@ async fn start_at(
     }
     if source.as_ref().is_some_and(|s| s.kind == Kind::OfferIntent) {
         return draw(req, None, uri, who, source, None, 1, Some(Said::SignInRequired), StatusCode::UNAUTHORIZED).await;
+    }
+    if refused_before_send {
+        return changed().await;
     }
     if source.is_none() {
         let caller = config.platform.caller(headers, config.proto, None);
@@ -595,14 +637,12 @@ async fn start_at(
             Err(error) => return refuse(who, error).await,
         }
     }
-    match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous, decisions).await {
-        Ok((started, receipt, guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
-        Err(error) if forbidden(&error) && may_start_again(source.as_ref(), anonymous) => {
-            match begin_as_guest(config, headers, source.as_ref(), &entry, anonymous, decisions).await {
-                Ok((started, receipt, guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
-                Err(again) => refuse(Who::Visitor, again).await,
-            }
-        }
+    // A visitor starts as one new guest, and a refusal is the page's with no second guest
+    // (marketplace's followed guest entry never recovers). The browser keeps no guest then, so the
+    // page is still a visitor's.
+    match begin_as_guest(config, headers, source.as_ref(), key, anonymous, decisions).await {
+        Ok((Opened::Started(started, receipt), guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
+        Ok((Opened::Ambiguous, guest)) => guest_ambiguous(guest).await,
         Err(error) => refuse(who, error).await,
     }
 }

@@ -1380,6 +1380,48 @@ pub trait Checkout {
         decisions: &Decisions,
         anonymous_cart: Option<&str>,
     ) -> Result<(Started, Option<Receipt>), ApiError>;
+    /// Sends one Session entry (`POST /account/checkout-sessions`) as `entry` holds it.
+    async fn open_session(&self, entry: &Entry) -> Result<(Started, Option<Receipt>), ApiError>;
+    /// What the API kept of `entry` sent with its key (`getCheckoutEntryAttempt`): the Session it
+    /// opened and its commit, when the attempt was committed; `None` when it cannot say.
+    async fn entry_attempt(&self, entry: &Entry) -> Option<(Started, Option<Receipt>)>;
+}
+
+const SESSIONS: &str = "/api/marketplace/account/checkout-sessions";
+
+/// One Session entry as it is sent: its body and the guest cart it presents, which the entry
+/// attempt's request hash covers (`checkoutEntryAttemptQuery`).
+#[derive(Clone, Debug)]
+pub struct Entry {
+    pub body: serde_json::Value,
+    pub anonymous_cart: Option<String>,
+}
+
+impl Entry {
+    /// The cart's entry from `snapshot` with `decisions`, carrying `key` when the page sent one.
+    pub fn cart(snapshot: &Snapshot, decisions: &Decisions, anonymous_cart: Option<&str>, key: Option<&str>) -> Entry {
+        let source = serde_json::json!({
+            "type": "cart",
+            "readinessSnapshotId": snapshot.snapshot_id,
+            "readinessSourceRevision": snapshot.source_revision,
+            "readinessDecisions": decisions,
+        });
+        let mut body = serde_json::json!({ "source": source });
+        if let Some(key) = key {
+            body["entryAttemptKey"] = key.into();
+        }
+        Entry { body, anonymous_cart: anonymous_cart.map(str::to_owned) }
+    }
+
+    /// A Buy now's or an offer's entry, which always carries its key.
+    pub fn source(key: &str, source: &serde_json::Value) -> Entry {
+        Entry { body: serde_json::json!({ "entryAttemptKey": key, "source": source }), anonymous_cart: None }
+    }
+
+    /// The key the entry carries.
+    pub fn key(&self) -> Option<&str> {
+        self.body.get("entryAttemptKey").and_then(serde_json::Value::as_str)
+    }
 }
 
 impl Checkout for Caller<'_> {
@@ -1469,26 +1511,57 @@ impl Checkout for Caller<'_> {
         decisions: &Decisions,
         anonymous_cart: Option<&str>,
     ) -> Result<(Started, Option<Receipt>), ApiError> {
-        let source = serde_json::json!({
-            "type": "cart",
-            "readinessSnapshotId": snapshot.snapshot_id,
-            "readinessSourceRevision": snapshot.source_revision,
-            "readinessDecisions": decisions,
-        });
-        let mut req = self
-            .request(Method::POST, "/api/marketplace/account/checkout-sessions", CHECKOUT)
-            .json(&serde_json::json!({ "source": source }));
-        if let Some(id) = anonymous_cart {
+        self.open_session(&Entry::cart(snapshot, decisions, anonymous_cart, None)).await
+    }
+
+    async fn buy_now(&self, entry: &str, source: &serde_json::Value) -> Result<(Started, Option<Receipt>), ApiError> {
+        self.open_session(&Entry::source(entry, source)).await
+    }
+
+    async fn open_session(&self, entry: &Entry) -> Result<(Started, Option<Receipt>), ApiError> {
+        let mut req = self.request(Method::POST, SESSIONS, CHECKOUT).json(&entry.body);
+        if let Some(id) = &entry.anonymous_cart {
             req = req.header(ANONYMOUS_CART_HEADER, id);
         }
         self.write(req).await
     }
 
-    async fn buy_now(&self, entry: &str, source: &serde_json::Value) -> Result<(Started, Option<Receipt>), ApiError> {
-        let body = serde_json::json!({ "entryAttemptKey": entry, "source": source });
-        let req = self.request(Method::POST, "/api/marketplace/account/checkout-sessions", CHECKOUT).json(&body);
-        self.write(req).await
+    async fn entry_attempt(&self, entry: &Entry) -> Option<(Started, Option<Receipt>)> {
+        let key = entry.key()?;
+        let hash = crate::checkout_entry::request_hash(&entry.body, entry.anonymous_cart.as_deref());
+        let path = format!(
+            "/api/marketplace/account/command-attempts/{}?kind={}&target={}&requestHash={hash}",
+            segment(key),
+            crate::checkout_entry::KIND,
+            crate::checkout_entry::TARGET,
+        );
+        #[derive(Deserialize)]
+        struct Found {
+            attempt: EntryAttempt,
+        }
+        let found = match self.write::<Found>(self.request(Method::GET, &path, CHECKOUT)).await {
+            Ok((found, _)) => found.attempt,
+            Err(error) => {
+                tracing::warn!("the checkout entry attempt lookup failed: {error}");
+                return None;
+            }
+        };
+        let session_id =
+            found.session_id.filter(|_| found.kind == crate::checkout_entry::KIND && found.owner_status == "committed")?;
+        let receipt = found.commit_receipt.as_ref().and_then(|c| Receipt::of_event("checkout", &c.global_position, &c.event_id));
+        Some((Started { session_id }, receipt))
     }
+}
+
+/// What the Checkout API keeps of an entry attempt: whether it was committed, the Session it
+/// opened and its commit.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EntryAttempt {
+    kind: String,
+    owner_status: String,
+    session_id: Option<String>,
+    commit_receipt: Option<CommitReceipt>,
 }
 
 /// A guest checkout Auth started (`POST /api/auth/guest-checkout/start`): the guest identity's
@@ -1562,6 +1635,9 @@ pub struct CheckoutSession {
     pub submitted_offer_id: Option<String>,
     #[serde(default)]
     pub handoff_expires_at: Option<String>,
+    /// When the buyer cancelled it; a cancelled session is final.
+    #[serde(default)]
+    pub cancelled_at: Option<String>,
     /// Where a support reference comes from (`buyCheckoutSupportReference`).
     #[serde(default)]
     pub split_group_handoff: Option<serde_json::Value>,

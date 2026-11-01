@@ -338,6 +338,9 @@ pub struct Screen {
     pub notice: Option<Notice>,
     pub expired: bool,
     pub error: Option<String>,
+    /// Pay now may have reached Checkout, but one read of the session showed neither a payment
+    /// nor an offer: Pay now is off until the buyer refreshes (`confirmationAmbiguous`).
+    pub ambiguous: bool,
     pub place: Place,
 }
 
@@ -512,6 +515,7 @@ impl Screen {
             notice,
             expired,
             error,
+            ambiguous: false,
             place,
         }
     }
@@ -586,8 +590,16 @@ async fn recovery(req: &Req, viewer: &Viewer, kind: Recovery) -> HtmlResult {
     )
 }
 
-/// Reads the session and what the page shows with it, then draws it; `refused` is a write's
-/// refusal: the page's status and what it was refused for, drawn at the top of the page.
+/// What a write left for the page to say at its top.
+enum Answer {
+    Nothing,
+    /// The page's status and what the write was refused for.
+    Refused(StatusCode, String),
+    /// Pay now may have reached Checkout and one read could not tell.
+    Ambiguous,
+}
+
+/// Reads the session and what the page shows with it, then draws it with `answer`.
 async fn render(
     req: &Req,
     viewer: &Viewer,
@@ -595,7 +607,7 @@ async fn render(
     headers: &HeaderMap,
     id: &str,
     place: Place,
-    refused: Option<(StatusCode, String)>,
+    answer: Answer,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -677,8 +689,12 @@ async fn render(
     };
     let can_save_payment = !offer && !guest && actor.can(ORDERS_MANAGE);
     let reads = Reads { session, wallet, addresses, instruments, payment, can_save_payment, guest, expired };
-    let (status, error) = refused.map_or((StatusCode::OK, None), |(status, error)| (status, Some(error)));
-    let screen = Screen::new(reads, place, error);
+    let (status, error) = match &answer {
+        Answer::Refused(status, error) => (*status, Some(error.clone())),
+        Answer::Nothing | Answer::Ambiguous => (StatusCode::OK, None),
+    };
+    let mut screen = Screen::new(reads, place, error);
+    screen.ambiguous = matches!(answer, Answer::Ambiguous);
     let t: CheckoutMsg = req.t();
     let description = if screen.offer {
         t.page_confirm_shipping_place_purchase_intent()
@@ -795,7 +811,7 @@ pub(crate) async fn page(
     Params(route): Params<crate::app::url::checkout::BuyCheckout<'_>>,
 ) -> HtmlResult {
     let (id, place) = (route.id, route.place);
-    render(&req, &viewer, &config, &headers, &id, place, None).await
+    render(&req, &viewer, &config, &headers, &id, place, Answer::Nothing).await
 }
 
 /// What a review write was refused for, in the page's words: an address or shipping option the
@@ -859,7 +875,7 @@ pub(crate) async fn write(
                 None => (error.refusal().unwrap_or(t.route_request_failed()).to_owned(), place),
             };
             tracing::warn!("a checkout write was refused: {error}");
-            render(req, viewer, &config, headers, id, place, Some((StatusCode::UNPROCESSABLE_ENTITY, message))).await
+            render(req, viewer, &config, headers, id, place, Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, message)).await
         }
     };
     let here = Place { payment_method_category: Some(visible.clone()), ..Place::default() };
@@ -889,8 +905,8 @@ pub(crate) async fn write(
                 && (reviewed(&form.saved_checkout_instrument_id).is_some() || form.save_payment_method_for_future == "true") =>
         {
             let p: Pilot = req.t();
-            let refused = (StatusCode::UNPROCESSABLE_ENTITY, p.guest_saved_payment_unavailable().to_owned());
-            render(&req, &viewer, &config, &headers, &id, here, Some(refused)).await
+            let refused = Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, p.guest_saved_payment_unavailable().to_owned());
+            render(&req, &viewer, &config, &headers, &id, here, refused).await
         }
         "confirm-checkout" => {
             let session = match caller.checkout_session(&id).await {
@@ -899,7 +915,11 @@ pub(crate) async fn write(
             };
             if expired(&session, SystemTime::now()) {
                 let message = t.recovery_checkout_handoff_expired_description().to_owned();
-                return render(&req, &viewer, &config, &headers, &id, here, Some((StatusCode::CONFLICT, message))).await;
+                return render(&req, &viewer, &config, &headers, &id, here, Answer::Refused(StatusCode::CONFLICT, message)).await;
+            }
+            // A cancelled session is final: a confirm sent again sends nothing and shows it as it is.
+            if session.cancelled_at.is_some() {
+                return back(here);
             }
             let committed = committed(&session);
             let mut receipts = Vec::new();
@@ -961,7 +981,7 @@ pub(crate) async fn write(
                                 &headers,
                                 &id,
                                 here,
-                                Some((StatusCode::BAD_GATEWAY, t.route_request_failed().to_owned())),
+                                Answer::Refused(StatusCode::BAD_GATEWAY, t.route_request_failed().to_owned()),
                             )
                             .await
                         }
@@ -980,6 +1000,28 @@ pub(crate) async fn write(
                         && matches!(error.code(), Some("payment_start_pending" | "checkout_reservation_unavailable")) =>
                 {
                     back(Place::reviewed(latest(receipts).as_ref(), &visible, false))
+                }
+                // The session already started with other order or payment details: nothing new was
+                // sent, and the page shows it as it is now.
+                Err(error)
+                    if error.status() == Some(StatusCode::CONFLICT) && error.code() == Some("checkout_confirmation_changed") =>
+                {
+                    let changed = Answer::Refused(StatusCode::CONFLICT, t.route_confirmation_changed().to_owned());
+                    render(&req, &viewer, &config, &headers, &id, here, changed).await
+                }
+                // Pay now may have reached Checkout: it is never sent again. One read decides; a
+                // started payment or a submitted offer is its first result, anything else stays
+                // ambiguous (`settleConfirmAfterPossibleSendLoss`).
+                Err(error) if crate::checkout_entry::possible_send_loss(&error) => {
+                    tracing::warn!("Pay now may not have arrived, so the session is read once: {error}");
+                    match caller.checkout_session(&id).await {
+                        Ok(read) if read.submitted_offer_id.is_some() => {
+                            let offer = read.submitted_offer_id.unwrap_or_default();
+                            req.redirect(&submitted_offer(&offer, latest(receipts).as_ref()))
+                        }
+                        Ok(read) if read.payment_id.is_some() => back(Place::after(latest(receipts).as_ref(), &visible)),
+                        _ => render(&req, &viewer, &config, &headers, &id, here, Answer::Ambiguous).await,
+                    }
                 }
                 Err(error) => refused(error, here).await,
             }
