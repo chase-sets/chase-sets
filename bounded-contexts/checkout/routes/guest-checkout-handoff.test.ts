@@ -381,7 +381,7 @@ describe("checkout web routes: guest checkout handoff", () => {
             "Content-Type": "application/x-www-form-urlencoded",
             cookie: "chase_sets_guest_checkout=guest_token",
           },
-          body: new URLSearchParams(),
+          body: new URLSearchParams({ entryAttemptKey: "guest-handoff-returning-buy-now-20261031" }),
         },
       ),
       params: {},
@@ -567,6 +567,7 @@ describe("checkout web routes: guest checkout handoff", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "1");
+    form.set("entryAttemptKey", "guest-handoff-projection-lag-20261031");
 
     const checkoutStartResponse = (await checkoutStartAction({
       request: new Request("http://localhost/checkout/buy/readiness", {
@@ -598,6 +599,7 @@ describe("checkout web routes: guest checkout handoff", () => {
       ],
     });
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      entryAttemptKey: "guest-handoff-projection-lag-20261031",
       source: expect.objectContaining({
         type: "buy-now",
         listingId: "lst_1",

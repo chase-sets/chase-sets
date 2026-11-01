@@ -19,6 +19,7 @@ export type CheckoutCommitButtonProps = Readonly<{
   commitIntent: string;
   commitIcon: "refreshCcw" | "lock";
   isSubmitting: boolean;
+  confirmationAmbiguous?: boolean;
   submittingCtaLabel: string;
   primaryCtaLabel: string;
   form?: string;
@@ -37,6 +38,7 @@ export function checkoutCommitButton({
   commitIntent,
   commitIcon,
   isSubmitting,
+  confirmationAmbiguous = false,
   submittingCtaLabel,
   primaryCtaLabel,
   form,
@@ -58,7 +60,7 @@ export function checkoutCommitButton({
         value={reReserveIntent}
         leadingIcon="refreshCcw"
         loading={isSubmitting}
-        disabled={isSubmitting}
+        disabled={isSubmitting || confirmationAmbiguous}
         block
       >
         {isSubmitting
@@ -84,7 +86,7 @@ export function checkoutCommitButton({
       value={commitIntent}
       leadingIcon={commitIcon}
       loading={isSubmitting}
-      disabled={isSubmitting || (!canConfirm && !isOfferIntent)}
+      disabled={isSubmitting || confirmationAmbiguous || (!canConfirm && !isOfferIntent)}
       block
     >
       {isSubmitting ? submittingCtaLabel : primaryCtaLabel}
