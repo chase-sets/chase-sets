@@ -1,6 +1,6 @@
 use corten::prelude::*;
 
-use super::{Badge, keep};
+use super::{StatusBadge, keep};
 use crate::{
     api::{Payload, Policy},
     app::{Screen, url},
@@ -63,7 +63,7 @@ pub fn PolicyTable<'a>(
                                         <span class={Version}>{&policy.policy_version}</span>
                                     </td>
                                     <td>{summary(t, &policy.payload)}</td>
-                                    <td><Badge status={&policy.status} /></td>
+                                    <td><StatusBadge status={&policy.status} /></td>
                                     <td>{&policy.updated_at}</td>
                                     <td>
                                         <a

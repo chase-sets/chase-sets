@@ -1,6 +1,6 @@
 use corten::prelude::*;
 
-use super::{Badge, Draft, Lifecycle, ReviseForm};
+use super::{Draft, Lifecycle, ReviseForm, StatusBadge};
 use crate::{
     api::{PackagePlan, Policy},
     app::url,
@@ -58,7 +58,7 @@ pub fn PolicySheet<'a>(
             <section class={Part}>
                 <h3>{t.detail_state()}</h3>
                 <div class={Card}>
-                    <Badge status={&policy.status} />
+                    <StatusBadge status={&policy.status} />
                     <p>{t.detail_policy_id(&policy.policy_id)}</p>
                     <p>{t.detail_activated(policy.activated_at.as_deref().unwrap_or(t.detail_not_activated()))}</p>
                     <p>{t.detail_activation_reason(policy.activation_reason.as_deref().unwrap_or(none))}</p>
@@ -121,7 +121,7 @@ pub fn PolicySheet<'a>(
                             for row in &policy.history {
                                 <tr>
                                     <td>{&row.event_type}</td>
-                                    <td><Badge status={&row.status} /></td>
+                                    <td><StatusBadge status={&row.status} /></td>
                                     <td>{&row.actor_user_id}</td>
                                     <td>{row.reason.as_deref().unwrap_or(none)}</td>
                                     <td>{&row.recorded_at}</td>

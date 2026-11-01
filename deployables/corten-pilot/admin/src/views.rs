@@ -18,7 +18,6 @@ use crate::{
 use platform::theme;
 
 mod admin_nav;
-mod badge;
 mod lifecycle;
 mod live_status;
 mod offline_page;
@@ -26,9 +25,9 @@ mod policy_fields;
 mod policy_sheet;
 mod policy_table;
 mod sign_in_page;
+mod status_badge;
 
 pub use admin_nav::AdminNav;
-pub use badge::Badge;
 pub use lifecycle::{ActivateForm, CloneForm, Lifecycle, RetireForm};
 pub use live_status::{LiveStatus, LiveWords};
 pub use offline_page::OfflinePage;
@@ -37,6 +36,7 @@ pub use policy_fields::{CreateForm, PolicyFields, ReviseForm};
 pub use policy_sheet::{PolicySheet, PreviewResult};
 pub use policy_table::{Pagination, PolicyTable};
 pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};
+pub use status_badge::StatusBadge;
 
 /// The components every page renders (the frame and the shared parts), tokens first: their
 /// stylesheets are `components.css`.
@@ -53,7 +53,7 @@ pub const OFFLINE: &[Component] = &[OfflinePage];
 pub const LIVE: &[Component] = &[LiveStatus];
 
 /// The postage screen's components: its area's stylesheet.
-pub const POSTAGE: &[Component] = &[Badge, PolicyTable, PolicyFields, PolicySheet, Lifecycle, corten_ui::dialog::COMPONENT];
+pub const POSTAGE: &[Component] = &[StatusBadge, PolicyTable, PolicyFields, PolicySheet, Lifecycle, corten_ui::dialog::COMPONENT];
 
 /// A form's typed values and what is wrong with them.
 #[derive(Clone, Debug)]

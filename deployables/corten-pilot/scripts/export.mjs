@@ -447,6 +447,39 @@ const dtcgGroup = (group, values, typed) => ({
 // The design system's values for the tokens the pilot uses: the light ones (base), the dark
 // theme's changes, and the resolver that puts them together, with the dark theme also the
 // system's when the page chose none.
+// The UI kit's theme (Corten's shadcn names, platform/src/ui), each a reference to the design
+// system's token, so the dark theme's changes reach the kit's components with no second set of
+// values. The status tones are the pilot's additions to the kit's names.
+const kitTheme = {
+  background: "color.background",
+  foreground: "color.text",
+  card: "color.surface",
+  "card-foreground": "color.text",
+  popover: "color.surface",
+  "popover-foreground": "color.text",
+  primary: "color.primary",
+  "primary-foreground": "color.primary-foreground",
+  secondary: "color.secondary",
+  "secondary-foreground": "color.secondary-foreground",
+  muted: "color.surface-2",
+  "muted-foreground": "color.text-muted",
+  accent: "color.surface-3",
+  "accent-foreground": "color.text",
+  destructive: "color.danger",
+  "destructive-foreground": "color.danger-contrast",
+  "destructive-soft": "color.danger-soft",
+  success: "color.success",
+  "success-soft": "color.success-soft",
+  warning: "color.warning",
+  "warning-soft": "color.warning-soft",
+  info: "color.info",
+  "info-soft": "color.info-soft",
+  "primary-soft": "color.primary-soft",
+  border: "color.border",
+  input: "color.input",
+  ring: "color.ring",
+};
+
 function tokens() {
   const css = readFileSync(path.join(repo, "packages/design-system/src/styles/styles.css"), "utf8");
   const vars = new Map();
@@ -471,8 +504,13 @@ function tokens() {
     control: { height: value("control-md-height"), px: value("control-md-px"), py: value("control-md-py") },
   };
   const dark = { color: scale(colors, "dark-"), shadow: scale(shadows, "dark-") };
+  const groups = Object.fromEntries(
+    Object.entries(light).map(([group, values]) => [group, dtcgGroup(group, values, true)]),
+  );
+  // The kit reads `--radius`: the radius scale's own value (its `$root`), the design system's `--radius`.
+  groups.radius = { ...groups.radius, $root: { $value: "{radius.md}" } };
   const base = {
-    ...Object.fromEntries(Object.entries(light).map(([group, values]) => [group, dtcgGroup(group, values, true)])),
+    ...groups,
     $extensions: {
       "run.corten": {
         breakpoints: { md: dtcgDimension("48rem"), lg: dtcgDimension("64rem") },
@@ -480,13 +518,17 @@ function tokens() {
       },
     },
   };
+  const kit = Object.fromEntries(
+    Object.entries(kitTheme).map(([name, token]) => [name, { $type: "color", $value: `{${token}}` }]),
+  );
   return {
     base,
+    kit,
     dark: Object.fromEntries(Object.entries(dark).map(([group, values]) => [group, dtcgGroup(group, values, false)])),
     resolver: {
       $schema: "https://www.designtokens.org/schemas/2025.10/resolver.json",
       version: "2025.10",
-      sets: { base: { sources: [{ $ref: "base.tokens.json" }] } },
+      sets: { base: { sources: [{ $ref: "base.tokens.json" }, { $ref: "ui.tokens.json" }] } },
       modifiers: {
         theme: {
           contexts: { light: [], dark: [{ $ref: "dark.tokens.json" }] },
@@ -1667,6 +1709,7 @@ const outputs = [
   ["marketplace/nav-icons.json", json(await navIcons(marketplaceNav("bottom-nav"), marketplaceNav("account-menu")))],
   ["platform/tokens/base.tokens.json", json(designTokens.base)],
   ["platform/tokens/dark.tokens.json", json(designTokens.dark)],
+  ["platform/tokens/ui.tokens.json", json(designTokens.kit)],
   ["platform/tokens/tokens.resolver.json", json(designTokens.resolver)],
 ];
 // Outputs that carry the brand foil's values are written on every run, --check included, and are not
@@ -1678,6 +1721,7 @@ const GENERATED = new Set([
   "admin/favicon.svg",
   "platform/tokens/base.tokens.json",
   "platform/tokens/dark.tokens.json",
+  "platform/tokens/ui.tokens.json",
   "platform/tokens/tokens.resolver.json",
 ]);
 const require = createRequire(path.join(repo, "packages/design-system/package.json"));

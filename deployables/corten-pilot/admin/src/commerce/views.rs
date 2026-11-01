@@ -15,9 +15,16 @@ pub use wallet_page::{WalletMissing, WalletPage};
 
 /// Return Intake's components: its stylesheet and script.
 pub const INTAKE: &[Component] = &[IntakePage];
-/// Money Health's and Payout Operations' components: their stylesheet (their live status is the
-/// app's, `crate::views::LIVE`).
-pub const PAYOUTS: &[Component] = &[MoneyHealthPage];
+/// Money Health's and Payout Operations' components: the UI kit's they use, then their stylesheet
+/// (their live status is the app's, `crate::views::LIVE`).
+pub const PAYOUTS: &[Component] = &[
+    platform::ui::alert::Alert,
+    platform::ui::badge::Badge,
+    platform::ui::button::Button,
+    platform::ui::card::Card,
+    platform::ui::table::Table,
+    MoneyHealthPage,
+];
 /// Recovered Returns' components: its stylesheet.
 pub const RECOVERED: &[Component] = &[RecoveredPage];
 /// Commercial Terms' components: its stylesheet and script, and the sheets' dialog.

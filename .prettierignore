@@ -30,7 +30,6 @@ deployables/corten-pilot/marketplace/nav-icons.json
 deployables/corten-pilot/admin/defaults.json
 deployables/corten-pilot/admin/scope-domains.json
 deployables/corten-pilot/admin/reported-content-actions.json
-deployables/corten-pilot/admin/support-responsibility-reasons.json
 deployables/corten-pilot/marketplace/agent-scopes.json
 deployables/corten-pilot/public/developers.json
 deployables/corten-pilot/public/help.json
@@ -38,6 +37,9 @@ deployables/corten-pilot/public/policies.json
 deployables/corten-pilot/platform/tokens/
 deployables/corten-pilot/*/locales/*.en.json
 !deployables/corten-pilot/*/locales/pilot.en.json
+# The Corten UI kit's stylesheets as `corten ui add` copied them: `corten ui diff` tells the pilot's
+# edits from the kit's changes by each file's hash, so they keep the kit's layout.
+deployables/corten-pilot/platform/src/ui/*.css
 **/*.md
 **/*.svg
 infrastructure/helm/*/templates/*.yaml

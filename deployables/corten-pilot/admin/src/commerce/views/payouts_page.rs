@@ -7,6 +7,14 @@ use corten::{
     prelude::*,
 };
 
+use platform::ui::{
+    alert::{Alert as KitAlert, AlertVariant},
+    badge::{Badge as KitBadge, BadgeVariant},
+    button::{Button as KitButton, ButtonSize, ButtonVariant},
+    card::{Card as KitCard, CardContent, CardHeader},
+    table::Table as KitTable,
+};
+
 use crate::{
     commerce::{
         money,
@@ -34,17 +42,18 @@ fn when(t: Com, at: &str) -> String {
     parse_timestamp(at).map_or_else(|| at.to_owned(), |when| t.date_time(when, DateStyle::Medium, TimeStyle::Short).to_string())
 }
 
-/// A pill in one of the design system's tones.
-#[component(css = MoneyHealthPage)]
+/// A pill in one of the design system's tones: the kit's badge, with the pilot's status tones
+/// (admin-web's accent is the info tone).
+#[component]
 fn Tone<'a>(words: &'a str, tone: &'static str) -> impl Render {
-    let tone = match tone {
-        "success" => Good,
-        "warning" => Warning,
-        "danger" => Danger,
-        "accent" => Accent,
-        _ => Neutral,
+    let variant = match tone {
+        "success" => BadgeVariant::Success,
+        "warning" => BadgeVariant::Warning,
+        "danger" => BadgeVariant::Danger,
+        "accent" => BadgeVariant::Info,
+        _ => BadgeVariant::Outline,
     };
-    html! { <span class={(Pill, tone)}>{words}</span> }
+    html! { <KitBadge variant={variant}>{words}</KitBadge> }
 }
 
 /// An empty table's words (`DataTable`'s empty state).
@@ -63,7 +72,9 @@ fn Empty<'a>(title: &'a str, description: &'a str) -> impl Render {
 fn OpenPayout<'a>(label: &'a str, href: Option<String>) -> impl Render {
     html! {
         if let Some(href) = &href {
-            <a class={(Button, Secondary, Small)} href={href} target="_blank" rel="noreferrer">{label}" \u{2197}"</a>
+            <KitButton variant={ButtonVariant::Outline} size={ButtonSize::Sm}>
+                <a href={href} target="_blank" rel="noreferrer">{label}" \u{2197}"</a>
+            </KitButton>
         }
     }
 }
@@ -103,163 +114,197 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                     <p class={Muted}>{t.mh_review_payout_demand_reconciliation_history_and()}</p>
                 </div>
                 <div class={Actions}>
-                    <a class={(Button, Secondary)} href={url::Operations::default()}>{t.mh_payout_operations()}</a>
+                    <KitButton variant={ButtonVariant::Outline} size={ButtonSize::Md}>
+                        <a href={url::Operations::default()}>{t.mh_payout_operations()}</a>
+                    </KitButton>
                 </div>
             </header>
-            <section class={Card} aria-labelledby="mh-forecast">
-                <h2 class={Heading} id="mh-forecast">{t.mh_platform_balance_forecast()}</h2>
-                <div class={Facts}>
-                    <Tone words={t.mh_provider_balance()} tone="accent" />
-                    <p class={Strong}>{t.mh_amount_available(&money(t, &forecast.available_amount, &forecast.currency_code))}</p>
-                    <p class={Muted}>
-                        {t.mh_pending_payout_demand()}
-                        <span class={Number}>{money(t, &forecast.pending_payout_demand_amount, &forecast.currency_code)}</span>
-                    </p>
-                    <p class={Muted}>
-                        {t.mh_forecast_after_pending_demand()}
-                        <span class={Number}>
-                            {money(t, &forecast.forecast_after_pending_demand_amount, &forecast.currency_code)}
-                        </span>
-                    </p>
-                </div>
+            <section aria-labelledby="mh-forecast">
+                <KitCard>
+                    <CardHeader><h2 id="mh-forecast">{t.mh_platform_balance_forecast()}</h2></CardHeader>
+                    <CardContent>
+                        <div class={Facts}>
+                            <Tone words={t.mh_provider_balance()} tone="accent" />
+                            <p class={Strong}>
+                                {t.mh_amount_available(&money(t, &forecast.available_amount, &forecast.currency_code))}
+                            </p>
+                            <p class={Muted}>
+                                {t.mh_pending_payout_demand()}
+                                <span class={Number}>
+                                    {money(t, &forecast.pending_payout_demand_amount, &forecast.currency_code)}
+                                </span>
+                            </p>
+                            <p class={Muted}>
+                                {t.mh_forecast_after_pending_demand()}
+                                <span class={Number}>
+                                    {money(t, &forecast.forecast_after_pending_demand_amount, &forecast.currency_code)}
+                                </span>
+                            </p>
+                        </div>
+                    </CardContent>
+                </KitCard>
             </section>
-            <section class={Card} aria-labelledby="mh-provider">
-                <h2 class={Heading} id="mh-provider">{t.mh_provider_diagnostics()}</h2>
-                <div class={Scroll}>
-                    <table class={Table}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.mh_signal()}</th>
-                                <th scope="col">{t.mh_status()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for (label, value) in diagnostics {
-                                <tr>
-                                    <th scope="row">{label}</th>
-                                    <td class={Words}>{value}</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-            <section class={Card} aria-labelledby="mh-negative">
-                <h2 class={Heading} id="mh-negative">{t.mh_negative_balance_accounts()}</h2>
-                if screen.negative_balance_accounts.is_empty() {
-                    <Empty
-                        title={t.mh_no_negative_balances()}
-                        description={t.mh_accounts_with_negative_wallet_balances_appear()}
-                    />
-                } else {
-                    <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.mh_account()}</th>
-                                    <th scope="col">{t.mh_negative_amount()}</th>
-                                    <th scope="col">{t.mh_negative_since()}</th>
-                                    <th scope="col">{t.mh_collections()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &screen.negative_balance_accounts {
+            <section aria-labelledby="mh-provider">
+                <KitCard>
+                    <CardHeader><h2 id="mh-provider">{t.mh_provider_diagnostics()}</h2></CardHeader>
+                    <CardContent>
+                        <KitTable>
+                            <table>
+                                <thead>
                                     <tr>
-                                        <td>
-                                            <p class={(Strong, Words)}>{&row.account_id}</p>
-                                            <Tone
-                                                words={&row.negative_balance_status}
-                                                tone={if row.negative_balance_status == "collections" { "warning" } else { "neutral" }}
-                                            />
-                                        </td>
-                                        <td class={Number}>{money(t, &row.available_balance_amount, &row.currency_code)}</td>
-                                        <td>
-                                            {row.negative_balance_started_at.as_deref().map_or_else(|| "-".to_owned(), |at| when(t, at))}
-                                        </td>
-                                        <td>
-                                            {row.collections_escalated_at.as_deref().map_or_else(|| "-".to_owned(), |at| when(t, at))}
-                                        </td>
+                                        <th scope="col">{t.mh_signal()}</th>
+                                        <th scope="col">{t.mh_status()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
+                                </thead>
+                                <tbody>
+                                    for (label, value) in diagnostics {
+                                        <tr>
+                                            <th scope="row">{label}</th>
+                                            <td class={Words}>{value}</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
+                    </CardContent>
+                </KitCard>
             </section>
-            <section class={Card} aria-labelledby="mh-payouts">
-                <h2 class={Heading} id="mh-payouts">{t.mh_payouts_needing_attention()}</h2>
-                if screen.payouts_needing_attention.is_empty() {
-                    <Empty title={t.mh_no_payout_issues()} description={t.mh_payouts_that_need_reconciliation_or_review()} />
-                } else {
-                    <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.mh_payout()}</th>
-                                    <th scope="col">{t.payout_requested_amount()}</th>
-                                    <th scope="col">{t.payout_fee()}</th>
-                                    <th scope="col">{t.payout_net()}</th>
-                                    <th scope="col">{t.mh_updated()}</th>
-                                    <th scope="col">{t.mh_action()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &screen.payouts_needing_attention {
-                                    <tr>
-                                        <td>
-                                            <p class={(Strong, Words)}>{&row.payout_id}</p>
-                                            <p class={Muted}>{&row.status}</p>
-                                        </td>
-                                        <td class={Number}>{money(t, &row.requested_amount, &row.currency_code)}</td>
-                                        <td class={Number}>{money(t, &row.fee_amount, &row.currency_code)}</td>
-                                        <td class={Number}>{money(t, &row.net_amount, &row.currency_code)}</td>
-                                        <td>{when(t, &row.updated_at)}</td>
-                                        <td>
-                                            <OpenPayout label={t.mh_open()} href={payout_href(marketplace, &row.payout_id)} />
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
+            <section aria-labelledby="mh-negative">
+                <KitCard>
+                    <CardHeader><h2 id="mh-negative">{t.mh_negative_balance_accounts()}</h2></CardHeader>
+                    <CardContent>
+                        if screen.negative_balance_accounts.is_empty() {
+                            <Empty
+                                title={t.mh_no_negative_balances()}
+                                description={t.mh_accounts_with_negative_wallet_balances_appear()}
+                            />
+                        } else {
+                            <KitTable>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">{t.mh_account()}</th>
+                                            <th scope="col">{t.mh_negative_amount()}</th>
+                                            <th scope="col">{t.mh_negative_since()}</th>
+                                            <th scope="col">{t.mh_collections()}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        for row in &screen.negative_balance_accounts {
+                                            <tr>
+                                                <td>
+                                                    <p class={(Strong, Words)}>{&row.account_id}</p>
+                                                    <Tone
+                                                        words={&row.negative_balance_status}
+                                                        tone={if row.negative_balance_status == "collections" { "warning" } else { "neutral" }}
+                                                    />
+                                                </td>
+                                                <td class={Number}>
+                                                    {money(t, &row.available_balance_amount, &row.currency_code)}
+                                                </td>
+                                                <td>
+                                                    {row.negative_balance_started_at.as_deref().map_or_else(|| "-".to_owned(), |at| when(t, at))}
+                                                </td>
+                                                <td>
+                                                    {row.collections_escalated_at.as_deref().map_or_else(|| "-".to_owned(), |at| when(t, at))}
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </KitTable>
+                        }
+                    </CardContent>
+                </KitCard>
             </section>
-            <section class={Card} aria-labelledby="mh-runs">
-                <h2 class={Heading} id="mh-runs">{t.mh_recent_reconciliation()}</h2>
-                if screen.reconciliation_runs.is_empty() {
-                    <Empty
-                        title={t.mh_no_reconciliation_runs()}
-                        description={t.mh_scheduled_and_manual_reconciliation_outcomes_appear()}
-                    />
-                } else {
-                    <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.mh_status_2()}</th>
-                                    <th scope="col">{t.mh_counts()}</th>
-                                    <th scope="col">{t.mh_completed()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &screen.reconciliation_runs {
-                                    <tr>
-                                        <td>
-                                            <Tone
-                                                words={&row.status}
-                                                tone={if row.error_count > 0 { "warning" } else { "success" }}
-                                            />
-                                        </td>
-                                        <td>
-                                            {t.mh_reconciliation_counts(row.checked_count, row.reconciled_count, row.error_count)}
-                                        </td>
-                                        <td>{row.completed_at.as_deref().map_or_else(String::new, |at| when(t, at))}</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
+            <section aria-labelledby="mh-payouts">
+                <KitCard>
+                    <CardHeader><h2 id="mh-payouts">{t.mh_payouts_needing_attention()}</h2></CardHeader>
+                    <CardContent>
+                        if screen.payouts_needing_attention.is_empty() {
+                            <Empty
+                                title={t.mh_no_payout_issues()}
+                                description={t.mh_payouts_that_need_reconciliation_or_review()}
+                            />
+                        } else {
+                            <KitTable>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">{t.mh_payout()}</th>
+                                            <th scope="col">{t.payout_requested_amount()}</th>
+                                            <th scope="col">{t.payout_fee()}</th>
+                                            <th scope="col">{t.payout_net()}</th>
+                                            <th scope="col">{t.mh_updated()}</th>
+                                            <th scope="col">{t.mh_action()}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        for row in &screen.payouts_needing_attention {
+                                            <tr>
+                                                <td>
+                                                    <p class={(Strong, Words)}>{&row.payout_id}</p>
+                                                    <p class={Muted}>{&row.status}</p>
+                                                </td>
+                                                <td class={Number}>{money(t, &row.requested_amount, &row.currency_code)}</td>
+                                                <td class={Number}>{money(t, &row.fee_amount, &row.currency_code)}</td>
+                                                <td class={Number}>{money(t, &row.net_amount, &row.currency_code)}</td>
+                                                <td>{when(t, &row.updated_at)}</td>
+                                                <td>
+                                                    <OpenPayout
+                                                        label={t.mh_open()}
+                                                        href={payout_href(marketplace, &row.payout_id)}
+                                                    />
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </KitTable>
+                        }
+                    </CardContent>
+                </KitCard>
+            </section>
+            <section aria-labelledby="mh-runs">
+                <KitCard>
+                    <CardHeader><h2 id="mh-runs">{t.mh_recent_reconciliation()}</h2></CardHeader>
+                    <CardContent>
+                        if screen.reconciliation_runs.is_empty() {
+                            <Empty
+                                title={t.mh_no_reconciliation_runs()}
+                                description={t.mh_scheduled_and_manual_reconciliation_outcomes_appear()}
+                            />
+                        } else {
+                            <KitTable>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">{t.mh_status_2()}</th>
+                                            <th scope="col">{t.mh_counts()}</th>
+                                            <th scope="col">{t.mh_completed()}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        for row in &screen.reconciliation_runs {
+                                            <tr>
+                                                <td>
+                                                    <Tone
+                                                        words={&row.status}
+                                                        tone={if row.error_count > 0 { "warning" } else { "success" }}
+                                                    />
+                                                </td>
+                                                <td>
+                                                    {t.mh_reconciliation_counts(row.checked_count, row.reconciled_count, row.error_count)}
+                                                </td>
+                                                <td>{row.completed_at.as_deref().map_or_else(String::new, |at| when(t, at))}</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </KitTable>
+                        }
+                    </CardContent>
+                </KitCard>
             </section>
         </div>
     }
@@ -356,7 +401,9 @@ fn RunPart<'a>(t: Com, p: Pilot, run: Option<&'a Run>, view: &'a url::View) -> i
                     <p class={(Muted, Words)}>{t.po_reconciliation_errors(message)}</p>
                 }
                 if !run.done() {
-                    <a class={(Button, Secondary, Small)} href={again}>{p.payout_check_again()}</a>
+                    <KitButton variant={ButtonVariant::Outline} size={ButtonSize::Sm}>
+                        <a href={again}>{p.payout_check_again()}</a>
+                    </KitButton>
                 }
             }
         </div>
@@ -413,177 +460,207 @@ pub fn PayoutOperationsPage<'a>(
                     <p class={Muted}>{t.po_monitor_payouts_that_may_need_provider()}</p>
                 </div>
                 <div class={Actions}>
-                    <a class={(Button, Secondary)} href={url::MoneyHealth}>{t.po_money_health()}</a>
+                    <KitButton variant={ButtonVariant::Outline} size={ButtonSize::Md}>
+                        <a href={url::MoneyHealth}>{t.po_money_health()}</a>
+                    </KitButton>
                 </div>
             </header>
             if screen.can_reconcile {
-                <section class={Card} aria-labelledby="po-run">
-                    <h2 class={Heading} id="po-run">{t.po_reconciliation()}</h2>
-                    if let Some(error) = &screen.error {
-                        <p class={Alert} role="alert">{error}</p>
-                    }
-                    <form method="post" action={url::Operations { view: url::View { job: None, ..screen.view.clone() } }}>
-                        <input type="hidden" name="intent" value="run-reconciliation">
-                        <button type="submit" class={Button}>{t.po_run_reconciliation()}</button>
-                    </form>
-                    if following {
-                        <LiveStatus words={&words} id={ids::RUN_LIVE} src={&live} reload={&page} kept={&[]}>{""}</LiveStatus>
-                    }
-                    {run_part(t, p, screen.run.as_ref(), &screen.view)}
+                <section aria-labelledby="po-run">
+                    <KitCard>
+                        <CardHeader><h2 id="po-run">{t.po_reconciliation()}</h2></CardHeader>
+                        <CardContent>
+                            if let Some(error) = &screen.error {
+                                <KitAlert variant={AlertVariant::Destructive}><p>{error}</p></KitAlert>
+                            }
+                            <form method="post" action={url::Operations { view: url::View { job: None, ..screen.view.clone() } }}>
+                                <input type="hidden" name="intent" value="run-reconciliation">
+                                <KitButton variant={ButtonVariant::Primary} size={ButtonSize::Md}>
+                                    <button type="submit">{t.po_run_reconciliation()}</button>
+                                </KitButton>
+                            </form>
+                            if following {
+                                <LiveStatus words={&words} id={ids::RUN_LIVE} src={&live} reload={&page} kept={&[]}>
+                                    {""}
+                                </LiveStatus>
+                            }
+                            {run_part(t, p, screen.run.as_ref(), &screen.view)}
+                        </CardContent>
+                    </KitCard>
                 </section>
             }
-            <section class={Card} aria-labelledby="po-attention">
-                <h2 class={Heading} id="po-attention">{t.po_needs_attention()}</h2>
-                <div class={Scroll}>
-                    <table class={Table}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.po_signal()}</th>
-                                <th scope="col">{t.po_count()}</th>
-                                <th scope="col">{t.po_meaning()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for (label, value, meaning) in needs {
-                                <tr>
-                                    <th scope="row">{label}</th>
-                                    <td><Tone words={&count(value)} tone={if value > 0 { "warning" } else { "success" }} /></td>
-                                    <td class={Prose}>{meaning}</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-                if let Some(readiness) = screen.readiness.as_ref().filter(|_| screen.can_reconcile) {
-                    <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.po_signal()}</th>
-                                    <th scope="col">{t.po_status()}</th>
-                                    <th scope="col">{t.po_meaning()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for (label, value, meaning) in [
-                                    (t.po_setup_status(), readiness.status.clone(), t.po_current_payout_setup_status()),
-                                    (t.po_payout_destination(), readiness.payout_destination_status.clone(), t.po_destination_status_from_provider()),
-                                    (
-                                        t.po_setup_last_updated(),
-                                        readiness.updated_at.as_deref().map_or_else(|| t.po_not_checked().to_owned(), |at| when(t, at)),
-                                        t.po_provider_readiness_snapshot(),
-                                    ),
-                                ] {
-                                    <tr>
-                                        <th scope="row">{label}</th>
-                                        <td>
-                                            <Tone
-                                                words={&value}
-                                                tone={if setup_blocked || setup_stale { "warning" } else { "success" }}
-                                            />
-                                        </td>
-                                        <td class={Prose}>{meaning}</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-                <nav class={Filters} aria-label={t.po_needs_attention()}>
-                    for (value, label) in FILTERS.into_iter().zip(filters) {
-                        <a
-                            class={(Button, Small, if screen.filter == value { Current } else { Secondary })}
-                            href={url::Operations { view: url::View { filter: (value != "all").then(|| value.to_owned()), job: None } }}
-                            aria-current={(screen.filter == value).then_some("page")}
-                        >
-                            {label}
-                        </a>
-                    }
-                </nav>
-                if screen.payouts.is_empty() {
-                    <Empty
-                        title={t.po_no_payouts_need_attention()}
-                        description={t.po_provider_payout_reconciliation_is_clear()}
-                    />
-                } else {
-                    <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.po_status()}</th>
-                                    <th scope="col">{t.payout_requested_amount()}</th>
-                                    <th scope="col">{t.payout_fee()}</th>
-                                    <th scope="col">{t.payout_net()}</th>
-                                    <th scope="col">{t.po_payout_confirmation()}</th>
-                                    <th scope="col">{t.po_external_status()}</th>
-                                    <th scope="col">{t.po_last_checked_2()}</th>
-                                    <th scope="col">{t.po_retry_policy()}</th>
-                                    <th scope="col">{t.po_updated()}</th>
-                                    <th scope="col">{t.po_actions()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &screen.payouts {
-                                    <tr>
-                                        <td><PayoutStatus t={t} row={row} /></td>
-                                        <td class={Number}>{money(t, &row.requested_amount, &row.currency_code)}</td>
-                                        <td class={Number}>{money(t, &row.fee_amount, &row.currency_code)}</td>
-                                        <td class={Number}>{money(t, &row.net_amount, &row.currency_code)}</td>
-                                        <td>
-                                            {if row.provider_payout_reference.is_some() { t.po_confirmed() } else { t.po_pending_confirmation() }}
-                                        </td>
-                                        <td>{row.provider_status.as_deref().unwrap_or(t.po_unknown())}</td>
-                                        <td>
-                                            {row.last_reconciled_at.as_deref().map_or_else(|| t.po_not_checked().to_owned(), |at| when(t, at))}
-                                        </td>
-                                        <td>{retries(t, row)}</td>
-                                        <td>{when(t, &row.updated_at)}</td>
-                                        <td>
-                                            <OpenPayout label={t.po_open()} href={payout_href(marketplace, &row.payout_id)} />
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-            </section>
-            if screen.can_reconcile {
-                <section class={Card} aria-labelledby="po-attempts">
-                    <h2 class={Heading} id="po-attempts">{t.po_recent_provider_attempts()}</h2>
-                    if screen.attempts.is_empty() {
-                        <Empty
-                            title={t.po_no_provider_attempts()}
-                            description={t.po_provider_transfer_and_payout_submissions_appear()}
-                        />
-                    } else {
-                        <div class={Scroll}>
-                            <table class={Table}>
+            <section aria-labelledby="po-attention">
+                <KitCard>
+                    <CardHeader><h2 id="po-attention">{t.po_needs_attention()}</h2></CardHeader>
+                    <CardContent>
+                        <KitTable>
+                            <table>
                                 <thead>
                                     <tr>
-                                        <th scope="col">{t.po_operation()}</th>
-                                        <th scope="col">{t.po_payout()}</th>
-                                        <th scope="col">{t.po_provider_reference()}</th>
-                                        <th scope="col">{t.po_idempotency_key()}</th>
-                                        <th scope="col">{t.po_created()}</th>
+                                        <th scope="col">{t.po_signal()}</th>
+                                        <th scope="col">{t.po_count()}</th>
+                                        <th scope="col">{t.po_meaning()}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    for row in &screen.attempts {
+                                    for (label, value, meaning) in needs {
                                         <tr>
-                                            <td>{&row.operation_kind}</td>
-                                            <td class={Words}>{row.payout_id.as_deref().unwrap_or(t.po_none())}</td>
-                                            <td class={Words}>
-                                                {row.provider_object_reference.as_deref().unwrap_or(t.po_pending())}
+                                            <th scope="row">{label}</th>
+                                            <td>
+                                                <Tone
+                                                    words={&count(value)}
+                                                    tone={if value > 0 { "warning" } else { "success" }}
+                                                />
                                             </td>
-                                            <td>{t.po_protected_retry_key()}</td>
-                                            <td>{when(t, &row.created_at)}</td>
+                                            <td class={Prose}>{meaning}</td>
                                         </tr>
                                     }
                                 </tbody>
                             </table>
-                        </div>
-                    }
+                        </KitTable>
+                        if let Some(readiness) = screen.readiness.as_ref().filter(|_| screen.can_reconcile) {
+                            <KitTable>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">{t.po_signal()}</th>
+                                            <th scope="col">{t.po_status()}</th>
+                                            <th scope="col">{t.po_meaning()}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        for (label, value, meaning) in [
+                                            (t.po_setup_status(), readiness.status.clone(), t.po_current_payout_setup_status()),
+                                            (t.po_payout_destination(), readiness.payout_destination_status.clone(), t.po_destination_status_from_provider()),
+                                            (
+                                                t.po_setup_last_updated(),
+                                                readiness.updated_at.as_deref().map_or_else(|| t.po_not_checked().to_owned(), |at| when(t, at)),
+                                                t.po_provider_readiness_snapshot(),
+                                            ),
+                                        ] {
+                                            <tr>
+                                                <th scope="row">{label}</th>
+                                                <td>
+                                                    <Tone
+                                                        words={&value}
+                                                        tone={if setup_blocked || setup_stale { "warning" } else { "success" }}
+                                                    />
+                                                </td>
+                                                <td class={Prose}>{meaning}</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </KitTable>
+                        }
+                        <nav class={Filters} aria-label={t.po_needs_attention()}>
+                            for (value, label) in FILTERS.into_iter().zip(filters) {
+                                <KitButton
+                                    variant={if screen.filter == value { ButtonVariant::Primary } else { ButtonVariant::Outline }}
+                                    size={ButtonSize::Sm}
+                                >
+                                    <a
+                                        href={url::Operations { view: url::View { filter: (value != "all").then(|| value.to_owned()), job: None } }}
+                                        aria-current={(screen.filter == value).then_some("page")}
+                                    >
+                                        {label}
+                                    </a>
+                                </KitButton>
+                            }
+                        </nav>
+                        if screen.payouts.is_empty() {
+                            <Empty
+                                title={t.po_no_payouts_need_attention()}
+                                description={t.po_provider_payout_reconciliation_is_clear()}
+                            />
+                        } else {
+                            <KitTable>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">{t.po_status()}</th>
+                                            <th scope="col">{t.payout_requested_amount()}</th>
+                                            <th scope="col">{t.payout_fee()}</th>
+                                            <th scope="col">{t.payout_net()}</th>
+                                            <th scope="col">{t.po_payout_confirmation()}</th>
+                                            <th scope="col">{t.po_external_status()}</th>
+                                            <th scope="col">{t.po_last_checked_2()}</th>
+                                            <th scope="col">{t.po_retry_policy()}</th>
+                                            <th scope="col">{t.po_updated()}</th>
+                                            <th scope="col">{t.po_actions()}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        for row in &screen.payouts {
+                                            <tr>
+                                                <td><PayoutStatus t={t} row={row} /></td>
+                                                <td class={Number}>{money(t, &row.requested_amount, &row.currency_code)}</td>
+                                                <td class={Number}>{money(t, &row.fee_amount, &row.currency_code)}</td>
+                                                <td class={Number}>{money(t, &row.net_amount, &row.currency_code)}</td>
+                                                <td>
+                                                    {if row.provider_payout_reference.is_some() { t.po_confirmed() } else { t.po_pending_confirmation() }}
+                                                </td>
+                                                <td>{row.provider_status.as_deref().unwrap_or(t.po_unknown())}</td>
+                                                <td>
+                                                    {row.last_reconciled_at.as_deref().map_or_else(|| t.po_not_checked().to_owned(), |at| when(t, at))}
+                                                </td>
+                                                <td>{retries(t, row)}</td>
+                                                <td>{when(t, &row.updated_at)}</td>
+                                                <td>
+                                                    <OpenPayout
+                                                        label={t.po_open()}
+                                                        href={payout_href(marketplace, &row.payout_id)}
+                                                    />
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </KitTable>
+                        }
+                    </CardContent>
+                </KitCard>
+            </section>
+            if screen.can_reconcile {
+                <section aria-labelledby="po-attempts">
+                    <KitCard>
+                        <CardHeader><h2 id="po-attempts">{t.po_recent_provider_attempts()}</h2></CardHeader>
+                        <CardContent>
+                            if screen.attempts.is_empty() {
+                                <Empty
+                                    title={t.po_no_provider_attempts()}
+                                    description={t.po_provider_transfer_and_payout_submissions_appear()}
+                                />
+                            } else {
+                                <KitTable>
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">{t.po_operation()}</th>
+                                                <th scope="col">{t.po_payout()}</th>
+                                                <th scope="col">{t.po_provider_reference()}</th>
+                                                <th scope="col">{t.po_idempotency_key()}</th>
+                                                <th scope="col">{t.po_created()}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            for row in &screen.attempts {
+                                                <tr>
+                                                    <td>{&row.operation_kind}</td>
+                                                    <td class={Words}>{row.payout_id.as_deref().unwrap_or(t.po_none())}</td>
+                                                    <td class={Words}>
+                                                        {row.provider_object_reference.as_deref().unwrap_or(t.po_pending())}
+                                                    </td>
+                                                    <td>{t.po_protected_retry_key()}</td>
+                                                    <td>{when(t, &row.created_at)}</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </KitTable>
+                            }
+                        </CardContent>
+                    </KitCard>
                 </section>
             }
         </div>

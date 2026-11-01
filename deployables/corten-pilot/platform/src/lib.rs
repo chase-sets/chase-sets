@@ -14,3 +14,4 @@ pub mod receipt;
 pub mod section;
 pub mod session;
 pub mod theme;
+pub mod ui;

@@ -11,6 +11,7 @@ name = "platform"
 [dependencies]
 bytes.workspace = true
 corten.workspace = true
+corten-ui.workspace = true
 futures-util.workspace = true
 percent-encoding.workspace = true
 reqwest.workspace = true

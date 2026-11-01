@@ -248,6 +248,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "corten",
+ "corten-ui",
  "futures-util",
  "percent-encoding",
  "reqwest",

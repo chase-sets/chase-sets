@@ -6461,7 +6461,7 @@ async fn a_refused_run_says_why_and_an_unknown_intent_does_nothing() {
     let (status, _, html) =
         pilot.send(post_as("payouts-blocked", "/commerce/payout-operations", "intent=run-reconciliation", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
-    assert!(html.contains(r#"role="alert">A reconciliation run is already in progress."#), "{html}");
+    assert!(html.contains(r#"role="alert"><p>A reconciliation run is already in progress.</p>"#), "the kit's alert: {html}");
     let (status, headers, _) =
         pilot.send(post_as("payouts-operator", "/commerce/payout-operations", "intent=other", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
