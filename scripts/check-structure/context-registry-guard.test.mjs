@@ -22,6 +22,14 @@ describe("context registry guard", () => {
     expect(validateContextRegistries(repoRoot)).toEqual([]);
   });
 
+  it("accepts the structure checker's admitted context records", () => {
+    const contexts = listBoundedContextManifests({ repoRoot }).map(({ manifest, packageName }) => ({
+      manifest,
+      packageName,
+    }));
+    expect(validateContextRegistries(repoRoot, { contexts })).toEqual([]);
+  });
+
   it("rejects an omitted entry even when a decoy comment names it", () => {
     const root = mkdtempSync(path.join(tmpdir(), "context-registry-guard-"));
     temporaryRoots.push(root);

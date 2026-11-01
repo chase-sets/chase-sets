@@ -184,7 +184,16 @@ function parseRegistry(relativePath, target, rootDir) {
 }
 
 function expectedContexts(contexts, target) {
-  return contexts
+  const admittedContexts = contexts.map((context) => {
+    const contextName = context.contextName ?? context.manifest?.contextName;
+    const packageName = context.packageName ?? context.manifest?.packageName;
+    if (typeof contextName !== "string" || typeof packageName !== "string") {
+      throw new TypeError("Admitted context must provide contextName and packageName.");
+    }
+    return { ...context, contextName, packageName };
+  });
+
+  return admittedContexts
     .filter(({ manifest }) => {
       if (target.kind === "api")
         return (
