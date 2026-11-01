@@ -77,5 +77,5 @@ test("keeps canonical first-match order across indexed and fallback aliases", as
     { find: /^@synthetic\/pkg\/special$/, replacement: "/specific.ts" },
   ]);
 
-  assert.equal(await plugin.resolveId("@synthetic/pkg/special"), "/generic.ts");
+  assert.equal(await plugin.resolveId.call(undefined, "@synthetic/pkg/special"), "/generic.ts");
 });
