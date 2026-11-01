@@ -46,6 +46,36 @@ pub fn anonymous_cart(headers: &HeaderMap) -> Option<&str> {
     cookie::get(headers, ANONYMOUS_CART_COOKIE).filter(|id| id.starts_with("anon_"))
 }
 
+/// The cart's item count, for the nav's badge.
+#[derive(Serialize, ToJson)]
+pub struct Count {
+    pub count: u64,
+}
+
+/// The cart's item count (marketplace's `resolveCartCount`): the account's cart, or the guest cart
+/// the browser carries, 0 when there is none or it cannot be read. The nav's script asks for it
+/// once per full page load, since the layout cannot read it (see `views::market_nav`). Kept by no
+/// cache: it changes with every cart write.
+pub(crate) async fn count(
+    Caller(buyer): Caller<Buyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+) -> corten::NoStore<JsonResult<Count>> {
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let read = match buyer {
+        Buyer::Account(_) => caller.cart().await,
+        Buyer::Guest(_) => caller.guest_cart(anonymous_cart(&headers)).await,
+    };
+    let count = read.map_or_else(
+        |error| {
+            tracing::warn!("the cart count was not read: {error}");
+            0
+        },
+        |cart| cart.count,
+    );
+    corten::NoStore(Ok(Json(Count { count })))
+}
+
 /// What the cart's address carries after a write: its receipt, which the cart read waits for
 /// (marketplace's `afterWrite`).
 #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]

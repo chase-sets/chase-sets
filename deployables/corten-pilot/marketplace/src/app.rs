@@ -1704,6 +1704,10 @@ pub mod url {
         /// Check out the account's cart: starts a checkout session and sends the buyer to it.
         #[route("/account/cart/checkout", post = crate::cart::checkout)]
         pub struct CartCheckout;
+
+        /// The cart's item count, for the nav's badge.
+        #[route("/account/cart/count", get = crate::cart::count)]
+        pub struct CartCount;
     }
 }
 

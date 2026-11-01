@@ -3,7 +3,10 @@
     "marketplace": "Chase Sets Marketplace",
     "navigation": "Marketplace",
     "pilot": "Corten pilot",
-    "exit_guest_checkout": "Exit guest checkout"
+    "exit_guest_checkout": "Exit guest checkout",
+    "account_menu": "Account menu",
+    "account": "Account",
+    "sign_out": "Sign Out"
   },
   "guest": {
     "saved_payment_unavailable": "Saved payment methods are available after sign-in. Continue with card payment.",

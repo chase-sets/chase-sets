@@ -300,7 +300,7 @@
 /* The actions sit at the bottom of a phone's screen, with the offer's price. */
 .bar {
   position: sticky;
-  bottom: env(safe-area-inset-bottom, 0px);
+  bottom: calc(var(--shell-bottom-nav-height, 0px) + env(safe-area-inset-bottom, 0px));
   z-index: 1;
   display: grid;
   gap: var(--space-2);

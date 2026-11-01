@@ -453,7 +453,7 @@
 /* Finish: at the bottom of the screen on a phone, in the checklist from 64rem. */
 .footer {
   position: sticky;
-  bottom: 0;
+  bottom: var(--shell-bottom-nav-height, 0px);
   z-index: 1;
   display: grid;
   gap: var(--space-3);

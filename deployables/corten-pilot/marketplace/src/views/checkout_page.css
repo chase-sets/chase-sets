@@ -434,7 +434,7 @@
 .bar {
   position: fixed;
   inset-inline: 0;
-  inset-block-end: 0;
+  inset-block-end: var(--shell-bottom-nav-height, 0px);
   z-index: 10;
   display: grid;
   gap: var(--space-2);

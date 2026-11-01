@@ -47,10 +47,22 @@ body {
   color: var(--color-text);
   font: 400 1rem/1.5 var(--font-body);
 }
+/* Below 48rem the shell's bottom bar (views/market_nav.css) covers the foot of the screen, as
+   marketplace's `MarketplaceShell` sets it; the page and its own bottom bars sit above it. A page
+   without the shell (`data-shell` on <body>, views::Frame), the offline page, has no bar. */
+body {
+  --shell-bottom-nav-height: 0px;
+}
+@media (max-width: 47.99rem) {
+  body[data-shell] {
+    --shell-bottom-nav-height: 5.25rem;
+  }
+}
 main {
   max-width: 72rem;
   margin: 0 auto;
   padding: var(--space-6);
+  padding-bottom: calc(var(--space-6) + var(--shell-bottom-nav-height) + env(safe-area-inset-bottom, 0px));
 }
 /* Printed, a page is on white paper and its content uses the page's own margins. */
 @media print {

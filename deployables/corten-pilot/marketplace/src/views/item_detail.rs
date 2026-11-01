@@ -1212,7 +1212,8 @@ fn Rail<'a>(
                 </p>
             }
             if let Some(BuyNotice::Added(to)) = notice {
-                <div class={(Banner, Added)} role="status">
+                // The nav's badge reads the count again (a client navigation keeps the layout).
+                <div class={(Banner, Added)} role="status" on:connect={super::market_nav::badge::stale()}>
                     <p class={Strong}>{t.route_added_to_cart()}</p>
                     <p>{t.route_added_to_cart_description(&screen.item.title)}</p>
                     <p><a class={Button} href={to}>{t.route_view_cart()}</a></p>

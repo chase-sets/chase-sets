@@ -24,6 +24,9 @@ deployables/*/src/generated/*-context-registry.ts
 deployables/*/app/generated/*-context-registry.ts
 # The Corten pilot's export output (deployables/corten-pilot/scripts/export.mjs), kept byte-for-byte as written by its --check
 deployables/corten-pilot/*/nav.json
+deployables/corten-pilot/marketplace/nav.bottom.json
+deployables/corten-pilot/marketplace/nav.account.json
+deployables/corten-pilot/marketplace/nav-icons.json
 deployables/corten-pilot/admin/defaults.json
 deployables/corten-pilot/admin/scope-domains.json
 deployables/corten-pilot/admin/reported-content-actions.json

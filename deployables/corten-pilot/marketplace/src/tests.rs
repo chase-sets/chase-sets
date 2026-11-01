@@ -2161,7 +2161,9 @@ async fn an_error_page_is_drawn_for_who_is_asking() {
     assert!(html.contains("There is nothing at this address.") && html.contains("<header"), "with the member's nav: {html}");
     let (status, _, html) = pilot.send(get("/account/nowhere", None)).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(!html.contains("<header"), "a visitor has no nav: {html}");
+    // A visitor has the shell too (marketplace's not-found page is inside its layout): no account
+    // menu, and Sign in.
+    assert!(html.contains("<header") && !html.contains(r#"aria-label="Account menu""#), "a visitor's nav: {html}");
     let (status, _, html) = pilot.send(get(SCREEN, Some("other"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(html.contains("Your role cannot open this page.") && html.contains("<header"), "{html}");
@@ -2643,6 +2645,50 @@ async fn any_account_has_a_cart_and_a_visitor_or_a_guest_has_the_guest_cart() {
     assert_eq!(status, StatusCode::OK);
     let (status, _, _) = pilot.send(get(SCREEN, Some("buyer"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn the_nav_reads_the_carts_count_for_a_member_a_guest_cart_or_none() {
+    let pilot = Pilot::new().await;
+    let count = |html: &str| -> u64 { serde_json::from_str::<Value>(html).unwrap()["count"].as_u64().unwrap() };
+    let (status, headers, body) = pilot.send(get("/account/cart/count", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(count(&body), cart("buyer")["count"].as_u64().unwrap(), "{body}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    let mut req = get("/account/cart/count", None);
+    req.headers_mut().insert(header::COOKIE, GUEST_LINES.parse().unwrap());
+    let (status, _, body) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(count(&body), cart("buyer")["count"].as_u64().unwrap(), "the guest cart the browser carries: {body}");
+    let reads = guest_cart_reads(&pilot).len();
+    let (status, _, body) = pilot.send(get("/account/cart/count", None)).await;
+    assert_eq!((status, count(&body)), (StatusCode::OK, 0), "no cart: {body}");
+    assert_eq!(guest_cart_reads(&pilot).len(), reads, "nothing read without a guest cart");
+}
+
+#[tokio::test]
+async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidden_until_counted() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(CART_SCREEN, Some("seller"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(shell.contains("<body data-shell>"), "the page leaves room for the phone's bar: {shell}");
+    assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains("Sign Out"), "{shell}");
+    assert_eq!(shell.matches("<nav").count(), 2, "the top bar's and the phone's: {shell}");
+    assert!(shell.contains(r#"data-badge="checkout.cart-count""#), "the cart's badge: {shell}");
+    assert!(!shell.contains("data-hide-empty"), "a member's cart entry is always shown: {shell}");
+    let (_, _, html) = pilot.send(get(CART_SCREEN, None)).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(!shell.contains(r#"aria-label="Account menu""#) && !shell.contains("Sign Out"), "{shell}");
+    assert_eq!(
+        shell.matches("hidden data-hide-empty>").count(),
+        2,
+        "a visitor's cart waits for its count, in both bars: {shell}"
+    );
+    let (_, _, html) = pilot.send(get("/offline", None)).await;
+    assert!(
+        !html.contains("<nav") && html.contains("<body><main>"),
+        "the offline page has no shell, nor room for its bar: {html}"
+    );
 }
 
 /// The guest cart reads the stand-in received.
@@ -15114,7 +15160,7 @@ async fn saved_payment_methods_are_cards_each_with_its_own_writes() {
 
     let (_, _, html) = pilot.send(get(PAYMENT_METHODS, Some("card_reader"))).await;
     assert!(
-        html.contains("Synthetic spm_card") && !html.contains("<form"),
+        html.contains("Synthetic spm_card") && !html.split_once("<main>").unwrap().1.contains("<form"),
         "a reader without orders.manage has no writes: {html}"
     );
 

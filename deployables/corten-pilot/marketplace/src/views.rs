@@ -132,7 +132,7 @@ pub use support_page::SupportPage;
 pub use team_page::TeamPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, Section];
+pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, market_nav::badge::COMPONENT, Section];
 
 /// The inventory screens' components (`/account/inventory`), the import page's too.
 /// The inventory list uses Create listing's catalog picker script, and corten-ui's handler that
@@ -351,14 +351,32 @@ pub fn srcset_on_marketplace(srcset: &str) -> String {
         .join(", ")
 }
 
-/// The document around every page: marketplace's top bar and the user's color mode, `title`, the
-/// page's own `head` tags (description, canonical, social, JSON-LD, `ReadAgain`) and the page
-/// (`children`). A client navigation gets only the title, the head tags and `<main>`'s children.
-/// `viewer` is the handler's `Caller` (none for a visitor).
+/// The document around every page: marketplace's shell (the top bar, the account menu and the
+/// phone's bottom bar) and the user's color mode, `title`, the page's own `head` tags
+/// (description, canonical, social, JSON-LD, `ReadAgain`) and the page (`children`). A client
+/// navigation gets only the title, the head tags and `<main>`'s children. `viewer` is the handler's
+/// `Caller` (none for a visitor, who gets the visitor's shell).
 #[component]
 pub fn Layout<'a, H: Render, C: Render>(
     req: &'a Req,
     viewer: Option<&'a Viewer>,
+    title: &'a str,
+    head: H,
+    children: C,
+) -> impl Document + 'a {
+    html! {
+        <Frame req={req} viewer={viewer} shell={true} title={title} head={head}>{children}</Frame>
+    }
+}
+
+/// `Layout`'s document, with the shell (`shell`) or without it: for a page that cannot say who is
+/// asking, the offline page (the same for everyone; marketplace serves it outside its layout) and
+/// a session the API could not read, where a visitor's Sign in would be wrong.
+#[component]
+pub fn Frame<'a, H: Render, C: Render>(
+    req: &'a Req,
+    viewer: Option<&'a Viewer>,
+    shell: bool,
     title: &'a str,
     head: H,
     children: C,
@@ -384,8 +402,8 @@ pub fn Layout<'a, H: Render, C: Render>(
                 <Corten />
                 <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
             </head>
-            <body>
-                if let Some(viewer) = viewer {
+            <body data-shell={shell}>
+                if shell {
                     <MarketNav p={p} viewer={viewer} path={req.path()} />
                 }
                 <main>{children}</main>
@@ -395,7 +413,7 @@ pub fn Layout<'a, H: Render, C: Render>(
 }
 
 /// The page for a failed request, in the layout (`App::error_page`), for who is asking: a member's
-/// nav and theme, and none for a visitor or when the session could not be read. Under
+/// shell and theme, a visitor's shell, and no shell when the session could not be read. Under
 /// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`.
 pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Session>>) -> HtmlResult {
     let p: Pilot = req.t();
@@ -428,14 +446,16 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
             </Layout>
         });
     }
+    // Who is asking is unknown when the session could not be read: no shell, not a visitor's.
+    let shell = !matches!(failure, Failure::Unidentified { .. });
     req.page(html! {
-        <Layout req={&req} viewer={viewer} title={title} head="">
+        <Frame req={&req} viewer={viewer} shell={shell} title={title} head="">
             <h1>{title}</h1>
             <p>{text}</p>
             if let Some(detail) = &detail {
                 <pre>{detail}</pre>
             }
-        </Layout>
+        </Frame>
     })
 }
 
@@ -648,7 +668,12 @@ pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crat
     let check_out = readiness.map(|r| &r.declined).filter(|s| s.status == "ready");
     let lower_price = readiness.and_then(|r| r.accepted.as_ref()).filter(|_| screen.offer());
     let (search, resolve) = (cart_item::link("/search"), url::CheckoutStart.href());
+    // The nav's badge keeps the count this read found (a client navigation keeps the layout).
+    let count = (!screen.pending).then(|| screen.item_count());
     html! {
+        if let Some(count) = count {
+            <span hidden on:connect={market_nav::badge::known(count)}></span>
+        }
         <PageHeader eyebrow={t.page_buy_cart()} title={t.page_your_cart()} description={t.page_simple_cart_description()} />
         <CartHeading title={t.page_items()} description={t.page_review_items_before_checkout()} />
         match notice {

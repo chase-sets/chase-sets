@@ -657,7 +657,30 @@ impl nav::Reader for Viewer {
 pub static NAV: LazyLock<Vec<NavItem>> =
     LazyLock::new(|| serde_json::from_str(include_str!("../nav.json")).expect("nav.json is the export's output"));
 
-/// The top nav the viewer may see, by order then label, each group with its visible entries.
-pub fn top_nav(viewer: &Viewer) -> Vec<(&'static NavItem, Vec<&'static NavItem>)> {
-    nav::visible(NAV.iter(), viewer)
+/// Its bottom-nav (the phone bar) and account-menu contributions.
+static BOTTOM: LazyLock<Vec<NavItem>> =
+    LazyLock::new(|| serde_json::from_str(include_str!("../nav.bottom.json")).expect("nav.bottom.json is the export's output"));
+static ACCOUNT_MENU: LazyLock<Vec<NavItem>> =
+    LazyLock::new(|| serde_json::from_str(include_str!("../nav.account.json")).expect("nav.account.json is the export's output"));
+
+/// The cart's badge, as the layout knows it: the count is not read when the layout draws (the
+/// nav's script fills it in), so a visitor's cart entry is kept, to be shown once the count is
+/// known (`NavItem::hides_when_empty`).
+const UNREAD: [(&str, u64); 1] = [("checkout.cart-count", 1)];
+
+/// The top nav the viewer, or a visitor, may see, by order then label, each group with its
+/// visible entries.
+pub fn top_nav(viewer: Option<&Viewer>) -> Vec<nav::Shown<'static>> {
+    nav::shown(NAV.iter(), viewer, &UNREAD)
+}
+
+/// The phone's bottom bar (`limit: 5`): the five visible entries with the highest packing priority.
+pub fn bottom_nav(viewer: Option<&Viewer>) -> Vec<nav::Shown<'static>> {
+    nav::packed(BOTTOM.iter(), viewer, &UNREAD, 5)
+}
+
+/// The account menu's entries with an address (`resolveMarketplaceAccountMenuItems`); none for a
+/// visitor or a guest checkout, whose bar has no account menu.
+pub fn account_menu(viewer: Option<&Viewer>) -> Vec<&'static NavItem> {
+    nav::shown(ACCOUNT_MENU.iter(), viewer, &[]).into_iter().map(|(item, _)| item).filter(|item| item.href.is_some()).collect()
 }

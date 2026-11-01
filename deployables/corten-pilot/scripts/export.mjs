@@ -226,6 +226,10 @@
 // - admin/static/icons/: admin-web's four app icons (public/icons), which its manifest names.
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
+// - marketplace/nav.bottom.json, marketplace/nav.account.json: its bottom-nav (the phone bar, with
+//   each entry's packing priority and badge) and account-menu contributions, composed the same way.
+// - marketplace/nav-icons.json: the inner markup of the design system's `Icon` for each icon those
+//   entries name, and the menu's, as its lucide glyph draws it (the pilot draws the `<svg>` around it).
 // - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, in the format of Corten's `tokens!`. Not committed (see GENERATED).
 // - <app>/static/fonts/: the three @fontsource files the screens use, in each app's static folder.
@@ -299,6 +303,10 @@ const keep = (item) => ({
   requiredPermissions: item.requiredPermissions ?? [],
   requiredPermissionsMatch: item.requiredPermissionsMatch ?? "all",
   excludedRoleKeys: item.excludedRoleKeys ?? [],
+  ...(item.icon ? { icon: item.icon } : {}),
+  ...(item.placement ? { placement: item.placement } : {}),
+  ...(item.packingPriority !== undefined ? { packingPriority: item.packingPriority } : {}),
+  ...(item.badge ? { badge: item.badge } : {}),
   ...(item.children ? { children: item.children.map(keep) } : {}),
 });
 
@@ -312,19 +320,41 @@ function adminNav() {
     });
 }
 
-/** marketplace-web's top nav: the entries without a parent, each with the entries that name it. */
-function marketplaceNav() {
-  const all = contributions("marketplace-web", "top-nav").map(({ item }) => item);
+/** A marketplace-web slot's entries without a parent, each with the entries that name it. */
+function marketplaceNav(slot = "top-nav") {
+  const all = contributions("marketplace-web", slot).map(({ item }) => item);
   const keys = new Set(all.map((item) => item.key));
   for (const item of all) {
-    if (item.parentKey && !keys.has(item.parentKey)) throw new Error(`${item.key}: no top-nav entry ${item.parentKey}`);
+    if (item.parentKey && !keys.has(item.parentKey)) throw new Error(`${item.key}: no ${slot} entry ${item.parentKey}`);
   }
   return all
     .filter((item) => !item.parentKey)
     .map((item) => {
       const children = [...(item.children ?? []), ...all.filter((child) => child.parentKey === item.key)];
-      return keep({ ...item, ...(children.length ? { children } : {}) });
+      return keep({ ...item, ...(children.length || item.children ? { children } : {}) });
     });
+}
+
+/** The inner markup of the design system's `Icon` for each icon `items` name, and the menu's. */
+async function navIcons(...slots) {
+  const need = createRequire(path.join(repo, "packages/design-system/package.json"));
+  const { createElement } = need("react");
+  const { renderToStaticMarkup } = need("react-dom/server");
+  const { Icon } = await import(pathToFileURL(path.join(repo, "packages/design-system/src/icons/index.tsx")).href);
+  const names = new Set(["menu"]);
+  const walk = (item) => {
+    if (item.icon) names.add(item.icon);
+    (item.children ?? []).forEach(walk);
+  };
+  slots.flat().forEach(walk);
+  const icons = {};
+  for (const name of [...names].sort()) {
+    const markup = renderToStaticMarkup(createElement(Icon, { name }));
+    const inner = markup.match(/<svg[^>]*>(.*)<\/svg>/s)?.[1];
+    if (!inner) throw new Error(`icon ${name}: no <svg> in ${markup}`);
+    icons[name] = inner;
+  }
+  return icons;
 }
 
 // Token name in the pilot -> custom property in the design system. Dark values are the same
@@ -1558,6 +1588,9 @@ const outputs = [
     ),
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
+  ["marketplace/nav.bottom.json", json(marketplaceNav("bottom-nav"))],
+  ["marketplace/nav.account.json", json(marketplaceNav("account-menu"))],
+  ["marketplace/nav-icons.json", json(await navIcons(marketplaceNav("bottom-nav"), marketplaceNav("account-menu")))],
   ["platform/tokens.json", json(tokens())],
 ];
 // Outputs that carry the brand foil's values are written on every run, --check included, and are not

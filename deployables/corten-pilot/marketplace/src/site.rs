@@ -264,9 +264,9 @@ fn offline_page<For>(req: &Req) -> corten::Result<corten::HtmlResponse<For>> {
     let t: SiteMsg = req.t();
     let head = html! { <meta name="robots" content="noindex"> };
     req.page(html! {
-        <views::Layout req={req} viewer={None} title={t.offline_title()} head={head}>
+        <views::Frame req={req} viewer={None} shell={false} title={t.offline_title()} head={head}>
             <views::OfflinePage t={t} />
-        </views::Layout>
+        </views::Frame>
     })
 }
 
