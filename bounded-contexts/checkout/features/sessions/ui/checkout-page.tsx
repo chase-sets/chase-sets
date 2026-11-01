@@ -97,7 +97,11 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
           title={t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.title")}
           description={t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.description")}
           action={
-            <LinkButton href={`/checkout/buy/session/${model.session.session_id}`} leadingIcon="refreshCcw" tone="secondary">
+            <LinkButton
+              href={`/checkout/buy/session/${model.session.session_id}`}
+              leadingIcon="refreshCcw"
+              tone="secondary"
+            >
               {t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.refresh")}
             </LinkButton>
           }

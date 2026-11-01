@@ -355,7 +355,9 @@ describe("checkout start entry recovery through the data router", () => {
     await userEvent.click(continueButtons()[0]!);
     await settleRouter();
 
-    const heading = await screen.findByRole("heading", { name: t("checkout.routes.checkoutStart.entry.ambiguous.title") });
+    const heading = await screen.findByRole("heading", {
+      name: t("checkout.routes.checkoutStart.entry.ambiguous.title"),
+    });
     await waitFor(() => expect(document.activeElement).toBe(heading));
     expect(
       screen.getByText(t("checkout.routes.checkoutStart.entry.ambiguous.description")).closest("[aria-live]"),
@@ -381,7 +383,9 @@ describe("checkout start entry recovery through the data router", () => {
   });
 
   it("opens the Session a lost entry's one lookup proves was committed", async () => {
-    mockCreateCheckoutSession.mockRejectedValue(new MockCheckoutApiError(503, { error: { code: "upstream_unavailable" } }));
+    mockCreateCheckoutSession.mockRejectedValue(
+      new MockCheckoutApiError(503, { error: { code: "upstream_unavailable" } }),
+    );
     mockGetCheckoutEntryAttempt.mockResolvedValue({
       schemaVersion: 1,
       kind: "checkout-entry",
@@ -400,6 +404,32 @@ describe("checkout start entry recovery through the data router", () => {
     expect(router!.state.location.pathname).toBe(sessionPath);
     expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
     expect(mockGetCheckoutEntryAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the Session a keyed entry's gateway timeout lookup proves was committed, without resending", async () => {
+    mockCreateCheckoutSession.mockRejectedValue(new MockCheckoutApiError(504, { error: { code: "gateway_timeout" } }));
+    mockGetCheckoutEntryAttempt.mockResolvedValue({
+      schemaVersion: 1,
+      kind: "checkout-entry",
+      fingerprint: "0".repeat(64),
+      actorBinding: { kind: "account", digest: "0".repeat(64) },
+      target: "session",
+      requestHash: "0".repeat(64),
+      ownerStatus: "committed",
+      sessionId: "chk_recovery",
+    });
+    await mount(startPath);
+    const key = loaderEntryKey();
+
+    await userEvent.click(continueButtons()[0]!);
+    await settleRouter();
+
+    expect(router!.state.location.pathname).toBe(sessionPath);
+    expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
+    const [sent] = mockCreateCheckoutSession.mock.calls[0] as [Record<string, unknown>];
+    expect(sent.entryAttemptKey).toBe(key);
+    expect(mockGetCheckoutEntryAttempt).toHaveBeenCalledTimes(1);
+    expect(mockGetCheckoutEntryAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: key }));
   });
 
   it("shows a start 409 as attempt-changed, and the refreshed page's new key opens one Session", async () => {
@@ -516,7 +546,9 @@ describe("checkout session confirm recovery through the data router", () => {
       "POST getCheckoutSession",
     ]);
     expect(
-      screen.queryByRole("heading", { name: t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.title") }),
+      screen.queryByRole("heading", {
+        name: t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.title"),
+      }),
     ).toBeNull();
     expect(mockConfirmCheckoutSession).toHaveBeenCalledTimes(1);
   });
@@ -541,7 +573,9 @@ describe("checkout session confirm recovery through the data router", () => {
 
     expect(router!.state.actionData).toBeNull();
     expect(
-      screen.queryByRole("heading", { name: t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.title") }),
+      screen.queryByRole("heading", {
+        name: t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.title"),
+      }),
     ).toBeNull();
     expect(payButtons().some((button) => !isDisabled(button))).toBe(true);
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();

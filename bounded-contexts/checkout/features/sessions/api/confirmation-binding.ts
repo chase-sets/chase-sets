@@ -49,7 +49,9 @@ function canonicalJson(value: unknown): string {
 }
 
 function digest(schema: string, value: unknown) {
-  return createHash("sha256").update(`${schema}\n${canonicalJson(value)}`).digest("hex");
+  return createHash("sha256")
+    .update(`${schema}\n${canonicalJson(value)}`)
+    .digest("hex");
 }
 
 function shippingAddressContent(address: CheckoutConfirmationInput["shippingAddress"]) {

@@ -1112,7 +1112,10 @@ export function createAccountCheckoutSessionRoutes(
       body.savePaymentMethodForFuture === true && access.actor.roleKey !== "guest-buyer" && !savedCheckoutInstrumentId;
     const requestedSavePaymentMethodForFuture = body.savePaymentMethodForFuture === true;
     const confirmationInput = {
-      shippingAddress: body.shippingAddress === null || body.shippingAddress === undefined ? null : parseShippingAddress(body.shippingAddress),
+      shippingAddress:
+        body.shippingAddress === null || body.shippingAddress === undefined
+          ? null
+          : parseShippingAddress(body.shippingAddress),
       fulfillmentPreviewRevision,
       acknowledgedMaterialChanges,
       paymentMethodCategory,

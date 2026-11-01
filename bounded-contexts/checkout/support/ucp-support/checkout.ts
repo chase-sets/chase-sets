@@ -168,7 +168,10 @@ export function createCheckoutUcpHandlers(
       const line = lines[0];
       const meta = input.requestMeta ?? readUcpRequestMeta(input.request, input.arguments);
       if (!meta.retryKey)
-        throw new CheckoutDomainError("An Idempotency-Key is required to create a checkout.", "checkout_attempt_required");
+        throw new CheckoutDomainError(
+          "An Idempotency-Key is required to create a checkout.",
+          "checkout_attempt_required",
+        );
       const accountId = input.actor!.accountId as AccountId;
       // The platform retry record is the envelope; once it expires, the entry
       // attempt keyed by the retry key still returns the first Session, and the

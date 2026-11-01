@@ -230,7 +230,8 @@ function partitionEntryCallers(files: readonly SourceFile[]) {
       return call.shape !== "direct session start" && !/\bentryAttempt\b/.test(call.args);
     });
     const contentDerived = CONTENT_DERIVED_ENTRY_KEY.test(file.content);
-    const exemptMismatch = expected?.classification === "exempt" && shapes.some((shape) => shape !== "direct session start");
+    const exemptMismatch =
+      expected?.classification === "exempt" && shapes.some((shape) => shape !== "direct session start");
     if (
       !expected ||
       (expected.classification === "attempt-producing" && keyless) ||
@@ -422,7 +423,9 @@ describe("checkout attempt caller partition", () => {
   );
 
   it("names every Session entry write and its keyless-cart exemption in the Checkout manifest", () => {
-    const manifest = JSON.parse(readFileSync(path.join(repoRoot, "bounded-contexts/checkout/context.json"), "utf8")) as {
+    const manifest = JSON.parse(
+      readFileSync(path.join(repoRoot, "bounded-contexts/checkout/context.json"), "utf8"),
+    ) as {
       mutationConsistencyInventory?: readonly { entryAttempt?: Record<string, unknown> }[];
     };
     const entryRows = (manifest.mutationConsistencyInventory ?? []).flatMap((entry) =>

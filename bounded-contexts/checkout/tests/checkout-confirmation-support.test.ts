@@ -440,24 +440,31 @@ function boundaryOwners(sourceType: "cart" | "offer-intent", failing: ConfirmBou
   const orders = new Map<string, readonly string[]>();
   const payments = new Map<string, string>();
   const offers = new Set<string>();
-  const identities = { inventory: inventoryAttemptIds, ordering: [] as string[], payments: [] as string[], offers: [] as string[] };
+  const identities = {
+    inventory: inventoryAttemptIds,
+    ordering: [] as string[],
+    payments: [] as string[],
+    offers: [] as string[],
+  };
 
-  mockCreateCheckoutReservation.mockImplementation(async (attemptId: string, input: { lineKey: string; quantity: number }) => {
-    if (!holds.has(attemptId)) {
-      holds.set(attemptId, {
-        holdId: `hld_${holds.size + 1}`,
-        lineKey: input.lineKey,
-        sellerAccountId: "acc_seller",
-        inventoryItemId: "inv_1",
-        quantity: input.quantity,
-        expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
-        extensionCount: 0,
-        status: "active",
-      });
-      loseAnswerOnce("inventory-hold");
-    }
-    return holds.get(attemptId);
-  });
+  mockCreateCheckoutReservation.mockImplementation(
+    async (attemptId: string, input: { lineKey: string; quantity: number }) => {
+      if (!holds.has(attemptId)) {
+        holds.set(attemptId, {
+          holdId: `hld_${holds.size + 1}`,
+          lineKey: input.lineKey,
+          sellerAccountId: "acc_seller",
+          inventoryItemId: "inv_1",
+          quantity: input.quantity,
+          expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+          extensionCount: 0,
+          status: "active",
+        });
+        loseAnswerOnce("inventory-hold");
+      }
+      return holds.get(attemptId);
+    },
+  );
   // The receipt lookup is lost with the answer, so the caller cannot recover inside the request.
   mockGetMutationAttempt.mockRejectedValue(new TypeError("fetch failed"));
   mockPreviewCheckoutFulfillment.mockResolvedValue({ revision: "preview_1", readyLineKeys: ["cli_1"] });

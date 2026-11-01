@@ -924,7 +924,7 @@ describe("checkout-closed-session-lifecycle", () => {
         readinessSnapshotId: readiness.snapshotId,
         readinessSourceRevision: readiness.sourceRevision,
       },
-      entryAttemptKey: "C",
+      entryAttemptKey: "matrix-cart-start-c-20261031",
     });
     expect(start.status, await start.clone().text()).toBe(201);
     const sessionId: string = (await start.json()).session_id;
@@ -1102,7 +1102,7 @@ describe("checkout-closed-session-lifecycle", () => {
       quantity: 1,
     };
     const started: string[] = [];
-    for (const entryAttemptKey of ["A", "B"]) {
+    for (const entryAttemptKey of ["matrix-buy-now-a-20261031", "matrix-buy-now-b-20261031"]) {
       const response = await post(
         f.open,
         "/checkout-sessions",

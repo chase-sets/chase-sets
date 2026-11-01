@@ -249,7 +249,10 @@ export function parseCheckoutCommandAttemptResult(value: unknown): CheckoutComma
     }
   }
   const isEntry = value.kind === CHECKOUT_ENTRY_ATTEMPT_KIND;
-  if ("sessionId" in value && (!isEntry || typeof value.sessionId !== "string" || !CHECKOUT_SESSION_ID.test(value.sessionId))) {
+  if (
+    "sessionId" in value &&
+    (!isEntry || typeof value.sessionId !== "string" || !CHECKOUT_SESSION_ID.test(value.sessionId))
+  ) {
     return null;
   }
   if (isEntry && "vector" in value) {

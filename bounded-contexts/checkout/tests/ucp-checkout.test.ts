@@ -315,11 +315,14 @@ describe("UCP buy-now readiness AC1", () => {
     expect(f.writes.recordFulfillmentPreview).not.toHaveBeenCalled();
   });
 
-  it("refuses a keyless create_checkout before any read or write", async () => {
+  // REST and MCP both reach this gate: MCP create_checkout keeps the platform
+  // descriptor's idempotencyKeyRequired: false, so the handler is its key gate.
+  it.each([false, true])("refuses a keyless create_checkout before any read or write on MCP=%s", async (mcp) => {
     const f = fixture();
-    const request = input(dto());
+    const request = input(mcp ? { checkout: dto() } : dto(), mcp);
     request.request.headers.delete("Idempotency-Key");
-    expect((await f.restHandlers.create_checkout(request)).messages).toEqual([
+    const handlers = mcp ? f.mcpToolHandlers : f.restHandlers;
+    expect((await handlers.create_checkout(request)).messages).toEqual([
       expect.objectContaining({ code: "checkout_attempt_required" }),
     ]);
     expect(f.getPublicListingById).not.toHaveBeenCalled();

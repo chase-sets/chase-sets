@@ -4265,7 +4265,11 @@ describe("retained-cookie post-claim source authority through the production che
 });
 
 describe("confirmation bound-hash conflict", () => {
-  const confirmBody = { shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1", paymentMethodCategory: "card" };
+  const confirmBody = {
+    shippingAddress,
+    marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+    paymentMethodCategory: "card",
+  };
 
   function confirm(services: CheckoutSessionServices, body: Record<string, unknown>) {
     return buildApp(services).fetch(
@@ -4388,7 +4392,11 @@ describe("confirmation bound-hash conflict", () => {
     const afterPayment = await confirm(paid, confirmBody);
 
     expect(afterPayment.status).toBe(200);
-    await expect(afterPayment.json()).resolves.toEqual({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+    await expect(afterPayment.json()).resolves.toEqual({
+      payment_id: "pay_1",
+      order_ids: ["ord_1"],
+      status: "confirmed",
+    });
     expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
     expect(paid.recordPaymentStarted).not.toHaveBeenCalled();
   });

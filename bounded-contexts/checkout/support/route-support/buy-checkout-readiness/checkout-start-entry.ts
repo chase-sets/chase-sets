@@ -4,16 +4,19 @@ import {
   checkoutEntryAttemptSessionId,
 } from "../../../features/command-attempts/api/entry-attempt-contracts";
 import { checkoutCartAttemptCommitSource } from "../../../features/command-attempts/api/attempt-submission";
+import { readApiErrorCode } from "@chase-sets/http/responses";
 import type { CreateCheckoutSessionRequest } from "../../request-support/api-client";
 import type { CheckoutRequestApi } from "./checkout-start-source";
 
 /**
  * A response that cannot prove the entry never reached the owner: no HTTP
- * status at all, a timeout, or a server or gateway failure.
+ * status at all, a timeout, or a server or gateway failure that is not a
+ * decided refusal such as a closed checkout.
  */
 function isPossibleSendLoss(error: unknown) {
-  const status = (error as { status?: unknown } | null)?.status;
-  return typeof status !== "number" || status === 408 || status >= 500;
+  const { status, body } = (error ?? {}) as { status?: unknown; body?: unknown };
+  if (typeof status !== "number") return true;
+  return status === 408 || (status >= 500 && readApiErrorCode(body) !== "checkout_closed");
 }
 
 /**

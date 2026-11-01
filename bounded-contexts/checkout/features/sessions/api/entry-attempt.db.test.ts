@@ -206,7 +206,9 @@ async function entryAttemptEventTypes(attemptId: string) {
     attemptId,
   });
   return (
-    await readCompleteStream(createPostgresEventStore({ pool }), { streamId: checkoutCommandAttemptStreamId(fingerprint) })
+    await readCompleteStream(createPostgresEventStore({ pool }), {
+      streamId: checkoutCommandAttemptStreamId(fingerprint),
+    })
   ).map((event) => event.eventType);
 }
 
@@ -283,7 +285,11 @@ describeDb("checkout entry attempts against real PostgreSQL", () => {
 
     const exact = await h.enter(publicListingBuy(key));
     const relabeled = await h.enter(
-      publicListingBuy(key, { itemTitle: "Synthetic entry card (relabeled)", priceAmount: "13.00", sellerName: "Renamed" }),
+      publicListingBuy(key, {
+        itemTitle: "Synthetic entry card (relabeled)",
+        priceAmount: "13.00",
+        sellerName: "Renamed",
+      }),
     );
     const changedQuantity = await h.enter(publicListingBuy(key, { quantity: 2 }));
     const changedListing = await h.enter(
@@ -365,7 +371,9 @@ describeDb("checkout entry attempts against real PostgreSQL", () => {
     const replays = await Promise.all(states.map(({ body }) => dayAfter.enter(body)));
 
     expect(replays.map((replay) => replay.status)).toEqual(states.map(() => 201));
-    expect(replays.map((replay) => replay.body.session_id)).toEqual(states.map(({ state }) => firstSessions.get(state)));
+    expect(replays.map((replay) => replay.body.session_id)).toEqual(
+      states.map(({ state }) => firstSessions.get(state)),
+    );
     expect(dayAfter.calls).toEqual({ appendToStream: 0, appendToStreams: 0 });
     expect(h.calls).toEqual(callsBefore);
     expect(mockPreviewBuyNowCheckoutSupplyThroughOrdering).toHaveBeenCalledTimes(previewsBefore);
