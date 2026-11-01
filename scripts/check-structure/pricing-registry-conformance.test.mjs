@@ -96,6 +96,22 @@ describe("pricing registry conformance guard", () => {
     ]);
   });
 
+  it("accepts a named local suite object for a discovered registry run", async () => {
+    const namedSuiteRun = run.replace(
+      'describeConformance({ registry: createTargetStyles, entries: () => [targetStyles.resolve("flat")] });',
+      'const suite = { registry: createTargetStyles, entries: () => [targetStyles.resolve("flat")] };\n  describeConformance(suite);',
+    );
+    const result = await validateFixture({
+      [plantedPath]: planted,
+      [constructionPath]: construction,
+      [kitPath]: kit,
+      [runPath]: namedSuiteRun,
+    });
+
+    expect(result.violations).toEqual([]);
+    expect(result.runs).toEqual([{ file: runPath, registry: `${plantedPath}#createTargetStyles` }]);
+  });
+
   it("rejects a construction site that no run of its registry executes, so its entries are never covered", async () => {
     const runWithoutConstruction = run.replace(/^.*styles-runtime.*$/m, "");
     const result = await validateFixture({
