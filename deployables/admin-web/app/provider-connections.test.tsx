@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
@@ -197,9 +198,9 @@ describe("provider connections real loader and owner exports", () => {
     expect(within(catalogRow as HTMLElement).getByText("Stale", { exact: true })).toBeTruthy();
     expect(screen.queryByText("Fresh")).toBeNull();
     const pageSource = readFileSync(
-      new URL(
-        "../../../bounded-contexts/platform-operations/features/provider-connections/ui/provider-connections-page.tsx",
-        import.meta.url,
+      resolvePath(
+        process.cwd(),
+        "../../bounded-contexts/platform-operations/features/provider-connections/ui/provider-connections-page.tsx",
       ),
       "utf8",
     );
