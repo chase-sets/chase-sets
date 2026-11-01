@@ -50,6 +50,80 @@ describe("changed-path parsing and derivation", () => {
     expect(calls.map(([command]) => command)).toEqual(["rev-parse", "merge-base", "diff"]);
     expect(() => parseNameStatusZ("R100\0old.ts\0")).toThrow(/incomplete/);
   });
+
+  it("uses the complete git argument contract and reports derivation error codes", () => {
+    const calls = [];
+    expect(
+      deriveStaticChangedFiles({
+        repoRoot: process.cwd(),
+        env: {},
+        execGit: (args) => {
+          calls.push(args);
+          if (args[0] === "rev-parse") return "true\n";
+          if (args[0] === "merge-base") return "base123\n";
+          return "R087\0old.ts\0new.ts\0";
+        },
+      }),
+    ).toEqual({ source: "git merge-base", files: ["old.ts", "new.ts"] });
+    expect(calls).toEqual([
+      ["rev-parse", "--is-inside-work-tree"],
+      ["merge-base", "refs/remotes/origin/main", "HEAD"],
+      ["diff", "--name-status", "-z", "--find-renames", "--diff-filter=ACMRTD", "base123...HEAD", "--"],
+    ]);
+    expect(() => deriveStaticChangedFiles({ repoRoot: process.cwd(), env: { CHANGED_FILES_JSON: "{" } })).toThrow(
+      expect.objectContaining({ code: "STATIC_SCOPE_CHANGED_FILES_INVALID" }),
+    );
+    expect(() =>
+      deriveStaticChangedFiles({ repoRoot: process.cwd(), env: { CHANGED_FILES_JSON: '["../outside"]' } }),
+    ).toThrow(expect.objectContaining({ code: "STATIC_SCOPE_CHANGED_FILES_INVALID" }));
+    expect(() =>
+      deriveStaticChangedFiles({
+        repoRoot: process.cwd(),
+        env: {},
+        execGit: () => {
+          throw new Error("not git");
+        },
+      }),
+    ).toThrow(expect.objectContaining({ code: "STATIC_SCOPE_NOT_GIT_REPOSITORY" }));
+    expect(() =>
+      deriveStaticChangedFiles({
+        repoRoot: process.cwd(),
+        env: {},
+        execGit: (args) =>
+          args[0] === "rev-parse"
+            ? "true\n"
+            : (() => {
+                throw new Error("no base");
+              })(),
+      }),
+    ).toThrow(expect.objectContaining({ code: "STATIC_SCOPE_MERGE_BASE_FAILED" }));
+  });
+
+  it("ignores a stray local origin/main and uses the remote-tracking ref", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "change-scope-remote-main-"));
+    try {
+      const git = (...args) =>
+        execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", ...args], {
+          cwd: directory,
+          encoding: "utf8",
+        }).trim();
+      git("init", "--quiet");
+      writeFileSync(path.join(directory, "base.txt"), "base\n");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "base");
+      git("update-ref", "refs/remotes/origin/main", "HEAD");
+      writeFileSync(path.join(directory, "changed.ts"), "changed\n");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "change");
+      git("update-ref", "refs/heads/origin/main", "HEAD");
+      expect(deriveStaticChangedFiles({ repoRoot: directory, env: {} })).toEqual({
+        source: "git merge-base",
+        files: ["changed.ts"],
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 it("uses the synthetic merge commit first parent for a PR's own changed files", () => {
