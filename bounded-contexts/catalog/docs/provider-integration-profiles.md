@@ -150,11 +150,12 @@ partial-draft retry rule. Ambiguous reusable matches block automatic promotion.
 
 ## TCGplayer Automation Client Profile
 
-The TCGplayer integration uses the client contract documented in
-[TCGplayer Automation Client Contract](./tcgplayer-automation-client-contract.md).
-That contract, not the official TCGplayer API docs, is the source of truth for
-provider domains, cookie auth, throttling, endpoint paths, and response concepts
-in this workstream.
+The TCGplayer server transport is retired: Chase Sets never contacts TCGplayer
+servers and never stores or uses a TCGplayer cookie, session, or credential.
+The retired
+[TCGplayer Automation Client Contract](./tcgplayer-automation-client-contract.md),
+not the official TCGplayer API docs, remains the historical vocabulary for the
+provider concepts this profile maps.
 
 The TCGplayer profile models product lines, set names, product search, product
 details, category filters, and SKUs from the automation app. Its executable
@@ -170,8 +171,8 @@ language can be mapped to valid selected Options.
 TCGplayer option queries use the same profile-driven resolver. Product line and
 set-name queries declare legacy aliases such as `categories` and `sets`,
 required parent values, named automation-client operations, and constrained
-output selectors. Product and SKU query definitions are represented in profile
-data for future runtime transports.
+output selectors. Product and SKU query definitions remain profile data only;
+the retired adapter executes no option query.
 
 TCGplayer SKU selected Options are profile-driven: each mapped dimension defines
 the provider evidence path, requiredness, unknown-value policy, provider aliases,
@@ -182,14 +183,12 @@ Unknown, inactive, or missing selected-option evidence remains review evidence.
 The TCGplayer profile can represent product-line and set-name Reference Record
 evidence through the same hierarchy rules, including `tcgplayer-product-line-id`
 and `tcgplayer-set-name` attributes. The TCGplayer Magic single-card profile is
-the active production import profile. The ProviderAdapter is the live transport
-boundary: it lists the `tcgplayer:mtg:single-card:source-observation-import`
-ingestion unit, constrains product-line, set-name, product, and SKU option-query
-transport to Magic single-card products, plans Product and Set Name import
-scopes, fetches automation-app Product Detail payloads, attaches source
-provenance, and emits credential/session, domain, retry, and rate-limit
-diagnostics. Credential storage, validation, rotation, revocation, and readiness
-reporting remain adapter-owned according to
+the active production import profile. The ProviderAdapter lists the
+`tcgplayer:mtg:single-card:source-observation-import` ingestion unit, but it
+declares no option-query, import-planning, or payload-fetch capability and
+refuses each as retired. It reports transport diagnostic `provider-retired` and
+credential readiness `not-required` with diagnostic `provider-retired`
+according to
 [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md).
 It must not decide which TCGplayer facts are Catalog
 Fields, which Product IDs are Catalog Item references, which SKUs are Product
@@ -214,23 +213,24 @@ command plan. Its duplicate-prevention mapping still records review-only
 identity evidence such as sealed product form, barcode/GTIN values, and future
 bridge provider references.
 
-For the transport budgets, TCGplayer remains supplemental transport evidence for
-credential/session/domain/rate-limit behavior. It must not replace the selected
-TCGdex first-slice proof provider until its promotion path is launch-active and
-the provider choice is explicitly changed with evidence.
+TCGplayer contributes no transport-budget evidence because its server transport
+is retired. It must not replace the selected TCGdex first-slice proof provider
+until its promotion path is launch-active and the provider choice is explicitly
+changed with evidence.
 
-The automation client remains transport-owned code for cookie authentication,
-domain-specific HTTP clients, throttling, pagination, endpoint DTOs, and response
-shape audit fixtures. Runtime DTO adaptation may assemble deterministic
-product-form, barcode, source hash, and selected-option context before invoking
-the profile contract only as a reviewed clean launch helper. If a future generic
+The server automation client, its cookie authentication, domain-specific HTTP
+clients, and throttling are removed. Retained TCGplayer DTO adaptation may
+assemble deterministic product-form, barcode, source hash, and selected-option
+context before invoking the profile contract only as a reviewed clean launch
+helper. If a future generic
 profile section replaces one of these helpers, the old helper, tests, fixtures,
 seeds, documentation, runbooks, release notes, and operator instructions must be
 deleted completely. These helpers must not import price, listing, seller,
 inventory, order, or message facts into Catalog truth or hash material.
 
-The runtime dispatches TCGplayer import work through the reviewed provider
-transport and durable-job boundary. Complete deletion of retired page
+The runtime terminally fails any queued TCGplayer import job without a request,
+and new server enqueue and preview commands return an explicit retired-provider
+refusal. Complete deletion of retired page
 or route patterns follows once the rebuilt workbench is accepted. Future generic
 executor replacement must remove the replaced branch, tests, fixtures, seeds,
 screenshots, documentation, runbooks, release notes, and operator instructions
@@ -245,7 +245,8 @@ extensibility. It is not seeded in the active profile registry, cannot be
 activated as a production sync unit, must not appear as a production import
 choice, and must not drive staging UAT or rollout evidence.
 
-Production Magic sync uses MTGJSON, Scryfall, and TCGplayer through the shared
+Production Magic sync uses MTGJSON, Scryfall, and the TCGplayer Magic profile
+units, whose server transport is retired, through the shared
 product-line-agnostic importer. The #2039 interface-only staging UAT accepted
 after PR #2108 (merge `07d7f99cb604da2dd682e0e38b05b8f5e796d7f1`) is the
 launch proof for that shared importer path, not this retired Scrydex proof.
@@ -316,7 +317,7 @@ fixture-backed activation evidence; it is not a fixture-only production path.
 
 Disney Lorcana production sync uses active LorcanaJSON, Lorcast, Scrydex, and
 TCGplayer Lorcana profile units through the shared product-line-agnostic
-importer. Milestone #50 accepted the source-authority signoff and the #2481 /
+importer; the TCGplayer server transport is retired. Milestone #50 accepted the source-authority signoff and the #2481 /
 #2486 interface-only UAT on SHA `0fc9f20279428b78d19c079cb61085a7f6d0cfd6`
 with runs `28278540059`, `28278807826`, and `28279080021`. Production-like
 writes still require the normal
@@ -339,8 +340,9 @@ only as fixture-backed `test` lifecycle contract evidence. It is inactive, is
 not a production import choice, must not appear in Lorcana launch UAT evidence,
 and must not be activated until source authority approves the sealed-product
 data class, rollout controls cover the unit, and UAT expands to that scope.
-Production Lorcana sealed products stay on the existing TCGplayer automation
-unit for this milestone.
+Production Lorcana sealed products stay on the
+`tcgplayer:lorcana:sealed-product:source-observation-import` unit for this
+milestone.
 
 The importer shell must discover these units through generic provider,
 product-line, source-scope, and import-purpose metadata. Do not add a Disney
@@ -350,9 +352,9 @@ using the same shared source-scope controls.
 
 LorcanaJSON is the preferred free bulk-first reference source for set and card
 facts. Lorcast is supplemental and must respect cache/pacing behavior. TCGplayer
-Lorcana uses the existing Chase Sets automation provider for marketplace product
-ids, SKUs, sealed products, variants, and price-reference evidence; TCGCSV is
-not a production provider for this milestone. Scrydex Lorcana uses the shared
+Lorcana units map marketplace product ids, SKUs, sealed products, variants, and
+price-reference evidence, with the TCGplayer server transport retired; TCGCSV
+is not a production provider for this milestone. Scrydex Lorcana uses the shared
 Scrydex connector and shared `SCRYDEX_API_KEY`/`SCRYDEX_TEAM_ID` settings once
 per environment. No Lorcana-specific or game-specific Scrydex secret may be
 introduced.
