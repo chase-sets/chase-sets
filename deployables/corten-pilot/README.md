@@ -128,6 +128,19 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 What each screen covers and leaves out, screen by screen, is in the
 [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("What it covers"), with decisions 1 to 96 behind them.
 
+### Not ported
+
+Every page route marketplace-web, admin-web and public-web declare is served here except admin-web's
+Catalog integrations: `/catalog/integrations` with its `governance`, `settings` and `health` tabs,
+`/catalog/integrations/observation-evidence/{id}` and `/catalog/providers/{providerKey}` (compared
+with each host's route records on 2026-11-01). Their read model is composed in admin-web's loader,
+and these routes change before the API owns it:
+[chase-sets/chase-sets#10507 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/issues/10507)
+waits on [chase-sets/chase-sets#9074 Cut over Catalog routes and every live retired-URL caller to v2](https://github.com/chase-sets/chase-sets/issues/9074)
+and [chase-sets/chase-sets#9076 Delete the v1 Catalog module graph and migrate its surviving type consumers](https://github.com/chase-sets/chase-sets/issues/9076).
+marketplace-web's `/items/{id}/market-history` is a JSON resource for its client; the pilot draws
+the Sales tab's history on the server.
+
 ## Measured
 
 Median of 7 cold-cache loads, signed in as the same user, production builds of both (the React
