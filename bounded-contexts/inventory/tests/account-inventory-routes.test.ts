@@ -62,9 +62,16 @@ function commitHeaders(position = "42") {
 
 describe("marketplace inventory routes", () => {
   it.each(["imr_api_next", null])("resolve-row redirects from next_needs_seller_row_id: %s", async (nextRowId) => {
+    const resolveCalls: Array<{ url: string; body: unknown; attempt: string | null }> = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).includes("/rows/"))
+          resolveCalls.push({
+            url: String(input),
+            body: JSON.parse(String(init?.body)),
+            attempt: new Headers(init?.headers).get("Inventory-Mutation-Attempt"),
+          });
         if (String(input).includes("/api/auth/session"))
           return Promise.resolve(
             jsonResponse({
@@ -103,6 +110,9 @@ describe("marketplace inventory routes", () => {
       catalogItemId: "cat_1",
       storageLocationId: "loc_1",
       selectedOptions: "[]",
+      expectedRowVersion: "2026-11-01T08:00:00.123456Z",
+      expectedRowFingerprint: "native-csv|1",
+      inventoryMutationAttemptId: "7d3d2c8f-963e-4e4b-b6d9-9c5092403b07",
     });
     const result = await inventoryImportsAction({
       request: new Request("http://localhost/account/inventory/imports/imb_1", {
@@ -115,6 +125,20 @@ describe("marketplace inventory routes", () => {
     expect((result as Response).headers.get("Location")).toBe(
       nextRowId ? "/account/inventory/imports/imb_1?resolveRowId=imr_api_next" : "/account/inventory/imports/imb_1",
     );
+    // issue-7169-ac7: the rendered row facts and the form's persisted attempt reach the resolve authority verbatim.
+    expect(resolveCalls).toEqual([
+      {
+        url: expect.stringMatching(/\/import-batches\/imb_1\/rows\/imr_fixed\/resolve$/),
+        body: {
+          catalogItemId: "cat_1",
+          selectedOptions: [],
+          storageLocationId: "loc_1",
+          expectedRowVersion: "2026-11-01T08:00:00.123456Z",
+          expectedRowFingerprint: "native-csv|1",
+        },
+        attempt: "7d3d2c8f-963e-4e4b-b6d9-9c5092403b07",
+      },
+    ]);
   });
   it("loads inventory items and locations through the inventory API", async () => {
     vi.stubGlobal(

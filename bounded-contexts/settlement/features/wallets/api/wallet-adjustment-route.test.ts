@@ -9,6 +9,12 @@ import {
   type WalletAdjustmentServices,
 } from "./wallet-adjustment-runtime";
 import type { WalletServices } from "./runtime";
+import {
+  decideWalletAdjustment,
+  evolveWalletAdjustment,
+  initialWalletAdjustmentState,
+  WALLET_ADJUSTMENT_CONTROLS_DEFAULT,
+} from "../domain/wallet-adjustment";
 
 const OPERATOR_PERMISSIONS = [
   "wallet-adjustments.view",
@@ -121,6 +127,40 @@ async function post(app: Hono<SettlementApiEnv>, path: string, body: unknown, he
     method: "POST",
     body: JSON.stringify(body),
     headers: { "Content-Type": "application/json", ...headers },
+  });
+}
+
+/**
+ * An `approveAndPost` that runs the real `ApproveWalletAdjustment` decision for
+ * the route's input against a requested adjustment, so the route maps the
+ * decider's own refusal rather than a hand-built error.
+ */
+function approveWithDecider(requested: Readonly<{ amount: string; selfBenefiting: boolean }>) {
+  return vi.fn(async (input: Parameters<WalletAdjustmentServices["approveAndPost"]>[0]) => {
+    const state = decideWalletAdjustment(initialWalletAdjustmentState, {
+      type: "RequestWalletAdjustment",
+      adjustmentId: input.adjustmentId,
+      targetAccountId: "acc_target" as never,
+      direction: "credit",
+      amount: requested.amount,
+      currencyCode: "usd",
+      reasonCode: "goodwill-cash-credit",
+      explanation: null,
+      evidenceReferences: [],
+      requestedBy: "usr_requester" as never,
+      requestedAt: "2026-07-10T00:00:00.000Z",
+      selfBenefiting: requested.selfBenefiting,
+    }).reduce(evolveWalletAdjustment, initialWalletAdjustmentState);
+    decideWalletAdjustment(state, {
+      type: "ApproveWalletAdjustment",
+      approvedBy: input.approvedBy,
+      approvedAt: "2026-07-10T01:00:00.000Z",
+      controls: WALLET_ADJUSTMENT_CONTROLS_DEFAULT,
+      createsOrIncreasesNegativeBalance: false,
+      reversalAfterFundsSettled: false,
+      elevationApprovedBy: input.elevationApprovedBy ?? null,
+    });
+    return snapshot({ status: "posted" }) as never;
   });
 }
 
@@ -296,6 +336,57 @@ describe("wallet adjustment routes: approve, reject, reverse", () => {
     });
     const response = await post(createApp(services, OPERATOR_PERMISSIONS), "/wallet-adjustments/wad_1/approve", {});
     expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: { code: "conflict", message: "A Wallet Adjustment cannot be approved by its requester." },
+    });
+  });
+
+  it("refuses a missing elevated approver with a 409 conflict carrying the elevated_approval_required detail", async () => {
+    const services = createServices({
+      approveAndPost: approveWithDecider({ amount: "500.00", selfBenefiting: false }),
+    });
+    const response = await post(createApp(services, OPERATOR_PERMISSIONS), "/wallet-adjustments/wad_1/approve", {});
+    expect(response.status).toBe(409);
+    const message = "This Wallet Adjustment requires a second, elevated approval.";
+    expect(await response.json()).toEqual({
+      error: { code: "conflict", message, details: [{ code: "elevated_approval_required", message }] },
+    });
+  });
+
+  it("refuses a self-benefiting adjustment with a 409 conflict carrying the self_benefiting_blocked detail", async () => {
+    const services = createServices({ approveAndPost: approveWithDecider({ amount: "10.00", selfBenefiting: true }) });
+    const response = await post(createApp(services, OPERATOR_PERMISSIONS), "/wallet-adjustments/wad_1/approve", {});
+    expect(response.status).toBe(409);
+    const message = "A self-benefiting Wallet Adjustment is blocked outright and cannot be approved.";
+    expect(await response.json()).toEqual({
+      error: { code: "conflict", message, details: [{ code: "self_benefiting_blocked", message }] },
+    });
+  });
+
+  it("keeps the non-distinct elevated approver refusal a generic 409 conflict without a detail", async () => {
+    const services = createServices({
+      approveAndPost: approveWithDecider({ amount: "500.00", selfBenefiting: false }),
+    });
+    const response = await post(createApp(services, OPERATOR_PERMISSIONS), "/wallet-adjustments/wad_1/approve", {
+      elevationApprovedByUserId: "usr_requester",
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "conflict",
+        message: "The elevated approver must be distinct from the requester and the primary approver.",
+      },
+    });
+  });
+
+  it("approves once the required elevated approver is supplied", async () => {
+    const services = createServices({
+      approveAndPost: approveWithDecider({ amount: "500.00", selfBenefiting: false }),
+    });
+    const response = await post(createApp(services, OPERATOR_PERMISSIONS), "/wallet-adjustments/wad_1/approve", {
+      elevationApprovedByUserId: "usr_elevated",
+    });
+    expect(response.status).toBe(200);
   });
 
   it("requires distinct approver identities to reverse a posted adjustment", async () => {
