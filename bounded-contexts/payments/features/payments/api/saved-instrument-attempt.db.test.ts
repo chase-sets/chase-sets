@@ -771,6 +771,82 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       ]);
     });
 
+    it("detects a forced late second read without accepting the old race outcome", async () => {
+      const primary = harness();
+      const replica = harness({}, "replica");
+      const command = { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId: freshAttemptId() };
+      const streamId = streamIdFor(command.attemptId);
+      const firstStartedCommit = deferred();
+      const appended: Runtime[] = [];
+      const trace: Array<{ event: string; runtime?: Runtime; detail?: unknown }> = [];
+      const readAbsent: Record<Runtime, boolean> = { primary: false, replica: false };
+      let lateSecondRead = false;
+      let firstStarted: Runtime | undefined;
+      let firstReadRuntime: Runtime | undefined;
+      let readReleased = false;
+
+      intercept = async (statement, run) => {
+        const readsAttemptStream =
+          /^\s*SELECT\b/i.test(statement.sql) &&
+          /\bFROM\s+event_store_events\b/i.test(statement.sql) &&
+          statement.params[0] === streamId;
+        if (readsAttemptStream) {
+          if (firstReadRuntime === undefined) firstReadRuntime = statement.runtime;
+          if (statement.runtime !== firstReadRuntime && !readReleased) {
+            await firstStartedCommit.promise;
+            readReleased = true;
+          }
+          const result = await run();
+          const rows = (result as { rows?: readonly unknown[] }).rows;
+          if (!readAbsent[statement.runtime] && rows?.length === 0) {
+            readAbsent[statement.runtime] = true;
+            trace.push({ event: "readAbsent", runtime: statement.runtime });
+          }
+          return result;
+        }
+        if (statement.sql === "COMMIT" && firstStarted === undefined) {
+          const result = await run();
+          firstStarted = statement.runtime;
+          const other: Runtime = statement.runtime === "primary" ? "replica" : "primary";
+          lateSecondRead = !readAbsent[other];
+          trace.push({ event: "firstStartedCommit", runtime: statement.runtime });
+          firstStartedCommit.resolve();
+          return result;
+        }
+        if (streamUpsert(statement, streamId) && !appended.includes(statement.runtime)) {
+          appended.push(statement.runtime);
+          trace.push({ event: "appended", runtime: statement.runtime });
+        }
+        return run();
+      };
+
+      const first = primary.services.setSavedCheckoutInstrumentDefault(command, context);
+      const duplicate = replica.services.setSavedCheckoutInstrumentDefault(command, context);
+      const copiesSettled = Promise.allSettled([first, duplicate]);
+      onTestFinished(async () => {
+        firstStartedCommit.resolve();
+        await copiesSettled;
+        console.info(
+          "saved-instrument-race-control",
+          JSON.stringify({
+            trace,
+            appended,
+            assertions: { readAbsent, firstStarted, lateSecondRead },
+            bounds: { cleanup: true },
+          }),
+        );
+      });
+
+      await copiesSettled;
+      expect(firstStarted).toBeDefined();
+      expect(lateSecondRead).toBe(true);
+      const other: Runtime = firstStarted === "primary" ? "replica" : "primary";
+      expect(readAbsent[other]).toBe(false);
+      expect(appended).toHaveLength(1);
+      expect(writes.filter(isDefaultWrite)).toHaveLength(1);
+      expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
+    });
+
     it.each<Runtime>(["replica", "primary"])(
       "never lets a delayed exact duplicate overwrite a later completed distinct default when the %s appends started first",
       async (firstAppender) => {
@@ -879,6 +955,20 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
           }
           await copiesSettled;
         });
+        onTestFinished(async () => {
+          await copiesSettled;
+          console.info(
+            "saved-instrument-race-finished",
+            JSON.stringify({
+              firstAppender,
+              trace,
+              opened,
+              appended,
+              assertions: { readAbsent, firstStartedCommit, lateSecondRead },
+              bounds: { rendezvous: opened.rendezvous === true, cleanup: true },
+            }),
+          );
+        });
         let parked: Awaited<ReturnType<typeof parkedActivity>>;
         try {
           opened.admitted = await bounded(duplicateAdmitted.promise);
@@ -903,6 +993,10 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         }
 
         await copiesSettled;
+        expect(await eventTypes(primary.eventStore, command.attemptId)).toEqual([
+          SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_STARTED,
+          SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_COMPLETED,
+        ]);
         if (appended.length !== 2) lateSecondRead = true;
         expect(readAbsent).toEqual({ primary: true, replica: true });
         expect(firstStartedCommit).toBeDefined();
