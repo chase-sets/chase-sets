@@ -16,10 +16,10 @@ use corten_ui::CheckboxGroup;
 
 use super::{on_marketplace, order_page::display_reference};
 use crate::{
-    api::{RemedyTerms, ReturnShipping, SupportCaseRow, SupportFlowSummary},
+    api::{CustomerRemedyStatus, RemedyState, ReturnShipping, SupportCaseRow, SupportFlowSummary},
     app::url,
-    support::{Role, SupportInput},
-    support_list::{Intake, OpenInput, PICTURES, RemedyState, Step, SupportListScreen, checklist, next_deadline, remedy_state},
+    support::Role,
+    support_list::{Intake, OpenInput, PICTURES, Step, SupportListScreen, checklist},
     text::SupportMsg,
 };
 
@@ -116,20 +116,6 @@ pub fn SupportListPage<'a>(t: SupportMsg, screen: &'a SupportListScreen) -> impl
                         <input type="hidden" name={OpenInput::FIELDS.account} value={&screen.account}>
                         <input type="hidden" name={OpenInput::FIELDS.check_attempt} value={&recovery.attempt}>
                         <input type="hidden" name={OpenInput::FIELDS.check_hash} value={&recovery.hash}>
-                        <button type="submit" class={Button}>{t.attempt_check_status()}</button>
-                    </form>
-                </div>
-            }
-            if let Some((case, recovery)) = &said.evidence {
-                <div class={Banner} data-tone="warning">
-                    <h2 class={PartTitle} tabindex="-1" autofocus={said.error.is_none()}>{t.attempt_check_before_retry()}</h2>
-                    <p>{t.attempt_ambiguous()}</p>
-                    <form method="post" action={url::SupportCase { id: case, place: Default::default() }}>
-                        <input type="hidden" name={SupportInput::FIELDS.intent} value="check-status">
-                        <input type="hidden" name={SupportInput::FIELDS.account} value={&screen.account}>
-                        <input type="hidden" name={SupportInput::FIELDS.check_kind} value={&recovery.action_kind}>
-                        <input type="hidden" name={SupportInput::FIELDS.check_attempt} value={&recovery.attempt}>
-                        <input type="hidden" name={SupportInput::FIELDS.check_hash} value={&recovery.hash}>
                         <button type="submit" class={Button}>{t.attempt_check_status()}</button>
                     </form>
                 </div>
@@ -238,11 +224,13 @@ fn CaseRow<'a>(t: SupportMsg, row: &'a SupportCaseRow, role: Role) -> impl Rende
             <td data-label={t.list_priority()}>
                 <span class={Badge} data-tone={if row.priority == "urgent" { "danger" } else { "neutral" }}>{&row.priority}</span>
             </td>
-            <td data-label={t.list_next_deadline()}>{when(t, next_deadline(row))}</td>
+            <td data-label={t.list_next_deadline()}>{when(t, row.next_deadline.as_deref())}</td>
             <td data-label={t.list_checklist()}>{t.list_checklist_summary(done, required)}</td>
             <td data-label={t.list_resolution()}>
                 <div class={Stack}>
-                    <RemedyStatus t={t} row={row} role={role} />
+                    if let Some(status) = &row.customer_remedy_status {
+                        <RemedyStatus t={t} status={status} role={role} />
+                    }
                     if let Some(shipping) = &row.return_shipping {
                         <ReturnShippingStatus t={t} shipping={shipping} role={role} />
                     }
@@ -273,100 +261,91 @@ fn remedy_title(t: SupportMsg, state: RemedyState) -> (&'static str, &'static st
 }
 
 /// What the remedy gives, in the role's words (`outcomeCopy`).
-fn outcome(t: SupportMsg, row: &SupportCaseRow, terms: &RemedyTerms, role: Role) -> String {
-    let amount = money(t, &terms.remedy.amount, &terms.remedy.currency_code);
-    let seller = money(t, &terms.allocation.seller_funded_amount, &terms.allocation.currency_code);
-    let platform = money(t, &terms.allocation.platform_funded_amount, &terms.allocation.currency_code);
-    let Some(remedy) = &row.remedy else {
-        return t.remedy_outcome_under_review(&amount).to_string();
-    };
-    match role {
-        Role::Buyer if terms.remedy.kind == "full-refund" => t.remedy_outcome_full_refund(&amount).to_string(),
-        Role::Buyer => t.remedy_outcome_partial_refund(&amount).to_string(),
-        _ if terms.allocation.funding_kind == "seller-funded" => t.remedy_seller_allocation_seller_funded(&seller).to_string(),
-        _ if remedy.status == "completed" => t.remedy_seller_allocation_completed_covered(&seller, &platform).to_string(),
+fn outcome(t: SupportMsg, status: &CustomerRemedyStatus) -> String {
+    let amount = money(t, &status.amount, &status.currency_code);
+    let seller = money(t, &status.seller_amount, &status.allocation_currency_code);
+    let platform = money(t, &status.platform_amount, &status.allocation_currency_code);
+    match status.outcome.as_str() {
+        "underReview" => t.remedy_outcome_under_review(&amount).to_string(),
+        "fullRefund" => t.remedy_outcome_full_refund(&amount).to_string(),
+        "partialRefund" => t.remedy_outcome_partial_refund(&amount).to_string(),
+        "sellerFunded" => t.remedy_seller_allocation_seller_funded(&seller).to_string(),
+        "completedCovered" => t.remedy_seller_allocation_completed_covered(&seller, &platform).to_string(),
         _ => t.remedy_seller_allocation_covered(&seller, &platform).to_string(),
     }
 }
 
-/// What the buyer is told about coverage, once a remedy runs (`coverageCopy`).
-fn coverage(t: SupportMsg, row: &SupportCaseRow, terms: &RemedyTerms, role: Role) -> Option<String> {
-    if role != Role::Buyer || row.remedy.is_none() {
-        return None;
-    }
-    match terms.allocation.funding_kind.as_str() {
-        "platform-funded" => Some(t.remedy_coverage_full().to_owned()),
-        "split" => {
-            let amount = money(t, &terms.allocation.platform_funded_amount, &terms.allocation.currency_code);
-            Some(t.remedy_coverage_partial(&amount).to_string())
+/// What the buyer is told about coverage (`coverageCopy`).
+fn coverage(t: SupportMsg, status: &CustomerRemedyStatus) -> Option<String> {
+    match status.coverage.as_deref() {
+        Some("full") => Some(t.remedy_coverage_full().to_owned()),
+        Some("partial") => {
+            Some(t.remedy_coverage_partial(&money(t, &status.platform_amount, &status.allocation_currency_code)).to_string())
         }
         _ => None,
     }
 }
 
 /// Where the item goes back to (`returnCopy`).
-fn return_copy(t: SupportMsg, terms: &RemedyTerms, role: Role) -> &'static str {
-    match (terms.return_directive.as_str(), role) {
-        ("return-to-platform", Role::Buyer) => t.remedy_return_buyer_platform(),
-        ("return-to-platform", _) => t.remedy_return_seller_platform(),
-        ("return-to-seller", Role::Buyer) => t.remedy_return_buyer_seller(),
-        ("return-to-seller", _) => t.remedy_return_seller_seller(),
+fn return_copy(t: SupportMsg, status: &CustomerRemedyStatus, role: Role) -> &'static str {
+    match (status.return_directive.as_deref(), role) {
+        (Some("return-to-platform"), Role::Buyer) => t.remedy_return_buyer_platform(),
+        (Some("return-to-platform"), _) => t.remedy_return_seller_platform(),
+        (Some("return-to-seller"), Role::Buyer) => t.remedy_return_buyer_seller(),
+        (Some("return-to-seller"), _) => t.remedy_return_seller_seller(),
         _ => t.remedy_return_none(),
     }
 }
 
 /// When the refund can be submitted (`refundTimingCopy`).
-fn refund_timing(t: SupportMsg, terms: &RemedyTerms) -> &'static str {
-    match terms.refund_trigger.as_str() {
-        "carrier-accepted" => t.remedy_refund_timing_carrier_accepted(),
-        "delivered" => t.remedy_refund_timing_delivered(),
-        "facility-intake" => t.remedy_refund_timing_intake(),
-        "operator-release" => t.remedy_refund_timing_review(),
+fn refund_timing(t: SupportMsg, status: &CustomerRemedyStatus) -> &'static str {
+    match status.refund_trigger.as_deref() {
+        Some("carrier-accepted") => t.remedy_refund_timing_carrier_accepted(),
+        Some("delivered") => t.remedy_refund_timing_delivered(),
+        Some("facility-intake") => t.remedy_refund_timing_intake(),
+        Some("operator-release") => t.remedy_refund_timing_review(),
         _ => t.remedy_refund_timing_immediate(),
     }
 }
 
-/// What the role does next (`nextActionCopy`); none once it is completed.
-fn next_action(t: SupportMsg, state: RemedyState, role: Role) -> Option<&'static str> {
-    Some(match state {
-        RemedyState::Completed => return None,
-        RemedyState::LabelReady if role == Role::Buyer => t.remedy_next_action_ship(),
-        RemedyState::InProgress if role == Role::Buyer => t.remedy_next_action_wait_for_label(),
-        RemedyState::Expired | RemedyState::CarrierException | RemedyState::ManualReview => t.remedy_next_action_follow_support(),
-        RemedyState::RefundFailure => t.remedy_next_action_refund_failure(),
+/// What the role does next (`nextActionCopy`).
+fn next_action(t: SupportMsg, status: &CustomerRemedyStatus) -> Option<&'static str> {
+    Some(match status.next_action.as_deref()? {
+        "ship" => t.remedy_next_action_ship(),
+        "waitForLabel" => t.remedy_next_action_wait_for_label(),
+        "followSupport" => t.remedy_next_action_follow_support(),
+        "refundFailure" => t.remedy_next_action_refund_failure(),
         _ => t.remedy_next_action_none(),
     })
 }
 
-/// A case's remedy as its buyer or seller sees it (`CustomerRemedyStatus`).
+/// A case's remedy as its buyer or seller sees it (`CustomerRemedyStatus`), from the list read's
+/// projection.
 #[component(css = SupportListPage)]
-fn RemedyStatus<'a>(t: SupportMsg, row: &'a SupportCaseRow, role: Role) -> impl Render {
-    let state = remedy_state(row, role);
-    let terms = row.remedy.as_ref().map(|r| r.terms()).or_else(|| row.remedy_approval.as_ref().map(|a| a.terms.clone()));
+fn RemedyStatus<'a>(t: SupportMsg, status: &'a CustomerRemedyStatus, role: Role) -> impl Render {
+    let (title, tone) = remedy_title(t, status.state);
     html! {
-        if let (Some(state), Some(terms)) = (state, terms.as_ref()) {
-            <div class={Stack}>
-                <span class={Badge} data-tone={remedy_title(t, state).1}>{remedy_title(t, state).0}</span>
-                <p class={(Small, Strong)}>{outcome(t, row, terms, role)}</p>
-                if let Some(coverage) = coverage(t, row, terms, role) {
-                    <p class={Small}>{coverage}</p>
-                }
-                if role == Role::Seller && terms.allocation.funding_kind != "seller-funded" {
-                    <p class={(Small, Muted)}>{t.remedy_coverage_no_fault_finding()}</p>
-                }
-                <p class={(Small, Muted)}>{return_copy(t, terms, role)}</p>
-                <p class={(Small, Muted)}>{refund_timing(t, terms)}</p>
-                if let Some(next) = next_action(t, state, role) {
-                    <div class={Next}>
-                        <p class={(Small, Muted)}>{t.remedy_next_action_label()}</p>
-                        <p class={(Small, Strong)}>{next}</p>
-                    </div>
-                }
-                <a class={(Link, Small)} href={&on_marketplace("/help/buying/order-protection#platform-covered-resolutions")}>
-                    {t.remedy_policy_link()}
-                </a>
-            </div>
-        }
+        <div class={Stack}>
+            <span class={Badge} data-tone={tone}>{title}</span>
+            <p class={(Small, Strong)}>{outcome(t, status)}</p>
+            if let Some(coverage) = coverage(t, status) {
+                <p class={Small}>{coverage}</p>
+            }
+            if status.no_fault_finding {
+                <p class={(Small, Muted)}>{t.remedy_coverage_no_fault_finding()}</p>
+            }
+            <p class={(Small, Muted)}>{return_copy(t, status, role)}</p>
+            <p class={(Small, Muted)}>{refund_timing(t, status)}</p>
+            if let Some(next) = next_action(t, status).filter(|_| !status.terminal) {
+                <div class={Next}>
+                    <p class={(Small, Muted)}>{t.remedy_next_action_label()}</p>
+                    <p class={(Small, Strong)}>{next}</p>
+                </div>
+            }
+            <a class={(Link, Small)} href={&on_marketplace("/help/buying/order-protection#platform-covered-resolutions")}>
+                {t.remedy_policy_link()}
+            </a>
+        </div>
     }
 }
 
@@ -622,13 +601,9 @@ fn ReviewStep<'a>(t: SupportMsg, screen: &'a SupportListScreen, intake: &'a Inta
                 <fieldset class={Plain} disabled={!screen.said.writes()}>
                     <input type="hidden" name={f.intent} value="open">
                     <input type="hidden" name={f.account} value={&screen.account}>
-                    {SubmitKey::field(f.attempt)}
-                    <input type="hidden" name={f.evidence_attempt} value={&batch.evidence_attempt}>
+                    <input type="hidden" name={f.attempt} value={&batch.attempt}>
                     <input type="hidden" name={f.operation} value={&batch.operation}>
                     <input type="hidden" name={f.uncertain} value={if batch.uncertain { "true" } else { "false" }}>
-                    if let Some(case) = &batch.case {
-                        <input type="hidden" name={f.case} value={case}>
-                    }
                     for reference in &batch.refs {
                         <input type="hidden" name={f.refs} value={reference}>
                     }
@@ -660,9 +635,6 @@ fn ReviewStep<'a>(t: SupportMsg, screen: &'a SupportListScreen, intake: &'a Inta
                 <form method="post" action={here} enctype="multipart/form-data">
                     <input type="hidden" name={f.intent} value="new-batch">
                     <input type="hidden" name={f.account} value={&screen.account}>
-                    if let Some(case) = &batch.case {
-                        <input type="hidden" name={f.case} value={case}>
-                    }
                     <button type="submit" class={(Button, Secondary)}>{t.list_photos_new_batch()}</button>
                 </form>
             }
