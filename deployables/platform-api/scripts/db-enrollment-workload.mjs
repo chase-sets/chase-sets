@@ -47,7 +47,7 @@ import { deriveBootstrapDbCaseIdentities, derivePlatformApiDbTestCensus } from "
 const toolingRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const platformApiPath = "deployables/platform-api";
 const vitestConfigPath = `${platformApiPath}/vitest.config.ts`;
-const registryPath = `${platformApiPath}/src/generated/api-context-registry.ts`;
+const registryPath = `${platformApiPath}/src/context-registry.ts`;
 const selectionTypePath = "infrastructure/platform-runtime/api.ts";
 const workflowPath = ".github/workflows/platform-pr.yml";
 const lockfilePath = "pnpm-lock.yaml";

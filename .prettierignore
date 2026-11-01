@@ -20,8 +20,6 @@ test-results/
 pnpm-lock.yaml
 tsconfig.base.json
 bounded-contexts/*/context.json
-deployables/*/src/generated/*-context-registry.ts
-deployables/*/app/generated/*-context-registry.ts
 **/*.md
 **/*.svg
 infrastructure/helm/*/templates/*.yaml

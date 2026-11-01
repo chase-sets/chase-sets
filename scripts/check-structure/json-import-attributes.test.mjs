@@ -40,7 +40,7 @@ function contextFiles(indexSource, extraFiles = {}) {
       deployableContributions: [],
     }),
     "bounded-contexts/example/index.ts": indexSource,
-    "deployables/platform-api/src/generated/api-context-registry.ts": 'import "@chase-sets/example";\n',
+    "deployables/platform-api/src/context-registry.ts": 'import "@chase-sets/example";\n',
     ...extraFiles,
   };
 }
@@ -340,7 +340,7 @@ describe("JSON import-attribute production guard", () => {
   it("gives the derived Node closure precedence over every exclusion set", () => {
     const inventory = inspectFixture(
       contextFiles("export const marker = true;\n", {
-        "deployables/platform-api/src/generated/api-context-registry.ts":
+        "deployables/platform-api/src/context-registry.ts":
           'import "../../../../bounded-contexts/example/renderer.tsx";\n',
         "bounded-contexts/example/renderer.tsx":
           'import contextManifest from "./context.json" with { type: "json" };\n',
@@ -358,7 +358,7 @@ describe("JSON import-attribute production guard", () => {
   it("fails arbitrary Vite, registry, and test lookalikes closed as indeterminate", async () => {
     const attributed = 'import contextManifest from "../../../example/context.json" with { type: "json" };\n';
     const files = contextFiles("export const marker = true;\n", {
-      "deployables/platform-api/src/generated/api-context-registry.ts": "export const registry = [];\n",
+      "deployables/platform-api/src/context-registry.ts": "export const registry = [];\n",
       "bounded-contexts/synthetic/support/runtime-support/renderer.tsx": attributed,
       "bounded-contexts/synthetic/support/runtime-support/renderer.test.ts": attributed,
       "bounded-contexts/synthetic/generated/web-context-registry.ts":
@@ -789,7 +789,7 @@ describe("real repository execution membership", () => {
   it("retains cyclic value paths without promoting type-only edges or parsing irrelevant branches", () => {
     withFixture(
       contextFiles('export { default as contextManifest } from "./context.json" with { type: "json" };', {
-        "deployables/platform-api/src/generated/api-context-registry.ts":
+        "deployables/platform-api/src/context-registry.ts":
           'import "../../../../bounded-contexts/example/bridge"; import "../../../../bounded-contexts/example/unused";',
         "bounded-contexts/example/bridge.ts": 'export * from "./loop"; import type { Shape } from "./types";',
         "bounded-contexts/example/loop.ts": 'export * from "./bridge"; export * from "./index";',
@@ -868,7 +868,7 @@ describe("real repository execution membership", () => {
         'export { default as contextManifest } from "./context.json" with { type: "json" };\n' +
           'import draft from "@chase-sets/draft/context" with { type: "json" };',
         {
-          "deployables/platform-api/src/generated/api-context-registry.ts":
+          "deployables/platform-api/src/context-registry.ts":
             'import "@chase-sets/example";\nimport "@chase-sets/rogue";\n',
           "bounded-contexts/example/extra.ts": 'import manifest from "./context.json" with { type: "json" };',
           "bounded-contexts/draft/package.json": JSON.stringify({
@@ -990,7 +990,7 @@ describe("real repository execution membership", () => {
     ).toMatchObject({ disposition: "vite-excluded" });
     expect(
       result.inventory.declarations.find(
-        (entry) => entry.relativeFile === "deployables/admin-web/app/generated/web-context-registry.ts",
+        (entry) => entry.relativeFile === "deployables/admin-web/app/context-registry.ts",
       ),
     ).toMatchObject({ disposition: "vite-excluded" });
     expect(

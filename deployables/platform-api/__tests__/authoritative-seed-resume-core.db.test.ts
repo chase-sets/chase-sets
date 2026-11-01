@@ -2,7 +2,7 @@ import { countEventsWithPrefix, loadSubscriptionCheckpoint } from "@chase-sets/b
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { describe, expect, it } from "vitest";
 import { identitySeedIds } from "@chase-sets/identity/server";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import { createPlatformApiBootstrapTestHarness, RETAINED_STATE_HANDOFF_ERROR } from "./bootstrap-db-test-support";
 import {
   activeContextRelationCounts,

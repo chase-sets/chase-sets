@@ -4,7 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { InventoryDraftListingConsumer, MarketplaceServices } from "@chase-sets/marketplace/server";
 import { createPlatformWorkerInventoryDraftListingConsumer } from "../src/inventory-draft-listing-consumer";
 import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
-import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { workerContextRegistry } from "../src/context-registry";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import {

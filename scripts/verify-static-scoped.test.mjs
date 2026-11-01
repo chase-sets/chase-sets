@@ -380,7 +380,7 @@ describe("scoped guard-test selection", () => {
         "scripts/sync-workspace-metadata.mjs",
         "scripts/registry-helper.mjs",
         "deployables/platform-api/__tests__/operator-session/operator-session-secrecy.test.ts",
-        "deployables/admin-web/app/generated/web-context-registry.ts",
+        "deployables/admin-web/app/context-registry.ts",
       ],
     ],
     [

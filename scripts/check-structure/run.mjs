@@ -26,6 +26,7 @@ import { validateLinkIntentActionProducers } from "./link-intent-action-producer
 import { validateCrossContextReadInventory } from "./cross-context-read-inventory.mjs";
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { validateIaRegistry } from "./ia-registry-guard.mjs";
+import { validateContextRegistries } from "./context-registry-guard.mjs";
 import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
 import { validateServerBarrelReactFree } from "./server-barrel-react-free.mjs";
 import { findBootSchemaDdlDisciplineViolations } from "./boot-schema-ddl-discipline.mjs";
@@ -3945,6 +3946,8 @@ export async function runStructureCheck(options = {}) {
   for (const violation of iaRegistryResult.violations) {
     violations.push(violation);
   }
+
+  violations.push(...validateContextRegistries(repoRoot, { contexts: [...contextManifests.values()] }));
   for (const warning of iaRegistryResult.warnings) {
     warnings.push(warning);
   }

@@ -35,11 +35,11 @@ const manifestPath = path.join(channelsRoot, "context.json");
 const packagePath = path.join(channelsRoot, "package.json");
 const baselinePath = path.join(repoRoot, "scripts/check-structure/glossary-coverage-baseline.json");
 const registryPaths = [
-  "deployables/platform-api/src/generated/api-context-registry.ts",
-  "deployables/platform-worker/src/generated/worker-context-registry.ts",
-  "deployables/admin-web/app/generated/web-context-registry.ts",
-  "deployables/marketplace/app/generated/web-context-registry.ts",
-  "deployables/public-web/app/generated/web-context-registry.ts",
+  "deployables/platform-api/src/context-registry.ts",
+  "deployables/platform-worker/src/context-registry.ts",
+  "deployables/admin-web/app/context-registry.ts",
+  "deployables/marketplace/app/context-registry.ts",
+  "deployables/public-web/app/context-registry.ts",
 ];
 const requiredRootFiles = [
   "api.ts",

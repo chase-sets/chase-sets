@@ -18,7 +18,7 @@ import {
 } from "@chase-sets/platform-runtime/worker-event-capability";
 import { describe, expect, it, vi } from "vitest";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
-import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { workerContextRegistry } from "../src/context-registry";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,

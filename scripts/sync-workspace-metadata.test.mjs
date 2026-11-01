@@ -192,15 +192,11 @@ describe("sync-workspace-metadata --check", () => {
         "bounded-contexts/catalog/context.json",
         "bounded-contexts/catalog-two/context.json",
         "contracts/localization/locales/en.ts",
-        "deployables/platform-api/src/generated/api-context-registry.ts",
-        "deployables/platform-worker/src/generated/worker-context-registry.ts",
       ].map((file) => readFileSync(path.join(fixture.rootDir, file), "utf8"));
     const first = readOutputs();
     syncWorkspaceMetadata({ ...fixture, workspaces: [...fixture.workspaces].reverse() });
     const second = readOutputs();
     expect(second).toEqual(first);
-    expect(second[3]).toMatch(/contextName: "catalog"[\s\S]*contextName: "catalog-two"/);
-    expect(second[4]).toMatch(/contextName: "catalog"[\s\S]*contextName: "catalog-two"/);
   });
 
   it("fails closed when a source cannot compose instead of reading canonical context.json", async () => {
@@ -296,25 +292,18 @@ describe("sync-workspace-metadata --check", () => {
     expect(englishMerge).toContain("export type EnglishTranslationKey = keyof typeof englishTranslations;");
   });
 
-  it("fails without writing when generated metadata is stale", async () => {
+  it("does not overwrite hand-authored registries", async () => {
     const fixture = await createMetadataFixture();
     syncWorkspaceMetadata(fixture);
-    const generatedPath = path.join(
-      fixture.rootDir,
-      "deployables",
-      "platform-api",
-      "src",
-      "generated",
-      "api-context-registry.ts",
-    );
-    const staleContent = "// stale\n";
-    writeFileSync(generatedPath, staleContent, "utf8");
+    const generatedPath = path.join(fixture.rootDir, "deployables", "platform-api", "src", "context-registry.ts");
+    const authoredContent = "export const apiContextRegistry = [] as const;\n";
+    writeFileSync(generatedPath, authoredContent, "utf8");
 
-    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(/Workspace metadata is out of date:/);
-    expect(readFileSync(generatedPath, "utf8")).toBe(staleContent);
+    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).not.toThrow();
+    expect(readFileSync(generatedPath, "utf8")).toBe(authoredContent);
   });
 
-  it("reports legacy generated files as drift without deleting them", async () => {
+  it("does not sweep legacy files because registry ownership is no longer generated", async () => {
     const fixture = await createMetadataFixture();
     syncWorkspaceMetadata(fixture);
     const legacyPath = path.join(
@@ -326,9 +315,7 @@ describe("sync-workspace-metadata --check", () => {
     await mkdir(path.dirname(legacyPath), { recursive: true });
     writeFileSync(legacyPath, "// legacy\n", "utf8");
 
-    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(
-      /api-context-registry\.generated\.ts should be deleted/,
-    );
+    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).not.toThrow();
     expect(readFileSync(legacyPath, "utf8")).toBe("// legacy\n");
   });
 

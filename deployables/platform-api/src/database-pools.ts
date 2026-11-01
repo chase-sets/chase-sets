@@ -11,7 +11,7 @@ import {
   getPlatformApiContextsForRuntimeProfile,
   type PlatformApiBaseConfig,
 } from "./config";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import { apiContextRegistry } from "./context-registry";
 
 const PLATFORM_IDLE_TRANSACTION_TIMEOUT_MS = 15_000;
 // Preserve the existing public-profile lock database across registry/profile/release changes.

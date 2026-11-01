@@ -217,6 +217,25 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
     ],
     include: [{ kind: "any" }],
   },
+  "scripts/check-structure/context-registry-guard.test.mjs": {
+    rule: "five owner-authored context registries, exact AST shape, admission membership/order, and retired-path absence",
+    evidence: [
+      "scripts/check-structure/context-registry-guard.mjs:1-220",
+      "scripts/check-structure/context-registry-guard.test.mjs:1-80",
+    ],
+    include: [
+      ...exact(
+        "scripts/check-structure/context-registry-guard.mjs",
+        "scripts/check-structure/context-registry-guard.test.mjs",
+        "scripts/lib/repo.mjs",
+        "deployables/platform-api/src/context-registry.ts",
+        "deployables/platform-worker/src/context-registry.ts",
+        "deployables/admin-web/app/context-registry.ts",
+        "deployables/marketplace/app/context-registry.ts",
+        "deployables/public-web/app/context-registry.ts",
+      ),
+    ],
+  },
   "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs": {
     rule: "root command and lockfile, compiler wrapper, and script-owned artifact provenance chain",
     evidence: [
