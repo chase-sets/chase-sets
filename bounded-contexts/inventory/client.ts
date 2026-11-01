@@ -232,6 +232,8 @@ export function createInventoryApiClient({
         catalogItemId: string;
         selectedOptions: readonly { dimensionId: string; optionId: string }[];
         storageLocationId: string;
+        expectedRowVersion: string;
+        expectedRowFingerprint: string;
       }>,
     ): Promise<InventoryImportBatchResolution> {
       return parseJsonResponse(

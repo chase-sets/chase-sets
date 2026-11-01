@@ -29,27 +29,34 @@ describe("describeWalletAdjustmentFlowError", () => {
     expect(result.kind).toBe("stale-preview");
   });
 
-  it("classifies the elevated-approval domain conflict by message text", () => {
+  it.each([
+    { detailCode: "elevated_approval_required", kind: "requires-elevated-approval" },
+    { detailCode: "self_benefiting_blocked", kind: "self-benefiting-blocked" },
+  ])("classifies the $detailCode approval refusal by its detail code, whatever the message says", (refusal) => {
+    const message = "Reworded refusal copy that names neither cause.";
     const result = describeWalletAdjustmentFlowError(
-      apiError(409, {
-        error: { code: "conflict", message: "This Wallet Adjustment requires a second, elevated approval." },
-      }),
+      apiError(409, { error: { code: "conflict", message, details: [{ code: refusal.detailCode, message }] } }),
       "fallback",
     );
-    expect(result.kind).toBe("requires-elevated-approval");
+    expect(result.kind).toBe(refusal.kind);
+    expect(result.message).toBe(message);
   });
 
-  it("classifies the self-benefiting domain conflict by message text", () => {
-    const result = describeWalletAdjustmentFlowError(
-      apiError(409, {
-        error: {
-          code: "conflict",
-          message: "A self-benefiting Wallet Adjustment is blocked outright and cannot be approved.",
-        },
-      }),
+  it.each([
+    "This Wallet Adjustment requires a second, elevated approval.",
+    "A self-benefiting Wallet Adjustment is blocked outright and cannot be approved.",
+    "A Wallet Adjustment cannot be approved by its requester.",
+  ])("keeps a conflict without a refusal detail code generic even when its message is %j", (message) => {
+    const withoutDetails = describeWalletAdjustmentFlowError(
+      apiError(409, { error: { code: "conflict", message } }),
       "fallback",
     );
-    expect(result.kind).toBe("self-benefiting-blocked");
+    const withUnknownDetail = describeWalletAdjustmentFlowError(
+      apiError(409, { error: { code: "conflict", message, details: [{ code: "some_other_refusal", message }] } }),
+      "fallback",
+    );
+    expect(withoutDetails.kind).toBe("conflict");
+    expect(withUnknownDetail.kind).toBe("conflict");
   });
 
   it("classifies validation failures and preserves field errors", () => {
