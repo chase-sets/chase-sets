@@ -137,9 +137,11 @@ request URLs as metric labels.
 
 After pairing, Disconnect or Unpair, staging first and then production:
 
-1. Reload Admin's Operator session panel. It shows Server credential custody
-   as No and only grant metadata: state, Created, Last used and Idle expiry.
-   Record that metadata and the handoff outcome only.
+1. Reload Admin's Operator session panel. Below its fixed Operator session
+   unavailable notice it shows only Revision and the Extension grant state
+   (Active, Inactive or No grant), plus Created, Last used and Idle expiry when
+   a grant exists. A failed read shows that notice without Revision. Record
+   that metadata and the handoff outcome only.
 2. Confirm Admin Provider setup or Integration health still reports TCGplayer
    credential readiness `not-required` with diagnostic `provider-retired`.
    Neither an active grant nor that readiness proves that TCGplayer accepted
