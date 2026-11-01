@@ -73,6 +73,8 @@
   "register.use.magic.link": "Use magic link",
   "context.listing.draft.description": "Your listing draft is saved. An account is required before inventory, payout, and listing publication can be confirmed.",
   "context.listing.draft.title": "Use an account to publish this listing",
+  "context.purchase.cancel.verify.description": "Enter the email on your account. Opening the link we send verifies that email and brings you back to your purchase, where you can cancel it.",
+  "context.purchase.cancel.verify.title": "Verify your email to cancel this purchase",
   "context.seller.checkout.description": "Your Sell List is saved. An account is required before offer acceptance, listing publication, payout, or shipping label work starts.",
   "context.seller.checkout.title": "Use an account to continue seller checkout",
   "invite_title": "Accept invitation | Chase Sets",
