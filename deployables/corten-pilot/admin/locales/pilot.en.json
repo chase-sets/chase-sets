@@ -86,9 +86,6 @@
     "stage_blocked": "Blocked"
   },
   "payout": {
-    "attempts_one": "{count} attempt",
-    "attempts_other": "{count} attempts",
-    "next_retry": "{attempts}; next {at}",
     "check_again": "Check again"
   },
   "support": {

@@ -42,9 +42,6 @@
 //   as ops.*, and its routes' text as ops_route.* and ops_detail_route.*), and the eBay
 //   account-deletion lookup's (channels.ebayDeletion.* as ebay.*), and Customer Feedback's attention
 //   queue's (customer-feedback.attention.* as cfa.*).
-// - admin/support-responsibility-reasons.json: each support flow's responsibility reasons an
-//   operator may choose (getSupportResponsibilityReasonDefinitions), while the ops detail read does
-//   not return them.
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
@@ -676,28 +673,8 @@ const { catalogScopeProductDomains } = await import(
 const { platformOperationsReportedContentActionsByTargetType } = await import(
   pathToFileURL(path.join(repo, "contracts/event-core/public-event-payloads/platform-operations.ts")).href
 );
-const { getSupportResponsibilityReasonDefinitions } = await import(
-  pathToFileURL(
-    path.join(repo, "bounded-contexts/platform-operations/features/support-requests/domain/responsibility.ts"),
-  ).href
-);
-const { supportFlowCatalog } = await import(
-  pathToFileURL(
-    path.join(repo, "bounded-contexts/platform-operations/features/support-requests/domain/flow-catalog.ts"),
-  ).href
-);
 
 /** Each flow's responsibility reasons an operator may choose, as the Resolve form offers them. */
-function supportResponsibilityReasons() {
-  return Object.fromEntries(
-    supportFlowCatalog.map(({ flowType }) => [
-      flowType,
-      getSupportResponsibilityReasonDefinitions(flowType)
-        .filter(({ operatorSelectable }) => operatorSelectable)
-        .map(({ code, responsibility, operatorLabel }) => ({ code, responsibility, label: operatorLabel })),
-    ]),
-  );
-}
 const { defaultPostagePolicy } = await import(
   pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href
 );
@@ -965,7 +942,6 @@ const outputs = [
   ["admin/defaults.json", json(defaultPostagePolicy)],
   ["admin/scope-domains.json", json(catalogScopeProductDomains)],
   ["admin/reported-content-actions.json", json(platformOperationsReportedContentActionsByTargetType)],
-  ["admin/support-responsibility-reasons.json", json(supportResponsibilityReasons())],
   [
     "marketplace/locales/en.json",
     json(

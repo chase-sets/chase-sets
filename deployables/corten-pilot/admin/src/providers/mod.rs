@@ -8,11 +8,9 @@
 //! |---|---|
 //! | `GET /platform/provider-connections` | the page |
 //!
-//! An observation's freshness (fresh, aging, stale, too old) is worked out here from the limits the
-//! API returns and the time it evaluated them, as admin-web's page does
-//! (chase-sets/chase-sets#10873).
+//! An observation's freshness (fresh, aging, stale, too old) and age are the API's, worked out
+//! against its limits when it evaluated them.
 use corten::{axum::http::HeaderMap, prelude::*};
-use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 pub mod views;
@@ -32,15 +30,6 @@ pub mod url {
 /// The area: its route and the page's stylesheet.
 pub fn area(area: Area<url::Providers>, shared: Shared) -> Area<url::Providers> {
     url::area(area, shared).components(views::COMPONENTS)
-}
-
-/// The limits an observation's age is read against, in seconds.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, ToJson)]
-#[serde(rename_all = "camelCase")]
-pub struct Freshness {
-    pub fresh_within_seconds: f64,
-    pub stale_after_seconds: f64,
-    pub unavailable_after_seconds: f64,
 }
 
 /// Where a connection is managed.
@@ -67,8 +56,12 @@ pub struct Connection {
     pub health: String,
     #[serde(default)]
     pub observed_at: Option<String>,
+    /// `unknown`, `ageOnly` (no limits), `fresh`, `aging`, `stale` or `unavailable`.
     #[serde(default)]
-    pub freshness: Option<Freshness>,
+    pub freshness_state: Option<String>,
+    /// How old the observation was when the API evaluated it; none when unknown.
+    #[serde(default)]
+    pub age_seconds: Option<f64>,
     #[serde(default)]
     pub destination: Option<Destination>,
 }
@@ -93,49 +86,6 @@ pub struct Snapshot {
     pub channels: Section,
 }
 
-/// How old an observation is against its limits (`providerConnectionAge`).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Age {
-    /// No observation time, or one after the evaluation.
-    Unknown,
-    /// An age, but no limits to read it against.
-    Unlimited(f64),
-    Fresh(f64),
-    Aging(f64),
-    Stale(f64),
-    Unavailable(f64),
-}
-
-/// An RFC 3339 time with a zone (admin-web's pattern: `Z` or `+hh:mm`), or none.
-fn instant(text: Option<&str>) -> Option<Timestamp> {
-    let text = text?;
-    let zoned = text.ends_with('Z')
-        || text.get(text.len().saturating_sub(6)..).is_some_and(|t| t.starts_with(['+', '-']) && t.as_bytes()[3] == b':');
-    if !zoned || !text.contains('T') {
-        return None;
-    }
-    text.parse().ok()
-}
-
-impl Connection {
-    pub fn age(&self, evaluated_at: &str) -> Age {
-        let (Some(now), Some(seen)) = (instant(Some(evaluated_at)), instant(self.observed_at.as_deref())) else {
-            return Age::Unknown;
-        };
-        let seconds = (now.as_millisecond() - seen.as_millisecond()) as f64 / 1000.0;
-        if seconds < 0.0 {
-            return Age::Unknown;
-        }
-        match self.freshness {
-            None => Age::Unlimited(seconds),
-            Some(limits) if seconds > limits.unavailable_after_seconds => Age::Unavailable(seconds),
-            Some(limits) if seconds > limits.stale_after_seconds => Age::Stale(seconds),
-            Some(limits) if seconds > limits.fresh_within_seconds => Age::Aging(seconds),
-            Some(_) => Age::Fresh(seconds),
-        }
-    }
-}
-
 async fn page(
     req: Req,
     Caller(staff): Caller<Staff<ProviderConnectionsView>>,
@@ -157,42 +107,4 @@ async fn page(
             </crate::views::Layout>
         },
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn row(observed: Option<&str>, limits: bool) -> Connection {
-        Connection {
-            id: "c".into(),
-            provider: "p".into(),
-            capability: "catalog-integration".into(),
-            owner: "catalog".into(),
-            account_id: None,
-            status: None,
-            credential_readiness: "configured".into(),
-            health: "ready".into(),
-            observed_at: observed.map(Into::into),
-            freshness: limits.then_some(Freshness {
-                fresh_within_seconds: 15.0,
-                stale_after_seconds: 60.0,
-                unavailable_after_seconds: 300.0,
-            }),
-            destination: None,
-        }
-    }
-
-    #[test]
-    fn an_observations_age_is_read_as_admin_webs() {
-        let now = "2026-10-31T07:05:00Z";
-        assert_eq!(row(Some("2026-10-31T07:04:50Z"), true).age(now), Age::Fresh(10.0));
-        assert_eq!(row(Some("2026-10-31T07:04:30Z"), true).age(now), Age::Aging(30.0));
-        assert_eq!(row(Some("2026-10-31T07:03:00Z"), true).age(now), Age::Stale(120.0));
-        assert_eq!(row(Some("2026-10-31T06:00:00+00:00"), true).age(now), Age::Unavailable(3900.0));
-        assert_eq!(row(Some("2026-10-31T07:00:00Z"), false).age(now), Age::Unlimited(300.0));
-        assert_eq!(row(Some("2026-10-31T07:06:00Z"), true).age(now), Age::Unknown, "after the evaluation");
-        assert_eq!(row(Some("2026-10-31 07:00:00+00"), true).age(now), Age::Unknown, "not admin-web's form");
-        assert_eq!(row(None, true).age(now), Age::Unknown);
-    }
 }

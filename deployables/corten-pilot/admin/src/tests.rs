@@ -704,7 +704,8 @@ fn ebay_deletion(method: &Method, rest: &str, body: &str) -> Response {
 const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
 
 /// Support requests' ops API: `req_1`, urgent, contested and ready for support with a photo, a
-/// note, a seller's challenge and a declined offer; `req_done`, resolved with a refund and not yet
+/// note, a seller's challenge, a declined offer and the API's operator policy (its prefill and
+/// ceiling are not what the offer and lines would give, so the page shows the API's); `req_done`, resolved with a refund and not yet
 /// closable; the flows' titles; Escalate overdue's counts; a resolve without its summary refused;
 /// and `req_1`'s one photo.
 fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
@@ -717,6 +718,7 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
                 { "key": "tracking", "label": "Carrier tracking", "required": true },
             ],
             "contested": status == "ready-for-support",
+            "operatorPolicy": { "deadlineAt": due },
         })
     };
     let photo = format!("support-attachment:v1:sea_abc123:{}:jpg", "b".repeat(64));
@@ -751,6 +753,12 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
                       "summary": "Ten back.", "offeredAt": "2026-05-06T13:00:00.000Z", "status": "declined", "decidedByRole": "buyer" },
                 ],
                 "affected_line_items": [{ "amount": "56.83", "currencyCode": "USD" }],
+                "operatorPolicy": {
+                    "deadlineAt": "2026-05-07T18:00:00.000Z", "recommendedAction": "resolve", "refundCap": "41.20",
+                    "refundPrefill": "7.50",
+                    "responsibilityReasons": [{ "code": "product-damaged.seller-inadequate-packaging", "responsibility": "seller",
+                        "operatorLabel": "Seller packaging was inadequate", "operatorSelectable": true }],
+                },
                 "flow": { "allowedResolutions": ["full-refund", "partial-refund", "support-reviewed"] },
             });
             detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
@@ -5006,8 +5014,8 @@ async fn a_requests_sheet_shows_the_case_and_recommends_what_admin_web_would() {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert!(html.contains(r#"name="intent" value="resolve""#), "ready for support recommends Resolve: {html}");
-    assert!(html.contains(r#"value="10.00""#), "the latest offer within the ceiling: {html}");
-    assert!(html.contains("56.83"), "the ceiling: {html}");
+    assert!(html.contains(r#"value="7.50""#), "the API's prefill: {html}");
+    assert!(html.contains("41.20") && !html.contains("56.83"), "the API's ceiling: {html}");
     assert!(html.contains(r#"value="seller|product-damaged.seller-inadequate-packaging""#), "{html}");
     assert!(html.contains(r#"<option value="partial-refund">"#) && !html.contains(r#"<option value="replacement">"#), "{html}");
     assert!(html.contains(r#"src="/support/requests/req_1/attachments/sea_abc123""#), "{html}");
@@ -6262,8 +6270,10 @@ async fn a_refused_terms_write_keeps_its_sheet_and_what_was_sent() {
 
 const SETTLEMENT: &str = "/api/settlement";
 
-fn payout_row(id: &str, status: &str, reference: Option<&str>, retry: Option<&str>, retries: u32) -> Value {
+/// A reconciliation row: Settlement works out its operations state and severity (`state`).
+fn payout_row(id: &str, status: &str, reference: Option<&str>, retry: Option<&str>, retries: u32, state: (&str, &str)) -> Value {
     json!({
+        "operations_state": state.0, "operations_severity": state.1,
         "payout_id": id, "account_id": "acc_1", "amount": "20.00", "requested_amount": "20.00", "fee_amount": "0.25",
         "net_amount": "19.75", "currency_code": "usd", "status": status, "provider_payout_reference": reference,
         "provider_status": null, "last_reconciled_at": "2026-03-24T11:10:00.000Z", "retry_count": retries,
@@ -6284,8 +6294,8 @@ fn reconciliation_job(status: &str, done: u64, result: Option<Value>) -> Value {
 /// operator's run refused.
 fn settlement(method: &Method, rest: &str, query: &str, cookie: &str) -> Response {
     let payouts = json!([
-        payout_row("pyo_failed", "failed", None, Some("2026-03-24T11:25:00.000Z"), 1),
-        payout_row("pyo_transit", "in-transit", Some("po_1"), None, 0),
+        payout_row("pyo_failed", "failed", None, Some("2026-03-24T11:25:00.000Z"), 1, ("retry-queued", "critical")),
+        payout_row("pyo_transit", "in-transit", Some("po_1"), None, 0, ("ready-to-reconcile", "normal")),
     ]);
     match (method.clone(), rest) {
         (Method::GET, "/money-health") => Json(json!({
@@ -6306,11 +6316,15 @@ fn settlement(method: &Method, rest: &str, query: &str, cookie: &str) -> Respons
         .into_response(),
         (Method::GET, "/payouts/reconciliation") => {
             let items = if query == "filter=failed" { json!([payouts[0]]) } else { payouts };
-            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
+            // Settlement's counts, which the page shows as they are (not worked out from the rows).
+            let attention = json!({ "failed": 7, "missing_provider_reference": 6, "retry_queued": 5, "stale_reconciliation": 4,
+                "stale_reconciliation_after_minutes": 30, "stale_requested_after_minutes": 20, "basis": "returned-items" });
+            Json(json!({ "items": items, "attention": attention, "total": 2, "count": 2 })).into_response()
         }
         (Method::GET, "/payout-readiness") => Json(json!({
             "account_id": "acc_platform", "status": "restricted", "missing_requirements": ["external_account"],
             "provider_reference": "acct_1", "payout_destination_status": "missing", "updated_at": "2026-01-01T00:00:00.000Z",
+            "setup_blocked": true, "setup_stale": false, "setup_stale_after_days": 30,
         }))
         .into_response(),
         (Method::GET, "/payouts/provider-idempotency") if query == "limit=10" => Json(json!({ "items": [{
@@ -6391,6 +6405,9 @@ async fn payout_operations_forwards_the_filter_and_reads_the_rest_only_to_reconc
     assert!(!html.contains("run-reconciliation") && !html.contains("Recent Provider Attempts"), "{html}");
     assert!(html.contains(r#"aria-current="page""#) && html.contains("Retry queued"), "{html}");
     assert!(html.contains("1 attempt; next "), "{html}");
+    assert!(html.contains("Older than 20 minutes"), "Settlement's age for a stale request: {html}");
+    let failed = html.find("Failed payouts").unwrap();
+    assert!(html[failed..].contains(r#">7</span>"#), "Settlement's count, not the rows': {html}");
     assert!(!html.contains("Payout setup blocked"), "the setup rows need payouts.reconcile: {html}");
 
     let (_, _, html) = pilot.send(get("/commerce/payout-operations?filter=nonsense", Some("payouts-operator"))).await;
@@ -6401,9 +6418,11 @@ async fn payout_operations_forwards_the_filter_and_reads_the_rest_only_to_reconc
     assert!(html.contains("Ready to reconcile") && !html.contains("Needs provider reference"), "{html}");
     assert!(html.contains("Protected retry key") && !html.contains("secret-key"), "the key itself is not shown: {html}");
     assert!(html.contains("Not checked in this session"), "{html}");
-    // Restricted setup is blocked; updated in January is stale.
+    // Settlement says the setup is blocked and not stale (though updated in January).
     let blocked = html.find("Payout setup blocked").unwrap();
     assert!(html[blocked..].contains(r#">1</span>"#), "{html}");
+    let stale = html.find("Stale payout setup status").unwrap();
+    assert!(html[stale..].contains(r#">0</span>"#), "{html}");
 }
 
 #[tokio::test]
@@ -6770,8 +6789,9 @@ async fn a_google_shopping_dry_run_is_queued_with_the_pages_limit_and_followed()
     assert!(html.contains("Batch size is too small."), "{html}");
 }
 
-/// Platform Operations' provider connections: a fresh Catalog provider with its page, a stale
-/// seller channel, and a section the API could only partly read.
+/// Platform Operations' provider connections: a Catalog provider with its page that the API says
+/// is aging (its age is the API's, not worked out from the times), a stale seller channel, and a
+/// section the API could only partly read.
 fn provider_connections() -> Response {
     Json(json!({
         "evaluatedAt": "2026-10-31T07:05:00.000Z",
@@ -6779,11 +6799,13 @@ fn provider_connections() -> Response {
             "id": "lorcast", "provider": "lorcast", "capability": "catalog-integration", "owner": "catalog", "accountId": null,
             "credentialReadiness": "not-required", "health": "ready", "observedAt": "2026-10-31T07:04:55.000Z",
             "freshness": { "freshWithinSeconds": 15, "staleAfterSeconds": 60, "unavailableAfterSeconds": 300 },
+            "freshnessState": "aging", "ageSeconds": 125,
             "destination": { "routeId": "provider-detail", "href": "/catalog/providers/lorcast" } }] },
         "channels": { "state": "partial", "rows": [{
             "id": "chc_1", "provider": "tcgplayer", "capability": "channel-connection", "owner": "channels", "accountId": "acc_9",
             "status": "paused", "credentialReadiness": "expired", "health": "failing", "observedAt": "2026-10-31T07:02:00.000Z",
             "freshness": { "freshWithinSeconds": 15, "staleAfterSeconds": 60, "unavailableAfterSeconds": 300 },
+            "freshnessState": "stale", "ageSeconds": 180,
             "destination": { "routeId": "x", "href": "/account/channels/chc_1" } }] },
     }))
     .into_response()
@@ -6797,7 +6819,7 @@ async fn provider_connections_need_a_platform_admin_and_show_each_connections_fr
     let (status, _, html) = pilot.send(get("/platform/provider-connections", Some("providers-admin"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("<title>Provider Connections | Chase Sets Admin"), "{html}");
-    assert!(html.contains(">Fresh<") && html.contains("(0 min ago)"), "{html}");
+    assert!(html.contains(">Aging<") && html.contains("(2 min ago)") && !html.contains(">Fresh<"), "the API's: {html}");
     assert!(html.contains(">Stale<") && html.contains("(3 min ago)"), "{html}");
     assert!(html.contains("Seller account acc_9") && html.contains(">Expired<") && html.contains(">Paused<"), "{html}");
     assert!(

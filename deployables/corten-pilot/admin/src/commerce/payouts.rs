@@ -23,7 +23,6 @@ use corten::{
     prelude::*,
 };
 use futures_util::{StreamExt, stream};
-use jiff::Timestamp;
 use platform::jobs::Update;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -126,6 +125,12 @@ pub struct Payout {
     #[serde(default)]
     pub next_retry_at: Option<String>,
     pub updated_at: String,
+    /// Settlement's operations state for the payout (`PayoutOperationsRow`): on the
+    /// reconciliation list, not on Money Health's.
+    #[serde(default)]
+    pub operations_state: Option<String>,
+    #[serde(default)]
+    pub operations_severity: Option<String>,
 }
 
 /// An account whose wallet is below zero (`SettlementWalletRow`).
@@ -195,6 +200,12 @@ pub struct Readiness {
     pub payout_destination_status: String,
     #[serde(default)]
     pub updated_at: Option<String>,
+    /// Settlement's `PayoutSetupAttention`: blocked unless ready with a provider reference, and
+    /// stale once old.
+    #[serde(default)]
+    pub setup_blocked: bool,
+    #[serde(default)]
+    pub setup_stale: bool,
 }
 
 /// A provider call the payouts made (`SettlementProviderIdempotencyKeyRow`); the key itself is not
@@ -213,6 +224,24 @@ pub struct Attempt {
 #[derive(Deserialize)]
 struct List<T> {
     items: Vec<T>,
+}
+
+/// What needs attention among the payouts returned (Settlement's `PayoutOperationsAttention`).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct OperationsAttention {
+    pub failed: usize,
+    pub missing_provider_reference: usize,
+    pub retry_queued: usize,
+    pub stale_reconciliation: usize,
+    pub stale_requested_after_minutes: u32,
+}
+
+/// The reconciliation list: the payouts and what needs attention among them.
+#[derive(Deserialize)]
+struct PayoutList {
+    items: Vec<Payout>,
+    #[serde(default)]
+    attention: Option<OperationsAttention>,
 }
 
 /// A run's progress (`DurableJobPublicSnapshot`'s).
@@ -269,6 +298,8 @@ impl Run {
 #[derive(Serialize, ToJson)]
 pub struct OperationsScreen {
     pub payouts: Vec<Payout>,
+    /// Settlement's counts, or none when the read did not return them (admin-web shows zeros).
+    pub attention: Option<OperationsAttention>,
     /// Whether the staff member may reconcile: the readiness, the attempts and a run.
     pub can_reconcile: bool,
     pub readiness: Option<Readiness>,
@@ -280,51 +311,6 @@ pub struct OperationsScreen {
     pub error: Option<String>,
     #[serde(skip)]
     pub view: url::View,
-    #[serde(skip)]
-    pub now: Timestamp,
-}
-
-/// What needs attention: admin-web's counts, worked out by the page (chase-sets/chase-sets#10867).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Attention {
-    pub failed: usize,
-    pub missing_reference: usize,
-    pub retry_queued: usize,
-    pub stale_checks: usize,
-    pub setup_blocked: bool,
-    pub setup_stale: bool,
-    pub setup_requirements: usize,
-}
-
-/// Milliseconds since `at`, or none when it does not parse.
-fn age(now: Timestamp, at: &str) -> Option<i64> {
-    at.parse::<Timestamp>().ok().map(|at| now.as_millisecond() - at.as_millisecond())
-}
-
-impl OperationsScreen {
-    /// admin-web's counts: a payout not reconciled for 30 minutes (or never, unless only
-    /// requested) is a stale check; the setup is blocked unless ready with a provider reference,
-    /// and stale once 30 days old.
-    pub fn attention(&self) -> Attention {
-        let payouts = &self.payouts;
-        let stale = |p: &&Payout| match &p.last_reconciled_at {
-            None => p.status != "requested",
-            Some(at) => age(self.now, at).is_some_and(|ms| ms > 30 * 60 * 1000),
-        };
-        let readiness = self.readiness.as_ref();
-        Attention {
-            failed: payouts.iter().filter(|p| p.status == "failed").count(),
-            missing_reference: payouts.iter().filter(|p| p.provider_payout_reference.is_none()).count(),
-            retry_queued: payouts.iter().filter(|p| p.next_retry_at.is_some()).count(),
-            stale_checks: payouts.iter().filter(stale).count(),
-            setup_blocked: readiness.is_some_and(|r| r.status != "ready" || r.provider_reference.is_none()),
-            setup_stale: readiness
-                .and_then(|r| r.updated_at.as_deref())
-                .and_then(|at| age(self.now, at))
-                .is_some_and(|ms| ms > 30 * 24 * 60 * 60 * 1000),
-            setup_requirements: readiness.map_or(0, |r| r.missing_requirements.len()),
-        }
-    }
 }
 
 /// A payout's page on Marketplace (admin-web's `payoutDetailHref`), or none without its origin.
@@ -376,7 +362,7 @@ async fn read(
     let attempts_path = format!("{BASE}/payouts/provider-idempotency?limit=10");
     let job_path = view.job().map(|j| format!("{BASE}/payouts/reconciliation/jobs/{}", segment(j)));
     let (payouts, readiness, attempts, run) = tokio::try_join!(
-        caller.read::<List<Payout>>(&list, CONTEXT),
+        caller.read::<PayoutList>(&list, CONTEXT),
         async { if can_reconcile { caller.read::<Readiness>(&readiness_path, CONTEXT).await.map(Some) } else { Ok(None) } },
         async {
             if can_reconcile {
@@ -398,6 +384,7 @@ async fn read(
     )?;
     Ok(OperationsScreen {
         payouts: payouts.items,
+        attention: payouts.attention,
         can_reconcile,
         readiness,
         attempts,
@@ -405,7 +392,6 @@ async fn read(
         run,
         error: None,
         view: view.clone(),
-        now: Timestamp::now(),
     })
 }
 
@@ -513,68 +499,6 @@ async fn live(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn payout(status: &str, reference: Option<&str>, reconciled: Option<&str>, retry: Option<&str>) -> Payout {
-        Payout {
-            payout_id: "pyo_1".into(),
-            status: status.into(),
-            requested_amount: "20.00".into(),
-            fee_amount: "0.00".into(),
-            net_amount: "20.00".into(),
-            currency_code: "usd".into(),
-            provider_payout_reference: reference.map(Into::into),
-            provider_status: None,
-            last_reconciled_at: reconciled.map(Into::into),
-            retry_count: 0,
-            next_retry_at: retry.map(Into::into),
-            updated_at: "2026-10-30T11:00:00.000Z".into(),
-        }
-    }
-
-    #[test]
-    fn attention_counts_as_admin_web_does() {
-        let screen = OperationsScreen {
-            payouts: vec![
-                payout("failed", None, Some("2026-10-30T11:50:00.000Z"), Some("2026-10-30T12:15:00.000Z")),
-                payout("in-transit", Some("po_1"), Some("2026-10-30T11:00:00.000Z"), None),
-                payout("requested", None, None, None),
-                payout("in-transit", Some("po_2"), None, None),
-            ],
-            can_reconcile: true,
-            readiness: Some(Readiness {
-                status: "ready".into(),
-                provider_reference: Some("acct_1".into()),
-                missing_requirements: vec!["external_account".into()],
-                payout_destination_status: "ready".into(),
-                updated_at: Some("2026-09-01T00:00:00.000Z".into()),
-            }),
-            attempts: Vec::new(),
-            filter: "all",
-            run: None,
-            error: None,
-            view: url::View::default(),
-            now: "2026-10-30T12:00:00Z".parse().unwrap(),
-        };
-        let attention = screen.attention();
-        assert_eq!(
-            attention,
-            Attention {
-                failed: 1,
-                missing_reference: 2,
-                retry_queued: 1,
-                // 30 minutes after 11:00, and never checked though sent; a requested one is not stale.
-                stale_checks: 2,
-                setup_blocked: false,
-                setup_stale: true,
-                setup_requirements: 1,
-            }
-        );
-        let blocked = OperationsScreen {
-            readiness: Some(Readiness { provider_reference: None, updated_at: None, ..screen.readiness.clone().unwrap() }),
-            ..screen
-        };
-        assert!(blocked.attention().setup_blocked && !blocked.attention().setup_stale);
-    }
 
     #[test]
     fn a_filter_is_one_of_admin_webs_and_a_payout_link_needs_marketplace() {

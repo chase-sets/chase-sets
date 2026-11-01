@@ -14,7 +14,7 @@ use corten::{
 use crate::{
     support::requests::{
         ActionForm, Activity, ActivityKind, CaseAction, Detail, Offer, PRIORITIES, QueueScreen, RESPONSE_TYPES, Row, STATUSES,
-        amount, attachment_id, countdown, reasons, url,
+        attachment_id, countdown, url,
     },
     text::{Pilot, Sup},
 };
@@ -388,7 +388,7 @@ fn RequestSheet<'a>(
     let close = url::Requests { queue: screen.filters.at(None, None), notice: url::Notice::default() }.href();
     let action = url::Request { id: &row.support_request_id, queue: screen.filters.at(None, None) }.href();
     let back = refs();
-    let recommended = detail.recommended(now);
+    let recommended = detail.recommended();
     let notes: Vec<_> = detail.evidence.iter().filter(|e| e.evidence_type == "support-note").collect();
     let remedy_href =
         crate::views::admin_web(&format!("/support/requests?requestId={}", crate::api::segment(&row.support_request_id)))
@@ -777,7 +777,7 @@ fn CaseContext<'a>(t: Sup, detail: &'a Detail) -> impl Render {
 #[component(css = RequestsPage)]
 fn CaseForm<'a>(t: Sup, action: CaseAction, detail: &'a Detail, href: &'a str) -> impl Render {
     let f = ActionForm::FIELDS;
-    let reasons = reasons(&detail.row.flow_type);
+    let reasons = detail.reasons();
     let cap = detail.refund_cap();
     let prefill = detail.refund_prefill().unwrap_or_default();
     html! {
@@ -824,17 +824,17 @@ fn CaseForm<'a>(t: Sup, action: CaseAction, detail: &'a Detail, href: &'a str) -
                     <p class={Small}>{t.ops_adjudication_decision_summary_verbatim()}</p>
                     <label class={Field}>
                         <span>{t.ops_resolve_refund_amount()}</span>
-                        <input type="text" name={f.refund_amount} inputmode="decimal" value={&prefill}>
+                        <input type="text" name={f.refund_amount} inputmode="decimal" value={prefill}>
                     </label>
                     if let Some(cap) = cap {
-                        <p class={Small}>{t.ops_adjudication_decision_refund_cap(&amount(cap))}</p>
+                        <p class={Small}>{t.ops_adjudication_decision_refund_cap(cap)}</p>
                     }
                     <label class={Field}>
                         <span>{t.ops_resolve_responsibility_reason()}</span>
                         <select name={f.responsibility_finding} required>
                             for reason in reasons {
                                 <option value={&format!("{}|{}", reason.responsibility, reason.code)}>
-                                    {t.ops_resolve_responsibility_reason_option(&reason.label, &reason.responsibility)}
+                                    {t.ops_resolve_responsibility_reason_option(&reason.operator_label, &reason.responsibility)}
                                 </option>
                             }
                         </select>

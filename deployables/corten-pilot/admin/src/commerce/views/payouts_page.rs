@@ -10,7 +10,7 @@ use corten::{
 use crate::{
     commerce::{
         money,
-        payouts::{FILTERS, MoneyHealth, OperationsScreen, Payout, Run, payout_href, url},
+        payouts::{FILTERS, MoneyHealth, OperationsAttention, OperationsScreen, Payout, Run, payout_href, url},
     },
     text::{Com, Ops, Pilot},
     views::{LiveStatus, LiveWords},
@@ -265,24 +265,19 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
     }
 }
 
-/// A payout's status pill (admin-web's `operationsTone` and `operationsLabel`, worked out by the
-/// page: chase-sets/chase-sets#10867).
+/// A payout's status pill: Settlement's operations state and severity (admin-web's
+/// `operationsLabel` and `operationsTone`).
 fn operations_status(t: Com, row: &Payout) -> (&'static str, &'static str) {
-    let tone = if row.status == "failed" {
-        "danger"
-    } else if row.provider_payout_reference.is_none() {
-        "warning"
-    } else {
-        "accent"
+    let tone = match row.operations_severity.as_deref() {
+        Some("critical") => "danger",
+        Some("warning") => "warning",
+        _ => "accent",
     };
-    let label = if row.status == "failed" && row.next_retry_at.is_some() {
-        t.po_retry_queued()
-    } else if row.provider_payout_reference.is_none() {
-        t.po_needs_provider_reference()
-    } else if row.status == "in-transit" {
-        t.po_ready_to_reconcile()
-    } else {
-        t.po_review()
+    let label = match row.operations_state.as_deref() {
+        Some("retry-queued") => t.po_retry_queued(),
+        Some("needs-provider-reference") => t.po_needs_provider_reference(),
+        Some("ready-to-reconcile") => t.po_ready_to_reconcile(),
+        _ => t.po_review(),
     };
     (label, tone)
 }
@@ -294,12 +289,14 @@ fn PayoutStatus<'a>(t: Com, row: &'a Payout) -> impl Render {
     html! { <Tone words={label} tone={tone} /> }
 }
 
-/// A payout's retries (admin-web's own English, `${n} attempt(s); next ${at}`, in the pilot's catalog).
-fn retries(t: Com, p: Pilot, row: &Payout) -> String {
-    let attempts = p.payout_attempts(row.retry_count).to_string();
+/// A payout's retries (admin-web's: the form for one attempt when the count is 1).
+fn retries(t: Com, row: &Payout) -> String {
+    let n = row.retry_count;
     match &row.next_retry_at {
-        Some(at) => p.payout_next_retry(&attempts, &when(t, at)).to_string(),
-        None if row.retry_count > 0 => attempts.to_string(),
+        Some(at) if n == 1 => t.po_retry_attempt_next_singular(n, &when(t, at)).to_string(),
+        Some(at) => t.po_retry_attempt_next_plural(n, &when(t, at)).to_string(),
+        None if n == 1 => t.po_retry_attempt_singular(n).to_string(),
+        None if n > 0 => t.po_retry_attempt_plural(n).to_string(),
         None => t.po_none().to_owned(),
     }
 }
@@ -341,24 +338,22 @@ fn RunPart<'a>(t: Com, p: Pilot, run: Option<&'a Run>, view: &'a url::View) -> i
                     <p class={Muted}>{message}</p>
                 }
                 <p class={Muted}>
-                    {t.po_checked()}
-                    {run.result.as_ref().map_or(run.progress.completed, |r| r.checked)}
-                    {t.po_reconciled()}
-                    {run.result.as_ref().map_or(0, |r| r.reconciled)}
-                    {t.po_ignored()}
-                    {run.result.as_ref().map_or(0, |r| r.ignored)}
-                    {t.po_skipped()}
-                    {run.result.as_ref().map_or(0, |r| r.skipped)}
-                    "."
+                    {t.po_reconciliation_summary(
+                        run.result.as_ref().map_or(run.progress.completed, |r| r.checked),
+                        run.result.as_ref().map_or(0, |r| r.reconciled),
+                        run.result.as_ref().map_or(0, |r| r.ignored),
+                        run.result.as_ref().map_or(0, |r| r.skipped),
+                    )}
                 </p>
                 if let Some(result) = run.result.as_ref().filter(|r| !r.errors.is_empty()) {
                     <p class={(Muted, Words)}>
-                        {t.po_errors()}
-                        {result.errors.iter().map(|e| e.message.as_str()).collect::<Vec<_>>().join("; ")}
+                        {t.po_reconciliation_errors(
+                            &result.errors.iter().map(|e| e.message.as_str()).collect::<Vec<_>>().join("; "),
+                        )}
                     </p>
                 }
                 if let Some(message) = &run.error_message {
-                    <p class={(Muted, Words)}>{t.po_errors()}{message}</p>
+                    <p class={(Muted, Words)}>{t.po_reconciliation_errors(message)}</p>
                 }
                 if !run.done() {
                     <a class={(Button, Secondary, Small)} href={again}>{p.payout_check_again()}</a>
@@ -379,22 +374,32 @@ pub fn PayoutOperationsPage<'a>(
     screen: &'a OperationsScreen,
     marketplace: Option<&'a str>,
 ) -> impl Render {
-    let attention = screen.attention();
+    // Settlement's counts and setup state; zeros when the read did not return them, as admin-web.
+    let attention = screen.attention.as_ref();
+    let of = |f: fn(&OperationsAttention) -> usize| attention.map_or(0, f);
+    let readiness = screen.readiness.as_ref();
+    let (setup_blocked, setup_stale) = readiness.map_or((false, false), |r| (r.setup_blocked, r.setup_stale));
     let count = |n: usize| n.to_string();
     let mut needs = vec![
-        (t.po_failed_payouts(), attention.failed, t.po_provider_reported_failure_or_internal_submission()),
-        (t.po_missing_provider_references(), attention.missing_reference, t.po_transfer_or_payout_reference_has_not()),
-        (t.po_retry_queued_2(), attention.retry_queued, t.po_retry_policy_has_a_next_provider()),
-        (t.po_stale_reconciliation(), attention.stale_checks, t.po_provider_status_has_not_been_checked()),
+        (t.po_failed_payouts(), of(|a| a.failed), t.po_provider_reported_failure_or_internal_submission()),
+        (t.po_missing_provider_references(), of(|a| a.missing_provider_reference), t.po_transfer_or_payout_reference_has_not()),
+        (t.po_retry_queued_2(), of(|a| a.retry_queued), t.po_retry_policy_has_a_next_provider()),
+        (t.po_stale_reconciliation(), of(|a| a.stale_reconciliation), t.po_provider_status_has_not_been_checked()),
     ];
     if screen.can_reconcile {
         needs.extend([
-            (t.po_payout_setup_blocked(), usize::from(attention.setup_blocked), t.po_account_cannot_request_payouts_until()),
-            (t.po_open_setup_requirements(), attention.setup_requirements, t.po_provider_requirement_groups_remain_open()),
-            (t.po_stale_payout_setup_status(), usize::from(attention.setup_stale), t.po_payout_setup_status_needs_refresh()),
+            (t.po_payout_setup_blocked(), usize::from(setup_blocked), t.po_account_cannot_request_payouts_until()),
+            (
+                t.po_open_setup_requirements(),
+                readiness.map_or(0, |r| r.missing_requirements.len()),
+                t.po_provider_requirement_groups_remain_open(),
+            ),
+            (t.po_stale_payout_setup_status(), usize::from(setup_stale), t.po_payout_setup_status_needs_refresh()),
         ]);
     }
-    let filters = [t.po_all(), t.po_missing_reference(), t.po_in_transit(), t.po_failed(), t.po_older_than_15_minutes()];
+    let older = t.po_older_than_minutes(attention.map_or(15, |a| a.stale_requested_after_minutes)).to_string();
+    let filters = [t.po_all(), t.po_missing_reference(), t.po_in_transit(), t.po_failed()].map(str::to_owned);
+    let filters = filters.into_iter().chain([older]);
     let live = url::OperationsLive { view: screen.view.clone() }.href();
     let page = url::Operations { view: screen.view.clone() }.href();
     let following = screen.run.as_ref().is_some_and(|r| !r.done());
@@ -474,7 +479,7 @@ pub fn PayoutOperationsPage<'a>(
                                         <td>
                                             <Tone
                                                 words={&value}
-                                                tone={if attention.setup_blocked || attention.setup_stale { "warning" } else { "success" }}
+                                                tone={if setup_blocked || setup_stale { "warning" } else { "success" }}
                                             />
                                         </td>
                                         <td class={Prose}>{meaning}</td>
@@ -531,7 +536,7 @@ pub fn PayoutOperationsPage<'a>(
                                         <td>
                                             {row.last_reconciled_at.as_deref().map_or_else(|| t.po_not_checked().to_owned(), |at| when(t, at))}
                                         </td>
-                                        <td>{retries(t, p, row)}</td>
+                                        <td>{retries(t, row)}</td>
                                         <td>{when(t, &row.updated_at)}</td>
                                         <td>
                                             <OpenPayout label={t.po_open()} href={payout_href(marketplace, &row.payout_id)} />

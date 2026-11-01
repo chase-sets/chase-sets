@@ -16,12 +16,9 @@
 //! | `GET /support/requests/{id}/attachments/{attachment}` | an evidence photo, relayed from the API |
 //!
 //! Departures from admin-web, each until its issue closes:
-//! - The ops reads do not answer the next deadline, the recommended action, the responsibility
-//!   reasons an operator may choose or the refund ceiling (chase-sets/chase-sets#10849): the pilot
-//!   works them out as admin-web does, the reasons from `support-responsibility-reasons.json`.
 //! - The remedy lifecycle (proposal, approval, effects, refund release, corrections) is not ported
 //!   yet: a request with one links to its sheet on admin-web.
-use std::{collections::BTreeMap, sync::LazyLock, time::SystemTime};
+use std::time::SystemTime;
 
 use corten::{
     Relay,
@@ -29,7 +26,6 @@ use corten::{
         body::Body,
         http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     },
-    i18n::parse_timestamp,
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -269,6 +265,35 @@ pub struct Row {
     pub checklist: Vec<Requirement>,
     #[serde(default)]
     pub contested: Option<bool>,
+    /// The operator policy the ops reads work out (the list's carries only the deadline).
+    #[serde(default, rename = "operatorPolicy")]
+    pub operator_policy: Policy,
+}
+
+/// A request's operator policy (`SupportOperatorPolicy`): its earliest deadline, the action to
+/// recommend, the responsibility reasons an operator may choose, and the refund ceiling and prefill.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct Policy {
+    #[serde(default)]
+    pub deadline_at: Option<String>,
+    #[serde(default)]
+    pub recommended_action: Option<String>,
+    #[serde(default)]
+    pub responsibility_reasons: Vec<Reason>,
+    #[serde(default)]
+    pub refund_cap: Option<String>,
+    #[serde(default)]
+    pub refund_prefill: Option<String>,
+}
+
+/// A responsibility reason an operator may choose (`SupportResponsibilityReasonDefinition`).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct Reason {
+    pub code: String,
+    pub responsibility: String,
+    pub operator_label: String,
 }
 
 impl Row {
@@ -277,15 +302,9 @@ impl Row {
         self.display_reference.as_deref().filter(|r| !r.is_empty()).unwrap_or(&self.support_request_id)
     }
 
-    /// The earliest deadline (admin-web's `nextSupportDeadline`; the ops reads do not answer it,
-    /// chase-sets/chase-sets#10849).
+    /// The earliest deadline, as the ops reads answer it.
     pub fn next_deadline(&self) -> Option<&str> {
-        [&self.seller_response_due_at, &self.support_review_due_at, &self.seller_condition_attestation_due_at]
-            .into_iter()
-            .filter_map(|at| at.as_deref())
-            .filter_map(|at| parse_timestamp(at).map(|when| (when, at)))
-            .min_by_key(|(when, _)| *when)
-            .map(|(_, at)| at)
+        self.operator_policy.deadline_at.as_deref()
     }
 
     /// The required checklist items, and how many are satisfied.
@@ -410,15 +429,11 @@ impl Detail {
         matches!(self.row.status.as_str(), "resolved" | "closed" | "cancelled")
     }
 
-    /// The recommended action (admin-web's `supportRequestPrimaryAction`; chase-sets/chase-sets#10849):
-    /// Resolve when the request is ready for support, Escalate once its deadline has passed,
-    /// else Respond.
-    pub fn recommended(&self, now: SystemTime) -> CaseAction {
-        if self.row.status == "ready-for-support" {
-            return CaseAction::Resolve;
-        }
-        match self.row.next_deadline().and_then(parse_timestamp) {
-            Some(deadline) if deadline <= now => CaseAction::Escalate,
+    /// The recommended action, as the ops read answers it: Resolve, Escalate, else Respond.
+    pub fn recommended(&self) -> CaseAction {
+        match self.row.operator_policy.recommended_action.as_deref() {
+            Some("resolve") => CaseAction::Resolve,
+            Some("escalate") => CaseAction::Escalate,
             _ => CaseAction::Response,
         }
     }
@@ -440,36 +455,20 @@ impl Detail {
         RESOLUTIONS.into_iter().filter(|r| self.flow.allowed_resolutions.iter().any(|a| a == r)).collect()
     }
 
-    /// The refund ceiling: the affected lines' total (admin-web's `adjudicationRefundCap`; the
-    /// domain enforces it, chase-sets/chase-sets#10849). None without lines, or with one it cannot read.
-    pub fn refund_cap(&self) -> Option<i64> {
-        if self.affected_line_items.is_empty() {
-            return None;
-        }
-        self.affected_line_items.iter().try_fold(0i64, |total, line| {
-            line["currencyCode"].as_str()?;
-            Some(total + cents(line["amount"].as_str()?)?)
-        })
+    /// The refund ceiling (the affected lines' total, which the domain enforces), as the ops read
+    /// answers it.
+    pub fn refund_cap(&self) -> Option<&str> {
+        self.row.operator_policy.refund_cap.as_deref()
     }
 
-    /// The refund field's prefill (admin-web's `adjudicationRefundPrefill`): the latest offer's refund
-    /// within the ceiling, else the ceiling.
-    pub fn refund_prefill(&self) -> Option<String> {
-        let cap = self.refund_cap();
-        let latest = match self.pending_offer.as_ref().and_then(|o| o.refund_amount.as_deref()) {
-            Some(amount) => Some(amount),
-            None => {
-                let mut offers: Vec<&Offer> = self.offers.iter().collect();
-                offers.sort_by(|a, b| b.offered_at.cmp(&a.offered_at));
-                offers.iter().find_map(|o| o.refund_amount.as_deref())
-            }
-        };
-        if let Some(offer) = latest.and_then(cents)
-            && cap.is_none_or(|cap| offer <= cap)
-        {
-            return Some(amount(offer));
-        }
-        cap.map(amount)
+    /// The refund field's prefill: the latest offer's refund within the ceiling, else the ceiling.
+    pub fn refund_prefill(&self) -> Option<&str> {
+        self.row.operator_policy.refund_prefill.as_deref()
+    }
+
+    /// The responsibility reasons an operator may choose for the request's flow.
+    pub fn reasons(&self) -> &[Reason] {
+        &self.row.operator_policy.responsibility_reasons
     }
 
     /// The case's activity, newest first (admin-web's `auditItems`): kind, summary, when and photos.
@@ -519,42 +518,6 @@ pub struct Activity<'a> {
     pub summary: &'a str,
     pub at: &'a str,
     pub attachments: &'a [String],
-}
-
-/// A money amount in cents (`12.34`, `12.3`, `12`), else none.
-pub fn cents(text: &str) -> Option<i64> {
-    let (whole, fraction) = text.trim().split_once('.').unwrap_or((text.trim(), ""));
-    if whole.is_empty()
-        || !whole.bytes().all(|b| b.is_ascii_digit())
-        || fraction.len() > 2
-        || !fraction.bytes().all(|b| b.is_ascii_digit())
-    {
-        return None;
-    }
-    let fraction = format!("{fraction:0<2}");
-    Some(whole.parse::<i64>().ok()? * 100 + fraction.parse::<i64>().ok()?)
-}
-
-/// Cents as an amount (`12.30`).
-pub fn amount(cents: i64) -> String {
-    format!("{}.{:02}", cents / 100, cents % 100)
-}
-
-/// A responsibility reason an operator may choose (the domain table, exported).
-#[derive(Clone, Debug, Deserialize)]
-pub struct Reason {
-    pub code: String,
-    pub responsibility: String,
-    pub label: String,
-}
-
-/// A flow's responsibility reasons (chase-sets/chase-sets#10849).
-pub fn reasons(flow_type: &str) -> &'static [Reason] {
-    static TABLE: LazyLock<BTreeMap<String, Vec<Reason>>> = LazyLock::new(|| {
-        serde_json::from_str(include_str!("../../support-responsibility-reasons.json"))
-            .expect("support-responsibility-reasons.json is the export's output")
-    });
-    TABLE.get(flow_type).map_or(&[], Vec::as_slice)
 }
 
 /// A flow's title, from the API's flows.
@@ -965,16 +928,6 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-
-    #[test]
-    fn amounts_are_read_and_written_in_cents() {
-        assert_eq!(cents("56.83"), Some(5683));
-        assert_eq!(cents("12.3"), Some(1230));
-        assert_eq!(cents("12"), Some(1200));
-        assert_eq!(cents("1.234"), None);
-        assert_eq!(cents("-1"), None);
-        assert_eq!(amount(1230), "12.30");
-    }
 
     #[test]
     fn a_countdown_rounds_up_to_its_largest_unit() {

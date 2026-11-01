@@ -7,7 +7,7 @@ use corten::{
 };
 
 use crate::{
-    providers::{Age, Connection, Section, Snapshot},
+    providers::{Connection, Section, Snapshot},
     text::Ops,
 };
 
@@ -74,16 +74,17 @@ fn tone(value: &str) -> &'static str {
     }
 }
 
-/// The observation's age (`observation`): its freshness, then when and how many minutes ago.
-fn observed(o: Ops, row: &Connection, evaluated_at: &str) -> (String, Option<String>, &'static str) {
-    let (words, seconds, tone) = match row.age(evaluated_at) {
-        Age::Unknown => (o.pc_freshness_unknown(), None, "warn"),
-        Age::Unlimited(s) => (o.pc_freshness_age_only(), Some(s), "neutral"),
-        Age::Fresh(s) => (o.pc_freshness_fresh(), Some(s), "good"),
-        Age::Aging(s) => (o.pc_freshness_aging(), Some(s), "neutral"),
-        Age::Stale(s) => (o.pc_freshness_stale(), Some(s), "warn"),
-        Age::Unavailable(s) => (o.pc_freshness_unavailable(), Some(s), "bad"),
+/// The observation's age (`observation`): the API's freshness, then when and how many minutes ago.
+fn observed(o: Ops, row: &Connection) -> (String, Option<String>, &'static str) {
+    let (words, tone) = match row.freshness_state.as_deref() {
+        Some("ageOnly") => (o.pc_freshness_age_only(), "neutral"),
+        Some("fresh") => (o.pc_freshness_fresh(), "good"),
+        Some("aging") => (o.pc_freshness_aging(), "neutral"),
+        Some("stale") => (o.pc_freshness_stale(), "warn"),
+        Some("unavailable") => (o.pc_freshness_unavailable(), "bad"),
+        _ => (o.pc_freshness_unknown(), "warn"),
     };
+    let seconds = row.age_seconds;
     let at = row.observed_at.as_deref().unwrap_or("");
     let at =
         parse_timestamp(at).map_or_else(|| at.to_owned(), |w| o.date_time(w, DateStyle::Medium, TimeStyle::Short).to_string());
@@ -92,7 +93,7 @@ fn observed(o: Ops, row: &Connection, evaluated_at: &str) -> (String, Option<Str
 }
 
 #[component(css = ProvidersPage)]
-fn Part<'a>(o: Ops, which: &'static str, section: &'a Section, evaluated_at: &'a str) -> impl Render {
+fn Part<'a>(o: Ops, which: &'static str, section: &'a Section) -> impl Render {
     let (title, description, empty) = match which {
         "catalog" => (o.pc_home_catalog(), o.pc_description_catalog(), o.pc_empty_catalog()),
         _ => (o.pc_home_channels(), o.pc_description_channels(), o.pc_empty_channels()),
@@ -135,7 +136,7 @@ fn Part<'a>(o: Ops, which: &'static str, section: &'a Section, evaluated_at: &'a
                             </thead>
                             <tbody>
                                 for row in &section.rows {
-                                    <Line o={o} row={row} evaluated_at={evaluated_at} />
+                                    <Line o={o} row={row} />
                                 }
                             </tbody>
                         </table>
@@ -147,8 +148,8 @@ fn Part<'a>(o: Ops, which: &'static str, section: &'a Section, evaluated_at: &'a
 }
 
 #[component(css = ProvidersPage)]
-fn Line<'a>(o: Ops, row: &'a Connection, evaluated_at: &'a str) -> impl Render {
-    let (fresh, when, fresh_tone) = observed(o, row, evaluated_at);
+fn Line<'a>(o: Ops, row: &'a Connection) -> impl Render {
+    let (fresh, when, fresh_tone) = observed(o, row);
     let scope = match &row.account_id {
         Some(account) => o.pc_seller_scope(account).to_string(),
         None => o.pc_platform_scope().to_owned(),
@@ -197,8 +198,8 @@ pub fn ProvidersPage<'a>(o: Ops, snapshot: &'a Snapshot) -> impl Render {
                 <h1>{o.pc_title()}</h1>
                 <p class={Muted}>{o.pc_description()}</p>
             </header>
-            <Part o={o} which="catalog" section={&snapshot.catalog} evaluated_at={&snapshot.evaluated_at} />
-            <Part o={o} which="channels" section={&snapshot.channels} evaluated_at={&snapshot.evaluated_at} />
+            <Part o={o} which="catalog" section={&snapshot.catalog} />
+            <Part o={o} which="channels" section={&snapshot.channels} />
         </div>
     }
 }
