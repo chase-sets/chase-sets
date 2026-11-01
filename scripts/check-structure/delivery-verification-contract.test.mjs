@@ -11,6 +11,7 @@ const verificationContractFiles = [
   ".claude/skills/delivery/SKILL.md",
   "docs/runbooks/digitalocean-platform-deployment.md",
 ].map((relativePath) => ({ relativePath, text: readProse(relativePath) }));
+const scopedVerifierCommand = ["node", "./scripts/verify-static", "scoped.mjs"].join(" ");
 const planningSkill = readProse(".agents/skills/planning/SKILL.md");
 const backlogModel = readProse("docs/contributing/backlog-model.md");
 const codexDeliveryPrompt = parseYaml(
@@ -239,6 +240,7 @@ function assertScopedMirrorContract(text) {
   expect(text).not.toContain("A focused local `test:db`");
   expect(text).not.toContain("Run pnpm run verify");
   expect(text).not.toContain("Run pnpm run test:db");
+  expect(text).not.toContain("Run node ./scripts/verify-static");
   const banStart = text.indexOf("Lanes run no `verify:*` gate");
   const banEnd = text.indexOf("hosted CI owns", banStart);
   expect(banStart).toBeGreaterThanOrEqual(0);
@@ -262,11 +264,7 @@ describe("delivery verification contract", () => {
     verificationContractFiles.flatMap(({ relativePath, text }) => [
       [relativePath, "old verify sentence", `${text}\nKeep \`pnpm run verify\` as a local gate.\n`],
       [relativePath, "scoped verifier command", `${text}\nRun pnpm verify:static:scoped before push.\n`],
-      [
-        relativePath,
-        "node scoped verifier command",
-        `${text}\nRun node ./scripts/verify-static-scoped.mjs before push.\n`,
-      ],
+      [relativePath, "node scoped verifier command", `${text}\nRun ${scopedVerifierCommand} before push.\n`],
       [relativePath, "local database command", `${text}\nRun pnpm run test:db before push.\n`],
       [relativePath, "whole verify command", `${text}\nRun pnpm run verify before push.\n`],
       [
