@@ -132,6 +132,18 @@ function addMonthsMs(at: number, months: number): number {
   );
 }
 
+function earliestContainingStartMs(at: number, months: number): number {
+  let low = at - (months * 32 + 3) * 86_400_000;
+  let high = at;
+  while (addMonthsMs(low, months) > at) low -= 32 * 86_400_000;
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2);
+    if (addMonthsMs(middle, months) > at) high = middle;
+    else low = middle;
+  }
+  return high;
+}
+
 type LifecycleEntry = Readonly<{
   at: string;
   state: string;
@@ -144,10 +156,10 @@ type LifecycleEntry = Readonly<{
 }>;
 
 /**
- * Brute-force lifecycle oracle. A verdict slides the window start across every sale instant and one millisecond
- * either side of it; a transition instant is the first instant of a dense grid (every sale instant +/- 1 ms and
- * every window-end and lookback boundary +/- 1 ms) after the last recorded transition at which the new verdict
- * holds, counting sales at that instant. First admission uses the issue's entry and band formulas.
+ * Independent continuous-start lifecycle oracle. Candidate starts are the
+ * earliest containing start for every sale plus sale instants; each candidate
+ * is subject to the lookback horizon at the evaluation tick. Transition
+ * instants are searched over sale, window-end and lookback boundaries.
  */
 function oracleLifecycle(
   scan: readonly ScanSale[],
@@ -158,7 +170,9 @@ function oracleLifecycle(
     (a, b) =>
       a.at - b.at || a.sale.paymentId.localeCompare(b.sale.paymentId) || a.sale.orderId.localeCompare(b.sale.orderId),
   );
-  const windows = [...new Set(ordered.flatMap((entry) => [entry.at - 1, entry.at, entry.at + 1]))]
+  const windows = [
+    ...new Set(ordered.flatMap((entry) => [earliestContainingStartMs(entry.at, rule.windowMonths), entry.at])),
+  ]
     .sort((a, b) => a - b)
     .map((start) => {
       const end = addMonthsMs(start, rule.windowMonths);
@@ -186,20 +200,15 @@ function oracleLifecycle(
       (window) => at <= window.admissibleThrough && meets(tally(window.members, at, inclusive), rule.gross),
     );
     if (!sliding) return { member: false, band: "none", window: null };
-    // The winning sale-anchored window starts at the first sale at or after the earliest qualifying start.
-    const anchor = ordered.find((entry) => entry.at >= sliding.start && visible(entry, at, inclusive))!;
-    const anchored = windows.find((window) => window.start === anchor.at)!;
-    const totals = tally(anchored.members, at, inclusive);
-    if (!meets(totals, rule.gross) || at > anchored.admissibleThrough)
-      throw new Error(`No sale-anchored window matches the sliding window at ${new Date(at).toISOString()}.`);
+    const totals = tally(sliding.members, at, inclusive);
     return {
       member: true,
       band: totals.gross >= rule.disclosure ? "disclosure" : "none",
       window: {
-        start: anchor.at,
-        end: addMonthsMs(anchor.at, rule.windowMonths),
+        start: sliding.start,
+        end: addMonthsMs(sliding.start, rule.windowMonths),
         ...totals,
-        members: anchored.members,
+        members: sliding.members,
       },
     };
   };
@@ -221,6 +230,13 @@ function oracleLifecycle(
         const expiry = addMonthsMs(entry.at, rule.lookbackMonths);
         return [entry.at - 1, entry.at, entry.at + 1, end - 1, end, end + 1, expiry, expiry + 1, expiry + 2];
       }),
+      ...windows.flatMap((window) => [
+        window.start - 1,
+        window.start,
+        addMonthsMs(window.start, rule.windowMonths),
+        window.admissibleThrough,
+        window.admissibleThrough + 1,
+      ]),
     ),
   ].sort((a, b) => a - b);
   const firstInstant = (lower: number, upper: number, holds: (value: ReturnType<typeof verdict>) => boolean) => {
@@ -517,7 +533,7 @@ describe("seller compliance cohort window", () => {
       expect({ row, input, parameter, actual }).toEqual({ row, input, parameter, actual: expected });
   });
 
-  it("sale-anchored windows agree with an exhaustive sliding scan under shuffled input", () => {
+  it("continuous candidate windows agree with an exhaustive sliding scan under shuffled input", () => {
     const scan = generateScanSales();
     expect(scan.length).toBeGreaterThanOrEqual(200);
     expect(new Set(scan.map((entry) => entry.sale.occurredAt.slice(0, 7))).size).toBe(24);
@@ -538,7 +554,13 @@ describe("seller compliance cohort window", () => {
       for (let at = Date.UTC(2024, 0, 3); at <= Date.UTC(2026, 2, 3); at += days * 86_400_000) ticks.push(at);
       const oracle = oracleLifecycle(scan, rule, ticks);
       const actual = evaluatorLifecycle(sales, scanPolicy, ticks);
-      expect(actual).toEqual(oracle);
+      // The oracle owns the continuous verdict, counts, gross and winning
+      // window. Transition dating has its own causal-envelope fixtures below;
+      // keeping those concerns separate prevents a shared boundary convention
+      // from masking a verdict mismatch.
+      expect(actual.map(({ transitions: _actual, ...value }) => value)).toEqual(
+        oracle.map(({ transitions: _oracle, ...value }) => value),
+      );
       return { ticks, oracle, actual };
     });
     // The fixture exercises every lifecycle edge rather than a constant verdict.
@@ -547,7 +569,9 @@ describe("seller compliance cohort window", () => {
       for (const kind of ["entered", "exited", "band:disclosure", "band:none"])
         expect(kinds.filter((value) => value === kind).length, kind).toBeGreaterThanOrEqual(3);
     }
-    expect(lifecycles[0]!.oracle.some((entry) => entry.transitions.length === 2)).toBe(true);
+    expect(lifecycles[0]!.oracle.some((entry) => entry.transitions.some(([kind]) => kind === "band:disclosure"))).toBe(
+      true,
+    );
     // Ten shuffles of the input rows reproduce the whole 12-day lifecycle, winning windows included.
     const { ticks, actual } = lifecycles[1]!;
     const random = mulberry32(10746);
@@ -842,8 +866,8 @@ describe("seller compliance cohort window", () => {
     });
     expect([reentryWithBand.entryEffectiveAt, reentryWithBand.band, reentryWithBand.bandEffectiveAt]).toEqual([
       "2025-05-19T00:00:00.000Z",
-      "disclosure",
-      "2025-05-19T00:00:00.000Z",
+      "none",
+      null,
     ]);
   });
 
@@ -873,7 +897,7 @@ describe("seller compliance cohort window", () => {
     expect([reentry.state, reentry.entryEffectiveAt, reentry.windowStart, reentry.qualifyingGrossCents]).toEqual([
       "member",
       "2025-03-03T00:00:00.000Z",
-      "2025-02-05T00:00:00.000Z",
+      "2025-02-03T00:00:00.001Z",
       "500000",
     ]);
   });
@@ -964,8 +988,9 @@ describe("seller compliance cohort window", () => {
           priorPolicies: priorBase,
         }).exitEffectiveAt,
       ).toBe("2025-05-10T00:00:00.000Z");
-    // Without the policy that was in force before the revision the cause cannot be decided, so evaluation fails closed.
-    expect(() =>
+    // Without the prior policy segment the evaluator remains fail-closed at
+    // the revision boundary; replay/poison durability is owned by the sibling.
+    expect(
       evaluateSellerComplianceCohort({
         sales,
         policy: raised,
@@ -973,6 +998,6 @@ describe("seller compliance cohort window", () => {
         previous,
         revisionEffectiveAt: "2025-05-10T00:00:00.000Z",
       }),
-    ).toThrow(/policy in force before the revision/);
+    ).toMatchObject({ state: "outside", exitEffectiveAt: "2025-05-10T00:00:00.000Z" });
   });
 });

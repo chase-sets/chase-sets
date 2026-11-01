@@ -825,7 +825,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     const now = new Date();
     const effectiveFrom = new Date(now.getTime() - 86_400_000).toISOString();
     await installCohortPolicy(cohortPolicy(), effectiveFrom);
-    const policyVersion = `cohort-current@${effectiveFrom}`;
+    const policyVersion = `cohort-current@${effectiveFrom}#1`;
     // Admitted on a sale four calendar months back; the two-month lookback rolled that window off two months back.
     const monthStart = (offset: number) => Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1);
     const saleAt = new Date(monthStart(-4)).toISOString();
@@ -952,7 +952,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
           "cohort-steady",
           "2025-05-10T00:00:00.000Z",
           "2025-05-11T00:00:00.000Z",
-          "cohort-current@2025-01-01T00:00:00.000Z",
+          "cohort-current@2025-01-01T00:00:00.000Z#1",
         ),
       ]);
     });
@@ -979,7 +979,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       at(late);
       expect((await runCohortTick()).processed).toBe(1);
     };
-    const version = "cohort-current@2025-01-01T00:00:00.000Z";
+    const version = "cohort-current@2025-01-01T00:00:00.000Z#1";
     const transition = (id: string, effectiveAt: string, observedAt: string, state: string, band: string) => ({
       transition_id: id,
       kind: id.split(":")[2],
@@ -1108,7 +1108,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         seller_account_id: "cohort-blind",
         failure_kind: "evaluation",
         detail: expect.stringMatching(/old-policy@2025-01-01T00:00:00\.000Z/),
-        policy_version: `cohort-current@${effectiveFrom}`,
+        policy_version: `cohort-current@${effectiveFrom}#1`,
         at_tick: true,
         recorded: true,
       },
@@ -1173,7 +1173,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         kind: "entered",
         effective_at: saleAt,
         observed_at: expect.any(String),
-        policy_version: `cohort-current@${effectiveFrom}`,
+        policy_version: `cohort-current@${effectiveFrom}#1`,
         target_state: "member",
         target_band: "none",
       },

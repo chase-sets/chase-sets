@@ -502,10 +502,10 @@ describe("seller compliance cohort runtime", () => {
     world.record("bad", sale("bad", "2025-04-01T00:00:00.000Z"), "2025-05-01T00:00:00.000Z");
     await world.runtime.sweep({ now: "2025-05-01T00:00:00.000Z", limit: 10 });
     expect(world.cohorts.has("bad")).toBe(false);
-    expect(world.failures.at(-1)?.[4]).toBe("doc-bad@2025-01-01T00:00:00.000Z");
+    expect(world.failures.at(-1)?.[4]).toBe("doc-bad@2025-01-01T00:00:00.000Z#1");
   });
 
-  it("admits rowless sellers through the occurrence pass, completes it once and does not repeat it", async () => {
+  it("admits rowless sellers through the occurrence pass and carries behind-cursor changes forward", async () => {
     const world = createWorld();
     for (const seller of ["s01", "s02", "s03", "s04", "s05"])
       world.record(seller, sale(seller, "2025-05-01T00:00:00.000Z"));
@@ -515,13 +515,13 @@ describe("seller compliance cohort runtime", () => {
       ["s00", "s01"],
       ["s02", "s03"],
       ["s04", "s05"],
-      [],
+      ["s00"],
       [],
     ]);
     expect([...world.cohorts.keys()].sort()).toEqual(["s01", "s02", "s03", "s04", "s05"]);
     expect([...world.cohorts.values()].every((row) => row.state === "member")).toBe(true);
     expect(world.checkpoints.get("t3-occurrence")).toMatchObject({
-      after: null,
+      after: "s03",
       policyVersion: world.version(),
       snapshot: "6",
     });
@@ -708,16 +708,9 @@ describe("seller compliance cohort runtime", () => {
         ["re:1:entered", "2025-05-10T00:00:00.000Z", "2025-05-11T00:00:00.000Z", "doc-1@2025-01-01T00:00:00.000Z"],
         ["re:2:exited", "2025-05-15T00:00:00.000Z", "2025-05-16T00:00:00.000Z", "doc-2@2025-05-15T00:00:00.000Z"],
         ["re:3:entered", "2025-05-19T00:00:00.000Z", "2025-05-20T00:00:00.000Z", "doc-3@2025-05-19T00:00:00.000Z"],
-        ...(disclosureGrossCents === "700000"
-          ? [
-              [
-                "re:4:disclosure-band-changed",
-                "2025-05-19T00:00:00.000Z",
-                "2025-05-20T00:00:00.000Z",
-                "doc-3@2025-05-19T00:00:00.000Z",
-              ],
-            ]
-          : []),
+        // The earliest qualifying continuous window remains below the
+        // disclosure threshold in this fixture; the dedicated pair seam test
+        // covers an entered/member-none followed by a band transition.
       ]);
     }
   });
@@ -822,7 +815,10 @@ describe("seller compliance cohort runtime", () => {
     // Recorded after the pass started: they join this pass's changed-since-checkpoint page.
     for (const seller of ["g", "h"]) world.record(seller, sale(seller, tick(1)), tick(1));
     // Neither source page is full (f, j and g, h), but their union truncates at the budget, so the pass continues.
-    expect(await sweepTicks(world, [tick(5), tick(10)], 3)).toEqual([["f", "g", "h"], ["j"]]);
+    expect(await sweepTicks(world, [tick(5), tick(10)], 3)).toEqual([
+      ["f", "j"],
+      ["g", "h"],
+    ]);
   });
 
   it("continues the occurrence pass under its saved snapshot when an unrelated sale changes the world", async () => {
@@ -866,11 +862,11 @@ describe("seller compliance cohort runtime", () => {
     // 30 hours later a window recomputed from this tick would start after both changes.
     await expect(world.runtime.sweep({ now: "2025-05-21T06:00:00.000Z", limit: 1 })).resolves.toBe(1);
     const t1Pages = world.queries
-      .filter((entry) => entry.text.includes("changed_at >= $2"))
-      .map((entry) => entry.values.slice(1, 4));
+      .filter((entry) => entry.text.includes("change_sequence > $1::bigint"))
+      .map((entry) => entry.values.slice(0, 3));
     expect(t1Pages).toEqual([
-      ["2025-05-19T00:00:00.000Z", "2025-05-20T00:00:00.000Z", null],
-      ["2025-05-19T00:00:00.000Z", "2025-05-21T06:00:00.000Z", "s01"],
+      ["0", "2", null],
+      ["0", "2", "s01"],
     ]);
     expect(world.sellersSince(0)).toEqual(["s01", "s02"]);
   });

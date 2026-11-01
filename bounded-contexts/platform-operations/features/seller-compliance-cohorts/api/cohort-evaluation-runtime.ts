@@ -15,7 +15,6 @@ import {
 } from "../domain/cohort-window";
 import {
   listSellerCompletedSalesPage,
-  listSellersWithChangedCompletedSales,
   listSellersWithSalesOccurringInWindow,
   readSellerComplianceSnapshotChangeSequence,
   type SellerSaleFact,
@@ -55,9 +54,7 @@ export function createSellerComplianceCohortRuntime(
   }
 
   function policyVersion(record: PolicyHistoryRecord): string {
-    // Keep the historical document@effectiveFrom shape for first creates while
-    // making same-document revisions distinct via their stream version.
-    return `${record.documentId}@${record.effectiveFrom}${record.streamVersion > 1 ? `#${record.streamVersion}` : ""}`;
+    return `${record.documentId}@${record.effectiveFrom}#${record.streamVersion}`;
   }
 
   function policyStart(record: PolicyHistoryRecord): string {
@@ -533,21 +530,24 @@ export function createSellerComplianceCohortRuntime(
        LIMIT $2`,
       [after, limit],
     );
-    const changed = await listSellersWithChangedCompletedSales(deps.db, {
-      fromInclusive: new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString(),
-      toExclusive: now,
-      snapshotChangeSequence: passSnapshot,
-      afterSellerAccountId: after,
-      limit,
-    });
-    const ids = [...new Set([...existing.rows.map((row) => row.seller_account_id), ...changed.sellerAccountIds])]
+    const changed = await deps.db.query<{ seller_account_id: string }>(
+      `SELECT DISTINCT seller_account_id
+       FROM platform_operations_seller_compliance_sales
+       WHERE recorded_at IS NOT NULL AND seller_account_id IS NOT NULL
+         AND change_sequence > $1::bigint AND change_sequence <= $2::bigint
+         AND ($3::text IS NULL OR seller_account_id > $3::text)
+       ORDER BY seller_account_id ASC LIMIT $4`,
+      ["0", passSnapshot, after, limit],
+    );
+    const changedIds = changed.rows.map((row) => row.seller_account_id);
+    const ids = [...new Set([...existing.rows.map((row) => row.seller_account_id), ...changedIds])]
       .sort()
       .slice(0, limit);
     return {
       candidates: ids.map((sellerAccountId) => ({ sellerAccountId, trigger: "failure" })),
       snapshot: passSnapshot,
       passStartedAt: saved?.pass_started_at ?? now,
-      full: existing.rows.length === limit || changed.sellerAccountIds.length === limit || ids.length === limit,
+      full: existing.rows.length === limit || changedIds.length === limit || ids.length === limit,
     };
   }
   async function sweep(params: Readonly<{ now?: string; limit?: number }> = {}): Promise<number> {

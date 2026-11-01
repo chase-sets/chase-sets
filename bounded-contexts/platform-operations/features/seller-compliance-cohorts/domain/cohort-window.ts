@@ -125,6 +125,45 @@ function candidateAt(
   }
   return { start, end, qualifying, count: qualifying.length, gross: total };
 }
+
+/**
+ * The clamped calendar-month function is monotone, but not a global inverse at
+ * month ends.  Find the first UTC millisecond whose window end is strictly
+ * after the sale.  This is the earliest start in the relevant monotone piece;
+ * sale instants are added separately for ties and half-open boundaries.
+ */
+function earliestContainingStart(occurredAt: string, months: number): string {
+  const sale = Date.parse(occurredAt);
+  let low = sale - (months * 32 + 3) * 86_400_000;
+  let high = sale;
+  while (addUtcMonths(new Date(low).toISOString(), months) > occurredAt) low -= 32 * 86_400_000;
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2);
+    if (addUtcMonths(new Date(middle).toISOString(), months) > occurredAt) high = middle;
+    else low = middle;
+  }
+  return new Date(high).toISOString();
+}
+
+function candidateStarts(
+  sales: readonly SellerSaleFact[],
+  policy: SellerComplianceCohortPolicyValue,
+  evaluationAt: string,
+): readonly string[] {
+  const windowMonths = policy.windowMonths ?? 1;
+  const at = Date.parse(evaluationAt);
+  const starts = new Set<string>();
+  for (const sale of sales) {
+    const earliest = earliestContainingStart(sale.occurredAt, windowMonths);
+    if (at <= Date.parse(addUtcMonths(earliest, policy.lookbackMonths ?? 60))) starts.add(earliest);
+    if (
+      Date.parse(sale.occurredAt) < at &&
+      at <= Date.parse(addUtcMonths(sale.occurredAt, policy.lookbackMonths ?? 60))
+    )
+      starts.add(sale.occurredAt);
+  }
+  return [...starts].sort();
+}
 function qualifies(
   candidate: Candidate,
   policy: SellerComplianceCohortPolicyValue,
@@ -182,26 +221,14 @@ function evaluateAt(
   const eligible = sales
     .filter((sale) => {
       const occurred = Date.parse(sale.occurredAt);
-      return (
-        (includeSalesAt ? occurred <= at : occurred < at) &&
-        withinCalendarHorizon(occurred, at, lookbackMonths) &&
-        isLookbackAnchorEligible(sale.occurredAt, lookbackMonths, evaluationAt)
-      );
+      return (includeSalesAt ? occurred <= at : occurred < at) && withinCalendarHorizon(occurred, at, lookbackMonths);
     })
     .sort(bySaleKey);
   const amounts = eligible.map((sale) => (classify(sale, policy) === "qualifying" ? gross(sale, policy) : null));
   let winner: Candidate | null = null;
-  const starts = new Set<string>();
-  for (const sale of eligible) {
-    // A qualifying window may begin at any UTC millisecond.  The earliest
-    // start that still contains a sale is one millisecond after its clamped
-    // month inverse; sale instants remain candidates for deterministic ties.
-    starts.add(new Date(Date.parse(addUtcMonths(sale.occurredAt, -(policy.windowMonths ?? 1))) + 1).toISOString());
-    starts.add(sale.occurredAt);
-  }
-  for (const start of [...starts].sort()) {
+  for (const start of candidateStarts(eligible, policy, evaluationAt)) {
     const candidate = candidateAt(start, eligible, amounts, policy);
-    if (qualifies(candidate, policy)) {
+    if (Date.parse(evaluationAt) <= Date.parse(addUtcMonths(start, lookbackMonths)) && qualifies(candidate, policy)) {
       winner = candidate;
       break;
     }
@@ -314,15 +341,16 @@ function firstInstant(
   for (const segment of input.priorPolicies ?? []) instants.add(Date.parse(segment.effectiveFrom));
   for (const sale of sales) {
     if (change !== "membership-loss") instants.add(Date.parse(sale.occurredAt));
-    if (change !== "membership-loss")
-      for (const candidate of policies)
-        instants.add(Date.parse(addUtcMonths(sale.occurredAt, -(candidate.windowMonths ?? 1))) + 1);
-    if (change !== "membership-gain")
-      for (const candidate of policies)
+    for (const candidate of policies) {
+      const start = earliestContainingStart(sale.occurredAt, candidate.windowMonths ?? 1);
+      if (change !== "membership-loss") instants.add(Date.parse(start));
+      if (change !== "membership-gain") {
+        instants.add(Date.parse(addUtcMonths(start, candidate.windowMonths ?? 1)));
+        instants.add(Date.parse(addUtcMonths(start, candidate.lookbackMonths ?? 60)) + 1);
         instants.add(Date.parse(addUtcMonths(sale.occurredAt, candidate.windowMonths ?? 1)));
-    if (change !== "membership-gain")
-      for (const candidate of policies)
         instants.add(Date.parse(addUtcMonths(sale.occurredAt, candidate.lookbackMonths ?? 60)) + 1);
+      }
+    }
   }
   const ordered = [...instants].filter((at) => at > lowerAt && at <= upperAt).sort((a, b) => a - b);
   for (const at of ordered) {
