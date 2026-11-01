@@ -2402,7 +2402,7 @@ describe("busy-group-pass-attribution Postgres", () => {
       pollLoop.start();
       if (targetPassGate) {
         await initialCheckpointCommitted;
-        trace("initial-checkpoint-committed", { runnerName: workerRunnerName, position: initialPosition });
+        trace("initial-checkpoint-committed", { runnerName: workerRunnerName, position: initialPosition?.toString() });
       } else {
         await handoff;
         expect(retainedPass).toMatchObject({ processed: 1, disposition: "retained", outcome: "success" });
