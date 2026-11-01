@@ -319,7 +319,7 @@ function parseAnonymousListingDraftBody(body: Record<string, unknown>) {
 }
 
 /**
- * One batch id plus one target attempt per Listing (#7161 D6): every target's attempt is the batch id bound
+ * One batch id plus one target attempt per Listing: every target's attempt is the batch id bound
  * to that Listing, so a retried batch replays succeeded targets and only runs targets it never recorded.
  */
 function parseBulkListingPriceUpdates(

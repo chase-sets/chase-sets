@@ -38,7 +38,7 @@ type ListingAttemptInput = Readonly<{
 }> &
   ({ request: Record<string, unknown>; requestHash?: string } | { request?: undefined; requestHash: string });
 
-/** Exempt repricing-engine keys (#7161 D4): deterministic, engine-owned, and kept on the shipped event ids. */
+/** Exempt repricing-engine keys are deterministic, engine-owned, and kept on the shipped event ids. */
 export function isRepricingEngineKey(key: string | undefined): key is `repricing:${string}` {
   return typeof key === "string" && key.startsWith("repricing:");
 }

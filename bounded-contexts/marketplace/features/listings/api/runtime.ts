@@ -200,7 +200,7 @@ export type { MarketplaceBulkListingPriceUpdateInput, MarketplaceBulkListingPric
 export { marketplaceListingCommandTypes as marketplaceListingCommandInventory } from "../domain/domain";
 
 /**
- * The shipped Listing carrier (#7161 D5): `idempotencyKey` stamps the command's owner-stream events and
+ * The shipped Listing carrier: `idempotencyKey` stamps the command's owner-stream events and
  * `requestHash`, when supplied, must equal the canonical request. Omitted only by proved internal exemptions.
  */
 export type MarketplaceListingAttemptParams = Readonly<{ idempotencyKey?: string; requestHash?: string }>;
@@ -2361,7 +2361,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       );
     },
     publishListing: async (params, context) => {
-      // Repricing-engine keys keep their shipped already-active no-op and carry no attempt (#7161 D4).
+      // Repricing-engine keys keep their shipped already-active no-op and carry no attempt.
       const repricing = isRepricingEngineKey(params.idempotencyKey);
       const attempt = repricing
         ? null

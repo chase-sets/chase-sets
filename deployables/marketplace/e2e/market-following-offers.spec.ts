@@ -1,4 +1,5 @@
 import { expect, test, type APIResponse, type BrowserContext } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -373,6 +374,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
         try {
           const listing = await seller.request.post("/api/marketplace/account/listings", {
             data: {
+              idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
               inventoryItemId: inventorySeedIds.items.surgingSparksBoosterBox,
               priceAmount: fixture.amount,
               priceCurrencyCode: "USD",
@@ -384,7 +386,10 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           const draft = await listing.json();
           listingId = draft.id;
           const published = await seller.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
-            data: { feeQuoteFingerprint: draft.feeQuoteFingerprint },
+            data: {
+              idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
+              feeQuoteFingerprint: draft.feeQuoteFingerprint,
+            },
           });
           expect(published.ok(), "publish the test-owned two-unit Listing through its normal gates").toBe(true);
           rememberWrite(published);
@@ -477,7 +482,9 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
         } finally {
           try {
             if (listingId) {
-              const withdrawn = await seller.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`);
+              const withdrawn = await seller.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`, {
+                data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
+              });
               expect(withdrawn.ok(), "withdraw only the test-owned Listing").toBe(true);
             }
           } finally {

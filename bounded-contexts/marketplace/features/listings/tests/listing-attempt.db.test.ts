@@ -18,8 +18,8 @@ import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { module as marketplaceModule } from "../../../index";
 import { buildMarketplaceInventoryProjectionHandlers } from "../integrations/supply/supply-projection";
 import { buildMarketplaceListingProjectionHandlers } from "../read-model/projection";
-import { createMarketplaceListingRuntime } from "./runtime";
-import { attemptListingId } from "./listing-attempt";
+import { createMarketplaceListingRuntime } from "../api/runtime";
+import { attemptListingId } from "../api/listing-attempt";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Listing attempt DB proof.");
