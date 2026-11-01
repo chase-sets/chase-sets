@@ -203,6 +203,7 @@ function expectedContexts(contexts, target) {
         manifest.shellContributions?.some((entry) => entry.deployable === target.hostName)
       );
     })
+    .sort((left, right) => left.contextName.localeCompare(right.contextName, "en"))
     .map(({ contextName, packageName }) => ({ contextName, packageName }));
 }
 
