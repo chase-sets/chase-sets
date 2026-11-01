@@ -145,7 +145,7 @@ describeDb("Listing attempts on PostgreSQL", () => {
       f.restart().updateListingPrice(command, context),
     ]);
     expect(results.every((result) => result.status === "fulfilled")).toBe(true);
-    expect(results.map((result) => (result.status === "fulfilled" ? result.value.version : null))).toEqual([3, 3]);
+    expect(results.map((result) => (result.status === "fulfilled" ? result.value.version : null))).toEqual([4, 4]);
     expect((await f.eventTypes(listingId)).filter((type) => type === "marketplace.listing.price-updated")).toHaveLength(
       1,
     );
