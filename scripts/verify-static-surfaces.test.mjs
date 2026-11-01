@@ -288,9 +288,18 @@ describe("verify:static surface-map and selector contracts", () => {
         include: [{ kind: "prefix", value: "bounded-contexts" }],
       },
     };
-    expect(
-      selectVerifyStaticGuardTests({ changedFiles: ["docs/synthetic-brand-caller.md"], surfaces: narrowed }),
-    ).toContain(brandGuard);
+    const representativeFiles = [
+      "docs/synthetic-brand-caller.md",
+      "deployables/marketplace/public/icons/icon.png",
+      "pnpm-lock.yaml",
+    ];
+    const assertRepresentativeCoverage = (surfaces) => {
+      for (const changedFile of representativeFiles) {
+        expect(selectVerifyStaticGuardTests({ changedFiles: [changedFile], surfaces })).toContain(brandGuard);
+      }
+    };
+    assertRepresentativeCoverage(VERIFY_STATIC_GUARD_TEST_SURFACES);
+    expect(() => assertRepresentativeCoverage(narrowed)).toThrow();
     const empty = {
       ...VERIFY_STATIC_GUARD_TEST_SURFACES,
       [brandGuard]: { ...VERIFY_STATIC_GUARD_TEST_SURFACES[brandGuard], include: [] },
