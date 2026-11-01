@@ -20,6 +20,8 @@ import {
 const stagingOrigin = linkIntentOrigins["marketplace-web"].staging;
 const productionOrigin = linkIntentOrigins["marketplace-web"].production;
 const authorizePath = "/channel-connector/oauth/authorize";
+const stagingPersonaSignInPath = "/api/auth/staging-persona-sign-in";
+const stagingPersonaMagicLinkPath = "/sign-in/magic";
 const valueFlags = [
   "--deploy-run",
   "--deploy-commit",
@@ -30,6 +32,7 @@ const valueFlags = [
 ] as const;
 const pairingFlags = ["--client-id", "--artifact-digest", "--persona-alias"] as const;
 const probeTimeoutMs = 10_000;
+export const STAGING_PERSONA_MAGIC_LINK_SECRET_ENV = "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET";
 
 export type StagingDrillArgs = Readonly<{
   smoke: boolean;
@@ -62,6 +65,68 @@ export type StagingDrillPorts = Readonly<{
   traceActive?: boolean;
   launch?: DeployedPairingDrillInput["launch"];
 }>;
+
+/**
+ * Creates the staging-only sign-in adapter. The raw bearer is read once from
+ * the Bitwarden-injected environment and removed before any network call. The
+ * link stays in memory, while the browser stack performs a token-less landing
+ * probe before navigating to it.
+ */
+export function createStagingPersonaSignIn() {
+  return async (context: BrowserContext, personaAlias: string): Promise<void> => {
+    const bearer = process.env[STAGING_PERSONA_MAGIC_LINK_SECRET_ENV];
+    delete process.env[STAGING_PERSONA_MAGIC_LINK_SECRET_ENV];
+    if (!bearer) {
+      throw new PairingDrillRefusal("connector-drill-sign-in-unavailable", {
+        forwardCount: 0,
+        forwards: [],
+        requests: [],
+        lifecycle: [],
+      });
+    }
+
+    let link: URL;
+    try {
+      const response = await fetch(`${stagingOrigin}${stagingPersonaSignInPath}`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          authorization: `Bearer ${bearer}`,
+          origin: stagingOrigin,
+          host: new URL(stagingOrigin).host,
+        },
+        body: JSON.stringify({ alias: personaAlias }),
+      });
+      if (!response.ok) throw new Error("staging-persona-sign-in-refused");
+      const body = (await response.json()) as { alias?: unknown; link?: unknown };
+      if (body.alias !== personaAlias || typeof body.link !== "string") throw new Error("staging-persona-link-invalid");
+      link = new URL(body.link);
+      if (
+        link.origin !== stagingOrigin ||
+        link.pathname !== stagingPersonaMagicLinkPath ||
+        !link.searchParams.has("token")
+      ) {
+        throw new Error("staging-persona-link-origin-refused");
+      }
+
+      const landing = await context.request.get(`${stagingOrigin}${stagingPersonaMagicLinkPath}`, {
+        headers: { accept: "text/html" },
+      });
+      if (!landing.ok()) throw new Error("staging-persona-probe-refused");
+    } catch {
+      throw new PairingDrillRefusal("connector-drill-sign-in-unavailable", {
+        forwardCount: 0,
+        forwards: [],
+        requests: [],
+        lifecycle: [],
+      });
+    }
+
+    const page = context.pages()[0] ?? (await context.newPage());
+    await page.goto(link.href);
+  };
+}
 
 const refusal = (code: PairingDrillRefusalCode, deployStop?: string) =>
   new PairingDrillRefusal(code, {

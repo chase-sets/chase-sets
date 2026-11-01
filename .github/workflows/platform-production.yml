@@ -1828,6 +1828,7 @@ jobs:
       - name: Apply staging Kubernetes runtime secrets
         env:
           EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON: ${{ secrets.EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON || '' }}
+          CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256: ${{ secrets.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 || '' }}
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
           EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
           EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
@@ -1954,6 +1955,7 @@ jobs:
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret chase-sets \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
+            --runtime-env "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256=${CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256}" \
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \

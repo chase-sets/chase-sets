@@ -242,6 +242,7 @@ function resetConfigEnv() {
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_WINDOW_MS;
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_DISABLED;
   delete process.env.PROJECTION_INLINE_APPLY_ENABLED;
+  delete process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256;
   delete process.env.CHASE_SETS_CHECKOUT_CLOSED;
   delete process.env.CHASE_SETS_OFFER_LIFECYCLE_OPEN;
 }
@@ -319,6 +320,30 @@ describe("platform api config", () => {
       if (previous === undefined) delete process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
       else process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = previous;
     }
+  });
+  it("mounts the staging persona verifier only on staging and rejects malformed values", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_staging_connect_test";
+    process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 = "a".repeat(64);
+    process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = JSON.stringify({
+      activeKeyId: "channel-synthetic",
+      keys: [{ keyId: "channel-synthetic", keyBase64: Buffer.alloc(32, 9).toString("base64") }],
+    });
+    expect(loadConfig()).toMatchObject({
+      stagingPersonaMagicLinkVerifierSha256: "a".repeat(64),
+      channelCredentialKeyring: { activeKeyId: "channel-synthetic" },
+    });
+
+    process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 = "not-a-digest";
+    expect(() => loadConfig()).toThrow("must be a lowercase SHA-256 digest");
+
+    delete process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256;
+    process.env.DEPLOYMENT_ENVIRONMENT = "production";
+    process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
+    expect(loadConfig().stagingPersonaMagicLinkVerifierSha256).toBeUndefined();
+    process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 = "a".repeat(64);
+    expect(() => loadConfig()).toThrow("may only be configured for staging");
   });
   it("defaults checkout admission open and parses the explicit closure switch", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";

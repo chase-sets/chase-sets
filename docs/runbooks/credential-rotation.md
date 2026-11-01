@@ -32,6 +32,10 @@ Add, rename or remove the entry in the same pull request that adds, renames or r
 
 ## Agent Tier
 
+### Connector staging persona verifier
+
+`CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET` is a Todd-only Bitwarden value used once by the staging connector drill. It is never a GitHub secret, workflow input, command argument, log value, receipt field or persisted application value. The operator derives its lowercase SHA-256 digest locally and stores only `CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256` in the staging runtime secret set. The verifier is dedicated to the Auth staging persona route and must not be placed in `CHANNELS_CREDENTIAL_KEYRING_JSON`, production, preview or any other environment. Rotate both values together; absence or malformed verifier fails closed and does not mount the route.
+
 The top-level `agentTier` holds `project`, the Bitwarden project name, and `keys`, sorted by name. Each key has `name`, an existing inventory entry, and `testPrefixes`, the prefixes its agent value must start with; the list is empty when the provider has no test-key shape. `node ./scripts/credential-inventory.mjs tiers` prints the names in each tier, never a value.
 
 Membership rules, enforced by `scripts/credential-inventory.test.mjs` in `test:scripts` and settled by the [#10031 decision](https://github.com/chase-sets/chase-sets/issues/10031):

@@ -366,6 +366,7 @@ const runtime = createPlatformApiHost({
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
+    stagingPersonaMagicLinkVerifierSha256: config.stagingPersonaMagicLinkVerifierSha256,
     evidenceWindowCorrelation,
     evidenceWindowProviderWrite,
     securityLifetimes: config.authSecurityLifetimes,
