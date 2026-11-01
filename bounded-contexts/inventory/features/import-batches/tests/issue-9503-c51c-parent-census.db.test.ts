@@ -82,7 +82,7 @@ describeDb("issue-9503-c51c parent outcome census", () => {
     await pool.query(
       `INSERT INTO inventory_import_batch_jobs
        (job_id, job_kind, status, payload, progress, event_context, created_at, updated_at)
-       VALUES ($1, 'commit', 'running', $2::jsonb, $3::jsonb, $4::jsonb, now(), now())`,
+       VALUES ($1, 'commit', 'queued', $2::jsonb, $3::jsonb, $4::jsonb, now(), now())`,
       [
         jobId,
         JSON.stringify({ accountId, batchId, commit: { inputId } }),
