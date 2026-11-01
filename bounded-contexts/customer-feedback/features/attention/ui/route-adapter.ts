@@ -1,10 +1,10 @@
 import { FeedbackAttentionSurface, type FeedbackAttentionMetrics } from "./attention-surface";
-import type { FeedbackAttentionItem } from "../domain";
+import type { FeedbackAttentionQueueItem } from "../read-model/queries";
 
 export { FeedbackAttentionSurface };
 
 export type FeedbackAttentionRouteData = Readonly<{
-  items: readonly FeedbackAttentionItem[];
+  items: readonly FeedbackAttentionQueueItem[];
   metrics: FeedbackAttentionMetrics;
 }>;
 

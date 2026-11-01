@@ -42,6 +42,21 @@ test.describe("marketplace buyer purchase journey", () => {
     await checkoutButton.click();
 
     await expect(page).toHaveURL(/\/checkout\/buy\/session\/[^/?]+/);
+
+    // Navigation is read-only. A buyer must explicitly refresh the review when
+    // the quote is missing, then press the single Pay action that commits the
+    // checkout and starts payment.
+    const reviewAction = page.getByRole("button", { name: /^(?:Update totals|Pay now)$/i }).first();
+    await expect(reviewAction, "checkout must expose an explicit review action").toBeVisible();
+    if ((await reviewAction.innerText()).trim().toLowerCase() === "update totals") {
+      await reviewAction.click();
+      await expect(page.getByRole("button", { name: /^Pay now$/i }).first()).toBeVisible();
+    }
+    await page
+      .getByRole("button", { name: /^Pay now$/i })
+      .first()
+      .click();
+
     // The checkout session surface always renders under the "Secure checkout" banner —
     // the reachable checkout-session boundary. Assert it hard.
     await expect(page.getByRole("heading", { name: /^Secure checkout$/i }).first()).toBeVisible();
@@ -60,7 +75,6 @@ test.describe("marketplace buyer purchase journey", () => {
       }
       const updateTotals = page.getByRole("button", { name: /Update totals|Pay now/i }).first();
       await expect(updateTotals, "checkout must reach the payment boundary action").toBeVisible();
-      await updateTotals.click();
       await expect(
         page.getByText(/Payment review comes next|Final totals before payment|Pay now/i).first(),
       ).toBeVisible();

@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ClientLoaderFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
   type ActionFunctionArgs,
+  data as routeData,
   redirect,
   useFetcher,
   useLoaderData,
@@ -78,6 +79,7 @@ const EMPTY_SEARCH_RESULT = {
   interpreted: null,
   interpretedFilters: [],
   data: null,
+  searchFailed: false,
   categories: [],
   homeMerchandising: null,
   savedListClaim: { preparation: null, error: null },
@@ -298,7 +300,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           interpreted,
         }),
       )
-      .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE),
+      .catch(() => null),
     isHomeLanding
       ? api
           .searchItems(
@@ -322,7 +324,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   ]);
   // Interpreted rows are never shown here: the canonical URL is loaded as its own request,
   // whose marker keeps the dispatcher from interpreting again.
-  if (data.interpretation && interpreted === null) {
+  if (data?.interpretation && interpreted === null) {
     throw redirect(buildInterpretedSearchPath(url, data.interpretation), { status: 302 });
   }
   const canonicalPath =
@@ -330,7 +332,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
       : buildCategoryPath("", url.searchParams);
 
-  return {
+  const result = {
     search,
     category,
     tag,
@@ -344,6 +346,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     interpreted,
     interpretedFilters: readInterpretedFilters(url.searchParams),
     data,
+    searchFailed: data === null,
     categories: categories.items,
     homeMerchandising: isHomeLanding
       ? {
@@ -356,6 +359,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     canonicalUrl: new URL(canonicalPath, url.origin).toString(),
     savedListClaim,
   };
+  // React Router's `data` helper preserves the loader payload while attaching the HTTP status,
+  // this installed router version does not expose its generic wrapper type.
+  return data === null ? (routeData(result, { status: 502 }) as unknown as typeof result) : result;
 }
 
 /**
@@ -727,6 +733,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   );
   const accumulatedSnapshotKey = JSON.stringify([
     resultSetKey,
+    data.searchFailed,
     restartedFirstPage !== null,
     activeFirstPage?.nextCursor,
     activeExtraPages.length,
@@ -1285,6 +1292,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       dynamicFilters={dynamicFilters}
       interpretedFilters={data.interpretedFilters}
       data={visibleData}
+      error={data.searchFailed ? t("discovery.features.search.ui.searchPage.results.error.description") : null}
       resultSetKey={activeFirstPage?.resultSetKey}
       categories={[...data.categories]}
       homeMerchandising={data.homeMerchandising}

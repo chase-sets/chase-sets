@@ -37,7 +37,7 @@ describe("account status route", () => {
         accountId: "acct-1",
         membershipId: "membership-1",
         roleKey: "account-owner",
-        permissions: ["payouts.view"],
+        permissions: ["payouts.view", "payouts.request"],
       });
       await next();
     });
@@ -57,5 +57,128 @@ describe("account status route", () => {
     expect(result.next_actions).toEqual(payable ? ["request-payout"] : []);
     expect(getWallet).toHaveBeenCalledWith("acct-1");
     expect(getPayoutReadiness).toHaveBeenCalledWith("acct-1");
+  });
+
+  it("uses the account-status 24-hour freshness rule without changing page predicates", async () => {
+    const app = new Hono<SettlementApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "session-1",
+        tenantId: "tenant-1",
+        userId: "user-1",
+        accountId: "acct-1",
+        membershipId: "membership-1",
+        roleKey: "account-owner",
+        permissions: ["payouts.view", "payouts.request"],
+      });
+      await next();
+    });
+    app.route(
+      "/",
+      buildSettlementApi({
+        wallets: {
+          getWallet: vi.fn(async () => ({
+            currency_code: "usd",
+            pending_balance_amount: "0.00",
+            available_balance_amount: "1.00",
+          })),
+        },
+        payoutReadiness: {
+          getPayoutReadiness: vi.fn(async () => ({
+            status: "ready",
+            provider_reference: "provider",
+            missing_requirements: [],
+            advisory_requirements: [],
+            updated_at: "2026-01-01T00:00:00.000Z",
+          })),
+        },
+      } as unknown as SettlementServices),
+    );
+
+    const result = await (await app.request("/account-status")).json();
+    expect(result.payouts.unavailable_reasons).toContain("payout-setup-refresh-required");
+    expect(result.payouts.can_request).toBe(false);
+  });
+
+  it("does not add refresh-required to a not-ready account with stale readiness", async () => {
+    const app = new Hono<SettlementApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "session-1",
+        tenantId: "tenant-1",
+        userId: "user-1",
+        accountId: "acct-1",
+        membershipId: "membership-1",
+        roleKey: "account-owner",
+        permissions: ["payouts.view", "payouts.request"],
+      });
+      await next();
+    });
+    app.route(
+      "/",
+      buildSettlementApi({
+        wallets: {
+          getWallet: vi.fn(async () => ({
+            currency_code: "usd",
+            pending_balance_amount: "0.00",
+            available_balance_amount: "1.00",
+          })),
+        },
+        payoutReadiness: {
+          getPayoutReadiness: vi.fn(async () => ({
+            status: "pending",
+            provider_reference: null,
+            missing_requirements: ["bank_account"],
+            advisory_requirements: [],
+            updated_at: "2026-01-01T00:00:00.000Z",
+          })),
+        },
+      } as unknown as SettlementServices),
+    );
+
+    const result = await (await app.request("/account-status")).json();
+    expect(result.payouts.unavailable_reasons).toEqual(["payout-setup-incomplete", "provider-requirements-open"]);
+    expect(result.payouts.unavailable_reasons).not.toContain("payout-setup-refresh-required");
+  });
+
+  it("does not advertise request-payout to a read-only actor", async () => {
+    const app = new Hono<SettlementApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "session-1",
+        tenantId: "tenant-1",
+        userId: "user-1",
+        accountId: "acct-1",
+        membershipId: "membership-1",
+        roleKey: "account-owner",
+        permissions: ["payouts.view"],
+      });
+      await next();
+    });
+    app.route(
+      "/",
+      buildSettlementApi({
+        wallets: {
+          getWallet: vi.fn(async () => ({
+            currency_code: "usd",
+            pending_balance_amount: "0.00",
+            available_balance_amount: "1.00",
+          })),
+        },
+        payoutReadiness: {
+          getPayoutReadiness: vi.fn(async () => ({
+            status: "ready",
+            provider_reference: "provider",
+            missing_requirements: [],
+            advisory_requirements: [],
+            updated_at: new Date().toISOString(),
+          })),
+        },
+      } as unknown as SettlementServices),
+    );
+
+    const result = await (await app.request("/account-status")).json();
+    expect(result.payouts.can_request).toBe(false);
+    expect(result.next_actions).not.toContain("request-payout");
   });
 });

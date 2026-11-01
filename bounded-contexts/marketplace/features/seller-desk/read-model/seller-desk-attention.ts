@@ -56,11 +56,18 @@ export function sellerListingsToAttentionRows(
   listings: readonly MarketplaceListingListItem[],
 ): readonly ListingActionAttentionRow[] {
   return listings
-    .filter((listing) => LISTING_ACTION_STATUSES.has(listing.status))
+    .filter(
+      (listing) =>
+        LISTING_ACTION_STATUSES.has(listing.status) &&
+        (listing.pause_reason !== "inventory-capacity" || listing.inventory_capacity_recovery_block),
+    )
     .map((listing) => ({
       listingId: listing.listing_id,
       reference: listing.item_title ?? listing.listing_id,
-      action: listing.status,
+      action:
+        listing.pause_reason === "inventory-capacity" && listing.inventory_capacity_recovery_block
+          ? `inventory-capacity:${listing.inventory_capacity_recovery_block}`
+          : listing.status,
       observedAt: listing.updated_at,
     }));
 }

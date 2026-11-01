@@ -142,8 +142,10 @@ export type RemoveCatalogItemFromCategoryCommand = Readonly<{
 
 export type PublishCatalogItemCommand = Readonly<{
   type: "PublishCatalogItem";
-  blueprintIsActive: boolean;
-  requiredFieldIds: readonly FieldId[];
+  /** @deprecated Publication preconditions are resolved by the Catalog API boundary. */
+  blueprintIsActive?: boolean;
+  /** @deprecated Publication preconditions are resolved by the Catalog API boundary. */
+  requiredFieldIds?: readonly FieldId[];
   displayIdentity?: CatalogItemPublicationDisplayIdentityEvidence;
 }>;
 
@@ -618,15 +620,7 @@ export const decideCatalogItem: AggregateDecider<CatalogItemState, CatalogItemCo
       requireCreatedItem(state);
       assert(state.status === "draft", "Only draft items can be published.");
       assert(state.blueprintId !== null, "Items require a blueprint before publish.");
-      assert(command.blueprintIsActive, "Items may only publish against active blueprints.");
       assertCurrentPublicationDisplayIdentity(state, command.displayIdentity);
-
-      const requiredFieldIds = normalizeRequiredFieldIds(command.requiredFieldIds);
-      const populatedFieldIds = new Set(state.fieldValues.map((fieldValue) => fieldValue.fieldId));
-
-      for (const requiredFieldId of requiredFieldIds) {
-        assert(populatedFieldIds.has(requiredFieldId), "Items must satisfy all required field rules before publish.");
-      }
 
       return [
         {
@@ -1363,18 +1357,6 @@ function normalizeGtinLinks(links: readonly CatalogItemGtinLink[]): readonly Cat
   const normalized = [...links].sort((left, right) => left.gtin.localeCompare(right.gtin));
 
   ensureUniqueBy(normalized, (link) => link.gtin, "GTINs must be unique per item.");
-
-  return normalized;
-}
-
-function normalizeRequiredFieldIds(fieldIds: readonly FieldId[]): readonly FieldId[] {
-  const normalized = [...new Set(fieldIds)].sort((left, right) => left.localeCompare(right));
-
-  ensureUniqueBy(
-    normalized.map((fieldId) => ({ fieldId })),
-    (entry) => entry.fieldId,
-    "Required field IDs must be unique.",
-  );
 
   return normalized;
 }

@@ -13,6 +13,7 @@ import {
   createRedirectResponse,
 } from "../auth-support/http";
 import { consumeSocialLoginState, insertSocialLoginState } from "../auth-support/store";
+import { getSafeSameSitePath } from "../auth-support/same-site-path";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import type { SocialLoginProviderName } from "../social-login-support/providers";
 import {
@@ -103,7 +104,7 @@ function getDefaultSuccessPath(journey: SocialLoginJourney) {
 
 function getSafeReturnToFromUrl(url: URL, journey: SocialLoginJourney) {
   const returnTo = url.searchParams.get("returnTo");
-  return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : getDefaultSuccessPath(journey);
+  return returnTo !== null && getSafeSameSitePath(returnTo) === returnTo ? returnTo : getDefaultSuccessPath(journey);
 }
 
 function buildPublicOrigin(request: Request) {

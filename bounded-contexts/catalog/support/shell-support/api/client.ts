@@ -37,15 +37,17 @@ export class ApiError extends Error {
 export type CatalogItemPublicationApiErrorCode =
   | "display-identity-degraded"
   | "display-identity-unavailable"
-  | "display-identity-outdated";
+  | "display-identity-outdated"
+  | "publication-precondition";
 
 export class CatalogItemPublicationApiError extends ApiError {
   public constructor(
     status: number,
     body: unknown,
     public readonly code: CatalogItemPublicationApiErrorCode,
-    public readonly readiness: "degraded" | "unavailable" | "outdated",
+    public readonly readiness: "degraded" | "unavailable" | "outdated" | "precondition",
     public readonly missingTokens: readonly string[],
+    public readonly missingFieldIds: readonly string[] = [],
   ) {
     super(status, body);
     this.name = "CatalogItemPublicationApiError";
@@ -204,6 +206,14 @@ function catalogItemPublicationApiError(status: number, body: unknown): CatalogI
   const record = error as Record<string, unknown>;
   const code = record.code;
   const readiness = record.readiness;
+  if (
+    code === "publication-precondition" &&
+    record.reason_code === "publication-precondition" &&
+    Array.isArray(record.missingFieldIds) &&
+    record.missingFieldIds.every((fieldId) => typeof fieldId === "string")
+  ) {
+    return new CatalogItemPublicationApiError(status, body, code, "precondition", [], record.missingFieldIds);
+  }
   if (
     (code !== "display-identity-degraded" &&
       code !== "display-identity-unavailable" &&
@@ -1050,10 +1060,10 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async publishCatalogItem<T>(id: string, blueprintIsActive: boolean, requiredFieldIds: string[]): Promise<T> {
+    async publishCatalogItem<T>(id: string): Promise<T> {
       const response = await client.items[":id"].publish.$post({
         param: { id },
-        json: { blueprintIsActive, requiredFieldIds },
+        json: {},
         header: headers,
       });
       return parseJsonResponse<T>(response);

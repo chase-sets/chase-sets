@@ -64,6 +64,9 @@ export function safeFailureFields(classification, error) {
   if (typeof error?.code === "string" && /^[A-Z0-9_-]{1,40}$/.test(error.code)) {
     fields.code = error.code;
   }
+  if (typeof error?.context === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(error.context)) {
+    fields.context = error.context;
+  }
   return fields;
 }
 

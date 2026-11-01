@@ -2,7 +2,11 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogItemRoutes } from "./route";
-import { CatalogItemPublicationError, type CatalogItemServices } from "./runtime";
+import {
+  CatalogItemPublicationError,
+  CatalogItemPublicationPreconditionError,
+  type CatalogItemServices,
+} from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 
@@ -280,7 +284,7 @@ describe("catalog item routes", () => {
       new Request("http://catalog.test/items/cat_1/publish", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ blueprintIsActive: true, requiredFieldIds: [], expectedVersion: 7 }),
+        body: JSON.stringify({ blueprintIsActive: true, requiredFieldIds: ["fld_fake"], expectedVersion: 7 }),
       }),
     );
 
@@ -296,9 +300,38 @@ describe("catalog item routes", () => {
     expect(commandHandler).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedVersion: 7,
-        command: expect.not.objectContaining({ displayIdentity: expect.anything() }),
+        command: { type: "PublishCatalogItem" },
       }),
     );
+  });
+
+  it("returns the server-owned publication precondition refusal", async () => {
+    const commandHandler = vi.fn(async () => {
+      throw new CatalogItemPublicationPreconditionError("Missing required field values: fld_name, fld_set.", [
+        "fld_name",
+        "fld_set",
+      ]);
+    });
+    const app = buildApp(createServices({ commandHandler }));
+
+    const response = await app.fetch(
+      new Request("http://catalog.test/items/cat_1/publish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ blueprintIsActive: true, requiredFieldIds: ["fld_fake"] }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "publication-precondition",
+        reason_code: "publication-precondition",
+        message: "Missing required field values: fld_name, fld_set.",
+        missingFieldIds: ["fld_name", "fld_set"],
+      },
+    });
+    expect(commandHandler).toHaveBeenCalledWith(expect.objectContaining({ command: { type: "PublishCatalogItem" } }));
   });
 
   it("previews lifecycle actions against the filtered item scope", async () => {

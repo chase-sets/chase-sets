@@ -23,6 +23,7 @@ import {
   mockCreatePaymentsRequestApiClient,
   mockCreateSellListReadiness,
   mockGetGuestSellList,
+  mockGetGuestSellListOfferReviews,
   mockGetSellListCompositeReview,
   mockGetOfferMatch,
   mockGetPublicOffer,
@@ -110,6 +111,162 @@ describe("checkout web routes: account sell list", () => {
     unregisterPostWriteConsistencyRecorder = null;
     vi.resetAllMocks();
     vi.unstubAllEnvs();
+  });
+
+  it.each([false, true])("guest secondary offer review freshness recovery (primary pending: %s)", async (pending) => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    const sellList = { items: [{ line_id: "sll_secondary", quantity: 1 }], count: 1 };
+    const lag = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
+    if (pending) mockGetGuestSellList.mockRejectedValue(lag);
+    else mockGetGuestSellList.mockResolvedValue(sellList);
+    mockGetGuestSellListOfferReviews.mockRejectedValue(lag);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+    });
+    const destination = await navigateAfterWriteWithPlatformPostWriteToken(
+      checkoutCommit("13", "evt_sell_list_line"),
+      "/account/sell-list",
+    );
+    const { query } = createStaticHandler([
+      { id: "sell-list", path: "/account/sell-list", loader: accountSellListLoader },
+    ]);
+    const result = await query(
+      new Request(`http://localhost${destination}`, {
+        headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+      }),
+    );
+    if (result instanceof Response) throw new Error("Sell List destination unexpectedly redirected");
+
+    expect(result.statusCode).toBe(200);
+    expect(result.errors).toBeNull();
+    expect(result.loaderData["sell-list"]).toMatchObject({
+      isSignedIn: false,
+      sellList: pending ? { items: [], count: 0 } : sellList,
+      freshnessError: expect.any(String),
+      sellListRecovery: { kind: "pending-fresh-write", actorMode: "guest" },
+      pendingFreshWriteTiming: { observedAtMs: expect.any(Number), expiresAtMs: expect.any(Number) },
+      offerReviews: [],
+    });
+    expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledWith("anon_sell_1");
+    expect(mockMergeGuestSellListToAccount).not.toHaveBeenCalled();
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorMode: "guest",
+        outcome: "freshness_timeout",
+        correctionSource: "guest-sell-list-offer-reviews",
+      }),
+    );
+  });
+
+  it("account guest-source secondary freshness recovery", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const lag = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
+    mockGetGuestSellList.mockRejectedValue(lag);
+    mockGetGuestSellListOfferReviews.mockRejectedValue(lag);
+    const getSellList = vi.fn().mockResolvedValue({ items: [], count: 0 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      getSellList,
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
+    });
+    const result = await accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/sell-list", checkoutCommit("13", "evt_sell_list_line"))}`,
+        {
+          headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+        },
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({
+      isSignedIn: true,
+      mergeError: null,
+      mergedLineCount: 0,
+      sellListRecovery: { kind: "pending-fresh-write", actorMode: "account", correctionSource: "fresh-read" },
+      pendingFreshWriteTiming: { observedAtMs: expect.any(Number), expiresAtMs: expect.any(Number) },
+      offerReviews: [],
+      productOfferReviews: [],
+      inventoryItems: [],
+    });
+    expect(getSellList).not.toHaveBeenCalled();
+    expect(mockMergeGuestSellListToAccount).not.toHaveBeenCalled();
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorMode: "account",
+        outcome: "freshness_timeout",
+        correctionSource: "guest-sell-list-offer-reviews",
+      }),
+    );
+  });
+
+  it.each([false, true])("secondary unrelated errors retain existing behavior (signed in: %s)", async (signedIn) => {
+    mockResolveActorFromAuthApi.mockResolvedValue(signedIn ? { accountId: "acc_seller", permissions: [] } : null);
+    const unrelated = new MockCheckoutApiError(503, { error: { code: "unavailable" } });
+    mockGetGuestSellList.mockRejectedValue(
+      new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } }),
+    );
+    mockGetGuestSellListOfferReviews.mockRejectedValue(unrelated);
+    const accountList = { items: [{ line_id: "sll_account", quantity: 1 }], count: 1 };
+    const getSellList = vi.fn().mockResolvedValue(accountList);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      getSellList,
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+    });
+    mockGetSellListCompositeReview.mockResolvedValue({ offerReviews: [], productOfferReviews: [], inventoryItems: [] });
+    const loading = accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/sell-list", checkoutCommit("13", "evt_sell_list_line"))}`,
+        {
+          headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+        },
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+    if (signedIn) {
+      expect(await loading).toMatchObject({
+        sellList: accountList,
+        sellListRecovery: null,
+        mergeError: expect.any(String),
+      });
+      expect(getSellList).toHaveBeenCalledOnce();
+    } else {
+      await expect(loading).rejects.toBe(unrelated);
+      expect(getSellList).not.toHaveBeenCalled();
+    }
+    expect(mockMergeGuestSellListToAccount).not.toHaveBeenCalled();
+  });
+
+  it.each(["missing", "expired"])("guest secondary freshness requires a valid receipt (%s)", async (receipt) => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 });
+    const lag = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
+    mockGetGuestSellListOfferReviews.mockRejectedValue(lag);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+    });
+    const path =
+      receipt === "missing"
+        ? "/account/sell-list"
+        : appendFreshWriteToken("/account/sell-list", checkoutCommit("13", "evt_sell_list_line"), Date.now() - 40_000);
+    await expect(
+      accountSellListLoader({
+        request: new Request(`http://localhost${path}`),
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toBe(lag);
   });
 
   it("returns 200 for a receipt-bearing Sell List destination when composite review projection freshness times out", async () => {
@@ -1053,11 +1210,62 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(1, "off_1");
-    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(2, "off_2");
+    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(1, "off_1", { attemptId: "decline_off_1".padEnd(22, "_") });
+    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(2, "off_2", { attemptId: "decline_off_2".padEnd(22, "_") });
     expect(removeSellListLine).toHaveBeenCalledWith("sll_1");
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/desk/offers");
+  });
+
+  it("revalidates recovering guest Offer reviews after a decline without another Marketplace command", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const lag = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
+    mockGetGuestSellList.mockRejectedValue(lag);
+    mockGetGuestSellListOfferReviews.mockRejectedValueOnce(lag).mockResolvedValue({ offerReviews: [] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [{ line_id: "sll_1", line_type: "selected-offer", offer_id: "off_1" }],
+      })),
+      removeSellListLine: vi.fn(async () => ({ status: "removed" })),
+      getGuestSellList: mockGetGuestSellList,
+      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      declineOfferMatch: mockDeclineOfferMatch.mockResolvedValue({ status: "declined" }),
+    });
+    const form = new URLSearchParams({ intent: "decline-sell-list-offers", bulkOfferId: "off_1" });
+    await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+    const revalidate = () =>
+      accountSellListLoader({
+        request: new Request(
+          `http://localhost${appendFreshWriteToken("/account/sell-list", checkoutCommit("13", "evt_sell_list_line"))}`,
+          { headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" } },
+        ),
+        params: {},
+        context: undefined,
+      } as never);
+
+    expect(await revalidate()).toMatchObject({
+      sellListRecovery: { kind: "pending-fresh-write", actorMode: "account" },
+      offerReviews: [],
+    });
+    expect(await revalidate()).toMatchObject({ offerReviews: [] });
+    expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledTimes(2);
+    expect(mockDeclineOfferMatch).toHaveBeenCalledExactlyOnceWith("off_1", {
+      attemptId: "decline_off_1".padEnd(22, "_"),
+    });
+    expect(mockCreateMarketplaceRequestApiClient).toHaveBeenCalledOnce();
+    expect(mockMergeGuestSellListToAccount).not.toHaveBeenCalled();
   });
 
   it("adds a posted selected offer snapshot to the anonymous Sell List when signed out", async () => {

@@ -10,6 +10,7 @@ import { createConnectionAttentionRoutes } from "./features/connection-attention
 import { createChannelDriftRoutes } from "./features/reconciliation/api/route";
 import { createSellerConnectorRoutes } from "./features/connector-feed/api/routes";
 import type { ConnectorIdentity, ConnectorAuditReason } from "./features/connector-feed/domain/contracts";
+import type { ReceiptLookupServiceActor } from "@chase-sets/auth-context";
 
 export type ChannelsActor = Readonly<{
   accountId: string;
@@ -19,6 +20,7 @@ export type ChannelsActor = Readonly<{
 export type ChannelsApiEnv = {
   Variables: {
     actor: ChannelsActor;
+    receiptLookupServiceActor: ReceiptLookupServiceActor | null;
     context: EventStoreContext;
     connectorIdentity: ConnectorIdentity | null;
     connectorReason: ConnectorAuditReason;

@@ -40,6 +40,12 @@ on:
           - scrydex-cache-capture
           - scrydex-coordinate-preview
           - scrydex-force-refresh-bounded
+          - admin-origin-generate-probe
+      scratch_parent:
+        description: Admin-origin generate probe only. Existing admitted job parent id; no scratch setup is performed.
+        required: false
+        default: ""
+        type: string
       capture_dispatch_id:
         description: Count lifecycle only. Canonical host dispatch with server-bound spend and review authority.
         required: false
@@ -106,6 +112,7 @@ jobs:
           CONFIRMATION: ${{ inputs.confirm }}
           JOURNEY_SCOPE: ${{ inputs.journey_scope }}
           ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+          SCRATCH_PARENT: ${{ inputs.scratch_parent }}
         with:
           script: |
             const expected = process.env.EXPECTED_SHA ?? '';
@@ -117,6 +124,17 @@ jobs:
             if (['full-game-start', 'full-game-settle', 'scope-sync-count-lifecycle', 'scrydex-cache-capture', 'scrydex-coordinate-preview', 'scrydex-force-refresh-bounded'].includes(process.env.JOURNEY_SCOPE) &&
                 process.env.ADMIN_WEB_URL !== 'https://admin.staging.chasesets.com') {
               core.setFailed('Whole-game and capture journeys require the exact staging origin.');
+            }
+            if (process.env.JOURNEY_SCOPE === 'admin-origin-generate-probe') {
+              if (process.env.ADMIN_WEB_URL !== 'https://admin.staging.chasesets.com') {
+                core.setFailed('Admin-origin generate probe requires the exact staging origin.');
+              }
+              if (!/^job_[A-Z0-9]{26}$/.test(process.env.SCRATCH_PARENT ?? '')) {
+                core.setFailed('Admin-origin generate probe requires a job-parent scratch_parent.');
+              }
+              if (['job_01M5N5MCJ3JET0GSZ32EJ63BA0', 'job_01M5ZZ47714K5B1MVKSTYB2BNB', 'job_01M60J47A1643F0NMN020WC3S3', 'ref_seed_set_time_spiral'].includes(process.env.SCRATCH_PARENT ?? '')) {
+                core.setFailed('Admin-origin generate probe refuses a reserved scratch_parent.');
+              }
             }
 
   refuse-unconfirmed:
@@ -148,7 +166,7 @@ jobs:
             full-matrix-uat)
               journey_matrix='{"include":[{"journey_scope":"pokemon-matrix"},{"journey_scope":"mtg-matrix"},{"journey_scope":"yugioh-matrix"},{"journey_scope":"one-piece-matrix"},{"journey_scope":"lorcana-matrix"}]}'
               ;;
-            one-piece-launch|lorcana-launch|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle|scope-sync-batch-preview-probe)
+            one-piece-launch|lorcana-launch|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle|scope-sync-batch-preview-probe|admin-origin-generate-probe)
               journey_matrix='{"include":[{"journey_scope":"${{ inputs.journey_scope }}"}]}'
               ;;
             *)
@@ -176,6 +194,8 @@ jobs:
       CATALOG_STAGING_PROVIDER_UAT_SCOPE: ${{ matrix.journey_scope }}
       CATALOG_STAGING_PROVIDER_UAT_TEST_TIMEOUT_MS: "3000000"
       ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      CATALOG_ADMIN_ORIGIN_GENERATE_SCRATCH_PARENT: ${{ inputs.scratch_parent }}
       CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
       CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
       CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: ${{ inputs.product_domain }}
@@ -192,6 +212,9 @@ jobs:
           echo "Focused journey scope: ${CATALOG_STAGING_PROVIDER_UAT_SCOPE}."
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
@@ -215,7 +238,31 @@ jobs:
         timeout-minutes: 55
         env:
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
-        run: pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
+        run: |
+          if [ "$CATALOG_STAGING_PROVIDER_UAT_SCOPE" = 'admin-origin-generate-probe' ]; then
+            pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium --grep '@catalog-staging-provider-uat' --retries=0 --reporter=line
+          else
+            pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
+          fi
+
+      - name: Validate Admin-origin generate receipt
+        id: admin-origin-generate-receipt
+        if: ${{ always() && matrix.journey_scope == 'admin-origin-generate-probe' && steps.provider-uat.outcome != 'skipped' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+          CATALOG_STAGING_PROVIDER_UAT_SCOPE: ${{ matrix.journey_scope }}
+          CATALOG_ADMIN_ORIGIN_GENERATE_SCRATCH_PARENT: ${{ inputs.scratch_parent }}
+        run: node scripts/catalog-admin-origin-generate-receipt.mjs validate --file artifacts/catalog-admin-origin-generate/receipt.json
+
+      - name: Upload only the validated Admin-origin generate receipt
+        if: ${{ always() && steps.admin-origin-generate-receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-admin-origin-generate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-admin-origin-generate/receipt.json
+          if-no-files-found: error
+          retention-days: 30
 
       # Scope Sync Batch preview probe (#9244): publish only the exact receipt,
       # and only after it validates against this admitted SHA/run/attempt and

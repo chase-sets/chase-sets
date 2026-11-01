@@ -4,6 +4,8 @@ import type { MarketplaceApiEnv } from "../../../api";
 import { buyerOfferPolicyRequestSchema } from "../domain/contracts";
 import { BuyerOfferPolicyError } from "../domain/domain";
 import type { BuyerOfferPolicyServices } from "./runtime";
+import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
+import { marketplaceReceiptResponse } from "../../mutation-recovery/api/receipt";
 
 export function createBuyerOfferPolicyRoutes(services: BuyerOfferPolicyServices) {
   const app = new Hono<MarketplaceApiEnv>();
@@ -17,6 +19,8 @@ export function createBuyerOfferPolicyRoutes(services: BuyerOfferPolicyServices)
     await next();
   });
   app.onError((error, c) => {
+    if (error instanceof MarketplaceAttemptError)
+      return c.json({ error: { code: error.code } }, error.code === "invalid_attempt" ? 400 : 409);
     if (error instanceof BuyerOfferPolicyError) {
       return c.json(
         { error: { code: error.code } },
@@ -40,7 +44,8 @@ export function createBuyerOfferPolicyRoutes(services: BuyerOfferPolicyServices)
   app.get("/:id", async (c) => c.json(await services.get(c.req.param("id"), c.get("actor")!.accountId)));
   app.post("/:id/commands", async (c) => {
     const request = buyerOfferPolicyRequestSchema.parse(await c.req.json());
-    return c.json(await services.execute(c.req.param("id"), request, c.get("context")!));
+    const result = await services.execute(c.req.param("id"), request, c.get("context")!);
+    return marketplaceReceiptResponse(c.json(result), result);
   });
   return app;
 }

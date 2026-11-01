@@ -31,6 +31,7 @@ import type {
   SettlementProviderIdempotencyKeyRow,
   SettlementPayoutRow,
 } from "../read-model/queries";
+import type { SettlementPayoutSummary } from "../read-model/payout-summary";
 import type { WalletServices } from "../../wallets/api/runtime";
 import type { SettlementWalletRow } from "../../wallets/read-model/queries";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
@@ -168,6 +169,9 @@ export type PayoutServices = Readonly<{
   listPayouts: (
     params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
   ) => Promise<{ items: SettlementPayoutRow[]; total: number }>;
+  getPayoutSummary: (
+    params: Readonly<{ accountId: string; canRequestPayouts: boolean; evaluatedAt?: string }>,
+  ) => Promise<SettlementPayoutSummary>;
   getPayout: (payoutId: string, accountId: string) => Promise<SettlementPayoutRow | null>;
   getPayoutQuickAmounts: (params: Readonly<{ accountId: AccountId }>) => Promise<
     Readonly<{

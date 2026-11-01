@@ -1,4 +1,5 @@
 import { MarketplaceListingDomainError } from "./listing-error";
+import { activeListingPhotos } from "./active-listing-photos";
 import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
 import {
   parseMarketplaceListingAutoUnlistedPayload,
@@ -36,6 +37,7 @@ import type { ListingEvidenceRequirementSnapshot } from "./evidence-requirement-
 import type { ListingEvidenceReadinessResult } from "./listing-evidence-readiness";
 
 export type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "./fee-lock";
+export { activeListingPhotos } from "./active-listing-photos";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -149,6 +151,15 @@ function feeLockProjectionFields(feeLocks: readonly MarketplaceListingFeeLock[])
 
 export type ListingStatus = "draft" | "active" | "paused" | "withdrawn";
 
+export type ListingPauseReason = "seller" | "policy-input-missing" | "channel-inbound-dark" | "inventory-capacity";
+export type InventoryCapacityRecoveryBlock =
+  | "evidence-incomplete"
+  | "publication-unavailable"
+  | "seller-away"
+  | "native-visibility-disabled"
+  | "shipping-measure-missing"
+  | "price-incomplete";
+
 export type MarketplaceListingPurchaseLimits = Readonly<{
   maxUnitsPerOrder: number | null;
   maxUnitsPerDay: number | null;
@@ -247,11 +258,6 @@ export type MarketplaceListingPhotoDraft = Readonly<{
 /** Derives the immutable asset revision key for a normalized asset set. */
 export function listingPhotoAssetRevision(sourceHash: string): string {
   return `rev-${sourceHash.trim().slice(0, 16)}`;
-}
-
-/** Returns only the current (active) evidence entries. */
-export function activeListingPhotos(photos: readonly MarketplaceListingPhoto[]): readonly MarketplaceListingPhoto[] {
-  return photos.filter((photo) => photo.status === "active");
 }
 
 export type MarketplaceGradedCardDetails = Readonly<{
@@ -371,7 +377,8 @@ export type MarketplaceListingState = Readonly<{
   evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
   evidence: readonly MarketplaceListingPhoto[];
   status: ListingStatus;
-  pauseReason: "seller" | "policy-input-missing" | "channel-inbound-dark" | null;
+  pauseReason: ListingPauseReason | null;
+  inventoryCapacityRecoveryBlock: InventoryCapacityRecoveryBlock | null;
   /** The latest Listing Enforcement Action, retained across republish and pause. */
   listingEnforcement: MarketplaceListingEnforcementData | null;
   /** Every applied removal source and its identity, replay-derived and JSON-native for snapshots. */
@@ -422,6 +429,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   evidence: [],
   status: "draft",
   pauseReason: null,
+  inventoryCapacityRecoveryBlock: null,
   listingEnforcement: null,
   appliedListingEnforcements: [],
 };
@@ -521,7 +529,8 @@ export type PublishListingCommand = Readonly<{
 }>;
 export type PauseListingCommand = Readonly<{
   type: "PauseListing";
-  reason?: "seller" | "policy-input-missing" | "channel-inbound-dark";
+  reason?: ListingPauseReason;
+  inventoryCapacityRecoveryBlock?: InventoryCapacityRecoveryBlock | null;
 }>;
 /** The dispatcher mints `listingEnforcementActionId` once; the report is the removal source. */
 export type AutoUnlistListingCommand = Readonly<{
@@ -704,7 +713,7 @@ export type ListingPublishedEvent = DomainEvent<
 >;
 export type ListingPausedEvent = DomainEvent<
   "marketplace.listing.paused",
-  Readonly<{ reason: "seller" | "policy-input-missing" | "channel-inbound-dark" }>
+  Readonly<{ reason: ListingPauseReason; inventoryCapacityRecoveryBlock?: InventoryCapacityRecoveryBlock | null }>
 >;
 export type ListingAutoUnlistedEvent = DomainEvent<
   "marketplace.listing.auto-unlisted",
@@ -1019,16 +1028,21 @@ export const decideMarketplaceListing: AggregateDecider<
           data: command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {},
         },
       ];
-    case "PauseListing":
+    case "PauseListing": {
       assert(state.listingId !== null, "Listing must be created first.");
+      const requestedReason = command.reason ?? "seller";
+      const block = requestedReason === "inventory-capacity" ? (command.inventoryCapacityRecoveryBlock ?? null) : null;
+      const data = { reason: requestedReason, ...(block === null ? {} : { inventoryCapacityRecoveryBlock: block }) };
       if (state.status === "paused") {
-        const requestedReason = command.reason ?? "seller";
-        return state.pauseReason === requestedReason
+        // Capacity owns only pauses it created from an active Listing, never seller or clamp intent.
+        if (requestedReason === "inventory-capacity" && state.pauseReason !== "inventory-capacity") return [];
+        return state.pauseReason === requestedReason && state.inventoryCapacityRecoveryBlock === block
           ? []
-          : [{ type: "marketplace.listing.paused", data: { reason: requestedReason } }];
+          : [{ type: "marketplace.listing.paused", data }];
       }
       assert(state.status === "active", "Only active listings can be paused.");
-      return [{ type: "marketplace.listing.paused", data: { reason: command.reason ?? "seller" } }];
+      return [{ type: "marketplace.listing.paused", data }];
+    }
     case "AutoUnlistListing": {
       const listingEnforcement = decideListingRemoval(state, {
         listingEnforcementActionId: command.listingEnforcementActionId,
@@ -1119,6 +1133,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         evidence: hydrateStoredListingPhotos(event.data.evidence),
         status: "draft",
         pauseReason: null,
+        inventoryCapacityRecoveryBlock: null,
         listingEnforcement: null,
         appliedListingEnforcements: [],
       };
@@ -1210,14 +1225,21 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         ...state,
         status: "active",
         pauseReason: null,
+        inventoryCapacityRecoveryBlock: null,
       };
     case "marketplace.listing.paused":
-      return { ...state, status: "paused", pauseReason: event.data.reason ?? "seller" };
+      return {
+        ...state,
+        status: "paused",
+        pauseReason: event.data.reason ?? "seller",
+        inventoryCapacityRecoveryBlock:
+          event.data.reason === "inventory-capacity" ? (event.data.inventoryCapacityRecoveryBlock ?? null) : null,
+      };
     case "marketplace.listing.auto-unlisted": {
       const data = parseMarketplaceListingAutoUnlistedPayload(event.data);
       return "listingEnforcement" in data
         ? applyListingEnforcement(state, data.listingEnforcement)
-        : { ...state, status: "paused" };
+        : { ...state, status: "paused", pauseReason: null, inventoryCapacityRecoveryBlock: null };
     }
     case "marketplace.listing.operator-unlisted":
       return applyListingEnforcement(
@@ -1225,7 +1247,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         parseMarketplaceListingOperatorUnlistedPayload(event.data).listingEnforcement,
       );
     case "marketplace.listing.withdrawn":
-      return { ...state, status: "withdrawn" };
+      return { ...state, status: "withdrawn", pauseReason: null, inventoryCapacityRecoveryBlock: null };
     case "marketplace.listing.offer-commitment-recorded":
       return state;
     default:
@@ -1286,6 +1308,8 @@ function applyListingEnforcement(
   return {
     ...state,
     status: "paused",
+    pauseReason: null,
+    inventoryCapacityRecoveryBlock: null,
     listingEnforcement,
     appliedListingEnforcements: [
       ...state.appliedListingEnforcements,

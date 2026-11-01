@@ -11,6 +11,8 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createInventoryItemRuntime } from "./runtime";
+import type { InventoryProductSchema } from "../integrations/catalog/versioning";
+import { evolveInventoryItem, initialInventoryItemState } from "../domain/domain";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -39,6 +41,139 @@ const shipFromAddress = {
   postalCode: "60601",
   country: "US",
 } as const;
+
+describe("inventory create runtime graded boundaries", () => {
+  const gradedCard = {
+    gradingCompany: "PSA",
+    grade: "10",
+    certificationNumber: "cert-123",
+    population: null,
+    conditionDescriptors: [],
+  };
+  const schema: InventoryProductSchema = {
+    canonicalDimensionOrder: [{ dimensionId: "form", dimensionName: "Form" }],
+    dimensions: [
+      {
+        dimensionId: "form",
+        dimensionName: "Form",
+        required: true,
+        appliesWhen: [],
+        allowedOptions: [
+          { optionId: "opt_raw", code: "raw", label: "Raw" },
+          { optionId: "opt_graded", code: "graded", label: "Graded" },
+        ],
+      },
+    ],
+  };
+
+  function setup() {
+    const { eventStore, streams } = createInMemoryEventStore();
+    const locations = ["acc_seller", "acc_other"].map((accountId) => ({
+      storage_location_id: `loc_${accountId}`,
+      account_id: accountId,
+      name: "Main shelf",
+      description: null,
+      ship_from_code: "MAIN",
+      ship_from_address: shipFromAddress,
+      is_archived: false,
+    }));
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[]) => {
+        if (!sql.includes("FROM inventory_storage_locations")) throw new Error(`Unexpected query: ${sql}`);
+        return {
+          rows: locations.filter(
+            (location) =>
+              location.storage_location_id === values[0] &&
+              (!sql.includes("account_id = $2") || location.account_id === values[1]),
+          ),
+        };
+      }),
+    };
+    const runtime = createInventoryItemRuntime(
+      { eventStore, db: db as never, checkpointStore: createCheckpointStore() },
+      {
+        getCatalogItem: vi.fn(async () => ({ catalog_item_id: "cat_1", status: "active", product_schema: schema })),
+      } as never,
+      { listStorageLocations: vi.fn() } as never,
+    );
+    return { runtime, eventStore, streams, db };
+  }
+
+  it.each(["raw", "graded"])("creates %s through the real runtime and retains caller-owned state", async (form) => {
+    const { runtime, eventStore, db } = setup();
+    const selectedOptions = [{ dimensionId: "form", optionId: `opt_${form}` }];
+    const result = await runtime.createItem(
+      {
+        accountId: "acc_seller" as never,
+        catalogItemId: "cat_1",
+        selectedOptions,
+        ...(form === "graded" ? { gradedCard } : {}),
+        storageLocationId: "loc_acc_seller",
+        totalQuantity: 2,
+      },
+      context,
+    );
+    expect(result.version).toBe(1);
+    const events = await eventStore.readStream({ streamId: `inventory.item-${result.itemId}` });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      eventType: "inventory.item.created",
+      payload: {
+        accountId: "acc_seller",
+        selectedOptions,
+        gradedCard: form === "graded" ? gradedCard : null,
+        storageLocationId: "loc_acc_seller",
+        totalQuantity: 2,
+      },
+    });
+    const state = evolveInventoryItem(initialInventoryItemState, {
+      type: "inventory.item.created",
+      data: events[0].payload,
+    } as never);
+    expect(state).toMatchObject({ accountId: "acc_seller", gradedCard: form === "graded" ? gradedCard : null });
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("account_id = $2"), ["loc_acc_seller", "acc_seller"]);
+  });
+
+  it.each([
+    { form: "graded", details: undefined, message: "Graded inventory items require graded card details." },
+    { form: "raw", details: gradedCard, message: "Graded card details are only allowed for graded inventory items." },
+  ])("refuses $form with incompatible graded details without writes", async ({ form, details, message }) => {
+    const { runtime, streams } = setup();
+    await expect(
+      runtime.createItem(
+        {
+          accountId: "acc_seller" as never,
+          catalogItemId: "cat_1",
+          selectedOptions: [{ dimensionId: "form", optionId: `opt_${form}` }],
+          gradedCard: details,
+          storageLocationId: "loc_acc_seller",
+          totalQuantity: 1,
+        },
+        context,
+      ),
+    ).rejects.toThrow(message);
+    expect(streams.size).toBe(0);
+  });
+
+  it.each(["raw", "graded"])("refuses another account's storage for %s without writes", async (form) => {
+    const { runtime, streams, db } = setup();
+    await expect(
+      runtime.createItem(
+        {
+          accountId: "acc_seller" as never,
+          catalogItemId: "cat_1",
+          selectedOptions: [{ dimensionId: "form", optionId: `opt_${form}` }],
+          ...(form === "graded" ? { gradedCard } : {}),
+          storageLocationId: "loc_acc_other",
+          totalQuantity: 1,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Storage location not found.");
+    expect(streams.size).toBe(0);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("account_id = $2"), ["loc_acc_other", "acc_seller"]);
+  });
+});
 
 describe("inventory item runtime", () => {
   it.each(["load->history", "history->append"] as const)(

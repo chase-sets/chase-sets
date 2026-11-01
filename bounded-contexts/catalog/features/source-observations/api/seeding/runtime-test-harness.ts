@@ -296,6 +296,43 @@ export function pokemonObservation(input: {
   };
 }
 
+/** One entry of a captured TCGdex `/v2/{language}/sets` response. */
+export type TcgdexSetListEntry = Readonly<{ id: string; name: string; cardCount: Readonly<{ official: number }> }>;
+
+export function capturedTcgdexSet(sets: readonly TcgdexSetListEntry[], setId: string): TcgdexSetListEntry {
+  const set = sets.find((entry) => entry.id === setId);
+  if (!set) {
+    throw new Error(`TCGdex set '${setId}' is absent from the captured set list.`);
+  }
+  return set;
+}
+
+/**
+ * A TCGdex card observation carrying one captured set-list entry's id and name.
+ * The card fields are the harness's; only the set coordinates reach the
+ * reference hierarchy, and the set list carries no series.
+ */
+export function tcgdexSetObservation(
+  languageCode: "en" | "ja",
+  set: TcgdexSetListEntry,
+): SourceObservationPokemonCardNormalized {
+  return {
+    ...pokemonObservation({ expansionName: set.name, seriesName: set.name }),
+    languageCode,
+    setId: set.id,
+    setName: set.name,
+    expansionId: set.id,
+    expansionName: set.name,
+    expansionAbbreviation: null,
+    expansionCardCount: set.cardCount.official,
+    expansionParallelSetCardCount: null,
+    seriesId: null,
+    seriesName: null,
+    releaseDate: null,
+    releaseYear: null,
+  };
+}
+
 export function magicCardPrintObservation(
   input: Partial<SourceObservationMagicCardPrintNormalized> = {},
 ): SourceObservationMagicCardPrintNormalized {

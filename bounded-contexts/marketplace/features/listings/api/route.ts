@@ -16,7 +16,11 @@ import {
   type MarketplaceListingPhotoUpload,
   type MarketplaceListingServices,
 } from "./runtime";
-import { parseGradedCardSnapshot, parseShipFromAddressSnapshot } from "./listing-snapshot-parsers";
+import {
+  parseAcquisitionCostSnapshot,
+  parseGradedCardSnapshot,
+  parseShipFromAddressSnapshot,
+} from "./listing-snapshot-parsers";
 
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
@@ -203,16 +207,10 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
       "totalQuantity",
       "availableQuantity",
       "acquisitionCostAmount",
+      "acquisitionCostCurrencyCode",
     ],
     "Inventory snapshot",
   );
-  if (source.shipFromAddress && typeof source.shipFromAddress === "object" && !Array.isArray(source.shipFromAddress)) {
-    assertClosedObject(
-      source.shipFromAddress as Record<string, unknown>,
-      ["name", "company", "line1", "line2", "city", "state", "postalCode", "country", "phone", "email"],
-      "Ship-from address snapshot",
-    );
-  }
   if (source.gradedCard && typeof source.gradedCard === "object" && !Array.isArray(source.gradedCard)) {
     const gradedCard = source.gradedCard as Record<string, unknown>;
     assertClosedObject(
@@ -246,7 +244,7 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
     shipFromAddress,
     totalQuantity: Number(source.totalQuantity ?? 0),
     availableQuantity: Number(source.availableQuantity ?? source.totalQuantity ?? 0),
-    acquisitionCostAmount: source.acquisitionCostAmount == null ? null : String(source.acquisitionCostAmount),
+    ...parseAcquisitionCostSnapshot(source.acquisitionCostAmount, source.acquisitionCostCurrencyCode),
   };
 }
 

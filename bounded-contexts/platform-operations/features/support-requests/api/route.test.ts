@@ -1,12 +1,26 @@
 // @vitest-environment node
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { SupportApiEnv } from "./http";
 import { createAccountSupportRequestRoutes } from "./route";
+import {
+  projectSupportFlow,
+  type SupportFlowDetail,
+  type SupportParticipantAction,
+  type SupportParticipantPolicy,
+} from "./support-flow-projection";
+import type { SupportRequestDetailResponse, SupportRequestParticipantDetailResponse } from "../ui/contracts";
+import type {
+  SupportOperationsRequestDetailRow,
+  SupportOperationsRequestListRow,
+  SupportRequestDetailRow,
+} from "../read-model/queries";
+import type { SupportRequesterRole } from "../domain/common";
 import type { SupportRequestServices } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import { createSupportAttachmentReferenceLifecycle, createSupportRequestRuntime } from "./runtime";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -34,7 +48,299 @@ import {
 } from "../domain/attachment-operation";
 import { createSupportEvidenceSeedContext } from "../domain/common";
 import { parseSupportEvidenceCleanupBinding } from "./attachment-cleanup";
-import { getSupportFlowDefinition } from "../domain/flow-catalog";
+import { getSupportFlowDefinition, type SupportFlowDefinition } from "../domain/flow-catalog";
+import { createRemedyExecution } from "../domain/remedy";
+import { createRemedyApprovalWorkflow } from "../domain/remedy-approval";
+import {
+  participantFixture,
+  buyer,
+  attemptId,
+  requestHash,
+  operationsResponseFixture,
+  responseCases,
+  responseFixture,
+  responseSeller,
+} from "./participant-attempt.test-support";
+import { participantOpenSupportRequestId } from "./participant-runtime";
+
+describe("participant intake staging route", () => {
+  const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const open = { orderId: "ord_attempt", flowType: "product-damaged", affectedLineIds: ["line_a"] };
+  function fixture(uncertain = false) {
+    const f = participantFixture();
+    const keys = new Set<string>();
+    const storage = {
+      putPrivate: vi.fn(async (input: { key: string }) => {
+        if (uncertain) return { status: "ambiguous" as const, key: input.key, reason: "transport-failed" as const };
+        keys.add(input.key);
+        return { status: "completed" as const, key: input.key };
+      }),
+      verifyPrivate: vi.fn(async (key: string) => ({
+        status: keys.has(key) ? ("match" as const) : ("absent" as const),
+      })),
+      readPrivate: vi.fn(),
+    };
+    const runtime = createSupportRequestRuntime({
+      eventStore: f.eventStore,
+      db: f.db as never,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+      attachmentStorage: storage,
+      attachmentCanonicalizer: createSupportEvidenceCanonicalizationQueue({
+        canonicalize: canonicalizeSupportEvidenceImage,
+      }),
+    });
+    return { ...f, runtime, storage, app: attachmentApp(runtime, buyer) };
+  }
+  async function stage(app: ReturnType<typeof attachmentApp>, override: Record<string, string | null> = {}) {
+    const form = await nativeFormData();
+    const values = { ...open, affectedLineIds: "line_a", attemptId, ...override };
+    for (const [key, value] of Object.entries(values)) if (value !== null) form.set(key, value);
+    form.append(
+      "attachments",
+      new File(
+        [readFileSync("features/support-requests/api/__fixtures__/evidence/photo-orientation-6-p3-xmp.jpg")],
+        "photo.jpg",
+        { type: "image/jpeg" },
+      ),
+    );
+    return app.request(
+      await multipartRequest(`http://localhost/support-requests/participant-attempts/${attemptId}/attachments`, form, {
+        "x-support-attachment-operation-id": operationId,
+      }),
+    );
+  }
+  it("stages and opens a whole-order request when multipart omits affected line ids", async () => {
+    const f = fixture();
+    const staged = await stage(f.app, { affectedLineIds: null });
+    expect(staged.status).toBe(201);
+    const attachments = (await staged.json()).attachments;
+    const body = {
+      orderId: open.orderId,
+      flowType: open.flowType,
+      intakePhotoReferences: attachments.map((item: { reference: string }) => item.reference),
+      attachmentOperationId: operationId,
+    };
+    const response = await f.app.request("/support-requests", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "Idempotency-Key": attemptId,
+        "X-Support-Request-Hash": requestHash("open-support-request", body),
+      },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ status: "opened", evidenceId: expect.stringMatching(/^sev_/) });
+    expect(
+      f.allEvents.find((event) => event.eventType === "support.support-request.affected-line-items-recorded")?.payload,
+    ).toMatchObject({
+      affectedLineItems: [
+        { lineId: "line_a", amount: "12.00", currencyCode: "usd" },
+        { lineId: "line_b", amount: "12.00", currencyCode: "usd" },
+      ],
+    });
+    expect(
+      f.allEvents.find((event) => event.eventType === "support.support-request.evidence-submitted")?.payload,
+    ).toMatchObject({ evidence: { attachments: body.intakePhotoReferences } });
+  });
+  it("stages without opening, binds the complete batch to order/flow/lines/attempt and atomically opens with evidence", async () => {
+    const f = fixture();
+    const staged = await stage(f.app);
+    expect(staged.status).toBe(201);
+    const attachments = (await staged.json()).attachments;
+    expect(attachments).toHaveLength(1);
+    const id = participantOpenSupportRequestId(buyer.tenantId, buyer.accountId, attemptId);
+    expect(f.allEvents.some((event) => event.streamId === `support.support-request-${id}`)).toBe(false);
+    const replay = await stage(f.app);
+    expect(replay.status).toBe(201);
+    expect((await replay.json()).attachments).toEqual(attachments);
+    expect(f.storage.putPrivate).toHaveBeenCalledTimes(1);
+    expect((await stage(f.app, { affectedLineIds: "line_b" })).status).toBe(400);
+    const body = {
+      ...open,
+      intakePhotoReferences: attachments.map((item: { reference: string }) => item.reference),
+      attachmentOperationId: operationId,
+      photoRequired: false,
+      openedByRole: "seller",
+    };
+    const response = await f.app.request("/support-requests", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "Idempotency-Key": attemptId,
+        "X-Support-Request-Hash": requestHash("open-support-request", body),
+      },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ id, status: "opened", evidenceId: expect.stringMatching(/^sev_/) });
+    expect(
+      f.allEvents.filter((event) => event.streamId === `support.support-request-${id}`).map((event) => event.eventType),
+    ).toEqual(
+      expect.arrayContaining([
+        "support.support-request.opened",
+        "support.support-request.evidence-submitted",
+        "support.support-request.participant-attempt-recorded",
+      ]),
+    );
+  });
+  it("uncertain storage returns no references and cannot open or re-put on retry", async () => {
+    const f = fixture(true);
+    const first = await stage(f.app);
+    expect(first.status).toBe(503);
+    expect(await first.text()).not.toContain("support-attachment:v1:");
+    expect((await stage(f.app)).status).toBe(503);
+    expect(f.storage.putPrivate).toHaveBeenCalledTimes(1);
+    expect(f.allEvents.filter((event) => event.eventType === "support.support-request.opened")).toEqual([]);
+  });
+  it("missing authority, foreign order owner and mismatched multipart attempt refuse before storage", async () => {
+    const f = fixture();
+    expect((await stage(attachmentApp(f.runtime, null))).status).toBe(401);
+    expect((await stage(attachmentApp(f.runtime, { ...buyer, accountId: "acc_other" }))).status).toBe(404);
+    expect((await stage(f.app, { attemptId: `${attemptId}_other` })).status).toBe(400);
+    expect(f.storage.putPrivate).not.toHaveBeenCalled();
+  });
+});
+
+describe("customer list authority", () => {
+  const terms = {
+    factSchemaVersion: 1 as const,
+    supportRequestId: "sup_1",
+    remedyId: "rmd_1",
+    coverageId: "cov_1",
+    remedy: { kind: "full-refund" as const, amount: "125.00", currencyCode: "usd" },
+    allocation: {
+      sellerFundedAmount: "0.00",
+      platformFundedAmount: "125.00",
+      currencyCode: "usd",
+      fundingKind: "platform-funded" as const,
+    },
+    returnDirective: "return-to-platform" as const,
+    refundTrigger: "facility-intake" as const,
+    reasonCode: "insufficient-evidence",
+    idempotencyKey: "rmd_1:authorized",
+    causationId: null,
+    policyVersion: "platform-remedy-2026-07",
+    occurredAt: "2026-07-14T12:00:00.000Z",
+  };
+  const execution = createRemedyExecution(terms);
+  const approval = createRemedyApprovalWorkflow({
+    type: "ProposeSupportRemedy",
+    terms,
+    proposedByAccountId: "acc_operator",
+    permissionUsed: "support.remedies.propose",
+    rationale: "Existing evidence",
+    evidenceReferences: ["evidence:1"],
+    reservationExpiresAt: "2099-07-15T12:00:00.000Z",
+    requiredApprovalCount: 1,
+    requiresElevatedApproval: false,
+    returnOverrideUsed: false,
+    returnExceptionReasonCode: null,
+  });
+  const effects = (changes: Readonly<Record<string, string>>) => ({
+    ...execution,
+    effects: [
+      ...execution.effects,
+      ...Object.keys(changes)
+        .filter((name) => !execution.effects.some((effect) => effect.effect === name))
+        .map((name) => ({ ...execution.effects[0]!, effect: name as (typeof execution.effects)[number]["effect"] })),
+    ].map((effect) => ({ ...effect, status: (changes[effect.effect] ?? effect.status) as typeof effect.status })),
+  });
+  const cases = [
+    [null, null, null],
+    [null, { ...approval, status: "approval-pending" }, "proposed-under-review"],
+    [null, approval, "awaiting-coverage-approval"],
+    [null, { ...approval, status: "expired" }, "expired-deadline"],
+    [null, { ...approval, status: "reservation-rejected" }, "manual-review"],
+    [null, { ...approval, status: "correction-requested" }, "manual-review"],
+    [execution, null, "resolution-in-progress"],
+    [effects({ "return-label-available": "satisfied" }), null, "return-label-ready"],
+    [effects({ "carrier-accepted": "waived", "return-delivered": "pending" }), null, "in-transit"],
+    [effects({ "return-delivered": "satisfied" }), null, "awaiting-intake"],
+    [{ ...execution, refundReleasedAt: "2026-07-15T00:00:00.000Z" }, null, "refund-submitted"],
+    [effects({ "refund-completion": "satisfied" }), null, "refund-confirmed"],
+    [effects({ "refund-completion": "failed-terminal" }), null, "refund-failure"],
+    [effects({ "return-label-available": "failed-retryable" }), null, "carrier-exception"],
+    [effects({ "coverage-reservation": "failed-retryable" }), null, "manual-review"],
+    [{ ...execution, status: "completed" }, null, "completed"],
+  ] as const;
+  for (const role of ["buyer", "seller"] as const) {
+    it.each(cases)(
+      `${role} list projects state %s / %s as %s without browser authority`,
+      async (remedy, workflow, expected) => {
+        const rows = [0, 1].map((index) => ({
+          ...supportRequestDetail(),
+          support_request_id: `sup_${index}`,
+          remedy,
+          remedy_approval: workflow,
+          seller_response_due_at: "2026-07-20T00:00:00.000Z",
+          support_review_due_at: "2026-07-18T00:00:00.000Z",
+          seller_condition_attestation_due_at: "2026-07-17T00:00:00.000Z",
+        }));
+        const query = vi.fn(async (sql: string) => ({ rows: sql.includes("COUNT(*)") ? [{ count: "102" }] : rows }));
+        const memory = createInMemoryEventStore();
+        const runtime = createSupportRequestRuntime({
+          eventStore: memory.eventStore,
+          db: { query } as never,
+          checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+        });
+        const response = await buildApp(runtime, ["support.view"], `acc_${role}`).request(
+          `/support-requests/${role === "buyer" ? "purchases" : "sales"}?limit=2&offset=100&role=${role === "buyer" ? "seller" : "buyer"}`,
+        );
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body).toMatchObject({ total: 102, count: 2 });
+        expect(body.items).toHaveLength(2);
+        for (const [index, row] of body.items.entries()) {
+          expect(row).toMatchObject({ ...rows[index], nextDeadline: "2026-07-20T00:00:00.000Z" });
+          const state =
+            expected === "refund-confirmed" && role === "seller" ? "settlement-reconciliation-pending" : expected;
+          if (state === null) expect(row.customerRemedyStatus).toBeNull();
+          else
+            expect(row.customerRemedyStatus).toMatchObject({
+              state,
+              role,
+              terminal: state === "completed",
+              amount: "125.00",
+              platformAmount: "125.00",
+              sellerAmount: "0.00",
+              returnDirective: "return-to-platform",
+              refundTrigger: "facility-intake",
+            });
+        }
+        expect(query.mock.calls.some((call) => call[0].includes(`WHERE ${role}_account_id = $1`))).toBe(true);
+        expect(query).toHaveBeenCalledWith(expect.stringContaining("LIMIT $2 OFFSET $3"), [`acc_${role}`, 2, 100]);
+      },
+    );
+    it.each([
+      [null, null, null, null],
+      ["2026-07-20", null, null, "2026-07-20"],
+      [null, "2026-07-18", null, "2026-07-18"],
+      [null, null, "2026-07-17", "2026-07-17"],
+    ])(`${role} list deadline null/one: %s %s %s`, async (seller, support, condition, nextDeadline) => {
+      const memory = createInMemoryEventStore();
+      const row = {
+        ...supportRequestDetail(),
+        remedy: null,
+        remedy_approval: null,
+        seller_response_due_at: seller,
+        support_review_due_at: support,
+        seller_condition_attestation_due_at: condition,
+      };
+      const runtime = createSupportRequestRuntime({
+        eventStore: memory.eventStore,
+        db: {
+          query: vi.fn(async (sql: string) => ({ rows: sql.includes("COUNT(*)") ? [{ count: "1" }] : [row] })),
+        } as never,
+        checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+      });
+      const response = await buildApp(runtime, ["support.view"], `acc_${role}`).request(
+        `/support-requests/${role === "buyer" ? "purchases" : "sales"}`,
+      );
+      expect((await response.json()).items[0]).toMatchObject({ nextDeadline, customerRemedyStatus: null });
+    });
+  }
+});
 
 function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
   return {
@@ -42,6 +348,87 @@ function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
     audit: { performedByUserId: parseTypedId(actor.userId, "usr"), forAccountId: parseTypedId(actor.accountId, "acc") },
   };
 }
+
+it.each(responseCases.filter((entry) => entry.resolutionType !== null))(
+  "participant response derives resolution after hashing: $responseType",
+  async (scenario) => {
+    for (const field of [
+      { offerResolutionType: scenario.resolutionType },
+      {},
+      { offerResolutionType: null },
+      { offerResolutionType: "" },
+    ]) {
+      const fixture = await responseFixture(scenario.responseType, "Offer");
+      fixture.setActor(responseSeller);
+      const body = { ...fixture.body, ...field };
+      const response = await fixture.app.request(`/support-requests/${fixture.id}/responses`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": `${attemptId}_route_derived`,
+          "X-Support-Request-Hash": requestHash("record-response", body),
+        },
+        body: JSON.stringify(body),
+      });
+
+      expect(response.status).toBe(200);
+      const history = await readCompleteStream(fixture.eventStore, {
+        streamId: `support.support-request-${fixture.id}`,
+      });
+      expect(history.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toMatchObject({
+        responseType: scenario.responseType,
+        resolutionType: scenario.resolutionType,
+      });
+    }
+  },
+);
+
+describe("operations response preservation", () => {
+  for (const scenario of responseCases) {
+    for (const field of [{}, { offerResolutionType: null }, { offerResolutionType: 42 }, { offerResolutionType: "" }]) {
+      const empty = field.offerResolutionType === "";
+      it(`${empty ? "operations empty resolution remains refused" : "operations offer omission remains refused"}: ${scenario.responseType} ${JSON.stringify(field)}`, async () => {
+        const f = await operationsResponseFixture(scenario.responseType, "Offer");
+        f.db.query.mockResolvedValue({
+          rows: [{ support_request_id: f.id, flow_type: scenario.flowType, status: "open", resolution: null }],
+        } as never);
+        const before = f.allEvents.length;
+        const response = await f.app.request(`/support-requests/ops/${f.id}/responses`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...f.body, ...field }),
+        });
+        if (scenario.resolutionType || empty) {
+          expect(response.status).toBe(400);
+          expect(await response.json()).toEqual({
+            error: { code: "validation_failed", message: "Support resolution type is not supported." },
+          });
+          expect(f.allEvents).toHaveLength(before);
+        } else {
+          expect(response.status).toBe(200);
+          expect(f.allEvents.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toBeNull();
+        }
+      });
+    }
+    if (scenario.resolutionType) {
+      it(`operations explicit offer remains supported: ${scenario.responseType}`, async () => {
+        const f = await operationsResponseFixture(scenario.responseType, "Offer");
+        f.db.query.mockResolvedValue({
+          rows: [{ support_request_id: f.id, flow_type: scenario.flowType, status: "open", resolution: null }],
+        } as never);
+        const response = await f.app.request(`/support-requests/ops/${f.id}/responses`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...f.body, offerResolutionType: scenario.resolutionType }),
+        });
+        expect(response.status).toBe(200);
+        expect(
+          f.allEvents.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer,
+        ).toMatchObject({ resolutionType: scenario.resolutionType, offeredByRole: "support" });
+      });
+    }
+  }
+});
 
 describe("Support evidence submissions use one reference boundary", () => {
   const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -1045,9 +1432,17 @@ async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer
   return { runtime, eventStore, allEvents, storage, reference };
 }
 
-function supportRequestDetail() {
+function supportRequestDetail(): SupportOperationsRequestDetailRow {
   return {
+    operatorPolicy: {
+      deadlineAt: null,
+      recommendedAction: "response",
+      responsibilityReasons: [],
+      refundCap: null,
+      refundPrefill: null,
+    },
     support_request_id: "sup_1",
+    display_reference: "SUP-00000001",
     order_id: "ord_1",
     buyer_account_id: "acc_buyer",
     seller_account_id: "acc_seller",
@@ -1075,11 +1470,32 @@ function supportRequestDetail() {
     escalated_by_account_id: null,
     escalated_by_role: null,
     escalation_reason: null,
+    return_refund_gate_status: null,
+    return_delivered_at: null,
+    return_refund_release_due_at: null,
+    return_condition_disputed_at: null,
+    remedy: null,
+    remedy_approval: null,
+    case_presentation: "decision-pending",
+    closure_eligible: false,
+    closure_blocking_reasons: [],
+    next_remedy_action: null,
+    remedy_repair_guidance: [],
+    contested: false,
   };
+}
+
+function supportOperationsListRow(
+  supportRequestId: string,
+  deadlineAt: string | null,
+): SupportOperationsRequestListRow {
+  const { evidence: _evidence, responses: _responses, offers: _offers, ...listRow } = supportRequestDetail();
+  return { ...listRow, support_request_id: supportRequestId, operatorPolicy: { deadlineAt } };
 }
 
 function createServices(overrides: Partial<SupportRequestServices> = {}): SupportRequestServices {
   return {
+    stageParticipantIntakeAttachments: vi.fn(),
     executeParticipantAttempt: vi.fn(),
     getParticipantAttempt: vi.fn(),
     commandHandler: vi.fn(),
@@ -1087,9 +1503,12 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
     resolveSupportFlowDefinition: vi.fn(async (flowType) => getSupportFlowDefinition(flowType)),
     getSupportOrderContext: vi.fn(),
     openSupportRequest: vi.fn(),
+    openAutomatedSellerCannotFulfillRequest: vi.fn(),
     uploadAttachments: vi.fn(),
     getAttachment: vi.fn(),
     getEvidenceAccessAudit: vi.fn(),
+    requestAttachmentCleanup: vi.fn(),
+    attachmentCleanup: { kind: "not-mounted" },
     submitEvidence: vi.fn(),
     recordResponse: vi.fn(),
     acceptOffer: vi.fn(),
@@ -1106,6 +1525,11 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
     closeSupportRequest: vi.fn(),
     cancelSupportRequest: vi.fn(),
     escalateOverdueSupportRequests: vi.fn(),
+    recordReturnDelivery: vi.fn(),
+    disputeReturnCondition: vi.fn(),
+    releaseReturnRefund: vi.fn(),
+    listSupportRequestsAwaitingReturnDelivery: vi.fn(),
+    sweepSupportRequestDeadlines: vi.fn(),
     listSupportOperationsQueue: vi.fn(),
     listBuyerSupportRequests: vi.fn(),
     listSellerSupportRequests: vi.fn(),
@@ -1113,7 +1537,7 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
     getSupportOperationsRequest: vi.fn(async () => supportRequestDetail()),
     projectors: [],
     ...overrides,
-  } as unknown as SupportRequestServices;
+  };
 }
 
 describe("support request routes", () => {
@@ -1132,18 +1556,22 @@ describe("support request routes", () => {
     "projects detail flow action arrays for %s from server role and state",
     async (_label, accountId, escalatedAt, allowedResponses, allowedResolutions) => {
       const detail = { ...supportRequestDetail(), escalated_at: escalatedAt };
+      const participantDetail = (() => {
+        const { operatorPolicy: _operatorPolicy, ...plainDetail } = detail;
+        return plainDetail;
+      })();
       const services = createServices({
         getSupportOperationsRequest: vi.fn(async () => detail as never),
-        getAccountSupportRequest: vi.fn(async () => detail as never),
+        getAccountSupportRequest: vi.fn(async () => participantDetail as never),
       });
       const permissions = accountId === "acc_operator" ? ["support.manage"] : ["support.view"];
       const response = await buildApp(services, permissions, accountId).request(
         accountId === "acc_operator" ? "/support-requests/ops/sup_1" : "/support-requests/sup_1",
       );
       expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toMatchObject({
-        flow: { allowedResponses, allowedResolutions, flowType: "product-not-received" },
-      });
+      const body = await response.json();
+      expect(body).toMatchObject({ flow: { allowedResponses, allowedResolutions, flowType: "product-not-received" } });
+      if (accountId !== "acc_operator") expect(body).not.toHaveProperty("operatorPolicy");
     },
   );
 
@@ -1400,7 +1828,11 @@ describe("support request routes", () => {
   });
 
   it("forwards status, priority, and search query params to the operations queue read model", async () => {
-    const listSupportOperationsQueue = vi.fn(async () => ({ items: [], total: 0 }));
+    const items: SupportOperationsRequestListRow[] = [
+      supportOperationsListRow("sup_1", "2026-06-01T01:00:00.000Z"),
+      supportOperationsListRow("sup_2", "2026-06-01T02:00:00.000Z"),
+    ];
+    const listSupportOperationsQueue = vi.fn(async () => ({ items, total: 5 }));
     const services = createServices({ listSupportOperationsQueue });
 
     const response = await buildApp(services).request(
@@ -1408,7 +1840,14 @@ describe("support request routes", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ items: [], total: 0, count: 0 });
+    const body = await response.json();
+    expect(body).toEqual({ items, total: 5, count: 2 });
+    expect(
+      body.items.map((item: SupportOperationsRequestListRow) => [item.support_request_id, item.operatorPolicy]),
+    ).toEqual([
+      ["sup_1", { deadlineAt: "2026-06-01T01:00:00.000Z" }],
+      ["sup_2", { deadlineAt: "2026-06-01T02:00:00.000Z" }],
+    ]);
     expect(listSupportOperationsQueue).toHaveBeenCalledWith({
       limit: 25,
       offset: 50,
@@ -1589,13 +2028,17 @@ describe("support request routes", () => {
 
   it("lets support operators read request details outside participant account scope", async () => {
     const services = createServices();
-    const response = await buildApp(services).request("/support-requests/ops/sup_1");
+    const response = await buildApp(services).request(
+      "/support-requests/ops/sup_1?now=2000-01-01T00:00:00Z&deadlineAt=forged&recommendedAction=resolve&refundCap=999.00",
+      { headers: { "X-Now": "2000-01-01T00:00:00Z" } },
+    );
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       support_request_id: "sup_1",
       buyer_account_id: "acc_buyer",
       seller_account_id: "acc_seller",
+      operatorPolicy: supportRequestDetail().operatorPolicy,
     });
     expect(services.getSupportOperationsRequest).toHaveBeenCalledWith("sup_1");
   });
@@ -1659,6 +2102,469 @@ describe("support request routes", () => {
     );
 
     expect(response.status).toBe(404);
+  });
+});
+
+const attestationDueAt = "2026-06-03T00:00:00.000Z";
+const responseDueAt = "2026-06-02T00:00:00.000Z";
+const reviewDueAt = "2026-06-04T00:00:00.000Z";
+
+function participantRow(overrides: Record<string, unknown> = {}) {
+  return {
+    ...supportRequestDetail(),
+    status: "waiting-on-seller",
+    seller_condition_attestation_due_at: attestationDueAt,
+    seller_response_due_at: responseDueAt,
+    support_review_due_at: reviewDueAt,
+    ...overrides,
+  };
+}
+
+function checklistItem(
+  key: string,
+  ownerRole: SupportRequesterRole,
+  required = true,
+  satisfiedAt: string | null = null,
+) {
+  return { key, label: `Provide ${key}`, ownerRole, evidenceTypes: ["photo"], required, satisfiedAt };
+}
+
+function pendingOffer(pendingWithRole: SupportRequesterRole) {
+  return {
+    offerId: "sof_1",
+    responseId: "srp_1",
+    offeredByAccountId: "acc_seller",
+    offeredByRole: "seller",
+    pendingWithRole,
+    responseType: "offer-partial-refund",
+    resolutionType: "partial-refund",
+    refundAmount: "12.00",
+    summary: "Keep the item and receive a partial refund.",
+    offeredAt: "2026-06-01T01:00:00.000Z",
+    status: "pending",
+    decidedByAccountId: null,
+    decidedByRole: null,
+    decidedAt: null,
+    decisionSummary: null,
+  };
+}
+
+function policy(
+  nextActor: SupportParticipantPolicy["nextActor"],
+  deadlineAt: string | null,
+  ...actions: SupportParticipantAction[]
+): SupportParticipantPolicy {
+  return { nextActor, deadlineAt, actions };
+}
+
+const respond = { kind: "record-response" } as const;
+const review = { kind: "escalate" } as const;
+const cancel = { kind: "cancel" } as const;
+const accept = { kind: "accept-offer" } as const;
+const decline = { kind: "decline-offer" } as const;
+const prompt = (checklistItemKey: string) => ({ kind: "submit-evidence", checklistItemKey }) as const;
+
+async function readParticipantDetail(
+  row: ReturnType<typeof participantRow>,
+  accountId: string,
+  {
+    path = "/support-requests/sup_1",
+    headers,
+    definition,
+  }: Readonly<{ path?: string; headers?: Record<string, string>; definition?: SupportFlowDefinition }> = {},
+) {
+  const services = createServices({
+    // Mirrors the account-scoped read: `buyer_account_id = $2 OR seller_account_id = $2`.
+    getAccountSupportRequest: vi.fn(async (_supportRequestId: string, scopedAccountId: string) =>
+      row.buyer_account_id === scopedAccountId || row.seller_account_id === scopedAccountId ? (row as never) : null,
+    ),
+    ...(definition ? { resolveSupportFlowDefinition: vi.fn(async () => definition) } : {}),
+  });
+  const response = await buildApp(services, ["support.view"], accountId).request(path, headers ? { headers } : {});
+  return { status: response.status, body: (await response.json()) as Record<string, unknown>, services };
+}
+
+describe("support-request-detail-participant-policy", () => {
+  it("waiting-on-seller: the seller acts next with response and review actions while the buyer opener waits with none", async () => {
+    const row = participantRow();
+
+    const seller = await readParticipantDetail(row, "acc_seller");
+    expect(seller.status).toBe(200);
+    expect(seller.body.participantPolicy).toEqual(policy("seller", attestationDueAt, respond, review));
+
+    const buyer = await readParticipantDetail(row, "acc_buyer");
+    expect(buyer.status).toBe(200);
+    expect(buyer.body.participantPolicy).toEqual(policy("seller", attestationDueAt));
+  });
+
+  it("unsatisfied checklist: the first required non-support item names the next actor and only its owner gets prompts", async () => {
+    const row = participantRow({
+      checklist: [
+        checklistItem("support-note", "support"),
+        checklistItem("buyer-optional", "buyer", false),
+        checklistItem("buyer-attestation", "buyer", true, "2026-06-01T00:30:00.000Z"),
+        checklistItem("buyer-photos", "buyer"),
+        checklistItem("seller-attestation", "seller"),
+        checklistItem("buyer-notes", "buyer"),
+      ],
+    });
+
+    expect((await readParticipantDetail(row, "acc_buyer")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt, prompt("buyer-photos"), prompt("buyer-notes"), cancel),
+    );
+    expect((await readParticipantDetail(row, "acc_seller")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt),
+    );
+  });
+
+  it("pending offer: only its holder may accept or decline, and the offer outranks unsatisfied checklist prompts", async () => {
+    const row = participantRow({
+      pending_offer: pendingOffer("buyer"),
+      checklist: [checklistItem("seller-attestation", "seller"), checklistItem("buyer-photos", "buyer")],
+    });
+
+    expect((await readParticipantDetail(row, "acc_buyer")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt, accept, decline, cancel),
+    );
+    expect((await readParticipantDetail(row, "acc_seller")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt),
+    );
+  });
+
+  it.each(["resolved", "closed", "cancelled"])(
+    "%s: a terminal request names no next actor and gives neither party an action",
+    async (status) => {
+      const row = participantRow({
+        status,
+        pending_offer: pendingOffer("buyer"),
+        checklist: [checklistItem("buyer-photos", "buyer")],
+      });
+
+      for (const accountId of ["acc_buyer", "acc_seller"]) {
+        expect((await readParticipantDetail(row, accountId)).body.participantPolicy).toEqual(
+          policy(null, responseDueAt),
+        );
+      }
+    },
+  );
+
+  it("an unrelated account reads 404 with no policy while each party of the row gets its own policy", async () => {
+    const row = participantRow({ status: "waiting-on-buyer" });
+
+    const unrelated = await readParticipantDetail(row, "acc_other");
+    expect(unrelated.status).toBe(404);
+    expect(unrelated.body).toEqual({ error: { code: "not_found", message: expect.any(String) } });
+    expect(unrelated.services.getAccountSupportRequest).toHaveBeenCalledWith("sup_1", "acc_other");
+
+    expect((await readParticipantDetail(row, "acc_buyer")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt, review, cancel),
+    );
+    expect((await readParticipantDetail(row, "acc_seller")).body.participantPolicy).toEqual(
+      policy("buyer", responseDueAt),
+    );
+  });
+
+  it("request-supplied role, account and opener inputs cannot alter the authenticated participant's policy", async () => {
+    const forged = await readParticipantDetail(participantRow(), "acc_buyer", {
+      path: "/support-requests/sup_1?role=seller&viewerRole=seller&accountId=acc_seller&submittedByRole=seller&canCancel=true",
+      headers: { "x-support-role": "seller", "x-account-id": "acc_seller" },
+    });
+
+    expect(forged.status).toBe(200);
+    expect(forged.body.participantPolicy).toEqual(policy("seller", attestationDueAt));
+    expect(forged.services.getAccountSupportRequest).toHaveBeenCalledWith("sup_1", "acc_buyer");
+  });
+
+  it("refuses an account without support.view before reading the row", async () => {
+    const services = createServices({ getAccountSupportRequest: vi.fn() });
+    const response = await buildApp(services, [], "acc_buyer").request("/support-requests/sup_1");
+
+    expect(response.status).toBe(403);
+    expect(services.getAccountSupportRequest).not.toHaveBeenCalled();
+  });
+
+  it("adds participantPolicy as the only new key from one row read and leaves the operations detail without it", async () => {
+    expectTypeOf<SupportRequestDetailResponse>().toEqualTypeOf<
+      SupportRequestDetailRow & Readonly<{ flow: SupportFlowDetail }>
+    >();
+    expectTypeOf<SupportRequestParticipantDetailResponse>().toEqualTypeOf<
+      SupportRequestDetailResponse & Readonly<{ participantPolicy: SupportParticipantPolicy }>
+    >();
+    expectTypeOf<SupportParticipantPolicy>().toEqualTypeOf<
+      Readonly<{
+        nextActor: SupportRequesterRole | null;
+        deadlineAt: string | null;
+        actions: readonly SupportParticipantAction[];
+      }>
+    >();
+
+    const row = participantRow();
+    const { body, services } = await readParticipantDetail(row, "acc_seller");
+    const { participantPolicy, ...existing } = body;
+    expect(existing).toEqual({
+      ...row,
+      flow: projectSupportFlow(getSupportFlowDefinition("product-not-received"), "seller", row),
+    });
+    expect(participantPolicy).toEqual(policy("seller", attestationDueAt, respond, review));
+    expect(
+      Object.entries(services)
+        .filter(([, service]) => vi.isMockFunction(service) && service.mock.calls.length > 0)
+        .map(([name]) => name)
+        .sort(),
+    ).toEqual(["getAccountSupportRequest", "resolveSupportFlowDefinition"]);
+    expect(services.getAccountSupportRequest).toHaveBeenCalledTimes(1);
+    expect(services.resolveSupportFlowDefinition).toHaveBeenCalledTimes(1);
+
+    const operations = await buildApp(
+      createServices({ getSupportOperationsRequest: vi.fn(async () => row as never) }),
+    ).request("/support-requests/ops/sup_1");
+    expect(operations.status).toBe(200);
+    expect(Object.keys((await operations.json()) as Record<string, unknown>)).not.toContain("participantPolicy");
+  });
+});
+
+const sellerOpened = { opened_by_account_id: "acc_seller", opened_by_role: "seller" };
+const escalated = { escalated_at: "2026-06-01T02:00:00.000Z" };
+const flowWithoutReview: SupportFlowDefinition = {
+  ...getSupportFlowDefinition("product-not-received"),
+  allowedResponses: getSupportFlowDefinition("product-not-received").allowedResponses.filter(
+    (response) => response !== "request-support-review",
+  ),
+};
+
+describe("support-request-detail-participant-policy-matrix", () => {
+  it.each([
+    // status mapping with no pending offer and no checklist item open
+    ["open: the buyer waits on support", {}, "open", "acc_buyer", policy("support", reviewDueAt)],
+    ["open: the seller waits on support", {}, "open", "acc_seller", policy("support", reviewDueAt)],
+    [
+      "waiting-on-buyer: the buyer opener may request review or cancel",
+      {},
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("buyer", responseDueAt, review, cancel),
+    ],
+    ["waiting-on-buyer: the seller waits", {}, "waiting-on-buyer", "acc_seller", policy("buyer", responseDueAt)],
+    [
+      "waiting-on-seller: the seller responds or requests review",
+      {},
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", attestationDueAt, respond, review),
+    ],
+    [
+      "waiting-on-seller: the buyer opener waits and cannot cancel",
+      {},
+      "waiting-on-seller",
+      "acc_buyer",
+      policy("seller", attestationDueAt),
+    ],
+    [
+      "ready-for-support: the buyer waits on support",
+      {},
+      "ready-for-support",
+      "acc_buyer",
+      policy("support", reviewDueAt),
+    ],
+    [
+      "ready-for-support: the seller waits on support",
+      {},
+      "ready-for-support",
+      "acc_seller",
+      policy("support", reviewDueAt),
+    ],
+    ["resolved: the buyer has no next actor", {}, "resolved", "acc_buyer", policy(null, responseDueAt)],
+    ["resolved: the seller has no next actor", {}, "resolved", "acc_seller", policy(null, responseDueAt)],
+    ["closed: the buyer has no next actor", {}, "closed", "acc_buyer", policy(null, responseDueAt)],
+    ["closed: the seller has no next actor", {}, "closed", "acc_seller", policy(null, responseDueAt)],
+    ["cancelled: the buyer has no next actor", {}, "cancelled", "acc_buyer", policy(null, responseDueAt)],
+    ["cancelled: the seller has no next actor", {}, "cancelled", "acc_seller", policy(null, responseDueAt)],
+    // opener gate follows the authenticated account
+    [
+      "the seller opener acting next may cancel",
+      sellerOpened,
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", attestationDueAt, respond, review, cancel),
+    ],
+    [
+      "the buyer acting next without opening may not cancel",
+      sellerOpened,
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("buyer", responseDueAt, review),
+    ],
+    // deadline fallbacks and null controls
+    [
+      "the seller deadline falls back to the response deadline",
+      { seller_condition_attestation_due_at: null },
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", responseDueAt, respond, review),
+    ],
+    [
+      "the seller deadline is null without attestation or response deadlines",
+      { seller_condition_attestation_due_at: null, seller_response_due_at: null },
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", null, respond, review),
+    ],
+    [
+      "the support deadline is only the review deadline",
+      { support_review_due_at: null },
+      "ready-for-support",
+      "acc_buyer",
+      policy("support", null),
+    ],
+    [
+      "the buyer deadline falls back to the review deadline",
+      { seller_response_due_at: null },
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("buyer", reviewDueAt, review, cancel),
+    ],
+    [
+      "the buyer deadline never uses the attestation deadline",
+      { seller_response_due_at: null, support_review_due_at: null },
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("buyer", null, review, cancel),
+    ],
+    [
+      "a terminal deadline is null without response or review deadlines",
+      { seller_response_due_at: null, support_review_due_at: null },
+      "resolved",
+      "acc_seller",
+      policy(null, null),
+    ],
+    // pending offer outranks checklist and status
+    [
+      "an offer pending with the buyer outranks the seller's open item",
+      { pending_offer: pendingOffer("buyer"), checklist: [checklistItem("seller-attestation", "seller")] },
+      "waiting-on-seller",
+      "acc_buyer",
+      policy("buyer", responseDueAt, accept, decline, cancel),
+    ],
+    [
+      "the seller waits on an offer pending with the buyer",
+      { pending_offer: pendingOffer("buyer"), checklist: [checklistItem("seller-attestation", "seller")] },
+      "waiting-on-seller",
+      "acc_seller",
+      policy("buyer", responseDueAt),
+    ],
+    [
+      "an offer pending with the seller lets only the seller decide",
+      { pending_offer: pendingOffer("seller") },
+      "waiting-on-buyer",
+      "acc_seller",
+      policy("seller", attestationDueAt, accept, decline),
+    ],
+    [
+      "the buyer opener waits on an offer pending with the seller",
+      { pending_offer: pendingOffer("seller") },
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("seller", attestationDueAt),
+    ],
+    [
+      "an offer pending with support leaves the buyer waiting",
+      { pending_offer: pendingOffer("support") },
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("support", reviewDueAt),
+    ],
+    [
+      "an offer pending with support leaves the seller waiting",
+      { pending_offer: pendingOffer("support") },
+      "waiting-on-seller",
+      "acc_seller",
+      policy("support", reviewDueAt),
+    ],
+    // checklist precedence
+    [
+      "a support-owned item never names the next actor",
+      { checklist: [checklistItem("support-note", "support"), checklistItem("seller-attestation", "seller")] },
+      "waiting-on-buyer",
+      "acc_seller",
+      policy("seller", attestationDueAt, prompt("seller-attestation")),
+    ],
+    [
+      "the buyer waits on the seller's open item",
+      { checklist: [checklistItem("support-note", "support"), checklistItem("seller-attestation", "seller")] },
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("seller", attestationDueAt),
+    ],
+    [
+      "optional and satisfied items leave the status mapping in charge",
+      {
+        checklist: [
+          checklistItem("buyer-optional", "buyer", false),
+          checklistItem("buyer-attestation", "buyer", true, "2026-06-01T00:30:00.000Z"),
+        ],
+      },
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", attestationDueAt, respond, review),
+    ],
+    [
+      "the buyer gets no prompt for optional or satisfied items",
+      {
+        checklist: [
+          checklistItem("buyer-optional", "buyer", false),
+          checklistItem("buyer-attestation", "buyer", true, "2026-06-01T00:30:00.000Z"),
+        ],
+      },
+      "waiting-on-seller",
+      "acc_buyer",
+      policy("seller", attestationDueAt),
+    ],
+    [
+      "an owned open item outranks the ready-for-support status",
+      { checklist: [checklistItem("buyer-photos", "buyer")] },
+      "ready-for-support",
+      "acc_buyer",
+      policy("buyer", responseDueAt, prompt("buyer-photos"), cancel),
+    ],
+    [
+      "the seller waits on the buyer's open item",
+      { checklist: [checklistItem("buyer-photos", "buyer")] },
+      "ready-for-support",
+      "acc_seller",
+      policy("buyer", responseDueAt),
+    ],
+    // the seller's review action follows the projected flow; the buyer's does not
+    [
+      "an escalated seller may respond but has no review action",
+      escalated,
+      "waiting-on-seller",
+      "acc_seller",
+      policy("seller", attestationDueAt, respond),
+    ],
+    [
+      "the buyer's review action does not depend on escalation",
+      escalated,
+      "waiting-on-buyer",
+      "acc_buyer",
+      policy("buyer", responseDueAt, review, cancel),
+    ],
+  ] as const)("%s", async (_name, overrides, status, accountId, expected) => {
+    const { status: httpStatus, body } = await readParticipantDetail(
+      participantRow({ ...overrides, status }),
+      accountId,
+    );
+    expect(httpStatus).toBe(200);
+    expect(body.participantPolicy).toEqual(expected);
+  });
+
+  it("a flow without request-support-review gives the seller no review action and leaves the buyer's", async () => {
+    const seller = await readParticipantDetail(participantRow(), "acc_seller", { definition: flowWithoutReview });
+    expect(seller.body.participantPolicy).toEqual(policy("seller", attestationDueAt, respond));
+
+    const buyer = await readParticipantDetail(participantRow({ status: "waiting-on-buyer" }), "acc_buyer", {
+      definition: flowWithoutReview,
+    });
+    expect(buyer.body.participantPolicy).toEqual(policy("buyer", responseDueAt, review, cancel));
   });
 });
 

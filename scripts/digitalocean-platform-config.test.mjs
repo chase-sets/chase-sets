@@ -3771,6 +3771,32 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
+  it("splits the full-scope unit tests into two fail-closed duration shards", () => {
+    const job = parse(platformPrWorkflow).jobs["unit-tests"];
+    expect(job.name).toBe("Unit Tests (${{ matrix.shard }}/2)");
+    expect(job.strategy).toEqual({
+      "fail-fast": false,
+      matrix: { shard: [1, 2] },
+    });
+    expect(job["timeout-minutes"]).toBe(20);
+    expect(job.if).toBe("needs['change-scope'].outputs.unit_tests_required == 'true'");
+    const execution = job.steps.find((step) => step.name === "Run non-DB tests");
+    expect(execution.run).toContain(
+      "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
+    );
+    expect(execution.run).toContain(
+      "node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
+    );
+    expect(execution.run).toContain("--concurrency=4");
+
+    for (const jobId of ["preview-deploy-smoke", "compose-preview-smoke", "pr-required"]) {
+      expect(workflowJob(platformPrWorkflow, jobId)).toContain("needs['unit-tests']");
+    }
+    expect(workflowJob(platformPrWorkflow, "pr-required")).toContain(
+      'require_job "Unit Tests" "${{ needs[\'unit-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.unit_tests_required }}"',
+    );
+  });
+
   it("requires both isolated DB cells, including empty-group success, before aggregation or preview", () => {
     const job = parse(platformPrWorkflow).jobs["db-tests"];
     expect(job.name).toBe("DB Profile Tests (${{ matrix.db-workspace-group }})");

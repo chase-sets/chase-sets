@@ -1022,8 +1022,6 @@ describe("marketplace search", () => {
     await drainContextProcesses({ subscriptionRunners });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "PublishCatalogItem",
-      blueprintIsActive: true,
-      requiredFieldIds: [itemSeed.fieldId as never],
     });
 
     await drainContextProcesses({
@@ -1126,8 +1124,6 @@ describe("marketplace search", () => {
     await drainContextProcesses({ subscriptionRunners });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.japaneseItemId}`, {
       type: "PublishCatalogItem",
-      blueprintIsActive: true,
-      requiredFieldIds: [itemSeed.fieldId as never],
     });
 
     await drainContextProcesses({
@@ -1265,8 +1261,6 @@ describe("marketplace search", () => {
     await drainContextProcesses({ subscriptionRunners });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemId}`, {
       type: "PublishCatalogItem",
-      blueprintIsActive: true,
-      requiredFieldIds: [expansionFieldId as never],
     });
 
     await drainContextProcesses({
@@ -1631,8 +1625,6 @@ describe("marketplace search", () => {
     await drainContextProcesses({ subscriptionRunners });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
       type: "PublishCatalogItem",
-      blueprintIsActive: true,
-      requiredFieldIds: [ids.nameFieldId as never, ids.setFieldId as never],
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
@@ -1663,8 +1655,6 @@ describe("marketplace search", () => {
     await drainContextProcesses({ subscriptionRunners });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
       type: "PublishCatalogItem",
-      blueprintIsActive: true,
-      requiredFieldIds: [ids.setFieldId as never, ids.packCountFieldId as never],
     });
 
     await drainContextProcesses({
@@ -3285,8 +3275,6 @@ describe("marketplace search", () => {
         await drainContextProcesses({ subscriptionRunners });
         await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
           type: "PublishCatalogItem",
-          blueprintIsActive: true,
-          requiredFieldIds: [aliasSeed.fieldId as never],
         });
       }
     }
@@ -3414,8 +3402,6 @@ describe("marketplace search", () => {
       await drainContextProcesses({ subscriptionRunners });
       await sendCommand(catalogServices.items.commandHandler, `catalog.item-cat_generated`, {
         type: "PublishCatalogItem",
-        blueprintIsActive: true,
-        requiredFieldIds: [aliasSeed.fieldId as never],
       });
       await sendCommand(catalogServices.items.commandHandler, `catalog.item-cat_generated`, {
         type: "RecordCatalogItemAliases",

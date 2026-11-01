@@ -5,6 +5,7 @@ import type { EvidenceCoverageResult } from "../domain/evidence-coverage";
 import type { MarketplaceListingFeeLock } from "../domain/fee-lock";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 import type { ListingEvidenceReadinessCode } from "../domain/listing-evidence-readiness";
+import type { InventoryCapacityRecoveryBlock, ListingPauseReason } from "../domain/domain";
 
 export type MarketplaceListingPhotoAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
@@ -95,6 +96,8 @@ export interface MarketplaceListingListItem {
   evidence_requirements: ListingEvidenceRequirementSnapshot | null;
   evidence: readonly MarketplaceListingPhoto[];
   status: string;
+  pause_reason?: ListingPauseReason | null;
+  inventory_capacity_recovery_block?: InventoryCapacityRecoveryBlock | null;
   created_at: string;
   updated_at: string;
 }
@@ -246,6 +249,7 @@ export interface MarketplaceListingInventoryItemOption {
   total_quantity: number;
   available_quantity: number;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
 }
 
 export interface MarketplaceAnonymousListingDraftIntent {

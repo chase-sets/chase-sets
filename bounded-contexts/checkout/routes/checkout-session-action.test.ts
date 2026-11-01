@@ -701,7 +701,7 @@ describe("checkout web routes: checkout session action", () => {
     );
   });
 
-  it("prepares signed-in payment and returns to checkout for inline confirmation", async () => {
+  it("only Pay commits a fresh checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
@@ -1805,7 +1805,7 @@ describe("checkout web routes: checkout session action", () => {
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
-  it("resumes payment start instead of refreshing quote once checkout orders are committed", async () => {
+  it("committed continuation keeps identity", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockGetCheckoutSession.mockResolvedValue(
       checkoutSessionForReviewedPreview({ order_ids: ["ord_1"], payment_id: null }),
@@ -2601,4 +2601,80 @@ describe("checkout web routes: checkout session action", () => {
       }),
     );
   });
+});
+
+describe("checkout session day-after confirm replay matrix", () => {
+  const dayBefore = () => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  beforeEach(() => {
+    applyCheckoutRouteMockDefaults();
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+      recordFulfillmentPreview: mockRecordFulfillmentPreview,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it.each([
+    // A covered handoff with no orders is past its window the day after; nothing is sent.
+    ["no orders", () => ({ source_type: "buy-now", order_ids: [], handoff_expires_at: dayBefore() }), null, null],
+    [
+      "orders only",
+      () => ({ order_ids: ["ord_1"] }),
+      { payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" },
+      "/checkout/buy/session/chk_1",
+    ],
+    [
+      "payment started",
+      () => ({ order_ids: ["ord_1"], payment_id: "pay_1" }),
+      { payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" },
+      "/checkout/buy/session/chk_1",
+    ],
+    [
+      "Offer submitted",
+      () => ({ source_type: "offer-intent", submitted_offer_id: "off_1" }),
+      { offer_id: "off_1", status: "purchase-intent-submitted" },
+      "/account/offers/submitted/off_1",
+    ],
+    ["cancelled", () => ({ cancelled_at: dayBefore() }), null, "/checkout/buy/session/chk_1"],
+  ] as const)(
+    "replays the identical confirm a day later from %s with zero Checkout Session edits",
+    async (_state, overrides, firstResult, destination) => {
+      mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview(overrides()));
+      if (firstResult) mockConfirmCheckoutSession.mockResolvedValue(firstResult);
+
+      const result = await checkoutSessionAction({
+        request: new Request("http://localhost/checkout/buy/session/chk_1", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: confirmCheckoutForm().toString(),
+        }),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+
+      expect(mockSelectShippingOption).not.toHaveBeenCalled();
+      expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+      expect(mockSelectAuthenticityCheckOptIn).not.toHaveBeenCalled();
+      expect(mockRecordFulfillmentPreview).not.toHaveBeenCalled();
+      // The Checkout owner answers a replay from the Session it already holds (route.test.ts covers its zero owner writes).
+      expect(mockConfirmCheckoutSession).toHaveBeenCalledTimes(firstResult ? 1 : 0);
+      if (destination) {
+        expect((result as Response).status).toBe(302);
+        expect(new URL((result as Response).headers.get("Location") ?? "", "http://localhost").pathname).toBe(
+          destination,
+        );
+      } else {
+        expect(result).toEqual({ code: "checkout_expired", error: expect.any(String) });
+      }
+    },
+  );
 });

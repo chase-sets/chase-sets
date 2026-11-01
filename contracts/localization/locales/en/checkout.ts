@@ -103,6 +103,12 @@ export const checkoutEnglishTranslations = {
     "We found a standardized version of this address. Choose the suggested address or confirm the address as entered.",
   "checkout.features.sessions.api.route.checkout.session.not.found": "Checkout session not found.",
   "checkout.features.sessions.api.route.checkout.session.not.found.2": "Checkout session not found.",
+  "checkout.features.sessions.api.route.confirmation.changed":
+    "This checkout already started with different order or payment details. Nothing new was sent.",
+  "checkout.features.sessions.api.route.entry.attempt.conflict":
+    "This checkout was already started with different details. Nothing new was started.",
+  "checkout.features.sessions.api.route.entry.attempt.required":
+    "Start checkout again from the item or your Buy Cart so it is started only once.",
   "checkout.features.sessions.api.route.checkout.reservation.unavailable":
     "One or more checkout items were just reserved by another buyer.",
   "checkout.features.sessions.api.route.forbidden": "Forbidden.",
@@ -132,6 +138,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.cart": "Buy cart",
   "checkout.features.sessions.ui.checkoutPage.catalog.item": "Catalog item: ",
   "checkout.features.sessions.ui.checkoutPage.checkout": "Checkout",
+  "checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.description":
+    "We could not confirm whether your order went through. Placing the order is paused until you refresh this checkout and see its current status.",
+  "checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.refresh": "Refresh checkout",
+  "checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.title": "We couldn't confirm your order yet",
   "checkout.features.sessions.ui.checkoutPage.checkout.issue": "Checkout issue",
   "checkout.features.sessions.ui.checkoutPage.checkout.status": "Checkout status",
   "checkout.features.sessions.ui.checkoutPage.checkout.summary": "Checkout Summary",
@@ -219,6 +229,13 @@ export const checkoutEnglishTranslations = {
     "Retry to check your current wallet balance before starting payment. Your checkout details are saved.",
   "checkout.features.sessions.ui.checkoutPage.retry.wallet": "Retry wallet balance",
   "checkout.features.sessions.ui.checkoutPage.reserved.for.you": "Reserved for you - {time}",
+  "checkout.features.sessions.ui.checkoutPage.cancel.checkout": "Cancel checkout",
+  "checkout.features.sessions.ui.checkoutPage.cancel.checkout.title": "Not buying now?",
+  "checkout.features.sessions.ui.checkoutPage.cancel.checkout.description":
+    "Cancel this checkout to release the items held for you so other buyers can get them.",
+  "checkout.features.sessions.ui.checkoutPage.checkout.cancelled": "Checkout cancelled",
+  "checkout.features.sessions.ui.checkoutPage.checkout.cancelled.description":
+    "The items held for this checkout were released for other buyers.",
   "checkout.features.sessions.ui.checkoutPage.reservation.expired": "Reservation expired",
   "checkout.features.sessions.ui.checkoutPage.reservation.expired.description":
     "Reserve again to continue checkout if the item is still available.",
@@ -934,6 +951,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutSession.checkout.belongs.to.another.account": "Checkout belongs to another account",
   "checkout.routes.checkoutSession.checkout.belongs.to.another.account.description":
     "Sign in with the account that started this checkout, or start checkout again.",
+  "checkout.routes.checkoutSession.confirmation.changed":
+    "This checkout already started with different order or payment details, so nothing new was sent. Review the checkout as it is now before you continue.",
   "checkout.routes.checkoutSession.checkout.unavailable": "Checkout unavailable",
   "checkout.routes.checkoutSession.checkout.unavailable.description": "We could not open this checkout.",
   "checkout.routes.checkoutSession.enter.contact.delivery.shipping.payment":
@@ -955,6 +974,9 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.buyCheckoutConfirmation.title": "Checkout received | Marketplace",
   "checkout.routes.buyCheckoutConfirmation.description": "Continue to the secure payment step for this checkout.",
   "checkout.routes.checkoutRecovery.browse.marketplace": "Browse marketplace",
+  "checkout.routes.checkoutRecovery.checkout.attempt.changed": "This checkout page is out of date",
+  "checkout.routes.checkoutRecovery.checkout.attempt.changed.description":
+    "Nothing new was started. Refresh this page, then continue to start checkout once with its current details.",
   "checkout.routes.checkoutRecovery.checkout.closed": "Checkout is closed",
   "checkout.routes.checkoutRecovery.checkout.closed.description":
     "Buying opens at public launch. Your Buy Cart is saved, and you can continue browsing.",
@@ -1028,6 +1050,9 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.price.confirmed.before.payment": "Price confirmed before payment",
   "checkout.routes.checkoutStart.quantity": "Quantity",
   "checkout.routes.checkoutStart.quantity.confirmed.before.payment": "Quantity confirmed before payment",
+  "checkout.routes.checkoutStart.entry.ambiguous.description":
+    "We could not confirm whether your checkout started. Continuing is paused on this page so checkout is not started twice.",
+  "checkout.routes.checkoutStart.entry.ambiguous.title": "We couldn't confirm your checkout started",
   "checkout.routes.checkoutStart.ready": "Ready",
   "checkout.routes.checkoutStart.register.or.sign.in": "Register or sign in",
   "checkout.routes.checkoutStart.register.or.sign.in.purchase.intent.copy":

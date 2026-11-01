@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
+import { useEffect, useState } from "react";
+import { RouterProvider, createMemoryRouter, createStaticHandler, type RouteObject } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
@@ -174,6 +176,181 @@ describe("marketplace search route", () => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it.each(["/search?q=charizard", "/"])("primary search failure is not empty success: %s", async (path) => {
+    const secret = "synthetic-upstream-secret-10610";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/categories")) {
+        return Response.json({
+          items: [{ ...searchData().categories[0], display_order: 1 }],
+          total: 1,
+          count: 1,
+        });
+      }
+      if (url.searchParams.get("sort") === "newest") return Response.json(searchDataWithResults().data);
+      return Response.json({ message: secret }, { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createStaticHandler([{ id: "search", path: "*", loader }]).query(
+      new Request(`http://localhost${path}`),
+    );
+    if (result instanceof Response) throw new Error("Expected retained search route data");
+    expect(result.statusCode).toBe(502);
+    expect(result.errors).toBeNull();
+    expect(JSON.stringify(result.loaderData)).not.toContain(secret);
+    mockUseLoaderData.mockReturnValue(result.loaderData.search);
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(path.split("?")[1]), vi.fn()]);
+    mockUseLocation.mockReturnValue({ pathname: path.split("?")[0], search: path.includes("?") ? "?q=charizard" : "" });
+    render(<SearchRoute />);
+    expect(screen.getByRole("searchbox")).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { name: "Minimum price" })).toBeTruthy();
+    expect(screen.getByText("Search results could not load. Try again in a moment.")).toBeTruthy();
+    expect(screen.getByText("Error")).toBeTruthy();
+    expect(screen.queryByText("No items found")).toBeNull();
+    expect(document.body.textContent).not.toContain(secret);
+    expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey(path))).toBeNull();
+    if (path === "/") {
+      expect(screen.getByRole("link", { name: /Pikachu/ })).toBeTruthy();
+      expect(screen.getAllByText("Cards").length).toBeGreaterThan(0);
+    }
+  });
+
+  it("search success empty and secondary-failure matrix", async () => {
+    const responses = new Map<string, unknown>([
+      ["empty", { items: [], facets: [], total: 0, count: 0, nextCursor: null }],
+      ["populated", searchDataWithResults().data],
+    ]);
+    let mode = "empty";
+    let secondaryFailure: "newest" | "categories" | null = "newest";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/categories")) {
+          return secondaryFailure === "categories"
+            ? Response.json({ message: "categories unavailable" }, { status: 500 })
+            : Response.json({ items: [{ ...searchData().categories[0], display_order: 1 }], total: 1, count: 1 });
+        }
+        if (secondaryFailure === "newest" && url.searchParams.get("sort") === "newest")
+          return Response.json({ message: "new arrivals unavailable" }, { status: 500 });
+        return Response.json(responses.get(mode));
+      }),
+    );
+    const load = () =>
+      loader({ request: new Request("http://localhost/search?q=charizard"), params: {}, context: {} } as never);
+    const empty = await load();
+    expect(empty).toMatchObject({ searchFailed: false, data: { total: 0, items: [] } });
+    mode = "populated";
+    const populated = await load();
+    expect(populated).toMatchObject({ searchFailed: false, data: { total: 1, items: [{ slug: "pikachu" }] } });
+    expect(populated).toMatchObject({ homeMerchandising: null });
+
+    secondaryFailure = "newest";
+    const newArrivalsFailed = await loader({
+      request: new Request("http://localhost/"),
+      params: {},
+      context: {},
+    } as never);
+    expect(newArrivalsFailed).toMatchObject({
+      searchFailed: false,
+      data: { total: 1, items: [{ slug: "pikachu" }] },
+      homeMerchandising: { newArrivals: [] },
+    });
+    expect("type" in (newArrivalsFailed as object)).toBe(false);
+
+    secondaryFailure = "categories";
+    const categoriesFailed = await loader({
+      request: new Request("http://localhost/"),
+      params: {},
+      context: {},
+    } as never);
+    expect(categoriesFailed).toMatchObject({
+      searchFailed: false,
+      data: { total: 1, items: [{ slug: "pikachu" }] },
+      categories: [],
+    });
+    expect("type" in (categoriesFailed as object)).toBe(false);
+  });
+
+  it("search failure to successful navigation", async () => {
+    let failed = true;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
+      if (failed) return Response.json({ secret: "synthetic-secret" }, { status: 500 });
+      return Response.json(searchDataWithResults().data);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    let routeData: unknown;
+    let router: ReturnType<typeof createMemoryRouter>;
+    function RoutedSearch() {
+      const [, setVersion] = useState(0);
+      useEffect(() => {
+        const update = (state: typeof router.state) => {
+          routeData = state.loaderData.search;
+          setVersion((version) => version + 1);
+        };
+        update(router.state);
+        return router.subscribe(update);
+      }, []);
+      return <SearchRoute />;
+    }
+    const searchRoute: RouteObject = {
+      id: "search",
+      path: "/search",
+      loader: (args) =>
+        clientLoader({
+          ...args,
+          serverLoader: () => loader(args),
+        } as Parameters<typeof clientLoader>[0]),
+      Component: RoutedSearch,
+    };
+    router = createMemoryRouter([searchRoute], { initialEntries: ["/search?q=charizard"] });
+    routeData = router.state.loaderData.search;
+    mockUseLoaderData.mockImplementation(() => router.state.loaderData.search);
+    mockUseLocation.mockImplementation(() => router.state.location);
+    mockUseNavigate.mockImplementation(() => router.navigate);
+    mockUseNavigation.mockImplementation(() => router.state.navigation);
+    mockUseRevalidator.mockImplementation(() => ({ revalidate: router.revalidate, state: router.state.revalidation }));
+    mockUseSearchParams.mockImplementation(() => [new URLSearchParams(router.state.location.search), vi.fn()]);
+    try {
+      render(<RouterProvider router={router} />);
+
+      await waitFor(
+        () => expect(screen.getByText("Search results could not load. Try again in a moment.")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      expect(screen.queryByText("No items found")).toBeNull();
+      expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard"))).toBeNull();
+      const storedCache = JSON.parse(window.sessionStorage.getItem("discovery.search.loader-cache.v1") ?? "null") as {
+        entries?: unknown[];
+      } | null;
+      expect(storedCache?.entries).toEqual([]);
+
+      const failedFetches = fetchMock.mock.calls.length;
+      failed = false;
+      await act(async () => {
+        await router.navigate("/search?q=charizard", { replace: true });
+      });
+      await waitFor(() =>
+        expect(screen.queryByText("Search results could not load. Try again in a moment.")).toBeNull(),
+      );
+      expect(routeData).toMatchObject({ searchFailed: false, data: { items: [{ slug: "pikachu" }] } });
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(failedFetches);
+      expect(screen.getByRole("link", { name: /Pikachu/ })).toBeTruthy();
+      expect(
+        readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=charizard")),
+      ).toMatchObject({
+        searchFailed: false,
+        data: { items: [{ slug: "pikachu" }] },
+      });
+    } finally {
+      router.dispose();
+    }
   });
 
   it("falls back to an empty search state when loader data is unavailable", () => {
@@ -1102,6 +1279,11 @@ describe("marketplace search route", () => {
     expect(revalidate).toHaveBeenCalledOnce();
   });
 });
+
+function payloadOf(value: unknown): Record<string, unknown> {
+  const record = value as Record<string, unknown>;
+  return typeof record.searchFailed === "boolean" ? record : (record.data as Record<string, unknown>);
+}
 
 describe("marketplace search back-navigation restoration", () => {
   it("restores corrected first-page metadata and notice through the actual client loader", async () => {

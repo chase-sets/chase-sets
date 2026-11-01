@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt, getResponseMetadata } from "@chase-sets/http/responses";
 import { createSupportRequestApiClient, SupportParticipantSendError } from "./support-request-api-client";
 import { participantActions, type ParticipantAction } from "../../features/support-requests/domain/participant-attempt";
+import { responseFixture, responseSeller } from "../../features/support-requests/api/participant-attempt.test-support";
 
 const attemptId = "7163_client_0123456789abcdef";
 const bodies: Record<ParticipantAction, unknown> = {
@@ -25,6 +26,46 @@ const result = (actionKind: ParticipantAction) => ({
   offerId: null,
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe("record-response v1 compatibility", () => {
+  for (const explicit of [true, false]) {
+    it(`response removal preserves retained attempt recovery: ${explicit ? "old explicit" : "omitted"} descriptor lookup and send replay retain bytes and append once`, async () => {
+      const f = await responseFixture("offer-partial-refund", "Offer");
+      f.setActor(responseSeller);
+      const body = { ...f.body, ...(explicit ? { offerResolutionType: "partial-refund" } : {}) };
+      const hash = explicit
+        ? "3ba438568581f403087dcb003a79786b107e03b530c3d82b9e13318fe233bd69"
+        : "5311718d3c0f214609932c3796b200034f9eead83a7aec7a1120fe9a1bc54216";
+      const clientFetch = vi.fn<typeof fetch>(async (url, init) =>
+        f.app.request(String(url).replace("/api/marketplace", ""), init),
+      );
+      const api = createSupportRequestApiClient({ fetch: clientFetch });
+      const first = await api.participantCommand("record-response", body, attemptId, f.id);
+      expect(new Headers(clientFetch.mock.calls[0][1]?.headers).get("X-Support-Request-Hash")).toBe(hash);
+      expect(JSON.parse(String(clientFetch.mock.calls[0][1]?.body))).toEqual(body);
+      const descriptor = { actionKind: "record-response", targetId: f.id, attemptId, requestHash: hash } as const;
+      expect(await api.lookupParticipantAttempt(descriptor)).toMatchObject({ outcome: "confirming", result: first });
+      expect(await api.participantCommand("record-response", body, attemptId, f.id)).toEqual(first);
+      expect(f.allEvents.filter((event) => event.eventType.endsWith(".response-recorded"))).toHaveLength(1);
+      expect(f.allEvents.filter((event) => event.eventType.endsWith(".participant-attempt-recorded"))).toHaveLength(1);
+      if (explicit) {
+        const beforeConflict = [...f.allEvents];
+        clientFetch.mockClear();
+        await expect(api.participantCommand("record-response", f.body, attemptId, f.id)).rejects.toMatchObject({
+          phase: "ambiguous",
+          descriptor: {
+            ...descriptor,
+            requestHash: "5311718d3c0f214609932c3796b200034f9eead83a7aec7a1120fe9a1bc54216",
+          },
+        });
+        expect(clientFetch.mock.calls.map(([, init]) => init?.method ?? "GET")).toEqual(["POST", "GET"]);
+        expect((await clientFetch.mock.results[0].value).status).toBe(409);
+        expect((await clientFetch.mock.results[1].value).status).toBe(200);
+        expect(f.allEvents).toEqual(beforeConflict);
+      }
+    });
+  }
+});
 
 describe("action-map/client/runtime call-count matrix", () => {
   for (const actionKind of Object.keys(participantActions) as ParticipantAction[]) {

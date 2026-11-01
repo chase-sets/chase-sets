@@ -4,6 +4,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { createAuthRateLimitPair } from "../../features/sign-in/api/rate-limits";
 import { consumeMagicLinkToken, insertMagicLinkToken } from "../auth-support/store";
+import { getSafeSameSitePath } from "../auth-support/same-site-path";
 import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import { insertCreatedAuthIdentityAccountMirror } from "../auth-support/identity-projection";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
@@ -24,13 +25,11 @@ function buildPublicOrigin(request: Request) {
 }
 
 function safeLandingPath(value: unknown) {
-  const path = typeof value === "string" ? value.trim() : "";
-  return path.startsWith("/") && !path.startsWith("//") ? path : "/sign-in/magic";
+  return getSafeSameSitePath(value, { trim: true }) ?? "/sign-in/magic";
 }
 
 function safeReturnTo(value: unknown) {
-  const path = typeof value === "string" ? value.trim() : "";
-  return path.startsWith("/") && !path.startsWith("//") ? path : null;
+  return getSafeSameSitePath(value, { trim: true });
 }
 
 const magicLinkRequestRateLimits = createAuthRateLimitPair({

@@ -2,6 +2,7 @@ import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } 
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createAgreementRuntime } from "../../features/agreements/api/runtime";
+import { createHomeRuntime, type HomeServices } from "../../features/home/api/home-read";
 import { createResolutionRuntime } from "../../features/resolutions/api/runtime";
 import { createScheduleRuntime } from "../../features/schedules/api/runtime";
 import { createCommercialTermsPolicyRuntime, type CommercialTermsPolicyRuntime } from "./policy-runtime";
@@ -9,6 +10,7 @@ import { createCommercialTermsPolicyRuntime, type CommercialTermsPolicyRuntime }
 export type CommercialTermsServices = Readonly<{
   schedules: ReturnType<typeof createScheduleRuntime>;
   agreements: ReturnType<typeof createAgreementRuntime>;
+  home: HomeServices;
   resolutions: ReturnType<typeof createResolutionRuntime>;
   /**
    * The shared platform-policy runtime, mounted once for every
@@ -49,6 +51,7 @@ export function createCommercialTermsServices(pool: PgTransactionalPool): Commer
   return {
     schedules,
     agreements,
+    home: createHomeRuntime({ schedules, agreements }),
     resolutions,
     policies,
     projectors: [...policies.projectors],

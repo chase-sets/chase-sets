@@ -64,8 +64,31 @@ function payoutRow(overrides: Record<string, unknown> = {}) {
 }
 
 function services(): PayoutServices {
+  const summary = {
+    completeness: { kind: "complete" as const, total: 1 },
+    next_payout: null,
+    blocked_payouts: [],
+    availability: {
+      can_request: true,
+      unavailable_reasons: [],
+      unavailable_reason_details: [],
+    },
+  };
   return {
     listPayouts: vi.fn(async () => ({ items: [payoutRow()], total: 1 })),
+    getPayoutSummary: vi.fn(async ({ canRequestPayouts }: { canRequestPayouts: boolean }) => ({
+      items: [payoutRow()],
+      total: 1,
+      count: 1,
+      ...summary,
+      availability: canRequestPayouts
+        ? summary.availability
+        : {
+            can_request: false,
+            unavailable_reasons: ["payout-request-permission-required"],
+            unavailable_reason_details: [],
+          },
+    })),
     getPayout: vi.fn(async (payoutId, accountId) => payoutRow({ payout_id: payoutId, account_id: accountId })),
     requestPayout: vi.fn(async (params) => ({
       payoutId: "pyo_1" as never,
@@ -93,7 +116,21 @@ describe("settlement payout MCP handlers", () => {
       payout: { payout_id: "pyo_1", requested_amount: "25.00", fee_amount: "0.32", net_amount: "24.68" },
     });
     expect(fakeServices.listPayouts).toHaveBeenCalledWith({ accountId: "acc_1", limit: 10, offset: 5 });
+    expect(fakeServices.getPayoutSummary).toHaveBeenCalledWith({ accountId: "acc_1", canRequestPayouts: true });
     expect(fakeServices.getPayout).toHaveBeenCalledWith("pyo_1", "acc_1");
+  });
+
+  it("returns the additive summary contract without granting request authority", async () => {
+    const fakeServices = services();
+    const handlers = createSettlementPayoutMcpHandlers(fakeServices);
+    const result = await handlers.toolHandlers["settlement.list-payouts"]?.(
+      mcpRequest({ accountId: "acc_1" }, { ...actor, permissions: ["payouts.view"] }),
+    );
+    expect(result).toMatchObject({
+      completeness: { kind: "complete" },
+      availability: { can_request: false, unavailable_reasons: ["payout-request-permission-required"] },
+    });
+    expect(fakeServices.getPayoutSummary).toHaveBeenCalledWith({ accountId: "acc_1", canRequestPayouts: false });
   });
 
   it("requests payouts through Settlement and returns an MCP write receipt", async () => {

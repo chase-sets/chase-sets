@@ -1,5 +1,6 @@
 import type { ResolvedListingEvidenceRequirements } from "../../listing-evidence-policy/domain/policy";
-import { activeListingPhotos, type MarketplaceListingPhoto } from "./domain";
+import type { MarketplaceListingPhoto } from "./domain";
+import { activeListingPhotos } from "./active-listing-photos";
 
 /**
  * Generic Listing Evidence coverage evaluator.

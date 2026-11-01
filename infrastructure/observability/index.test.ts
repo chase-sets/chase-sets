@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { metrics } from "@opentelemetry/api";
+import { metrics, trace } from "@opentelemetry/api";
 import {
   AggregationTemporality,
   InMemoryMetricExporter,
@@ -47,6 +47,9 @@ import {
   recordProjectionWakeRelayCatchUp,
   recordProjectionWakeRelayFanOut,
   sanitizeLogFields,
+  classifyDiscoverySearchRetrievalFailure,
+  normalizeTraceCorrelationId,
+  discoverySearchRetrievalFailureFields,
   type CheckoutObservabilityEventSignal,
 } from "./index";
 
@@ -511,6 +514,79 @@ describe("Discovery search observability", () => {
 });
 
 describe("structured logging", () => {
+  it("normalizes trace correlation and classifies retrieval failures without message fields", () => {
+    expect(normalizeTraceCorrelationId("0123456789abcdef0123456789abcdef")).toBe("0123456789abcdef0123456789abcdef");
+    expect(normalizeTraceCorrelationId("account_123")).toBe("unknown");
+    class DatabaseError extends Error {}
+    const error = Object.assign(new DatabaseError("PRIVATE_SQL_SENTINEL"), {
+      name: "error",
+      severity: "ERROR",
+      code: "42P01",
+    });
+    expect(classifyDiscoverySearchRetrievalFailure(error)).toEqual({
+      errorClass: "DatabaseError",
+      sqlstateCategory: "42",
+    });
+    expect(
+      classifyDiscoverySearchRetrievalFailure(Object.assign(new Error("PRIVATE_EPIPE_SENTINEL"), { code: "EPIPE" })),
+    ).toEqual({
+      errorClass: "Error",
+      sqlstateCategory: "unknown",
+    });
+    expect(
+      classifyDiscoverySearchRetrievalFailure(
+        Object.assign(new Error("PRIVATE_NAME_SENTINEL"), { name: "PRIVATE_NAME_SENTINEL" }),
+      ),
+    ).toEqual({
+      errorClass: "unknown",
+      sqlstateCategory: "unknown",
+    });
+    const fields = discoverySearchRetrievalFailureFields({ correlationId: "account_123", error });
+    expect(fields).toMatchObject({
+      type: "discovery.search.retrieval",
+      operation: "discovery.search.retrieval",
+      resource: "discovery.search.retrieval",
+      correlationId: "unknown",
+      errorClass: "DatabaseError",
+      sqlstateCategory: "42",
+    });
+    expect(JSON.stringify(fields)).not.toContain("PRIVATE_SQL_SENTINEL");
+  });
+
+  it("falls back to the active span trace id when threaded correlation is absent", () => {
+    const traceId = "fedcba9876543210fedcba9876543210";
+    const getSpanContext = vi.spyOn(trace, "getSpanContext").mockReturnValue({
+      traceId,
+      spanId: "0123456789abcdef",
+      traceFlags: 1,
+    });
+    try {
+      expect(
+        discoverySearchRetrievalFailureFields({ correlationId: undefined, error: new Error("PRIVATE_ERROR") }),
+      ).toMatchObject({
+        correlationId: traceId,
+      });
+    } finally {
+      getSpanContext.mockRestore();
+    }
+  });
+
+  it("classifies pg-protocol server error categories without raw messages", () => {
+    class DatabaseError extends Error {}
+    for (const [code, sqlstateCategory] of [
+      ["57P01", "57"],
+      ["08006", "08"],
+    ] as const) {
+      const error = Object.assign(new DatabaseError("PRIVATE_PG_MESSAGE"), {
+        name: "error",
+        severity: "ERROR",
+        code,
+      });
+      expect(classifyDiscoverySearchRetrievalFailure(error)).toEqual({ errorClass: "DatabaseError", sqlstateCategory });
+      expect(JSON.stringify(discoverySearchRetrievalFailureFields({ error }))).not.toContain("PRIVATE_PG_MESSAGE");
+    }
+  });
+
   it("redacts sensitive fields recursively", () => {
     expect(
       sanitizeLogFields({

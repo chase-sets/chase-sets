@@ -52,7 +52,7 @@ export function readCachedSearchLoaderData<T>(
     }
 
     const entry = stored.entries.find((candidate) => candidate.key === key);
-    if (!entry || now - entry.savedAt > ttlMs) {
+    if (!entry || now - entry.savedAt > ttlMs || isFailedSearch(entry.data)) {
       return null;
     }
 
@@ -80,7 +80,9 @@ export function cacheSearchLoaderData(
   }
 
   const existing = readStoredEntries(storage).filter((entry) => entry.key !== key && now - entry.savedAt <= ttlMs);
-  const entries: CacheEntry[] = [{ key, data, savedAt: now }, ...existing].slice(0, MAX_CACHED_ENTRIES);
+  const entries: CacheEntry[] = isFailedSearch(data)
+    ? existing
+    : [{ key, data, savedAt: now }, ...existing].slice(0, MAX_CACHED_ENTRIES);
 
   try {
     let serialized = serialize(entries);
@@ -96,6 +98,10 @@ export function cacheSearchLoaderData(
   } catch {
     safelyClear(storage);
   }
+}
+
+function isFailedSearch(data: unknown): boolean {
+  return typeof data === "object" && data !== null && "searchFailed" in data && data.searchFailed === true;
 }
 
 function readStoredEntries(storage: SearchLoaderCacheStorage): CacheEntry[] {

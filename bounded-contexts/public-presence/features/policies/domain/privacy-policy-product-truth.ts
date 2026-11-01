@@ -172,8 +172,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-session",
     "chase_sets_session",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:62-65",
-      "bounded-contexts/auth/support/auth-support/http.ts:69-72",
+      "bounded-contexts/auth/support/auth-support/http.ts:63-66",
+      "bounded-contexts/auth/support/auth-support/http.ts:70-73",
       "bounded-contexts/auth/support/request-support/cookies.ts:1",
       "contracts/auth-context/index.ts:3",
     ],
@@ -183,8 +183,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-account-selection",
     "chase_sets_account_selection",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:81-84",
-      "bounded-contexts/auth/support/auth-support/http.ts:88-91",
+      "bounded-contexts/auth/support/auth-support/http.ts:82-85",
+      "bounded-contexts/auth/support/auth-support/http.ts:89-92",
       "bounded-contexts/auth/support/request-support/cookies.ts:2",
     ],
     "Auth sets and clears a first-party cookie named chase_sets_account_selection that carries the selected-account token.",
@@ -193,7 +193,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-guest-checkout",
     "chase_sets_guest_checkout",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:95-98",
+      "bounded-contexts/auth/support/auth-support/http.ts:96-99",
       "bounded-contexts/checkout/support/request-support/guest-checkout.ts:80-83",
       "contracts/auth-context/index.ts:4",
     ],
@@ -348,11 +348,11 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "discovery.search.loader-cache.v1",
     evidenceRefs: [
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:103",
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:141",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:109",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:147",
       "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:43",
       "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:50",
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:95",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:97",
     ],
     factualSummary:
       "The search loader cache reads, writes, and removes a browser storage entry named discovery.search.loader-cache.v1 through an injected Pick<Storage, ...> seam. The stored value holds a bounded, time-limited set of loader payloads keyed by the search URL that produced them.",
@@ -481,7 +481,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "google",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:165-174",
-      "deployables/platform-api/src/main.ts:228-231",
+      "deployables/platform-api/src/main.ts:229-232",
     ],
     factualSummary:
       "A registered social-login provider named google maps a provider profile containing providerName, providerSubject, email, emailVerified, hostedDomain, displayName, givenName, and familyName. The platform API registers the provider executably.",
@@ -496,7 +496,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "facebook",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:197-205",
-      "deployables/platform-api/src/main.ts:236-239",
+      "deployables/platform-api/src/main.ts:237-240",
     ],
     factualSummary:
       "A registered social-login provider named facebook maps a provider profile containing providerName, providerSubject, email, emailVerified, displayName, givenName, and familyName. The platform API registers the provider executably.",

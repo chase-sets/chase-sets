@@ -353,6 +353,7 @@ describe("marketplace listing routes", () => {
       total_quantity: 3,
       available_quantity: 3,
       acquisition_cost_amount: "4.50",
+      acquisition_cost_currency_code: null,
     });
     const app = buildApp({
       actor: sellerActor,
@@ -392,6 +393,7 @@ describe("marketplace listing routes", () => {
       total_quantity: 3,
       available_quantity: 0,
       acquisition_cost_amount: "4.50",
+      acquisition_cost_currency_code: null,
     });
     const app = buildApp({
       actor: sellerActor,

@@ -373,6 +373,7 @@ describe("marketplace listing create page", () => {
             total_quantity: 1,
             available_quantity: 1,
             acquisition_cost_amount: null,
+            acquisition_cost_currency_code: null,
           },
         ]}
         hasListingStockLocation

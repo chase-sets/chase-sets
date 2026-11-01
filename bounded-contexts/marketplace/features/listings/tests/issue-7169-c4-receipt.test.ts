@@ -262,9 +262,21 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
     const message = { ...draftMessage(), snapshot: { ...draftMessage().snapshot, priceCurrencyCode: "CAD" } };
     await h.consumer.accept(message, draftContext);
     expect(Object.keys(h.createDraft.mock.calls[0]![0] as object).sort()).toEqual(
-      Object.keys(directPortInput()).sort(),
+      [...Object.keys(directPortInput()), "acquisitionCostCurrencyCode"].sort(),
     );
     expect((h.createDraft.mock.calls[0]![0] as { priceCurrencyCode: string }).priceCurrencyCode).toBe("CAD");
+  });
+
+  it("forwards an amount-only acquisition cost without inventing its denomination", async () => {
+    const h = harness();
+    const message = {
+      ...draftMessage(),
+      snapshot: { ...draftMessage().snapshot, acquisitionCostAmount: "12.34", priceCurrencyCode: "CAD" },
+    };
+    await h.consumer.accept(message, draftContext);
+    const input = h.createDraft.mock.calls[0]![0] as Parameters<InventoryDraftListingCreator>[0];
+    expect(input.acquisitionCostAmount).toBe("12.34");
+    expect(input).toHaveProperty("acquisitionCostCurrencyCode", undefined);
   });
 
   it("pins creator input parity to the Inventory creator parameter type", async () => {
@@ -285,6 +297,7 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
       shipFromAddress: true,
       totalQuantity: true,
       acquisitionCostAmount: true,
+      acquisitionCostCurrencyCode: true,
       priceAmount: true,
       priceCurrencyCode: true,
       quantityCap: true,

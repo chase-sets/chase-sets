@@ -100,7 +100,7 @@ export function createEbayAccountDeletionRuntime(db: PgQueryable, keyring: Chann
         db,
         `SELECT notification_id AS "notificationId", event_date AS "eventDate", expires_at AS "expiresAt"
          FROM channels_ebay_account_deletion_receipts
-         WHERE subject_fingerprint = $1 AND expires_at > statement_timestamp() ORDER BY expires_at, notification_id`,
+         WHERE subject_fingerprint = $1 AND expires_at > statement_timestamp() ORDER BY expires_at, notification_id LIMIT 33`,
         [fingerprint],
       );
       return result.rows.map((row) => ({

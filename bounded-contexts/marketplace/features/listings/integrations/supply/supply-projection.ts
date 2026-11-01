@@ -671,6 +671,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
         storageLocationId: string;
         totalQuantity: number;
         acquisitionCostAmount: string | null;
+        acquisitionCostCurrencyCode?: string | null;
       };
 
       await db.query(
@@ -684,9 +685,10 @@ export function buildMarketplaceInventoryProjectionHandlers(
            storage_location_id,
            total_quantity,
            acquisition_cost_amount,
+           acquisition_cost_currency_code,
            last_stream_version,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (item_id) DO UPDATE SET
            account_id = EXCLUDED.account_id,
            catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
@@ -696,6 +698,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
            storage_location_id = EXCLUDED.storage_location_id,
            total_quantity = EXCLUDED.total_quantity,
            acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
+           acquisition_cost_currency_code = EXCLUDED.acquisition_cost_currency_code,
            last_stream_version = EXCLUDED.last_stream_version,
            updated_at = EXCLUDED.updated_at
          WHERE marketplace_supply_items.last_stream_version < EXCLUDED.last_stream_version`,
@@ -709,6 +712,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
           data.storageLocationId,
           data.totalQuantity,
           data.acquisitionCostAmount,
+          data.acquisitionCostCurrencyCode ?? null,
           event.streamVersion,
           event.timing.recordedAt,
         ],

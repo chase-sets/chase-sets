@@ -273,7 +273,6 @@ describe("catalog item seed", () => {
         }),
         expect.objectContaining({
           type: "PublishCatalogItem",
-          requiredFieldIds: ["fld_set", "fld_sealed-product-form"],
         }),
       ]),
     );

@@ -2,7 +2,14 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import {
+  createMemoryRouter,
+  redirect,
+  RouterProvider,
+  useActionData,
+  useNavigation,
+  type ActionFunction,
+} from "react-router";
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { inventoryAdjustmentReasons } from "@chase-sets/event-core/public-event-payloads";
@@ -544,17 +551,35 @@ function expectOnlyPickerRequests(fetch: Parameters<typeof requestedUrls>[0]) {
 }
 
 // Mirrors the account-inventory route: the create form is writable only inside the recovery provider.
-function renderCreateItemForm(props: Partial<ComponentProps<typeof InventoryItemListPage>> = {}) {
+function renderCreateItemForm(
+  props: Partial<ComponentProps<typeof InventoryItemListPage>> = {},
+  action?: ActionFunction,
+) {
+  function CreatePage() {
+    const result = useActionData() as { error?: string } | undefined;
+    const navigation = useNavigation();
+    return (
+      <InventoryMutationProvider
+        authority={{ accountId: "acc_1", actorUserId: "usr_1" }}
+        navigationPending={navigation.state !== "idle"}
+      >
+        <InventoryItemListPage
+          data={{ items: [] }}
+          locations={[]}
+          {...props}
+          errorMessage={result?.error ?? props.errorMessage}
+        />
+      </InventoryMutationProvider>
+    );
+  }
   const router = createMemoryRouter(
     [
       {
         path: "/",
-        element: (
-          <InventoryMutationProvider authority={{ accountId: "acc_1", actorUserId: "usr_1" }}>
-            <InventoryItemListPage data={{ items: [] }} locations={[]} {...props} />
-          </InventoryMutationProvider>
-        ),
+        element: <CreatePage />,
+        action,
       },
+      { path: "/account/inventory/items/:id", element: <p>Created inventory item</p> },
     ],
     { initialEntries: ["/"] },
   );
@@ -562,7 +587,7 @@ function renderCreateItemForm(props: Partial<ComponentProps<typeof InventoryItem
   const input = screen.getByRole("combobox", { name: "Catalog item" }) as HTMLInputElement;
   const form = input.closest("form")!;
   expect(form.getAttribute("aria-disabled")).toBeNull();
-  return { input, form };
+  return { input, form, router };
 }
 
 function hiddenCatalogItemId() {
@@ -585,6 +610,191 @@ async function openAndEnter(user: ReturnType<typeof userEvent.setup>, input: HTM
   await user.click(input);
   fireEvent.change(input, { target: { value } });
 }
+
+const gradedCreateSchema: NonNullable<InventoryCatalogItemSnapshot["product_schema"]> = {
+  canonicalDimensionOrder: [
+    { dimensionId: "dim_form", dimensionName: "Form" },
+    { dimensionId: "dim_company", dimensionName: "Grading Company" },
+    { dimensionId: "dim_grade", dimensionName: "Grade" },
+  ],
+  dimensions: [
+    {
+      dimensionId: "dim_form",
+      dimensionName: "Form",
+      required: true,
+      appliesWhen: [],
+      allowedOptions: [
+        { optionId: "opt_raw", code: "raw", label: "Raw" },
+        { optionId: "opt_graded", code: "graded", label: "Graded" },
+      ],
+    },
+    {
+      dimensionId: "dim_company",
+      dimensionName: "Grading Company",
+      required: true,
+      appliesWhen: [{ dimensionId: "dim_form", optionIds: ["opt_graded"] }],
+      allowedOptions: [{ optionId: "opt_psa", code: "psa", label: "PSA" }],
+    },
+    {
+      dimensionId: "dim_grade",
+      dimensionName: "Grade",
+      required: true,
+      appliesWhen: [{ dimensionId: "dim_form", optionIds: ["opt_graded"] }],
+      allowedOptions: [{ optionId: "opt_ten", code: "ten", label: "10" }],
+    },
+  ],
+};
+
+describe("inventory create-item graded submission", () => {
+  afterEach(() => window.sessionStorage.clear());
+
+  function setup(action: ActionFunction, schema = gradedCreateSchema) {
+    const hydration = deferredResponse();
+    stubPickerFetch(() => hydration.promise);
+    const view = renderCreateItemForm(
+      {
+        locations: [{ storage_location_id: "loc_1", account_id: "acc_1", name: "Main shelf" } as never],
+        createItemDraft: { catalogItemId: "cat_etb", selectedOptions: [] },
+      },
+      action,
+    );
+    return {
+      ...view,
+      hydrate: () =>
+        act(async () => {
+          hydration.resolve(Response.json(catalogSnapshot({ product_schema: schema })));
+        }),
+    };
+  }
+
+  it.each(["raw", "cert-123", "   "])(
+    "submits once through pending to the item redirect: %s",
+    async (certification) => {
+      const user = userEvent.setup();
+      const completion = deferredResponse();
+      const submissions: FormData[] = [];
+      const action = vi.fn<ActionFunction>(async ({ request }) => {
+        submissions.push(await request.formData());
+        return completion.promise;
+      });
+      const { form, router, hydrate } = setup(action);
+      expect(createButton().disabled).toBe(true);
+      expect(screen.getByText("Loading catalog item...")).toBeTruthy();
+      expect(new FormData(form).get("catalogItemId")).toBe("");
+      await hydrate();
+      await waitFor(() => expect(createButton().disabled).toBe(false));
+      await user.selectOptions(screen.getByLabelText("Form"), "opt_graded");
+      await waitFor(() => expect((screen.getByLabelText("Grade") as HTMLSelectElement).value).toBe("opt_ten"));
+      await user.type(
+        screen.getByLabelText("Certification number (optional)"),
+        certification === "raw" ? "stale-cert" : certification,
+      );
+      if (certification === "raw") {
+        await user.selectOptions(screen.getByLabelText("Form"), "opt_raw");
+        await waitFor(() => expect(screen.queryByLabelText("Grade")).toBeNull());
+      }
+      await user.selectOptions(screen.getByLabelText("Storage location"), "loc_1");
+      fireEvent.change(screen.getByLabelText("Total quantity"), { target: { value: "3" } });
+      const payload = new FormData(form);
+      expect(Object.fromEntries(payload)).toMatchObject({
+        intent: "create-item",
+        catalogItemId: "cat_etb",
+        storageLocationId: "loc_1",
+        totalQuantity: "3",
+        acquisitionCostAmount: "",
+        acquisitionCostCurrencyCode: "",
+        selectedOptions: JSON.stringify(
+          certification === "raw"
+            ? [{ dimensionId: "dim_form", optionId: "opt_raw" }]
+            : [
+                { dimensionId: "dim_form", optionId: "opt_graded" },
+                { dimensionId: "dim_company", optionId: "opt_psa" },
+                { dimensionId: "dim_grade", optionId: "opt_ten" },
+              ],
+        ),
+      });
+      if (certification === "raw") {
+        expect(payload.has("gradedCard")).toBe(false);
+      } else {
+        expect(JSON.parse(String(payload.get("gradedCard")))).toEqual({
+          gradingCompany: "PSA",
+          grade: "10",
+          certificationNumber: certification.trim() || null,
+          population: null,
+          conditionDescriptors: [],
+        });
+      }
+      await user.click(createButton());
+      await waitFor(() => expect(router.state.navigation.state).toBe("submitting"));
+      await waitFor(() => expect(createButton().matches(":disabled")).toBe(true));
+      await act(async () => {
+        fireEvent.submit(form);
+      });
+      expect(action).toHaveBeenCalledTimes(1);
+      expect([...submissions[0].entries()]).toEqual(
+        [...payload.entries()].map(([key, value]) =>
+          key === "inventoryMutationAttemptId" ? [key, submissions[0].get(key)] : [key, value],
+        ),
+      );
+      await act(async () => completion.resolve(redirect("/account/inventory/items/inv_created")));
+      await screen.findByText("Created inventory item");
+      expect(router.state.location.pathname).toBe("/account/inventory/items/inv_created");
+      expect(router.state.navigation.state).toBe("idle");
+    },
+  );
+
+  it.each(["dim_company", "dim_grade"])(
+    "announces missing %s and sends no create request",
+    async (missingDimension) => {
+      const user = userEvent.setup();
+      const action = vi.fn<ActionFunction>();
+      const schema = {
+        ...gradedCreateSchema,
+        dimensions: gradedCreateSchema.dimensions.map((dimension) =>
+          dimension.dimensionId === missingDimension ? { ...dimension, allowedOptions: [] } : dimension,
+        ),
+      };
+      const { form, hydrate } = setup(action, schema);
+      await hydrate();
+      await user.selectOptions(await screen.findByLabelText("Form"), "opt_graded");
+      const error = await screen.findByRole("alert");
+      expect(error.textContent).toContain(
+        "Choose a grading company and grade before creating a Graded inventory item.",
+      );
+      expect(hasTranslation("inventory.features.inventoryItems.ui.inventoryItemListPage.graded.details.required")).toBe(
+        true,
+      );
+      expect(createButton().disabled).toBe(true);
+      await act(async () => {
+        fireEvent.submit(form);
+      });
+      expect(action).not.toHaveBeenCalled();
+    },
+  );
+
+  it("settles a refused Graded submission without redirecting or resending", async () => {
+    const user = userEvent.setup();
+    const action = vi.fn<ActionFunction>(async () => ({ error: "Storage location not found." }));
+    const { router, hydrate } = setup(action);
+    await hydrate();
+    await user.selectOptions(await screen.findByLabelText("Form"), "opt_graded");
+    await waitFor(() => expect((screen.getByLabelText("Grade") as HTMLSelectElement).value).toBe("opt_ten"));
+    await user.selectOptions(screen.getByLabelText("Storage location"), "loc_1");
+    fireEvent.change(screen.getByLabelText("Total quantity"), { target: { value: "1" } });
+    await user.click(createButton());
+    await screen.findByText("Storage location not found.");
+    await waitFor(() => expect(screen.queryByText("Submitting Inventory change.")).toBeNull());
+    expect(
+      screen.getByText(
+        "The Inventory result is uncertain. Check the original result or contact support before making another change.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Discard recovery metadata" })).toBeTruthy();
+    expect(router.state.navigation.state).toBe("idle");
+    expect(router.state.location.pathname).toBe("/");
+    expect(action).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("inventory create-item Catalog picker", () => {
   afterEach(() => window.sessionStorage.clear());

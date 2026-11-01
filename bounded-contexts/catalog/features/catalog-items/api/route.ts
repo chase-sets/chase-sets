@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { parseTypedIdArrayBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import {
   CatalogItemPublicationError,
+  CatalogItemPublicationPreconditionError,
   type BulkEditCatalogItemOperation,
   type BulkPublishSelection,
   type CatalogItemServices,
@@ -205,8 +206,6 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
         streamId: `catalog.item-${itemId}`,
         command: {
           type: "PublishCatalogItem",
-          blueprintIsActive: body.blueprintIsActive,
-          requiredFieldIds: parseTypedIdArrayBoundary(body.requiredFieldIds, "fld", "requiredFieldIds"),
         },
         context,
         ...(expectedVersion === undefined ? {} : { expectedVersion }),
@@ -220,6 +219,19 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
               message: error.message,
               readiness: error.readiness,
               missingTokens: error.missingTokens,
+            },
+          },
+          409,
+        );
+      }
+      if (error instanceof CatalogItemPublicationPreconditionError) {
+        return c.json(
+          {
+            error: {
+              code: error.code,
+              reason_code: error.code,
+              message: error.message,
+              missingFieldIds: error.missingFieldIds,
             },
           },
           409,

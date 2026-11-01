@@ -18,6 +18,11 @@ import type { AuthServices } from "../runtime-support/services";
 import { registerSocialLoginRoutes } from "./social-login-routes";
 import { socialLoginErrorMessage } from "../route-support/social-login-errors";
 import type { AuthApiEnv } from "./support";
+import {
+  SAME_SITE_TEST_ORIGIN,
+  UNSAFE_AUTH_PATHS,
+  VALID_AUTH_PATHS,
+} from "../auth-support/same-site-path.test-support";
 
 const { mockCreateIdentityAuthRequestClient, mockIdentityMutations } = vi.hoisted(() => ({
   mockCreateIdentityAuthRequestClient: vi.fn(),
@@ -203,6 +208,25 @@ afterEach(() => {
 });
 
 describe("social login routes", () => {
+  it.each([...UNSAFE_AUTH_PATHS, ...VALID_AUTH_PATHS])(
+    "Auth same-site path caller matrix: Social Login %j",
+    async (path) => {
+      const services = createServices({ existingUser: { user_id: "usr_existing", status: "active" } });
+      mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+      const app = buildApp(services);
+      const start = await app.request(
+        `${SAME_SITE_TEST_ORIGIN}/social/google/start?returnTo=${encodeURIComponent(path)}`,
+      );
+      expect(start.status).toBe(302);
+      const response = await app.request(
+        `${SAME_SITE_TEST_ORIGIN}/social/google/callback?state=social_token&code=synthetic-code`,
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe(VALID_AUTH_PATHS.includes(path) ? path : "/account");
+      expect(new URL(response.headers.get("Location")!, SAME_SITE_TEST_ORIGIN).origin).toBe(SAME_SITE_TEST_ORIGIN);
+    },
+  );
+
   const consentRejections = [
     {
       code: "registration_consent_not_server_minted",

@@ -1,8 +1,8 @@
 // Inventory's contribution to the Seller Desk attention queue — the import
 // resolution source. A plain query module (no HTTP, no UI) that maps import
 // batches still carrying unresolved rows into the shared attention item shape.
-// Resolution happens in a drawer over the current page, so the deep link opens
-// the resolution drawer rather than routing away.
+// The API owns the same projection used by the batch detail read; the queue
+// remains a server-side read-model consumer and does not reimplement UI rules.
 
 import {
   buildSellerAttentionItem,
@@ -18,7 +18,7 @@ export const importResolutionRowPredicateSql = `row.status = 'rejected'
 
 // The projected fields the source reads from the import-batch read model. Only
 // rejected, uncommitted rows with an incomplete Product (or Saved List review)
-// appear, matching the drawer's rowNeedsResolution predicate.
+// appear, matching the detail read's needs_seller projection.
 export type ImportResolutionAttentionRow = Readonly<{
   batchId: string;
   // Human display reference for the import batch.

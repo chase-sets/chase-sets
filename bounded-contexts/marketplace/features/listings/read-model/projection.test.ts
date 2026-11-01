@@ -2,7 +2,7 @@ import {
   assertMeasurePublicationConsumer,
   withMeasurePublicationStaging,
 } from "@chase-sets/event-core-postgres/measure-publication-test-support";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
@@ -471,6 +471,32 @@ function event(
 }
 
 describe("marketplace listing projection", () => {
+  it("writes explicit capacity provenance and the durable recovery condition, clearing both on publication", async () => {
+    const db = new ProjectionDb();
+    db.listings.set("lst_capacity", listingPage({ listing_id: "lst_capacity" }));
+    const query = vi.spyOn(db, "query");
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    await handlers["marketplace.listing.paused"]!(
+      event(
+        "marketplace.listing.paused",
+        { reason: "inventory-capacity", inventoryCapacityRecoveryBlock: "evidence-incomplete" },
+        "marketplace.listing-lst_capacity",
+      ),
+    );
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("pause_reason = $3"), [
+      "lst_capacity",
+      "2026-05-09T00:01:00.000Z",
+      "inventory-capacity",
+      "evidence-incomplete",
+    ]);
+    await handlers["marketplace.listing.published"]!(
+      event("marketplace.listing.published", {}, "marketplace.listing-lst_capacity"),
+    );
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("inventory_capacity_recovery_block = NULL"), [
+      "lst_capacity",
+      "2026-05-09T00:01:00.000Z",
+    ]);
+  });
   const automaticRemoval = {
     reportId: "rpt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     reportCount: 3,

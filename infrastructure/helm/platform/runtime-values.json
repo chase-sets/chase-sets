@@ -1,5 +1,12 @@
 {
   "schemaVersion": "platform-runtime-values/v1",
+  "stagingApiEnv": [
+    {
+      "name": "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+      "secret": true,
+      "secretKey": "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON"
+    }
+  ],
   "productionEnvOverrides": {
     "CHASE_SETS_CHECKOUT_CLOSED": "true",
     "CATALOG_INTEGRATION_ACTIVATION_MODE": "open",

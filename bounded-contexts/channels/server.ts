@@ -180,3 +180,7 @@ export {
 export { CHANNELS_EBAY_ACCOUNT_DELETION_PATH } from "./features/ebay-account-deletion/api/provider-webhook-paths";
 export type { EbayAccountDeletionServices } from "./features/ebay-account-deletion/api/runtime";
 export { createEbayReceiptExpiryRunner } from "./features/ebay-account-deletion/api/expiry-runner";
+export {
+  lookupEbayReceiptsAsService,
+  EbayReceiptClientError,
+} from "./features/ebay-account-deletion/api/receipt-actor-client";

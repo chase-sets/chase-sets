@@ -87,6 +87,7 @@ const inventoryItemSupplyRow = {
   total_quantity: 5,
   available_quantity: 2,
   acquisition_cost_amount: "10.00",
+  acquisition_cost_currency_code: "CAD",
 };
 
 describe("marketplace listing read-model queries", () => {

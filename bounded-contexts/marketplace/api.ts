@@ -14,6 +14,7 @@ import { createMarketplaceReportRoutes } from "./features/reports/api/route";
 import { createListingEvidencePolicyRoutes } from "./features/listing-evidence-policy/api/route";
 import { createSellerAttentionQueueRoutes } from "./features/seller-desk/api/route";
 import { createBuyerOfferPolicyRoutes } from "./features/offer-policy/api/route";
+import { createMarketplaceMutationRecoveryRoutes } from "./features/mutation-recovery/api/route";
 
 export type MarketplaceApiEnv = AuthenticatedApiEnv;
 
@@ -26,6 +27,7 @@ export function createMarketplaceCommercialTermsResolver(db: PgQueryable): Comme
 
 export function buildMarketplaceApi(services: MarketplaceServices) {
   const app = new Hono<MarketplaceApiEnv>();
+  app.route("/", createMarketplaceMutationRecoveryRoutes(services.mutationRecovery));
   app.route("/account/offer-policies", createBuyerOfferPolicyRoutes(services.buyerOfferPolicies));
 
   app.route("/account", createAccountSubmittedOfferRoutes(services.offers));

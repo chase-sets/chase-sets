@@ -233,11 +233,13 @@ export const action = defineFormAction({
   }),
   intents: {
     "create-item": async ({ request, formData }) => {
+      const gradedCard = formData.get("gradedCard");
       const result = (await createInventoryRequestApiClient(request, {
         mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
       }).createItem({
         catalogItemId: formData.get("catalogItemId"),
         selectedOptions: formData.get("selectedOptions"),
+        ...(typeof gradedCard === "string" && gradedCard ? { gradedCard: JSON.parse(gradedCard) } : {}),
         storageLocationId: formData.get("storageLocationId"),
         totalQuantity: Number(formData.get("totalQuantity") ?? 0),
         acquisitionCostAmount: String(formData.get("acquisitionCostAmount") ?? "").trim() || null,
@@ -347,6 +349,7 @@ export default function MarketplaceInventoryRoute() {
   return (
     <InventoryMutationProvider
       authority={data.recoveryAuthority}
+      navigationPending={navigation.state !== "idle"}
       key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}
     >
       <InventoryItemListPage

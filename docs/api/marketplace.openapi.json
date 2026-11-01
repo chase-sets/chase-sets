@@ -101,6 +101,7 @@
     "/api/marketplace/account/checkout-sessions": { "post": { "tags": ["Cart and Checkout"], "summary": "Create a checkout session from cart or buy-now intent.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/checkout-sessions/{sessionId}": {"get":{"tags":["Cart and Checkout"],"summary":"Get checkout session state.","responses":{"200":{"$ref":"#/components/responses/Ok"},"404":{"$ref":"#/components/responses/NotFound"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/checkout-sessions/{sessionId}/shipping-option": { "post": { "tags": ["Cart and Checkout"], "summary": "Select checkout shipping option.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/checkout-sessions/{sessionId}/cancel": { "post": { "tags": ["Cart and Checkout"], "summary": "Cancel a reservations-only checkout session and release its Inventory holds; a repeat answers already-cancelled.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/checkout-sessions/{sessionId}/confirm": { "post": { "tags": ["Cart and Checkout"], "summary": "Confirm checkout and create orders/payment intent.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
 
     "/api/inventory/items/listing-stock/ensure": { "post": { "tags": ["Inventory"], "summary": "Create or reuse automatic Inventory stock backing a standard listing.", "responses": { "201": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
@@ -305,7 +306,7 @@
     "/api/settlement/payout-setup/embedded-session": { "post": { "tags": ["Payments and Settlement"], "summary": "Create an embedded payout setup session.", "responses": { "201": { "$ref": "#/components/responses/PayoutEmbeddedSession" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
     "/api/settlement/payout-setup/account-management-embedded-session": { "post": { "tags": ["Payments and Settlement"], "summary": "Create an embedded payout account management session.", "responses": { "201": { "$ref": "#/components/responses/PayoutEmbeddedSession" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
     "/api/settlement/payout-setup/refresh": { "post": { "tags": ["Payments and Settlement"], "summary": "Refresh payout setup state.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
-    "/api/settlement/payouts": { "get": { "tags": ["Payments and Settlement"], "summary": "List account payouts.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Payments and Settlement"], "summary": "Request payout.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/settlement/payouts": { "get": { "tags": ["Payments and Settlement"], "summary": "Get the complete account payout summary.", "responses": { "200": { "$ref": "#/components/responses/PayoutSummary" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } }, "post": { "tags": ["Payments and Settlement"], "summary": "Request payout.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/settlement/payouts/preview": { "post": { "tags": ["Payments and Settlement"], "summary": "Preview payout request; amountSelection may choose the policy minimum or payable available amount.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
     "/api/settlement/payouts/quick-amounts": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout quick amounts for the current account.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
     "/api/settlement/payouts/{id}": {"get":{"tags":["Payments and Settlement"],"summary":"Get payout.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
@@ -424,6 +425,58 @@
           "items": { "type": "array", "items": {} },
           "total": { "type": "integer" },
           "count": { "type": "integer" }
+        }
+      },
+      "PayoutSummary": {
+        "type": "object",
+        "required": ["items", "total", "count", "completeness", "next_payout", "blocked_payouts", "availability"],
+        "properties": {
+          "items": { "type": "array", "items": {} },
+          "total": { "type": "integer", "minimum": 0 },
+          "count": { "type": "integer", "minimum": 0 },
+          "completeness": {
+            "oneOf": [
+              { "type": "object", "required": ["kind", "total"], "properties": { "kind": { "const": "complete" }, "total": { "type": "integer", "minimum": 0 } } },
+              { "type": "object", "required": ["kind", "total", "cap", "reason"], "properties": { "kind": { "const": "bounded-incomplete" }, "total": { "type": "integer", "minimum": 0 }, "cap": { "type": "integer", "minimum": 1 }, "reason": { "const": "payout-summary-cap-exceeded" } } }
+            ]
+          },
+          "next_payout": {
+            "type": ["object", "null"],
+            "required": ["payout_id", "amount", "requested_amount", "fee_amount", "currency_code", "estimated_arrival_at"],
+            "properties": {
+              "payout_id": { "type": "string" },
+              "amount": { "type": "string" },
+              "requested_amount": { "type": "string" },
+              "fee_amount": { "type": "string" },
+              "currency_code": { "type": "string" },
+              "estimated_arrival_at": { "type": "string", "format": "date-time" }
+            }
+          },
+          "blocked_payouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["payout_id", "account_id", "reference", "block_reason", "kind", "next_action", "observed_at"],
+              "properties": {
+                "payout_id": { "type": "string" },
+                "account_id": { "type": "string" },
+                "reference": { "type": "string" },
+                "block_reason": { "type": "string" },
+                "kind": { "type": "string" },
+                "next_action": { "type": "string" },
+                "observed_at": { "type": "string", "format": "date-time" }
+              }
+            }
+          },
+          "availability": {
+            "type": "object",
+            "required": ["can_request", "unavailable_reasons", "unavailable_reason_details"],
+            "properties": {
+              "can_request": { "type": "boolean" },
+              "unavailable_reasons": { "type": "array", "items": { "type": "string" } },
+              "unavailable_reason_details": { "type": "array", "items": { "type": "object", "required": ["code", "message"], "properties": { "code": { "type": "string" }, "message": { "type": "string" } } } }
+            }
+          }
         }
       },
       "CommandResponse": {
@@ -686,6 +739,7 @@
     "responses": {
       "Ok": { "description": "Successful response." },
       "List": { "description": "List response.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListResponse" } } } },
+      "PayoutSummary": { "description": "Complete account-scoped payout summary. A bounded-incomplete result fails closed for next and blocked answers.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PayoutSummary" } } } },
       "OutboundOperations": { "description": "Account-scoped outbound operation log page and independent event-origin summary.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OutboundOperationsResponse" } } } },
       "ListingTermsPreview": { "description": "Seller-confirmed fee preview.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MarketplaceListingTermsPreview" } } } },
       "ListingFeeHistory": { "description": "Listing fee lock history.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeHistoryResponse" } } } },

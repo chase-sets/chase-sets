@@ -11,6 +11,8 @@ import {
   checkoutCommit,
   MockCheckoutApiError,
   mockCreateCheckoutRequestApiClient,
+  mockGetGuestSellList,
+  mockGetGuestSellListOfferReviews,
   mockGetSellListCompositeReview,
   mockResolveActorFromAuthApi,
 } from "../tests/support/checkout-route-test-harness";
@@ -163,6 +165,34 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     expect(screen.queryByRole("heading", { name: "Review items" })).toBeNull();
     await tick();
     expect(mockGetSellListCompositeReview).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("heading", { name: "Review items" })).toBeTruthy();
+  });
+
+  it("secondary review recovers on revalidation", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetGuestSellList.mockResolvedValue({ items: [line], count: 1 });
+    mockGetGuestSellListOfferReviews.mockRejectedValueOnce(lag()).mockResolvedValue({ offerReviews: [] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+    });
+    const path = await navigateAfterWriteWithPlatformPostWriteToken(
+      checkoutCommit("13", "evt_sell_list_line"),
+      "/account/sell-list",
+    );
+
+    await mount(path);
+    expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Unavailable")).toBeTruthy();
+    expect(screen.getByText("Charizard")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: /continue to seller checkout|create account to continue/i })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    await tick();
+    expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Unavailable")).toBeNull();
     expect(screen.getByRole("heading", { name: "Review items" })).toBeTruthy();
   });
 

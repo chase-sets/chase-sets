@@ -35,6 +35,7 @@ const payoutServiceOwnership = {
   composition: ["commandHandler", "projectors"],
   requestLifecycle: [
     "listPayouts",
+    "getPayoutSummary",
     "getPayout",
     "getPayoutQuickAmounts",
     "getPayoutMoneyTimeline",

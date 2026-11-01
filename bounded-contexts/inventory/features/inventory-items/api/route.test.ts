@@ -110,6 +110,44 @@ function createHoldServices(): InventoryHoldServices {
 }
 
 describe("inventory item routes", () => {
+  it("forwards POST items graded details as an object with the authenticated account", async () => {
+    const createItem = vi.fn<InventoryItemServices["createItem"]>(async () => ({
+      itemId: "itm_graded" as never,
+      version: 1,
+    }));
+    const app = buildApp(createItemServices({ createItem }));
+    const gradedCard = {
+      gradingCompany: "PSA",
+      grade: "10",
+      certificationNumber: null,
+      population: null,
+      conditionDescriptors: [],
+    };
+    const response = await app.request("/items", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        accountId: "acc_attacker",
+        catalogItemId: "cat_1",
+        selectedOptions: [{ dimensionId: "form", optionId: "graded" }],
+        gradedCard,
+        storageLocationId: "loc_1",
+        totalQuantity: 1,
+      }),
+    });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ id: "itm_graded", version: 1, status: "created" });
+    expect(createItem).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        accountId: "acc_inventory",
+        gradedCard,
+        storageLocationId: "loc_1",
+        totalQuantity: 1,
+      }),
+      context,
+    );
+  });
+
   it("maps seller acquisition time on create and positive adjustment without accepting a source", async () => {
     const createItem = vi.fn<InventoryItemServices["createItem"]>(async () => ({
       itemId: "itm_1" as never,

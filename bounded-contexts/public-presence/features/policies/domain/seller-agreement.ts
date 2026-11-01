@@ -3,7 +3,7 @@ import {
   type PublicPolicyArtifact,
   type PublicPolicyPublicationReadiness,
 } from "./policy-artifact";
-
+import { unratifiedArbitrationDraftingDifferences } from "./arbitration-drafting-differences";
 export const requiredSellerAgreementSubjectIds = [
   "seller-eligibility-and-verification",
   "listing-obligations",
@@ -349,11 +349,13 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "State #5681's ratified dispute-resolution mechanics (informal-notice precondition, AAA Consumer Arbitration Rules, fee allocation, class-action/jury waiver, mass-filing batch protocol, opt-out window) uniformly with the other legal-corpus documents, per the decision's own instruction to apply it identically everywhere.",
+          "State #5681's ratified dispute-resolution mechanics (informal-notice precondition, AAA Consumer Arbitration Rules, fee allocation, class-action/jury waiver, mass-filing batch protocol, opt-out window); preserve unresolved drafting differences for counsel.",
         decisionRefs: [5681],
         productTruthRefs: [],
         openQuestions: [
           "Counsel validates the AAA administrator choice, fee allocation, and mass-filing protocol per #5681's recommendation.",
+          "The $10,000 amount is the claim threshold for platform-paid fees; counsel must resolve the remaining fee-condition wording difference recorded below.",
+          ...unratifiedArbitrationDraftingDifferences,
         ],
         assumptions: [
           {

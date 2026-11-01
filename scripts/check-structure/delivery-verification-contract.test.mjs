@@ -5,6 +5,13 @@ import { parse as parseYaml } from "yaml";
 const instruction = readFileSync(new URL("../../.agents/skills/delivery/SKILL.md", import.meta.url), "utf8");
 const readProse = (relativePath) =>
   readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8").replace(/\s+/g, " ");
+const verificationContractFiles = [
+  "AGENTS.md",
+  ".agents/skills/delivery/SKILL.md",
+  ".claude/skills/delivery/SKILL.md",
+  "docs/runbooks/digitalocean-platform-deployment.md",
+].map((relativePath) => ({ relativePath, text: readProse(relativePath) }));
+const scopedVerifierCommand = ["node", "./scripts/verify-static", "scoped.mjs"].join(" ");
 const planningSkill = readProse(".agents/skills/planning/SKILL.md");
 const backlogModel = readProse("docs/contributing/backlog-model.md");
 const codexDeliveryPrompt = parseYaml(
@@ -182,11 +189,17 @@ function assertVerificationContract(text) {
   expect(text).toMatch(
     /^- PLAN_ONLY records a plan, not an executed local or hosted PASS\. Do not execute the selected broad local battery just to publish a draft\.$/m,
   );
-  expect(text).toMatch(
-    /^- Run `pnpm run verify:static:scoped` before every push, plus named focused tests for changed script tooling\. Do not use local full `verify:static`, full `verify`, or the complete `test:scripts` battery as delivery gates; hosted CI owns those unchanged strict full gates on every PR\.$/m,
+  expect(text).toContain(
+    "The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check -- --changed`, named non-DB focused tests, and `scripts/check-structure/issue-reference-comments.test.mjs` when non-test source changed.",
+  );
+  expect(text).toContain(
+    "`pnpm run typecheck:changed` is a host-attributed diagnostic only: it runs only after host-wide heavy admission; a refusal exits 73 before reservation and is `NOT_EXECUTED`, while hosted exact-head `Typecheck` is authoritative.",
+  );
+  expect(text).toContain(
+    "Lanes run no `verify:*` gate (including `verify:static:scoped`), local DB test, workspace-wide or full battery, or other unadmitted heavy command; hosted CI owns full Static, Typecheck, Unit and DB Profile proof.",
   );
   expect(text).toMatch(
-    /^- For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof\. Focused local `test:db` runs for the touched files remain useful diagnostics\. Hosted gates, timeouts, skips and reviews are unchanged\.$/m,
+    /^- For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof\. Hosted gates, timeouts, skips and reviews are unchanged\.$/m,
   );
   expect(text).toMatch(
     /^\*\*Draft semantics\.\*\* Open the PR as a draft once scoped checks and affected focused checks are green and the Quality Packet is complete; disclose the exact-head PLAN_ONLY evidence\.[^\r\n]*$/m,
@@ -211,9 +224,57 @@ function assertVerificationContract(text) {
   );
 }
 
+function assertScopedMirrorContract(text) {
+  expect(text).toContain(
+    "The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check -- --changed`, named non-DB focused tests, and `scripts/check-structure/issue-reference-comments.test.mjs` when non-test source changed.",
+  );
+  expect(text).toContain(
+    "`pnpm run typecheck:changed` is a host-attributed diagnostic only: it runs only after host-wide heavy admission; a refusal exits 73 before reservation and is `NOT_EXECUTED`, while hosted exact-head `Typecheck` is authoritative.",
+  );
+  expect(text).toContain("Prettier is `--write` on committed changed files.");
+  expect(text).toContain(
+    "Lanes run no `verify:*` gate (including `verify:static:scoped`), local DB test, workspace-wide or full battery, or other unadmitted heavy command",
+  );
+  expect(text).not.toContain("Keep `pnpm run verify`");
+  expect(text).not.toContain("Focused local `test:db`");
+  expect(text).not.toContain("A focused local `test:db`");
+  expect(text).not.toContain("Run pnpm run verify");
+  expect(text).not.toContain("Run pnpm run test:db");
+  expect(text).not.toContain("Run node ./scripts/verify-static");
+  const banStart = text.indexOf("Lanes run no `verify:*` gate");
+  const banEnd = text.indexOf("hosted CI owns", banStart);
+  expect(banStart).toBeGreaterThanOrEqual(0);
+  expect(banEnd).toBeGreaterThan(banStart);
+  for (const match of text.matchAll(/verify:static:scoped|verify-static-scoped/g)) {
+    expect(match.index).toBeGreaterThanOrEqual(banStart);
+    expect(match.index).toBeLessThan(banEnd);
+  }
+}
+
 describe("delivery verification contract", () => {
   it("separates exact-head dry-run planning and scoped-green drafts from hosted readiness", () => {
     assertVerificationContract(instruction);
+  });
+
+  it("pins the scoped contract in every instruction and runbook mirror", () => {
+    for (const { text } of verificationContractFiles) assertScopedMirrorContract(text);
+  });
+
+  it.each(
+    verificationContractFiles.flatMap(({ relativePath, text }) => [
+      [relativePath, "old verify sentence", `${text}\nKeep \`pnpm run verify\` as a local gate.\n`],
+      [relativePath, "scoped verifier command", `${text}\nRun pnpm verify:static:scoped before push.\n`],
+      [relativePath, "node scoped verifier command", `${text}\nRun ${scopedVerifierCommand} before push.\n`],
+      [relativePath, "local database command", `${text}\nRun pnpm run test:db before push.\n`],
+      [relativePath, "whole verify command", `${text}\nRun pnpm run verify before push.\n`],
+      [
+        relativePath,
+        "typecheck in ordinary set",
+        text.replace("named non-DB focused tests", "named non-DB focused tests, typecheck:changed"),
+      ],
+    ]),
+  )("rejects the $relativePath $1 mutant", (_relativePath, _name, mutant) => {
+    expect(() => assertScopedMirrorContract(mutant)).toThrow();
   });
 
   it.each([
@@ -563,7 +624,7 @@ describe("hosted attempt proof and floor backfill contract", () => {
     },
     {
       name: "deletes the DB Profile proof sentence",
-      from: "PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head. ",
+      from: "PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head.",
       to: "",
     },
     {
@@ -652,5 +713,15 @@ describe("delivery and planning skill mirrors", () => {
     const read = (root) => readFileSync(new URL(`../../${root}/skills/${skill}/SKILL.md`, import.meta.url));
 
     expect(read(".claude").equals(read(".agents"))).toBe(true);
+  });
+
+  it("pins the TCGplayer boundary invariant and removes operator-session custody wording", () => {
+    for (const root of [".agents", ".claude"]) {
+      const text = readProse(`${root}/skills/delivery/SKILL.md`);
+      expect(text).toContain(
+        "Chase Sets never contacts TCGplayer servers and never stores or uses TCGplayer auth cookies or credentials.",
+      );
+      expect(text).not.toContain("operator-session custody");
+    }
   });
 });

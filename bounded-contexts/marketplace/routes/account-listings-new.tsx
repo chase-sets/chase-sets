@@ -168,6 +168,7 @@ function inventorySnapshotFromMarketplaceSupplyItem(item: MarketplaceListingInve
     totalQuantity: item.total_quantity,
     availableQuantity: item.available_quantity,
     acquisitionCostAmount: item.acquisition_cost_amount,
+    acquisitionCostCurrencyCode: item.acquisition_cost_currency_code,
   };
 }
 

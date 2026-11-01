@@ -398,6 +398,16 @@ const ebayAccountDeletionDelta = [
     purpose: "application-runtime",
   },
 ];
+// Adds the staging-only receipt actor grant at the existing Secret-apply sink.
+const ebayReceiptLookupStagingActorDelta = [
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
+    secretName: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
+    purpose: "application-runtime",
+  },
+];
 // #9912 delta: the daily credential health check's rotation App key and its step-local liveness secrets.
 const credentialHealthWorkflow = ".github/workflows/platform-credential-health.yml";
 const credentialHealthDelta = [
@@ -966,6 +976,7 @@ describe("managed Postgres authority source generator", () => {
               ? "EBAY_APPLICATION_CLIENT_ID"
               : "EBAY_APPLICATION_CLIENT_SECRET",
         })),
+        ...ebayReceiptLookupStagingActorDelta,
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,

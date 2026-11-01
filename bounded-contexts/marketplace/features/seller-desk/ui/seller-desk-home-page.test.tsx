@@ -127,6 +127,26 @@ function expectJumpToSales() {
 }
 
 describe("SellerDeskHomePage", () => {
+  it("shows the blocked-capacity correction and a direct Listing link as one attention item", async () => {
+    const item = buildSellerAttentionItem({
+      source: "listing-action",
+      entityId: "lst_capacity",
+      severity: "info",
+      summary: {
+        code: "listing-needs-action",
+        params: { reference: "Lugia", action: "inventory-capacity:evidence-incomplete" },
+      },
+      observedAt: CONTEXT.now,
+    });
+    const queue = await aggregateSellerAttentionQueue([staticSource("listing-action", [item])], CONTEXT);
+    render(<SellerDeskHomePage queue={queue} kpis={KPIS} />);
+    expect(screen.getByText(/Listing Lugia could not resume after inventory capacity returned/)).toBeTruthy();
+    expect(screen.getByText(/Review the Listing evidence checklist/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open listing" }).getAttribute("href")).toBe(
+      "/account/listings/lst_capacity",
+    );
+    expect(document.querySelectorAll('[data-seller-desk-item="listing-action:lst_capacity"]')).toHaveLength(1);
+  });
   it("shows one mixed channel-action row, both summaries, and the shared connection destination", async () => {
     const item = buildSellerAttentionItem({
       source: "channel-action",

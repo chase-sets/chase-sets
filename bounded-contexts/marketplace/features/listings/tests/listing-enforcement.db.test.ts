@@ -39,7 +39,7 @@ const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["marketplace"] as const;
 const SNAPSHOT_EVERY_N_EVENTS = 100;
 /** The schema version this change introduces; pinned literally rather than read from the runtime under test. */
-const CANDIDATE_SNAPSHOT_SCHEMA_VERSION = 8;
+const CANDIDATE_SNAPSHOT_SCHEMA_VERSION = 9;
 /**
  * The adjacent previous reader at base 77c7e42a67: listing snapshots were schema 6,
  * `auto-unlisted` folded to paused without reading its payload, and any unknown event

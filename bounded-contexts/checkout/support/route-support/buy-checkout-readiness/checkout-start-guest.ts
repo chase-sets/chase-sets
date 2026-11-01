@@ -6,6 +6,7 @@ import { createAuthRequestApiClient } from "@chase-sets/auth/server";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../../request-support/api-client";
 import { appendClearedAnonymousCartCookie, appendGuestCheckoutCookie } from "../../request-support/guest-checkout";
 import { checkoutSessionRequestFromForm, ensureCartReadinessSnapshot } from "./checkout-start-source";
+import { openCheckoutSessionOnce } from "./checkout-start-entry";
 import type { CheckoutStartSource } from "../../../features/sessions/ui/checkout-start-page-types";
 
 export type CheckoutActor = Awaited<ReturnType<typeof resolveActorFromAuthApi>>;
@@ -86,8 +87,11 @@ export async function startGuestCheckoutSession(
     checkoutSessionRequestFromForm(formData, params.source),
     { forceRefresh: forceReadinessRefresh },
   );
-  const session = await guestApi.createCheckoutSession(sessionRequest);
-  const response = redirectDocument(await checkoutSessionPath(session, writeSources));
+  const entry = await openCheckoutSessionOnce(guestApi, sessionRequest, params.anonymousCartId);
+  if (entry.kind === "ambiguous") {
+    return { entryState: "ambiguous" as const };
+  }
+  const response = redirectDocument(await checkoutSessionPath(entry.session, writeSources));
   appendGuestCheckoutCookie(response.headers, params.guest.guestToken, request, params.guest.expiresAt);
   appendClearedAnonymousCartCookie(response.headers, request);
 

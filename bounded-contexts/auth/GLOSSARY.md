@@ -32,6 +32,12 @@ The authenticated execution identity used by hosts and APIs after session resolu
 
 Auth resolves the actor for hosts. Identity remains upstream for the user, account, membership, and permission facts included in that actor.
 
+## Staging Receipt Lookup Service Actor
+
+The **Staging Receipt Lookup Service Actor** is the staging-only Auth actor resolved
+from the dedicated eBay receipt lookup bearer. It carries the
+`channels.receipt.lookup` permission and refuses human session or cookie context.
+
 ## Projected Capability Grants
 
 Auth's per-request copy of Identity's current Capability Grants, carried on a Session-backed actor as `capabilityAssignments` (key, assignment id, assignment version). Auth projects `identity.account-capability.granted` and `.revoked` into `auth_identity_account_capabilities`, keeping the newest assignment version per tenant, Account and key, and reads the selected Account's grants on every actor resolution. A grant or revoke therefore applies on the next request after projection commit, an already-resolved actor keeps its snapshot, and switching Accounts never carries another Account's grant. Actors without an active Membership resolve to no actor, an actor whose email is unverified for commerce carries no grant, and guest checkout and UCP/agent actors never carry one. Only `support.evidence.any-case` can be granted today.

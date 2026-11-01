@@ -24,6 +24,21 @@ describe("inventory import batch routes", () => {
     return app;
   }
 
+  it.each(["Import commit is already running.", "Import batch has no accepted rows waiting to commit."])(
+    "retains the validation_failed envelope for commit refusal: %s",
+    async (message) => {
+      const enqueueCommitBatchJob = vi.fn<InventoryImportBatchServices["enqueueCommitBatchJob"]>(async () => {
+        throw new Error(message);
+      });
+      const response = await privateApp({ enqueueCommitBatchJob }).request("/imb_synthetic/commit", {
+        method: "POST",
+        headers: { "Inventory-Mutation-Attempt": "7d3d2c8f-963e-4e4b-b6d9-9c5092403b07" },
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: { code: "validation_failed", message } });
+    },
+  );
+
   it.each(["account", "user", "tenant"])(
     "issue-7169-c3-upload-recovery: %s mismatch hides both job and SSE",
     async (kind) => {

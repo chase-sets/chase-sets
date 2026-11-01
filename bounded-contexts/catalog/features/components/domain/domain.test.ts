@@ -136,16 +136,79 @@ describe("Component aggregate", () => {
       );
     });
 
-    it("configures component rules", () => {
+    it("revises component metadata without configuring rules", () => {
       const events = decide(decideComponent, createdState(), {
-        type: "ConfigureComponentRules" as const,
+        type: "ReviseComponent" as const,
         key: "base-v2",
         name: l10n("Base V2"),
-        fieldRules: [{ fieldId: fieldA, required: true }],
-        dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [] as OptionId[], appliesWhen: [] }],
       });
 
-      expect(events[0].type).toBe("catalog.component.rules-configured");
+      expect(events[0]).toEqual({
+        type: "catalog.component.revised",
+        data: { key: "base-v2", name: l10n("Base V2"), description: l10n("") },
+      });
+    });
+
+    it("rejects revising a component before it is created", () => {
+      expectDomainError(
+        () =>
+          decide(decideComponent, initialComponentState, {
+            type: "ReviseComponent" as const,
+            key: "base-v2",
+            name: l10n("Base V2"),
+          }),
+        "Component must be created first.",
+      );
+    });
+
+    it("revises metadata while preserving rules and status", () => {
+      const state = givenEvents(createdState(), evolveComponent, [
+        { type: "catalog.component.field-rule-added", data: { fieldId: fieldA, required: true } },
+        {
+          type: "catalog.component.dimension-rule-added",
+          data: { dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] },
+        },
+        { type: "catalog.component.activated", data: {} },
+      ] as ComponentEvent[]);
+      const revised = decide(decideComponent, state, {
+        type: "ReviseComponent" as const,
+        key: "base-v2",
+        name: l10n("Base V2"),
+        description: l10n("updated"),
+      });
+      const result = evolveComponent(state, revised[0]);
+      expect({
+        key: result.key,
+        name: result.name,
+        description: result.description,
+        status: result.status,
+        fieldRules: result.fieldRules,
+        dimensionRules: result.dimensionRules,
+      }).toEqual({
+        key: "base-v2",
+        name: l10n("Base V2"),
+        description: l10n("updated"),
+        status: "active",
+        fieldRules: [{ fieldId: fieldA, required: true }],
+        dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }],
+      });
+    });
+
+    it("rejects revising archived components", () => {
+      const archivedState = givenEvents(activeState(), evolveComponent, [
+        { type: "catalog.component.deprecated", data: {} },
+        { type: "catalog.component.archived", data: {} },
+      ] as ComponentEvent[]);
+
+      expectDomainError(
+        () =>
+          decide(decideComponent, archivedState, {
+            type: "ReviseComponent" as const,
+            key: "archived-v2",
+            name: l10n("Archived V2"),
+          }),
+        "Archived components cannot be changed.",
+      );
     });
 
     it("lifecycle: draft -> active -> deprecated -> archived", () => {
@@ -214,6 +277,28 @@ describe("Component aggregate", () => {
       });
 
       expect(state.fieldRules).toHaveLength(0);
+    });
+
+    it("evolves stored rules-configured event", () => {
+      const state = evolveComponent(createdState(), {
+        type: "catalog.component.rules-configured",
+        data: {
+          key: "configured",
+          name: l10n("Configured"),
+          description: l10n("Configured description"),
+          fieldRules: [{ fieldId: fieldA, required: true }],
+          dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }],
+        },
+      });
+
+      expect(state).toEqual({
+        ...createdState(),
+        key: "configured",
+        name: l10n("Configured"),
+        description: l10n("Configured description"),
+        fieldRules: [{ fieldId: fieldA, required: true }],
+        dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }],
+      });
     });
   });
 });

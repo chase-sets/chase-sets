@@ -407,7 +407,7 @@ export async function getInventoryItem(db: PgQueryable, itemId: string, accountI
        actor,
        event_type,
        stream_id,
-       stream_version,
+       stream_version::integer AS stream_version,
        recorded_at
      FROM inventory_item_ledger
      WHERE item_id = $1

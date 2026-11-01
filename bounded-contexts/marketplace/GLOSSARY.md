@@ -1,5 +1,9 @@
 # Marketplace Domain Glossary
 
+## Marketplace Mutation Attempt
+
+A **Marketplace Mutation Attempt** binds one opaque command identity to its actor, target and canonical request. Marketplace records its first result atomically with the business facts. An exact replay returns that result without another command; a changed request conflicts. Owner lookup is read-only and never treats connectivity or projection presence as command success.
+
 ## Inventory Draft Listing Message
 
 An **Inventory Draft Listing Message** is the recursively closed, versioned committed-row snapshot defined by `contracts/inventory-draft-listing`. Its message identity is the Inventory import-row identity; the target draft identity is derived from that row, never supplied by delivery. Trusted delivery authority must match its tenant, account and acting User.
@@ -162,6 +166,10 @@ Examples:
 - Withdrawn
 - Sold Out
 
+## Inventory-Capacity Pause
+
+An **Inventory-Capacity Pause** is a system pause of a previously active Listing when active quantity caps exceed Inventory's available capacity. Its `inventory-capacity` provenance is distinct from seller, policy and channel pauses. Reconciliation restores only still-capacity-paused native Listings that fit after active commitments and pass current publication checks, preserving identity, price, quantity cap and Fee Locks. Blocked recovery stays actionable in Listing attention and detail until recovery or a superseding seller action. Historical missing reasons are never inferred to be capacity pauses.
+
 ## Fee Lock
 
 A **Fee Lock** is the immutable Commercial Terms formula snapshot bound to a Listing identity for a defined number of units. Marketplace records the percentage, fixed amount, per-item cap, Shipping Allowance, schedule/agreement source, and resolution time; Ordering copies the resulting locked fee amounts into the Order fact consumed by Settlement.
@@ -243,7 +251,6 @@ An **Open Order** is an order that has been created and is neither cancelled nor
 ## At Capacity
 
 **At Capacity** is the seller state when Open Order count meets or exceeds Order Capacity: new order intake pauses while everything already in flight proceeds unaffected. At Capacity is computed and enforced by Ordering, analogous to Seller Listing Availability but driven by order volume rather than a seller-declared away period.
-
 
 ## Away Window
 
@@ -439,6 +446,7 @@ Seller Reliability, On-Time Shipment Rate, the Seller-Responsible Issue Rate, an
 Scheduled Restore moved out of this Planned section (m127 seller time-away audit's auto-resume sweep): it is shipped behavior now -- see the main glossary body above. Away Window also moved out of this Planned section (m127 seller time-away audit's scheduled-window feature): it is shipped behavior now -- see the main glossary body above.
 
 Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reason Code, and related concepts) moved to the [Authenticity](../authenticity/GLOSSARY.md) bounded context ahead of the m109 Authenticity Check milestone (epic #4284); Marketplace does not own that vocabulary.
+
 ## Channel Inbound Clamp
 
 A **Channel Inbound Clamp** is Marketplace's revision-fenced ownership record for Listings paused while a Channel cannot observe inbound sales; recovery restores only an unchanged, solely clamp-owned pause.
