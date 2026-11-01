@@ -21,7 +21,7 @@ use crate::{
 /// removed), or when it is an answer (a bulk preview, a bulk job), so it is in front of the user
 /// either way; `corten_ui::dialog::modal` makes a dialog drawn open modal when it joins the page.
 /// Not `Dialog`: the kit's `platform::ui::dialog::Dialog` would share its style symbol
-/// (todd-skelton/corten#550).
+/// (todd-skelton/corten#570).
 #[component(css)]
 pub fn CatalogDialog<'a, I: Id + AttrValue + Copy, C: Render>(
     id: I,

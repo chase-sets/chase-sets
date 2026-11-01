@@ -370,7 +370,7 @@ async fn render(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_item()} head="">{view}</crate::views::Layout>
+            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_item()} head="">{view}</crate::views::Layout>
         },
     )
 }

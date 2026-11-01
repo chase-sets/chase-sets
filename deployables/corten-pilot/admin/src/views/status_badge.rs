@@ -2,7 +2,7 @@ use corten::prelude::*;
 
 /// A policy's status, toned as admin-web tones it: active is success, retired neutral, any
 /// other status (a draft) a warning. (Not `Badge`: the UI kit's `Badge` would share its style
-/// symbol, todd-skelton/corten#550.)
+/// symbol, and only the Linux link fails, todd-skelton/corten#570.)
 #[component(css)]
 pub fn StatusBadge<'a>(status: &'a str) -> impl Render {
     let tone = match status {

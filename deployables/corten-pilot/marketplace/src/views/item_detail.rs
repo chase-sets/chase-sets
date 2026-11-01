@@ -2467,7 +2467,7 @@ fn RefDialogs<'a>(t: ItemMsg, item: &'a Item) -> impl Render {
     };
     html! {
         for reference in &references {
-            <RefDialog t={t} reference={*reference} />
+            <RefDialog t={t} reference={reference} />
         }
     }
 }

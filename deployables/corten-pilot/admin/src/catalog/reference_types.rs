@@ -165,7 +165,7 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_ref_types()} head="">
+            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_ref_types()} head="">
                 {view}
             </crate::views::Layout>
         },
@@ -266,7 +266,7 @@ async fn ref_type_page(
     req.screen(
         &ref_type,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_ref_type()} head="">
+            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_ref_type()} head="">
                 {view}
             </crate::views::Layout>
         },

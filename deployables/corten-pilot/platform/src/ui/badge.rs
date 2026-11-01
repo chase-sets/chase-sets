@@ -9,8 +9,8 @@ pub enum BadgeVariant {
     Secondary,
     Outline,
     Destructive,
-    /// The pilot's: the design system's status tones, each its soft surface, text and border
-    /// (the kit has no status colors: todd-skelton/corten#552).
+    /// The pilot's: the design system's status tones, each its soft surface, text and border.
+    /// The kit's are filled, one look per tone (todd-skelton/corten#569).
     Success,
     Warning,
     Danger,

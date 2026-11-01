@@ -225,7 +225,7 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_ref_records()} head="">
+            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_ref_records()} head="">
                 {view}
             </crate::views::Layout>
         },
@@ -357,7 +357,7 @@ async fn record_page(
     req.screen(
         &record,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_ref_record()} head="">
+            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_ref_record()} head="">
                 {view}
             </crate::views::Layout>
         },

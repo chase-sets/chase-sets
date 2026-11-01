@@ -338,7 +338,7 @@ pub(crate) fn DetailSheet<'a>(
                             for (id, label, state) in &problems {
                                 let href = filters.select(Some(id)).on(via);
                                 <li>
-                                    <Pill hue={state_hue(state)} label={*state} />
+                                    <Pill hue={state_hue(state)} label={state} />
                                     <a href={&href}>{label}</a>
                                 </li>
                             }

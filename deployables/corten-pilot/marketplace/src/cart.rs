@@ -531,7 +531,7 @@ async fn render(
     req.screen_with_status(
         status,
         &screen,
-        html! { <Layout req={&req} viewer={viewer} cart={cart} title={title} head={head}>{view}</Layout> },
+        html! { <Layout req={req} viewer={viewer} cart={cart} title={title} head={head}>{view}</Layout> },
     )
 }
 

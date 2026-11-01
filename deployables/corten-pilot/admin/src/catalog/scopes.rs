@@ -260,7 +260,7 @@ pub async fn render(
     req.screen(
         &view,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_scopes()} head="">
+            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_scopes()} head="">
                 {page_view}
             </crate::views::Layout>
         },

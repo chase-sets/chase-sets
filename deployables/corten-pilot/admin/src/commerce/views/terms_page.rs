@@ -337,7 +337,7 @@ fn CreateScheduleSheet<'a>(t: Com, form: TermsForm, account_type: &'a str) -> im
                         }
                     </select>
                 </label>
-                <TermsFields t={t} form={&form} submit={t.ct_save_schedule()} />
+                <TermsFields t={t} form={form} submit={t.ct_save_schedule()} />
             </form>
         </TermsSheet>
     }
@@ -368,7 +368,7 @@ fn CreateAgreementSheet<'a>(t: Com, form: TermsForm, accounts: &'a [AccountOptio
                         }
                     </select>
                 </label>
-                <TermsFields t={t} form={&form} submit={t.ct_save_account_override()} />
+                <TermsFields t={t} form={form} submit={t.ct_save_account_override()} />
                 <button type="submit" class={(Button, Secondary)} name={f.review} value="account" formnovalidate>
                     {t.ct_review()}
                 </button>

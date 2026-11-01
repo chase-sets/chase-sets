@@ -533,7 +533,7 @@ pub fn page<'a>(
                     <LocationCard
                         t={t}
                         viewer={viewer}
-                        location={*location}
+                        location={location}
                         update={update}
                         archive={archive}
                         enabled={enabled}
@@ -616,7 +616,7 @@ pub fn restock_page<'a>(
                             t={t}
                             m={m}
                             viewer={viewer}
-                            decision={*decision}
+                            decision={decision}
                             restock={restock}
                             write_off={write_off}
                             enabled={enabled}

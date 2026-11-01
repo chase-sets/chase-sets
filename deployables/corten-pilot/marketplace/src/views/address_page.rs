@@ -146,7 +146,7 @@ pub fn AddressPage<'a>(t: AddressesMsg, p: Pilot, screen: &'a AddressScreen) -> 
             } else {
                 <ul class={List}>
                     for (address, update, open) in &cards {
-                        <AddressCard t={t} p={p} address={*address} update={update} open={*open} said={&screen.said} />
+                        <AddressCard t={t} p={p} address={address} update={update} open={*open} said={&screen.said} />
                     }
                 </ul>
             }

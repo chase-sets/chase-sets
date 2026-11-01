@@ -418,7 +418,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
                 title={t.item_publish_catalog_item()}
                 description={Some(t.item_confirm_that_the_blueprint_is_active())}
                 open={publish.1}
-                close={&close}
+                close={close}
             >
                 <PublishForm t={t} id={id} form={&publish.0} readiness={&readiness} />
             </CatalogDialog>
@@ -429,7 +429,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
                 title={t.item_assign_blueprint_2()}
                 description={None}
                 open={blueprint.1}
-                close={&close}
+                close={close}
             >
                 <IdForm
                     id={ids::BLUEPRINT}
@@ -450,7 +450,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             title={t.item_assign_category_2()}
             description={None}
             open={category.1}
-            close={&close}
+            close={close}
         >
             <IdForm
                 id={ids::CATEGORY}
@@ -465,7 +465,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             title={t.item_edit_description_2()}
             description={None}
             open={metadata.1}
-            close={&close}
+            close={close}
         >
             <MetadataForm t={t} id={id} form={&metadata.0} />
         </CatalogDialog>
@@ -474,7 +474,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             title={t.item_set_tags_2()}
             description={Some(t.item_enter_tags_separated_by_commas())}
             open={tags.1}
-            close={&close}
+            close={close}
         >
             <ListForm
                 id={ids::TAGS}
@@ -490,7 +490,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             title={t.item_set_image_urls_2()}
             description={Some(t.item_enter_one_url_per_line())}
             open={urls.1}
-            close={&close}
+            close={close}
         >
             <ListForm
                 id={ids::URLS}
@@ -506,7 +506,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             title={t.item_set_image_fallback_2()}
             description={Some(t.item_image_fallback_description())}
             open={fallback.1}
-            close={&close}
+            close={close}
         >
             <FallbackForm t={t} id={id} form={&fallback.0} />
         </CatalogDialog>
@@ -515,7 +515,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             title={t.item_link_external_catalog_item_reference_2()}
             description={Some(t.item_external_catalog_item_reference_description())}
             open={catalog_ref.1}
-            close={&close}
+            close={close}
         >
             <ReferenceForm t={t} id={id} form_id={ids::CATALOG_REF} product={false} form={&catalog_ref.0} />
         </CatalogDialog>
@@ -524,7 +524,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             title={t.item_link_external_reference_2()}
             description={Some(t.item_external_reference_description())}
             open={product_ref.1}
-            close={&close}
+            close={close}
         >
             <ReferenceForm t={t} id={id} form_id={ids::PRODUCT_REF} product form={&product_ref.0} />
         </CatalogDialog>

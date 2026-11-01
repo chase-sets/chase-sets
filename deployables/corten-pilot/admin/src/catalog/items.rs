@@ -270,7 +270,7 @@ async fn item_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_items()} head="">{view}</crate::views::Layout>
+            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_items()} head="">{view}</crate::views::Layout>
         },
     )
 }

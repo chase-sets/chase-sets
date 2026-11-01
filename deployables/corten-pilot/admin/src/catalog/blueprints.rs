@@ -242,7 +242,7 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_blueprints()} head="">
+            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_blueprints()} head="">
                 {view}
             </crate::views::Layout>
         },
@@ -345,7 +345,7 @@ async fn blueprint_page(
     req.screen(
         &blueprint,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_blueprint()} head="">
+            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_blueprint()} head="">
                 {view}
             </crate::views::Layout>
         },

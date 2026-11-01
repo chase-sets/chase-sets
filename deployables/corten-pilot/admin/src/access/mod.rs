@@ -260,7 +260,7 @@ async fn home(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(viewer)} title={t.route_home()} head="">
+            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_home()} head="">
                 {view}
             </crate::views::Layout>
         },
