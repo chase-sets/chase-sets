@@ -116,7 +116,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
     ]);
-    expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:79"]);
+    expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:88"]);
     expect(production.anchors.helperDeclarations).toEqual(["contracts/event-core/complete-stream.ts:5"]);
     expect(production.program.getCompilerOptions()).toMatchObject({
       allowJs: true,

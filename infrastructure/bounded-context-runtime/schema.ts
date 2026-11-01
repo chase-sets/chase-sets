@@ -125,12 +125,23 @@ const configurationEpochMigration = {
   ],
 };
 
+const ownerStreamReservationMigration = {
+  migrationId: "20261028_owner_stream_reservations",
+  description: "Create owner-stream reservation, invalidation, request-terminal and inbound-evidence tables.",
+  statements: [
+    eventCorePostgresSchemaSql
+      .split("-- owner-stream-reservation-schema:start")[1]
+      ?.split("-- owner-stream-reservation-schema:end")[0] ?? "",
+  ],
+};
+
 const contextSchemaMigrations = [
   contextBackfillMigration,
   concurrentEventStoreIndexesMigration,
   eventStoreWriteHotFillfactorMigration,
   projectionRecoveryMarkerBackfillMigration,
   configurationEpochMigration,
+  ownerStreamReservationMigration,
   {
     migrationId: "20261015_subscription_reaction_output_positions",
     description: "Record reaction output positions atomically with completed applications.",
@@ -679,6 +690,7 @@ function removeEventCoreMigrationStatements(schemaSql: string): string {
     eventStoreWriteHotFillfactorLockTimeoutSql,
     eventStoreStreamsFillfactorSql,
     eventProjectionCheckpointsFillfactorSql,
+    ...ownerStreamReservationMigration.statements,
   ]) {
     result = result.replace(statement, "");
   }

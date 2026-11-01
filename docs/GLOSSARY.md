@@ -50,6 +50,10 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Guard History | Event Core | Canonical per-key, per-incarnation epoch records; caches and snapshots never seed it. |
 | CLOSED-THROUGH Receipt | Event Core | Durable consumer acknowledgement that a source epoch is no longer observable in that store incarnation. |
 | Store Incarnation | Event Core | The identity of one consumer or owner store lifetime used to reject stale grants. |
+| Owner-Stream Reservation | Event Core | Owner-local promise for one consumer request, target and command fingerprint; it is not an Owner-Stream Seal. |
+| Owner-Stream Seal | Event Core | Canonical owner-state version and store incarnation captured by a reservation. |
+| Request Terminal | Event Core | Consumer-local final CAS record that moves one request from OPEN to COMMITTED or ABORTED. |
+| Invalidation Intent | Event Core | Durable owner-side request to close a generation after affected request terminals settle. |
 | Source Topology | Event Core | Registered consumer store incarnations and their topology revision for one configuration key. |
 | Account | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Root identity for marketplace participation. |
 | Shipping Address | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Account-owned recipient destination reused during checkout; not an Inventory storage location or Fulfillment ship-from location. |

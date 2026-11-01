@@ -494,6 +494,7 @@
     "infrastructure/event-core-postgres/list-query.ts",
     "infrastructure/event-core-postgres/measure-publication-staging.ts",
     "infrastructure/event-core-postgres/measure-publication-test-support.ts",
+    "infrastructure/event-core-postgres/owner-stream-reservation.ts",
     "infrastructure/event-core-postgres/postgres-db-test-support.ts",
     "infrastructure/event-core-postgres/projection-helpers.ts",
     "infrastructure/event-core-postgres/projection-store.ts",

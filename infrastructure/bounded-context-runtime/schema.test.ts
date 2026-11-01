@@ -34,6 +34,7 @@ describe("bounded context runtime schema", () => {
     expect(schemaSql).not.toContain("ALTER COLUMN stream_context_name SET NOT NULL");
     expect(schemaSql).not.toContain("CREATE INDEX IF NOT EXISTS event_store_events_stream_idx");
     expect(schemaSql).not.toContain("SET (fillfactor = 90)");
+    expect(schemaSql).not.toContain("CREATE TABLE IF NOT EXISTS event_owner_stream_reservations");
   });
 
   it("applies ledgered schema migrations under an advisory lock", async () => {
@@ -101,6 +102,10 @@ describe("bounded context runtime schema", () => {
     expect(bootSchemaSql).not.toContain("UPDATE event_store_events");
     expect(bootSchemaSql).not.toContain("CREATE INDEX IF NOT EXISTS event_store_events_stream_idx");
     expect(bootSchemaSql).not.toContain("SET (fillfactor = 90)");
+    expect(bootSchemaSql).not.toContain("CREATE TABLE IF NOT EXISTS event_owner_stream_reservations");
+    expect(
+      queryLog.filter((entry) => entry.sql.includes("CREATE TABLE IF NOT EXISTS event_owner_stream_reservations")),
+    ).toHaveLength(1);
     expect(queryLog.filter((entry) => entry.sql.includes("UPDATE event_store_events")).length).toBe(1);
     expect(
       queryLog.filter((entry) => entry.sql.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_")),
@@ -128,6 +133,7 @@ describe("bounded context runtime schema", () => {
         "20260710_projection_recovery_marker_backfill",
         "20261015_subscription_reaction_output_positions",
         "20261022_configuration_epoch_closure",
+        "20261028_owner_stream_reservations",
         "20260703_example_pages_concurrent_indexes",
       ]),
     );
