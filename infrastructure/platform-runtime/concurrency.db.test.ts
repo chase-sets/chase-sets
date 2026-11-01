@@ -2298,8 +2298,9 @@ describe("busy-group-pass-attribution Postgres", () => {
             if (
               event.phase === "pass-end" &&
               event.outcome === "success" &&
-              (event.disposition === "retained" ||
-                (fixture.shape === "productive-handoff" && event.disposition === "release-pending")) &&
+              (targetPassGate
+                ? targetPassGateEntered && event.disposition === "release-pending"
+                : event.disposition === "retained") &&
               (event.processed ?? 0) > 0
             ) {
               retainedPass = event;
