@@ -103,7 +103,17 @@ export type WorkerRunner = Readonly<{
 
 export type WorkerRunnerLoop = Readonly<{
   start: () => void;
-  nudge: () => void;
+  /**
+   * Nudge scheduling, optionally requesting a completed projection-group
+   * holder to yield its retained lease for a matching hot wake.
+   */
+  nudge: (runnerNames?: readonly string[]) => void;
+  /**
+   * Completes a projection-group handoff after the matching hot wake reaches
+   * an existing terminal signal. The lease-TTL fallback remains authoritative
+   * when the signal is observed by another worker.
+   */
+  completeProjectionWakeLeaseHandoff: (runnerName: string) => void;
   stop: () => Promise<void>;
   status: () => Readonly<{
     workerId: string;
@@ -314,6 +324,7 @@ type HeldRunnerLease = {
   renewalInFlight: boolean;
   renewalTimer: ReturnType<typeof setInterval> | null;
   activeRunCount: number;
+  lastPassSucceeded: boolean;
   releaseAfterActiveRun: boolean;
   leaseIntervalId: string;
   acquiredAtMonotonicMs: number;
@@ -555,6 +566,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let scheduleQueued = false;
   let scheduling = false;
   let scheduleAgainAfterCurrentPass = false;
+  const requestedLeaseYields = new Set<string>();
+  const projectionWakeHandoffBlockedUntil = new Map<string, number>();
   const heldRunnerLeases = new Map<string, HeldRunnerLease>();
   const retainedProjectionLeases = new Set<HeldRunnerLease>();
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
@@ -649,6 +662,32 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     }
   };
 
+  const releaseRequestedProjectionLeases = (): void => {
+    if (requestedLeaseYields.size === 0) {
+      return;
+    }
+    for (const heldLease of heldRunnerLeases.values()) {
+      if (
+        heldLease.runner.kind !== "projection-group" ||
+        !requestedLeaseYields.has(heldLease.runner.name) ||
+        heldLease.activeRunCount > 0 ||
+        !heldLease.leaseActive ||
+        !heldLease.lastPassSucceeded
+      ) {
+        continue;
+      }
+      requestedLeaseYields.delete(heldLease.runner.name);
+      retainedProjectionLeases.delete(heldLease);
+      void releaseHeldRunnerLease(heldLease, false, "idle")
+        .then(() => {
+          projectionWakeHandoffBlockedUntil.set(heldLease.runner.name, Date.now() + options.leaseTtlMs);
+        })
+        .catch((error: unknown) => {
+          options.onError?.(error, heldLease.runner);
+        });
+    }
+  };
+
   const dropHeldRunnerLeaseAfterRenewalFailure = (heldLease: HeldRunnerLease, error?: unknown): void => {
     if (!heldLease.leaseActive) {
       return;
@@ -736,6 +775,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       renewalTimer: null,
       activeRunCount: 0,
       releaseAfterActiveRun: false,
+      lastPassSucceeded: true,
       leaseIntervalId: runner.kind === "projection-group" ? randomUUID() : "",
       acquiredAtMonotonicMs: performance.now(),
       nextPassSeq: 0,
@@ -772,12 +812,14 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
               runAbortController.signal,
               statusPublishState,
               notifyHolderLifecycle,
+              () => requestedLeaseYields.has(runner.name),
             )
           : ({ leaseAcquired: false } satisfies LeasedRunnerOutcome);
       })
       .then((outcome) => {
         if (!outcome.leaseAcquired) {
           leaseMissCount += 1;
+          requestedLeaseYields.delete(runner.name);
           return;
         }
         leaseAcquired = true;
@@ -785,6 +827,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         failedRunnerBackoffs.delete(runner.name);
       })
       .catch((error) => {
+        requestedLeaseYields.delete(runner.name);
         const previous = failedRunnerBackoffs.get(runner.name);
         const attempt = (previous?.attempt ?? 0) + 1;
         const backoffMs =
@@ -807,6 +850,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           activeSharedSlotCount -= 1;
         }
         if (leaseAcquired) {
+          const leaseYieldRequested = requestedLeaseYields.has(runner.name);
           // A projection-group runner that finished an idle pass (processed
           // nothing) must not keep holding the shared `projection-group:<name>`
           // lease. Two consumer classes acquire that exact lease, frequently
@@ -825,18 +869,33 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           //   during post-rollout replay.
           // Productive continuations reuse the lease; schedule releases a
           // retained holder only after selection leaves it inactive.
-          if (acquiredLease && shouldYieldIdleProjectionGroupLease(runner, completedResult)) {
+          if (
+            acquiredLease &&
+            (shouldYieldIdleProjectionGroupLease(runner, completedResult) ||
+              (requestedLeaseYields.has(runner.name) && acquiredLease.lastPassSucceeded))
+          ) {
+            const handoffRequested = requestedLeaseYields.has(runner.name);
             // Release without an immediate reschedule: the group runner has no
             // work of its own, so let the normal poll tick re-run it while the
             // freed lease stays available for queued wakes and operations.
-            void releaseHeldRunnerLease(acquiredLease, false, "idle").catch((error: unknown) => {
-              options.onError?.(error, runner);
-            });
+            void releaseHeldRunnerLease(acquiredLease, false, "idle")
+              .then(() => {
+                if (handoffRequested) {
+                  projectionWakeHandoffBlockedUntil.set(runner.name, Date.now() + options.leaseTtlMs);
+                }
+              })
+              .catch((error: unknown) => {
+                options.onError?.(error, runner);
+              });
+            requestedLeaseYields.delete(runner.name);
           } else if (acquiredLease && runner.kind === "projection-group" && (completedResult?.processed ?? 0) > 0) {
             retainedProjectionLeases.add(acquiredLease);
+            requestedLeaseYields.delete(runner.name);
+          } else {
+            requestedLeaseYields.delete(runner.name);
           }
           try {
-            if (shouldRescheduleAfterCompletion(runner, completedResult)) {
+            if (!leaseYieldRequested && shouldRescheduleAfterCompletion(runner, completedResult)) {
               queueImmediateSchedule();
             }
           } catch (error) {
@@ -939,6 +998,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           reservedRunners,
           activeRunnerNames,
           failedRunnerBackoffs,
+          projectionWakeHandoffBlockedUntil,
+          requestedLeaseYields,
           nextReservedRunnerIndex,
           now,
         );
@@ -961,6 +1022,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           options.runners,
           activeRunnerNames,
           failedRunnerBackoffs,
+          projectionWakeHandoffBlockedUntil,
+          requestedLeaseYields,
           nextRunnerIndex,
           now,
         );
@@ -1008,7 +1071,27 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       startPriorityRefreshTimer();
       schedule();
     },
-    nudge: () => queueImmediateSchedule(),
+    nudge: (runnerNames) => {
+      if (stopped) {
+        return;
+      }
+      for (const runnerName of runnerNames ?? []) {
+        const heldLease = [...heldRunnerLeases.values()].find(
+          (candidate) => candidate.runner.name === runnerName && candidate.leaseActive,
+        );
+        if (!heldLease && !activeRunnerNames.has(runnerName)) {
+          continue;
+        }
+        requestedLeaseYields.add(runnerName);
+      }
+      releaseRequestedProjectionLeases();
+      queueImmediateSchedule();
+    },
+    completeProjectionWakeLeaseHandoff: (runnerName) => {
+      projectionWakeHandoffBlockedUntil.delete(runnerName);
+      requestedLeaseYields.delete(runnerName);
+      queueImmediateSchedule();
+    },
     stop: async () => {
       stopped = true;
       if (timer) {
@@ -1074,6 +1157,8 @@ function selectNextRunner(
   runners: readonly WorkerRunner[],
   activeRunnerNames: ReadonlySet<string>,
   failedRunnerBackoffs: ReadonlyMap<string, Readonly<{ eligibleAt: number }>>,
+  projectionWakeHandoffBlockedUntil: Map<string, number>,
+  requestedLeaseYields: Set<string>,
   startIndex: number,
   now: number,
 ): Readonly<{ runner: WorkerRunner; index: number }> | null {
@@ -1084,6 +1169,14 @@ function selectNextRunner(
     const runner = runners[index];
     if (activeRunnerNames.has(runner.name)) {
       continue;
+    }
+    const handoffBlockedUntil = projectionWakeHandoffBlockedUntil.get(runner.name);
+    if (handoffBlockedUntil !== undefined) {
+      if (handoffBlockedUntil > now) {
+        continue;
+      }
+      projectionWakeHandoffBlockedUntil.delete(runner.name);
+      requestedLeaseYields.delete(runner.name);
     }
     const failedBackoff = failedRunnerBackoffs.get(runner.name);
     if (failedBackoff && failedBackoff.eligibleAt > now) {
@@ -1211,6 +1304,7 @@ async function runLeasedRunner(
   runSignal?: AbortSignal,
   statusPublishState?: WorkerStatusPublishState,
   notifyHolderLifecycle?: (runner: WorkerRunner, event: WorkerHolderLifecycleEvent) => void,
+  leaseYieldRequested?: () => boolean,
 ): Promise<LeasedRunnerOutcome> {
   if (runSignal?.aborted) {
     return { leaseAcquired: true };
@@ -1366,6 +1460,7 @@ async function runLeasedRunner(
     }
     throw error;
   } finally {
+    heldLease.lastPassSucceeded = passSucceeded;
     notifyHolderLifecycle?.(
       runner,
       holderLifecycleEvent(heldLease, {
@@ -1374,7 +1469,9 @@ async function runLeasedRunner(
         outcome: observedOutcome(passSucceeded),
         disposition: heldLeaseLost()
           ? "lost"
-          : stoppedCooperatively() || (passSucceeded && shouldYieldIdleProjectionGroupLease(runner, result))
+          : stoppedCooperatively() ||
+              (passSucceeded &&
+                (shouldYieldIdleProjectionGroupLease(runner, result) || leaseYieldRequested?.() === true))
             ? "release-pending"
             : "retained",
         ...(result === undefined ? {} : { processed: result.processed }),

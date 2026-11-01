@@ -1,6 +1,7 @@
 import {
   createCheckpointReadinessRecorder,
   collectProjectionOperationRunners,
+  createProjectionGroupRunnerName,
   createProjectionGroupWorkerRunner,
   createWorkerRunnerLeaseName,
   createWorkerRunnerLoop,
@@ -1910,6 +1911,32 @@ describe("busy-group-pass-attribution Postgres", () => {
       timeoutMs: 2500,
       pollIntervalMs: 75,
     },
+    {
+      shape: "productive-handoff",
+      sourceContextName: "marketplace" as const,
+      projectionName: "receipt-projection",
+      subscriptionVersion: 1,
+      order: 1,
+      initialCount: 2,
+      concurrentCount: 1,
+      createdType: "marketplace.item.created",
+      changedType: "marketplace.item.changed",
+      timeoutMs: 2500,
+      pollIntervalMs: 75,
+    },
+    {
+      shape: "active-timeout-negative",
+      sourceContextName: "marketplace" as const,
+      projectionName: "receipt-projection",
+      subscriptionVersion: 1,
+      order: 1,
+      initialCount: 1,
+      concurrentCount: 1,
+      createdType: "marketplace.item.created",
+      changedType: "marketplace.item.changed",
+      timeoutMs: 2500,
+      pollIntervalMs: 75,
+    },
   ])("busy-group-exact-receipt-read $shape", async (fixture) => {
     const startedAt = performance.now();
     const startedAtUtc = new Date().toISOString();
@@ -1937,6 +1964,15 @@ describe("busy-group-pass-attribution Postgres", () => {
       traceBytes += bytes;
       console.info(line);
     };
+    const targetPassGate =
+      fixture.shape === "productive-handoff" || fixture.shape === "active-timeout-negative" ? testGate() : undefined;
+    let targetPassGateEntered = false;
+    const postHandoffPassGate = fixture.shape === "productive-handoff" ? testGate() : undefined;
+    let postHandoffPassGateEntered = false;
+    let readDurationMs: number | undefined;
+    let handoffSequence: number | undefined;
+    const targetRunnerName = `${fixture.sourceContextName}.${fixture.projectionName}`;
+    const activeHolders = new Map<string, WorkerHolderLifecycleEvent>();
     trace("execution-identity", {
       checkout: execFileSync("git", ["show", "-s", "--format=%H %T %P", "HEAD"], { encoding: "utf8" }).trim(),
       trackedChanges: execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
@@ -1955,6 +1991,11 @@ describe("busy-group-pass-attribution Postgres", () => {
     });
     let connectionId = 0;
     const committedPositions = new Map<string, string>();
+    let initialPosition: bigint | undefined;
+    let resolveInitialCheckpointCommitted!: () => void;
+    const initialCheckpointCommitted = new Promise<void>((resolve) => {
+      resolveInitialCheckpointCommitted = resolve;
+    });
     const observedPool = (contextName: "inventory" | "catalog" | "marketplace"): PgTransactionalPool => ({
       ...pools[contextName],
       query: <Row = Record<string, unknown>>(...[sql, values]: Parameters<PgQueryFunction>) =>
@@ -1992,6 +2033,13 @@ describe("busy-group-pass-attribution Postgres", () => {
             if (command === "COMMIT" && checkpoint) {
               committedPositions.set(`${contextName}:${String(checkpoint.checkpointKey)}`, String(checkpoint.position));
               trace("checkpoint-committed", { contextName, connection, ...checkpoint });
+              if (
+                contextName === "marketplace" &&
+                initialPosition !== undefined &&
+                String(checkpoint.position) === initialPosition.toString()
+              ) {
+                resolveInitialCheckpointCommitted();
+              }
             }
             if (command === "COMMIT" || command === "ROLLBACK") checkpoint = undefined;
             return result;
@@ -2010,10 +2058,43 @@ describe("busy-group-pass-attribution Postgres", () => {
       },
     });
     const targetPool = observedPool("marketplace");
+    const streamId = `${fixture.sourceContextName}.attribution`;
+    let preReceiptGatePosition: bigint | undefined;
     const apply: ProjectorHandler = async (event, context) => {
       const identity = { eventId: event.id, position: event.globalPosition, streamId: event.streamId };
       trace("apply-start", identity);
       try {
+        if (
+          targetPassGate &&
+          ((fixture.shape === "productive-handoff" &&
+            preReceiptGatePosition !== undefined &&
+            initialPosition !== undefined &&
+            BigInt(event.globalPosition) > preReceiptGatePosition &&
+            BigInt(event.globalPosition) <= initialPosition) ||
+            (fixture.shape === "active-timeout-negative" &&
+              initialPosition !== undefined &&
+              BigInt(event.globalPosition) > initialPosition)) &&
+          !targetPassGateEntered &&
+          event.streamId === streamId &&
+          activeHolders.get(targetRunnerName)?.workerId.startsWith("attribution-poll-")
+        ) {
+          targetPassGateEntered = true;
+          targetPassGate.enter();
+          await targetPassGate.promise;
+        }
+        if (
+          postHandoffPassGate &&
+          !postHandoffPassGateEntered &&
+          handoffSequence !== undefined &&
+          initialPosition !== undefined &&
+          BigInt(event.globalPosition) > initialPosition &&
+          event.streamId === streamId &&
+          activeHolders.get(targetRunnerName)?.workerId.startsWith("attribution-poll-")
+        ) {
+          postHandoffPassGateEntered = true;
+          postHandoffPassGate.enter();
+          await postHandoffPassGate.promise;
+        }
         await context!.db!.query(
           `INSERT INTO busy_group_owned_items (stream_id, position, event_id)
            VALUES ($1, $2::bigint, $3)
@@ -2130,6 +2211,7 @@ describe("busy-group-pass-attribution Postgres", () => {
       ]);
       const group = runtime.projectionGroups.find((candidate) => candidate.projectionName === fixture.projectionName)!;
       const worker = createProjectionGroupWorkerRunner(group);
+      const workerRunnerName = createProjectionGroupRunnerName(group);
       const workers = [
         worker,
         ...runtime.projectionGroups
@@ -2137,9 +2219,8 @@ describe("busy-group-pass-attribution Postgres", () => {
           .map((mountedGroup) => createProjectionGroupWorkerRunner(mountedGroup)),
       ];
       const competitorEventCount = 200;
-      const activeHolders = new Map<string, WorkerHolderLifecycleEvent>();
       const lifecycle: WorkerHolderLifecycleEvent[] = [];
-      const wakeDeferrals: unknown[] = [];
+      const wakeDeferrals: Array<Readonly<{ sequence: number; event: unknown }>> = [];
       const wakeCompletions: unknown[] = [];
       let resolveWakeCompleted!: () => void;
       const wakeCompleted = new Promise<void>((resolve) => {
@@ -2150,7 +2231,8 @@ describe("busy-group-pass-attribution Postgres", () => {
         resolveRetainedReleased = resolve;
       });
       let retainedPass: WorkerHolderLifecycleEvent | undefined;
-      let handoffSequence: number | undefined;
+      let yieldedLeaseFencingToken: string | undefined;
+      let wakeLeaseFencingToken: string | undefined;
       let firstWakeAttempt:
         | Readonly<{
             sequence: number;
@@ -2192,6 +2274,10 @@ describe("busy-group-pass-attribution Postgres", () => {
           const identity = { leaseName: input.leaseName, ownerId: input.ownerId };
           trace("lease-request", identity);
           const lease = await realControlPlane.acquireLease(input);
+          if (lease?.leaseName === createWorkerRunnerLeaseName(worker)) {
+            if (input.ownerId.startsWith("attribution-poll-")) yieldedLeaseFencingToken = lease.fencingToken;
+            if (input.ownerId.startsWith("attribution-wake-")) wakeLeaseFencingToken = lease.fencingToken;
+          }
           trace(lease ? "lease-acquired" : "lease-busy", { ...identity, fencingToken: lease?.fencingToken });
           return lease;
         },
@@ -2219,7 +2305,14 @@ describe("busy-group-pass-attribution Postgres", () => {
       };
       const signals = createPostgresWorkSignalStore(pools.platform, {
         readConsistencyGateway: {},
-        observer: { projectionWakeIntentEnqueued: () => wakeLoop!.nudge() },
+        observer: {
+          projectionWakeIntentEnqueued: (event) => {
+            if (event.priorityLane === "hot") {
+              pollLoop!.nudge([workerRunnerName]);
+            }
+            wakeLoop!.nudge();
+          },
+        },
       });
       const observer: WorkerRuntimeObserver = {
         runnerCompleted: (event) => trace("runner-completed", event),
@@ -2236,11 +2329,15 @@ describe("busy-group-pass-attribution Postgres", () => {
             if (
               event.phase === "pass-end" &&
               event.outcome === "success" &&
-              event.disposition === "retained" &&
+              (targetPassGate
+                ? targetPassGateEntered && event.disposition === "release-pending"
+                : event.disposition === "retained") &&
               (event.processed ?? 0) > 0
             ) {
               retainedPass = event;
-              trace("target-drained", { priority: String(worker.priority!()), retainedPass });
+              const priority = worker.priority!();
+              expect(priority).toBeGreaterThan(0n);
+              trace("target-drained", { priority: String(priority), retainedPass });
             }
           }
         },
@@ -2270,12 +2367,15 @@ describe("busy-group-pass-attribution Postgres", () => {
           observer: {
             wakeIntentClaimed: (event) => trace("wake-claimed", event),
             wakeIntentDeferred: (event) => {
-              wakeDeferrals.push(event);
+              wakeDeferrals.push({ sequence: sequence + 1, event });
               trace("wake-deferred", event);
             },
             wakeIntentCompleted: (event) => {
               wakeCompletions.push(event);
               trace("wake-completed", event);
+              if (fixture.shape === "productive-handoff") {
+                postHandoffPassGate?.resolve();
+              }
               resolveWakeCompleted();
             },
             wakeIntentNotReady: (event) => trace("wake-not-ready", event),
@@ -2288,7 +2388,6 @@ describe("busy-group-pass-attribution Postgres", () => {
         tenantId: "tenant_attribution" as never,
         audit: { performedByUserId: "user_attribution" as never, forAccountId: "account_attribution" as never },
       };
-      const streamId = `${fixture.sourceContextName}.attribution`;
       const initial = await store.appendToStream({
         streamId,
         expectedVersion: "no_stream",
@@ -2298,6 +2397,8 @@ describe("busy-group-pass-attribution Postgres", () => {
         })),
         context: eventContext,
       });
+      initialPosition = BigInt(initial.at(-1)!.globalPosition);
+      preReceiptGatePosition = fixture.shape === "productive-handoff" ? BigInt(initial[0]!.globalPosition) : undefined;
       trace("initial-appended", { position: initial.at(-1)!.globalPosition, count: initial.length });
       // Both competitors consume Inventory's finite backlog, independently of the target.
       {
@@ -2323,15 +2424,11 @@ describe("busy-group-pass-attribution Postgres", () => {
         leaseRenewIntervalMs: loopOptions.leaseRenewIntervalMs,
         pollIntervalMs: loopOptions.pollIntervalMs,
         groups: runtime.projectionGroups.map((mountedGroup, index) => ({
-          runner: workers.find(
-            (candidate) => candidate.name === `${mountedGroup.targetContextName}.${mountedGroup.projectionName}`,
-          )!.name,
+          runner: workers.find((candidate) => candidate.name === createProjectionGroupRunnerName(mountedGroup))!.name,
           targetContextName: mountedGroup.targetContextName,
           projectionName: mountedGroup.projectionName,
           priority: String(
-            workers.find(
-              (candidate) => candidate.name === `${mountedGroup.targetContextName}.${mountedGroup.projectionName}`,
-            )!.priority!(),
+            workers.find((candidate) => candidate.name === createProjectionGroupRunnerName(mountedGroup))!.priority!(),
           ),
           subscriptions: mountedGroup.subscriptionRunners.map((subscription) => subscription.getStatus()),
         })),
@@ -2341,19 +2438,30 @@ describe("busy-group-pass-attribution Postgres", () => {
         onHandoff = resolve;
       });
       pollLoop.start();
-      await handoff;
-      expect(retainedPass).toMatchObject({ processed: 1, disposition: "retained", outcome: "success" });
-      expect(worker.priority!()).toBe(0n);
-      expect(activeHolders.has(worker.name)).toBe(false);
-      // Observe the handoff decision, not another runner's independently timed database acquisition.
-      // The release is already requested, but neither it nor the other runners is paused for this read.
-      expect(handoffSequence).toBeDefined();
-      expect(
-        lifecycle.filter(
-          (event) => event.leaseIntervalId === retainedPass!.leaseIntervalId && event.phase === "pass-start",
-        ),
-      ).toHaveLength(1);
-      trace("retained-triggered-append", { retainedPass, handoffSequence });
+      if (fixture.shape === "productive-handoff") {
+        await targetPassGate!.entered;
+        trace("pre-receipt-backlog-gate-entered", {
+          runnerName: workerRunnerName,
+          position: preReceiptGatePosition?.toString(),
+        });
+      } else if (targetPassGate) {
+        await initialCheckpointCommitted;
+        trace("initial-checkpoint-committed", { runnerName: workerRunnerName, position: initialPosition?.toString() });
+      } else {
+        await handoff;
+        expect(retainedPass).toMatchObject({ processed: 1, disposition: "retained", outcome: "success" });
+        expect(worker.priority!()).toBe(0n);
+        expect(activeHolders.has(worker.name)).toBe(false);
+        // Observe the handoff decision, not another runner's independently timed database acquisition.
+        // The release is already requested, but neither it nor the other runners is paused for this read.
+        expect(handoffSequence).toBeDefined();
+        expect(
+          lifecycle.filter(
+            (event) => event.leaseIntervalId === retainedPass!.leaseIntervalId && event.phase === "pass-start",
+          ),
+        ).toHaveLength(1);
+        trace("retained-triggered-append", { retainedPass, handoffSequence });
+      }
       const appended = await store.appendToStream({
         streamId,
         expectedVersion: fixture.initialCount,
@@ -2365,6 +2473,10 @@ describe("busy-group-pass-attribution Postgres", () => {
       });
       const position = appended.at(-1)!.globalPosition;
       const eventIds = appended.map((event) => event.eventId);
+      if (targetPassGate) {
+        await targetPassGate.entered;
+        trace("productive-pass-entered", { runnerName: workerRunnerName, position });
+      }
       const observedAtMs = Date.now();
       const receipt = encodeFreshWriteReceipt({
         observedAtMs,
@@ -2433,41 +2545,100 @@ describe("busy-group-pass-attribution Postgres", () => {
             [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "marketplace",
           },
         }),
-      );
-      const response = await Promise.race([
-        Promise.all([read, wakeCompleted, retainedReleased]).then(([response]) => response),
-        new Promise<never>((_resolve, reject) => {
-          clientTimer = setTimeout(
-            () => reject(new Error("busy-group exact receipt exceeded 5000ms client bound")),
-            5000,
-          );
-        }),
-      ]);
+      ).then((response) => {
+        readDurationMs = performance.now() - readStartedAt;
+        return response;
+      });
+      if (fixture.shape === "productive-handoff") {
+        await vi.waitFor(() => expect(firstWakeAttempt?.targetActive).toBe(true));
+        targetPassGate!.resolve();
+      }
+      const response =
+        fixture.shape === "active-timeout-negative"
+          ? await Promise.race([
+              read,
+              new Promise<never>((_resolve, reject) => {
+                clientTimer = setTimeout(
+                  () => reject(new Error("active negative control exceeded 5000ms client bound")),
+                  5000,
+                );
+              }),
+            ])
+          : await Promise.race([
+              read,
+              new Promise<never>((_resolve, reject) => {
+                clientTimer = setTimeout(
+                  () => reject(new Error("busy-group exact receipt exceeded 5000ms client bound")),
+                  5000,
+                );
+              }),
+            ]);
       const elapsedMs = performance.now() - readStartedAt;
-      trace("read-end", { status: response.status, requestDurationMs: elapsedMs, position });
-      const retainedInterval = lifecycle.filter((event) => event.leaseIntervalId === retainedPass!.leaseIntervalId);
-      expect(retainedInterval.filter((event) => event.phase === "pass-start")).toHaveLength(1);
-      expect(retainedInterval.at(-1)).toMatchObject({ phase: "released", reason: "idle" });
+      trace("read-end", {
+        status: response.status,
+        requestDurationMs: readDurationMs,
+        orchestrationDurationMs: elapsedMs,
+        position,
+      });
+      if (targetPassGate && fixture.shape === "active-timeout-negative") {
+        expect(response.status).toBe(503);
+        expect(firstWakeAttempt?.targetActive).toBe(true);
+        targetPassGate.resolve();
+      }
+      if (fixture.shape === "productive-handoff") {
+        await Promise.race([
+          Promise.all([wakeCompleted, retainedReleased]),
+          new Promise<never>((_resolve, reject) => {
+            clientTimer = setTimeout(
+              () => reject(new Error("productive handoff orchestration exceeded 5000ms client bound")),
+              5000,
+            );
+          }),
+        ]);
+      }
+      if (retainedPass) {
+        const retainedInterval = lifecycle.filter((event) => event.leaseIntervalId === retainedPass!.leaseIntervalId);
+        expect(retainedInterval.filter((event) => event.phase === "pass-start")).toHaveLength(1);
+        expect(retainedInterval.at(-1)).toMatchObject({ phase: "released", reason: "idle" });
+      }
       // A wake can encounter the in-flight release or find that a later poll pass satisfied the receipt.
       // Neither permits the original inactive holder to survive handoff or an uncommitted receipt to pass.
-      expect(wakeCompletions).toEqual([
-        expect.objectContaining({
-          outcome: expect.stringMatching(/^(ran|already-satisfied)$/),
-          checkpointPosition: position,
-        }),
-      ]);
+      if (fixture.shape !== "active-timeout-negative") {
+        expect(wakeCompletions).toEqual([
+          expect.objectContaining({
+            outcome: expect.stringMatching(/^(ran|already-satisfied)$/),
+            checkpointPosition: position,
+          }),
+        ]);
+      }
       trace("receipt-wake-outcome", { firstWakeAttempt, wakeDeferrals, wakeCompletions });
-      expect(response.status).toBe(200);
-      const expectedEvent = fixture.shape === "filtered-idle-settlement" ? initial.at(-1)! : appended.at(-1)!;
-      expect(await response.json()).toEqual([
-        { position: expectedEvent.globalPosition, event_id: expectedEvent.eventId },
-      ]);
+      if (fixture.shape === "productive-handoff") {
+        expect(firstWakeAttempt).toMatchObject({ targetActive: true });
+        expect(handoffSequence).toBeDefined();
+        expect(yieldedLeaseFencingToken).toBeDefined();
+        expect(wakeLeaseFencingToken).toBeDefined();
+        expect(BigInt(wakeLeaseFencingToken!)).toBeGreaterThan(BigInt(yieldedLeaseFencingToken!));
+        expect(wakeCompletions).toEqual([expect.objectContaining({ outcome: "ran", checkpointPosition: position })]);
+        expect(wakeDeferrals.filter(({ sequence: deferredSequence }) => deferredSequence > handoffSequence!)).toEqual(
+          [],
+        );
+      }
+      if (fixture.shape !== "active-timeout-negative") {
+        expect(readDurationMs).toBeDefined();
+        expect(response.status).toBe(200);
+        const expectedEvent = fixture.shape === "filtered-idle-settlement" ? initial.at(-1)! : appended.at(-1)!;
+        expect(await response.json()).toEqual([
+          { position: expectedEvent.globalPosition, event_id: expectedEvent.eventId },
+        ]);
+      }
       const durableAfterRead = await pools.marketplace.query<{ last_global_position: string }>(
         "SELECT last_global_position::text FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
         [checkpointKey],
       );
-      expect(durableAfterRead.rows).toEqual([{ last_global_position: position }]);
-      expect(elapsedMs).toBeLessThan(fixture.timeoutMs);
+      if (fixture.shape !== "active-timeout-negative") {
+        expect(durableAfterRead.rows).toEqual([{ last_global_position: position }]);
+        expect(readDurationMs).toBeLessThan(fixture.timeoutMs);
+      }
       expect(elapsedMs).toBeLessThan(5000);
       expect(omittedRecords).toBe(0);
       passed = true;
@@ -2486,6 +2657,8 @@ describe("busy-group-pass-attribution Postgres", () => {
         trace("read-bound-durable-state", { checkpoints: checkpoints.rows, visible: visible.rows });
       } finally {
         trace("cleanup-start", { passed });
+        targetPassGate?.resolve();
+        postHandoffPassGate?.resolve();
         await Promise.all([pollLoop?.stop(), wakeLoop?.stop()]);
         console.info(
           JSON.stringify({
