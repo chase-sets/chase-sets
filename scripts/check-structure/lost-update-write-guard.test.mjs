@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { discoverWrites, validateLostUpdateWriteGuard as candidateGuard } from "./lost-update-write-guard.mjs";
+import { readGitText } from "../lib/git-listing.mjs";
 
 const roots = [];
 const repoRoot = process.cwd();
@@ -66,6 +67,32 @@ const validateLostUpdateWriteGuard = process.env.LOST_UPDATE_BASE_CONTROL === "1
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("owner-local lost-update exceptions", () => {
+  it("accepts delayed correct tracked-sidecar output without elapsed-time assertions", async () => {
+    const source = "const sql = `DELETE FROM category_rows WHERE category_id = $1`;";
+    const root = await fixture(siblingPath, source);
+    const entries = await exceptions(root, siblingPath, source);
+    await mkdir(path.join(root, ".git"), { recursive: true });
+    const runGit = (_file, args) => ({
+      status: 0,
+      stdout: args[0] === "ls-files" ? `${siblingPath}.lost-update-exceptions.json\0` : "",
+    });
+    expect((await candidateGuard({ repoRoot: root, runGit })).violations).toEqual([]);
+    expect(entries).toHaveLength(1);
+  });
+
+  it.each([
+    ["nonzero", () => ({ status: 1, stdout: "", stderr: "fatal" }), "status 1"],
+    ["missing", () => undefined, "no result"],
+    ["malformed", () => ({ status: 0, stdout: null }), "malformed output"],
+  ])("rejects %s Git inspection state", (_name, runGit, message) => {
+    expect(() => readGitText({ cwd: repoRoot, args: ["ls-files"], runGit })).toThrow(message);
+  });
+
+  it("does not retain the removed tracked-sidecar deadline", async () => {
+    const source = await readFile("scripts/check-structure/lost-update-write-guard.mjs", "utf8");
+    expect(source).not.toContain("timeout: 10000");
+  });
+
   it("enrols the actual credential store SQL and rejects loss of its two-counter guard", async () => {
     const source = await readFile(credentialsPath, "utf8");
     const root = await fixture(credentialsPath, source);

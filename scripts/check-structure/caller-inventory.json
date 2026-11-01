@@ -1,0 +1,52 @@
+{
+  "schema": "deterministic-git-inspection-caller-inventory/v1",
+  "seam": "scripts/lib/git-listing.mjs:readGitText/readGitHead",
+  "callers": [
+    {
+      "path": "scripts/check-structure/lost-update-write-guard.mjs",
+      "line": 29,
+      "operation": "git ls-files -z -- :(glob)bounded-contexts/**/*.lost-update-exceptions.json",
+      "deadline": null,
+      "owner": "validateLostUpdateWriteGuard",
+      "result": "complete tracked-sidecar membership"
+    },
+    {
+      "path": "scripts/check-structure/run.mjs",
+      "line": 294,
+      "operation": "validateLostUpdateWriteGuard({ repoRoot })",
+      "deadline": null,
+      "owner": "Static Source Checks chain",
+      "result": "lost-update classification and diagnostics"
+    },
+    {
+      "path": "scripts/prepare-operator-extension-evidence.mjs",
+      "line": 24,
+      "operation": "git rev-parse HEAD",
+      "deadline": null,
+      "owner": "operatorEvidenceIdentity",
+      "result": "exact checkout-head identity"
+    },
+    {
+      "path": ".github/workflows/platform-pr.yml",
+      "line": 581,
+      "operation": "node ./scripts/prepare-operator-extension-evidence.mjs",
+      "deadline": null,
+      "owner": "Platform PR operator-extension evidence job",
+      "result": "hosted sanitized evidence preparation"
+    },
+    {
+      "path": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/10050-impl-g14.precheckSCorpus-preflight.mjs",
+      "line": 18,
+      "operation": "git rev-parse HEAD; git diff; git ls-tree",
+      "deadline": 10000,
+      "owner": "host-owned #10050 preflight replay",
+      "result": "host extraction and repaired replay through the seam",
+      "artifactSha256": "240ee48cb0cc9d6d9b7e20b01cd67d143334361aa89dbbff0e4d610f611fe8ed"
+    }
+  ],
+  "controls": [
+    "delayed correct Git output is accepted without elapsed-time assertions",
+    "nonzero, malformed, missing, and terminated Git results fail closed",
+    "tracked-sidecar discovery remains complete and exact-head output is a 40-hex commit"
+  ]
+}

@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
-import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
+import { readGitText } from "../lib/git-listing.mjs";
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const guardedPredicate =
@@ -13,7 +12,7 @@ const sidecarSuffix = ".lost-update-exceptions.json";
 const templateLiteralPattern = /`([\s\S]*?)`/g;
 const writeStatementPattern = /(?:^|;)\s*(UPDATE|DELETE\s+FROM)\s+([a-zA-Z_][a-zA-Z0-9_]*)\b[\s\S]*/gm;
 
-export async function validateLostUpdateWriteGuard({ repoRoot }) {
+export async function validateLostUpdateWriteGuard({ repoRoot, runGit } = {}) {
   const rows = [];
   const sources = await sourceFiles(path.join(repoRoot, "bounded-contexts"));
   for (const file of sources) {
@@ -27,11 +26,10 @@ export async function validateLostUpdateWriteGuard({ repoRoot }) {
   const sidecars = await sidecarFiles(path.join(repoRoot, "bounded-contexts"));
   const trackedSidecars = existsSync(path.join(repoRoot, ".git"))
     ? new Set(
-        execFileSync("git", ["ls-files", "-z", "--", ":(glob)bounded-contexts/**/*.lost-update-exceptions.json"], {
+        readGitText({
           cwd: repoRoot,
-          encoding: "utf8",
-          timeout: 10000,
-          maxBuffer: GIT_LISTING_MAX_BUFFER,
+          runGit,
+          args: ["ls-files", "-z", "--", ":(glob)bounded-contexts/**/*.lost-update-exceptions.json"],
         })
           .split("\0")
           .filter(Boolean),
