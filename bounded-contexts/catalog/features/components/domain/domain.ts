@@ -82,13 +82,11 @@ export type RemoveDimensionRuleFromComponentCommand = Readonly<{
   dimensionId: DimensionId;
 }>;
 
-export type ConfigureComponentRulesCommand = Readonly<{
-  type: "ConfigureComponentRules";
+export type ReviseComponentCommand = Readonly<{
+  type: "ReviseComponent";
   key: string;
   name: LocalizedTextMap;
   description?: LocalizedTextMap;
-  fieldRules: readonly ComponentFieldRule[];
-  dimensionRules: readonly ComponentDimensionRule[];
 }>;
 
 export type ActivateComponentCommand = Readonly<{
@@ -109,7 +107,7 @@ export type ComponentCommand =
   | RemoveFieldRuleFromComponentCommand
   | AddDimensionRuleToComponentCommand
   | RemoveDimensionRuleFromComponentCommand
-  | ConfigureComponentRulesCommand
+  | ReviseComponentCommand
   | ActivateComponentCommand
   | DeprecateComponentCommand
   | ArchiveComponentCommand;
@@ -155,6 +153,15 @@ export type ComponentDimensionRuleRemovedEvent = DomainEvent<
 
 export type ComponentRulesConfiguredEvent = DomainEvent<"catalog.component.rules-configured", ComponentRuleSet>;
 
+export type ComponentRevisedEvent = DomainEvent<
+  "catalog.component.revised",
+  Readonly<{
+    key: string;
+    name: LocalizedTextMap;
+    description: LocalizedTextMap;
+  }>
+>;
+
 export type ComponentActivatedEvent = DomainEvent<"catalog.component.activated", EmptyEventData>;
 
 export type ComponentDeprecatedEvent = DomainEvent<"catalog.component.deprecated", EmptyEventData>;
@@ -168,6 +175,7 @@ export type ComponentEvent =
   | ComponentDimensionRuleAddedEvent
   | ComponentDimensionRuleRemovedEvent
   | ComponentRulesConfiguredEvent
+  | ComponentRevisedEvent
   | ComponentActivatedEvent
   | ComponentDeprecatedEvent
   | ComponentArchivedEvent;
@@ -258,19 +266,17 @@ export const decideComponent: AggregateDecider<ComponentState, ComponentCommand,
           },
         },
       ];
-    case "ConfigureComponentRules":
+    case "ReviseComponent":
       requireCreatedComponent(state);
       assert(state.status !== "archived", "Archived components cannot be changed.");
 
       return [
         {
-          type: "catalog.component.rules-configured",
+          type: "catalog.component.revised",
           data: {
             key: command.key.trim(),
             name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
             description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
-            fieldRules: normalizeFieldRules(command.fieldRules),
-            dimensionRules: normalizeDimensionRules(command.dimensionRules),
           },
         },
       ];
@@ -348,6 +354,13 @@ export const evolveComponent: AggregateEvolver<ComponentState, ComponentEvent> =
         description: event.data.description,
         fieldRules: normalizeFieldRules(event.data.fieldRules),
         dimensionRules: normalizeDimensionRules(event.data.dimensionRules),
+      };
+    case "catalog.component.revised":
+      return {
+        ...state,
+        key: event.data.key,
+        name: event.data.name,
+        description: event.data.description,
       };
     case "catalog.component.activated":
       return {

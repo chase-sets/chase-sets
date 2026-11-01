@@ -2374,6 +2374,7 @@ describe("Checkout session entry and read relocation parity", () => {
         "getPaymentSummary",
         "listSavedPaymentInstruments",
         "projectors",
+        "readSessionForCancellation",
         "recordCheckoutReservations",
         "recordFulfillmentPreview",
         "recordOfferSubmitted",

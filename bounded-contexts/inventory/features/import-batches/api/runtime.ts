@@ -54,6 +54,8 @@ import {
   type NormalizedInventoryImportRow,
 } from "../domain/import-source-adapters";
 import {
+  censusImportCommitParent,
+  type InventoryImportCommitCensusRow,
   getImportBatch,
   listImportBatches,
   type InventoryImportBatchRow,
@@ -2618,17 +2620,33 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           });
           return 1;
         }
-        const commitInput =
-          claimed.jobKind === IMPORT_BATCH_JOB_KIND_COMMIT
-            ? await loadCommitInput(
-                claimed.payload.commit?.inputId ?? "",
-                {
-                  batchId: requireBatchId(claimed.payload),
-                  accountId: claimed.payload.accountId as AccountId,
-                },
-                context,
-              )
-            : null;
+        if (claimed.jobKind === IMPORT_BATCH_JOB_KIND_COMMIT) {
+          const batchId = requireBatchId(claimed.payload);
+          const accountId = claimed.payload.accountId as AccountId;
+          const commitInput = await loadCommitInput(
+            claimed.payload.commit?.inputId ?? "",
+            { batchId, accountId },
+            context,
+          );
+          await workUnitStore.enqueue({
+            jobId: claimed.jobId,
+            units: commitInput.rows.map((row) => ({
+              unitId: row.row_id,
+              unitKind: "commit-row-v1",
+              payload: { rowNumber: row.row_number },
+            })),
+          });
+          await jobStore.releaseClaim({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: claimed.progress,
+          });
+          return processNextCommitBatchWorkUnit({
+            ...input,
+            jobId: claimed.jobId,
+            commitInput,
+          });
+        }
         let commandReceipt: CommandReceiptMetadata | null = null;
         const batch = await runWithEventCommitMetadata(async () => {
           const result = await commitBatchRows(
@@ -2643,7 +2661,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             {
               throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
             },
-            commitInput?.rows,
+            undefined,
           );
           commandReceipt = commandReceiptFromEventMetadata(getEventCommitMetadata());
           return result;
@@ -2700,6 +2718,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     jobId?: string;
     commitInput?: InventoryImportCommitInput;
     commitRowsById?: ReadonlyMap<string, InventoryImportCommitInputRow>;
+    censusAcceptedRows?: readonly InventoryImportCommitCensusRow[];
   }): Promise<number> {
     const claimResult = await workUnitStore.claimNext({
       claimOwnerId: input.claimOwnerId,
@@ -2739,6 +2758,9 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         input.commitInput ??
         (await loadCommitInput(claim.job.payload.commit?.inputId ?? "", { batchId, accountId }, context));
       const commitRowsById = input.commitRowsById ?? indexInventoryImportCommitRows(commitInput.rows);
+      const censusAcceptedRows =
+        input.censusAcceptedRows ??
+        commitInput.rows.map(({ row_id, batch_id, row_number, status }) => ({ row_id, batch_id, row_number, status }));
       const row = commitRowsById.get(claim.unit.unitId);
       if (!row) throw new InventoryDomainError("Import commit row is unavailable; reconciliation is required.");
       await commitSingleRow({ batchId, accountId }, row, context, {
@@ -2757,36 +2779,51 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           message: "Committed import row.",
         },
         resolveParentUpdate: async (db) => {
-          const pending = await db.query<{ count: number | string }>(
-            `SELECT count(*)::integer AS count FROM inventory_import_batch_work_units
-             WHERE job_id = $1 AND state NOT IN ('completed', 'failed', 'skipped')`,
+          const pendingResult = await db.query<{ pending: number | string }>(
+            `SELECT count(*)::integer AS pending
+             FROM inventory_import_batch_work_units
+             WHERE job_id = $1
+               AND state NOT IN ('completed', 'failed', 'skipped')`,
             [claim.job.jobId],
           );
-          const complete = Number(pending.rows[0]?.count ?? 0) === 0;
-          const detailResult = await db.query<{ committed_count: number; accepted_count: number }>(
-            `SELECT committed_count, accepted_count
-             FROM inventory_import_batches
-             WHERE batch_id = $1 AND account_id = $2`,
-            [batchId, accountId],
-          );
-          const detail = detailResult.rows[0];
-          if (!detail) throw new InventoryDomainError("Import batch not found.");
+          const pending = Number(pendingResult.rows[0]?.pending ?? 0);
+          if (pending > 0) {
+            const completed = Math.max(0, censusAcceptedRows.length - pending);
+            return {
+              parentProgress: importBatchJobProgress(
+                "processing",
+                completed,
+                censusAcceptedRows.length,
+                row.row_id,
+                "Committing rows.",
+              ),
+              parentResult: claim.job.result,
+              completeJob: false,
+            };
+          }
+          const census = await censusImportCommitParent(db, {
+            jobId: claim.job.jobId,
+            inputId: claim.job.payload.commit?.inputId ?? "",
+            batchId,
+            accountId,
+            acceptedRows: censusAcceptedRows,
+          });
           let parentResult = claim.job.result;
-          if (complete) {
+          if (census.complete) {
             const completedBatch = await getImportBatch(db, batchId, accountId, { limit: 10_000 });
             if (!completedBatch) throw new InventoryDomainError("Import batch not found.");
             parentResult = { batch: completedBatch };
           }
           return {
             parentProgress: importBatchJobProgress(
-              complete ? "completed" : "processing",
-              detail.committed_count,
-              detail.accepted_count,
-              complete ? null : row.row_id,
-              complete ? "Commit completed." : "Committing rows.",
+              census.complete ? "completed" : "processing",
+              census.completed,
+              census.total,
+              census.complete ? null : row.row_id,
+              census.complete ? "Commit completed." : "Committing rows.",
             ),
             parentResult,
-            completeJob: complete,
+            completeJob: census.complete,
           };
         },
       });
@@ -2799,6 +2836,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           jobId: claim.job.jobId,
           commitInput,
           commitRowsById,
+          censusAcceptedRows,
         }))
       );
     } catch (error) {
