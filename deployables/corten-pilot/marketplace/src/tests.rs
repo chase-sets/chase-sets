@@ -4713,6 +4713,10 @@ async fn a_change_to_the_item_draws_its_market_parts_again_and_a_reconnect_resum
     assert_eq!(calls.iter().filter(|c| c.path.starts_with("/api/realtime/")).count(), 1);
     assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=item%3Acat_charizard"), "the item's topic only");
     assert!(calls.iter().any(|c| c.path == "/api/marketplace/items/cat_charizard"), "the item is read again");
+    // The Sales tab's history is read again with the redraw (so nothing needs marketplace-web's
+    // `/items/{id}/market-history`): the market stats, by the page and again by the change.
+    let stats = calls.iter().filter(|c| c.path.starts_with(ROLLUPS) && c.path.ends_with("/stats")).count();
+    assert_eq!(stats, 2, "{calls:?}");
     // A reconnect goes on from the last cursor.
     let mut again = get("/items/cat_charizard/live?market=sell&book=sales", None);
     again.headers_mut().insert("last-event-id", "c2".parse().unwrap());

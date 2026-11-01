@@ -88,7 +88,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | The account's team, `/account/team` |
 | `marketplace/` | The user's consent history, `/account/consents` |
 | `marketplace/` | The account's reviews, `/account/reviews`, `/account/reviews/received`, `/account/reviews/written`, `/account/reviews/{id}` |
-| `marketplace/` | An item's page, `/items/{slug}` |
+| `marketplace/` | An item's page, `/items/{slug}`. marketplace-web's JSON route `/items/{id}/market-history` is not served: its panel fetches it after load and on a range change, while the pilot keeps the range in the address (`range=`), reads the Sales tab's history with the page, and redraws it on each `item:{id}` change through the page's live parts, so nothing calls it |
 | `marketplace/` | A listing's page, `/listings/{slug}` |
 | `marketplace/` | An account's page, `/accounts/{slug}` |
 | `marketplace/` | The notification center, `/account/notifications` |
