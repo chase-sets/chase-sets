@@ -958,8 +958,46 @@ describe("worker runner loop", () => {
           expect.objectContaining({ phase: "released", reason: "idle" }),
         ]),
       );
+      // The yielding loop must not reacquire before the deferred wake has a
+      // terminal signal. The existing lease TTL is the liveness fallback.
+      expect(runs).toBe(1);
+      loop.completeProjectionWakeLeaseHandoff(runner.name);
+      await vi.waitFor(() => expect(runs).toBeGreaterThan(1));
     } finally {
       await loop.stop();
+    }
+  });
+
+  it("ignores a stale hot-wake nudge when the projection group is not held", async () => {
+    vi.useFakeTimers();
+    const releaseLease = vi.fn(async () => {});
+    let runs = 0;
+    const runner: WorkerRunner = {
+      name: "auth.auth-identity-user-projection",
+      kind: "projection-group",
+      runOnce: async () => {
+        runs += 1;
+        return { processed: 1, lastGlobalPosition: String(runs) as never, state: "running" };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "auth-worker-stale-nudge",
+      controlPlane: createAlwaysLeasedControlPlane({ releaseLease }),
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 60_000,
+    });
+
+    try {
+      loop.nudge([runner.name]);
+      loop.start();
+      await vi.waitFor(() => expect(runs).toBeGreaterThan(1));
+      expect(releaseLease).not.toHaveBeenCalled();
+    } finally {
+      await loop.stop();
+      vi.useRealTimers();
     }
   });
 

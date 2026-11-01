@@ -58,6 +58,7 @@ import {
   collectProjectionOperationRunners,
   collectWorkerRunners,
   createDurableJobLaneRunners,
+  createProjectionGroupRunnerName,
   createWorkerHost,
   createWorkerRunnerLoop,
   type WorkerHostRuntime,
@@ -177,19 +178,20 @@ const evidenceWindowCorrelation =
 let projectionWakeRunnerLoop: WorkerRunnerLoop | null = null;
 let projectionRunnerLoop: WorkerRunnerLoop | null = null;
 const pendingHotProjectionWakeKeys = new Set<string>();
-const projectionWakeKey = (targetContextName: string, projectionName: string): string =>
-  `${targetContextName}.${projectionName}`;
+const projectionWakeKey = createProjectionGroupRunnerName;
 const requestProjectionWakeLeaseHandoff = (event: ProjectionWakeIntentEnqueuedEvent): void => {
   if (event.priorityLane !== "hot" || event.outcome === "blocked") {
     return;
   }
-  const runnerName = projectionWakeKey(event.targetContextName, event.projectionName);
+  const runnerName = projectionWakeKey(event);
   pendingHotProjectionWakeKeys.add(runnerName);
   projectionRunnerLoop?.nudge([runnerName]);
 };
 const completeProjectionWakeLeaseHandoff = (event: ProjectionWakeIntentLifecycleEvent): void => {
   if (event.priorityLane === "hot") {
-    pendingHotProjectionWakeKeys.delete(projectionWakeKey(event.targetContextName, event.projectionName));
+    const runnerName = projectionWakeKey(event);
+    pendingHotProjectionWakeKeys.delete(runnerName);
+    projectionRunnerLoop?.completeProjectionWakeLeaseHandoff(runnerName);
   }
 };
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
@@ -520,6 +522,9 @@ const projectionWakeDisabledProjectionKeys = new Set(config.projectionWakeDisabl
 const projectionWakeSchedulerProjectionGroups = runtime.projectionGroups.filter(
   (group) => !projectionWakeDisabledProjectionKeys.has(`${group.targetContextName}:${group.projectionName}`),
 );
+const hostedProjectionWakeTargetContextNames = new Set(
+  projectionWakeSchedulerProjectionGroups.map((group) => group.targetContextName),
+);
 if (projectionWakeDisabledProjectionKeys.size > 0) {
   const hostedProjectionKeys = new Set(
     runtime.projectionGroups.map((group) => `${group.targetContextName}:${group.projectionName}`),
@@ -616,7 +621,7 @@ const projectionWakePushDispatcher =
         listenerObserver: {
           notificationReceived: (event) => {
             const envelope = event.notification.envelope;
-            if (envelope?.kind !== "projection.wake-intent") {
+            if (envelope?.kind !== "projection.wake-intent" && envelope?.kind !== "projection.checkpoint-ready") {
               return;
             }
             const payload = envelope.payload as Partial<{
@@ -625,11 +630,22 @@ const projectionWakePushDispatcher =
               projectionName: string;
             }>;
             if (
-              payload.priorityLane === "hot" &&
-              typeof payload.targetContextName === "string" &&
-              typeof payload.projectionName === "string"
+              typeof payload.targetContextName !== "string" ||
+              typeof payload.projectionName !== "string" ||
+              !hostedProjectionWakeTargetContextNames.has(payload.targetContextName)
             ) {
-              const runnerName = projectionWakeKey(payload.targetContextName, payload.projectionName);
+              return;
+            }
+            const runnerName = projectionWakeKey({
+              targetContextName: payload.targetContextName,
+              projectionName: payload.projectionName,
+            });
+            if (envelope.kind === "projection.checkpoint-ready") {
+              pendingHotProjectionWakeKeys.delete(runnerName);
+              projectionRunnerLoop?.completeProjectionWakeLeaseHandoff(runnerName);
+              return;
+            }
+            if (payload.priorityLane === "hot") {
               pendingHotProjectionWakeKeys.add(runnerName);
               projectionRunnerLoop?.nudge([runnerName]);
             }

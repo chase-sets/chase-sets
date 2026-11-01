@@ -108,6 +108,12 @@ export type WorkerRunnerLoop = Readonly<{
    * holder to yield its retained lease for a matching hot wake.
    */
   nudge: (runnerNames?: readonly string[]) => void;
+  /**
+   * Completes a projection-group handoff after the matching hot wake reaches
+   * an existing terminal signal. The lease-TTL fallback remains authoritative
+   * when the signal is observed by another worker.
+   */
+  completeProjectionWakeLeaseHandoff: (runnerName: string) => void;
   stop: () => Promise<void>;
   status: () => Readonly<{
     workerId: string;
@@ -318,6 +324,7 @@ type HeldRunnerLease = {
   renewalInFlight: boolean;
   renewalTimer: ReturnType<typeof setInterval> | null;
   activeRunCount: number;
+  lastPassSucceeded: boolean;
   releaseAfterActiveRun: boolean;
   leaseIntervalId: string;
   acquiredAtMonotonicMs: number;
@@ -560,6 +567,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let scheduling = false;
   let scheduleAgainAfterCurrentPass = false;
   const requestedLeaseYields = new Set<string>();
+  const projectionWakeHandoffBlockedUntil = new Map<string, number>();
   const heldRunnerLeases = new Map<string, HeldRunnerLease>();
   const retainedProjectionLeases = new Set<HeldRunnerLease>();
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
@@ -663,7 +671,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         heldLease.runner.kind !== "projection-group" ||
         !requestedLeaseYields.has(heldLease.runner.name) ||
         heldLease.activeRunCount > 0 ||
-        !heldLease.leaseActive
+        !heldLease.leaseActive ||
+        !heldLease.lastPassSucceeded
       ) {
         continue;
       }
@@ -762,6 +771,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       renewalTimer: null,
       activeRunCount: 0,
       releaseAfterActiveRun: false,
+      lastPassSucceeded: true,
       leaseIntervalId: runner.kind === "projection-group" ? randomUUID() : "",
       acquiredAtMonotonicMs: performance.now(),
       nextPassSeq: 0,
@@ -971,6 +981,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           reservedRunners,
           activeRunnerNames,
           failedRunnerBackoffs,
+          projectionWakeHandoffBlockedUntil,
           nextReservedRunnerIndex,
           now,
         );
@@ -993,6 +1004,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           options.runners,
           activeRunnerNames,
           failedRunnerBackoffs,
+          projectionWakeHandoffBlockedUntil,
           nextRunnerIndex,
           now,
         );
@@ -1041,10 +1053,25 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       schedule();
     },
     nudge: (runnerNames) => {
+      if (stopped) {
+        return;
+      }
       for (const runnerName of runnerNames ?? []) {
+        const heldLease = [...heldRunnerLeases.values()].find(
+          (candidate) => candidate.runner.name === runnerName && candidate.leaseActive,
+        );
+        if (!heldLease && !activeRunnerNames.has(runnerName)) {
+          continue;
+        }
         requestedLeaseYields.add(runnerName);
+        projectionWakeHandoffBlockedUntil.set(runnerName, Date.now() + options.leaseTtlMs);
       }
       releaseRequestedProjectionLeases();
+      queueImmediateSchedule();
+    },
+    completeProjectionWakeLeaseHandoff: (runnerName) => {
+      projectionWakeHandoffBlockedUntil.delete(runnerName);
+      requestedLeaseYields.delete(runnerName);
       queueImmediateSchedule();
     },
     stop: async () => {
@@ -1112,6 +1139,7 @@ function selectNextRunner(
   runners: readonly WorkerRunner[],
   activeRunnerNames: ReadonlySet<string>,
   failedRunnerBackoffs: ReadonlyMap<string, Readonly<{ eligibleAt: number }>>,
+  projectionWakeHandoffBlockedUntil: Map<string, number>,
   startIndex: number,
   now: number,
 ): Readonly<{ runner: WorkerRunner; index: number }> | null {
@@ -1122,6 +1150,13 @@ function selectNextRunner(
     const runner = runners[index];
     if (activeRunnerNames.has(runner.name)) {
       continue;
+    }
+    const handoffBlockedUntil = projectionWakeHandoffBlockedUntil.get(runner.name);
+    if (handoffBlockedUntil !== undefined) {
+      if (handoffBlockedUntil > now) {
+        continue;
+      }
+      projectionWakeHandoffBlockedUntil.delete(runner.name);
     }
     const failedBackoff = failedRunnerBackoffs.get(runner.name);
     if (failedBackoff && failedBackoff.eligibleAt > now) {
@@ -1405,6 +1440,7 @@ async function runLeasedRunner(
     }
     throw error;
   } finally {
+    heldLease.lastPassSucceeded = passSucceeded;
     notifyHolderLifecycle?.(
       runner,
       holderLifecycleEvent(heldLease, {
