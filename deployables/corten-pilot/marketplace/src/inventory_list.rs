@@ -12,6 +12,7 @@
 //! one per row). The sale is sent with an idempotency key (the form's `SubmitKey`); its outcome
 //! goes back to the list in the address, and the item is read again after the write's receipt so
 //! the page can say how many are available now.
+use crate::recovery::attempt_text;
 use corten::{axum::http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
@@ -122,7 +123,7 @@ pub enum Verified {
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct ItemFields {
-    pub inventory_mutation_attempt_id: String,
+    pub inventory_mutation_attempt_id: Option<SubmitKey>,
     pub q: String,
     pub choose: String,
     pub change: String,
@@ -155,7 +156,7 @@ pub struct CreateItem {
 impl CreateItem {
     fn read(raw: &Raw) -> Self {
         let f = ItemFields::FIELDS;
-        let get = |name: FieldName| first(raw, name.as_str());
+        let get = |name: FieldName<String>| first(raw, name.as_str());
         CreateItem {
             draft: Draft::read(raw),
             catalog: Catalog::Idle,
@@ -210,7 +211,7 @@ pub fn safe_return_to(text: &str) -> Option<String> {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SaleInput {
-    pub idempotency_key: String,
+    pub idempotency_key: Option<SubmitKey>,
     pub quantity: String,
     pub sale_price_amount: String,
     pub channel: String,
@@ -231,7 +232,7 @@ impl SaleInput {
     pub fn command(&self, p: Pilot, honor_allowed: bool) -> Result<SaleCommand, Errors> {
         let f = Self::FIELDS;
         let mut errors = Errors::new();
-        if !valid_attempt(&self.idempotency_key) {
+        if !valid_attempt(attempt_text(&self.idempotency_key)) {
             errors.add_form(p.check_attempt());
         }
         let quantity = self.quantity.trim().parse::<u64>().ok().filter(|q| *q >= 1);
@@ -268,7 +269,7 @@ impl SaleInput {
             note: (!note.is_empty()).then(|| note.to_owned()),
             collision_mode: if honor { "honor-offline" } else { "protect-orders" }.into(),
             confirm_seller_cannot_fulfill: honor.then_some(confirmed),
-            idempotency_key: self.idempotency_key.clone(),
+            idempotency_key: attempt_text(&self.idempotency_key).to_owned(),
         })
     }
 }
@@ -660,7 +661,7 @@ mod tests {
         use corten::i18n::Messages as _;
         let p = Pilot::for_locale("en");
         let sale = |price: &str| SaleInput {
-            idempotency_key: "8f14e45f-ceea-467a-9b8e-1c2d3e4f5a6b".into(),
+            idempotency_key: crate::recovery::submit_key("8f14e45f-ceea-467a-9b8e-1c2d3e4f5a6b"),
             quantity: "1".into(),
             sale_price_amount: price.into(),
             channel: CHANNELS[0].into(),

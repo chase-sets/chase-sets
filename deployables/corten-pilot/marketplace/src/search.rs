@@ -379,7 +379,16 @@ impl<'de> serde::Deserialize<'de> for Terms {
     }
 }
 
+/// Read from the whole query, as `read` reads it (see `items::Address`).
+impl<'c> corten::route::__private::ReadQuery<'c> for Terms {
+    fn read_query(pairs: &[corten::route::__private::Pair<'_>]) -> Result<Self, corten::form::FormError> {
+        Ok(Terms::read(&crate::items::raw_of(pairs)))
+    }
+}
+
 impl corten::route::QueryParams for Terms {
+    const __KEYS: &'static [corten::route::__private::Key] = <TermsQuery<'static> as corten::route::QueryParams>::__KEYS;
+
     fn write_params(&self, first: &mut bool, html: bool, out: &mut String) {
         let family = |kind: Kind| -> Vec<(String, String)> {
             self.filters.iter().filter(|f| f.kind == kind).map(|f| (f.id.clone(), f.value.clone())).collect()

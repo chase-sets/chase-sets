@@ -13,7 +13,7 @@
 //! page's writes are off; the seller checks again or discards the record. Every page confirms a
 //! record of any of the pilot's families, as marketplace's `InventoryMutationProvider` does on
 //! every Inventory page.
-use corten::{Fields, Route};
+use corten::{Fields, Route, SubmitKey};
 use serde::{Deserialize, Serialize};
 
 use corten::{axum::http::StatusCode, prelude::Errors};
@@ -99,6 +99,19 @@ pub fn new_attempt() -> String {
 }
 
 /// An attempt id the API accepts: a UUID, version 4, as the browser record's check requires.
+/// The attempt a form posted, as text: empty when it sent none. A key that is not a UUID v4 is
+/// refused by the form's reader (`SubmitKey`) before the handler runs.
+pub fn attempt_text(key: &Option<SubmitKey>) -> &str {
+    key.as_ref().map_or("", SubmitKey::as_str)
+}
+
+/// `text` as a submit key, when it is one (a UUID v4): an attempt the server made up, to carry
+/// in a form drawn again.
+pub fn submit_key(text: &str) -> Option<SubmitKey> {
+    use serde::de::{IntoDeserializer, value::Error};
+    SubmitKey::deserialize(IntoDeserializer::<Error>::into_deserializer(text)).ok()
+}
+
 pub fn valid_attempt(id: &str) -> bool {
     uuid::Uuid::try_parse(id).is_ok_and(|u| u.get_version_num() == 4 && u.hyphenated().to_string() == id.to_ascii_lowercase())
 }

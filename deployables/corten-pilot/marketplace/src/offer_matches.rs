@@ -17,6 +17,7 @@
 //! The list is drawn again on each change to the account's offers (`<corten-live>` on
 //! `account:{id}:offers`), which the offers projection writes to every seller with an active
 //! listing of the offer's product.
+use crate::recovery::attempt_text;
 use corten::{
     LiveResponse,
     axum::{
@@ -51,7 +52,7 @@ pub struct Place {
 #[serde(rename_all = "camelCase", default)]
 pub struct OfferForm {
     pub intent: String,
-    pub attempt_id: String,
+    pub attempt_id: Option<SubmitKey>,
 }
 
 /// What an offer match's page shows.
@@ -209,17 +210,20 @@ pub(crate) async fn write(
                 Err(error) => error,
             }
         }
-        "decline-offer" => match caller.decline_offer_match(&id, &crate::cart_attempt::attempt_id(&form.attempt_id)).await {
-            Ok(receipt) => {
-                return req.redirect(&url::OfferMatches { place: Place { after_write: receipt.as_ref().map(Receipt::param) } });
+        "decline-offer" => {
+            match caller.decline_offer_match(&id, &crate::cart_attempt::attempt_id(attempt_text(&form.attempt_id))).await {
+                Ok(receipt) => {
+                    return req
+                        .redirect(&url::OfferMatches { place: Place { after_write: receipt.as_ref().map(Receipt::param) } });
+                }
+                Err(CommandError::Api(error)) => error,
+                Err(other) => {
+                    tracing::warn!("a decline was refused with a listing's conflict: {other:?}");
+                    let refusal = Some(t.route_request_failed().to_owned());
+                    return render(&req, &viewer, &config, &headers, &id, refusal, StatusCode::CONFLICT).await;
+                }
             }
-            Err(CommandError::Api(error)) => error,
-            Err(other) => {
-                tracing::warn!("a decline was refused with a listing's conflict: {other:?}");
-                let refusal = Some(t.route_request_failed().to_owned());
-                return render(&req, &viewer, &config, &headers, &id, refusal, StatusCode::CONFLICT).await;
-            }
-        },
+        }
         _ => return Err(corten::Error::status(StatusCode::BAD_REQUEST)),
     };
     refused(&req, &viewer, &config, &headers, &id, error, t).await

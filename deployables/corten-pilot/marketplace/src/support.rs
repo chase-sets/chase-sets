@@ -25,6 +25,7 @@
 //! |---|---|
 //! | `GET /account/support/{id}?<place>` | the page, with what the last write did |
 //! | `POST /account/support/{id}` | `evidence`, `response`, `accept-offer`, `decline-offer`, `escalate`, `cancel`, `check-status` |
+use crate::recovery::attempt_text;
 use std::time::SystemTime;
 
 use corten::{
@@ -61,7 +62,7 @@ pub struct Place {
 #[serde(default)]
 pub struct SupportInput {
     pub intent: String,
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub account: String,
     /// The evidence prompt's checklist item, so a refusal fills the right form again.
     pub item: String,
@@ -604,7 +605,7 @@ pub(crate) async fn write(
         }
     };
     // A post without a valid attempt (no script, a lost field) is still one attempt.
-    let attempt = attempt_id(&input.attempt);
+    let attempt = attempt_id(attempt_text(&input.attempt));
     let request_hash = hash(&write.canonical);
     let result = result_of(write.action_kind).unwrap_or_default();
     let error = match caller.participant_write(&write, &attempt, &request_hash).await {

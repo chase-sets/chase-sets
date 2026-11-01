@@ -41,7 +41,7 @@ pub fn Filters<'a, C: Render>(t: Cat, action: &'a str, children: C) -> impl Rend
 
 /// The search box.
 #[component(css = ListPage)]
-pub fn Search<'a>(t: Cat, name: FieldName, title: &'a str, value: &'a str) -> impl Render {
+pub fn Search<'a>(t: Cat, name: FieldName<String>, title: &'a str, value: &'a str) -> impl Render {
     let placeholder = t.list_search_placeholder(title.to_lowercase()).to_string();
     html! {
         <label class={Filter}>
@@ -53,7 +53,13 @@ pub fn Search<'a>(t: Cat, name: FieldName, title: &'a str, value: &'a str) -> im
 
 /// A filter with a fixed set of values; `all` (the empty value) leaves it out.
 #[component(css = ListPage)]
-pub fn Pick<'a>(label: &'a str, name: FieldName, all: &'a str, options: &'a [(&'a str, &'a str)], value: &'a str) -> impl Render {
+pub fn Pick<'a>(
+    label: &'a str,
+    name: FieldName<String>,
+    all: &'a str,
+    options: &'a [(&'a str, &'a str)],
+    value: &'a str,
+) -> impl Render {
     html! {
         <label class={Filter}>
             <span class={Label}>{label}</span>
@@ -69,7 +75,7 @@ pub fn Pick<'a>(label: &'a str, name: FieldName, all: &'a str, options: &'a [(&'
 
 /// A filter typed in (a source, an id, a tag).
 #[component(css = ListPage)]
-pub fn TextFilter<'a>(label: &'a str, name: FieldName, value: &'a str, placeholder: &'a str) -> impl Render {
+pub fn TextFilter<'a>(label: &'a str, name: FieldName<String>, value: &'a str, placeholder: &'a str) -> impl Render {
     html! {
         <label class={Filter}>
             <span class={Label}>{label}</span>

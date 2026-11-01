@@ -313,7 +313,34 @@ impl<'de> Deserialize<'de> for Address {
     }
 }
 
+/// The parameters as sent, from the pairs Corten read: a key sent more than once keeps every value.
+pub(crate) fn raw_of(pairs: &[corten::route::__private::Pair<'_>]) -> Raw {
+    let mut raw = Raw::new();
+    for (key, value) in pairs {
+        let value = value.clone().into_owned();
+        match raw.remove(key.as_ref()) {
+            None => raw.insert(key.clone().into_owned(), Values::One(value)),
+            Some(Values::One(one)) => raw.insert(key.clone().into_owned(), Values::Many(vec![one, value])),
+            Some(Values::Many(mut many)) => {
+                many.push(value);
+                raw.insert(key.clone().into_owned(), Values::Many(many))
+            }
+        };
+    }
+    raw
+}
+
+/// Read from the whole query, as `read` reads it. Corten has no public way for a set to read
+/// itself (todd-skelton/corten gap), so this implements its hidden reader.
+impl<'c> corten::route::__private::ReadQuery<'c> for Address {
+    fn read_query(pairs: &[corten::route::__private::Pair<'_>]) -> Result<Self, corten::form::FormError> {
+        Ok(Address::read(&raw_of(pairs)))
+    }
+}
+
 impl corten::route::QueryParams for Address {
+    const __KEYS: &'static [corten::route::__private::Key] = <AddressQuery<'static> as corten::route::QueryParams>::__KEYS;
+
     fn write_params(&self, first: &mut bool, html: bool, out: &mut String) {
         AddressQuery {
             market: (self.market != Market::Buy).then(|| self.market.as_str()),

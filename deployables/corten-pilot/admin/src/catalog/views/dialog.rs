@@ -78,7 +78,7 @@ pub fn Opens<'a>(action: &'a str, fields: &'a [(FieldName, &'a str)], label: &'a
 /// A labelled text input, its error next to it. The error is outside the label, so it is not
 /// part of the input's name (it describes it).
 #[component(css = Dialog)]
-pub fn Input<'a, I: Id>(label: &'a str, name: FieldName, value: &'a str, errors: &'a Within<'a, I>) -> impl Render {
+pub fn Input<'a, I: Id>(label: &'a str, name: FieldName<String>, value: &'a str, errors: &'a Within<'a, I>) -> impl Render {
     html! {
         <div class={Field}>
             <label class={Field}>
@@ -92,7 +92,7 @@ pub fn Input<'a, I: Id>(label: &'a str, name: FieldName, value: &'a str, errors:
 
 /// A labelled text area (three rows), its error next to it.
 #[component(css = Dialog)]
-pub fn TextArea<'a, I: Id>(label: &'a str, name: FieldName, value: &'a str, errors: &'a Within<'a, I>) -> impl Render {
+pub fn TextArea<'a, I: Id>(label: &'a str, name: FieldName<String>, value: &'a str, errors: &'a Within<'a, I>) -> impl Render {
     html! {
         <div class={Field}>
             <label class={Field}>
@@ -107,7 +107,7 @@ pub fn TextArea<'a, I: Id>(label: &'a str, name: FieldName, value: &'a str, erro
 #[component(css = Dialog)]
 pub fn Choice<'a, I: Id>(
     label: &'a str,
-    name: FieldName,
+    name: FieldName<String>,
     options: &'a [(&'a str, &'a str)],
     value: &'a str,
     errors: &'a Within<'a, I>,
@@ -129,7 +129,7 @@ pub fn Choice<'a, I: Id>(
 
 /// A labelled checkbox.
 #[component(css = Dialog)]
-pub fn Check<'a>(label: &'a str, name: FieldName, checked: bool) -> impl Render {
+pub fn Check<'a, T>(label: &'a str, name: FieldName<T>, checked: bool) -> impl Render {
     html! {
         <label class={Check}>
             <input type="checkbox" name={name} checked={checked}>
@@ -410,9 +410,9 @@ pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
     let (choose, none) = (t.ref_record_choose_reference_record(), t.ref_record_no_reference_records_match());
     html! {
         let type_options: Vec<(&str, &str)> = type_labels.iter().map(|(k, l)| (k.as_str(), l.as_str())).collect();
-        let choices: Vec<corten_ui::Choice> =
-            record_labels.iter().map(|(value, label)| corten_ui::Choice { value: value.as_str(), label: label.as_str() }).collect();
-        let pickers: Vec<Picker> = rows
+        let choices: Vec<corten_ui::Choice<&str>> =
+            record_labels.iter().map(|(value, label)| corten_ui::Choice::new(value.as_str(), label.as_str())).collect();
+        let pickers: Vec<Picker<&str>> = rows
             .iter()
             .zip(&row_ids)
             .map(|((_, value), row_id)| Picker {

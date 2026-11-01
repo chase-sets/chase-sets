@@ -5064,20 +5064,13 @@ fn the_search_forms_names_are_the_ones_its_links_write() {
     };
     let written: Vec<String> = terms.pairs().into_iter().map(|(key, _)| key).collect();
     let f = TermsQuery::FIELDS;
-    let names = [
-        f.q,
-        f.category,
-        f.tag,
-        f.language,
-        f.market_activity,
-        f.price_min,
-        f.price_max,
-        f.in_stock,
-        f.sort,
-        f.interpreted,
-        f.more,
-    ];
-    for name in names {
+    let names =
+        [f.q, f.category, f.tag, f.language, f.market_activity, f.price_min, f.price_max, f.in_stock, f.sort, f.interpreted]
+            .map(|name| name.untyped())
+            .into_iter()
+            .chain([f.more.untyped()])
+            .collect::<Vec<_>>();
+    for name in &names {
         assert!(written.iter().any(|w| w == name.as_str()), "{name:?} is not written: {written:?}");
     }
     assert_eq!(written.len(), names.len() + 1, "and the field filter: {written:?}");
@@ -7791,7 +7784,7 @@ async fn a_consent_keeps_its_token_to_this_site_and_lets_its_forms_reach_the_age
     let (status, headers, html) = pilot.send(get(&consent, Some("buyer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
-    assert!(html.contains(r#"<meta name="referrer" content="strict-origin""#), "{html}");
+    assert_eq!(headers[header::REFERRER_POLICY], "strict-origin", "the address carries the consent token");
     let form_action = |headers: &HeaderMap| {
         let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap().to_owned();
         assert!(csp.contains("frame-ancestors 'none'"), "{csp}");
@@ -7870,9 +7863,8 @@ async fn the_authorize_is_relayed_with_its_redirects_as_the_api_answers() {
     assert_eq!(status, StatusCode::FOUND, "not followed here: {headers:?}");
     assert_eq!(headers["location"], "https://agent.example/cb?state=s1&code=ucp_code_1", "on to the agent");
     let referrer = headers[header::REFERRER_POLICY].to_str().unwrap().to_owned();
-    // The API's `no-referrer` for the agent's redirect does not reach the browser: Corten sets every
-    // answer's policy (todd-skelton/corten#390).
-    assert_eq!(referrer, "strict-origin-when-cross-origin");
+    // The API's own `no-referrer` for the agent's redirect is kept: the stricter of it and the area's.
+    assert_eq!(referrer, "no-referrer");
     let (status, _, _) = pilot.send(post("/ucp/oauth/authorize", "buyer", "consent_token=tok_ok&decision=approve", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "the API checks the browser's origin, which is passed on");
 }
@@ -9484,8 +9476,13 @@ async fn declining_goes_back_to_the_list_with_its_receipt_and_a_refusal_says_why
     assert!(to.starts_with("/account/offers/matches?afterWrite="), "{to}");
     let declined = list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline");
     assert_eq!(declined, [format!(r#"POST /api/marketplace/account/offers/matches/off_ready/decline {{"attemptId":"{key}"}}"#)]);
-    // A post without the form's attempt (no field, or one the API would refuse) is still one attempt.
-    pilot.send(post("/account/offers/matches/off_ready", "trader", "intent=decline-offer&attemptId=short", false)).await;
+    // A post without the form's attempt is still one attempt; one that is not a submit key is
+    // refused by the form's reader and sends nothing.
+    let (status, _, _) =
+        pilot.send(post("/account/offers/matches/off_ready", "trader", "intent=decline-offer&attemptId=short", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline").len(), 1);
+    pilot.send(post("/account/offers/matches/off_ready", "trader", "intent=decline-offer", false)).await;
     let declined = list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline");
     let sent: Value =
         serde_json::from_str(declined[1].split_once(" {").map(|(_, b)| format!("{{{b}")).unwrap().as_str()).unwrap();
@@ -12411,9 +12408,10 @@ async fn a_refused_withdrawal_says_why_and_a_lost_answer_is_asked_about() {
     let (status, _, html) = pilot.send(refused(format!("intent=forget&attempt={ATTEMPT}&consent_id=cns_terms"))).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Unknown consent action."), "{html}");
+    // An attempt that is not a submit key is refused by the form's reader, before the handler.
     let (status, _, html) = pilot.send(refused("intent=withdraw&attempt=nope&consent_id=cns_terms".into())).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("out of date"), "{html}");
+    assert!(html.contains("submit key"), "{html}");
     let (status, _, html) = pilot.send(refused(format!("intent=withdraw&attempt={ATTEMPT}&consent_id=+"))).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Choose a consent to withdraw."), "{html}");
@@ -13797,7 +13795,7 @@ async fn a_refused_team_write_says_so_and_a_lost_answer_is_asked_about() {
     let before = team_writes(&pilot).len();
     let (status, _, html) = pilot.send(post(TEAM, "teamer", "intent=revoke&attempt=nope&membership_id=mbr_owner", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("out of date"), "{html}");
+    assert!(html.contains("submit key"), "the form's reader refuses it: {html}");
     let (status, _, _) = pilot.send(post(TEAM, "teamer", &format!("intent=revoke-api-key&attempt={ATTEMPT}"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(team_writes(&pilot).len(), before, "nothing sent");
@@ -15230,6 +15228,10 @@ async fn add_answers_with_stripes_secure_step_and_the_answer_is_never_kept() {
     );
     assert!(html.contains("payment_setup.save(") && html.contains("/account/payment-methods?setupReferenceId=spr_1"), "{html}");
     assert!(html.contains("Save payment method"), "{html}");
+    // The step's script fetches the Stripe.js loader it imports with it (todd-skelton/corten#307).
+    let preloads: Vec<&str> =
+        html.split(r#"<link rel="modulepreload" href=""#).skip(1).filter_map(|tag| tag.split('"').next()).collect();
+    assert!(preloads.iter().any(|href| href.ends_with("/scripts/stripe.js")), "{preloads:?}");
     let sent = payment_method_calls(&pilot).into_iter().find(|c| c.path.ends_with("/setup-sessions")).expect("a setup started");
     let body: Value = serde_json::from_str(&sent.body).unwrap();
     assert_eq!(body, json!({ "accountId": "acc_seller", "attemptId": PM_OK, "returnUrlPath": "/account/payment-methods" }));
@@ -17145,6 +17147,8 @@ async fn robots_and_the_sitemaps_follow_indexing() {
         "/sitemap/items/0.xml",
         "/sitemap/items/1.json",
         "/sitemap/items/x.xml",
+        "/sitemap/items/+1.xml",
+        "/sitemap/items/1.5.xml",
     ] {
         let (status, _, _) = pilot.send(get(missing, None)).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{missing}");

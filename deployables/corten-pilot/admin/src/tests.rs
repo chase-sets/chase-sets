@@ -1014,11 +1014,14 @@ async fn a_password_starts_the_session_and_goes_back_to_the_page() {
     assert!(cookies.iter().any(|c| c.starts_with("chase_sets_account_selection=;")), "no selection left: {cookies:?}");
     // A page the pilot does not serve is admin-web's.
     let at = "/access/sign-in?returnTo=%2Fnowhere";
-    let (_, headers, _) = pilot.send(visitor_post(at, None, "intent=password&email=staff%40example.test&password=right")).await;
-    assert_eq!(headers[header::LOCATION], "http://localhost:7752/nowhere");
-    // The browser follows it: `form-action` applies to a form's redirects.
-    let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
-    assert!(csp.contains("form-action 'self' http://localhost:7752;"), "{csp}");
+    let (status, headers, _) =
+        pilot.send(visitor_post(at, None, "intent=password&email=staff%40example.test&password=right")).await;
+    // A debug build answers a form's redirect that the page's `form-action` does not allow with a
+    // 500 (todd-skelton/corten#527), so the browser follows this one.
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("http://localhost:7752/nowhere"))
+    );
     // Another site is never where it goes.
     let at = "/access/sign-in?returnTo=%2F%2Fevil.example";
     let (_, headers, _) = pilot.send(visitor_post(at, None, "intent=password&email=staff%40example.test&password=right")).await;

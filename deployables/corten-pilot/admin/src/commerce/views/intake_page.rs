@@ -67,7 +67,7 @@ fn dispositions(t: Com) -> [Choice; 3] {
 }
 
 #[component(css = IntakePage)]
-fn Select<'a>(label: &'a str, name: corten::FieldName, choices: &'a [Choice]) -> impl Render {
+fn Select<'a>(label: &'a str, name: corten::FieldName<String>, choices: &'a [Choice]) -> impl Render {
     html! {
         <label class={Field}>
             <span>{label}</span>

@@ -465,7 +465,7 @@ pub(crate) async fn photos(
         }
         Err(other) => return Err(other.into()),
     };
-    let first = |name: FieldName| crate::listing_new::first(&posted.fields, name.as_str());
+    let first = |name: FieldName<String>| crate::listing_new::first(&posted.fields, name.as_str());
     let form = ListingForm {
         intent: first(f.intent),
         photo_id: first(f.photo_id),

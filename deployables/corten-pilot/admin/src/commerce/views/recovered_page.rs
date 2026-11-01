@@ -31,7 +31,7 @@ fn when(t: Com, at: &str) -> String {
 }
 
 #[component(css = RecoveredPage)]
-fn Text<'a>(label: &'a str, name: corten::FieldName, value: &'a str) -> impl Render {
+fn Text<'a>(label: &'a str, name: corten::FieldName<String>, value: &'a str) -> impl Render {
     html! {
         <label class={Field}>
             <span>{label}</span>

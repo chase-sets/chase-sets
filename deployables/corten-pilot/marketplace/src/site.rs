@@ -86,7 +86,7 @@ pub(crate) async fn sitemap(State(config): State<Shared>) -> Result<Public<seo::
 
 /// A sitemap page's address, `/sitemap/{kind}/{page}.xml`.
 pub fn page_href(kind: &str, page: u64) -> String {
-    url::SitemapPage { kind, file: &format!("{page}.xml") }.href()
+    url::SitemapPage { kind, page: &page.to_string() }.href()
 }
 
 /// A sitemap page: the static one's home page and search, or a page of a kind's public pages, each
@@ -97,7 +97,7 @@ pub(crate) async fn sitemap_page(
     Params(route): Params<url::SitemapPage<'_>>,
 ) -> Result<Public<seo::File>, corten::Error> {
     let kind = route.kind.as_str();
-    let page = page_number(&route.file).ok_or_else(|| corten::Error::status(StatusCode::NOT_FOUND))?;
+    let page = page_number(&route.page).ok_or_else(|| corten::Error::status(StatusCode::NOT_FOUND))?;
     let known = (kind == STATIC && page == 1) || KINDS.contains(&kind);
     if !known {
         return Err(corten::Error::status(StatusCode::NOT_FOUND));
@@ -124,11 +124,9 @@ pub(crate) async fn sitemap_page(
     Ok(seo::sitemap(urls.iter().map(|(loc, lastmod)| seo::SitemapUrl { loc, lastmod: lastmod.as_deref() })))
 }
 
-/// `1.xml`'s page, 1; `None` for anything that is not a whole number from 1 followed by `.xml`
-/// (marketplace's `Number.isInteger(page) && page >= 1`). The route's parameter is the whole
-/// segment, since a Corten route's parameter cannot end in text (todd-skelton/corten#514).
-fn page_number(file: &str) -> Option<u64> {
-    let digits = file.strip_suffix(".xml")?;
+/// `1.xml`'s page, 1; `None` for anything that is not a whole number from 1 (marketplace's
+/// `Number.isInteger(page) && page >= 1`): digits only, so `+1` and `1.5` are not pages.
+fn page_number(digits: &str) -> Option<u64> {
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
@@ -276,9 +274,9 @@ mod tests {
 
     #[test]
     fn a_sitemap_page_is_a_whole_number_from_one() {
-        assert_eq!(page_number("1.xml"), Some(1));
-        assert_eq!(page_number("12.xml"), Some(12));
-        for file in ["0.xml", "1", "1.json", ".xml", "-1.xml", "+1.xml", "1.5.xml", "a.xml", "1.xml.xml"] {
+        assert_eq!(page_number("1"), Some(1));
+        assert_eq!(page_number("12"), Some(12));
+        for file in ["0", "", "-1", "+1", "1.5", "a", "1.xml"] {
             assert_eq!(page_number(file), None, "{file}");
         }
     }

@@ -438,7 +438,7 @@ fn refusal(t: SellerListingsMsg, code: &str) -> Option<&str> {
 }
 
 /// The field a refusal is about, on the form `intent` sent.
-fn refused_field(intent: &str, code: &str) -> Option<FieldName> {
+fn refused_field(intent: &str, code: &str) -> Option<FieldName<String>> {
     let f = ListingsForm::FIELDS;
     match code {
         "listing_availability_reason_invalid" if intent == "disable-listing-availability" => Some(f.reason_category),

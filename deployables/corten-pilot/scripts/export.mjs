@@ -234,8 +234,9 @@
 //   each entry's packing priority and badge) and account-menu contributions, composed the same way.
 // - marketplace/nav-icons.json: the inner markup of the design system's `Icon` for each icon those
 //   entries name, and the menu's, as its lucide glyph draws it (the pilot draws the `<svg>` around it).
-// - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
-//   for the tokens the pilot uses, in the format of Corten's `tokens!`. Not committed (see GENERATED).
+// - platform/tokens/: the design system's light and dark values (packages/design-system styles.css)
+//   for the tokens the pilot uses, as W3C Design Tokens files and a resolver (DTCG 2025.10), which
+//   Corten's `tokens!` reads. Not committed (see GENERATED).
 // - <app>/static/fonts/: the three @fontsource files the screens use, in each app's static folder.
 //
 // <app>/locales/pilot.en.json is each app's own text (its shell and input checks) and is not exported.
@@ -399,6 +400,56 @@ const colors = {
 };
 const shadows = { sm: "shadow-sm", md: "shadow-md", lg: "shadow-lg", overlay: "shadow-overlay" };
 
+// The values as W3C Design Tokens (DTCG 2025.10), as Corten's `tokens!` reads them: a color is its
+// sRGB components with the hex beside them, a length is a number and a unit, a shadow its parts.
+function dtcgColor(text) {
+  const hex = /^#([0-9a-f]{6})$/i.exec(text);
+  const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/.exec(text);
+  if (!hex && !rgb) throw new Error(`styles.css: ${text} is not a hex or rgb() color`);
+  const bytes = hex ? [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16)) : rgb.slice(1, 4).map(Number);
+  const alpha = rgb?.[4] === undefined ? 1 : Number(rgb[4]);
+  return {
+    colorSpace: "srgb",
+    components: bytes.map((byte) => byte / 255),
+    ...(alpha === 1 ? {} : { alpha }),
+    hex: `#${bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
+  };
+}
+function dtcgDimension(text) {
+  if (text === "0") return { value: 0, unit: "rem" };
+  const match = /^(-?[\d.]+)(px|rem)$/.exec(text);
+  if (!match) throw new Error(`styles.css: ${text} is not a length in px or rem`);
+  return { value: Number(match[1]), unit: match[2] };
+}
+function dtcgShadow(text) {
+  const match = /^(\S+) (\S+) (\S+)(?: (\S+))? (rgba?\([^)]*\)|#[0-9a-f]{6})$/i.exec(text);
+  if (!match) throw new Error(`styles.css: ${text} is not one shadow`);
+  const length = (part = "0") => (part === "0" ? { value: 0, unit: "px" } : dtcgDimension(part));
+  return {
+    color: dtcgColor(match[5]),
+    offsetX: length(match[1]),
+    offsetY: length(match[2]),
+    blur: length(match[3]),
+    spread: length(match[4]),
+  };
+}
+const dtcgFamily = (text) => text.split(",").map((name) => name.trim().replace(/^"(.*)"$/, "$1"));
+const dtcgTypes = {
+  color: ["color", dtcgColor],
+  space: ["dimension", dtcgDimension],
+  radius: ["dimension", dtcgDimension],
+  shadow: ["shadow", dtcgShadow],
+  font: ["fontFamily", dtcgFamily],
+  control: ["dimension", dtcgDimension],
+};
+const dtcgGroup = (group, values, typed) => ({
+  ...(typed ? { $type: dtcgTypes[group][0] } : {}),
+  ...Object.fromEntries(Object.entries(values).map(([token, text]) => [token, { $value: dtcgTypes[group][1](text) }])),
+});
+
+// The design system's values for the tokens the pilot uses: the light ones (base), the dark
+// theme's changes, and the resolver that puts them together, with the dark theme also the
+// system's when the page chose none.
 function tokens() {
   const css = readFileSync(path.join(repo, "packages/design-system/src/styles/styles.css"), "utf8");
   const vars = new Map();
@@ -414,27 +465,42 @@ function tokens() {
   const scale = (map, prefix = "") =>
     Object.fromEntries(Object.entries(map).map(([token, name]) => [token, value(`${prefix}${name}`)]));
   const space = Object.fromEntries(Array.from({ length: 13 }, (_, n) => [String(n), value(`space-${n}`)]));
-  return {
-    breakpoints: { md: "48rem", lg: "64rem" },
-    scales: {
-      color: scale(colors),
-      space,
-      radius: { md: value("radius"), lg: value("radius-lg"), xl: value("radius-xl"), full: value("radius-full") },
-      shadow: scale(shadows),
-      font: { display: value("display-font"), body: value("body-font"), mono: value("mono-font") },
-      control: { height: value("control-md-height"), px: value("control-md-px"), py: value("control-md-py") },
-    },
-    themes: {
-      '[data-theme="dark"]': {
-        "@media": { "(prefers-color-scheme: dark)": ':root:not([data-theme="light"])' },
-        color: scale(colors, "dark-"),
-        shadow: scale(shadows, "dark-"),
+  const light = {
+    color: scale(colors),
+    space,
+    radius: { md: value("radius"), lg: value("radius-lg"), xl: value("radius-xl"), full: value("radius-full") },
+    shadow: scale(shadows),
+    font: { display: value("display-font"), body: value("body-font"), mono: value("mono-font") },
+    control: { height: value("control-md-height"), px: value("control-md-px"), py: value("control-md-py") },
+  };
+  const dark = { color: scale(colors, "dark-"), shadow: scale(shadows, "dark-") };
+  const base = {
+    ...Object.fromEntries(Object.entries(light).map(([group, values]) => [group, dtcgGroup(group, values, true)])),
+    $extensions: {
+      "run.corten": {
+        breakpoints: { md: dtcgDimension("48rem"), lg: dtcgDimension("64rem") },
+        utilities: { gap: { property: "gap", group: "space" } },
       },
     },
-    utilities: { gap: { property: "gap", scale: "space" } },
+  };
+  return {
+    base,
+    dark: Object.fromEntries(Object.entries(dark).map(([group, values]) => [group, dtcgGroup(group, values, false)])),
+    resolver: {
+      $schema: "https://www.designtokens.org/schemas/2025.10/resolver.json",
+      version: "2025.10",
+      sets: { base: { sources: [{ $ref: "base.tokens.json" }] } },
+      modifiers: {
+        theme: {
+          contexts: { light: [], dark: [{ $ref: "dark.tokens.json" }] },
+          default: "light",
+          $extensions: { "run.corten": { media: { dark: "(prefers-color-scheme: dark)" } } },
+        },
+      },
+      resolutionOrder: [{ $ref: "#/sets/base" }, { $ref: "#/modifiers/theme" }],
+    },
   };
 }
-
 const fonts = [
   ["@fontsource/ibm-plex-sans", "ibm-plex-sans-latin-400-normal.woff2"],
   ["@fontsource/ibm-plex-sans", "ibm-plex-sans-latin-600-normal.woff2"],
@@ -647,6 +713,7 @@ const { adminAuthHostConfig } = await import(
   pathToFileURL(path.join(repo, "bounded-contexts/auth/support/route-support/host-config.ts")).href
 );
 const { moneyStatusLabels } = await import(pathToFileURL(path.join(repo, "contracts/http/money-status.ts")).href);
+const designTokens = tokens();
 const outputs = [
   [
     "admin/locales/en.json",
@@ -762,6 +829,8 @@ const outputs = [
         ["support.features.supportRequests.ui.supportOperationsPage.", "ops"],
         ["support.routes.admin.operationsQueue.", "ops_route"],
         ["support.routes.admin.operationsRequestDetail.", "ops_detail_route"],
+        // `_many` ends a plural form's name in a Corten catalog, so this one message is renamed.
+        ["support.features.supportRequests.ui.attachments.tooMany", "att.over_count"],
         ["support.features.supportRequests.ui.attachments.", "att"],
       ])),
       ...(await catalog("channels.ts", "channelsEnglishTranslations", [["channels.ebayDeletion.", "ebay"]])),
@@ -1429,6 +1498,8 @@ const outputs = [
             ["support.features.supportRequests.ui.supportRequestListPage.", "list"],
             ["support.features.supportRequests.ui.customerRemedyStatus.", "remedy"],
             ["support.features.supportRequests.ui.returnShipping.", "shipping"],
+            // `_many` ends a plural form's name in a Corten catalog, so this one message is renamed.
+            ["support.features.supportRequests.ui.attachments.tooMany", "attachments.over_count"],
             ["support.features.supportRequests.ui.attachments.", "attachments"],
             ["support.features.supportRequests.ui.supportOperationsPage.resolution.", "resolution"],
             ["support.routes.marketplace.accountSupport.", "list_route"],
@@ -1618,7 +1689,9 @@ const outputs = [
   ["marketplace/nav.bottom.json", json(marketplaceNav("bottom-nav"))],
   ["marketplace/nav.account.json", json(marketplaceNav("account-menu"))],
   ["marketplace/nav-icons.json", json(await navIcons(marketplaceNav("bottom-nav"), marketplaceNav("account-menu")))],
-  ["platform/tokens.json", json(tokens())],
+  ["platform/tokens/base.tokens.json", json(designTokens.base)],
+  ["platform/tokens/dark.tokens.json", json(designTokens.dark)],
+  ["platform/tokens/tokens.resolver.json", json(designTokens.resolver)],
 ];
 // Outputs that carry the brand foil's values are written on every run, --check included, and are not
 // committed: the structure gate (scripts/check-structure/brand-foil-sites.mjs) allows those values
@@ -1627,7 +1700,9 @@ const GENERATED = new Set([
   "public/favicon.svg",
   "marketplace/favicon.svg",
   "admin/favicon.svg",
-  "platform/tokens.json",
+  "platform/tokens/base.tokens.json",
+  "platform/tokens/dark.tokens.json",
+  "platform/tokens/tokens.resolver.json",
 ]);
 const require = createRequire(path.join(repo, "packages/design-system/package.json"));
 let stale = 0;

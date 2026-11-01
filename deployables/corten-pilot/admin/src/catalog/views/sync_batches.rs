@@ -127,7 +127,7 @@ fn Rows<'a, C: Render>(caption: &'a str, head: &'a [&'a str], children: C) -> im
 
 /// A labelled input of the batch form.
 #[component(css = SyncBatchPage)]
-fn Labeled<'a>(label: &'a str, name: FieldName, value: &'a str, kind: &'a str, hint: Option<&'a str>) -> impl Render {
+fn Labeled<'a>(label: &'a str, name: FieldName<String>, value: &'a str, kind: &'a str, hint: Option<&'a str>) -> impl Render {
     html! {
         <label class={Field}>
             <span class={Label}>{label}</span>
@@ -141,7 +141,7 @@ fn Labeled<'a>(label: &'a str, name: FieldName, value: &'a str, kind: &'a str, h
 
 /// A choice of the batch form.
 #[component(css = SyncBatchPage)]
-fn Choice<'a>(label: &'a str, name: FieldName, value: &'a str, options: &'a [(&'a str, &'a str)]) -> impl Render {
+fn Choice<'a>(label: &'a str, name: FieldName<String>, value: &'a str, options: &'a [(&'a str, &'a str)]) -> impl Render {
     html! {
         <label class={Field}>
             <span class={Label}>{label}</span>

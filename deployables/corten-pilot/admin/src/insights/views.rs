@@ -1,7 +1,7 @@
 //! Insights' views. Each page's stylesheet is next to it in `views/`.
 use corten::{
     Component,
-    i18n::{Currency, DateStyle, parse_timestamp},
+    i18n::{Currency, DateStyle},
 };
 
 use crate::text::Ops;
@@ -26,11 +26,9 @@ fn usd(o: Ops, amount: &str) -> String {
     }
 }
 
-/// A calendar date (`YYYY-MM-DD`) as admin-web's `formatDate` writes it (in UTC), or the API's text.
-/// `t.date` takes an instant, so the day is its midnight in UTC, which `t.date` writes in UTC
-/// (todd-skelton/corten#502).
+/// A calendar date (`YYYY-MM-DD`, the first ten characters of what the API sends) as admin-web's
+/// `formatDate` writes it: a day, which no zone shifts, or the API's text.
 fn date(o: Ops, value: &str) -> String {
-    let day = value.get(..10).filter(|d| d.parse::<jiff::civil::Date>().is_ok());
-    day.and_then(|d| parse_timestamp(&format!("{d}T00:00:00Z")))
-        .map_or_else(|| value.to_owned(), |at| o.date(at, DateStyle::Medium).to_string())
+    let day = value.get(..10).and_then(|d| d.parse::<corten::i18n::Day>().ok());
+    day.map_or_else(|| value.to_owned(), |day| o.date(day, DateStyle::Medium).to_string())
 }

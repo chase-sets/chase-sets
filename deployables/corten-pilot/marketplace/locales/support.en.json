@@ -105,7 +105,7 @@
   "attachments.count": "{count} of {maximum} photos selected",
   "attachments.invalid_type": "Photos must be JPEG, PNG, or WebP images.",
   "attachments.too_large": "Each photo must be 10 MB or smaller.",
-  "attachments.too_many": "Choose no more than 5 photos.",
+  "attachments.over_count": "Choose no more than 5 photos.",
   "attachments.photo_alt": "Evidence photo {number}",
   "attachments.full_size": "View full-size photo {number}",
   "list.intake.back": "Back",

@@ -17,6 +17,7 @@
 //! | `POST ../packing/lines/{line}` | how many of the line are packed: the line, the progress and Finish in place, or the page |
 //! | `POST ../packing/scan` | one more of the line a scan names, or what the scan matched |
 //! | `POST ../pack` | the package packed, then the shipment's page |
+use crate::recovery::attempt_text;
 use std::time::Duration;
 
 use corten::{
@@ -66,14 +67,14 @@ pub enum Scanned {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct AttemptInput {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
 }
 
 /// A line's form: its attempt and how many are packed after it (the button pressed).
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct LineInput {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub quantity: String,
 }
 
@@ -82,7 +83,7 @@ pub struct LineInput {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct ScanInput {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub code: String,
     pub after_write: String,
 }
@@ -91,7 +92,7 @@ pub struct ScanInput {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct PackInput {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub package_count: String,
 }
 
@@ -303,7 +304,7 @@ pub(crate) async fn start(
 ) -> HtmlResult {
     let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
-    let attempt = input.attempt.as_str();
+    let attempt = attempt_text(&input.attempt);
     match caller.start_packing(&id, attempt).await {
         Ok(receipt) => applied(&req, &id, attempt, receipt, None, None),
         Err(error) => match failed(&caller, &id, attempt, error).await {
@@ -335,10 +336,13 @@ pub(crate) async fn line(
     let (id, line) = (route.id, route.line);
     let p: Pilot = req.t();
     let Some(count) = quantity(&input.quantity) else {
-        let outcome = Outcome::Refused { attempt: input.attempt.clone(), message: p.packing_quantity_invalid().to_owned() };
+        let outcome = Outcome::Refused {
+            attempt: attempt_text(&input.attempt).to_owned(),
+            message: p.packing_quantity_invalid().to_owned(),
+        };
         return refused(&req, &viewer, &config, &headers, &id, &line, outcome, None).await;
     };
-    set(&req, &viewer, &config, &headers, &id, &line, count, &input.attempt, None).await
+    set(&req, &viewer, &config, &headers, &id, &line, count, attempt_text(&input.attempt), None).await
 }
 
 /// Set how many of `line` are packed, then the line, the progress and Finish in place (with the
@@ -487,7 +491,18 @@ pub(crate) async fn scan(
         Ok(Some(line)) if line.packed() >= line.quantity => (Scanned::Complete, Some(line)),
         Ok(Some(line)) => {
             let (line_id, count) = (line.line_id.clone(), line.packed() + 1);
-            return set(&req, &viewer, &config, &headers, &id, &line_id, count, &input.attempt, Some(Scanned::Matched)).await;
+            return set(
+                &req,
+                &viewer,
+                &config,
+                &headers,
+                &id,
+                &line_id,
+                count,
+                attempt_text(&input.attempt),
+                Some(Scanned::Matched),
+            )
+            .await;
         }
     };
     // Nothing to write: what the scan found, in place or on the page. The attempt was not sent.
@@ -518,7 +533,7 @@ pub(crate) async fn pack(
 ) -> HtmlResult {
     let id = route.id;
     let p: Pilot = req.t();
-    let attempt = input.attempt.as_str();
+    let attempt = attempt_text(&input.attempt);
     let refuse = |message: String| Outcome::Refused { attempt: attempt.to_owned(), message };
     let Some(packages) = quantity(&input.package_count).filter(|n| *n >= 1) else {
         let outcome = refuse(p.packing_package_count_invalid().to_owned());

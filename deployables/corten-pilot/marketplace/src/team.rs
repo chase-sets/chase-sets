@@ -19,6 +19,7 @@
 //! |---|---|
 //! | `GET /account/team?<place>` | the page, read after the write whose receipt it carries |
 //! | `POST /account/team` | invite, cancel an invitation, change a role, revoke or reinstate a member (`intent`) |
+use crate::recovery::attempt_text;
 use corten::{
     ClientIp,
     axum::http::{HeaderMap, StatusCode},
@@ -72,7 +73,7 @@ pub struct Place {
 #[serde(default)]
 pub struct TeamInput {
     pub intent: String,
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub email: String,
     pub role_key: String,
     pub membership_id: String,
@@ -219,7 +220,7 @@ pub(crate) async fn write(
     let (t, p): (TeamMsg, Pilot) = (req.t(), req.t());
     let (req, viewer, config, headers) = (&req, &viewer, &config, &headers);
     let action = input.action();
-    let attempt = input.attempt.clone();
+    let attempt = attempt_text(&input.attempt).to_owned();
     let refuse = |message: &'static str| {
         let mut errors = Errors::new();
         errors.add_form(message);

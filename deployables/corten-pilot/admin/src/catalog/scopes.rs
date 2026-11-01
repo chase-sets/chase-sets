@@ -86,9 +86,9 @@ pub mod url {
                 (f.product_domain, &self.product_domain),
                 (f.language, &self.language),
             ];
-            let mut kept: Vec<_> = names.into_iter().filter_map(|(name, value)| Some((name, value.clone()?))).collect();
+            let mut kept: Vec<_> = names.into_iter().filter_map(|(name, value)| Some((name.untyped(), value.clone()?))).collect();
             if let Some(page) = self.page.filter(|page| *page > 1) {
-                kept.push((f.page, page.to_string()));
+                kept.push((f.page.untyped(), page.to_string()));
             }
             kept
         }

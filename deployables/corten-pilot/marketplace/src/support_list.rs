@@ -410,7 +410,7 @@ pub(crate) async fn write(
     };
     let f = OpenInput::FIELDS;
     let raw = &posted.fields;
-    let get = |name: FieldName| first(raw, name.as_str());
+    let get = |name: FieldName<String>| first(raw, name.as_str());
     let mut batch = Batch {
         attempt: attempt_id(&get(f.attempt)),
         operation: get(f.operation),
@@ -464,7 +464,7 @@ pub(crate) async fn write(
     let files: Vec<_> = posted.files.into_iter().filter(|u| u.field == f.attachments.as_str() && !u.bytes.is_empty()).collect();
     let refusal = match posted.over {
         Some(Over::FileTooLarge) => Some(t.attachments_too_large()),
-        Some(Over::TooManyFiles) => Some(t.attachments_too_many()),
+        Some(Over::TooManyFiles) => Some(t.attachments_over_count()),
         None if files.iter().any(|u| !uploads::is_picture(&u.content_type, &u.bytes)) => Some(t.attachments_invalid_type()),
         None => None,
     };

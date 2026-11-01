@@ -98,7 +98,7 @@ fn count(value: &Value) -> String {
 fn Choice<'a>(
     t: Sup,
     label: &'a str,
-    name: corten::FieldName,
+    name: corten::FieldName<String>,
     now: Option<&'a str>,
     values: &'a [&'a str],
     words: &'a dyn Fn(&str) -> String,

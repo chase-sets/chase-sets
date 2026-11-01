@@ -25,6 +25,7 @@
 //! |---|---|
 //! | `GET /account/payment-methods?<place>` | the page, read after a change's receipt or a setup's outcome |
 //! | `POST /account/payment-methods` | Add, Set default, Remove or Refresh (`intent`) |
+use crate::recovery::attempt_text;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
@@ -72,7 +73,7 @@ pub struct Place {
 pub struct MethodInput {
     pub intent: String,
     pub account_id: String,
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub instrument_id: String,
 }
 
@@ -349,7 +350,7 @@ async fn send(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, 
         let drawn = Drawn { failed: Some(t.choose_payment_method_action()), ..Drawn::answer(None) };
         return render(req, viewer, config, headers, None, drawn, StatusCode::UNPROCESSABLE_ENTITY).await;
     };
-    let attempt = input.attempt.trim().to_ascii_lowercase();
+    let attempt = attempt_text(&input.attempt).to_owned();
     let answer = |state: AttemptState| {
         let outcome = Outcome { form: form.key(), attempt: attempt.clone(), state };
         render(req, viewer, config, headers, None, Drawn::answer(Some(outcome)), state.status())

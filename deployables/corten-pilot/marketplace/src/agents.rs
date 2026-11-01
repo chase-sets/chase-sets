@@ -17,8 +17,8 @@
 //! Approve and Deny post to the API's `/ucp/oauth/authorize`, which the ingress sends to the platform
 //! API, and which answers with a redirect to the agent's own address. So the consent page's forms
 //! may go to any HTTPS origin (`form-action`, its area's policy), and the page sends no more of its
-//! address than its origin (`strict-origin`, a `<meta name="referrer">`: its address carries the
-//! consent token; Corten replaces a header's policy, todd-skelton/corten#390). Locally there is no ingress, so the pilot relays `/ucp/oauth/authorize` to the API
+//! address than its origin (`Referrer-Policy: strict-origin`, also its area's: its address carries
+//! the consent token). Locally there is no ingress, so the pilot relays `/ucp/oauth/authorize` to the API
 //! with its redirects as they are (`authorize`).
 //!
 //! | Route | Answers |
@@ -528,10 +528,9 @@ pub(crate) async fn consent(
     };
     let screen = ConsentScreen { consent, token };
     let t: AgentsMsg = req.t();
-    let head = html! { <meta name="referrer" content="strict-origin"> };
     let view = html! { <views::AgentConsentPage t={t} screen={&screen} /> };
     let title = if screen.consent.is_some() { t.consent_title() } else { t.consent_invalid_title() };
-    NoStore(req.screen(&screen, html! { <Layout req={&req} viewer={Some(&viewer)} title={title} head={head}>{view}</Layout> }))
+    NoStore(req.screen(&screen, html! { <Layout req={&req} viewer={Some(&viewer)} title={title} head={()}>{view}</Layout> }))
 }
 
 /// The sign-in, back to this consent (its token included).

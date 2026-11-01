@@ -1,5 +1,6 @@
 //! Inventory > Storage locations (marketplace's `/account/inventory/locations`): the list, create,
 //! save and archive, each write confirmed by the list it redirects to (see `recovery`).
+use crate::recovery::attempt_text;
 use corten::{axum::http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::Serialize;
@@ -156,7 +157,7 @@ async fn write(
     let errors = match input.command(p, write.archived()) {
         Ok(command) => {
             let caller = config.platform.caller(headers, config.proto, None);
-            let attempt = input.attempt.as_str();
+            let attempt = attempt_text(&input.attempt);
             let sent = match &write {
                 Write::Create => caller.create_location(attempt, &command).await,
                 Write::Update(id) | Write::Archive(id) => caller.update_location(attempt, id, &command).await,
@@ -175,7 +176,7 @@ async fn write(
     };
     // Nothing was applied: the form again, drawn with a new attempt, and a status that settles
     // the posted one.
-    let status = Status::Refused(input.attempt.clone());
+    let status = Status::Refused(attempt_text(&input.attempt).to_owned());
     // The form is drawn with a new SubmitKey; the posted attempt applied nothing.
     let draft = Draft { input, errors };
     let t: Msg = req.t();

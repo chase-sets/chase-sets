@@ -1141,7 +1141,7 @@ pub fn localized_or(value: &Value, fallback: &str) -> Value {
 }
 
 /// A text a field needs, or its error.
-fn required(errors: &mut Errors, field: FieldName, text: &str, p: Pilot) {
+fn required(errors: &mut Errors, field: FieldName<String>, text: &str, p: Pilot) {
     if text.trim().is_empty() {
         errors.add(field, p.check_required());
     }

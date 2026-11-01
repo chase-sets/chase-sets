@@ -8,8 +8,8 @@
 //! which is off while a job runs, and the job's progress) is relayed live: the pilot reads Pricing's
 //! job stream (marketplace's `subscribeDurableJobStatus` on `/jobs/{id}/events`) and draws the part
 //! again on each event until the job finishes. Without a script the page reads itself again every 2
-//! s while the job runs, by a `<noscript>` refresh the pilot writes, since Corten's `ReadAgain`
-//! would have a page with a script read itself whole as well (todd-skelton/corten#319). The CSVs
+//! s while the job runs (`ReadAgain::without_javascript`, so a page with a script keeps its live
+//! part rather than reading itself whole). The CSVs
 //! are Pricing's, passed on with their type and file name.
 //!
 //! While Pricing has bulk reprice switched off, every one of its routes answers 404 and marketplace
@@ -119,7 +119,7 @@ async fn render(
         <meta name="robots" content="noindex">
         // Without a script, read again while the job runs; with one, the job's part is live.
         if active {
-            <noscript><meta http-equiv="refresh" content="2"></noscript>
+            {ReadAgain { after: Duration::from_secs(2) }.without_javascript()}
         }
     };
     let page = html! {

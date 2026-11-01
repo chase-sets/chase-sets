@@ -1054,7 +1054,7 @@ fn References<'a>(
                                     if editable {
                                         let key = format!("{}\u{0}{}", r.provider_key, r.external_key);
                                         let form = ids::row(if product { "product-ref" } else { "catalog-ref" }, &key);
-                                        let hidden = [(f.provider_key, r.provider_key.as_str()), (f.external_key, r.external_key.as_str())];
+                                        let hidden = [(f.provider_key.untyped(), r.provider_key.as_str()), (f.external_key.untyped(), r.external_key.as_str())];
                                         <RowForm
                                             id={&form}
                                             action={&unlink}
@@ -1077,7 +1077,7 @@ fn References<'a>(
 #[component(css = ItemPage)]
 fn Select<'a, I: Id>(
     label: &'a str,
-    name: FieldName,
+    name: FieldName<String>,
     placeholder: &'a str,
     options: &'a [(String, String, bool)],
     value: &'a str,

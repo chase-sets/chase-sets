@@ -855,7 +855,17 @@ async fn unlink(
         Refs::Product => ("product-ref", url::ProductRefUnlink { id: &id }.href()),
     };
     let row = (ids::row(kind, &format!("{provider}\u{0}{key}")), action, t.item_unlink());
-    row_refused(&req, viewer, &config, &headers, &id, row, &[(f.provider_key, provider), (f.external_key, key)], errors).await
+    row_refused(
+        &req,
+        viewer,
+        &config,
+        &headers,
+        &id,
+        row,
+        &[(f.provider_key.untyped(), provider), (f.external_key.untyped(), key)],
+        errors,
+    )
+    .await
 }
 
 async fn link_catalog_ref(

@@ -424,6 +424,11 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
         Failure::Failed { status, .. } if *status == StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
         // The platform API could not say whose the session is (`Refused::unavailable`).
         Failure::Unidentified { .. } => (p.error_unidentified_title(), p.error_unidentified()),
+        // A form Corten could not read (a submit key that is not one, a field of the wrong kind):
+        // the page that sent it no longer matches what the server reads.
+        Failure::Rejected { status, .. } if *status == StatusCode::UNPROCESSABLE_ENTITY => {
+            (p.error_failed_title(), p.check_attempt())
+        }
         Failure::WrongMethod
         | Failure::Rejected { .. }
         | Failure::Failed { .. }

@@ -40,7 +40,7 @@ fn physical_flags(t: Msg) -> [(&'static str, &'static str); 8] {
 #[component(css = PolicyFields)]
 pub fn Field<'a, I: Id>(
     label: &'a str,
-    name: FieldName,
+    name: FieldName<String>,
     value: &'a str,
     kind: Kind,
     required: bool,
@@ -75,7 +75,7 @@ pub fn Field<'a, I: Id>(
 
 /// Checkboxes sharing a name, one per option.
 #[component(css = PolicyFields)]
-pub fn Choices<'a>(name: FieldName, options: &'a [(&'a str, &'a str)], checked: &'a [String]) -> impl Render {
+pub fn Choices<'a>(name: FieldName<String>, options: &'a [(&'a str, &'a str)], checked: &'a [String]) -> impl Render {
     html! {
         <div class={Choices}>
             for (value, label) in options {

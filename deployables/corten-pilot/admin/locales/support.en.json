@@ -169,7 +169,7 @@
   "att.count": "{count} of {maximum} photos selected",
   "att.invalid_type": "Photos must be JPEG, PNG, or WebP images.",
   "att.too_large": "Each photo must be 10 MB or smaller.",
-  "att.too_many": "Choose no more than 5 photos.",
+  "att.over_count": "Choose no more than 5 photos.",
   "att.photo_alt": "Evidence photo {number}",
   "att.full_size": "View full-size photo {number}",
   "ops.title": "Support operations",

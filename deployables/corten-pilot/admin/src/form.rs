@@ -184,13 +184,13 @@ struct Check {
 }
 
 impl Check {
-    fn text(&mut self, field: FieldName, text: &str) {
+    fn text(&mut self, field: FieldName<String>, text: &str) {
         if text.trim().is_empty() {
             self.errors.add(field, self.t.check_required());
         }
     }
 
-    fn number(&mut self, field: FieldName, text: &str) -> f64 {
+    fn number(&mut self, field: FieldName<String>, text: &str) -> f64 {
         match text.trim() {
             "" => {
                 self.errors.add(field, self.t.check_required());
@@ -203,7 +203,7 @@ impl Check {
         }
     }
 
-    fn optional(&mut self, field: FieldName, text: &str) -> Option<f64> {
+    fn optional(&mut self, field: FieldName<String>, text: &str) -> Option<f64> {
         (!text.trim().is_empty()).then(|| self.number(field, text))
     }
 }
@@ -235,7 +235,7 @@ pub struct CloneInput {
 }
 
 /// A required reason, or its error.
-pub fn reason(t: Pilot, field: FieldName, text: &str) -> Result<String, Errors> {
+pub fn reason(t: Pilot, field: FieldName<String>, text: &str) -> Result<String, Errors> {
     let mut check = Check { t, errors: Errors::new() };
     check.text(field, text);
     check.errors.into_result(text.trim().to_owned())

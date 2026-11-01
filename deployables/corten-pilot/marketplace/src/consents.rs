@@ -13,6 +13,7 @@
 //! |---|---|
 //! | `GET /account/consents?<place>` | the page, read after the withdrawal whose receipt it carries |
 //! | `POST /account/consents` | withdraw a consent (`intent=withdraw`) |
+use crate::recovery::attempt_text;
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
@@ -48,7 +49,7 @@ pub struct Place {
 #[serde(default)]
 pub struct ConsentInput {
     pub intent: String,
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub consent_id: String,
 }
 
@@ -157,7 +158,7 @@ pub(crate) async fn write(
     if input.intent != "withdraw" {
         return refuse(t.route_unknown_action()).await;
     }
-    let attempt = input.attempt;
+    let attempt = attempt_text(&input.attempt).to_owned();
     if !valid_attempt(&attempt) {
         return refuse(p.check_attempt()).await;
     }

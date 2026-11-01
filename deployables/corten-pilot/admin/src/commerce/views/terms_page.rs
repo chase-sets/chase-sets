@@ -343,12 +343,11 @@ fn CreateScheduleSheet<'a>(t: Com, form: TermsForm, account_type: &'a str) -> im
     }
 }
 
-/// Create account override. `chooser` is the account's select, drawn by [`TermsPage`] because only
-/// it can bind the page's script (corten has no `js = OtherComponent`; todd-skelton/corten#492). It
-/// belongs to the save form, so a save always sends the account on screen; Review re-reads the
-/// starting terms for it (with JavaScript, choosing an account does).
-#[component(css = TermsPage)]
-fn CreateAgreementSheet<C: Render>(t: Com, form: TermsForm, chooser: C) -> impl Render {
+/// Create account override. The account's select belongs to the save form, so a save always sends
+/// the account on screen; Review re-reads the starting terms for it (with JavaScript, choosing an
+/// account does, through the page's script).
+#[component(css = TermsPage, js = TermsPage)]
+fn CreateAgreementSheet<'a>(t: Com, form: TermsForm, accounts: &'a [AccountOption], chosen_account: &'a str) -> impl Render {
     let f = TermsForm::FIELDS;
     html! {
         <TermsSheet
@@ -359,7 +358,16 @@ fn CreateAgreementSheet<C: Render>(t: Com, form: TermsForm, chooser: C) -> impl 
         >
             <form class={Form} method="post">
                 <input type="hidden" name={f.intent} value="create-agreement">
-                {chooser}
+                <label class={Field}>
+                    <span>{t.ct_account()}</span>
+                    <select name={f.account_id} required on:change={js::prefill(target)}>
+                        for option in accounts {
+                            <option value={&option.account_id} selected={option.account_id == chosen_account}>
+                                {t.ct_account_option(&option.display_name, &option.account_type)}
+                            </option>
+                        }
+                    </select>
+                </label>
                 <TermsFields t={t} form={&form} submit={t.ct_save_account_override()} />
                 <button type="submit" class={(Button, Secondary)} name={f.review} value="account" formnovalidate>
                     {t.ct_review()}
@@ -515,18 +523,8 @@ pub fn TermsPage<'a>(t: Com, p: Pilot, screen: &'a TermsScreen) -> impl Render {
                                 None => TermsForm::default(),
                             }
                         })}
-                        chooser={html! {
-                            <label class={Field}>
-                                <span>{t.ct_account()}</span>
-                                <select name={TermsForm::FIELDS.account_id} required on:change={js::prefill(target)}>
-                                    for option in &screen.accounts {
-                                        <option value={&option.account_id} selected={option.account_id == chosen_account}>
-                                            {t.ct_account_option(&option.display_name, &option.account_type)}
-                                        </option>
-                                    }
-                                </select>
-                            </label>
-                        }}
+                        accounts={&screen.accounts}
+                        chosen_account={chosen_account}
                     />
                 }
                 Sheet::None => {}

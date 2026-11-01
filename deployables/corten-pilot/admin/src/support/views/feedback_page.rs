@@ -211,7 +211,7 @@ pub fn FeedbackPage<'a>(t: Sup, p: Pilot, screen: &'a ListScreen) -> impl Render
 
 /// A row of the queue, with its box when the viewer may change it.
 #[component(css = FeedbackPage)]
-fn Row<'a>(t: Sup, p: Pilot, entry: &'a Entry, select: bool, field: corten::FieldName) -> impl Render {
+fn Row<'a>(t: Sup, p: Pilot, entry: &'a Entry, select: bool, field: corten::FieldName<String>) -> impl Render {
     let label = p.bulk_select_row(&entry.feedback_id).to_string();
     html! {
         <tr>

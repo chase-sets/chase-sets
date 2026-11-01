@@ -19,6 +19,7 @@
 //! |---|---|
 //! | `GET /account/security?<place>` | the page, read after the write whose receipt it carries |
 //! | `POST /account/security` | update the user's names, or create, rotate or revoke a key (`intent`) |
+use crate::recovery::attempt_text;
 use corten::{
     NoStore,
     axum::http::{HeaderMap, StatusCode},
@@ -56,7 +57,7 @@ pub struct Place {
 #[serde(default)]
 pub struct SecurityInput {
     pub intent: String,
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub display_name: String,
     pub given_name: String,
     pub family_name: String,
@@ -261,7 +262,7 @@ async fn send(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, 
         Some(AccountAction::CreateApiKey) => Some(Which::Key),
         _ => None,
     };
-    let attempt = input.attempt.clone();
+    let attempt = attempt_text(&input.attempt).to_owned();
     let refuse = |message: &'static str| {
         let mut errors = Errors::new();
         errors.add_form(message);

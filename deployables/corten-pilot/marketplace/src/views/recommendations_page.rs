@@ -223,7 +223,7 @@ fn Part<'a>(t: RepricingMsg, p: Pilot, screen: &'a RecommendationsScreen) -> imp
 
 /// A recommendation's row.
 #[component(css = RecommendationsPage)]
-fn Row<'a>(t: RepricingMsg, row: &'a Recommendation, manage: bool, busy: bool, field: FieldName) -> impl Render {
+fn Row<'a>(t: RepricingMsg, row: &'a Recommendation, manage: bool, busy: bool, field: FieldName<String>) -> impl Render {
     let title = row.catalog_item_title.as_deref().unwrap_or(&row.catalog_catalog_item_id);
     let cur = row.market_currency.as_str();
     let done = matches!(row.status.as_str(), "applied" | "dismissed");

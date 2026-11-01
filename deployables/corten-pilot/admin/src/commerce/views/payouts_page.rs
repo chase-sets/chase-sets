@@ -296,12 +296,7 @@ fn PayoutStatus<'a>(t: Com, row: &'a Payout) -> impl Render {
 
 /// A payout's retries (admin-web's own English, `${n} attempt(s); next ${at}`, in the pilot's catalog).
 fn retries(t: Com, p: Pilot, row: &Payout) -> String {
-    // Two messages until the pin has Corten's plural messages (`_one` / `_other`).
-    let attempts = if row.retry_count == 1 {
-        p.payout_attempt(row.retry_count).to_string()
-    } else {
-        p.payout_attempts(row.retry_count).to_string()
-    };
+    let attempts = p.payout_attempts(row.retry_count).to_string();
     match &row.next_retry_at {
         Some(at) => p.payout_next_retry(&attempts, &when(t, at)).to_string(),
         None if row.retry_count > 0 => attempts.to_string(),

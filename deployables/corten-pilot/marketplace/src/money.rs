@@ -28,6 +28,7 @@
 //! | `GET /account/payouts/{id}` | `301` to the payout's page, with the query |
 //! | `GET /account/wallet/adjustments/{reference}` | `301` to the money page with the adjustment open |
 //! | `GET /account/payouts/setup` | `301` to payout setup (`payout_setup`), with the query |
+use crate::recovery::attempt_text;
 use std::time::Duration;
 
 use corten::{
@@ -85,7 +86,7 @@ pub struct MoneyInput {
     pub quick_amount: String,
     pub amount: String,
     pub note: String,
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
 }
 
 impl MoneyInput {
@@ -244,11 +245,11 @@ pub(crate) async fn write(
         },
         "edit-payout" => draw(Said { draft: Some(draft()), ..Said::default() }, StatusCode::OK).await,
         "confirm-payout" => {
-            if !valid_attempt(&input.attempt) {
+            if !valid_attempt(attempt_text(&input.attempt)) {
                 return draw(refused(p.check_attempt().to_owned(), Some(draft())), StatusCode::UNPROCESSABLE_ENTITY).await;
             }
             let amount = input.amount.trim();
-            match caller.request_payout(&input.attempt, amount, input.note().as_deref()).await {
+            match caller.request_payout(attempt_text(&input.attempt), amount, input.note().as_deref()).await {
                 Ok((id, receipt)) => {
                     let place = PayoutPlace { requested: Some("1".into()), after_write: receipt.map(|r| r.param()) };
                     req.redirect(&url::DeskPayout { id: &id, place })

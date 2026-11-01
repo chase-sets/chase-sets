@@ -145,7 +145,7 @@ pub fn ref_record_list<'a>(
         (f.attribute_value, &query.attribute_value),
     ]
     .into_iter()
-    .filter_map(|(name, set)| set.as_deref().map(|v| (name, v)))
+    .filter_map(|(name, set)| set.as_deref().map(|v| (name.untyped(), v)))
     .collect();
     let type_labels: Vec<(String, String)> =
         types.iter().map(|ty| (ty.key.clone(), t.ref_record_list_reference_type_option(&ty.name, &ty.key).to_string())).collect();
@@ -305,7 +305,8 @@ pub fn ref_record_page<'a>(
     let list = url::RefRecords::default().href();
     let lifecycle_action = url::RefRecordLifecycle { id }.href();
     let edit_at = url::RefRecordEdit::of(id).href();
-    let kept: Vec<(FieldName, &str)> = after_write.map(|receipt| (Opened::FIELDS.after_write, receipt)).into_iter().collect();
+    let kept: Vec<(FieldName, &str)> =
+        after_write.map(|receipt| (Opened::FIELDS.after_write.untyped(), receipt)).into_iter().collect();
     html! {
         <DetailPage p={p} list={&list} list_label={t.ref_record_reference_records()} name={&record.name}>
             <ActionBar>

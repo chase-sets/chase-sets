@@ -166,7 +166,7 @@ enum Kind {
 #[component(css = AddressPage)]
 fn Field<'a, I: Id>(
     label: &'a str,
-    name: FieldName,
+    name: FieldName<String>,
     value: &'a str,
     kind: Kind,
     auto: &'a str,

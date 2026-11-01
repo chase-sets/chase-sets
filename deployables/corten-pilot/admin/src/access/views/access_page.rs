@@ -244,12 +244,7 @@ fn ListFrame<'a, C: Render>(
             </ul>
         }
         <section class={Part}>
-            // One form per count until the pin has Corten's plural messages (README, Open workarounds).
-            if shown == 1 {
-                <h2 class={Title}>{p.access_item(shown)}</h2>
-            } else {
-                <h2 class={Title}>{p.access_items(shown)}</h2>
-            }
+            <h2 class={Title}>{p.access_items(shown)}</h2>
             if shown == 0 {
                 <p class={Muted}>{words.empty}</p>
             } else {

@@ -315,7 +315,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
 
 /// A reason select (`reasonItems`).
 #[component(css = SellerListingsPage)]
-fn ReasonSelect<'a>(t: SellerListingsMsg, name: FieldName, chosen: &'a str) -> impl Render {
+fn ReasonSelect<'a>(t: SellerListingsMsg, name: FieldName<String>, chosen: &'a str) -> impl Render {
     html! {
         <select name={name}>
             <option value="" selected={chosen.is_empty()}>{t.list_reason_not_set()}</option>

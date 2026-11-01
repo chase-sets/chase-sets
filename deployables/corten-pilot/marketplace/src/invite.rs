@@ -23,6 +23,7 @@
 //! Check status asks for the same attempt's state again. Marketplace keeps the attempt in the
 //! tab's history state so a reload shows its state; here the attempt is in the form the status
 //! page draws, and a reload of the page itself shows the invitation as the API has it.
+use crate::recovery::attempt_text;
 use corten::{
     ClientIp,
     axum::http::{HeaderMap, StatusCode},
@@ -119,7 +120,7 @@ pub enum Invitation {
 #[serde(rename_all = "camelCase", default)]
 pub struct AcceptForm {
     pub intent: String,
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub password: String,
 }
 
@@ -295,7 +296,7 @@ pub(crate) async fn write(
         phase: None,
         failed_safe: false,
     };
-    let attempt = form.attempt.trim().to_ascii_lowercase();
+    let attempt = attempt_text(&form.attempt).to_owned();
     if !valid_attempt(&attempt) {
         // No attempt the API could apply: nothing was sent.
         screen.invitation = inspect(&caller, client, id, token).await.unwrap_or(Invitation::Unavailable);

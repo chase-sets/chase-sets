@@ -51,8 +51,8 @@
   },
   "access": {
     "view": "View",
-    "item": "{count} item",
-    "items": "{count} items",
+    "items_one": "{count} item",
+    "items_other": "{count} items",
     "close": "Close",
     "breadcrumbs": "Breadcrumbs",
     "refused": "The change was not made.",
@@ -86,8 +86,8 @@
     "stage_blocked": "Blocked"
   },
   "payout": {
-    "attempt": "{count} attempt",
-    "attempts": "{count} attempts",
+    "attempts_one": "{count} attempt",
+    "attempts_other": "{count} attempts",
     "next_retry": "{attempts}; next {at}",
     "check_again": "Check again"
   },

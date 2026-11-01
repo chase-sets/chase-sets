@@ -18,6 +18,7 @@
 //! | `GET /account/inventory/imports/template.csv`, `../export.csv` | the native template, or the account's inventory, as the API sends it |
 //! | `GET /account/inventory/imports/{batch}?offset=..&jobId=..` | a batch: its summary, 100 rows from `offset`, Commit when it can |
 //! | `POST /account/inventory/imports/{batch}/commit` | commit the accepted rows: 303 to the batch with the job |
+use crate::recovery::attempt_text;
 use corten::{
     Relay,
     axum::{
@@ -182,13 +183,13 @@ pub struct ImportFields {
     file: String,
     csv_text: String,
     /// The form's `SubmitKey`: the import's attempt.
-    attempt: String,
+    attempt: Option<SubmitKey>,
 }
 
 /// The Commit form's one field: its `SubmitKey`, the commit's attempt.
 #[derive(Deserialize, Fields)]
 pub struct CommitFields {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
 }
 
 /// What the upload form shows: what was sent (a refused import keeps it) and the API's refusal.
@@ -459,8 +460,8 @@ pub(crate) async fn commit(
     let id = route.batch;
     let caller = config.platform.caller(&headers, config.proto, None);
     // A form without its key (sent before the page carried one) is refused before the API.
-    let sent = if valid_attempt(&input.attempt) {
-        caller.commit_import(&id, &input.attempt).await
+    let sent = if valid_attempt(attempt_text(&input.attempt)) {
+        caller.commit_import(&id, attempt_text(&input.attempt)).await
     } else {
         let p: crate::text::Pilot = req.t();
         Err(ApiError::Status { status: StatusCode::BAD_REQUEST, code: None, message: p.check_attempt().to_owned() })

@@ -349,7 +349,7 @@ pub(super) fn WriteForm<'a, A: AttrValue, C: Render>(
     viewer: &'a Viewer,
     id: &'a str,
     action: A,
-    attempt: FieldName,
+    attempt: FieldName<SubmitKey>,
     enabled: bool,
     children: C,
 ) -> impl Render {

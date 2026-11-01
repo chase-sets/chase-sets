@@ -15,6 +15,7 @@
 //! |---|---|
 //! | `GET /account?<place>` | the page, read after the write whose receipt it carries |
 //! | `POST /account` | update the profile |
+use crate::recovery::attempt_text;
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
@@ -46,14 +47,14 @@ pub struct Place {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct ProfileInput {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub name: String,
     pub display_name: String,
 }
 
 impl ProfileInput {
     pub fn of(account: &AccountProfile) -> Self {
-        ProfileInput { attempt: String::new(), name: account.name.clone(), display_name: account.display_name.clone() }
+        ProfileInput { attempt: None, name: account.name.clone(), display_name: account.display_name.clone() }
     }
 
     /// The body marketplace sends: the text as it was typed.
@@ -200,7 +201,7 @@ pub(crate) async fn update(
     Form(input): Form<ProfileInput>,
 ) -> HtmlResult {
     let (t, p): (AccountHomeMsg, Pilot) = (req.t(), req.t());
-    let attempt = input.attempt.clone();
+    let attempt = attempt_text(&input.attempt).to_owned();
     let refuse = |message: &'static str| {
         let mut errors = Errors::new();
         errors.add_form(message);
@@ -284,7 +285,7 @@ mod tests {
 
     #[test]
     fn the_body_is_the_text_as_typed() {
-        let input = ProfileInput { attempt: "a".into(), name: " Legal ".into(), display_name: "Shop".into() };
+        let input = ProfileInput { attempt: None, name: " Legal ".into(), display_name: "Shop".into() };
         assert_eq!(input.command(), ProfileCommand { name: " Legal ".into(), display_name: "Shop".into() });
         assert_eq!(
             serde_json::to_value(input.command()).unwrap(),

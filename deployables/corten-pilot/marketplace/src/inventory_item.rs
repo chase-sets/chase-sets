@@ -9,6 +9,7 @@
 //! change: the page says the API's words for it, as marketplace does. Record sale is the list's form
 //! (`inventory_list::SaleInput`), drawn on the page; a recorded sale comes back with what it did in
 //! the address, read after its receipt.
+use crate::recovery::attempt_text;
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
@@ -71,7 +72,7 @@ impl ItemPlace {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AdjustInput {
-    pub inventory_mutation_attempt_id: String,
+    pub inventory_mutation_attempt_id: Option<SubmitKey>,
     pub quantity_delta: String,
     pub reason_code: String,
     pub reason: String,
@@ -84,7 +85,7 @@ impl AdjustInput {
     pub fn command(&self, p: Pilot) -> Result<AdjustCommand, Errors> {
         let f = Self::FIELDS;
         let mut errors = Errors::new();
-        if !valid_attempt(&self.inventory_mutation_attempt_id) {
+        if !valid_attempt(attempt_text(&self.inventory_mutation_attempt_id)) {
             errors.add_form(p.check_attempt());
         }
         let delta = self.quantity_delta.trim().parse::<i64>().ok().filter(|d| *d != 0);
@@ -111,7 +112,7 @@ impl AdjustInput {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HoldInput {
-    pub inventory_mutation_attempt_id: String,
+    pub inventory_mutation_attempt_id: Option<SubmitKey>,
     pub quantity: String,
     pub reason: String,
     pub notes: String,
@@ -121,7 +122,7 @@ impl HoldInput {
     pub fn command(&self, p: Pilot) -> Result<HoldCommand, Errors> {
         let f = Self::FIELDS;
         let mut errors = Errors::new();
-        if !valid_attempt(&self.inventory_mutation_attempt_id) {
+        if !valid_attempt(attempt_text(&self.inventory_mutation_attempt_id)) {
             errors.add_form(p.check_attempt());
         }
         let quantity = self.quantity.trim().parse::<u64>().ok().filter(|q| *q >= 1);
@@ -144,7 +145,7 @@ impl HoldInput {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ReleaseInput {
-    pub inventory_mutation_attempt_id: String,
+    pub inventory_mutation_attempt_id: Option<SubmitKey>,
 }
 
 /// A form the page draws again as it was sent, with what is wrong.
@@ -360,7 +361,7 @@ pub(crate) async fn adjust(
 ) -> HtmlResult {
     let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
-    let attempt = input.inventory_mutation_attempt_id.clone();
+    let attempt = attempt_text(&input.inventory_mutation_attempt_id).to_owned();
     let errors = match input.command(req.t()) {
         Ok(command) => match caller.adjust_item(&attempt, &id, &command).await {
             Ok((adjusted, receipt)) if adjusted.status == "hold-collision-recorded" => {
@@ -395,7 +396,7 @@ pub(crate) async fn hold(
 ) -> HtmlResult {
     let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
-    let attempt = input.inventory_mutation_attempt_id.clone();
+    let attempt = attempt_text(&input.inventory_mutation_attempt_id).to_owned();
     let errors = match input.command(req.t()) {
         Ok(command) => match caller.create_hold(&attempt, &id, &command).await {
             Ok(written) => return applied(&req, &id, Family::HoldCreate, &id, &attempt, written.receipt),
@@ -423,7 +424,7 @@ pub(crate) async fn release(
     let (id, hold) = (route.id, route.hold);
     let p: Pilot = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
-    let attempt = input.inventory_mutation_attempt_id;
+    let attempt = attempt_text(&input.inventory_mutation_attempt_id).to_owned();
     let errors = if valid_attempt(&attempt) {
         match caller.release_hold(&attempt, &hold).await {
             Ok(written) => return applied(&req, &id, Family::HoldRelease, &hold, &attempt, written.receipt),
@@ -508,7 +509,7 @@ mod tests {
     fn an_adjustment_is_a_whole_number_other_than_zero_with_a_reason() {
         let p = Pilot::default();
         let input = |delta: &str, code: &str, reason: &str| AdjustInput {
-            inventory_mutation_attempt_id: recovery::new_attempt(),
+            inventory_mutation_attempt_id: recovery::submit_key(&recovery::new_attempt()),
             quantity_delta: delta.into(),
             reason_code: code.into(),
             reason: reason.into(),

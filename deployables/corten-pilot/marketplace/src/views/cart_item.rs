@@ -256,7 +256,7 @@ pub fn AttemptBanner<'a>(t: CartMsg, notice: &'a AttemptNotice) -> impl Render {
             if let Some((write, input)) = &notice.resend {
                 <div class={Resend}>
                     <form class={Post} method="post" action={write_action(*write)} data-patch>
-                        <input type="hidden" name={f.attempt} value={&input.attempt}>
+                        <input type="hidden" name={f.attempt} value={crate::recovery::attempt_text(&input.attempt)}>
                         for id in &input.line_id {
                             <input type="hidden" name={f.line_id} value={id}>
                         }

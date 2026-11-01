@@ -20,7 +20,7 @@ use crate::{
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct LocationInput {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub name: String,
     pub description: String,
     pub ship_from_code: String,
@@ -52,7 +52,7 @@ impl LocationInput {
         let a = &location.ship_from_address;
         let text = |t: &Option<String>| t.clone().unwrap_or_default();
         LocationInput {
-            attempt: String::new(),
+            attempt: None,
             name: location.name.clone(),
             description: text(&location.description),
             ship_from_code: location.ship_from_code.clone(),
@@ -73,7 +73,7 @@ impl LocationInput {
     pub fn command(&self, p: Pilot, archived: Option<bool>) -> Result<LocationCommand, Errors> {
         let f = Self::FIELDS;
         let mut errors = Errors::new();
-        if !valid_attempt(&self.attempt) {
+        if !valid_attempt(crate::recovery::attempt_text(&self.attempt)) {
             errors.add_form(p.check_attempt());
         }
         for (field, text) in [
@@ -115,7 +115,7 @@ impl LocationInput {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct DecisionInput {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub expected_version: String,
     pub damage_note: String,
 }
@@ -131,7 +131,7 @@ impl DecisionInput {
     pub fn command(&self, p: Pilot, outcome: Outcome) -> Result<DecisionCommand, Errors> {
         let mut errors = Errors::new();
         let version = self.expected_version.trim().parse::<u64>().ok().filter(|v| *v >= 1);
-        if !valid_attempt(&self.attempt) || version.is_none() {
+        if !valid_attempt(crate::recovery::attempt_text(&self.attempt)) || version.is_none() {
             errors.add_form(p.check_attempt());
         }
         errors.into_result(DecisionCommand {

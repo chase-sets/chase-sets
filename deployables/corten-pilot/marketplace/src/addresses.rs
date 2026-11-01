@@ -16,6 +16,7 @@
 //! | `POST /account/shipping-addresses/{id}` | update it |
 //! | `POST /account/shipping-addresses/{id}/default` | make it the default |
 //! | `POST /account/shipping-addresses/{id}/archive` | archive it |
+use crate::recovery::attempt_text;
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
@@ -75,7 +76,7 @@ impl Said {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct AddressInput {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub label: String,
     pub name: String,
     pub company: String,
@@ -106,7 +107,7 @@ impl AddressInput {
     pub fn of(address: &ShippingAddress) -> Self {
         let text = |t: &Option<String>| t.clone().unwrap_or_default();
         AddressInput {
-            attempt: String::new(),
+            attempt: None,
             label: text(&address.label),
             name: address.recipient_name.clone(),
             company: text(&address.company),
@@ -296,7 +297,7 @@ pub(crate) async fn archive(
 }
 
 /// The field a required-field refusal names, as the form calls it.
-fn field_of(api: &str) -> Option<FieldName> {
+fn field_of(api: &str) -> Option<FieldName<String>> {
     let f = AddressInput::FIELDS;
     Some(match api {
         "name" => f.name,
@@ -337,7 +338,7 @@ async fn write(
         (AccountAction::Update, Some(id)) => Some(Which::Update(id.to_owned())),
         _ => None,
     };
-    let attempt = input.attempt.clone();
+    let attempt = attempt_text(&input.attempt).to_owned();
     let refuse = |errors: Errors, suggested: Option<SuggestedAddress>| {
         let posted = which.clone().map(|which| (which, Draft { input: input.clone(), errors, suggested }));
         let said = if posted.is_some() { Said::Editing } else { Said::NotSaved };

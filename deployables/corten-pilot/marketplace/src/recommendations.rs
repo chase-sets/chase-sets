@@ -8,8 +8,8 @@
 //! (marketplace's `subscribeDurableJobStatus` on `/recommendation-jobs/{id}/events`); once it
 //! finished the pilot reads the recommendations again and draws the page's part again, where
 //! marketplace's page reloads itself. The page's actions are off while a job runs. Without a
-//! script the page reads itself again every 2 s while the job runs, by the `<noscript>` refresh
-//! bulk reprice writes (todd-skelton/corten#319).
+//! script the page reads itself again every 2 s while the job runs
+//! (`ReadAgain::without_javascript`, as bulk reprice).
 //!
 //! Refresh, Apply and Dismiss are for a seller with `pricing.manage`; a reader sees the page
 //! without them, as the pilot's repricing desk does (marketplace shows them and its action refuses).
@@ -114,10 +114,9 @@ async fn render(
     let head = html! {
         <meta name="description" content={t.recs_route_review_seller_pricing_recommendations()}>
         <meta name="robots" content="noindex">
-        // Without a script, read again while the job runs; with one, its notice is live
-        // (todd-skelton/corten#319).
+        // Without a script, read again while the job runs; with one, its notice is live.
         if active {
-            <noscript><meta http-equiv="refresh" content="2"></noscript>
+            {ReadAgain { after: std::time::Duration::from_secs(2) }.without_javascript()}
         }
     };
     let page = html! {

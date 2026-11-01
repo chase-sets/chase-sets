@@ -2,6 +2,7 @@
 //! returned stock that needs a decision, and each one's two writes, Restock and Write off. Both are
 //! the `restock-record` family on the decision, sent with the version the page read, and confirmed
 //! by the list they redirect to (see `recovery`), as the storage locations' are.
+use crate::recovery::attempt_text;
 use corten::{axum::http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::Serialize;
@@ -118,7 +119,7 @@ async fn decide(
     let caller = config.platform.caller(headers, config.proto, None);
     let errors = match input.command(p, outcome) {
         Ok(command) => {
-            let attempt = input.attempt.as_str();
+            let attempt = attempt_text(&input.attempt);
             match caller.record_decision(attempt, id, &command).await {
                 Ok(written) => {
                     let check = Check::applied(Family::Restock, id, attempt, written.receipt.map(|r| r.param()));
@@ -139,7 +140,7 @@ async fn decide(
     // Nothing was applied: the form again, drawn with a new attempt, and a status that settles
     // the posted one. Marketplace reads the list again after a refusal, so the form takes the
     // decision's version as it is now (a refusal for a stale version is then sent fresh).
-    let status = Status::Refused(input.attempt.clone());
+    let status = Status::Refused(attempt_text(&input.attempt).to_owned());
     let mut input = input;
     if let Ok(list) = caller.restock_decisions().await
         && let Some(decision) = list.items.iter().find(|d| d.decision_id == id)

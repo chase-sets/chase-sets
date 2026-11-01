@@ -226,7 +226,7 @@ fn HaltPart<'a>(
     failed: bool,
     manage: bool,
     action: String,
-    intent: FieldName,
+    intent: FieldName<String>,
 ) -> impl Render {
     let engaged = halt.engaged;
     let since = halt.engaged_at.as_deref().map(|at| when(t, at)).unwrap_or_default();
@@ -349,8 +349,8 @@ fn PolicyRow<'a>(
     policy: &'a RepricingPolicyRow,
     halted: bool,
     manage: bool,
-    intent: FieldName,
-    id_field: FieldName,
+    intent: FieldName<String>,
+    id_field: FieldName<String>,
 ) -> impl Render {
     let id = policy.policy_id.as_deref().unwrap_or_default();
     let (label, tone) = status(t, &policy.status, halted);

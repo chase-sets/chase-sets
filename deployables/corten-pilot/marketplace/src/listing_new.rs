@@ -60,7 +60,7 @@ pub const DEADLINE: Duration = Duration::from_secs(150);
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct ListingFields {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub intent: String,
     pub q: String,
     /// A search result's Choose.
@@ -204,7 +204,7 @@ fn selected_options(text: &str) -> Picks {
 impl Draft {
     pub fn read(raw: &Raw) -> Self {
         let f = ListingFields::FIELDS;
-        let get = |name: FieldName| first(raw, name.as_str());
+        let get = |name: FieldName<String>| first(raw, name.as_str());
         let chosen = get(f.choose);
         let change = !get(f.change).is_empty();
         let mut options: Picks = raw
@@ -227,7 +227,8 @@ impl Draft {
             options.clear();
         }
         let price = Some(get(f.price_amount)).filter(|p| !p.is_empty()).unwrap_or_else(|| get(f.recommended_price));
-        let given = |name: FieldName, or: &str| Some(get(name)).filter(|v| !v.is_empty()).unwrap_or_else(|| or.to_owned());
+        let given =
+            |name: FieldName<String>, or: &str| Some(get(name)).filter(|v| !v.is_empty()).unwrap_or_else(|| or.to_owned());
         Draft {
             q: get(f.q),
             catalog_item_id,

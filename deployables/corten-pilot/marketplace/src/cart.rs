@@ -15,6 +15,7 @@
 //! line's badge is the API's line outcome, not a copy of its rules
 //! ([chase-sets/chase-sets#10576](https://github.com/chase-sets/chase-sets/issues/10576)); the
 //! line's price is still worked out here from its listings, as marketplace's page does.
+use crate::recovery::{attempt_text, submit_key};
 use std::{collections::HashMap, time::Duration};
 
 use corten::{
@@ -91,7 +92,7 @@ pub struct AfterWrite {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct LineInput {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     pub line_id: Vec<String>,
     pub quantity: String,
     pub delta: String,
@@ -599,7 +600,8 @@ pub(crate) async fn lock(
 /// as marketplace refuses it.
 async fn write(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, which: Write, mut input: LineInput) -> HtmlResult {
     let t: CartMsg = req.t();
-    input.attempt = cart_attempt::attempt_id(&input.attempt);
+    let attempt = cart_attempt::attempt_id(attempt_text(&input.attempt));
+    input.attempt = submit_key(&attempt);
     let guest = match buyer {
         Buyer::Account(_) => None,
         Buyer::Guest(_) => anonymous_cart(headers).map(str::to_owned),
@@ -622,7 +624,7 @@ async fn write(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, w
     };
     let caller = config.platform.caller(headers, config.proto, None);
     let sent = CartWrite::commands(&commands).for_guest(guest);
-    let outcome = match cart_attempt::submit(&caller, &input.attempt, &sent).await {
+    let outcome = match cart_attempt::submit(&caller, &attempt, &sent).await {
         Ok(outcome) => outcome,
         Err(StatusCode::UNAUTHORIZED) => return sign_in_to_cart(req),
         Err(status) => return Err(corten::Error::status(status)),

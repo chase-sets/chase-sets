@@ -288,11 +288,11 @@ pub mod url {
         #[route("/sitemap.xml", get = crate::site::sitemap)]
         pub struct Sitemap;
 
-        /// `file` is the page's number and `.xml` (`1.xml`): a parameter is a whole segment.
-        #[route("/sitemap/{kind}/{file}", get = crate::site::sitemap_page)]
+        /// `page` is the page's number, as written (`site::page_number` reads it).
+        #[route("/sitemap/{kind}/{page}.xml", get = crate::site::sitemap_page)]
         pub struct SitemapPage<'a> {
             pub kind: &'a str,
-            pub file: &'a str,
+            pub page: &'a str,
         }
 
         #[route("/favicon.svg", get = crate::site::favicon)]
@@ -1851,9 +1851,12 @@ pub fn app(config: Config) -> App {
         // any HTTPS origin or a developer's localhost (`isTrustedHttpUrl`): Chromium and WebKit apply
         // `form-action` to that redirect.
         .area(|area| {
-            url::agent_consent::area(area, shared.clone())
-                .components(views::AGENTS)
-                .policy(|p| p.form_action("https:").form_action("http://localhost:*").form_action("http://127.0.0.1:*"))
+            url::agent_consent::area(area, shared.clone()).components(views::AGENTS).policy(|p| {
+                p.form_action("https:")
+                    .form_action("http://localhost:*")
+                    .form_action("http://127.0.0.1:*")
+                    .referrer(corten::security::Referrer::StrictOrigin)
+            })
         })
         .area(|area| url::oauth::area(area, shared.clone()))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.

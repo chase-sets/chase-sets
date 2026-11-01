@@ -87,7 +87,7 @@ pub fn WriteForm<'a, I: Id + AttrValue, A: AttrValue, C: Render>(
     viewer: &'a Viewer,
     family: Family,
     target: &'a str,
-    attempt: FieldName,
+    attempt: FieldName<SubmitKey>,
     errors: &'a Errors,
     enabled: bool,
     children: C,

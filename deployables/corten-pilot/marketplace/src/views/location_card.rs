@@ -28,7 +28,7 @@ pub enum Kind {
 #[component(css = LocationCard)]
 pub fn Field<'a, I: Id>(
     label: &'a str,
-    name: FieldName,
+    name: FieldName<String>,
     value: &'a str,
     kind: Kind,
     required: bool,

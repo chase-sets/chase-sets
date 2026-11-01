@@ -46,7 +46,7 @@ pub const MOST_DETAILS: usize = 1000;
 #[derive(Fields)]
 #[allow(dead_code)]
 pub struct ListingFields {
-    attempt: String,
+    attempt: Option<SubmitKey>,
     reason: String,
     details: String,
 }

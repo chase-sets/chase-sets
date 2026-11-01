@@ -57,7 +57,7 @@ const STOCK_CODE: &str = "LISTING-STOCK";
 #[derive(Fields)]
 #[allow(dead_code)]
 pub struct ListFields {
-    pub attempt: String,
+    pub attempt: Option<SubmitKey>,
     product: String,
     price: String,
     currency: String,

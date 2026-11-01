@@ -118,9 +118,9 @@ pub mod url {
                 (f.has_source_references, &self.has_source_references),
                 (f.missing_required_fields, &self.missing_required_fields),
             ];
-            let mut kept: Vec<_> = names.into_iter().filter_map(|(name, value)| Some((name, value.clone()?))).collect();
+            let mut kept: Vec<_> = names.into_iter().filter_map(|(name, value)| Some((name.untyped(), value.clone()?))).collect();
             if let Some(page) = self.page.filter(|page| *page > 1) {
-                kept.push((f.page, page.to_string()));
+                kept.push((f.page.untyped(), page.to_string()));
             }
             kept
         }

@@ -138,7 +138,7 @@ pub fn TeamPage<'a>(t: TeamMsg, p: Pilot, screen: &'a TeamScreen) -> impl Render
 
 /// The roles a select offers, with `chosen` selected.
 #[component(css = TeamPage)]
-fn RoleSelect<'a>(t: TeamMsg, name: FieldName, chosen: &'a str, label: &'a str) -> impl Render {
+fn RoleSelect<'a>(t: TeamMsg, name: FieldName<String>, chosen: &'a str, label: &'a str) -> impl Render {
     html! {
         <label class={Field}>
             <span class={Label}>{label}</span>

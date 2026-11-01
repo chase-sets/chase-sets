@@ -51,7 +51,7 @@ pub const ADDED: &str = "added";
 #[allow(dead_code)]
 pub struct BuyFields {
     intent: String,
-    attempt: String,
+    attempt: Option<SubmitKey>,
     quantity: String,
     product: String,
     lock: String,
