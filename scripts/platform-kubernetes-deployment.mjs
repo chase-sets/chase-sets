@@ -1209,6 +1209,15 @@ const productionWriterCensusEvidencePrefix = "production-writer-census-evidence 
 const productionWriterCensusEvidenceMaxBytes = 65_536;
 const productionWriterCensusMessageMaxLength = 512;
 
+const isCensusTransportError = (error) =>
+  error instanceof TypeError && ["fetch failed", "terminated"].includes(error.message);
+const censusTransportFailure = (error) => {
+  const code = error?.cause?.code;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{0,39}$/.test(code)
+    ? `transport error (${code})`
+    : "transport error";
+};
+
 // Non-retried refusals carry their class from the throw site; moving passes are
 // classified only after the bounded retry, from every pass's signature.
 function censusRefusal(refusalClass, message) {
@@ -1493,7 +1502,7 @@ const partitionRunIdentity = (run) =>
 // exactly its global total: every listed run unchanged, and every unlisted counted run
 // identified so the writer projection judges it. A final global re-read must repeat
 // the drift, so movement during the fallback refuses. Later statuses are then read
-// once. At most 20 reads are added; 5xx re-reads stay within readApi's own budget.
+// once. At most 20 reads are added; 5xx and transport re-reads share readApi's budget.
 async function readReconciledStatusPartition(readApi, passes, status, partitions) {
   const finalPass = passes.at(-1);
   const global = finalPass.statuses[status];
@@ -1596,24 +1605,48 @@ export async function readGitHubProductionWriterCensus(options = {}) {
   const partitions = [];
   const reads = [];
   const serverErrorRetries = [];
-  // A server error is re-read at most twice, within one budget per call. Any other
-  // status, a transport error or an unreadable body refuses at once.
+  const transportRetries = [];
+  // A server error or exact transport loss is re-read at most twice, within one
+  // budget per call. Any other status, error or unreadable body refuses at once.
   async function readApi(path, label, requests = reads) {
     for (let reread = 0; ; reread += 1) {
-      const response = await fetchImpl(`${apiUrl}/repos/${repository}/${path}`, {
-        method: "GET",
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${token}`,
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      });
+      const retryTransport = async (error) => {
+        const failure = censusTransportFailure(error);
+        if (
+          reread >= productionWriterCensusServerErrorRereads ||
+          serverErrorRetries.length + transportRetries.length >= productionWriterCensusServerErrorRetryBudget
+        ) {
+          throw censusRefusal("census-transport", `GitHub Actions ${label} encountered ${failure}.`);
+        }
+        const delayMs = productionWriterCensusRetryDelayMs * (reread + 1);
+        transportRetries.push({ path, failure, delayMs });
+        await sleep(delayMs);
+      };
+      let response;
+      try {
+        response = await fetchImpl(`${apiUrl}/repos/${repository}/${path}`, {
+          method: "GET",
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${token}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        });
+      } catch (error) {
+        if (!isCensusTransportError(error)) throw error;
+        await retryTransport(error);
+        continue;
+      }
       const metadata = censusResponseMetadata(path, response);
       requests.push(metadata);
       if (response.ok) {
         try {
           return await response.json();
-        } catch {
+        } catch (error) {
+          if (isCensusTransportError(error)) {
+            await retryTransport(error);
+            continue;
+          }
           // A JSON parse message quotes the body; the class and label are enough.
           throw censusRefusal("census-invalid-response", `GitHub Actions ${label} returned an invalid response.`);
         }
@@ -1621,7 +1654,7 @@ export async function readGitHubProductionWriterCensus(options = {}) {
       if (
         !(Number.isSafeInteger(response.status) && response.status >= 500 && response.status <= 599) ||
         reread >= productionWriterCensusServerErrorRereads ||
-        serverErrorRetries.length >= productionWriterCensusServerErrorRetryBudget
+        serverErrorRetries.length + transportRetries.length >= productionWriterCensusServerErrorRetryBudget
       ) {
         throw censusRefusal("census-http-status", `GitHub Actions ${label} failed with HTTP ${response.status}.`);
       }
@@ -1643,6 +1676,7 @@ export async function readGitHubProductionWriterCensus(options = {}) {
       partitions: partitions.map(({ runs, ...partition }) => partition),
       reads,
       serverErrorRetries,
+      transportRetries,
       runs: censusEvidenceRuns(passes, partitions),
     });
 
@@ -1664,7 +1698,7 @@ export async function readGitHubProductionWriterCensus(options = {}) {
     writeEvidence("refused", refusalClass, message);
     throw new Error(message, { cause: error });
   }
-  if (passes.length > 1 || serverErrorRetries.length > 0) writeEvidence("admitted");
+  if (passes.length > 1 || serverErrorRetries.length > 0 || transportRetries.length > 0) writeEvidence("admitted");
   return census;
 }
 
