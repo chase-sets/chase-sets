@@ -21,6 +21,7 @@ use corten::{
 };
 use serde::Deserialize;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{Caller, Discovery as _, ListingReport, Marketplace as _, MetricsChips, PublicAccount},
     app::{Shared, marketplace_origin, sign_in_at, url},
@@ -143,6 +144,7 @@ fn page_number(text: Option<&str>) -> u64 {
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -167,7 +169,7 @@ pub(crate) async fn page(
     let notice = query.reported.filter(|id| !id.is_empty()).map(|id| (id, ReviewNotice::Submitted));
     let chips = chips(&caller, &account).await;
     let screen = AccountScreen { account, chips, role, page, notice };
-    render(&req, session, &screen, StatusCode::OK)
+    render(&req, session, &screen, StatusCode::OK, chrome.cart().await)
 }
 
 /// The account with the page of reviews asked for; a 404 when there is none, a 502 when the read
@@ -200,7 +202,7 @@ async fn chips(caller: &Caller<'_>, account: &PublicAccount) -> Option<MetricsCh
 }
 
 /// The page, with what happened to a form it was sent from.
-fn render(req: &Req, session: Option<&Session>, screen: &AccountScreen, status: StatusCode) -> HtmlResult {
+fn render(req: &Req, session: Option<&Session>, screen: &AccountScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
     let t: AccountMsg = req.t();
     let p: Pilot = req.t();
     let account = &screen.account;
@@ -228,7 +230,7 @@ fn render(req: &Req, session: Option<&Session>, screen: &AccountScreen, status: 
     req.page_with_status(
         status,
         html! {
-            <views::Layout req={req} viewer={viewer} title={&title} head={head}>
+            <views::Layout req={req} viewer={viewer} cart={cart} title={&title} head={head}>
                 <views::AccountPage t={t} p={p} screen={screen} />
             </views::Layout>
         },
@@ -245,6 +247,7 @@ fn field<'a>(raw: &'a Raw, name: &str) -> &'a str {
 /// a refusal draws the review's dialog open again with what was sent.
 pub(crate) async fn report_review(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -266,17 +269,22 @@ pub(crate) async fn report_review(
         details: details.to_owned(),
     };
     let mut screen = AccountScreen { account, chips: None, role, page, notice: None };
-    let again = |mut screen: AccountScreen, notice: ReviewNotice, status: StatusCode| {
+    let again = |cart: Option<u64>, mut screen: AccountScreen, notice: ReviewNotice, status: StatusCode| {
         screen.notice = Some((review.clone(), notice));
-        render(&req, session, &screen, status)
+        render(&req, session, &screen, status, cart)
     };
     if !REASONS.contains(&reason) {
         screen.chips = chips(&caller, &screen.account).await;
-        return again(screen, refused(p.account_report_reason_required()), StatusCode::UNPROCESSABLE_ENTITY);
+        return again(chrome.cart().await, screen, refused(p.account_report_reason_required()), StatusCode::UNPROCESSABLE_ENTITY);
     }
     if details.encode_utf16().count() > MOST_DETAILS {
         screen.chips = chips(&caller, &screen.account).await;
-        return again(screen, refused(p.account_report_details_too_long()), StatusCode::UNPROCESSABLE_ENTITY);
+        return again(
+            chrome.cart().await,
+            screen,
+            refused(p.account_report_details_too_long()),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        );
     }
     let path = format!("/accounts/{}", screen.account.account_slug);
     let body = ListingReport { reason, details: (!details.is_empty()).then_some(details), source_route_path: &path };
@@ -289,14 +297,16 @@ pub(crate) async fn report_review(
         Err(error) => {
             screen.chips = chips(&caller, &screen.account).await;
             match (error.status(), error.code()) {
-                (_, Some("report_already_submitted")) => again(screen, ReviewNotice::Already, StatusCode::CONFLICT),
+                (_, Some("report_already_submitted")) => {
+                    again(chrome.cart().await, screen, ReviewNotice::Already, StatusCode::CONFLICT)
+                }
                 (Some(StatusCode::UNAUTHORIZED), _) => sign_in(&req, &screen.account.account_slug),
                 (Some(StatusCode::TOO_MANY_REQUESTS), _) => {
-                    again(screen, refused(p.account_report_limited()), StatusCode::TOO_MANY_REQUESTS)
+                    again(chrome.cart().await, screen, refused(p.account_report_limited()), StatusCode::TOO_MANY_REQUESTS)
                 }
                 (Some(status), _) if status.is_client_error() => {
                     let message = error.refusal().map_or_else(|| p.account_report_refused().to_owned(), str::to_owned);
-                    again(screen, refused(&message), StatusCode::UNPROCESSABLE_ENTITY)
+                    again(chrome.cart().await, screen, refused(&message), StatusCode::UNPROCESSABLE_ENTITY)
                 }
                 _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
             }

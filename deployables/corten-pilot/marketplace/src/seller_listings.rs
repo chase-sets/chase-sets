@@ -30,6 +30,7 @@ use futures_util::{StreamExt, future::join_all};
 use platform::{realtime::Tick, receipt::Receipt};
 use serde::Deserialize;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, Availability, Caller as Api, CommandError, FeeLockRow, ListingCommand, ListingPage, OrderCapacity,
@@ -239,6 +240,7 @@ async fn render(
     receipt: Option<Receipt>,
     after: After,
     status: StatusCode,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let filters = Filters::read(place);
     let query = filters.query();
@@ -253,9 +255,9 @@ async fn render(
                 overlay(place, &mut reads);
                 reads
             }
-            Err(error) => return read_failed(req, Some(viewer), error, None),
+            Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
         },
-        Err(error) => return read_failed(req, Some(viewer), error, None),
+        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
     };
     let metrics = match metrics {
         Ok(metrics) if metrics.valid() => Some(metrics),
@@ -283,14 +285,16 @@ async fn render(
     };
     let t: SellerListingsMsg = req.t();
     let view = html! { <views::SellerListingsPage t={t} p={req.t()} screen={&screen} /> };
+    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} title={t.route_listings_marketplace()} head={()}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_listings_marketplace()} head={()}>{view}</Layout>
     };
     if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
 }
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -298,7 +302,7 @@ pub(crate) async fn page(
 ) -> HtmlResult {
     let place = route.place;
     let receipt = Receipt::from_param(place.after_write.as_deref());
-    render(&req, &viewer, &config, &headers, &place, receipt, After::default(), StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, &place, receipt, After::default(), StatusCode::OK, &chrome).await
 }
 
 /// A date a form sent, as the API takes it: `YYYY-MM-DD`.
@@ -449,8 +453,10 @@ fn refused_field(intent: &str, code: &str) -> Option<FieldName<String>> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn write(
     req: Req,
+    chrome: Chrome,
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     zone: Option<ClientZone>,
@@ -465,11 +471,11 @@ pub(crate) async fn write(
         "bulk-withdraw-listings" => Some(ListingCommand::Withdraw),
         _ => None,
     } {
-        return bulk(&req, &viewer, &config, &headers, &place, form, command).await;
+        return bulk(&req, &viewer, &config, &headers, &place, form, command, &chrome).await;
     }
     let refused_page = |errors: Errors, form: ListingsForm, status| {
         let after = After { errors, sent: form, ..After::default() };
-        render(&req, &viewer, &config, &headers, &place, None, after, status)
+        render(&req, &viewer, &config, &headers, &place, None, after, status, &chrome)
     };
     let caller = config.platform.caller(&headers, config.proto, None);
     // Only a form with a day reads where the seller is, so the others never read Identity.
@@ -510,6 +516,7 @@ pub(crate) async fn write(
 /// Pause selected or Withdraw selected: each checked listing's write, side by side, then the page
 /// with each one's outcome, read after the latest write. A refusal (4xx) is that listing's
 /// outcome; a failure (5xx, no answer) is the error page, as marketplace's action throws.
+#[allow(clippy::too_many_arguments)]
 async fn bulk(
     req: &Req,
     viewer: &Viewer,
@@ -518,6 +525,7 @@ async fn bulk(
     place: &Place,
     form: ListingsForm,
     command: ListingCommand,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let (t, p): (SellerListingsMsg, Pilot) = (req.t(), req.t());
     let mut ids: Vec<String> = Vec::new();
@@ -530,7 +538,7 @@ async fn bulk(
         let mut errors = Errors::new();
         errors.add_form(p.seller_listings_choose_listings());
         let after = After { errors, sent: form, ..After::default() };
-        return render(req, viewer, config, headers, place, None, after, StatusCode::UNPROCESSABLE_ENTITY).await;
+        return render(req, viewer, config, headers, place, None, after, StatusCode::UNPROCESSABLE_ENTITY, chrome).await;
     }
     let caller = config.platform.caller(headers, config.proto, None);
     let answers = join_all(ids.iter().map(|id| caller.listing_command(id, &command))).await;
@@ -561,7 +569,7 @@ async fn bulk(
         outcomes.push(Outcome { listing_id, ok: false, message: Some(message) });
     }
     let after = After { outcomes: Some(outcomes), ..After::default() };
-    render(req, viewer, config, headers, place, latest, after, StatusCode::OK).await
+    render(req, viewer, config, headers, place, latest, after, StatusCode::OK, chrome).await
 }
 
 /// The list's parts for `<corten-live>` (marketplace's `useRealtimePatchedSnapshot` on

@@ -20,6 +20,7 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, OrderDetail, OrderList, Orders as _, Side},
     app::{Config, ORDERS_MANAGE, Shared, read_failed, sign_in, url},
@@ -127,75 +128,89 @@ pub fn cancel_href(side: Side, id: &str) -> String {
 
 pub(crate) async fn purchases(
     req: Req,
+    chrome: Chrome,
     Caller(OrderBuyer(viewer)): Caller<OrderBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::purchases::Purchases>,
 ) -> HtmlResult {
     let paging = route.page;
-    list(&req, &viewer, &config, &headers, Side::Buyer, &paging).await
+    list(&req, &viewer, &config, &headers, Side::Buyer, &paging, &chrome).await
 }
 
 pub(crate) async fn sales(
     req: Req,
+    chrome: Chrome,
     Caller(OrderSeller(viewer)): Caller<OrderSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::sales::Sales>,
 ) -> HtmlResult {
     let paging = route.page;
-    list(&req, &viewer, &config, &headers, Side::Seller, &paging).await
+    list(&req, &viewer, &config, &headers, Side::Seller, &paging, &chrome).await
 }
 
 pub(crate) async fn purchase(
     req: Req,
+    chrome: Chrome,
     Caller(OrderBuyer(viewer)): Caller<OrderBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::purchases::Purchase<'_>>,
 ) -> HtmlResult {
     let (id, after) = (route.id, route.after);
-    order(&req, &viewer, &config, &headers, Side::Buyer, &id, &after).await
+    order(&req, &viewer, &config, &headers, Side::Buyer, &id, &after, &chrome).await
 }
 
 pub(crate) async fn sale(
     req: Req,
+    chrome: Chrome,
     Caller(OrderSeller(viewer)): Caller<OrderSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::sales::Sale<'_>>,
 ) -> HtmlResult {
     let (id, after) = (route.id, route.after);
-    order(&req, &viewer, &config, &headers, Side::Seller, &id, &after).await
+    order(&req, &viewer, &config, &headers, Side::Seller, &id, &after, &chrome).await
 }
 
 pub(crate) async fn cancel_purchase(
     req: Req,
+    chrome: Chrome,
     Caller(OrderBuyer(viewer)): Caller<OrderBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::purchases::PurchaseCancel<'_>>,
 ) -> HtmlResult {
     let id = route.id;
-    cancel(&req, &viewer, &config, &headers, Side::Buyer, &id).await
+    cancel(&req, &viewer, &config, &headers, Side::Buyer, &id, &chrome).await
 }
 
 pub(crate) async fn cancel_sale(
     req: Req,
+    chrome: Chrome,
     Caller(OrderSeller(viewer)): Caller<OrderSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::sales::SaleCancel<'_>>,
 ) -> HtmlResult {
     let id = route.id;
-    cancel(&req, &viewer, &config, &headers, Side::Seller, &id).await
+    cancel(&req, &viewer, &config, &headers, Side::Seller, &id, &chrome).await
 }
 
-async fn list(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap, side: Side, paging: &Paging) -> HtmlResult {
+async fn list(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Config,
+    headers: &HeaderMap,
+    side: Side,
+    paging: &Paging,
+    chrome: &Chrome,
+) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     let orders = match caller.orders(side, paging.limit(), paging.offset()).await {
         Ok(orders) => orders,
-        Err(error) => return read_failed(req, Some(viewer), error, None),
+        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
     };
     let screen = ListScreen { side, orders };
     let t: OrdersMsg = req.t();
@@ -205,9 +220,11 @@ async fn list(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap, 
     };
     let head = html! { <meta name="description" content={description}> };
     let view = html! { <views::OrderList t={t} p={req.t()} screen={&screen} /> };
-    req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> })
+    let cart = chrome.cart().await;
+    req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={head}>{view}</Layout> })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn order(
     req: &Req,
     viewer: &Viewer,
@@ -216,6 +233,7 @@ async fn order(
     side: Side,
     id: &str,
     after: &AfterWrite,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(after.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -224,15 +242,15 @@ async fn order(
         // The order's projection has not caught up with the write yet (`loadAfterWrite`'s pending
         // read, which marketplace answers 503 with "We are preparing your purchase").
         Err(error) if receipt.is_some() && error.catching_up() => None,
-        Err(error) => return order_failed(req, viewer, side, error, receipt.is_some()),
+        Err(error) => return order_failed(req, viewer, side, error, receipt.is_some(), chrome.cart().await),
     };
     let may_cancel = viewer.actor.can(ORDERS_MANAGE);
-    render(req, viewer, OrderScreen { side, order, notice: None, may_cancel }, StatusCode::OK)
+    render(req, viewer, OrderScreen { side, order, notice: None, may_cancel }, StatusCode::OK, chrome.cart().await)
 }
 
 /// A read that failed: a 404 is the error page's Not found, after a write the screen's "could not
 /// be verified", else as every list's read.
-fn order_failed(req: &Req, viewer: &Viewer, side: Side, error: ApiError, after_write: bool) -> HtmlResult {
+fn order_failed(req: &Req, viewer: &Viewer, side: Side, error: ApiError, after_write: bool, cart: Option<u64>) -> HtmlResult {
     if error.status() == Some(StatusCode::NOT_FOUND) {
         return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND));
     }
@@ -241,12 +259,20 @@ fn order_failed(req: &Req, viewer: &Viewer, side: Side, error: ApiError, after_w
         Side::Buyer => p.orders_purchase_unverified(),
         Side::Seller => p.orders_sale_unverified(),
     };
-    read_failed(req, Some(viewer), error, after_write.then_some(unverified))
+    read_failed(req, Some(viewer), error, after_write.then_some(unverified), cart)
 }
 
 /// Cancels the order: its page with the cancellation's receipt, or with what the API said when it
 /// refused (the order read again as it is now).
-async fn cancel(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap, side: Side, id: &str) -> HtmlResult {
+async fn cancel(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Config,
+    headers: &HeaderMap,
+    side: Side,
+    id: &str,
+    chrome: &Chrome,
+) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     let refused = match caller.cancel_order(side, id).await {
         Ok(receipt) => {
@@ -266,12 +292,18 @@ async fn cancel(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap
     let (status, message) = refused;
     let order = match caller.order(side, id).await {
         Ok(order) => order,
-        Err(error) => return order_failed(req, viewer, side, error, false),
+        Err(error) => return order_failed(req, viewer, side, error, false, chrome.cart().await),
     };
-    render(req, viewer, OrderScreen { side, order: Some(order), notice: Some(message), may_cancel: true }, status)
+    render(
+        req,
+        viewer,
+        OrderScreen { side, order: Some(order), notice: Some(message), may_cancel: true },
+        status,
+        chrome.cart().await,
+    )
 }
 
-fn render(req: &Req, viewer: &Viewer, screen: OrderScreen, status: StatusCode) -> HtmlResult {
+fn render(req: &Req, viewer: &Viewer, screen: OrderScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
     let t: OrdersMsg = req.t();
     let (title, description) = match screen.side {
         Side::Buyer => (t.purchase_purchase_marketplace(), t.purchase_inspect_a_purchase_cancel_it_while()),
@@ -285,6 +317,6 @@ fn render(req: &Req, viewer: &Viewer, screen: OrderScreen, status: StatusCode) -
         }
     };
     let view = html! { <views::OrderPage t={t} p={req.t()} screen={&screen} /> };
-    let page = html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> };
+    let page = html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={head}>{view}</Layout> };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }

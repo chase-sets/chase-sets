@@ -26,6 +26,7 @@ use corten::{
 use platform::{money, receipt::Receipt};
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, Cart, CartCommand, CartLine, CartWrite, Checkout as _, Decisions, OptimizationDecision, Readiness,
@@ -45,36 +46,6 @@ pub const ANONYMOUS_CART_COOKIE: &str = "chase_sets_anonymous_cart";
 /// The guest cart the request carries, when it is one the API takes (`readAnonymousCartId`).
 pub fn anonymous_cart(headers: &HeaderMap) -> Option<&str> {
     cookie::get(headers, ANONYMOUS_CART_COOKIE).filter(|id| id.starts_with("anon_"))
-}
-
-/// The cart's item count, for the nav's badge.
-#[derive(Serialize, ToJson)]
-pub struct Count {
-    pub count: u64,
-}
-
-/// The cart's item count (marketplace's `resolveCartCount`): the account's cart, or the guest cart
-/// the browser carries, 0 when there is none or it cannot be read. The nav's script asks for it
-/// once per full page load, since the layout cannot read it (see `views::market_nav`). Kept by no
-/// cache: it changes with every cart write.
-pub(crate) async fn count(
-    Caller(buyer): Caller<Buyer>,
-    State(config): State<Shared>,
-    headers: HeaderMap,
-) -> corten::NoStore<JsonResult<Count>> {
-    let caller = config.platform.caller(&headers, config.proto, None);
-    let read = match buyer {
-        Buyer::Account(_) => caller.cart().await,
-        Buyer::Guest(_) => caller.guest_cart(anonymous_cart(&headers)).await,
-    };
-    let count = read.map_or_else(
-        |error| {
-            tracing::warn!("the cart count was not read: {error}");
-            0
-        },
-        |cart| cart.count,
-    );
-    corten::NoStore(Ok(Json(Count { count })))
 }
 
 /// What the cart's address carries after a write: its receipt, which the cart read waits for
@@ -515,7 +486,7 @@ pub(crate) async fn page(
 
 /// The cart page, read after `receipt`'s write when there is one, with `notice` above the lines:
 /// a checkout or a write that applied nothing is 422, a write that applied part or may not have
-/// applied is 409.
+/// applied is 409. The nav's count is the one this read found, so the page takes no `Chrome`.
 async fn render(
     req: &Req,
     buyer: &Buyer,
@@ -536,7 +507,7 @@ async fn render(
         Err(error) if receipt.is_some() && error.catching_up() => CartScreen::pending(),
         Err(error) => {
             let t: CartMsg = req.t();
-            return read_failed(req, viewer, error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()));
+            return read_failed(req, viewer, error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()), None);
         }
     };
     let t: CartMsg = req.t();
@@ -556,10 +527,11 @@ async fn render(
     };
     let view = views::cart_page(t, &screen, notice.as_ref());
     let title = t.route_cart_marketplace();
+    let cart = (!screen.pending).then(|| screen.item_count());
     req.screen_with_status(
         status,
         &screen,
-        html! { <Layout req={&req} viewer={viewer} title={title} head={head}>{view}</Layout> },
+        html! { <Layout req={&req} viewer={viewer} cart={cart} title={title} head={head}>{view}</Layout> },
     )
 }
 
@@ -648,6 +620,7 @@ async fn write(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, w
 /// start's Continue, with the same decision.
 pub(crate) async fn checkout(
     req: Req,
+    chrome: Chrome,
     Caller(buyer): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -655,7 +628,8 @@ pub(crate) async fn checkout(
 ) -> HtmlResult {
     let decisions = input.decisions();
     if let Buyer::Guest(_) = buyer {
-        return crate::checkout_start::cart_as_guest(&req, buyer.session().as_ref(), &config, &headers, &decisions).await;
+        return crate::checkout_start::cart_as_guest(&req, buyer.session().as_ref(), &config, &headers, &decisions, &chrome)
+            .await;
     }
     let caller = config.platform.caller(&headers, config.proto, None);
     let guest = anonymous_cart(&headers);

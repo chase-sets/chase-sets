@@ -17,6 +17,7 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     api::{AdjustCommand, ApiError, HoldCommand, InventoryItemCalls as _, InventoryItemDetail, InventoryList as _, SaleResult},
     app::{Config, Shared, read_failed, sign_in, url},
@@ -243,6 +244,7 @@ async fn render(
     check: &Check,
     drafts: Drafts,
     posted: Posted,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let (posted, refused, notice) = match posted {
         Posted::Nothing => (None, false, None),
@@ -273,7 +275,15 @@ async fn render(
             return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND));
         }
         // marketplace's `unverified`: the read after a write did not catch up.
-        Err(error) => return read_failed(req, Some(viewer), error, receipt.is_some().then(|| p.inventory_item_unverified())),
+        Err(error) => {
+            return read_failed(
+                req,
+                Some(viewer),
+                error,
+                receipt.is_some().then(|| p.inventory_item_unverified()),
+                chrome.cart().await,
+            );
+        }
     };
     let outcome = place.outcome(id);
     let verified = outcome.as_ref().map(|_| match &receipt {
@@ -301,22 +311,24 @@ async fn render(
     let again = url::StockItem { id, place: place.clone(), check: check.again() };
     let view =
         html! { <views::InventoryItemPage t={t} p={p} m={m} viewer={viewer} screen={&screen} drafts={&drafts} again={&again} /> };
+    let cart = chrome.cart().await;
     req.screen_with_status(
         code,
         &screen,
-        html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> },
+        html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={head}>{view}</Layout> },
     )
 }
 
 pub(crate) async fn open(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::inventory::StockItem<'_>>,
 ) -> HtmlResult {
     let (id, place, check) = (route.id, route.place, route.check);
-    render(&req, &viewer, &config, &headers, &id, &place, &check, Drafts::default(), Posted::Nothing).await
+    render(&req, &viewer, &config, &headers, &id, &place, &check, Drafts::default(), Posted::Nothing, &chrome).await
 }
 
 /// The page after an applied write: its receipt, and the attempt to confirm.
@@ -353,6 +365,7 @@ async fn refused(
 /// recorded as a collision; a refused one is its form again.
 pub(crate) async fn adjust(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -369,8 +382,19 @@ pub(crate) async fn adjust(
                 let notice = adjusted.message.filter(|m| !m.trim().is_empty());
                 let check = Check { after_write: receipt.map(|r| r.param()), ..Check::default() };
                 let posted = Posted::Collided(Status::Confirmed(attempt), notice);
-                return render(&req, &viewer, &config, &headers, &id, &ItemPlace::default(), &check, Drafts::default(), posted)
-                    .await;
+                return render(
+                    &req,
+                    &viewer,
+                    &config,
+                    &headers,
+                    &id,
+                    &ItemPlace::default(),
+                    &check,
+                    Drafts::default(),
+                    posted,
+                    &chrome,
+                )
+                .await;
             }
             Ok((_, receipt)) => return applied(&req, &id, Family::ItemAdjust, &id, &attempt, receipt),
             Err(error) => match refused(&req, &caller, &id, Family::ItemAdjust, &id, &attempt, error).await {
@@ -382,12 +406,13 @@ pub(crate) async fn adjust(
     };
     let drafts = Drafts { adjust: Some((input, errors)), ..Drafts::default() };
     let posted = Posted::Refused(Status::Refused(attempt));
-    render(&req, &viewer, &config, &headers, &id, &ItemPlace::default(), &Check::default(), drafts, posted).await
+    render(&req, &viewer, &config, &headers, &id, &ItemPlace::default(), &Check::default(), drafts, posted, &chrome).await
 }
 
 /// Create Hold: the page again after an applied hold; a refused one is its form again.
 pub(crate) async fn hold(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -409,12 +434,13 @@ pub(crate) async fn hold(
     };
     let drafts = Drafts { hold: Some((input, errors)), ..Drafts::default() };
     let posted = Posted::Refused(Status::Refused(attempt));
-    render(&req, &viewer, &config, &headers, &id, &ItemPlace::default(), &Check::default(), drafts, posted).await
+    render(&req, &viewer, &config, &headers, &id, &ItemPlace::default(), &Check::default(), drafts, posted, &chrome).await
 }
 
 /// Release hold: the page again after an applied release; a refused one says why on the hold.
 pub(crate) async fn release(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -440,13 +466,14 @@ pub(crate) async fn release(
     };
     let drafts = Drafts { release: Some((hold, errors)), ..Drafts::default() };
     let posted = Posted::Refused(Status::Refused(attempt));
-    render(&req, &viewer, &config, &headers, &id, &ItemPlace::default(), &Check::default(), drafts, posted).await
+    render(&req, &viewer, &config, &headers, &id, &ItemPlace::default(), &Check::default(), drafts, posted, &chrome).await
 }
 
 /// Record sale: the page with what the sale did, read after its receipt; a refused one is its
 /// form again with what was typed.
 pub(crate) async fn sale(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -483,6 +510,7 @@ pub(crate) async fn sale(
         &Check::default(),
         drafts,
         Posted::Refused(Status::Ready),
+        &chrome,
     )
     .await
 }

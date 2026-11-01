@@ -23,6 +23,7 @@ use corten::{
 use platform::{money::cents, receipt::Receipt};
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, CheckoutSessions as _, PaymentCalls as _, PaymentOrder, PaymentPreview, Wallet},
     app::{ORDERS_MANAGE, Shared, read_failed, url},
@@ -139,10 +140,10 @@ enum Read {
 
 /// The answer for a read that failed: a purchase the account does not have is marketplace's 404
 /// Purchase not found.
-fn read_answer(req: &Req, viewer: &Viewer, read: Read) -> HtmlResult {
+fn read_answer(req: &Req, viewer: &Viewer, read: Read, cart: Option<u64>) -> HtmlResult {
     match read {
-        Read::Api(error) if error.status() == Some(StatusCode::NOT_FOUND) => not_found(req, viewer),
-        Read::Api(error) => read_failed(req, Some(viewer), error, None),
+        Read::Api(error) if error.status() == Some(StatusCode::NOT_FOUND) => not_found(req, viewer, cart),
+        Read::Api(error) => read_failed(req, Some(viewer), error, None, cart),
         Read::NotMoney => {
             tracing::warn!("an order's amount is not money");
             Err(corten::Error::status(StatusCode::BAD_GATEWAY))
@@ -158,6 +159,7 @@ fn may_start(viewer: &Viewer) -> Result<(), corten::Error> {
 /// The page for the orders in its address; none is the purchases.
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -170,12 +172,12 @@ pub(crate) async fn page(
     }
     let (orders, wallet, totals) = match orders_and_wallet(&config, &headers, &ids).await {
         Ok(read) => read,
-        Err(read) => return read_answer(&req, &viewer, read),
+        Err(read) => return read_answer(&req, &viewer, read, chrome.cart().await),
     };
     let caller = config.platform.caller(&headers, config.proto, None);
     let quote = match caller.quote(&ids, "usd", Some(&amount(totals.max_credit)), "card").await {
         Ok(quote) => quote,
-        Err(error) => return read_answer(&req, &viewer, Read::Api(error)),
+        Err(error) => return read_answer(&req, &viewer, Read::Api(error), chrome.cart().await),
     };
     let chosen = StartForm {
         order_ids: ids.join(","),
@@ -184,13 +186,14 @@ pub(crate) async fn page(
         requested_balance_credit_amount: String::new(),
     };
     let screen = StartScreen { order_ids: ids, orders, wallet, quote, totals, chosen, error: None };
-    draw(&req, &viewer, &screen, StatusCode::OK)
+    draw(&req, &viewer, &screen, StatusCode::OK, chrome.cart().await)
 }
 
 /// Continue to payment: Payments' quote for the chosen method and wallet credit, then a payment at
 /// it, and the payment's page, read after it. A refusal is the page again with why.
 pub(crate) async fn start(
     req: Req,
+    chrome: Chrome,
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -204,7 +207,7 @@ pub(crate) async fn start(
     }
     let (orders, wallet, totals) = match orders_and_wallet(&config, &headers, &ids).await {
         Ok(read) => read,
-        Err(read) => return read_answer(&req, &viewer, read),
+        Err(read) => return read_answer(&req, &viewer, read, chrome.cart().await),
     };
     let credit = match form.balance_credit_mode.as_str() {
         "max" => Some(amount(totals.max_credit)),
@@ -223,7 +226,9 @@ pub(crate) async fn start(
             let place = Place { after_write: receipt.as_ref().map(Receipt::param) };
             return req.redirect(&url::BuyerPayment { id: &payment.payment_id, place });
         }
-        Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => return read_failed(&req, Some(&viewer), error, None),
+        Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
+            return read_failed(&req, Some(&viewer), error, None, chrome.cart().await);
+        }
         Err(error) => {
             tracing::warn!("Continue to payment was refused: {error}");
             error.refusal().unwrap_or(t.payment_could_not_be_started()).to_owned()
@@ -232,20 +237,20 @@ pub(crate) async fn start(
     // The page again, quoted as it was drawn (by card, with the most of the wallet).
     let quote = match caller.quote(&ids, "usd", Some(&amount(totals.max_credit)), "card").await {
         Ok(quote) => quote,
-        Err(error) => return read_answer(&req, &viewer, Read::Api(error)),
+        Err(error) => return read_answer(&req, &viewer, Read::Api(error), chrome.cart().await),
     };
     let chosen = StartForm { order_ids: ids.join(","), ..form };
     let screen = StartScreen { order_ids: ids, orders, wallet, quote, totals, chosen, error: Some(refusal) };
-    draw(&req, &viewer, &screen, StatusCode::UNPROCESSABLE_ENTITY)
+    draw(&req, &viewer, &screen, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await)
 }
 
-fn draw(req: &Req, viewer: &Viewer, screen: &StartScreen, status: StatusCode) -> HtmlResult {
+fn draw(req: &Req, viewer: &Viewer, screen: &StartScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
     let t: PaymentStartMsg = req.t();
     let head = html! { <meta name="robots" content="noindex"> };
     req.page_with_status(
         status,
         html! {
-            <Layout req={req} viewer={Some(viewer)} title={t.start_payment_marketplace()} head={head}>
+            <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.start_payment_marketplace()} head={head}>
                 <views::PaymentStartPage t={t} screen={screen} />
             </Layout>
         },
@@ -253,13 +258,13 @@ fn draw(req: &Req, viewer: &Viewer, screen: &StartScreen, status: StatusCode) ->
 }
 
 /// Orders the account does not have (marketplace's 404 Purchase not found).
-fn not_found(req: &Req, viewer: &Viewer) -> HtmlResult {
+fn not_found(req: &Req, viewer: &Viewer, cart: Option<u64>) -> HtmlResult {
     let t: PaymentStartMsg = req.t();
     let head = html! { <meta name="robots" content="noindex"> };
     req.page_with_status(
         StatusCode::NOT_FOUND,
         html! {
-            <Layout req={req} viewer={Some(viewer)} title={t.start_payment_marketplace()} head={head}>
+            <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.start_payment_marketplace()} head={head}>
                 <views::PaymentStartMissing t={t} />
             </Layout>
         },

@@ -24,6 +24,7 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::Deserialize;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, RepricingActivityPage, RepricingCalls as _, RepricingHalt, RepricingPolicy},
     app::{PRICING_MANAGE, Shared, read_failed, sign_in, url},
@@ -113,6 +114,7 @@ async fn render(
     place: &Place,
     refusal: Option<Vec<String>>,
     status: StatusCode,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let t: RepricingMsg = req.t();
     let receipt = Receipt::from_param(place.after_write.as_deref());
@@ -126,8 +128,9 @@ async fn render(
                 <meta name="robots" content="noindex">
                 <ReadAgain after={Duration::from_secs(2)} />
             };
+            let cart = chrome.cart().await;
             let page = html! {
-                <Layout req={req} viewer={Some(viewer)} title={t.route_policy_meta_title()} head={head}>
+                <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_policy_meta_title()} head={head}>
                     <views::RepricingPolicyCatchingUp t={t} refresh={here.href()} />
                 </Layout>
             };
@@ -136,7 +139,7 @@ async fn render(
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {
             return Err(corten::Error::status(StatusCode::NOT_FOUND));
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None),
+        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
     };
     let caller = config.platform.caller(headers, config.proto, None);
     let filter = place.filter();
@@ -171,8 +174,9 @@ async fn render(
         <meta name="description" content={t.route_meta_description()}>
         <meta name="robots" content="noindex">
     };
+    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} title={t.route_policy_meta_title()} head={head}>
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_policy_meta_title()} head={head}>
             <views::RepricingPolicyPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
@@ -182,12 +186,13 @@ async fn render(
 /// The page, read after the write its address names.
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::repricing::RepricingPolicy<'_>>,
 ) -> HtmlResult {
-    render(&req, &viewer, &config, &headers, &route.id, &route.place, None, StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, &route.id, &route.place, None, StatusCode::OK, &chrome).await
 }
 
 /// Pause, Resume, Delete and the halt (marketplace's action's intents but Revise). A policy's write
@@ -195,6 +200,7 @@ pub(crate) async fn page(
 /// aggregate and goes back without one, as marketplace's does.
 pub(crate) async fn write(
     req: Req,
+    chrome: Chrome,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -226,13 +232,14 @@ pub(crate) async fn write(
         _ => {
             let refusal = Some(vec![t.route_unknown_action().to_owned()]);
             let place = Place::default();
-            return render(&req, &viewer, &config, &headers, &id, &place, refusal, StatusCode::UNPROCESSABLE_ENTITY).await;
+            return render(&req, &viewer, &config, &headers, &id, &place, refusal, StatusCode::UNPROCESSABLE_ENTITY, &chrome)
+                .await;
         }
     };
     match messages(&req, refused, t.route_action_failed()) {
         Ok(details) => {
             let place = Place::default();
-            render(&req, &viewer, &config, &headers, &id, &place, Some(details), StatusCode::UNPROCESSABLE_ENTITY).await
+            render(&req, &viewer, &config, &headers, &id, &place, Some(details), StatusCode::UNPROCESSABLE_ENTITY, &chrome).await
         }
         Err(answer) => *answer,
     }

@@ -21,6 +21,7 @@ mod channels;
 mod checkout;
 mod checkout_entry;
 mod checkout_start;
+mod chrome;
 mod consents;
 mod desk;
 mod form;

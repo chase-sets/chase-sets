@@ -14,6 +14,7 @@ use crate::{
     app::url,
     auth::{Session, Viewer},
     cart::CartScreen,
+    chrome::Chrome,
     form::LocationInput,
     locations::Screen,
     recovery::{Check, Status},
@@ -355,17 +356,19 @@ pub fn srcset_on_marketplace(srcset: &str) -> String {
 /// phone's bottom bar) and the user's color mode, `title`, the page's own `head` tags
 /// (description, canonical, social, JSON-LD, `ReadAgain`) and the page (`children`). A client
 /// navigation gets only the title, the head tags and `<main>`'s children. `viewer` is the handler's
-/// `Caller` (none for a visitor, who gets the visitor's shell).
+/// `Caller` (none for a visitor, who gets the visitor's shell), and `cart` the cart's count its
+/// `Chrome` read (`crate::chrome`).
 #[component]
 pub fn Layout<'a, H: Render, C: Render>(
     req: &'a Req,
     viewer: Option<&'a Viewer>,
+    cart: Option<u64>,
     title: &'a str,
     head: H,
     children: C,
 ) -> impl Document + 'a {
     html! {
-        <Frame req={req} viewer={viewer} shell={true} title={title} head={head}>{children}</Frame>
+        <Frame req={req} viewer={viewer} cart={cart} shell={true} title={title} head={head}>{children}</Frame>
     }
 }
 
@@ -376,6 +379,7 @@ pub fn Layout<'a, H: Render, C: Render>(
 pub fn Frame<'a, H: Render, C: Render>(
     req: &'a Req,
     viewer: Option<&'a Viewer>,
+    cart: Option<u64>,
     shell: bool,
     title: &'a str,
     head: H,
@@ -404,7 +408,7 @@ pub fn Frame<'a, H: Render, C: Render>(
             </head>
             <body data-shell={shell}>
                 if shell {
-                    <MarketNav p={p} viewer={viewer} path={req.path()} />
+                    <MarketNav p={p} viewer={viewer} cart={cart} path={req.path()} />
                 }
                 <main>{children}</main>
             </body>
@@ -415,7 +419,7 @@ pub fn Frame<'a, H: Render, C: Render>(
 /// The page for a failed request, in the layout (`App::error_page`), for who is asking: a member's
 /// shell and theme, a visitor's shell, and no shell when the session could not be read. Under
 /// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`.
-pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Session>>) -> HtmlResult {
+pub async fn error_page(failure: Failure, req: Req, chrome: Chrome, session: Option<Caller<Session>>) -> HtmlResult {
     let p: Pilot = req.t();
     // Each case is named, so a case Corten adds stops this compiling.
     let (title, text) = match &failure {
@@ -438,6 +442,7 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
     };
     let detail = failure.detail().map(str::to_owned);
     let viewer = session.as_ref().and_then(|Caller(session)| session.viewer());
+    let cart = chrome.cart().await;
     // An account refused the seller's listings may not manage listings: marketplace's "Account
     // access required" page (`AccountAccessRequiredPage`), back to the page asked for.
     if let (Failure::Refused { .. }, Some(viewer)) = (&failure, viewer)
@@ -446,7 +451,7 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
         let t: crate::text::ListingNewMsg = req.t();
         let back = req.path().to_owned();
         return req.page(html! {
-            <Layout req={&req} viewer={Some(viewer)} title={t.route_account_access_required_title()} head="">
+            <Layout req={&req} viewer={Some(viewer)} cart={cart} title={t.route_account_access_required_title()} head="">
                 <ListingAccessRequired t={t} back={&back} />
             </Layout>
         });
@@ -454,7 +459,7 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
     // Who is asking is unknown when the session could not be read: no shell, not a visitor's.
     let shell = !matches!(failure, Failure::Unidentified { .. });
     req.page(html! {
-        <Frame req={&req} viewer={viewer} shell={shell} title={title} head="">
+        <Frame req={&req} viewer={viewer} cart={cart} shell={shell} title={title} head="">
             <h1>{title}</h1>
             <p>{text}</p>
             if let Some(detail) = &detail {

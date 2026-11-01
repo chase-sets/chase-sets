@@ -5,6 +5,7 @@ use corten::{axum::http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::Serialize;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{Inventory as _, Location},
     app::{Config, Shared, read_failed, sign_in, url},
@@ -25,7 +26,15 @@ pub struct Screen {
 }
 
 /// The page for `query`, with `forms` in place of the forms' defaults.
-async fn render(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap, query: &Check, forms: Forms) -> HtmlResult {
+async fn render(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Config,
+    headers: &HeaderMap,
+    query: &Check,
+    forms: Forms,
+    chrome: &Chrome,
+) -> HtmlResult {
     let receipt = Receipt::from_param(query.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let status = async {
@@ -49,7 +58,13 @@ async fn render(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap
         // a message and no list (the receipt stays in the address for 30 seconds).
         Err(error) if receipt.is_some() && error.catching_up() => (Vec::new(), true),
         Err(error) => {
-            return read_failed(req, Some(viewer), error, receipt.is_some().then(|| req.t::<Pilot>().load_unverified()));
+            return read_failed(
+                req,
+                Some(viewer),
+                error,
+                receipt.is_some().then(|| req.t::<Pilot>().load_unverified()),
+                chrome.cart().await,
+            );
         }
     };
     let screen = Screen { locations, pending, status };
@@ -58,18 +73,20 @@ async fn render(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap
     // The status's "check again" link: the same check, without the receipt.
     let again = url::Locations { check: query.again() };
     let view = views::page(t, req.t(), viewer, &screen, &again, forms);
-    req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> })
+    let cart = chrome.cart().await;
+    req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={head}>{view}</Layout> })
 }
 
 pub(crate) async fn list(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::inventory::Locations>,
 ) -> HtmlResult {
     let query = route.check;
-    render(&req, &viewer, &config, &headers, &query, Forms::default()).await
+    render(&req, &viewer, &config, &headers, &query, Forms::default(), &chrome).await
 }
 
 /// Which write a form asks for.
@@ -107,16 +124,18 @@ impl Write {
 
 pub(crate) async fn create(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<LocationInput>,
 ) -> HtmlResult {
-    write(&req, &viewer, &config, &headers, Write::Create, input).await
+    write(&req, &viewer, &config, &headers, Write::Create, input, &chrome).await
 }
 
 pub(crate) async fn update(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -124,11 +143,12 @@ pub(crate) async fn update(
     Form(input): Form<LocationInput>,
 ) -> HtmlResult {
     let id = route.id;
-    write(&req, &viewer, &config, &headers, Write::Update(id), input).await
+    write(&req, &viewer, &config, &headers, Write::Update(id), input, &chrome).await
 }
 
 pub(crate) async fn archive(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -136,7 +156,7 @@ pub(crate) async fn archive(
     Form(input): Form<LocationInput>,
 ) -> HtmlResult {
     let id = route.id;
-    write(&req, &viewer, &config, &headers, Write::Archive(id), input).await
+    write(&req, &viewer, &config, &headers, Write::Archive(id), input, &chrome).await
 }
 
 /// The list after a write the API applied: it waits for the write's projection and confirms the
@@ -152,6 +172,7 @@ async fn write(
     headers: &HeaderMap,
     write: Write,
     input: LocationInput,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let p: Pilot = req.t();
     let errors = match input.command(p, write.archived()) {
@@ -183,7 +204,7 @@ async fn write(
     let patch = views::Refused { t, viewer, write: &write.view(), draft: &draft, status: &status };
     let forms = Forms { status: Some(status.clone()), draft: Some((write.view(), draft.clone())) };
     let page = Check::default();
-    req.invalid(&draft.errors, patch, || render(req, viewer, config, headers, &page, forms)).await
+    req.invalid(&draft.errors, patch, || render(req, viewer, config, headers, &page, forms, chrome)).await
 }
 
 impl Write {

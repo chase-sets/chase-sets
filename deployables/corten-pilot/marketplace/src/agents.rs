@@ -42,6 +42,7 @@ use corten::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     api::{
         AgentCalls as _, AgentConsent, AgentGrant, ApiError, GrantActivity, GrantDetail, GrantWebhook, Method, RevokeAnswer,
@@ -305,6 +306,7 @@ pub struct ConsentAsk {
 
 pub(crate) async fn list(
     req: Req,
+    chrome: Chrome,
     Caller(AgentHolder(viewer)): Caller<AgentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -312,21 +314,25 @@ pub(crate) async fn list(
     let caller = config.platform.caller(&headers, config.proto, None);
     let grants = match caller.agent_grants().await {
         Ok(grants) => grants,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
     };
     // The connector is this site's `/mcp`, which the ingress sends to the platform API.
     let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("localhost");
     let screen = ListScreen { grants, mcp_url: format!("{}://{host}/mcp", config.proto) };
     let t: AgentsMsg = req.t();
     let view = html! { <views::AgentsPage t={t} screen={&screen} /> };
+    let cart = chrome.cart().await;
     req.screen(
         &screen,
-        html! { <Layout req={&req} viewer={Some(&viewer)} title={t.list_connected_agents()} head={()}>{view}</Layout> },
+        html! {
+            <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={t.list_connected_agents()} head={()}>{view}</Layout>
+        },
     )
 }
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(AgentHolder(viewer)): Caller<AgentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -335,7 +341,7 @@ pub(crate) async fn page(
     let (id, place) = (route.id.as_str(), route.place);
     let attempt = place.attempt.filter(|a| valid_attempt(a));
     let shown = Shown { said: place.said, revocation: place.revocation, attempt, webhook: None };
-    render(&req, &viewer, &config, &headers, id, shown, None, StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, id, shown, None, StatusCode::OK, &chrome).await
 }
 
 /// What the page says besides the grant: the last write, a revoke and its attempt, and a webhook a
@@ -349,10 +355,10 @@ struct Shown {
 }
 
 /// A grant Auth does not have for this account is not found.
-fn failed_read(req: &Req, viewer: &Viewer, error: ApiError) -> HtmlResult {
+fn failed_read(req: &Req, viewer: &Viewer, error: ApiError, cart: Option<u64>) -> HtmlResult {
     match error.status() {
         Some(StatusCode::NOT_FOUND) => Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND)),
-        _ => read_failed(req, Some(viewer), error, None),
+        _ => read_failed(req, Some(viewer), error, None, cart),
     }
 }
 
@@ -366,32 +372,34 @@ async fn render(
     shown: Shown,
     posted: Option<Posted>,
     status: StatusCode,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     let (detail, activity) = tokio::join!(caller.agent_grant(id), caller.agent_activity(id));
     let detail = match detail {
         Ok(detail) => detail,
-        Err(error) => return failed_read(req, viewer, error),
+        Err(error) => return failed_read(req, viewer, error, chrome.cart().await),
     };
     // Auth answers 404 `unsupported` when it keeps no activity: the page says so instead of failing.
     let activity = match activity {
         Ok(activity) => Some(activity),
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => None,
-        Err(error) => return failed_read(req, viewer, error),
+        Err(error) => return failed_read(req, viewer, error, chrome.cart().await),
     };
     let webhook = match shown.webhook {
         Some(saved) => saved,
         None => match caller.agent_webhook(id).await {
             Ok(webhook) => webhook,
-            Err(error) => return failed_read(req, viewer, error),
+            Err(error) => return failed_read(req, viewer, error, chrome.cart().await),
         },
     };
     let attempt = shown.attempt.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let screen = GrantScreen { detail, activity, webhook, said: shown.said, revocation: shown.revocation, attempt, posted };
     let t: AgentsMsg = req.t();
     let view = html! { <views::AgentPage t={t} p={req.t()} screen={&screen} /> };
+    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} title={screen.detail.authorization.name()} head={()}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={screen.detail.authorization.name()} head={()}>{view}</Layout>
     };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
@@ -433,6 +441,7 @@ pub(crate) async fn revoke(
 
 pub(crate) async fn mandate(
     req: Req,
+    chrome: Chrome,
     Caller(AgentHolder(viewer)): Caller<AgentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -442,21 +451,22 @@ pub(crate) async fn mandate(
     let id = route.id.as_str();
     let Some(mandate) = input.mandate() else {
         let posted = Some(Posted::Mandate(input));
-        return render(&req, &viewer, &config, &headers, id, Shown::default(), posted, StatusCode::UNPROCESSABLE_ENTITY).await;
+        return render(&req, &viewer, &config, &headers, id, Shown::default(), posted, StatusCode::UNPROCESSABLE_ENTITY, &chrome)
+            .await;
     };
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.save_agent_mandate(id, &mandate).await {
         Ok(()) => back(&req, id, Said::MandateSaved),
-        Err(error) => written(&req, &viewer, id, error, Said::MandateUnsupported),
+        Err(error) => written(&req, &viewer, id, error, Said::MandateUnsupported, chrome.cart().await),
     }
 }
 
 /// A mandate or webhook write the API refused: sign in again, a grant that is not this account's,
 /// a revoked grant, `missing` for a 404 (the write is not configured), or not confirmed.
-fn written(req: &Req, viewer: &Viewer, id: &str, error: ApiError, missing: Said) -> HtmlResult {
+fn written(req: &Req, viewer: &Viewer, id: &str, error: ApiError, missing: Said, cart: Option<u64>) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in(req),
-        Some(StatusCode::FORBIDDEN) => failed_read(req, viewer, error),
+        Some(StatusCode::FORBIDDEN) => failed_read(req, viewer, error, cart),
         Some(StatusCode::NOT_FOUND) => back(req, id, missing),
         Some(StatusCode::CONFLICT) => back(req, id, Said::GrantRevoked),
         _ => {
@@ -469,6 +479,7 @@ fn written(req: &Req, viewer: &Viewer, id: &str, error: ApiError, missing: Said)
 /// Save the webhook's address. Nothing may keep the answer: it carries the new signing secret.
 pub(crate) async fn webhook(
     req: Req,
+    chrome: Chrome,
     Caller(AgentHolder(viewer)): Caller<AgentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -482,18 +493,20 @@ pub(crate) async fn webhook(
         Ok(None) => back(&req, id, Said::WebhookDisabled),
         Ok(Some(saved)) => {
             let shown = Shown { said: Some(Said::WebhookSaved), webhook: Some(Some(saved)), ..Shown::default() };
-            render(&req, &viewer, &config, &headers, id, shown, None, StatusCode::OK).await
+            render(&req, &viewer, &config, &headers, id, shown, None, StatusCode::OK, &chrome).await
         }
         Err(error) if error.status() == Some(StatusCode::BAD_REQUEST) => {
             let posted = Some(Posted::Webhook(input));
-            render(&req, &viewer, &config, &headers, id, Shown::default(), posted, StatusCode::UNPROCESSABLE_ENTITY).await
+            render(&req, &viewer, &config, &headers, id, Shown::default(), posted, StatusCode::UNPROCESSABLE_ENTITY, &chrome)
+                .await
         }
-        Err(error) => written(&req, &viewer, id, error, Said::Failed),
+        Err(error) => written(&req, &viewer, id, error, Said::Failed, chrome.cart().await),
     })
 }
 
 pub(crate) async fn disable_webhook(
     req: Req,
+    chrome: Chrome,
     Caller(AgentHolder(viewer)): Caller<AgentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -503,7 +516,7 @@ pub(crate) async fn disable_webhook(
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.save_agent_webhook(id, None).await {
         Ok(_) => back(&req, id, Said::WebhookDisabled),
-        Err(error) => written(&req, &viewer, id, error, Said::Failed),
+        Err(error) => written(&req, &viewer, id, error, Said::Failed, chrome.cart().await),
     }
 }
 
@@ -511,6 +524,7 @@ pub(crate) async fn disable_webhook(
 /// further than this site's origin.
 pub(crate) async fn consent(
     req: Req,
+    chrome: Chrome,
     Caller(AgentHolder(viewer)): Caller<AgentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -523,14 +537,20 @@ pub(crate) async fn consent(
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => return NoStore(back_to_consent(&req, &token)),
             Some(StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND) => None,
-            _ => return NoStore(read_failed(&req, Some(&viewer), error, None)),
+            _ => return NoStore(read_failed(&req, Some(&viewer), error, None, chrome.cart().await)),
         },
     };
     let screen = ConsentScreen { consent, token };
     let t: AgentsMsg = req.t();
     let view = html! { <views::AgentConsentPage t={t} screen={&screen} /> };
     let title = if screen.consent.is_some() { t.consent_title() } else { t.consent_invalid_title() };
-    NoStore(req.screen(&screen, html! { <Layout req={&req} viewer={Some(&viewer)} title={title} head={()}>{view}</Layout> }))
+    let cart = chrome.cart().await;
+    NoStore(
+        req.screen(
+            &screen,
+            html! { <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={title} head={()}>{view}</Layout> },
+        ),
+    )
 }
 
 /// The sign-in, back to this consent (its token included).
@@ -547,6 +567,7 @@ fn back_to_consent(req: &Req, token: &str) -> HtmlResult {
 /// another site before this runs, as the action's `Origin` and `Sec-Fetch-Site` checks do.
 pub(crate) async fn switch_account(
     req: Req,
+    chrome: Chrome,
     Caller(AgentHolder(viewer)): Caller<AgentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -562,7 +583,7 @@ pub(crate) async fn switch_account(
                     let ask = ConsentAsk { consent_token: Some(input.consent_token.clone()) };
                     req.redirect(&url::AgentConsent { ask })
                 }
-                _ => read_failed(&req, Some(&viewer), error, None),
+                _ => read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
             });
         }
     };

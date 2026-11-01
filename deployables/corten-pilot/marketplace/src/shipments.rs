@@ -20,6 +20,7 @@ use serde::Serialize;
 
 use platform::receipt::Receipt;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, ShipmentDetail, ShipmentList, Shipments as _, Side},
     app::{Shared, read_failed},
@@ -43,6 +44,7 @@ pub struct ShipmentScreen {
 
 pub(crate) async fn purchases(
     req: Req,
+    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -50,30 +52,37 @@ pub(crate) async fn purchases(
     let caller = config.platform.caller(&headers, config.proto, None);
     let shipments = match caller.shipments(Side::Buyer).await {
         Ok(shipments) => shipments,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
     };
     let screen = ListScreen { shipments };
     let t: ShipmentsMsg = req.t();
     let view = html! { <views::ShipmentList t={t} p={req.t()} screen={&screen} /> };
+    let cart = chrome.cart().await;
     req.screen(
         &screen,
-        html! { <Layout req={&req} viewer={Some(&viewer)} title={t.shipments_shipments_marketplace()} head="">{view}</Layout> },
+        html! {
+            <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={t.shipments_shipments_marketplace()} head="">
+                {view}
+            </Layout>
+        },
     )
 }
 
 pub(crate) async fn purchase(
     req: Req,
+    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::shipments::Shipment<'_>>,
 ) -> HtmlResult {
     let id = route.id;
-    shipment(&req, &viewer, &config, &headers, Side::Buyer, &id, None).await
+    shipment(&req, &viewer, &config, &headers, Side::Buyer, &id, None, &chrome).await
 }
 
 pub(crate) async fn sale(
     req: Req,
+    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -81,7 +90,7 @@ pub(crate) async fn sale(
 ) -> HtmlResult {
     let (id, after) = (route.id, route.after);
     let receipt = Receipt::from_param(after.after_write.as_deref());
-    shipment(&req, &viewer, &config, &headers, Side::Seller, &id, receipt).await
+    shipment(&req, &viewer, &config, &headers, Side::Seller, &id, receipt, &chrome).await
 }
 
 /// The seller's list is marketplace's command center (chase-sets/chase-sets#10638).
@@ -94,6 +103,7 @@ pub(crate) async fn command_center(req: Req, Caller(Shipper(_)): Caller<Shipper>
 
 /// A shipment's page; after a write (`receipt`), read after it, and while the read is behind the
 /// page says so and reads itself again.
+#[allow(clippy::too_many_arguments)]
 async fn shipment(
     req: &Req,
     viewer: &Viewer,
@@ -102,6 +112,7 @@ async fn shipment(
     side: Side,
     id: &str,
     receipt: Option<Receipt>,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let shipment = match caller.shipment(side, id).await {
@@ -111,9 +122,11 @@ async fn shipment(
             let head = html! { <ReadAgain after={std::time::Duration::from_secs(2)} /> };
             let view = html! { <views::ShipmentPending t={t} /> };
             let title = t.sale_shipment_sale_shipment_marketplace();
-            return req.page(html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> });
+            let cart = chrome.cart().await;
+            return req
+                .page(html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={head}>{view}</Layout> });
         }
-        Err(error) => return shipment_failed(req, viewer, error),
+        Err(error) => return shipment_failed(req, viewer, error, chrome.cart().await),
     };
     let screen = ShipmentScreen { side, shipment };
     let t: ShipmentsMsg = req.t();
@@ -122,14 +135,15 @@ async fn shipment(
         Side::Seller => t.sale_shipment_sale_shipment_marketplace(),
     };
     let view = html! { <views::ShipmentPage t={t} p={req.t()} viewer={viewer} screen={&screen} /> };
-    req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} title={title} head="">{view}</Layout> })
+    let cart = chrome.cart().await;
+    req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head="">{view}</Layout> })
 }
 
 /// A read that failed: a 404 is the error page's Not found (marketplace's "Shipment not found."),
 /// else as every read.
-fn shipment_failed(req: &Req, viewer: &Viewer, error: ApiError) -> HtmlResult {
+fn shipment_failed(req: &Req, viewer: &Viewer, error: ApiError, cart: Option<u64>) -> HtmlResult {
     if error.status() == Some(StatusCode::NOT_FOUND) {
         return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND));
     }
-    read_failed(req, Some(viewer), error, None)
+    read_failed(req, Some(viewer), error, None, cart)
 }

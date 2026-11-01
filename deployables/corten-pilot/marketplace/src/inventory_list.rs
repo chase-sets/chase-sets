@@ -17,6 +17,7 @@ use corten::{axum::http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, GradedCard, Inventory as _, InventoryItems, InventoryList as _, ItemCommand, Location, SaleCommand, SaleResult,
@@ -325,6 +326,7 @@ async fn render(
     mut create: CreateItem,
     sale: Option<SaleDraft>,
     posted: Option<Status>,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(check.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -366,7 +368,7 @@ async fn render(
             slow.push(p.inventory_items_slow());
             InventoryItems { limit, offset, ..InventoryItems::default() }
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None),
+        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
     };
     let locations = match locations {
         Ok(list) => list.items.into_iter().filter(|l| !l.is_archived).collect(),
@@ -374,7 +376,7 @@ async fn render(
             slow.push(p.inventory_locations_slow());
             Vec::new()
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None),
+        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
     };
     // The row the sale changed, as it is now (`reconcileFreshOfflineSaleItem`).
     if let Some(item) = &fresh
@@ -445,15 +447,17 @@ async fn render(
             again={&again}
         />
     };
+    let cart = chrome.cart().await;
     req.screen_with_status(
         code,
         &screen,
-        html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> },
+        html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={head}>{view}</Layout> },
     )
 }
 
 pub(crate) async fn list(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -461,13 +465,14 @@ pub(crate) async fn list(
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
     let (place, check) = (route.place, route.check);
-    render(&req, &viewer, &config, &headers, &place, &check, CreateItem::read(&raw), None, None).await
+    render(&req, &viewer, &config, &headers, &place, &check, CreateItem::read(&raw), None, None, &chrome).await
 }
 
 /// Create inventory item: the item's page (or where the form came from) after an applied write;
 /// a refused one is the form again.
 pub(crate) async fn create(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -537,7 +542,8 @@ pub(crate) async fn create(
     // Nothing was applied: the form again, with a new attempt, and a status that settles this one.
     create.errors = errors;
     let place = Place { sale: None, ..place };
-    render(&req, &viewer, &config, &headers, &place, &Check::default(), create, None, Some(Status::Refused(attempt))).await
+    render(&req, &viewer, &config, &headers, &place, &Check::default(), create, None, Some(Status::Refused(attempt)), &chrome)
+        .await
 }
 
 /// Where an applied create goes (`formActionRedirect`): the item's page, which confirms the
@@ -565,6 +571,7 @@ fn created(req: &Req, create: &CreateItem, id: &str, attempt: &str, receipt: Opt
 /// dialog again with what was typed.
 pub(crate) async fn sale(
     req: Req,
+    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -592,7 +599,8 @@ pub(crate) async fn sale(
         Err(errors) => errors,
     };
     let draft = SaleDraft { item_id: id, input, errors };
-    render(&req, &viewer, &config, &headers, &place, &Check::default(), CreateItem::read(&Raw::new()), Some(draft), None).await
+    render(&req, &viewer, &config, &headers, &place, &Check::default(), CreateItem::read(&Raw::new()), Some(draft), None, &chrome)
+        .await
 }
 
 /// The list after a sale: the page it was on, what the sale did, and its receipt.

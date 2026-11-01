@@ -27,6 +27,7 @@ use corten::{
 };
 use serde::Serialize;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, Discovery as _, Item, ProductAlerts as _, Selected, segment},
     app::{Shared, sign_in_at, url},
@@ -165,6 +166,7 @@ fn guest_owner(headers: &HeaderMap) -> String {
 }
 
 /// The page again on its Watch tab, saying in the form that sent it why nothing was saved.
+#[allow(clippy::too_many_arguments)]
 fn refused(
     req: &Req,
     session: Option<&Session>,
@@ -173,15 +175,17 @@ fn refused(
     input: WatchInput,
     message: String,
     status: StatusCode,
+    cart: Option<u64>,
 ) -> HtmlResult {
     let notice = BuyNotice::WatchRefused { message, input };
     let address = address.with_market(Market::Watch);
-    items::render(req, session, item, &address, Some(&notice), status, Default::default())
+    items::render(req, session, item, &address, Some(&notice), status, Default::default(), cart)
 }
 
 /// Watch listings and Watch offers (the action's `create-product-alert`).
 pub(crate) async fn watch(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -215,11 +219,11 @@ pub(crate) async fn watch(
     let product = first(field::PRODUCT);
     if product.is_empty() || screen.product_id.as_deref() != Some(product.as_str()) {
         let message = t.route_product_intent_choose_options_guidance().to_owned();
-        return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
+        return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await);
     }
     let Some(amount) = threshold(&input.threshold) else {
         let message = t.route_validation_threshold_invalid().to_owned();
-        return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
+        return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await);
     };
     // A price needs its currency; without a price the alert has no threshold, whatever the
     // currency field says (the API refuses one without the other).
@@ -229,7 +233,16 @@ pub(crate) async fn watch(
             Some(code) => Some(code),
             None => {
                 let message = t.route_validation_threshold_invalid().to_owned();
-                return refused(&req, session, item, &address, input, message, StatusCode::UNPROCESSABLE_ENTITY);
+                return refused(
+                    &req,
+                    session,
+                    item,
+                    &address,
+                    input,
+                    message,
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    chrome.cart().await,
+                );
             }
         },
     };
@@ -252,7 +265,7 @@ pub(crate) async fn watch(
         let owner = guest_owner(&headers);
         let intent = match caller.product_alert_intent(&owner, &alert).await {
             Ok(intent) => intent,
-            Err(error) => return refusal(&req, session, item, &address, input, error),
+            Err(error) => return refusal(&req, session, item, &address, input, error, chrome.cart().await),
         };
         let to: Uri = register_href(&slug, &intent.intent_id).parse().map_err(corten::Error::new)?;
         let mut res = req.redirect(&to)?;
@@ -263,7 +276,7 @@ pub(crate) async fn watch(
     };
     if !viewer.actor.can(ACCOUNTS_VIEW) {
         let message = t.route_account_cannot_create_product_alerts().to_owned();
-        return refused(&req, session, item, &address, input, message, StatusCode::FORBIDDEN);
+        return refused(&req, session, item, &address, input, message, StatusCode::FORBIDDEN, chrome.cart().await);
     }
     match caller.create_product_alert(&alert).await {
         Ok(receipt) => {
@@ -278,7 +291,7 @@ pub(crate) async fn watch(
             Some(to) => req.redirect(&to),
             None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
         },
-        Err(error) => refusal(&req, session, item, &address, input, error),
+        Err(error) => refusal(&req, session, item, &address, input, error, chrome.cart().await),
     }
 }
 
@@ -290,9 +303,10 @@ fn refusal(
     address: &Address,
     input: WatchInput,
     error: ApiError,
+    cart: Option<u64>,
 ) -> HtmlResult {
     match error.refusal() {
-        Some(message) => refused(req, session, item, address, input, message.to_owned(), StatusCode::UNPROCESSABLE_ENTITY),
+        Some(message) => refused(req, session, item, address, input, message.to_owned(), StatusCode::UNPROCESSABLE_ENTITY, cart),
         None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
 }

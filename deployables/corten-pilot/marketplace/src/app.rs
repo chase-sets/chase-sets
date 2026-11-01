@@ -1704,10 +1704,6 @@ pub mod url {
         /// Check out the account's cart: starts a checkout session and sends the buyer to it.
         #[route("/account/cart/checkout", post = crate::cart::checkout)]
         pub struct CartCheckout;
-
-        /// The cart's item count, for the nav's badge.
-        #[route("/account/cart/count", get = crate::cart::count)]
-        pub struct CartCount;
     }
 }
 
@@ -1798,9 +1794,11 @@ fn pwa() -> corten::pwa::Pwa {
 
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
-pub fn app(config: Config) -> App {
+pub fn app(config: Config) -> App<crate::auth::OneLookup> {
     let shared: Shared = Arc::new(config);
     App::new(url::home::router(shared.clone()))
+        // One look at whose the request is, for every caller type and the layout's cart count.
+        .middleware(crate::auth::OneLookup)
         .assets(Static)
         .pwa(pwa())
         // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
@@ -1922,7 +1920,13 @@ pub fn sign_in(req: &Req) -> HtmlResult {
 /// A list's read that failed, as the page's answer. After a write, a read that failed for good is
 /// marketplace's "could not be verified" (409), in the screen's words (`unverified`): the error
 /// page knows only the status, so the screen draws it.
-pub fn read_failed(req: &Req, viewer: Option<&Viewer>, error: ApiError, after_write: Option<&str>) -> HtmlResult {
+pub fn read_failed(
+    req: &Req,
+    viewer: Option<&Viewer>,
+    error: ApiError,
+    after_write: Option<&str>,
+    cart: Option<u64>,
+) -> HtmlResult {
     let status = match error.status() {
         Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
         Some(StatusCode::FORBIDDEN) => StatusCode::FORBIDDEN,
@@ -1934,7 +1938,9 @@ pub fn read_failed(req: &Req, viewer: Option<&Viewer>, error: ApiError, after_wr
                 let head = html! { <meta name="robots" content="noindex"> };
                 return req.page_with_status(
                     StatusCode::CONFLICT,
-                    html! { <views::Layout req={req} viewer={viewer} title={title} head={head}>{view}</views::Layout> },
+                    html! {
+                        <views::Layout req={req} viewer={viewer} cart={cart} title={title} head={head}>{view}</views::Layout>
+                    },
                 );
             }
             None => StatusCode::BAD_GATEWAY,

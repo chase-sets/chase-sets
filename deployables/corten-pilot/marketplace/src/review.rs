@@ -24,6 +24,7 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     accounts::{ReviewNotice, Role},
     api::{ApiError, Caller as ApiCaller, ReviewCalls as _, ReviewItem},
@@ -118,6 +119,7 @@ impl ReviewScreen {
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -130,10 +132,10 @@ pub(crate) async fn page(
     match read(&caller, &viewer, &id).await {
         Ok(mut screen) => {
             screen.report = report;
-            render(&req, &viewer, &screen, StatusCode::OK)
+            render(&req, &viewer, &screen, StatusCode::OK, chrome.cart().await)
         }
-        Err(error) if receipt.is_some() && error.catching_up() => preparing(&req, &viewer, &id, place),
-        Err(error) => failed(&req, &viewer, error),
+        Err(error) if receipt.is_some() && error.catching_up() => preparing(&req, &viewer, &id, place, chrome.cart().await),
+        Err(error) => failed(&req, &viewer, error, chrome.cart().await),
     }
 }
 
@@ -143,35 +145,37 @@ async fn read(caller: &ApiCaller<'_>, viewer: &Viewer, id: &str) -> Result<Revie
 }
 
 /// A review the API does not have is not found; any other failed read is the list's answer.
-fn failed(req: &Req, viewer: &Viewer, error: ApiError) -> HtmlResult {
+fn failed(req: &Req, viewer: &Viewer, error: ApiError, cart: Option<u64>) -> HtmlResult {
     if error.status() == Some(StatusCode::NOT_FOUND) {
         return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND));
     }
-    read_failed(req, Some(viewer), error, None)
+    read_failed(req, Some(viewer), error, None, cart)
 }
 
-fn render(req: &Req, viewer: &Viewer, screen: &ReviewScreen, status: StatusCode) -> HtmlResult {
+fn render(req: &Req, viewer: &Viewer, screen: &ReviewScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
     let t: ReviewsMsg = req.t();
     let view = html! { <views::ReviewPage t={t} p={req.t()} screen={screen} /> };
-    let page =
-        html! { <Layout req={req} viewer={Some(viewer)} title={t.route_detail_review_marketplace()} head={()}>{view}</Layout> };
+    let page = html! {
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_detail_review_marketplace()} head={()}>{view}</Layout>
+    };
     if status == StatusCode::OK { req.screen(screen, page) } else { req.page_with_status(status, page) }
 }
 
 /// The review is not readable yet after its reply (`ReviewDetailRecoveryPage`): it says so, reads
 /// itself again in two seconds, and offers Refresh review.
-fn preparing(req: &Req, viewer: &Viewer, id: &str, place: ReviewPlace) -> HtmlResult {
+fn preparing(req: &Req, viewer: &Viewer, id: &str, place: ReviewPlace, cart: Option<u64>) -> HtmlResult {
     let t: ReviewsMsg = req.t();
     let again = url::Review { id, place }.href();
     let head = html! { <ReadAgain after={Duration::from_secs(2)} /> };
     let view = html! { <views::ReviewPreparing t={t} again={&again} /> };
     req.page(html! {
-        <Layout req={req} viewer={Some(viewer)} title={t.route_detail_review_preparing()} head={head}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_detail_review_preparing()} head={head}>{view}</Layout>
     })
 }
 
 pub(crate) async fn write(
     req: Req,
+    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -188,12 +192,14 @@ pub(crate) async fn write(
                     id: &id,
                     place: ReviewPlace { reported: Some(id.clone()), ..ReviewPlace::default() },
                 }),
-                Reported::Again(notice, status) => again(&req, &viewer, &caller, &id, status, |s| s.report = Some(notice)).await,
+                Reported::Again(notice, status) => {
+                    again(&req, &viewer, &caller, &id, status, |s| s.report = Some(notice), &chrome).await
+                }
                 Reported::SignIn => sign_in(&req),
                 Reported::Failed(error) => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
             }
         }
-        "reply" => reply(&req, &viewer, &caller, &id, input.feedback).await,
+        "reply" => reply(&req, &viewer, &caller, &id, input.feedback, &chrome).await,
         // Marketplace's action answers nothing for another intent, and the page is read again.
         _ => req.redirect(&url::Review { id: &id, place: ReviewPlace::default() }),
     }
@@ -207,24 +213,25 @@ async fn again(
     id: &str,
     status: StatusCode,
     said: impl FnOnce(&mut ReviewScreen),
+    chrome: &Chrome,
 ) -> HtmlResult {
     match read(caller, viewer, id).await {
         Ok(mut screen) => {
             said(&mut screen);
-            render(req, viewer, &screen, status)
+            render(req, viewer, &screen, status, chrome.cart().await)
         }
-        Err(error) => failed(req, viewer, error),
+        Err(error) => failed(req, viewer, error, chrome.cart().await),
     }
 }
 
 /// Respond to this review: the words are needed and at most 1,000 characters (as the form's
 /// `maxLength` counts them), sent as typed; the API decides the rest.
-async fn reply(req: &Req, viewer: &Viewer, caller: &ApiCaller<'_>, id: &str, feedback: String) -> HtmlResult {
+async fn reply(req: &Req, viewer: &Viewer, caller: &ApiCaller<'_>, id: &str, feedback: String, chrome: &Chrome) -> HtmlResult {
     let p: Pilot = req.t();
     let t: ReviewsMsg = req.t();
     let refused = |message: &str, field: bool, recovery: bool, status: StatusCode, draft: String| {
         let reply = ReplyRefused { message: message.to_owned(), field, recovery, draft };
-        again(req, viewer, caller, id, status, move |s| s.reply = Some(reply))
+        again(req, viewer, caller, id, status, move |s| s.reply = Some(reply), chrome)
     };
     if feedback.trim().is_empty() {
         return refused(p.reviews_reply_required(), true, false, StatusCode::UNPROCESSABLE_ENTITY, feedback).await;

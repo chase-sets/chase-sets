@@ -11,6 +11,7 @@ use corten::{
 };
 use serde::Serialize;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{ShipmentDetail, Shipments as _},
     app::{Shared, read_failed, url::PackingSlips},
@@ -71,6 +72,7 @@ pub struct SlipsScreen {
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -81,17 +83,19 @@ pub(crate) async fn page(
     let ids = shipment_ids(&route.shipment_ids);
     if ids.is_empty() {
         let view = views::failed(title, t.slips_route_no_shipments_selected());
+        let cart = chrome.cart().await;
         return req.page_with_status(
             StatusCode::BAD_REQUEST,
-            html! { <Layout req={&req} viewer={Some(&viewer)} title={title} head="">{view}</Layout> },
+            html! { <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={title} head="">{view}</Layout> },
         );
     }
     let caller = config.platform.caller(&headers, config.proto, None);
     let slips = match caller.packing_slips(&ids).await {
         Ok(batch) => batch.items,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
     };
     let screen = SlipsScreen { format: Format::read(route.format.as_deref()), slips };
     let view = html! { <views::PackingSlipsPage t={t} screen={&screen} /> };
-    req.screen(&screen, html! { <Layout req={&req} viewer={Some(&viewer)} title={title} head="">{view}</Layout> })
+    let cart = chrome.cart().await;
+    req.screen(&screen, html! { <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={title} head="">{view}</Layout> })
 }

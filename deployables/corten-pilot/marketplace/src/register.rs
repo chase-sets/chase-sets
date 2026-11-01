@@ -34,6 +34,7 @@ use platform::receipt::Receipt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::chrome::Chrome;
 use crate::{
     account_home::Place,
     app::{Shared, url},
@@ -170,10 +171,16 @@ struct PhoneCodeSent {
     token_id: String,
 }
 
-fn render(req: &Req, status: StatusCode, screen: &RegisterScreen) -> HtmlResult {
+fn render(req: &Req, status: StatusCode, screen: &RegisterScreen, cart: Option<u64>) -> HtmlResult {
     let (t, p): (SignInMsg, Pilot) = (req.t(), req.t());
     let page = html! {
-        <Layout req={req} viewer={None} title={p.auth_register_title()} head={html! { <meta name="robots" content="noindex"> }}>
+        <Layout
+            req={req}
+            viewer={None}
+            cart={cart}
+            title={p.auth_register_title()}
+            head={html! { <meta name="robots" content="noindex"> }}
+        >
             <views::RegisterPage t={t} screen={screen} />
         </Layout>
     };
@@ -192,14 +199,15 @@ pub fn landing(return_to: &str, receipt: Option<&Receipt>) -> String {
 }
 
 /// The page, with the method its address asks for.
-pub(crate) async fn page(req: Req, Params(route): Params<url::Register>) -> HtmlResult {
+pub(crate) async fn page(req: Req, chrome: Chrome, Params(route): Params<url::Register>) -> HtmlResult {
     let screen = RegisterScreen::new(req.t(), route.join);
-    render(&req, StatusCode::OK, &screen)
+    render(&req, StatusCode::OK, &screen, chrome.cart().await)
 }
 
 /// The page's forms (marketplace's register action).
 pub(crate) async fn write(
     req: Req,
+    chrome: Chrome,
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
@@ -212,12 +220,12 @@ pub(crate) async fn write(
     let intent = form.intent.clone();
     screen.method = Method::of_intent(&intent);
     screen.typed = RegisterForm { password: String::new(), code: String::new(), ..form.clone() };
-    let failed = |mut screen: RegisterScreen, error| {
+    let failed = |cart: Option<u64>, mut screen: RegisterScreen, error| {
         // A magic link's refusals are the sign-in's request's.
         let asked = if intent == "magic-link-register" { "magic-link-request" } else { intent.as_str() };
         let (status, message) = refusal(t, asked, &error);
         screen.error = Some(message);
-        render(&req, status, &screen)
+        render(&req, status, &screen, cart)
     };
     let started: Result<(Authenticated, Option<Receipt>), _> = match intent.as_str() {
         "magic-link-register" => {
@@ -225,9 +233,9 @@ pub(crate) async fn write(
             return match call::<Value>(&caller, client, "/api/auth/magic-link/request", body).await {
                 Ok(_) => {
                     screen.notice = Some(Notice::MagicLinkSent);
-                    render(&req, StatusCode::OK, &screen)
+                    render(&req, StatusCode::OK, &screen, chrome.cart().await)
                 }
-                Err(error) => failed(screen, error),
+                Err(error) => failed(chrome.cart().await, screen, error),
             };
         }
         "phone-code-request" => {
@@ -236,9 +244,9 @@ pub(crate) async fn write(
             {
                 Ok(sent) => {
                     screen.notice = Some(Notice::PhoneCodeSent { token_id: sent.token_id });
-                    render(&req, StatusCode::OK, &screen)
+                    render(&req, StatusCode::OK, &screen, chrome.cart().await)
                 }
-                Err(error) => failed(screen, error),
+                Err(error) => failed(chrome.cart().await, screen, error),
             };
         }
         "phone-code-consume" => {
@@ -269,7 +277,7 @@ pub(crate) async fn write(
     };
     match started {
         Ok((result, receipt)) => complete(&req, &config, &landing(&screen.return_to, receipt.as_ref()), result),
-        Err(error) => failed(screen, error),
+        Err(error) => failed(chrome.cart().await, screen, error),
     }
 }
 

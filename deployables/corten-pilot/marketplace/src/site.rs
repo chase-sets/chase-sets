@@ -255,14 +255,15 @@ fn sha256(value: &Value) -> Option<String> {
 /// (`Public`) and draws no account's nav. A cache revalidates it every time (`max-age=0`), so a new
 /// deploy's worker keeps the page that names the deploy's stylesheet.
 pub(crate) async fn offline(req: Req) -> Public<HtmlResult> {
-    Public::new(Duration::ZERO, offline_page(&req))
+    // The same page for everyone (the service worker keeps it), so no cart count.
+    Public::new(Duration::ZERO, offline_page(&req, None))
 }
 
-fn offline_page<For>(req: &Req) -> corten::Result<corten::HtmlResponse<For>> {
+fn offline_page<For>(req: &Req, cart: Option<u64>) -> corten::Result<corten::HtmlResponse<For>> {
     let t: SiteMsg = req.t();
     let head = html! { <meta name="robots" content="noindex"> };
     req.page(html! {
-        <views::Frame req={req} viewer={None} shell={false} title={t.offline_title()} head={head}>
+        <views::Frame req={req} viewer={None} cart={cart} shell={false} title={t.offline_title()} head={head}>
             <views::OfflinePage t={t} />
         </views::Frame>
     })

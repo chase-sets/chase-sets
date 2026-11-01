@@ -24,6 +24,7 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     api::{AccountAction, AccountAnswer, AddressCommand, Addresses as _, ApiError, ShippingAddress, SuggestedAddress},
     app::{Shared, read_failed, sign_in, url},
@@ -181,6 +182,7 @@ pub struct AddressScreen {
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(AddressOwner(viewer)): Caller<AddressOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -196,7 +198,7 @@ pub(crate) async fn page(
         (None, _) if place.saved.is_some() => Said::Saved,
         (None, _) => Said::Editing,
     };
-    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), said, None, StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), said, None, StatusCode::OK, &chrome).await
 }
 
 /// What the API says came of `attempt`, for the page.
@@ -227,6 +229,7 @@ async fn render(
     said: Said,
     posted: Option<(Which, Draft)>,
     status: StatusCode,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(after_write);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -234,7 +237,7 @@ async fn render(
         Ok(addresses) => (addresses, false),
         // The write's projection is not readable yet: marketplace's `onPending`.
         Err(error) if receipt.is_some() && error.catching_up() => (Vec::new(), true),
-        Err(error) => return read_failed(req, Some(viewer), error, None),
+        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
     };
     let screen = AddressScreen { addresses, pending, said, posted };
     let t: AddressesMsg = req.t();
@@ -244,24 +247,29 @@ async fn render(
         }
     };
     let view = html! { <views::AddressPage t={t} p={req.t()} screen={&screen} /> };
+    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} title={t.route_shipping_addresses_marketplace()} head={head}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_shipping_addresses_marketplace()} head={head}>
+            {view}
+        </Layout>
     };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
 
 pub(crate) async fn create(
     req: Req,
+    chrome: Chrome,
     Caller(AddressOwner(viewer)): Caller<AddressOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
-    write(&req, &viewer, &config, &headers, AccountAction::Create, None, input).await
+    write(&req, &viewer, &config, &headers, AccountAction::Create, None, input, &chrome).await
 }
 
 pub(crate) async fn update(
     req: Req,
+    chrome: Chrome,
     Caller(AddressOwner(viewer)): Caller<AddressOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -269,11 +277,12 @@ pub(crate) async fn update(
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
     let id = route.id;
-    write(&req, &viewer, &config, &headers, AccountAction::Update, Some(&id), input).await
+    write(&req, &viewer, &config, &headers, AccountAction::Update, Some(&id), input, &chrome).await
 }
 
 pub(crate) async fn make_default(
     req: Req,
+    chrome: Chrome,
     Caller(AddressOwner(viewer)): Caller<AddressOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -281,11 +290,12 @@ pub(crate) async fn make_default(
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
     let id = route.id;
-    write(&req, &viewer, &config, &headers, AccountAction::Default, Some(&id), input).await
+    write(&req, &viewer, &config, &headers, AccountAction::Default, Some(&id), input, &chrome).await
 }
 
 pub(crate) async fn archive(
     req: Req,
+    chrome: Chrome,
     Caller(AddressOwner(viewer)): Caller<AddressOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -293,7 +303,7 @@ pub(crate) async fn archive(
     Form(input): Form<AddressInput>,
 ) -> HtmlResult {
     let id = route.id;
-    write(&req, &viewer, &config, &headers, AccountAction::Archive, Some(&id), input).await
+    write(&req, &viewer, &config, &headers, AccountAction::Archive, Some(&id), input, &chrome).await
 }
 
 /// The field a required-field refusal names, as the form calls it.
@@ -331,6 +341,7 @@ async fn write(
     action: AccountAction,
     target: Option<&str>,
     input: AddressInput,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let (t, p): (AddressesMsg, Pilot) = (req.t(), req.t());
     let which = match (action, target) {
@@ -342,7 +353,7 @@ async fn write(
     let refuse = |errors: Errors, suggested: Option<SuggestedAddress>| {
         let posted = which.clone().map(|which| (which, Draft { input: input.clone(), errors, suggested }));
         let said = if posted.is_some() { Said::Editing } else { Said::NotSaved };
-        render(req, viewer, config, headers, None, said, posted, StatusCode::UNPROCESSABLE_ENTITY)
+        render(req, viewer, config, headers, None, said, posted, StatusCode::UNPROCESSABLE_ENTITY, chrome)
     };
     if !valid_attempt(&attempt) {
         let mut errors = Errors::new();
@@ -358,7 +369,7 @@ async fn write(
             tracing::warn!("an address write had no answer: {error}");
             AccountAnswer::Indeterminate
         }
-        Err(error) => return failed(req, viewer, config, headers, error).await,
+        Err(error) => return failed(req, viewer, config, headers, error, chrome).await,
     };
     // No answer that says what happened: ask what came of the attempt, as marketplace does.
     let answer = match answer {
@@ -390,17 +401,26 @@ async fn write(
             }
             refuse(errors, suggested.map(|s| *s)).await
         }
-        AccountAnswer::Conflict => render(req, viewer, config, headers, None, Said::Conflict, None, StatusCode::CONFLICT).await,
+        AccountAnswer::Conflict => {
+            render(req, viewer, config, headers, None, Said::Conflict, None, StatusCode::CONFLICT, chrome).await
+        }
         AccountAnswer::Indeterminate => unreachable!("asked about above"),
     }
 }
 
 /// A write the API refused for who is asking: sign in again, or the page saying they may not.
-async fn failed(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, error: ApiError) -> HtmlResult {
+async fn failed(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    error: ApiError,
+    chrome: &Chrome,
+) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in(req),
         Some(StatusCode::FORBIDDEN) => {
-            render(req, viewer, config, headers, None, Said::Denied, None, StatusCode::FORBIDDEN).await
+            render(req, viewer, config, headers, None, Said::Denied, None, StatusCode::FORBIDDEN, chrome).await
         }
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }

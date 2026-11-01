@@ -27,6 +27,7 @@ use corten::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, Caller as ApiCaller, ReviewCalls as _, ReviewOpportunity},
     app::{Shared, read_failed, sign_in, url},
@@ -151,28 +152,31 @@ impl For {
 
 pub(crate) async fn purchase(
     req: Req,
+    chrome: Chrome,
     Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::purchase_reviews::PurchaseReview<'_>>,
 ) -> HtmlResult {
     let (id, ask) = (route.id, route.ask);
-    page(&req, &viewer, &config, &headers, For::Purchase, &id, ask).await
+    page(&req, &viewer, &config, &headers, For::Purchase, &id, ask, &chrome).await
 }
 
 pub(crate) async fn sale(
     req: Req,
+    chrome: Chrome,
     Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::sale_reviews::SaleReview<'_>>,
 ) -> HtmlResult {
     let (id, ask) = (route.id, route.ask);
-    page(&req, &viewer, &config, &headers, For::Sale, &id, ask).await
+    page(&req, &viewer, &config, &headers, For::Sale, &id, ask, &chrome).await
 }
 
 pub(crate) async fn submit_purchase(
     req: Req,
+    chrome: Chrome,
     Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -180,11 +184,12 @@ pub(crate) async fn submit_purchase(
     Form(input): Form<ReviewInput>,
 ) -> HtmlResult {
     let (id, ask) = (route.id, route.ask);
-    submit(&req, &viewer, &config, &headers, For::Purchase, &id, ask, input).await
+    submit(&req, &viewer, &config, &headers, For::Purchase, &id, ask, input, &chrome).await
 }
 
 pub(crate) async fn submit_sale(
     req: Req,
+    chrome: Chrome,
     Caller(Reviewer(viewer)): Caller<Reviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -192,9 +197,10 @@ pub(crate) async fn submit_sale(
     Form(input): Form<ReviewInput>,
 ) -> HtmlResult {
     let (id, ask) = (route.id, route.ask);
-    submit(&req, &viewer, &config, &headers, For::Sale, &id, ask, input).await
+    submit(&req, &viewer, &config, &headers, For::Sale, &id, ask, input, &chrome).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn page(
     req: &Req,
     viewer: &Viewer,
@@ -203,14 +209,15 @@ async fn page(
     which: For,
     id: &str,
     ask: ReviewAsk,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
-    let opportunity = match read(req, viewer, &caller, id).await {
+    let opportunity = match read(req, viewer, &caller, id, chrome).await {
         Read::Open(opportunity) => opportunity,
         Read::Answer(answer) => return answer,
     };
     let screen = screen(opportunity, which, id, &ask, 5, String::new(), Vec::new());
-    draw(req, viewer, which, &screen, StatusCode::OK)
+    draw(req, viewer, which, &screen, StatusCode::OK, chrome.cart().await)
 }
 
 fn screen(
@@ -243,25 +250,25 @@ enum Read {
 
 /// The order's review opportunity: a review already written is its page, and no such order is a
 /// 404.
-async fn read(req: &Req, viewer: &Viewer, caller: &ApiCaller<'_>, id: &str) -> Read {
+async fn read(req: &Req, viewer: &Viewer, caller: &ApiCaller<'_>, id: &str, chrome: &Chrome) -> Read {
     match caller.review_opportunity(id).await {
         Ok(Some(opportunity)) => match opportunity.active_review_id.as_deref().filter(|r| !r.is_empty()) {
             Some(review) => Read::Answer(req.redirect(&url::Review { id: review, place: ReviewPlace::default() })),
             None => Read::Open(opportunity),
         },
         Ok(None) => Read::Answer(Err(corten::Error::status(StatusCode::NOT_FOUND))),
-        Err(error) => Read::Answer(read_failed(req, Some(viewer), error, None)),
+        Err(error) => Read::Answer(read_failed(req, Some(viewer), error, None, chrome.cart().await)),
     }
 }
 
-fn draw(req: &Req, viewer: &Viewer, which: For, screen: &OrderReviewScreen, status: StatusCode) -> HtmlResult {
+fn draw(req: &Req, viewer: &Viewer, which: For, screen: &OrderReviewScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
     let t: ReviewsMsg = req.t();
     let title = match which {
         For::Purchase => t.route_purchase_review_write_review_marketplace(),
         For::Sale => t.route_sale_review_write_review_marketplace(),
     };
     let view = html! { <views::OrderReviewPage t={t} p={req.t()} screen={screen} /> };
-    let page = html! { <Layout req={req} viewer={Some(viewer)} title={title} head={()}>{view}</Layout> };
+    let page = html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={()}>{view}</Layout> };
     if status == StatusCode::OK { req.screen(screen, page) } else { req.page_with_status(status, page) }
 }
 
@@ -275,9 +282,10 @@ async fn submit(
     id: &str,
     ask: ReviewAsk,
     input: ReviewInput,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
-    let opportunity = match read(req, viewer, &caller, id).await {
+    let opportunity = match read(req, viewer, &caller, id, chrome).await {
         Read::Open(opportunity) => opportunity,
         Read::Answer(answer) => return answer,
     };
@@ -292,20 +300,20 @@ async fn submit(
     let mut screen = screen(opportunity, which, id, &ask, rating, input.feedback.clone(), problems);
     let buyer = screen.buyer();
     match input.intent.as_str() {
-        "edit" => return draw(req, viewer, which, &screen, StatusCode::OK),
+        "edit" => return draw(req, viewer, which, &screen, StatusCode::OK, chrome.cart().await),
         "resolve" => {
             screen.resolve_first = true;
-            return draw(req, viewer, which, &screen, StatusCode::OK);
+            return draw(req, viewer, which, &screen, StatusCode::OK, chrome.cart().await);
         }
         // The acknowledgement is required; a form sent without it asks again.
         "feedback-only" if buyer && input.feedback_only_acknowledged != "true" => {
             screen.resolve_first = true;
-            return draw(req, viewer, which, &screen, StatusCode::UNPROCESSABLE_ENTITY);
+            return draw(req, viewer, which, &screen, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await);
         }
         "feedback-only" => {}
         _ if buyer && resolve_first(rating, &screen.problems) => {
             screen.resolve_first = true;
-            return draw(req, viewer, which, &screen, StatusCode::OK);
+            return draw(req, viewer, which, &screen, StatusCode::OK, chrome.cart().await);
         }
         _ => {}
     }
@@ -316,12 +324,19 @@ async fn submit(
             let place = ReviewPlace { after_write: receipt.map(|r| r.param()), reported: None };
             req.redirect(&url::Review { id: &review, place })
         }
-        Err(error) => refused(req, viewer, which, screen, error),
+        Err(error) => refused(req, viewer, which, screen, error, chrome.cart().await),
     }
 }
 
 /// A refused review: the form again with what was typed and why.
-fn refused(req: &Req, viewer: &Viewer, which: For, mut screen: OrderReviewScreen, error: ApiError) -> HtmlResult {
+fn refused(
+    req: &Req,
+    viewer: &Viewer,
+    which: For,
+    mut screen: OrderReviewScreen,
+    error: ApiError,
+    cart: Option<u64>,
+) -> HtmlResult {
     let (t, p): (ReviewsMsg, Pilot) = (req.t(), req.t());
     let status = match error.status() {
         Some(StatusCode::NOT_FOUND) => return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND)),
@@ -341,7 +356,7 @@ fn refused(req: &Req, viewer: &Viewer, which: For, mut screen: OrderReviewScreen
         (Refused { message: p.reviews_submit_failed().to_owned(), field: false, recovery: false }, StatusCode::BAD_GATEWAY)
     };
     screen.refused = Some(said);
-    draw(req, viewer, which, &screen, answer)
+    draw(req, viewer, which, &screen, answer, cart)
 }
 
 #[cfg(test)]

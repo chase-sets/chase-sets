@@ -19,6 +19,7 @@ use corten::{
 };
 use serde::Deserialize;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, AppliedGoal, ApplyGoal, PricingHealth, PricingHealthCalls as _},
     app::{Shared, read_failed, sign_in, url},
@@ -114,6 +115,7 @@ async fn render(
     error: Option<String>,
     applied: Option<AppliedGoal>,
     status: StatusCode,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let t: RepricingMsg = req.t();
     let caller = config.platform.caller(headers, config.proto, None);
@@ -121,7 +123,7 @@ async fn render(
         Ok(data) => (Some(data), error, status),
         Err(read) => match read.status() {
             Some(StatusCode::NOT_FOUND) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
-            Some(s) if s.is_client_error() => return read_failed(req, Some(viewer), read, None),
+            Some(s) if s.is_client_error() => return read_failed(req, Some(viewer), read, None, chrome.cart().await),
             _ => {
                 tracing::warn!("pricing health's read failed: {read}");
                 (None, Some(error.unwrap_or_else(|| t.health_error_description().to_owned())), StatusCode::BAD_GATEWAY)
@@ -136,8 +138,9 @@ async fn render(
             <ReadAgain after={Duration::from_secs(2)} />
         }
     };
+    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} title={t.pricing_health()} head={head}>
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.pricing_health()} head={head}>
             <views::PricingHealthPage t={t} screen={&screen} />
         </Layout>
     };
@@ -147,18 +150,20 @@ async fn render(
 /// The page, for the policy its address names.
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<url::PricingHealth>,
 ) -> HtmlResult {
-    render(&req, &viewer, &config, &headers, &route.place, None, None, StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, &route.place, None, None, StatusCode::OK, &chrome).await
 }
 
 /// Compute verdict, Compare goals and Apply goal. A refusal is the page with marketplace's words
 /// (`goals.applyError` for a refused goal, `computeError` for the rest).
 pub(crate) async fn write(
     req: Req,
+    chrome: Chrome,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -175,17 +180,17 @@ pub(crate) async fn write(
             Some(goal) => caller.apply_pricing_goal(&policy, &goal).await.map(Some),
             None => {
                 let (error, status) = refused(t.health_compute_error(), StatusCode::UNPROCESSABLE_ENTITY);
-                return render(&req, &viewer, &config, &headers, &place, error, None, status).await;
+                return render(&req, &viewer, &config, &headers, &place, error, None, status, &chrome).await;
             }
         },
         _ => {
             let (error, status) = refused(t.health_compute_error(), StatusCode::UNPROCESSABLE_ENTITY);
-            return render(&req, &viewer, &config, &headers, &place, error, None, status).await;
+            return render(&req, &viewer, &config, &headers, &place, error, None, status, &chrome).await;
         }
     };
     match outcome {
         Ok(None) => req.redirect(&url::PricingHealth { place }),
-        Ok(Some(applied)) => render(&req, &viewer, &config, &headers, &place, None, Some(applied), StatusCode::OK).await,
+        Ok(Some(applied)) => render(&req, &viewer, &config, &headers, &place, None, Some(applied), StatusCode::OK, &chrome).await,
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
             Some(status @ (StatusCode::FORBIDDEN | StatusCode::NOT_FOUND)) => Err(corten::Error::new(error).with_status(status)),
@@ -201,7 +206,7 @@ pub(crate) async fn write(
                 } else {
                     StatusCode::BAD_GATEWAY
                 };
-                render(&req, &viewer, &config, &headers, &place, Some(words.to_owned()), None, status).await
+                render(&req, &viewer, &config, &headers, &place, Some(words.to_owned()), None, status, &chrome).await
             }
         },
     }

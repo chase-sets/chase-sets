@@ -19,6 +19,7 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::Deserialize;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, CommandError, EvidenceReadiness, FeeHistoryEntry, ListingCommand, ListingCreate as _, Photo, SellerListing,
@@ -146,6 +147,7 @@ async fn render(
     edits: Edits,
     readiness: Option<EvidenceReadiness>,
     status: StatusCode,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let t: SellerListingMsg = req.t();
     let caller = config.platform.caller(headers, config.proto, receipt);
@@ -155,15 +157,17 @@ async fn render(
     let (listing, fees) = tokio::join!(caller.seller_listing(id), history.fee_history(id));
     let mut listing = match listing {
         Ok(listing) => listing,
-        Err(error) if receipt.is_some() && error.catching_up() => return preparing(req, viewer, &at(id, receipt, event)),
+        Err(error) if receipt.is_some() && error.catching_up() => {
+            return preparing(req, viewer, &at(id, receipt, event), chrome.cart().await);
+        }
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {
             return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND));
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None),
+        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
     };
     let fees = match fees {
         Ok(fees) => fees,
-        Err(error) => return read_failed(req, Some(viewer), error, None),
+        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
     };
     if let Some(readiness) = readiness {
         listing.evidence_readiness = readiness;
@@ -171,25 +175,27 @@ async fn render(
     let screen = ListingScreen { listing, fees, edits };
     let title = screen.listing.item_title.clone().unwrap_or_else(|| screen.listing.catalog_catalog_item_id.clone());
     let view = html! { <views::SellerListingPage t={t} p={req.t()} id={id} screen={&screen} /> };
+    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} title={&title} head={()}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={&title} head={()}>{view}</Layout>
     };
     if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
 }
 
 /// The listing is not readable yet after its write: say so and read again.
-fn preparing(req: &Req, viewer: &Viewer, again: &url::SellerListing<'_>) -> HtmlResult {
+fn preparing(req: &Req, viewer: &Viewer, again: &url::SellerListing<'_>, cart: Option<u64>) -> HtmlResult {
     let t: SellerListingMsg = req.t();
     let head = html! { <ReadAgain after={Duration::from_secs(2)} /> };
     let again = again.href();
     let view = html! { <views::ListingPreparing t={t} again={&again} /> };
     req.page(html! {
-        <Layout req={req} viewer={Some(viewer)} title={t.route_listing_preparing()} head={head}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_listing_preparing()} head={head}>{view}</Layout>
     })
 }
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -212,7 +218,7 @@ pub(crate) async fn page(
         edits.price_currency_code = place.price_currency_code.clone();
     }
     let read = (receipt.as_ref(), place.evidence_event.as_deref());
-    render(&req, &viewer, &config, &headers, &id, read, edits, None, StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, &id, read, edits, None, StatusCode::OK, &chrome).await
 }
 
 /// The listing's page read after the write `receipt` follows, saying what came of its evidence
@@ -356,6 +362,7 @@ async fn refused(
     form: &ListingForm,
     error: CommandError,
     photos: bool,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let (t, p): (SellerListingMsg, Pilot) = (req.t(), req.t());
     let mut edits = kept(form, Errors::new());
@@ -393,11 +400,12 @@ async fn refused(
             _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
     };
-    render(req, viewer, config, headers, id, (None, None), edits, readiness, status).await
+    render(req, viewer, config, headers, id, (None, None), edits, readiness, status, chrome).await
 }
 
 pub(crate) async fn write(
     req: Req,
+    chrome: Chrome,
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -410,7 +418,7 @@ pub(crate) async fn write(
     let listing = match form.intent.as_str() {
         "classify-photo" => match caller.seller_listing(&id).await {
             Ok(listing) => Some(listing),
-            Err(error) => return failed_read(&req, &viewer, error),
+            Err(error) => return failed_read(&req, &viewer, error, chrome.cart().await),
         },
         _ => None,
     };
@@ -427,26 +435,28 @@ pub(crate) async fn write(
                 kept(&form, errors),
                 None,
                 StatusCode::UNPROCESSABLE_ENTITY,
+                &chrome,
             )
             .await;
         }
     };
     match caller.listing_command(&id, &command).await {
         Ok(receipt) => applied(&req, &id, receipt, event(&command)),
-        Err(error) => refused(&req, &viewer, &config, &headers, &id, &form, error, false).await,
+        Err(error) => refused(&req, &viewer, &config, &headers, &id, &form, error, false, &chrome).await,
     }
 }
 
-fn failed_read(req: &Req, viewer: &Viewer, error: ApiError) -> HtmlResult {
+fn failed_read(req: &Req, viewer: &Viewer, error: ApiError, cart: Option<u64>) -> HtmlResult {
     match error.status() {
         Some(StatusCode::NOT_FOUND) => Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND)),
-        _ => read_failed(req, Some(viewer), error, None),
+        _ => read_failed(req, Some(viewer), error, None, cart),
     }
 }
 
 /// Add photos and Replace photo: `multipart/form-data`, read with Corten's `Upload` (`uploads::read`).
 pub(crate) async fn photos(
     req: Req,
+    chrome: Chrome,
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -461,7 +471,19 @@ pub(crate) async fn photos(
         Err(UploadError::TooLarge { .. }) => {
             let mut edits = Edits { photos_lost: true, ..Edits::default() };
             edits.errors.add_form(p.seller_listing_photos_too_large());
-            return render(&req, &viewer, &config, &headers, &id, (None, None), edits, None, StatusCode::PAYLOAD_TOO_LARGE).await;
+            return render(
+                &req,
+                &viewer,
+                &config,
+                &headers,
+                &id,
+                (None, None),
+                edits,
+                None,
+                StatusCode::PAYLOAD_TOO_LARGE,
+                &chrome,
+            )
+            .await;
         }
         Err(other) => return Err(other.into()),
     };
@@ -489,7 +511,19 @@ pub(crate) async fn photos(
     if let Some(message) = refusal {
         let mut edits = Edits { photos_lost: true, ..Edits::default() };
         edits.errors.add_form(message);
-        return render(&req, &viewer, &config, &headers, &id, (None, None), edits, None, StatusCode::UNPROCESSABLE_ENTITY).await;
+        return render(
+            &req,
+            &viewer,
+            &config,
+            &headers,
+            &id,
+            (None, None),
+            edits,
+            None,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &chrome,
+        )
+        .await;
     }
     let photos: Vec<Photo> =
         files.into_iter().map(|u| Photo { filename: u.filename, content_type: u.content_type, bytes: u.bytes }).collect();
@@ -508,7 +542,7 @@ pub(crate) async fn photos(
     };
     match result {
         Ok(receipt) => applied(&req, &id, receipt, Some("upload_completed")),
-        Err(error) => refused(&req, &viewer, &config, &headers, &id, &form, error, true).await,
+        Err(error) => refused(&req, &viewer, &config, &headers, &id, &form, error, true, &chrome).await,
     }
 }
 

@@ -32,6 +32,7 @@ use corten::{
 use platform::{api::segment, receipt::Receipt};
 use serde_json::{Value, json};
 
+use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, Caller as ApiCaller, Checkout as _, CheckoutStart as _, Decisions, Entry, GuestCheckout, Started},
     app::{GUEST_CHECKOUT, Shared, read_failed, sign_in_back_to, url},
@@ -364,6 +365,7 @@ async fn draw(
     cart_count: u64,
     said: Option<Said>,
     status: StatusCode,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let t: CheckoutMsg = req.t();
     let here = here(uri);
@@ -371,8 +373,9 @@ async fn draw(
     let register = format!("/register?returnTo={}", segment(&here));
     let screen = StartScreen { who, source, cart, cart_count, entry_key: new_entry_key(), here, sign_in, register, said };
     let head = html! { <meta name="robots" content="noindex"> };
+    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={viewer} title={t.start_secure_checkout()} head={head}>
+        <Layout req={req} viewer={viewer} cart={cart} title={t.start_secure_checkout()} head={head}>
             <views::CheckoutStartPage t={t} screen={&screen} />
         </Layout>
     };
@@ -383,6 +386,7 @@ async fn draw(
 /// cart's count for a visitor.
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -398,15 +402,15 @@ pub(crate) async fn page(
                 let fact = snapshot.customer_safe_facts.first().cloned();
                 (Some(CartState { ready: snapshot.status == "ready", fact }), snapshot.line_count)
             }
-            Err(error) => return read_failed(&req, viewer, error, None),
+            Err(error) => return read_failed(&req, viewer, error, None, chrome.cart().await),
         },
         (None, Who::Guest) => (None, 0),
         (None, Who::Visitor) => match caller.guest_cart_count(anonymous_cart(&headers)).await {
             Ok(count) => (None, count),
-            Err(error) => return read_failed(&req, viewer, error, None),
+            Err(error) => return read_failed(&req, viewer, error, None, chrome.cart().await),
         },
     };
-    draw(&req, viewer, &uri, who, source, cart, count, None, StatusCode::OK).await
+    draw(&req, viewer, &uri, who, source, cart, count, None, StatusCode::OK, &chrome).await
 }
 
 /// Starts the session with `caller`: the cart's from a fresh readiness snapshot (the guest cart
@@ -521,13 +525,14 @@ fn forbidden(error: &ApiError) -> bool {
 /// not.
 pub(crate) async fn start(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    start_at(&req, session.as_deref(), &config, &headers, &uri, &form_pairs(&raw), &Decisions::default()).await
+    start_at(&req, session.as_deref(), &config, &headers, &uri, &form_pairs(&raw), &Decisions::default(), &chrome).await
 }
 
 /// A guest's or a visitor's Buy on an item or a listing page: checkout start's Continue for the
@@ -540,10 +545,11 @@ pub(crate) async fn buy_as_guest(
     headers: &HeaderMap,
     query: &str,
     entry: &str,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let uri: Uri = format!("{PATH}?{query}").parse().map_err(corten::Error::new)?;
     let posted = Pairs::from([("entryAttemptKey".to_owned(), entry.to_owned())]);
-    start_at(req, session, config, headers, &uri, &posted, &Decisions::default()).await
+    start_at(req, session, config, headers, &uri, &posted, &Decisions::default(), chrome).await
 }
 
 /// The cart page's Check out for a guest or a visitor, whose cart has no checkout of its own
@@ -555,14 +561,16 @@ pub(crate) async fn cart_as_guest(
     config: &Shared,
     headers: &HeaderMap,
     decisions: &Decisions,
+    chrome: &Chrome,
 ) -> HtmlResult {
-    start_at(req, session, config, headers, &Uri::from_static(PATH), &Pairs::new(), decisions).await
+    start_at(req, session, config, headers, &Uri::from_static(PATH), &Pairs::new(), decisions, chrome).await
 }
 
 /// Starts the checkout the entry at `uri` (or else the posted form) names, for whoever is asking;
 /// a cart's with `decisions`. Each session is started as an account the request presents, and
 /// sent once: a page whose key is missing or not one sends nothing (an entry other than the cart's
 /// needs one), and an answer that may have been lost is looked up once, never sent again.
+#[allow(clippy::too_many_arguments)]
 async fn start_at(
     req: &Req,
     session: Option<&Session>,
@@ -571,6 +579,7 @@ async fn start_at(
     uri: &Uri,
     posted: &Pairs,
     decisions: &Decisions,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let (who, viewer) = who(session)?;
     let source = Source::read(&query_pairs(uri.query())).or_else(|| Source::read(posted));
@@ -580,7 +589,7 @@ async fn start_at(
     let anonymous = anonymous_cart(headers);
     let said = |who: Who, said: Said, status: StatusCode| {
         let source = source.clone();
-        async move { draw(req, viewer, uri, who, source, None, 1, Some(said), status).await }
+        async move { draw(req, viewer, uri, who, source, None, 1, Some(said), status, chrome).await }
     };
     let refuse = |who: Who, error: ApiError| async move {
         match Recovery::of(&error, who) {
@@ -621,7 +630,7 @@ async fn start_at(
         };
     }
     if source.as_ref().is_some_and(|s| s.kind == Kind::OfferIntent) {
-        return draw(req, None, uri, who, source, None, 1, Some(Said::SignInRequired), StatusCode::UNAUTHORIZED).await;
+        return draw(req, None, uri, who, source, None, 1, Some(Said::SignInRequired), StatusCode::UNAUTHORIZED, chrome).await;
     }
     if refused_before_send {
         return changed().await;
@@ -631,7 +640,7 @@ async fn start_at(
         match caller.guest_cart_count(anonymous).await {
             Ok(0) => {
                 let said = Some(Said::Recovery(Recovery::CartEmpty));
-                return draw(req, None, uri, who, None, None, 0, said, Recovery::CartEmpty.status()).await;
+                return draw(req, None, uri, who, None, None, 0, said, Recovery::CartEmpty.status(), chrome).await;
             }
             Ok(_) => {}
             Err(error) => return refuse(who, error).await,

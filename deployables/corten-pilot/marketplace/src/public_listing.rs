@@ -22,6 +22,7 @@ use corten::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{Caller, Checkout as _, Discovery as _, ListingReport, Marketplace as _, PublicListing},
     app::{Shared, marketplace_origin, sign_in_at, url},
@@ -64,6 +65,7 @@ pub struct Reported {
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -84,7 +86,7 @@ pub(crate) async fn page(
         return req.moved(&to);
     }
     let notice = reported.reported.is_some().then_some(ListingNotice::Received);
-    render(&req, session, &listing, notice.as_ref(), StatusCode::OK)
+    render(&req, session, &listing, notice.as_ref(), StatusCode::OK, chrome.cart().await)
 }
 
 /// The page, with what happened to a form it was sent from.
@@ -94,6 +96,7 @@ fn render(
     listing: &PublicListing,
     notice: Option<&ListingNotice>,
     status: StatusCode,
+    cart: Option<u64>,
 ) -> HtmlResult {
     let t: ListingMsg = req.t();
     let p: Pilot = req.t();
@@ -119,7 +122,7 @@ fn render(
     req.page_with_status(
         status,
         html! {
-            <views::Layout req={req} viewer={viewer} title={&title} head={head}>
+            <views::Layout req={req} viewer={viewer} cart={cart} title={&title} head={head}>
                 <views::ListingPage t={t} p={p} listing={listing} notice={notice} />
             </views::Layout>
         },
@@ -158,6 +161,7 @@ pub fn can_purchase(listing: &PublicListing) -> bool {
 /// listing, as marketplace's form posts there (`checkoutStartHref`).
 pub(crate) async fn buy(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -171,15 +175,15 @@ pub(crate) async fn buy(
     let caller = config.platform.caller(&headers, config.proto, None);
     let listing = read(&caller, &slug).await?;
     let attempt = field(&raw, ATTEMPT);
-    let refuse = |message: String| {
-        render(&req, session, &listing, Some(&ListingNotice::BuyRefused(message)), StatusCode::UNPROCESSABLE_ENTITY)
+    let refuse = |cart: Option<u64>, message: String| {
+        render(&req, session, &listing, Some(&ListingNotice::BuyRefused(message)), StatusCode::UNPROCESSABLE_ENTITY, cart)
     };
     if attempt.is_empty() || cart_attempt::attempt_id(attempt) != attempt {
-        return refuse(p.check_attempt().to_owned());
+        return refuse(chrome.cart().await, p.check_attempt().to_owned());
     }
     if !can_purchase(&listing) {
         let (_, description) = views::unbuyable(t, &listing).unwrap_or_default();
-        return refuse(description);
+        return refuse(chrome.cart().await, description);
     }
     let l = &listing.listing;
     let title = listing.item_title.as_deref().unwrap_or(t.page_marketplace_listing());
@@ -204,7 +208,7 @@ pub(crate) async fn buy(
         };
         let fulfillment = views::fulfillment(t, listing.ship_from_code.as_deref());
         let entry = guest_checkout(&source, l, &availability, &fulfillment);
-        return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &entry, attempt).await;
+        return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &entry, attempt, &chrome).await;
     }
     match caller.buy_now(attempt, &source).await {
         Ok((started, receipt)) => {
@@ -215,7 +219,7 @@ pub(crate) async fn buy(
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req, &slug),
             Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
             Some(status) if status.is_client_error() => {
-                refuse(error.refusal().map_or_else(|| p.listing_buy_refused().to_owned(), str::to_owned))
+                refuse(chrome.cart().await, error.refusal().map_or_else(|| p.listing_buy_refused().to_owned(), str::to_owned))
             }
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
@@ -226,6 +230,7 @@ pub(crate) async fn buy(
 /// names (a new one when there is none, kept thirty days), then the page saying it was received.
 pub(crate) async fn report(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -238,17 +243,19 @@ pub(crate) async fn report(
     let caller = config.platform.caller(&headers, config.proto, None);
     let listing = read(&caller, &slug).await?;
     let (reason, details) = (field(&raw, REASON), field(&raw, DETAILS));
-    let again = |notice: ListingNotice, status: StatusCode| render(&req, session, &listing, Some(&notice), status);
+    let again = |cart: Option<u64>, notice: ListingNotice, status: StatusCode| {
+        render(&req, session, &listing, Some(&notice), status, cart)
+    };
     let refused = |message: &str| ListingNotice::ReportRefused {
         message: message.to_owned(),
         reason: reason.to_owned(),
         details: details.to_owned(),
     };
     if !REASONS.contains(&reason) {
-        return again(refused(p.listing_report_reason_required()), StatusCode::UNPROCESSABLE_ENTITY);
+        return again(chrome.cart().await, refused(p.listing_report_reason_required()), StatusCode::UNPROCESSABLE_ENTITY);
     }
     if details.chars().count() > MOST_DETAILS {
-        return again(refused(p.listing_report_details_too_long()), StatusCode::UNPROCESSABLE_ENTITY);
+        return again(chrome.cart().await, refused(p.listing_report_details_too_long()), StatusCode::UNPROCESSABLE_ENTITY);
     }
     let kept = cookie::get(&headers, ANONYMOUS_REPORT_COOKIE).filter(|id| id.starts_with("anon_")).map(str::to_owned);
     let anonymous = kept.clone().unwrap_or_else(|| format!("anon_cmd_{}", uuid::Uuid::new_v4().simple()));
@@ -266,12 +273,14 @@ pub(crate) async fn report(
             Ok(res)
         }
         Err(error) => match (error.status(), error.code()) {
-            (_, Some("report_already_submitted")) => again(ListingNotice::Repeat, StatusCode::CONFLICT),
-            (Some(StatusCode::TOO_MANY_REQUESTS), _) => again(ListingNotice::Limited, StatusCode::TOO_MANY_REQUESTS),
+            (_, Some("report_already_submitted")) => again(chrome.cart().await, ListingNotice::Repeat, StatusCode::CONFLICT),
+            (Some(StatusCode::TOO_MANY_REQUESTS), _) => {
+                again(chrome.cart().await, ListingNotice::Limited, StatusCode::TOO_MANY_REQUESTS)
+            }
             (Some(StatusCode::UNAUTHORIZED), _) => sign_in(&req, &slug),
             (Some(status), _) if status.is_client_error() => {
                 let message = error.refusal().map_or_else(|| p.listing_report_refused().to_owned(), str::to_owned);
-                again(refused(&message), StatusCode::UNPROCESSABLE_ENTITY)
+                again(chrome.cart().await, refused(&message), StatusCode::UNPROCESSABLE_ENTITY)
             }
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },

@@ -33,6 +33,7 @@ use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, Caller as Api, CaseSide, ParticipantLookup, Photo, SupportCaseRow, SupportFlowSummary, SupportListCalls as _,
@@ -258,6 +259,7 @@ pub struct SupportListScreen {
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(SupportMember(viewer)): Caller<SupportMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -276,7 +278,9 @@ pub(crate) async fn page(
         tokio::join!(api.support_flows(), api.support_cases(CaseSide::Purchases), api.support_cases(CaseSide::Sales), order);
     let (flows, buyer, seller) = match (flows, buyer, seller) {
         (Ok(flows), Ok(buyer), Ok(seller)) => (flows, buyer, seller),
-        (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => return read_failed(&req, Some(&viewer), error, None),
+        (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
+            return read_failed(&req, Some(&viewer), error, None, chrome.cart().await);
+        }
     };
     let (intake, lookup_error) = match order {
         None => (None, None),
@@ -289,14 +293,15 @@ pub(crate) async fn page(
     };
     let account = viewer.actor.account_id.clone();
     let screen = SupportListScreen { account, buyer, seller, flows, ask, intake, lookup_error, said: Said::default() };
-    draw(&req, &viewer, screen, StatusCode::OK)
+    draw(&req, &viewer, screen, StatusCode::OK, chrome.cart().await)
 }
 
-fn draw(req: &Req, viewer: &Viewer, screen: SupportListScreen, status: StatusCode) -> HtmlResult {
+fn draw(req: &Req, viewer: &Viewer, screen: SupportListScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
     let t: SupportMsg = req.t();
     let view = html! { <views::SupportListPage t={t} screen={&screen} /> };
-    let page =
-        html! { <Layout req={req} viewer={Some(viewer)} title={t.list_route_support_marketplace()} head={()}>{view}</Layout> };
+    let page = html! {
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.list_route_support_marketplace()} head={()}>{view}</Layout>
+    };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
 
@@ -310,7 +315,15 @@ struct Again {
 
 /// The page again after a post, with its lists read now (empty when a read fails: the form and
 /// what it carries matter more).
-async fn again(req: &Req, viewer: &Viewer, api: &Api<'_>, ask: &Ask, again: Again, status: StatusCode) -> HtmlResult {
+async fn again(
+    req: &Req,
+    viewer: &Viewer,
+    api: &Api<'_>,
+    ask: &Ask,
+    again: Again,
+    status: StatusCode,
+    chrome: &Chrome,
+) -> HtmlResult {
     let (buyer, seller) = tokio::join!(api.support_cases(CaseSide::Purchases), api.support_cases(CaseSide::Sales));
     let list = |read: Result<Vec<SupportCaseRow>, ApiError>| {
         read.unwrap_or_else(|error| {
@@ -329,7 +342,7 @@ async fn again(req: &Req, viewer: &Viewer, api: &Api<'_>, ask: &Ask, again: Agai
         lookup_error: None,
         said,
     };
-    draw(req, viewer, screen, status)
+    draw(req, viewer, screen, status, chrome.cart().await)
 }
 
 /// An open's body as sent (`affectedLineIds` left out when none; the staged photos'
@@ -377,6 +390,7 @@ fn to_case(req: &Req, case: &str, receipt: Option<Receipt>) -> HtmlResult {
 /// The last step's post (marketplace's action), Start a new photo batch, and Check status.
 pub(crate) async fn write(
     req: Req,
+    chrome: Chrome,
     Caller(SupportMember(viewer)): Caller<SupportMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -393,18 +407,18 @@ pub(crate) async fn write(
     let (flows, order) = tokio::join!(api.support_flows(), api.support_order(&order_id));
     let flows = match flows {
         Ok(flows) => flows,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
     };
     let order = match order {
         Ok(order) => order,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
     };
     let posted = match posted {
         Ok(posted) => posted,
         // Nothing the form sent is kept, as marketplace's `photos.intakeRejected`.
         Err(UploadError::TooLarge { .. }) => {
             let again_ = Again { flows, order, batch: Batch::new(), said: Said::error(t.list_route_photos_intake_rejected()) };
-            return again(&req, &viewer, &api, &ask, again_, StatusCode::PAYLOAD_TOO_LARGE).await;
+            return again(&req, &viewer, &api, &ask, again_, StatusCode::PAYLOAD_TOO_LARGE, &chrome).await;
         }
         Err(other) => return Err(other.into()),
     };
@@ -424,7 +438,7 @@ pub(crate) async fn write(
     let presented = get(f.account);
     macro_rules! again {
         ($batch:expr, $said:expr, $status:expr) => {
-            return again(&req, &viewer, &api, &ask, Again { flows, order, batch: $batch, said: $said }, $status).await
+            return again(&req, &viewer, &api, &ask, Again { flows, order, batch: $batch, said: $said }, $status, &chrome).await
         };
     }
     // A form drawn for another account (`participantActorMatches`): nothing is sent.

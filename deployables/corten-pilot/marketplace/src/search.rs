@@ -27,6 +27,7 @@ use corten::{
     view::Append,
 };
 
+use crate::chrome::Chrome;
 use crate::{
     api::{Interpretation, Search, SearchCategory, SearchResults, segment},
     app::{Shared, marketplace_origin, url},
@@ -542,17 +543,20 @@ impl SearchScreen {
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    show(req, session, config, headers, uri, raw, None).await
+    show(req, session, config, headers, uri, raw, None, chrome).await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn category(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -561,9 +565,10 @@ pub(crate) async fn category(
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
     let slug = route.slug;
-    show(req, session, config, headers, uri, raw, Some(slug)).await
+    show(req, session, config, headers, uri, raw, Some(slug), chrome).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn show(
     req: Req,
     session: Option<corten::Caller<Session>>,
@@ -572,6 +577,7 @@ async fn show(
     uri: Uri,
     raw: Raw,
     slug: Option<String>,
+    chrome: Chrome,
 ) -> HtmlResult {
     // `page` is gone for good: the same address without it, as sent.
     if raw.contains_key("page") {
@@ -681,7 +687,7 @@ async fn show(
     });
     let shelf = shelf.filter(|s| !s.featured.is_empty() || !s.arrivals.is_empty());
     let screen = SearchScreen { terms, category, categories, results, shelf, home };
-    render(&req, viewer, &screen, failed)
+    render(&req, viewer, &screen, failed, chrome.cart().await)
 }
 
 /// The page after `cursor`: its rows added after the ones the page has (`terms.more` of them),
@@ -731,7 +737,7 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
     }
 }
 
-fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen, failed: bool) -> HtmlResult {
+fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen, failed: bool, cart: Option<u64>) -> HtmlResult {
     let t: SearchMsg = req.t();
     let terms = &screen.terms;
     let title = if terms.q.is_empty() {
@@ -755,7 +761,7 @@ fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen
     req.page_with_status(
         status,
         html! {
-            <views::Layout req={req} viewer={viewer} title={&title} head={head}>
+            <views::Layout req={req} viewer={viewer} cart={cart} title={&title} head={head}>
                 <views::SearchPage t={t} p={p} screen={screen} failed={failed} />
             </views::Layout>
         },

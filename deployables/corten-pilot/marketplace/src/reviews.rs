@@ -21,6 +21,7 @@ use corten::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     accounts::{MOST_DETAILS, REASONS, ReviewNotice, Role},
     api::{ApiError, Caller as ApiCaller, ListingReport, Marketplace as _, ReviewCalls as _, ReviewItem, ReviewSummary},
@@ -102,35 +103,38 @@ impl ReviewsScreen {
 
 pub(crate) async fn summary(
     req: Req,
+    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::reviews::Reviews>,
 ) -> HtmlResult {
     let place = route.place;
-    show(&req, &viewer, &config, &headers, Which::Summary, place).await
+    show(&req, &viewer, &config, &headers, Which::Summary, place, &chrome).await
 }
 
 pub(crate) async fn received(
     req: Req,
+    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::reviews::ReceivedReviews>,
 ) -> HtmlResult {
     let place = route.place;
-    show(&req, &viewer, &config, &headers, Which::Received, place).await
+    show(&req, &viewer, &config, &headers, Which::Received, place, &chrome).await
 }
 
 pub(crate) async fn written(
     req: Req,
+    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::reviews::WrittenReviews>,
 ) -> HtmlResult {
     let place = route.place;
-    show(&req, &viewer, &config, &headers, Which::Written, place).await
+    show(&req, &viewer, &config, &headers, Which::Written, place, &chrome).await
 }
 
 /// The lists' role: none on the summary, else the address's `seller` or `buyer`.
@@ -138,14 +142,22 @@ fn role(which: Which, place: &Place) -> Option<Role> {
     if which == Which::Summary { None } else { Role::read(place.role.as_deref()) }
 }
 
-async fn show(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, which: Which, place: Place) -> HtmlResult {
+async fn show(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    which: Which,
+    place: Place,
+    chrome: &Chrome,
+) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     match read(&caller, viewer, which, role(which, &place)).await {
         Ok(mut screen) => {
             screen.notice = place.reported.map(|review| (review, ReviewNotice::Submitted));
-            render(req, viewer, &screen, StatusCode::OK)
+            render(req, viewer, &screen, StatusCode::OK, chrome.cart().await)
         }
-        Err(error) => read_failed(req, Some(viewer), error, None),
+        Err(error) => read_failed(req, Some(viewer), error, None, chrome.cart().await),
     }
 }
 
@@ -163,7 +175,7 @@ async fn read(caller: &ApiCaller<'_>, viewer: &Viewer, which: Which, role: Optio
     Ok(ReviewsScreen { which, role, summary, reviews, notice: None })
 }
 
-fn render(req: &Req, viewer: &Viewer, screen: &ReviewsScreen, status: StatusCode) -> HtmlResult {
+fn render(req: &Req, viewer: &Viewer, screen: &ReviewsScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
     let t: ReviewsMsg = req.t();
     let title = match screen.which {
         Which::Summary => t.route_summary_reviews_marketplace(),
@@ -171,12 +183,13 @@ fn render(req: &Req, viewer: &Viewer, screen: &ReviewsScreen, status: StatusCode
         Which::Written => t.route_written_written_reviews_marketplace(),
     };
     let view = html! { <views::ReviewsPage t={t} p={req.t()} screen={screen} /> };
-    let page = html! { <Layout req={req} viewer={Some(viewer)} title={title} head={()}>{view}</Layout> };
+    let page = html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={()}>{view}</Layout> };
     if status == StatusCode::OK { req.screen(screen, page) } else { req.page_with_status(status, page) }
 }
 
 pub(crate) async fn report_on_summary(
     req: Req,
+    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -184,11 +197,12 @@ pub(crate) async fn report_on_summary(
     Form(input): Form<ReportInput>,
 ) -> HtmlResult {
     let place = route.place;
-    report(&req, &viewer, &config, &headers, Which::Summary, place, input).await
+    report(&req, &viewer, &config, &headers, Which::Summary, place, input, &chrome).await
 }
 
 pub(crate) async fn report_on_received(
     req: Req,
+    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -196,11 +210,12 @@ pub(crate) async fn report_on_received(
     Form(input): Form<ReportInput>,
 ) -> HtmlResult {
     let place = route.place;
-    report(&req, &viewer, &config, &headers, Which::Received, place, input).await
+    report(&req, &viewer, &config, &headers, Which::Received, place, input, &chrome).await
 }
 
 pub(crate) async fn report_on_written(
     req: Req,
+    chrome: Chrome,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -208,7 +223,7 @@ pub(crate) async fn report_on_written(
     Form(input): Form<ReportInput>,
 ) -> HtmlResult {
     let place = route.place;
-    report(&req, &viewer, &config, &headers, Which::Written, place, input).await
+    report(&req, &viewer, &config, &headers, Which::Written, place, input, &chrome).await
 }
 
 /// Report review from a list or the summary (`send_report`): a sent report goes back to the review
@@ -222,6 +237,7 @@ async fn report(
     which: Which,
     place: Place,
     input: ReportInput,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     let role = role(which, &place);
@@ -239,9 +255,9 @@ async fn report(
         Reported::Again(notice, status) => match read(&caller, viewer, which, role).await {
             Ok(mut screen) => {
                 screen.notice = Some((review, notice));
-                render(req, viewer, &screen, status)
+                render(req, viewer, &screen, status, chrome.cart().await)
             }
-            Err(error) => read_failed(req, Some(viewer), error, None),
+            Err(error) => read_failed(req, Some(viewer), error, None, chrome.cart().await),
         },
         Reported::SignIn => sign_in(req),
         Reported::Failed(error) => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),

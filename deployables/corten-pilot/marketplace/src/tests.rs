@@ -2686,23 +2686,62 @@ async fn any_account_has_a_cart_and_a_visitor_or_a_guest_has_the_guest_cart() {
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
+/// The cart's badges in a page's shell, as drawn: `(text, hidden)` for each.
+fn cart_badges(html: &str) -> Vec<(String, bool)> {
+    let shell = html.split_once("<main>").map_or(html, |(shell, _)| shell);
+    shell
+        .split(r#"data-badge="checkout.cart-count""#)
+        .skip(1)
+        .map(|rest| {
+            let (attrs, rest) = rest.split_once('>').unwrap();
+            (rest.split('<').next().unwrap().to_owned(), attrs.contains(" hidden"))
+        })
+        .collect()
+}
+
 #[tokio::test]
-async fn the_nav_reads_the_carts_count_for_a_member_a_guest_cart_or_none() {
+async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
     let pilot = Pilot::new().await;
-    let count = |html: &str| -> u64 { serde_json::from_str::<Value>(html).unwrap()["count"].as_u64().unwrap() };
-    let (status, headers, body) = pilot.send(get("/account/cart/count", Some("buyer"))).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(count(&body), cart("buyer")["count"].as_u64().unwrap(), "{body}");
-    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
-    let mut req = get("/account/cart/count", None);
+    let account_reads = |pilot: &Pilot| pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == CART).count();
+    let total = cart("buyer")["count"].as_u64().unwrap().to_string();
+    // A full load draws the account's count in both bars, with or without JavaScript.
+    let (status, _, html) = pilot.send(get("/search", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "{html}");
+    assert_eq!(account_reads(&pilot), 1, "the count is one cart read");
+    // A navigation keeps the header the full load drew, so nothing is read for it.
+    let mut nav = get("/search", Some("buyer"));
+    nav.headers_mut().insert("corten", "nav".parse().unwrap());
+    let (status, _, _) = pilot.send(nav).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(account_reads(&pilot), 1, "a navigation reads no count");
+
+    // A visitor's count is the guest cart the browser carries, and its entry is shown.
+    let mut req = get("/search", None);
     req.headers_mut().insert(header::COOKIE, GUEST_LINES.parse().unwrap());
-    let (status, _, body) = pilot.send(req).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(count(&body), cart("buyer")["count"].as_u64().unwrap(), "the guest cart the browser carries: {body}");
+    let (_, _, html) = pilot.send(req).await;
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "the guest cart the browser carries: {html}");
+    assert!(!html.contains("hidden data-hide-empty"), "{html}");
+    // No guest cart: nothing is read, and the entry is hidden.
     let reads = guest_cart_reads(&pilot).len();
-    let (status, _, body) = pilot.send(get("/account/cart/count", None)).await;
-    assert_eq!((status, count(&body)), (StatusCode::OK, 0), "no cart: {body}");
+    let (_, _, html) = pilot.send(get("/search", None)).await;
+    assert_eq!(cart_badges(&html), [(String::new(), true), (String::new(), true)], "{html}");
     assert_eq!(guest_cart_reads(&pilot).len(), reads, "nothing read without a guest cart");
+}
+
+#[tokio::test]
+async fn a_page_and_its_layout_ask_who_is_asking_once() {
+    let pilot = Pilot::new().await;
+    let identifies = |pilot: &Pilot| pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/session").count();
+    // The cart page's buyer and the layout's cart count share one lookup.
+    let (status, _, _) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(identifies(&pilot), 1);
+    // The error page gets none of the refused request's extensions, so it asks once more
+    // (todd-skelton/corten#582); its cart count and session still share one.
+    let (status, _, _) = pilot.send(get(SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "refused, and drawn by the error page");
+    assert_eq!(identifies(&pilot), 3);
 }
 
 #[tokio::test]

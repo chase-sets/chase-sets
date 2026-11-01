@@ -39,6 +39,7 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
+use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, MoneyCalls as _, Payout, PayoutAmount, PayoutPreview, PayoutSummary, QuickAmounts, Wallet, WalletAdjustment,
@@ -167,15 +168,17 @@ fn payout_amount(t: MoneyMsg, input: &MoneyInput) -> PayoutAmount {
 
 pub(crate) async fn page(
     req: Req,
+    chrome: Chrome,
     Caller(PayoutViewer(viewer)): Caller<PayoutViewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::money::Money>,
 ) -> HtmlResult {
     let place = route.place;
-    render(&req, &viewer, &config, &headers, &place, Said::default(), StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, &place, Said::default(), StatusCode::OK, &chrome).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn render(
     req: &Req,
     viewer: &Viewer,
@@ -184,6 +187,7 @@ async fn render(
     place: &Place,
     said: Said,
     status: StatusCode,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     let adjustment = async {
@@ -197,7 +201,7 @@ async fn render(
     let read = (|| Ok::<_, ApiError>((wallet?, entries?, summary?, quick_amounts?, adjustment?)))();
     let (wallet, entries, summary, quick_amounts, adjustment) = match read {
         Ok(read) => read,
-        Err(error) => return read_failed(req, Some(viewer), error, None),
+        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
     };
     let actor = &viewer.actor;
     let may =
@@ -205,8 +209,9 @@ async fn render(
     let screen = MoneyScreen { wallet, entries, summary, quick_amounts, adjustment, may, said };
     let t: MoneyMsg = req.t();
     let view = html! { <views::MoneyPage t={t} p={req.t()} screen={&screen} /> };
+    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} title={t.page_marketplace_title()} head={()}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.page_marketplace_title()} head={()}>{view}</Layout>
     };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
@@ -214,6 +219,7 @@ async fn render(
 /// Preview, Edit, Confirm, Retry and Check status (marketplace's action intents).
 pub(crate) async fn write(
     req: Req,
+    chrome: Chrome,
     Caller(PayoutViewer(viewer)): Caller<PayoutViewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -222,7 +228,7 @@ pub(crate) async fn write(
     let (t, p): (MoneyMsg, Pilot) = (req.t(), req.t());
     let (req, viewer, config, headers) = (&req, &viewer, &config, &headers);
     let here = Place::default();
-    let draw = |said: Said, status: StatusCode| render(req, viewer, config, headers, &here, said, status);
+    let draw = |said: Said, status: StatusCode| render(req, viewer, config, headers, &here, said, status, &chrome);
     let draft = || Draft { amount: input.amount.trim().to_owned(), note: input.note() };
     let refused = |message: String, draft: Option<Draft>| Said { error: Some(message), draft, ..Said::default() };
     let caller = config.platform.caller(headers, config.proto, None);
@@ -300,6 +306,7 @@ pub struct PayoutScreen {
 /// (`202`) and reads again.
 pub(crate) async fn payout(
     req: Req,
+    chrome: Chrome,
     Caller(PayoutViewer(viewer)): Caller<PayoutViewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -310,22 +317,25 @@ pub(crate) async fn payout(
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let payout = match caller.payout(&id).await {
         Ok(Some(payout)) => payout,
-        Ok(None) if receipt.is_some() => return preparing(&req, &viewer),
+        Ok(None) if receipt.is_some() => return preparing(&req, &viewer, chrome.cart().await),
         Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
-        Err(error) if receipt.is_some() && error.catching_up() => return preparing(&req, &viewer),
-        Err(error) => return read_failed(&req, Some(&viewer), error, None),
+        Err(error) if receipt.is_some() && error.catching_up() => return preparing(&req, &viewer, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
     };
     let screen = PayoutScreen { payout, requested: place.requested.as_deref() == Some("1") };
     let t: MoneyMsg = req.t();
     let view = html! { <views::PayoutPage t={t} screen={&screen} /> };
+    let cart = chrome.cart().await;
     req.screen(
         &screen,
-        html! { <Layout req={&req} viewer={Some(&viewer)} title={t.route_payout_marketplace()} head={()}>{view}</Layout> },
+        html! {
+            <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={t.route_payout_marketplace()} head={()}>{view}</Layout>
+        },
     )
 }
 
 /// A requested payout Settlement has not caught up to (marketplace's `SettlementPayoutDetailRecoveryPage`).
-fn preparing(req: &Req, viewer: &Viewer) -> HtmlResult {
+fn preparing(req: &Req, viewer: &Viewer, cart: Option<u64>) -> HtmlResult {
     let t: MoneyMsg = req.t();
     let head = html! {
         <meta name="robots" content="noindex">
@@ -334,7 +344,7 @@ fn preparing(req: &Req, viewer: &Viewer) -> HtmlResult {
     req.page_with_status(
         StatusCode::ACCEPTED,
         html! {
-            <Layout req={req} viewer={Some(viewer)} title={t.route_payout_preparing()} head={head}>
+            <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_payout_preparing()} head={head}>
                 <views::PayoutPreparing t={t} />
             </Layout>
         },

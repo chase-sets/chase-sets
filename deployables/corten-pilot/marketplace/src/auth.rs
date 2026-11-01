@@ -1,10 +1,15 @@
 //! Who is asking, and what they may see: the session marketplace signed in, the color mode
 //! they chose, and marketplace's top nav filtered by the same rules as `resolveWebHostNavItems`.
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use corten::{
     Identify, Refused,
-    axum::http::{Uri, request::Parts},
+    axum::{
+        extract::Request,
+        http::{HeaderMap, Uri, request::Parts},
+        response::Response,
+    },
+    middleware::{Middleware, Next},
 };
 pub use platform::{
     api::Actor,
@@ -44,24 +49,66 @@ impl Session {
 }
 
 /// What the platform API says of the request's session cookie.
-enum Found {
+#[derive(Clone)]
+pub(crate) enum Found {
     Account(Viewer),
     SignedOut,
     Unknown,
 }
 
+/// The request's one look at whose it is, shared by every caller type it reads and the layout's
+/// cart count. Corten looks a caller up once per request and type, and each type here (a seller,
+/// a buyer, the error page's session) is the same session with its own rule, so without this a
+/// page and its layout would ask the API who is asking once for each
+/// (todd-skelton/corten#581).
+#[derive(Clone, Default)]
+pub struct Lookup(Arc<tokio::sync::OnceCell<Found>>);
+
+impl Lookup {
+    /// Whose the request with `headers` at `uri` is, looked up the first time it is asked.
+    pub(crate) async fn found(&self, headers: &HeaderMap, uri: &Uri, config: &Shared) -> Found {
+        self.0.get_or_init(|| look_up(headers, uri, config)).await.clone()
+    }
+
+    /// The request's lookup, or a fresh one for a request that has none.
+    pub fn of(parts: &Parts) -> Lookup {
+        parts.extensions.get::<Lookup>().cloned().unwrap_or_default()
+    }
+
+    /// The request's lookup, kept on it for the readers after this one when it had none: the
+    /// error page's request carries none of the failed request's (todd-skelton/corten#582).
+    pub fn kept(parts: &mut Parts) -> Lookup {
+        parts.extensions.get_or_insert_default::<Lookup>().clone()
+    }
+}
+
+/// Gives each request its `Lookup`.
+pub struct OneLookup;
+
+impl Middleware for OneLookup {
+    async fn call(&self, mut req: Request, next: impl Next) -> Response {
+        req.extensions_mut().insert(Lookup::default());
+        next.run(req).await
+    }
+}
+
+/// Whose the request is, by the request's one lookup.
+async fn find(parts: &Parts, config: &Shared) -> Found {
+    Lookup::of(parts).found(&parts.headers, &parts.uri, config).await
+}
+
 /// Whose the request is: its session, else its guest checkout (a guest has only the guest
 /// checkout's cookie, and the API answers with the guest's actor, as marketplace resolves it).
-async fn find(parts: &Parts, config: &Shared) -> Found {
+async fn look_up(headers: &HeaderMap, uri: &Uri, config: &Shared) -> Found {
     let cookies = [session::SESSION_COOKIE, crate::sign_in::GUEST_CHECKOUT_COOKIE];
-    let Some(forward) = session::forwarded_for(&parts.headers, &cookies) else { return Found::SignedOut };
-    let color_mode = ColorMode::from_headers(&parts.headers);
+    let Some(forward) = session::forwarded_for(headers, &cookies) else { return Found::SignedOut };
+    let color_mode = ColorMode::from_headers(headers);
     // A session the write just started is read after that write, as marketplace's
     // `resolveActorFromAuthContext` reads it with the address's receipt: an invitation's
     // acceptance or a registration signs in and lands on a page carrying its receipt. When that
     // read fails, it is read again as it stands (`shouldRetryWithoutFreshWrite`).
     let as_it_stands = config.platform.caller(&forward, config.proto, None);
-    let found = match after_write(&parts.uri) {
+    let found = match after_write(uri) {
         Some(receipt) => match config.platform.caller(&forward, config.proto, Some(&receipt)).identify().await {
             Identity::Unknown => as_it_stands.identify().await,
             found => found,
@@ -76,7 +123,7 @@ async fn find(parts: &Parts, config: &Shared) -> Found {
 }
 
 /// The receipt the address carries (`after_write`), while it is fresh.
-fn after_write(uri: &Uri) -> Option<Receipt> {
+pub(crate) fn after_write(uri: &Uri) -> Option<Receipt> {
     let value = uri.query()?.split('&').find_map(|pair| pair.strip_prefix("after_write="))?;
     let decoded = percent_encoding::percent_decode_str(value).decode_utf8().ok()?;
     Receipt::from_param(Some(&decoded))
@@ -663,9 +710,9 @@ static BOTTOM: LazyLock<Vec<NavItem>> =
 static ACCOUNT_MENU: LazyLock<Vec<NavItem>> =
     LazyLock::new(|| serde_json::from_str(include_str!("../nav.account.json")).expect("nav.account.json is the export's output"));
 
-/// The cart's badge, as the layout knows it: the count is not read when the layout draws (the
-/// nav's script fills it in), so a visitor's cart entry is kept, to be shown once the count is
-/// known (`NavItem::hides_when_empty`).
+/// The cart's badge, for which entries are drawn: a visitor's cart entry is always drawn (hidden
+/// while the count the shell draws is 0, `NavItem::hides_when_empty`), so the cart page can show
+/// it after a write a client navigation followed (`views::market_nav`).
 const UNREAD: [(&str, u64); 1] = [("checkout.cart-count", 1)];
 
 /// The top nav the viewer, or a visitor, may see, by order then label, each group with its

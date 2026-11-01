@@ -2,13 +2,11 @@
 //! the top bar, the account menu and, on a phone, the bottom bar, for a member, a guest checkout or
 //! a visitor, from the exported top-nav, bottom-nav and account-menu contributions.
 //!
-//! The cart's count is not read when the layout draws: a layout renders without awaiting anything,
-//! and a handler cannot tell whether its answer will draw the layout (a client navigation keeps
-//! it), so reading the count in every handler would cost a cart read on every navigation and
-//! patch. The badge's script reads `/account/cart/count` once per full page load instead, and again
-//! when a page says the cart changed (`chase-sets:cart-count-changed`, as marketplace's layout
-//! listens for). Without JavaScript the cart entry has no count, and a visitor's is not shown, as
-//! marketplace hides it while it reads 0.
+//! The cart's count is the page's `Chrome` (`crate::chrome`), read beside the page for a full load
+//! and drawn here, with or without JavaScript; a visitor's cart entry is hidden while it is 0, as
+//! marketplace hides it. A client navigation keeps the header, so the cart page tells the badge
+//! the count its own read found (`badge::known`): its writes are `data-patch` forms whose redirect
+//! keeps the header as the full load drew it (todd-skelton/corten#538).
 use std::{collections::HashMap, sync::LazyLock};
 
 use corten::prelude::*;
@@ -21,6 +19,9 @@ use crate::{
 };
 
 corten::script::script!(pub mod badge = "nav_badge.js");
+
+/// The badge value the cart's entry reads.
+const CART_COUNT: &str = "checkout.cart-count";
 
 /// The nav entries the pilot serves, by the exact path marketplace's nav names. Not `Req::serves`:
 /// the pilot routes `/account/sales/shipments` only to send it on to marketplace's command center
@@ -84,7 +85,7 @@ fn active<'a>(items: &[(&'a NavItem, Vec<&'a NavItem>)], path: &str) -> Option<&
 /// (`BottomNav`), its groups opening upward. An entry the pilot serves (`OWN`) links to the pilot;
 /// every other one to marketplace.
 #[component(css)]
-pub fn MarketNav<'a>(p: Pilot, viewer: Option<&'a Viewer>, path: &'a str) -> impl Render {
+pub fn MarketNav<'a>(p: Pilot, viewer: Option<&'a Viewer>, cart: Option<u64>, path: &'a str) -> impl Render {
     let items = auth::top_nav(viewer);
     let current = active(&items, path);
     let is = move |item: &NavItem| (current == Some(item.key.as_str())).then_some("page");
@@ -95,7 +96,9 @@ pub fn MarketNav<'a>(p: Pilot, viewer: Option<&'a Viewer>, path: &'a str) -> imp
     let menu = auth::account_menu(viewer);
     let bottom = auth::bottom_nav(viewer);
     let here = active(&bottom, path);
-    let visitor = viewer.is_none();
+    // A visitor's cart entry is drawn hidden while the cart is empty, so the cart page can show it.
+    let hidden = |item: &NavItem| viewer.is_none() && item.hides_when_empty() && cart.unwrap_or(0) == 0;
+    let empty = |item: &NavItem| viewer.is_none() && item.hides_when_empty();
     html! {
         <header class={Bar}>
             <a class={Brand} href={marketplace("/").map(|u| u.to_string()).unwrap_or_default()}>{p.shell_marketplace()}</a>
@@ -170,13 +173,10 @@ pub fn MarketNav<'a>(p: Pilot, viewer: Option<&'a Viewer>, path: &'a str) -> imp
                     <ul class={(Items, Wide)}>
                         for (item, _) in &ends {
                             if let Some(href) = link(item) {
-                                <li
-                                    hidden={visitor && item.hides_when_empty()}
-                                    data-hide-empty={visitor && item.hides_when_empty()}
-                                >
+                                <li hidden={hidden(item)} data-hide-empty={empty(item)}>
                                     <a class={Item} href={&href} aria-current={is(item)} data-nav-path={item.href.as_deref()}>
                                         {&item.label}
-                                        <Count item={item} />
+                                        <Count item={item} cart={cart} />
                                     </a>
                                 </li>
                             }
@@ -188,11 +188,7 @@ pub fn MarketNav<'a>(p: Pilot, viewer: Option<&'a Viewer>, path: &'a str) -> imp
         <nav class={Phone} aria-label={p.shell_navigation()} data-nav-rule="deepest">
             <ul class={Slots}>
                 for (item, children) in &bottom {
-                    <li
-                        class={Slot}
-                        hidden={visitor && item.hides_when_empty()}
-                        data-hide-empty={visitor && item.hides_when_empty()}
-                    >
+                    <li class={Slot} hidden={hidden(item)} data-hide-empty={empty(item)}>
                         if children.is_empty() {
                             if let Some(href) = link(item) {
                                 <a
@@ -203,7 +199,7 @@ pub fn MarketNav<'a>(p: Pilot, viewer: Option<&'a Viewer>, path: &'a str) -> imp
                                 >
                                     <span class={Mark}>
                                         <Glyph name={item.icon.as_deref()} />
-                                        <Count item={item} />
+                                        <Count item={item} cart={cart} />
                                     </span>
                                     <span class={Label}>{&item.label}</span>
                                 </a>
@@ -266,12 +262,16 @@ fn Glyph<'a>(name: Option<&'a str>) -> impl Render {
     }
 }
 
-/// An entry's badge, filled by the script once the count is read; nothing for an entry without one.
+/// The cart's count on its entry, "max+" past its most and hidden at 0 (`toNavigationItem`);
+/// nothing for an entry without a badge.
 #[component(css = MarketNav)]
-fn Count<'a>(item: &'a NavItem) -> impl Render {
+fn Count<'a>(item: &'a NavItem, cart: Option<u64>) -> impl Render {
+    let key = item.badge_key();
+    let count = cart.filter(|_| key == Some(CART_COUNT));
+    let text = key.zip(count).and_then(|(key, count)| item.badge(&[(key, count)]));
     html! {
-        if let Some(key) = item.badge_key() {
-            <span class={Badge} data-badge={key} data-max={item.badge_max()} hidden on:connect={badge::fill(target)}></span>
+        if let Some(key) = key {
+            <span class={Badge} data-badge={key} data-max={item.badge_max()} hidden={text.is_none()}>{text}</span>
         }
     }
 }

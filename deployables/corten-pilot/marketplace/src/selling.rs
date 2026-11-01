@@ -29,6 +29,7 @@ use corten::{
 };
 use serde::Serialize;
 
+use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, Caller, Discovery as _, Item, Offer, Selected, SellList as _},
     app::{GUEST_CHECKOUT, Shared, sign_in_at, url},
@@ -308,16 +309,18 @@ async fn refused(
     form: SellForm,
     typed: String,
     message: String,
+    chrome: &Chrome,
 ) -> HtmlResult {
     let notice = BuyNotice::SellRefused { message, form, quantity: typed };
     let reads = items::sell_reads(req, session, caller, &item, address, false).await;
-    items::render(req, session, item, address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, reads)
+    items::render(req, session, item, address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, reads, chrome.cart().await)
 }
 
 /// Accept offer, Add offer to Sell List and Add product to Sell List (the action's `sell-now`,
 /// `add-to-sell-list` and `add-product-to-sell-list`).
 pub(crate) async fn add(
     req: Req,
+    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -347,7 +350,7 @@ pub(crate) async fn add(
         SellIntent::SellNow | SellIntent::AddOffer => {
             let Some(offer) = takeable(&item, &first(field::OFFER)) else {
                 let message = t.route_validation_selected_offer_unavailable().to_owned();
-                return refused(&req, session, &caller, item, &address, SellForm::Offer, typed, message).await;
+                return refused(&req, session, &caller, item, &address, SellForm::Offer, typed, message, &chrome).await;
             };
             let may = matches!(session, Some(Session::Account(viewer)) if viewer.actor.can(OFFERS_MANAGE));
             if account && !may {
@@ -358,7 +361,7 @@ pub(crate) async fn add(
         SellIntent::AddProduct => {
             let Some(quantity) = quantity(&typed) else {
                 let message = t.route_validation_quantity_required().to_owned();
-                return refused(&req, session, &caller, item, &address, SellForm::Product, typed, message).await;
+                return refused(&req, session, &caller, item, &address, SellForm::Product, typed, message, &chrome).await;
             };
             let viewer = match session {
                 Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
@@ -368,7 +371,7 @@ pub(crate) async fn add(
             let product = first(field::PRODUCT);
             if product.is_empty() || screen.product_id.as_deref() != Some(product.as_str()) {
                 let message = t.route_choose_options_to_sell_this_item().to_owned();
-                return refused(&req, session, &caller, item, &address, SellForm::Product, typed, message).await;
+                return refused(&req, session, &caller, item, &address, SellForm::Product, typed, message, &chrome).await;
             }
             product_line(&item, &screen, &product, quantity)
         }
@@ -382,7 +385,7 @@ pub(crate) async fn add(
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             };
         }
-        Err(error) => return refusal(&req, session, &caller, item, &address, intent.form(), typed, error).await,
+        Err(error) => return refusal(&req, session, &caller, item, &address, intent.form(), typed, error, &chrome).await,
     };
     let to = sell_list_href(&receipt).parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?;
     let mut res = req.redirect(&to)?;
@@ -408,9 +411,10 @@ async fn refusal(
     form: SellForm,
     typed: String,
     error: ApiError,
+    chrome: &Chrome,
 ) -> HtmlResult {
     match error.refusal() {
-        Some(message) => refused(req, session, caller, item, address, form, typed, message.to_owned()).await,
+        Some(message) => refused(req, session, caller, item, address, form, typed, message.to_owned(), chrome).await,
         None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
 }
