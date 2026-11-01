@@ -73,7 +73,6 @@ const reviewedCheapNodeEntrypoints = new Set([
   "scripts/stripe-money-smoke-test.mjs",
   "scripts/sync-workspace-metadata.mjs",
   "scripts/verify-observation-pack.mjs",
-  "scripts/verify-static-scoped.mjs",
   "scripts/verify-typecheck.mjs",
   "scripts/workflow-canonical-artifacts.mjs",
   "scripts/worktree-deps.mjs",

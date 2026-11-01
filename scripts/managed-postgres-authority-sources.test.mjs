@@ -13,12 +13,8 @@ import {
   validateManagedPostgresAuthoritySources,
   writeManagedPostgresAuthorityManifest,
 } from "./managed-postgres-authority-sources.mjs";
-import {
-  parseNameStatusZ,
-  parseVerifyStaticChain,
-  runVerifyStaticScoped,
-  selectVerifyStaticLinks,
-} from "./verify-static-scoped.mjs";
+import { parseNameStatusZ } from "./change-scope.mjs";
+import { parseVerifyStaticChain, selectVerifyStaticLinks } from "./verify-static-surfaces.mjs";
 import { ALWAYS_RUN, VERIFY_STATIC_SURFACES } from "./verify-static-surfaces.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -1358,22 +1354,8 @@ describe("managed Postgres authority source generator", () => {
       const root = await boundaryFixture();
       await writeManagedPostgresAuthorityManifest(root);
       await addWorkflow(root);
-      const visited = [];
-      const status = await runVerifyStaticScoped({
-        repoRoot: repositoryRoot,
-        env: { CHANGED_FILES_JSON: JSON.stringify(parseNameStatusZ(diff)) },
-        readPackageJson: () => pkg,
-        stdout: () => {},
-        stderr: () => {},
-        runLink: async ({ name }) => {
-          visited.push(name);
-          // Exercise the selected authority command; unrelated static guards are outside this fixture.
-          if (name !== "check:managed-postgres-authority") return 0;
-          return (await runCli(guardCli, root)).exitCode;
-        },
-      });
-      expect(visited).toContain("check:managed-postgres-authority");
-      expect(status).toBe(1);
+      expect((await runCli(guardCli, root)).exitCode).toBe(1);
+      expect(selected.selected.map(({ name }) => name)).toContain("check:managed-postgres-authority");
     });
   });
 
