@@ -16,6 +16,7 @@ import { expectUcpCapture, ucpSchemaValidator } from "@chase-sets/platform-runti
 import type { CheckoutFulfillmentPreview } from "../features/sessions/domain/fulfillment-preview";
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
+import { CheckoutEntryAttemptConflict } from "../features/command-attempts/api/entry-attempt";
 import { CheckoutDomainError } from "../support/runtime-support/common";
 
 const ports = vi.hoisted(() => ({
@@ -111,8 +112,22 @@ function preview(ready = true) {
 function fixture(overrides: Partial<CheckoutSessionRow> = {}) {
   let current = session(overrides);
   let clock = new Date("2026-10-16T00:00:00.000Z");
+  // The owner's entry attempts, as Checkout records them beside the started Session.
+  const entryAttempts = new Map<string, { requestHash: string; sessionId: string }>();
+  const resolveEntryAttempt = vi.fn<CheckoutSessionServices["resolveEntryAttempt"]>(async ({ entryAttempt }) => {
+    const recorded = entryAttempts.get(entryAttempt.attemptId);
+    if (!recorded) return null;
+    if (recorded.requestHash !== entryAttempt.requestHash) throw new CheckoutEntryAttemptConflict();
+    return { sessionId: recorded.sessionId as never };
+  });
   const writes = {
     createBuyNow: vi.fn<CheckoutSessionServices["createBuyNow"]>(async (params) => {
+      if (params.entryAttempt) {
+        entryAttempts.set(params.entryAttempt.attemptId, {
+          requestHash: params.entryAttempt.requestHash,
+          sessionId: params.sessionIdOverride ?? id,
+        });
+      }
       current = session({
         session_id: params.sessionIdOverride ?? id,
         fulfillment_preview_revision: params.fulfillmentPreviewRevision,
@@ -140,6 +155,7 @@ function fixture(overrides: Partial<CheckoutSessionRow> = {}) {
   };
   const sessions = {
     ...writes,
+    resolveEntryAttempt,
     getLastRecordedQuote: vi.fn(async () => ({
       revision: "retained_quote_revision",
       readyLineKeys: ["lst_1:0"],
@@ -194,7 +210,12 @@ function input(
     params: mcp ? {} : { id: checkoutId },
     request: new Request("https://marketplace.example/ucp/v1/checkout-sessions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(signed ? { Signature: "test-verified-by-dispatch" } : {}) },
+      headers: {
+        "Content-Type": "application/json",
+        // The platform dispatch refuses a keyless create; every create here carries a retry key.
+        "Idempotency-Key": "retry_ucp_default",
+        ...(signed ? { Signature: "test-verified-by-dispatch" } : {}),
+      },
       body: JSON.stringify(body),
     }),
   };
@@ -291,23 +312,55 @@ describe("UCP buy-now readiness AC1", () => {
     ]);
     noWrites(f);
   });
-  it("preserves unresolved_fulfillment on initial and replacement previews", async () => {
+  it("preserves unresolved_fulfillment on the initial preview", async () => {
     const f = fixture();
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValueOnce(preview(false));
     expect((await f.restHandlers.create_checkout(input(dto()))).messages).toEqual([
       expect.objectContaining({ code: "unresolved_fulfillment" }),
     ]);
     noWrites(f);
-    f.writes.createBuyNow.mockResolvedValueOnce({ sessionId: id as never });
-    ports.previewBuyNowCheckoutSupplyThroughOrdering
-      .mockResolvedValueOnce(preview())
-      .mockResolvedValueOnce(preview(false));
-    const request = input(dto());
-    request.request.headers.set("Idempotency-Key", "replacement");
-    expect((await f.restHandlers.create_checkout(request)).messages).toEqual([
-      expect.objectContaining({ code: "unresolved_fulfillment" }),
-    ]);
     expect(f.writes.recordFulfillmentPreview).not.toHaveBeenCalled();
+  });
+
+  // REST and MCP both reach this gate: MCP create_checkout keeps the platform
+  // descriptor's idempotencyKeyRequired: false, so the handler is its key gate.
+  it.each([false, true])("refuses a keyless create_checkout before any read or write on MCP=%s", async (mcp) => {
+    const f = fixture();
+    const request = input(mcp ? { checkout: dto() } : dto(), mcp);
+    request.request.headers.delete("Idempotency-Key");
+    const handlers = mcp ? f.mcpToolHandlers : f.restHandlers;
+    expect((await handlers.create_checkout(request)).messages).toEqual([
+      expect.objectContaining({ code: "checkout_attempt_required" }),
+    ]);
+    expect(f.getPublicListingById).not.toHaveBeenCalled();
+    expect(f.sessions.resolveEntryAttempt).not.toHaveBeenCalled();
+    noWrites(f);
+  });
+
+  it("returns the first Session for a repeated retry key once the platform record has expired", async () => {
+    const f = fixture();
+    const first = await f.restHandlers.create_checkout(input(dto(2)));
+    const replay = await f.restHandlers.create_checkout(input(dto(2)));
+
+    expect(first.ucp.status).toBe("success");
+    expect(replay).toEqual(first);
+    expect(f.writes.createBuyNow).toHaveBeenCalledTimes(1);
+    expect(f.getPublicListingById).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses the same retry key with a changed quantity or listing and opens nothing", async () => {
+    const f = fixture();
+    expect((await f.restHandlers.create_checkout(input(dto(1)))).ucp.status).toBe("success");
+
+    const changedQuantity = await f.restHandlers.create_checkout(input(dto(2)));
+    const changedListing = await f.restHandlers.create_checkout(
+      input({ line_items: [{ id: "li_1", item: { id: "lst_2" }, quantity: 1 }] }),
+    );
+
+    expect(changedQuantity.messages).toEqual([expect.objectContaining({ code: "checkout_attempt_conflict" })]);
+    expect(changedListing.messages).toEqual([expect.objectContaining({ code: "checkout_attempt_conflict" })]);
+    expect(f.writes.createBuyNow).toHaveBeenCalledTimes(1);
+    expect(f.getPublicListingById).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -504,6 +557,30 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     noWrites(f);
     expect(f.writes.cancelSession).not.toHaveBeenCalled();
     expect(ports.releaseCheckoutInventoryReservations).not.toHaveBeenCalled();
+  });
+  it("a repeated signed cancel returns the first cancelled Session with no release beyond the first", async () => {
+    const f = fixture({
+      checkout_reservations: [
+        {
+          holdId: "hold_1",
+          lineKey: "lst_1:0",
+          sellerAccountId: "acc_seller",
+          inventoryItemId: "inv_1",
+          quantity: 1,
+          expiresAt: "2026-10-16T00:15:00.000Z",
+          extensionCount: 0,
+          status: "active",
+        },
+      ],
+    });
+
+    const first = await f.restHandlers.cancel_checkout(input({}, false, true));
+    const replay = await f.restHandlers.cancel_checkout(input({}, false, true));
+
+    expect(first).toMatchObject({ status: "canceled" });
+    expect(replay).toEqual(first);
+    expect(ports.releaseCheckoutInventoryReservations).toHaveBeenCalledTimes(1);
+    expect(f.writes.cancelSession).toHaveBeenCalledTimes(1);
   });
   it("signed cancel shares Cancel checkout: one release, and none once orders exist", async () => {
     const f = fixture();

@@ -182,6 +182,7 @@ function fixture(
           cancelSession,
           readSessionForCancellation,
           createBuyNow,
+          resolveEntryAttempt: vi.fn(async () => null),
           recordFulfillmentPreview,
           recordOrdersCreated,
           recordPaymentStarted,
@@ -557,6 +558,29 @@ it("unsigned REST grant cannot bypass create or update signed-write gates", asyn
   expect(f.getSession).not.toHaveBeenCalled();
   expect(f.reserve).not.toHaveBeenCalled();
 });
+
+// Transport split: REST create is a signed idempotent write, so the platform
+// refuses a keyless create; MCP create_checkout keeps idempotencyKeyRequired:
+// false for the profile-less buyer connector, so Checkout's own
+// checkout_attempt_required is its key gate. Neither reaches a Checkout write.
+it.each(["rest", "legacy", "modern"] as const)(
+  "refuses a keyless %s create_checkout before any Checkout read or write",
+  async (transport) => {
+    const f = fixture();
+    const result = await f.call(transport, "create_checkout", transport === "rest" ? { signature: "no-key" } : {});
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({
+        code: transport === "rest" ? "idempotency_key_required" : "checkout_attempt_required",
+      }),
+    ]);
+    expect(result).not.toHaveProperty("id");
+    expect(f.reserve).not.toHaveBeenCalled();
+    expect(f.createBuyNow).not.toHaveBeenCalled();
+    expect(f.recordFulfillmentPreview).not.toHaveBeenCalled();
+    expect(f.getSession).not.toHaveBeenCalled();
+  },
+);
 
 it.each(["legacy", "modern"] as const)(
   "passes MCP argument metadata to create_checkout for the %s protocol",
