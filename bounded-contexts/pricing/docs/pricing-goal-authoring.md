@@ -101,8 +101,7 @@ Proof: [Step 5 — Preview prices listings with it](../tests/conformance/fixture
 
 No change. The listing trace the `pricing.repricing-policy.evaluated` event
 carries records the goal id, version and curve version at the final price.
-This is the fact the Forecast Ledger (#7708) will project; see Steps owned by
-#9709.
+This is the fact the Forecast Ledger projects; see Step 11.
 
 Proof: [Step 6 — The evaluated listing trace records its Goal Version](../tests/conformance/fixture-goal-end-to-end.test.ts)
 
@@ -196,7 +195,7 @@ in its `unregisteredKeys`:
 | Guardrail kinds (#9308) | `guardrail-conformance.test.ts` | Parameter validation, pure `apply` over `GuardrailContext`, acts on its hit and is inert otherwise, idempotent, records its hit in the evaluation, never raises a price above the seller's ceiling. Each authorable kind declares its scenario, which the `RepricingGuardrail` union enforces at compile time. |
 | Curve builders | `curve-builder-conformance.test.ts` | Identity, deterministic loads over frozen inputs, sales of the requested variant and language in one sale shape, the window's sales limit, no sales when no evidence is stored. |
 | Economics providers | `economics-provider-conformance.test.ts` | Deterministic resolution, source Economics in the request currency under the provider's identity, unmodified requests, a stable unavailable reason when the source cannot price. The native marketplace provider and the unregistered-channel result are its `unregisteredKeys`; an exact or fallback provider registered in production fails the run until it has an entry. |
-| Forecast kinds (#7708) | `forecast-kind-conformance.test.ts` | Registration coverage only: the run binds `forecastKindDefinitions` as `production` and exercises every kind it enumerates, under unique names. #9709 owns the Forecast Kind property set. |
+| Forecast kinds (#7708) | `forecast-kind-conformance.test.ts` | The run binds `forecastKindDefinitions` as `production` and exercises every kind it enumerates, under unique names, with the Forecast Kind property set proved by Step 9. |
 
 A registry the factory's own module constructs cannot be recorded: that module
 calls the factory directly, and the mock wraps only its export. Its run passes

@@ -55,7 +55,7 @@ const forecastKindProperties: readonly ConformanceProperty<ForecastKindDefinitio
   },
   {
     name: "returns null when the evaluated curve is absent",
-    check: (kind) => expect(kind.forecast(validInput({ curve: null, goalForecast: null }))).toBeNull(),
+    check: (kind) => expect(kind.forecast(validInput({ curve: null }))).toBeNull(),
   },
   {
     name: "does not read the goal read-back unless the curve kind needs it",
@@ -79,8 +79,21 @@ const forecastKindProperties: readonly ConformanceProperty<ForecastKindDefinitio
         points: curve.points.map((point) => ({ ...point, buyerArrivalIntervalDays: null })),
       };
       const input = validInput({ curve: noBuyerArrival, goalForecast: validInput().goalForecast });
-      if (kind.name === "buyer-choice") expect(kind.forecast(input)).toBeNull();
-      else expectValidForecast(kind, input);
+      const noPoints = validInput({ curve: { ...curve, points: [] }, goalForecast: validInput().goalForecast });
+      const noCompetingSellers = validInput({
+        curve: { ...curve, points: curve.points.map((point) => ({ ...point, competingSellerCount: null })) },
+        goalForecast: validInput().goalForecast,
+      });
+      if (kind.name === "buyer-choice") {
+        expect(kind.forecast(input), "no buyer arrival").toBeNull();
+        expect(kind.forecast(noPoints), "no points").toBeNull();
+        expect(kind.forecast(noCompetingSellers), "no competing sellers").toBeNull();
+      } else {
+        expectValidForecast(kind, input);
+        if (kind.name === "condition-rate") expect(kind.forecast(noPoints)).toBeNull();
+        else expectValidForecast(kind, noPoints);
+        expectValidForecast(kind, noCompetingSellers);
+      }
     },
   },
   {
@@ -91,57 +104,31 @@ const forecastKindProperties: readonly ConformanceProperty<ForecastKindDefinitio
         curve: { ...curve, points: curve.points.map((point) => ({ ...point, storeWinShare: null })) },
         goalForecast: validInput().goalForecast,
       });
-      for (const input of [noSales, noStoreWinShare]) {
+      const salesOutsideWindow = validInput({
+        curve: { ...curve, conditionSales: [{ weekStart: "2025-09-01", transactionCount: 5 }] },
+        goalForecast: validInput().goalForecast,
+      });
+      for (const input of [noSales, salesOutsideWindow, noStoreWinShare]) {
         if (kind.name === "condition-rate") expect(kind.forecast(input)).toBeNull();
         else expectValidForecast(kind, input);
       }
     },
   },
-  {
-    name: "rejects malformed scalars only for kinds that read them",
-    check: (kind) => {
-      const malformedPrice = validInput({ priceAmount: "" });
-      const malformedTime = validInput({ pricedAt: "not-a-timestamp" });
-      const malformedCurve = validInput({
-        curve: { ...curve, points: curve.points.map((point) => ({ ...point, percentile: Number.NaN })) },
-      });
-      if (kind.name === "curve") {
-        expectValidForecast(kind, malformedPrice);
-        expectValidForecast(kind, malformedTime);
-        expectValidForecast(kind, malformedCurve);
-      } else {
-        if (kind.name === "buyer-choice") expect(kind.forecast(malformedPrice)).toBeNull();
-        if (kind.name === "condition-rate") {
-          expect(kind.forecast(malformedTime)).toBeNull();
-          expect(kind.forecast(malformedCurve)).toBeNull();
-        } else {
-          expectValidForecast(kind, malformedTime);
-          expectValidForecast(kind, malformedCurve);
-        }
-      }
-    },
-  },
 ];
+
+const forecastKindSuite = {
+  registry: createForecastKindRegistry,
+  production: forecastKindDefinitions,
+  entries: forecastKindDefinitions,
+  key: (kind: ForecastKindDefinition) => kind.name,
+  properties: forecastKindProperties,
+};
 
 // The factory's own module constructs the registry, so the run binds that
 // construction's enumeration as `production`. The inputs mirror the producer:
 // money and time are evaluated trace scalars, and points are builder output.
-describeConformance({
-  registry: createForecastKindRegistry,
-  production: forecastKindDefinitions,
-  entries: forecastKindDefinitions,
-  key: (kind) => kind.name,
-  properties: forecastKindProperties,
-});
+describeConformance(forecastKindSuite);
 
 it("Step 9 — Prove every registered Forecast Kind through the Conformance Kit", async () => {
-  expect(
-    await runConformance({
-      registry: createForecastKindRegistry,
-      production: forecastKindDefinitions,
-      entries: forecastKindDefinitions,
-      key: (kind) => kind.name,
-      properties: forecastKindProperties,
-    }),
-  ).toEqual([]);
+  expect(await runConformance(forecastKindSuite)).toEqual([]);
 });

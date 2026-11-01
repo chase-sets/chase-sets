@@ -24,7 +24,10 @@ import { fixtureFlatOffsetGoal } from "./fixture-flat-offset";
 import type { PricingGoalDefinition } from "../../features/repricing-policies/domain/goals/registry";
 
 const registryCapture = vi.hoisted(() => ({
-  registries: [] as Array<{ registerPricingGoal: (goal: PricingGoalDefinition) => void }>,
+  registries: [] as Array<{
+    definitions: () => readonly PricingGoalDefinition[];
+    registerPricingGoal: (goal: PricingGoalDefinition) => void;
+  }>,
 }));
 vi.mock("../../features/repricing-policies/domain/goals/registry", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../features/repricing-policies/domain/goals/registry")>();
@@ -50,8 +53,10 @@ describeDb("the fixture goal reaches the real Pricing Health registry surface", 
     const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["pricing"], "fixture_goal_health_9709");
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pools = createMultiContextTestPools(urls);
-    expect(registryCapture.registries.length).toBeGreaterThan(0);
-    registryCapture.registries[0]!.registerPricingGoal(fixtureFlatOffsetGoal);
+    expect(registryCapture.registries).toHaveLength(1);
+    const registry = registryCapture.registries[0]!;
+    expect(registry.definitions().some((goal) => goal.id === fixtureFlatOffsetGoal.id)).toBe(false);
+    registry.registerPricingGoal(fixtureFlatOffsetGoal);
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
@@ -104,7 +109,7 @@ describeDb("the fixture goal reaches the real Pricing Health registry surface", 
     const comparison = renderToStaticMarkup(
       createElement(GoalComparison, {
         branch: "comparison",
-        candidates: [],
+        candidates: data?.comparison ?? [],
         recommendation: { kind: "compare-goals" },
         goals: data!.goals!,
       }),

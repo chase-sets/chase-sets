@@ -23,6 +23,7 @@ import { goalDirective } from "../../features/repricing-engine/tests/curve-objec
 import { dryRunContext, seedDryRunListings } from "../../features/repricing-engine/tests/dry-run-fixture";
 import { economicsNeverResolved } from "../../features/repricing-engine/tests/round-capture-fixture";
 import { registerShadowGoals } from "../../features/repricing-engine/tests/shadow-goal-fixture";
+import { forecastKindDefinitions } from "../../features/forecast-ledger/domain/forecast-kinds";
 import { defineFixtureFlatOffsetGoal, fixtureFlatOffsetGoal } from "./fixture-flat-offset";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -157,14 +158,33 @@ describeDb("the fixture goal reaches the Forecast Ledger projection", () => {
        FROM pricing_forecast_ledger_entries ORDER BY listing_id, role`,
       )
     ).rows;
+    expect(data.listings.length).toBeGreaterThan(0);
+    const expectedForecastKinds = forecastKindDefinitions()
+      .map((kind) => kind.name)
+      .sort();
     expect(rows).toHaveLength(data.listings.length * 2);
-    for (const row of rows) {
-      expect(row).toMatchObject({ goal_id: fixtureFlatOffsetGoal.id, curve_version: "1" });
-      expect([1, 2]).toContain(row.goal_version);
-      expect(Object.keys(row.forecasts).sort()).toEqual(["buyer-choice", "condition-rate", "curve"]);
-      for (const forecast of Object.values(row.forecasts)) {
-        expect(forecast.medianSellDays).toBeGreaterThan(0);
-        expect(forecast.model.length).toBeGreaterThan(0);
+    for (const listing of data.listings) {
+      const listingRows = rows.filter((row) => row.listing_id === listing.listingId);
+      expect(listingRows).toEqual([
+        expect.objectContaining({
+          role: "incumbent",
+          goal_id: fixtureFlatOffsetGoal.id,
+          goal_version: 1,
+          curve_version: "1",
+        }),
+        expect.objectContaining({
+          role: "shadow",
+          goal_id: fixtureFlatOffsetGoal.id,
+          goal_version: 2,
+          curve_version: "1",
+        }),
+      ]);
+      for (const row of listingRows) {
+        expect(Object.keys(row.forecasts).sort()).toEqual(expectedForecastKinds);
+        for (const forecast of Object.values(row.forecasts)) {
+          expect(forecast.medianSellDays).toBeGreaterThan(0);
+          expect(forecast.model.length).toBeGreaterThan(0);
+        }
       }
     }
   });
