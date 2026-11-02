@@ -6,9 +6,16 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
+import { loadImageSources, mirrorReference } from "../ci-image-sources.mjs";
 import { repoRoot } from "../lib/repo.mjs";
 
 const workflowsRoot = path.join(repoRoot, ".github", "workflows");
+// #9230: the moved builder steps gained exactly this pinned mirror builder on
+// the host network (which inherits the blocked Docker Hub hosts).
+const mirroredBuilderDriverOpts = `image=${mirrorReference(
+  loadImageSources().find((source) => source.id === "buildkit"),
+)}\nnetwork=host\n`;
+const blockDockerHubAction = "./.github/actions/block-docker-hub";
 
 function workflowDocuments() {
   return readdirSync(workflowsRoot)
@@ -73,6 +80,14 @@ function stepDigest(step) {
 function normalizeMovedStep(step) {
   const normalized = structuredClone(step);
   if (typeof normalized.uses === "string" && normalized.uses.startsWith("actions/checkout@")) {
+    delete normalized.with;
+  }
+  if (
+    typeof normalized.uses === "string" &&
+    normalized.uses.startsWith("docker/setup-buildx-action@") &&
+    Object.keys(normalized.with ?? {}).join() === "driver-opts" &&
+    normalized.with["driver-opts"] === mirroredBuilderDriverOpts
+  ) {
     delete normalized.with;
   }
   if (
@@ -268,7 +283,12 @@ describe("exact-target extraction and trigger/caller structure", () => {
         digest,
       ).toHaveLength(1);
     }
-    expect(receiverSteps).toHaveLength(movedStepDigests.length + 3);
+    const blockSteps = receiverSteps.filter((step) => step.uses === blockDockerHubAction);
+    expect(blockSteps).toHaveLength(1);
+    expect(receiverSteps.indexOf(blockSteps[0])).toBeLessThan(
+      receiverSteps.findIndex((step) => String(step.uses).startsWith("docker/setup-buildx-action@")),
+    );
+    expect(receiverSteps).toHaveLength(movedStepDigests.length + 4);
   });
 
   it("negative control: provenance validates before the sole checkout, which can materialize only target_sha", () => {
