@@ -11587,6 +11587,10 @@ async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_
     assert!(page.contains("Available balance $25.00 Payable total $638.83"), "Payments' quote, not one the page makes: {page}");
     assert!(page.contains("Ship to Demo Collector 42 Binder Lane, Evanston, IL 60201, US Ready"), "the saved default: {page}");
     assert!(page.contains("Standard insured: 2026-11-04 - 2026-11-09."), "{page}");
+    // The steps are the kit's: each says its state after its name, a description under it.
+    assert!(html.contains(r#"aria-label="Checkout steps""#), "{html}");
+    assert!(page.contains("Contact (done) Where receipts and updates go Delivery (done)"), "{page}");
+    assert!(page.contains("Payment How you pay Review (not started) Confirm and pay"), "{page}");
     assert!(
         html.contains(
             r#"<form id="checkout-form" class="checkout-page__form" method="post" action="/checkout/buy/session/chk_1""#
