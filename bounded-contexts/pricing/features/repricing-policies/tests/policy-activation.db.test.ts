@@ -25,6 +25,8 @@ import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
 import { buildRepricingPolicyProjectionHandlers } from "../read-model/projection";
 import { economicsNeverResolved } from "../../repricing-engine/tests/round-capture-fixture";
+import { compilePresetBody, recognizeAuthoringIntent } from "../domain/authoring-intent";
+import type { RepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -50,13 +52,13 @@ describeDb("policy first activation", () => {
       ...createRepricingPolicyActivationServices({ eventStore, pool }),
     };
   }
-  async function completedRun() {
+  async function completedRun(body: RepricingDryRunBody = dryRunBody) {
     const engine = createRepricingEngineRuntime({
       economics: economicsNeverResolved,
       eventStore: createPostgresEventStore({ pool: pools.pricing }),
       db: pools.pricing,
     });
-    const run = await engine.enqueueDryRun({ sellerAccountId: accountId, body: dryRunBody }, dryRunContext);
+    const run = await engine.enqueueDryRun({ sellerAccountId: accountId, body }, dryRunContext);
     expect(await engine.processNextDryRunJob({ claimOwnerId: "synthetic_7911", claimTtlMs: 30_000 })).toBe(1);
     expect((await engine.getDryRun(accountId, run!.dryRunId))?.status).toBe("completed");
     return run!.dryRunId;
@@ -168,6 +170,50 @@ describeDb("policy first activation", () => {
     expectReceipt(result, appended);
     expect(result.metadata.committedEvents[0]).toBe(appended[0]);
     expect(await createdEvents()).toEqual(appended);
+  });
+
+  it("replays authoring intent, clears advanced edits in the projection and isolates metadata by account", async () => {
+    const original = compilePresetBody({
+      preset: "slow-stock",
+      name: "Slow stock",
+      currencyCode: "USD",
+      floor: { mode: "absolute", amount: "4.00" },
+      knob: 12,
+      ageDays: 60,
+      scope: { kind: "all-listings" },
+    });
+    const controls = services();
+    const created = await controls.activateRepricingPolicy(activateInput(await completedRun(original)), dryRunContext);
+    const policyId = created!.policyId!;
+    const replayed = (await controls.loadOwnedRepricingPolicy(policyId, accountId))!.state;
+    expect(replayed.authoringIntent).toEqual(original.authoringIntent);
+    expect(replayed.rules).toEqual(original.rules);
+    const projected = buildRepricingPolicyProjectionHandlers(pools.pricing);
+    for (const event of await createPostgresEventStore({ pool: pools.pricing }).readAll())
+      await projected[event.eventType]?.(toTransportEvent(event));
+    const record = await controls.getAccountRepricingPolicy({ accountId, policyId });
+    expect(record!.authoringIntent).toEqual(original.authoringIntent);
+    expect(recognizeAuthoringIntent(record!)).not.toBeNull();
+    expect(await controls.getAccountRepricingPolicy({ accountId: "acc_foreign", policyId })).toBeNull();
+    const changed = {
+      ...original,
+      rules: original.rules.map((rule, index) =>
+        index === 1
+          ? { ...rule, directive: { ...rule.directive, offset: { mode: "percent" as const, percent: -7 } } }
+          : rule,
+      ),
+    };
+    await controls.executeOwnedRepricingPolicy({
+      policyId,
+      accountId,
+      context: dryRunContext,
+      command: { ...changed, type: "ReviseRepricingPolicy", revisedAt: "2026-10-28T00:01:00Z" },
+    });
+    for (const event of await createPostgresEventStore({ pool: pools.pricing }).readAll())
+      await projected[event.eventType]?.(toTransportEvent(event));
+    const revised = await controls.getAccountRepricingPolicy({ accountId, policyId });
+    expect(revised!.authoringIntent).toBeNull();
+    expect(revised!.rules[1]!.directive.offset).toEqual({ mode: "percent", percent: -7 });
   });
 
   it("creates from the exact stored body indefinitely and owns commands before projection catchup", async () => {

@@ -275,7 +275,9 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         productTruthRefs: [
           ...privacyProductTruthRefsForSection("cookies-and-analytics"),
           "bounded-contexts/auth/docs/security-lifetimes.md:13-25",
-          "bounded-contexts/discovery/routes/search.tsx:1157-1163",
+          "bounded-contexts/discovery/routes/search.tsx:750-758",
+          "bounded-contexts/discovery/routes/search.tsx:834-839",
+          "bounded-contexts/discovery/routes/search.tsx:1378-1382",
           "bounded-contexts/public-presence/docs/landing-page-analytics.md:3-7",
           "bounded-contexts/public-presence/docs/landing-page-analytics.md:27-34",
           "bounded-contexts/public-presence/features/waitlist/domain/common.ts:42-50",
@@ -303,7 +305,10 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           {
             assertion:
               "The public search route supplies session storage to the restoration and loader-cache modules, so their browser-side state exists on an unauthenticated surface.",
-            evidenceRef: "bounded-contexts/discovery/routes/search.tsx:1157-1163",
+            evidenceRef:
+              "bounded-contexts/discovery/routes/search.tsx:750-758; " +
+              "bounded-contexts/discovery/routes/search.tsx:834-839; " +
+              "bounded-contexts/discovery/routes/search.tsx:1378-1382",
           },
         ],
       },

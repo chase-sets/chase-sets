@@ -49,8 +49,40 @@ test("inert ${name} fixture", () => {
       maxBuffer: 1024 * 1024,
     });
   }
+  const tsxFixturePath = path.join(fixtureRoot, "tsx-fixture.ts");
+  const tsxTestPath = path.join(fixtureRoot, "tsx.test.mjs");
+  await writeFile(
+    tsxFixturePath,
+    'enum Fixture {\n  Transformed = "transformed",\n}\nconsole.log(Fixture.Transformed);\n',
+  );
+  await writeFile(
+    tsxTestPath,
+    `import { spawnSync } from "node:child_process";
+const result = spawnSync(process.execPath, ["--import", "tsx", ${JSON.stringify(tsxFixturePath)}], {
+  env: process.env,
+  encoding: "utf8",
+});
+test("transforms one TypeScript module through tsx", () => {
+  if (result.error) throw result.error;
+  if (result.status !== 0 || result.stdout.trim() !== "transformed") {
+    throw new Error(result.stderr || "tsx child printed " + result.stdout);
+  }
+});`,
+  );
+  const tsxEnv = { ...process.env };
+  delete tsxEnv.TSX_DISABLE_CACHE;
+  controls.tsx = spawnSync(process.execPath, [cli, "run", "--config", configPath, tsxTestPath], {
+    env: tsxEnv,
+    encoding: "utf8",
+    timeout: 60_000,
+    maxBuffer: 1024 * 1024,
+  });
 } finally {
   await rm(fixtureRoot, { recursive: true, force: true });
+}
+
+function censusEnvironment() {
+  return ["TEMP", "TMP", "TMPDIR", "NODE_COMPILE_CACHE", "TSX_DISABLE_CACHE"].map((key) => process.env[key]);
 }
 
 async function runCompileCacheControl() {
@@ -99,7 +131,7 @@ test("loads one module through Node's compile cache", () => {
 
 describe("script battery temporary census", () => {
   it("uses one fresh private directory for every temporary environment", async () => {
-    const previous = [process.env.TEMP, process.env.TMP, process.env.TMPDIR, process.env.NODE_COMPILE_CACHE];
+    const previous = censusEnvironment();
     const teardown = await setupScriptBatteryTempCensus();
     const privateDirectory = process.env.TEMP;
     try {
@@ -110,13 +142,14 @@ describe("script battery temporary census", () => {
       expect(process.env.NODE_COMPILE_CACHE).toBe(
         previous[3] ?? path.join(path.dirname(privateDirectory), "node-compile-cache"),
       );
+      expect(process.env.TSX_DISABLE_CACHE).toBe("1");
       expect(await readdir(privateDirectory)).toEqual([]);
       const cleanedDirectory = await mkdtemp(path.join(os.tmpdir(), "inert-clean-"));
       await rm(cleanedDirectory, { recursive: true, force: true });
     } finally {
       await teardown();
     }
-    expect([process.env.TEMP, process.env.TMP, process.env.TMPDIR, process.env.NODE_COMPILE_CACHE]).toEqual(previous);
+    expect(censusEnvironment()).toEqual(previous);
     await expect(access(privateDirectory)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -131,8 +164,15 @@ describe("script battery temporary census", () => {
     expect(controls.clean.stderr).not.toContain("surviving entries");
   });
 
+  it("keeps tsx's transform cache out of the private temp directory", () => {
+    expect(controls.tsx.error).toBeUndefined();
+    expect(controls.tsx.status, `${controls.tsx.stdout}\n${controls.tsx.stderr}`).toBe(0);
+    expect(controls.tsx.stdout).toContain("1 passed");
+    expect(controls.tsx.stderr).not.toContain("script battery temporary census found surviving entries");
+  });
+
   it("names every surviving entry and restores the environment after failure", async () => {
-    const previous = [process.env.TEMP, process.env.TMP, process.env.TMPDIR, process.env.NODE_COMPILE_CACHE];
+    const previous = censusEnvironment();
     const teardown = await setupScriptBatteryTempCensus();
     const privateDirectory = process.env.TEMP;
     const leakedDirectory = await mkdtemp(path.join(privateDirectory, "inert-leak-"));
@@ -140,7 +180,7 @@ describe("script battery temporary census", () => {
     await expect(teardown()).rejects.toThrow(
       `script battery temporary census found surviving entries: ${[path.basename(leakedDirectory), "inert-leak.txt"].sort().join(", ")}`,
     );
-    expect([process.env.TEMP, process.env.TMP, process.env.TMPDIR, process.env.NODE_COMPILE_CACHE]).toEqual(previous);
+    expect(censusEnvironment()).toEqual(previous);
     await expect(access(privateDirectory)).rejects.toMatchObject({ code: "ENOENT" });
   });
 

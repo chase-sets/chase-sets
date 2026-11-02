@@ -89,7 +89,7 @@
       "requiresAuth": true,
       "readFreshnessRoutes": [
         {
-          "routePath": "/schedules",
+          "routePath": "/home",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -106,15 +106,6 @@
             },
             {
               "readModelTable": "platform_policy_document_history"
-            }
-          ]
-        },
-        {
-          "routePath": "/agreements",
-          "methods": ["GET", "HEAD"],
-          "dependencies": [
-            {
-              "readModelTable": "platform_policy_documents"
             }
           ]
         },
@@ -157,7 +148,7 @@
       "destination": {
         "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
-        "apiRoutePath": "/schedules",
+        "apiRoutePath": "/home",
         "readModelTables": ["platform_policy_documents"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
@@ -211,7 +202,7 @@
       "destination": {
         "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
-        "apiRoutePath": "/agreements",
+        "apiRoutePath": "/home",
         "readModelTables": ["platform_policy_documents"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
@@ -238,7 +229,7 @@
       "destination": {
         "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
-        "apiRoutePath": "/agreements",
+        "apiRoutePath": "/home",
         "readModelTables": ["platform_policy_documents"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
@@ -318,7 +309,7 @@
       "visibleDestination": {
         "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
-        "apiRoutePath": "/schedules",
+        "apiRoutePath": "/home",
         "readModelTables": ["platform_policy_documents"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -364,7 +355,7 @@
       "visibleDestination": {
         "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
-        "apiRoutePath": "/agreements",
+        "apiRoutePath": "/home",
         "readModelTables": ["platform_policy_documents"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -572,6 +563,7 @@
       "classification": "support",
       "purpose": "Provide commercial-terms event-store composition and common fee math shared by runtime services.",
       "expectedConsumers": [
+        "home",
         "schedules",
         "agreements",
         "resolutions",

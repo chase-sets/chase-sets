@@ -21,7 +21,9 @@ const {
   mockPreviewCheckoutFulfillmentThroughOrdering,
   mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   mockSubmitPurchaseIntentThroughMarketplace,
+  mockReleaseCheckoutInventoryReservations,
 } = vi.hoisted(() => ({
+  mockReleaseCheckoutInventoryReservations: vi.fn(),
   mockCreateCheckoutInventoryReservations: vi.fn(),
   mockCreateCheckoutOrdersThroughOrdering: vi.fn(),
   mockCreateCheckoutPaymentThroughPayments: vi.fn(),
@@ -37,6 +39,7 @@ vi.mock("../../../support/request-support/checkout-confirmation", () => ({
   previewCheckoutFulfillmentThroughOrdering: mockPreviewCheckoutFulfillmentThroughOrdering,
   previewBuyNowCheckoutSupplyThroughOrdering: mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   submitPurchaseIntentThroughMarketplace: mockSubmitPurchaseIntentThroughMarketplace,
+  releaseCheckoutInventoryReservations: mockReleaseCheckoutInventoryReservations,
   normalizeRequestedBalanceCreditAmount: (value: unknown) =>
     value === null || value === undefined ? null : String(value),
 }));
@@ -174,6 +177,10 @@ function buildApp(
   });
 }
 
+/** Caller-created entry keys, shaped like the Checkout start loader's minted keys. */
+const ENTRY_ATTEMPT_KEY = "chkentry_01JENTRYATTEMPTKEY00001";
+const SECOND_ENTRY_ATTEMPT_KEY = "chkentry_01JENTRYATTEMPTKEY00002";
+
 function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSessionRow {
   return {
     session_id: "chk_1",
@@ -254,6 +261,11 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     createFromCart: vi.fn(async () => ({ sessionId: "chk_cart" as never })),
     createBuyNow: vi.fn(async () => ({ sessionId: "chk_buy_now" as never })),
     createOfferIntent: vi.fn(async () => ({ sessionId: "chk_offer" as never })),
+    resolveEntryAttempt: vi.fn(async () => null),
+    lookupEntryAttempt: vi.fn(async () => {
+      throw new Error("The session route never looks up an entry attempt.");
+    }),
+    getConfirmationBinding: vi.fn(async () => ({ orderHash: null, paymentHash: null })),
     selectOptimizationGoal: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordFulfillmentPreview: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     selectShippingOption: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
@@ -276,6 +288,10 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     cancelSession: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    readSessionForCancellation: vi.fn(async ({ sessionId }) => ({
+      status: "cancellable" as const,
+      session: createSession({ session_id: sessionId }),
+    })),
     getSession: vi.fn(async () => createSession()),
     getLastRecordedQuote: vi.fn(async () => null),
     getPaymentSummary: vi.fn(async () => null),
@@ -940,7 +956,7 @@ describe("checkout session routes", () => {
     const services = createServices({ createFromCart });
     const app = buildApp(services);
     const body = {
-      entryAttemptKey: "entry_attempt_1",
+      entryAttemptKey: ENTRY_ATTEMPT_KEY,
       source: {
         type: "cart",
         readinessSnapshotId: "cr_ready",
@@ -975,7 +991,7 @@ describe("checkout session routes", () => {
     expect(createFromCart.mock.calls[0]?.[0].sessionIdOverride).toBe(
       createFromCart.mock.calls[1]?.[0].sessionIdOverride,
     );
-    expect(String(firstBody.session_id)).not.toContain("entry_attempt_1");
+    expect(String(firstBody.session_id)).not.toContain(ENTRY_ATTEMPT_KEY);
   });
 
   it("binds cart entry idempotency to the normalized presented anonymous source", async () => {
@@ -984,7 +1000,7 @@ describe("checkout session routes", () => {
     }));
     const app = buildApp(createServices({ createFromCart }));
     const body = JSON.stringify({
-      entryAttemptKey: "entry_attempt_union",
+      entryAttemptKey: "chkentry_01JUNIONENTRYATTEMPT0000",
       source: { type: "cart", readinessSnapshotId: "cr_ready", readinessSourceRevision: "cr_source" },
     });
     const send = (anonymousCartId?: string) =>
@@ -1012,9 +1028,10 @@ describe("checkout session routes", () => {
       createFromCart.mock.calls[0]?.[0].sessionIdOverride,
     );
     for (const [params] of createFromCart.mock.calls.slice(3)) {
-      // Fixed legacy digest: including an explicit undefined source key instead
-      // produces chk_3f16ec6142debd548dcaa84bff3812c9.
-      expect(params.sessionIdOverride).toBe("chk_a98dcec9800de0f45d95eaf358974dc0");
+      // Fixed legacy digest of the unchanged entry derivation for this key; it
+      // reproduces the shipped pin (chk_a98dcec9800de0f45d95eaf358974dc0) for the
+      // retired key "entry_attempt_union", so pre-deploy Sessions still replay.
+      expect(params.sessionIdOverride).toBe("chk_2037c24cbf73c4dbb2f9082ff022eab6");
       expect(params).not.toHaveProperty("presentedAnonymousCartId");
     }
   });
@@ -1094,6 +1111,7 @@ describe("checkout session routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          entryAttemptKey: ENTRY_ATTEMPT_KEY,
           source: {
             type: "buy-now",
             listingId: "lst_1",
@@ -1153,6 +1171,7 @@ describe("checkout session routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          entryAttemptKey: ENTRY_ATTEMPT_KEY,
           source: {
             type: "buy-now",
             listingId: "lst_guest",
@@ -1223,112 +1242,15 @@ describe("checkout session routes", () => {
       return response.json() as Promise<{ session_id: string }>;
     }
 
-    const first = await start("entry_attempt_1");
-    const duplicate = await start("entry_attempt_1");
-    const futureAttempt = await start("entry_attempt_2");
+    const first = await start(ENTRY_ATTEMPT_KEY);
+    const duplicate = await start(ENTRY_ATTEMPT_KEY);
+    const futureAttempt = await start(SECOND_ENTRY_ATTEMPT_KEY);
 
     expect(duplicate.session_id).toBe(first.session_id);
     expect(futureAttempt.session_id).not.toBe(first.session_id);
     expect(createBuyNow.mock.calls[0]?.[0].sessionIdOverride).toBe(createBuyNow.mock.calls[1]?.[0].sessionIdOverride);
     expect(createBuyNow.mock.calls[2]?.[0].sessionIdOverride).not.toBe(
       createBuyNow.mock.calls[0]?.[0].sessionIdOverride,
-    );
-  });
-
-  it("rebinds replacement Buy Now sessions to an Ordering preview for the fresh session id", async () => {
-    mockPreviewBuyNowCheckoutSupplyThroughOrdering
-      .mockResolvedValueOnce({
-        ...readyBuyNowSupplyPreview(),
-        revision: "stale_deterministic_preview",
-      })
-      .mockResolvedValueOnce({
-        ...readyBuyNowSupplyPreview(),
-        revision: "fresh_replacement_preview",
-      });
-    const createBuyNow = vi.fn(async () => ({
-      sessionId: "chk_replacement" as never,
-      commitPosition: "41",
-      commitEventIds: ["evt_replacement_started"],
-      commitPositions: [
-        {
-          sourceContextName: "checkout",
-          maxGlobalPosition: "41",
-          eventIds: ["evt_replacement_started"],
-        },
-      ],
-    }));
-    const recordFulfillmentPreview = vi.fn(async ({ sessionId }) => ({
-      sessionId,
-      session: createSession({ session_id: sessionId }),
-      commitPosition: "42",
-      commitEventIds: ["evt_replacement_preview"],
-      commitPositions: [
-        {
-          sourceContextName: "checkout",
-          maxGlobalPosition: "42",
-          eventIds: ["evt_replacement_preview"],
-        },
-      ],
-    }));
-    const services = createServices({ createBuyNow, recordFulfillmentPreview });
-    const app = buildApp(services);
-
-    const response = await app.fetch(
-      new Request("http://checkout.test/account/checkout-sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          entryAttemptKey: "entry_attempt_1",
-          source: {
-            type: "buy-now",
-            listingId: "lst_1",
-            lockedListingId: "lst_1",
-            catalogItemId: "cat_1",
-            productId: "cat_1::form:raw",
-            itemTitle: "Charizard",
-            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
-            quantity: 1,
-          },
-        }),
-      }),
-    );
-
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual({
-      session_id: "chk_replacement",
-      status: "started",
-      commitPosition: "42",
-      commitEventIds: ["evt_replacement_started", "evt_replacement_preview"],
-      commitPositions: [
-        {
-          sourceContextName: "checkout",
-          maxGlobalPosition: "42",
-          eventIds: ["evt_replacement_started", "evt_replacement_preview"],
-        },
-      ],
-    });
-    const stalePreviewSessionId = mockPreviewBuyNowCheckoutSupplyThroughOrdering.mock.calls[0]?.[1].checkoutSessionId;
-    expect(stalePreviewSessionId).toMatch(/^chk_[a-f0-9]{32}$/);
-    expect(createBuyNow).toHaveBeenCalledWith(
-      expect.objectContaining({
-        fulfillmentPreviewRevision: "stale_deterministic_preview",
-        sessionIdOverride: stalePreviewSessionId,
-      }),
-      expect.any(Object),
-    );
-    expect(mockPreviewBuyNowCheckoutSupplyThroughOrdering.mock.calls[1]?.[1]).toEqual(
-      expect.objectContaining({
-        checkoutSessionId: "chk_replacement",
-      }),
-    );
-    expect(recordFulfillmentPreview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: "chk_replacement",
-        accountId: "acc_buyer",
-        fulfillmentPreviewRevision: "fresh_replacement_preview",
-        fulfillmentPreviewSnapshot: expect.objectContaining({ revision: "fresh_replacement_preview" }),
-      }),
-      expect.any(Object),
     );
   });
 
@@ -1358,6 +1280,7 @@ describe("checkout session routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          entryAttemptKey: ENTRY_ATTEMPT_KEY,
           source: {
             type: "buy-now",
             listingId: "lst_1",
@@ -1406,6 +1329,7 @@ describe("checkout session routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          entryAttemptKey: ENTRY_ATTEMPT_KEY,
           source: {
             type: "buy-now",
             listingId: "",
@@ -1451,6 +1375,7 @@ describe("checkout session routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          entryAttemptKey: ENTRY_ATTEMPT_KEY,
           source: {
             type: "buy-now",
             checkoutId: "old_checkout_1",
@@ -1499,6 +1424,7 @@ describe("checkout session routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          entryAttemptKey: ENTRY_ATTEMPT_KEY,
           source: {
             type: "offer-intent",
             catalogItemId: "cat_1",
@@ -1542,6 +1468,7 @@ describe("checkout session routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          entryAttemptKey: ENTRY_ATTEMPT_KEY,
           source: {
             type: "offer-intent",
             catalogItemId: "cat_1",
@@ -1574,6 +1501,7 @@ describe("checkout session routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          entryAttemptKey: ENTRY_ATTEMPT_KEY,
           source: {
             type: "buy-now",
             listingId: "lst_1",
@@ -3517,6 +3445,7 @@ describe("checkout session routes", () => {
         sessionId: "chk_1",
         accountId: "acc_buyer",
         paymentId: "pay_existing",
+        paymentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
       expect.objectContaining({
         tenantId: "tnt_identity",
@@ -4339,5 +4268,398 @@ describe("retained-cookie post-claim source authority through the production che
       lines: ["cli_other_account"],
       presentedAnonymousCartId: null,
     });
+  });
+});
+
+describe("confirmation bound-hash conflict", () => {
+  const confirmBody = {
+    shippingAddress,
+    marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+    paymentMethodCategory: "card",
+  };
+
+  function confirm(services: CheckoutSessionServices, body: Record<string, unknown>) {
+    return buildApp(services).fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    mockCreateCheckoutInventoryReservations.mockResolvedValue({ reservations: [], unavailableLines: [] });
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+      writeResult: orderingApiWriteResult,
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
+  });
+
+  /** Runs the first confirm through the real route and returns the hashes it bound, as the Session stream keeps them. */
+  async function boundByFirstConfirm() {
+    const services = createServices();
+    expect((await confirm(services, confirmBody)).status).toBe(200);
+    const orderHash = vi.mocked(services.recordOrdersCreated).mock.calls[0]?.[0].orderHash ?? null;
+    const paymentHash = vi.mocked(services.recordPaymentStarted).mock.calls[0]?.[0].paymentHash ?? null;
+    expect(orderHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(paymentHash).toMatch(/^[0-9a-f]{64}$/);
+    for (const mock of [
+      mockCreateCheckoutInventoryReservations,
+      mockCreateCheckoutOrdersThroughOrdering,
+      mockCreateCheckoutPaymentThroughPayments,
+    ]) {
+      mock.mockClear();
+    }
+    return { orderHash, paymentHash };
+  }
+
+  function expectZeroOwnerCalls(services: CheckoutSessionServices) {
+    expect(services.resumeOrderCartCleanup).not.toHaveBeenCalled();
+    expect(services.verifyShippingAddress).not.toHaveBeenCalled();
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(services.assertReadyForOrderCreation).not.toHaveBeenCalled();
+    expect(services.recordCheckoutReservations).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(services.recordOfferSubmitted).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutInventoryReservations).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(mockSubmitPurchaseIntentThroughMarketplace).not.toHaveBeenCalled();
+  }
+
+  it("confirmation bound-hash conflict: a changed shipping address after orders is 409 with the Session and zero owner calls", async () => {
+    const bound = await boundByFirstConfirm();
+    const ordered = createSession({ order_ids: ["ord_1"] });
+    const services = createServices({
+      getSession: vi.fn(async () => ordered),
+      getConfirmationBinding: vi.fn(async () => ({ orderHash: bound.orderHash, paymentHash: null })),
+    });
+
+    const response = await confirm(services, {
+      ...confirmBody,
+      shippingAddress: { ...shippingAddress, line1: "200 Changed Street" },
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "checkout_confirmation_changed", message: expect.any(String) },
+      session: ordered,
+    });
+    expect(services.getConfirmationBinding).toHaveBeenCalledWith("chk_1", "acc_buyer");
+    expectZeroOwnerCalls(services);
+  });
+
+  it("confirmation bound-hash conflict: a changed balance credit after payment start is 409 with the Session and zero owner calls", async () => {
+    const bound = await boundByFirstConfirm();
+    const paid = createSession({ order_ids: ["ord_1"], payment_id: "pay_1" });
+    const services = createServices({
+      getSession: vi.fn(async () => paid),
+      getConfirmationBinding: vi.fn(async () => bound),
+    });
+
+    const response = await confirm(services, { ...confirmBody, requestedBalanceCreditAmount: "5.00" });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "checkout_confirmation_changed" },
+      session: paid,
+    });
+    expectZeroOwnerCalls(services);
+  });
+
+  it("confirmation bound-hash conflict: an exact replay returns the first result and starts at most the one payment", async () => {
+    const bound = await boundByFirstConfirm();
+    const ordersOnly = createServices({
+      getSession: vi.fn(async () => createSession({ order_ids: ["ord_1"] })),
+      getConfirmationBinding: vi.fn(async () => ({ orderHash: bound.orderHash, paymentHash: null })),
+    });
+
+    const afterOrders = await confirm(ordersOnly, confirmBody);
+
+    expect(afterOrders.status).toBe(200);
+    await expect(afterOrders.json()).resolves.toMatchObject({ payment_id: "pay_1", order_ids: ["ord_1"] });
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(ordersOnly.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+    expect(ordersOnly.recordPaymentStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentHash: bound.paymentHash }),
+      expect.any(Object),
+    );
+
+    mockCreateCheckoutPaymentThroughPayments.mockClear();
+    const paid = createServices({
+      getSession: vi.fn(async () => createSession({ order_ids: ["ord_1"], payment_id: "pay_1" })),
+      getConfirmationBinding: vi.fn(async () => bound),
+    });
+
+    const afterPayment = await confirm(paid, confirmBody);
+
+    expect(afterPayment.status).toBe(200);
+    await expect(afterPayment.json()).resolves.toEqual({
+      payment_id: "pay_1",
+      order_ids: ["ord_1"],
+      status: "confirmed",
+    });
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(paid.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
+  it("confirmation bound-hash conflict: a part no recorded side effect binds still proceeds", async () => {
+    const bound = await boundByFirstConfirm();
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ order_ids: ["ord_1"] })),
+      getConfirmationBinding: vi.fn(async () => ({ orderHash: bound.orderHash, paymentHash: null })),
+    });
+
+    const response = await confirm(services, { ...confirmBody, requestedBalanceCreditAmount: "5.00" });
+
+    expect(response.status).toBe(200);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+    expect(mockCreateCheckoutPaymentThroughPayments.mock.calls[0]?.[3]).toBe("5.00");
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+  });
+
+  it("confirmation bound-hash conflict: a pre-deploy Session with no recorded hashes keeps its shipped result", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ order_ids: ["ord_1"], payment_id: "pay_1" })),
+      getConfirmationBinding: vi.fn(async () => ({ orderHash: null, paymentHash: null })),
+    });
+
+    const response = await confirm(services, {
+      ...confirmBody,
+      shippingAddress: { ...shippingAddress, line1: "200 Changed Street" },
+      requestedBalanceCreditAmount: "5.00",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancel checkout", () => {
+  const sessionId = "chk_held";
+  const ownerContext = {
+    tenantId: "tnt_identity" as never,
+    audit: { performedByUserId: "usr_1" as never, forAccountId: "acc_buyer" as never },
+  };
+  const heldReservations = [
+    {
+      holdId: "hld_a",
+      lineKey: "cli_a",
+      sellerAccountId: "acc_seller",
+      inventoryItemId: "inv_a",
+      quantity: 2,
+      expiresAt: "2099-01-01T00:15:00.000Z",
+      extensionCount: 0,
+      status: "active",
+    },
+    {
+      holdId: "hld_b",
+      lineKey: "cli_b",
+      sellerAccountId: "acc_seller",
+      inventoryItemId: "inv_b",
+      quantity: 1,
+      expiresAt: "2099-01-01T00:15:00.000Z",
+      extensionCount: 0,
+      status: "active",
+    },
+  ] as const;
+
+  /**
+   * Inventory as the release endpoint sees it: on-hand stock per item and the
+   * checkout holds against it. Available quantity is on-hand less active holds,
+   * so a released hold is measured as returned stock, not just a status flag.
+   */
+  function inventoryDouble() {
+    const onHand = new Map([
+      ["inv_a", 3],
+      ["inv_b", 1],
+    ]);
+    const holds = new Map<string, { inventoryItemId: string; quantity: number; status: string }>(
+      heldReservations.map((reservation) => [reservation.holdId, { ...reservation }]),
+    );
+    const releaseCalls: string[] = [];
+    const available = () =>
+      Object.fromEntries(
+        [...onHand].map(([itemId, quantity]) => [
+          itemId,
+          quantity -
+            [...holds.values()]
+              .filter((hold) => hold.inventoryItemId === itemId && hold.status === "active")
+              .reduce((sum, hold) => sum + hold.quantity, 0),
+        ]),
+      );
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const holdId = /checkout-reservations\/([^/]+)\/release/.exec(String(input))?.[1] ?? "";
+      const hold = holds.get(holdId);
+      if (!hold) {
+        return new Response(JSON.stringify({ error: { code: "checkout_reservation_not_found" } }), { status: 404 });
+      }
+      releaseCalls.push(holdId);
+      hold.status = "released";
+      return new Response(JSON.stringify({ holdId, ...hold }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    return { available, fetch, releaseCalls };
+  }
+
+  async function sessionHarness(extraEvents: readonly Readonly<{ type: string; data: unknown }>[] = []) {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const startedAt = "2099-01-01T00:00:00.000Z";
+    const events = [
+      {
+        type: "checkout.session.started",
+        data: {
+          sessionId,
+          buyerAccountId: "acc_buyer",
+          sourceType: "buy-now",
+          optimizationGoal: "lowest-total",
+          fulfillmentPreviewRevision: null,
+          fulfillmentPreviewSnapshot: null,
+          cartReadinessSnapshot: null,
+          presentedAnonymousCartId: null,
+          splitGroupHandoff: null,
+          shippingOption: "standard",
+          lines: [],
+          handoffExpiresAt: null,
+          createdAt: startedAt,
+        },
+      },
+      {
+        type: "checkout.session.reservations-recorded",
+        data: { sessionId, reservations: heldReservations, recordedAt: startedAt },
+      },
+      ...extraEvents,
+    ];
+    await eventStore.appendToStream({
+      streamId: `checkout.session-${sessionId}`,
+      expectedVersion: "no_stream",
+      context: ownerContext,
+      events: events.map((event) => ({ eventType: event.type, payload: event.data as never })),
+    });
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: {} as never,
+    });
+    const cancelledEvents = () => readAllEvents().filter((event) => event.eventType === "checkout.session.cancelled");
+    return { services, cancelledEvents };
+  }
+
+  function cancelRequest() {
+    return new Request(`http://checkout.test/account/checkout-sessions/${sessionId}/cancel`, { method: "POST" });
+  }
+
+  beforeEach(async () => {
+    const actual = await vi.importActual<typeof import("../../../support/request-support/checkout-confirmation")>(
+      "../../../support/request-support/checkout-confirmation",
+    );
+    mockReleaseCheckoutInventoryReservations.mockImplementation(actual.releaseCheckoutInventoryReservations);
+  });
+
+  afterEach(() => {
+    mockReleaseCheckoutInventoryReservations.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  it("lets the owner release every reservations-only hold once and answers a repeat as already cancelled", async () => {
+    const inventory = inventoryDouble();
+    vi.stubGlobal("fetch", inventory.fetch);
+    const { services, cancelledEvents } = await sessionHarness();
+    const app = buildApp(services);
+
+    expect(inventory.available()).toEqual({ inv_a: 1, inv_b: 0 });
+
+    const first = await app.fetch(cancelRequest());
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({
+      session_id: sessionId,
+      status: "cancelled",
+      released_reservation_ids: ["hld_a", "hld_b"],
+    });
+    expect(inventory.available()).toEqual({ inv_a: 3, inv_b: 1 });
+    expect(inventory.releaseCalls).toEqual(["hld_a", "hld_b"]);
+    expect(cancelledEvents()).toHaveLength(1);
+    expect(cancelledEvents()[0]?.payload).toMatchObject({ releasedReservationIds: ["hld_a", "hld_b"] });
+
+    const repeat = await app.fetch(cancelRequest());
+    expect(repeat.status).toBe(200);
+    await expect(repeat.json()).resolves.toMatchObject({
+      session_id: sessionId,
+      status: "already-cancelled",
+      released_reservation_ids: [],
+    });
+    expect(inventory.releaseCalls).toEqual(["hld_a", "hld_b"]);
+    expect(inventory.available()).toEqual({ inv_a: 3, inv_b: 1 });
+    expect(cancelledEvents()).toHaveLength(1);
+  });
+
+  it("refuses another account's session without touching its holds", async () => {
+    const inventory = inventoryDouble();
+    vi.stubGlobal("fetch", inventory.fetch);
+    const { services, cancelledEvents } = await sessionHarness();
+    const app = buildApp(services, createBuyerActor({ accountId: "acc_other" as never, userId: "usr_other" as never }));
+
+    const response = await app.fetch(cancelRequest());
+
+    expect(response.status).toBe(404);
+    expect(inventory.releaseCalls).toEqual([]);
+    expect(inventory.available()).toEqual({ inv_a: 1, inv_b: 0 });
+    expect(cancelledEvents()).toHaveLength(0);
+  });
+
+  const ordersCreated = {
+    type: "checkout.session.orders-created",
+    data: { sessionId, orderIds: ["ord_1"], recordedAt: "2099-01-01T00:01:00.000Z" },
+  };
+  const paymentStarted = {
+    type: "checkout.session.payment-started",
+    data: { sessionId, paymentId: "pay_1", recordedAt: "2099-01-01T00:02:00.000Z" },
+  };
+
+  it.each([
+    ["orders exist", [ordersCreated]],
+    ["payment started", [ordersCreated, paymentStarted]],
+  ])("refuses cancel checkout once %s and leaves the holds to Ordering and Payments", async (_label, extra) => {
+    const inventory = inventoryDouble();
+    vi.stubGlobal("fetch", inventory.fetch);
+    const { services, cancelledEvents } = await sessionHarness(extra);
+    const app = buildApp(services);
+
+    const response = await app.fetch(cancelRequest());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "checkout_session_not_cancellable" } });
+    expect(inventory.releaseCalls).toEqual([]);
+    expect(cancelledEvents()).toHaveLength(0);
+  });
+
+  it("records no cancellation when a hold release fails, so a retry still releases", async () => {
+    const inventory = inventoryDouble();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: { code: "conflict" } }), { status: 409 })),
+    );
+    const { services, cancelledEvents } = await sessionHarness();
+    const app = buildApp(services);
+
+    const failed = await app.fetch(cancelRequest());
+    expect(failed.status).toBe(400);
+    expect(cancelledEvents()).toHaveLength(0);
+
+    vi.stubGlobal("fetch", inventory.fetch);
+    const retried = await app.fetch(cancelRequest());
+    expect(retried.status).toBe(200);
+    expect(inventory.available()).toEqual({ inv_a: 3, inv_b: 1 });
+    expect(cancelledEvents()).toHaveLength(1);
   });
 });

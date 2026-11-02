@@ -207,6 +207,35 @@ describe("Static Checks provider installer", () => {
     expect(consumeTimingRecords(f.lines, authority)).toHaveLength(1);
   });
 
+  it("honors a native per-caller 180-second bound while retaining the five-second grace", async () => {
+    const f = fixture({ timeoutSeconds: 180 });
+    await vi.advanceTimersByTimeAsync(179_999);
+    expect(f.signalGroupImpl).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    f.child.exitCode = 0;
+    f.child.emit("close", 0);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(f.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    expect(f.lines).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    const { record, status } = await f.result;
+    expect(status).toBe(1);
+    expect(record).toMatchObject({ terminalOutcome: "timeout", elapsedMs: 185_000 });
+    expect(consumeTimingRecords(f.lines, authority)).toHaveLength(1);
+  });
+
+  it("keeps the existing 600-second default and rejects caller bounds above it", () => {
+    expect(() => runInstaller({ identity, env, timeoutSeconds: 601 })).toThrow(/600/);
+    expect(() => runInstaller({ identity, env, timeoutSeconds: 0 })).toThrow(/600/);
+    expect(() => runInstaller({ identity, env, timeoutSeconds: 180.5 })).toThrow(/600/);
+    expect(() => runInstaller({ identity, env, timeoutSeconds: "180" })).toThrow(/600/);
+  });
+
   it.each([
     ["partial download fails closed", "partial download", "partial-download"],
     ["checksum failure fails closed", "checksum mismatch", "checksum-failure"],
@@ -312,6 +341,95 @@ describe("Static Checks provider installer", () => {
     expect((await failed.result).status).toBe(1);
     expect(failed.lines.join("")).not.toContain("PRIVATE");
     expect(() => runInstaller({ identity, env: { ...env, INSTALLER_TIMEOUT_SECONDS: "601" } })).toThrow(/600/);
+  });
+
+  it("marks only a refused start, never a started child's refusal, as start-refused", async () => {
+    const preStart = [
+      fixture({
+        spawnImpl: () => {
+          throw new Error("PRIVATE spawn refusal");
+        },
+      }),
+      fixture({ spawnImpl: () => Object.assign(new EventEmitter(), { pid: undefined }) }),
+      fixture({ spawnImpl: () => Object.assign(new EventEmitter(), { pid: 0 }) }),
+    ];
+    const spawnError = fixture();
+    spawnError.child.emit("error", new Error("PRIVATE spawn failure"));
+    preStart.push(spawnError);
+    for (const f of preStart) {
+      const result = await f.result;
+      expect(result).toMatchObject({ status: 1, startRefused: true, record: { terminalOutcome: "refused" } });
+      expect(f.lines).toHaveLength(1);
+      expect(f.lines.join("")).not.toContain("PRIVATE");
+      expect(f.signalGroupImpl).not.toHaveBeenCalled();
+    }
+    // A started child's error is not proof that its group is gone: it waits for KILL.
+    const startedError = fixture();
+    let startedErrorSettled = false;
+    const startedErrorResult = startedError.result.then((result) => {
+      startedErrorSettled = true;
+      return result;
+    });
+    startedError.child.emit("spawn");
+    startedError.child.emit("error", new Error("PRIVATE ipc failure"));
+    expect(startedError.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    // Later errors and the leader's close cannot finish the attempt early.
+    startedError.child.emit("error", new Error("PRIVATE late ipc failure"));
+    startedError.child.emit("close", 1);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(startedErrorSettled).toBe(false);
+    expect(startedError.lines).toEqual([]);
+    expect(startedError.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(startedError.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    const started = await startedErrorResult;
+    expect(started).toMatchObject({ status: 1, record: { terminalOutcome: "refused" } });
+    expect(started).not.toHaveProperty("startRefused");
+    expect(startedError.lines).toHaveLength(1);
+    expect(startedError.lines.join("")).not.toContain("PRIVATE");
+    const startedRefusal = fixture();
+    startedRefusal.child.emit("spawn");
+    startedRefusal.child.emit("message", { installerStatus: 7 });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const refused = await startedRefusal.result;
+    expect(refused).toMatchObject({ status: 1, record: { terminalOutcome: "refused" } });
+    expect(refused).not.toHaveProperty("startRefused");
+  });
+
+  it("a started child's error while stopping keeps cancellation and cleanup failure through KILL", async () => {
+    const controller = new AbortController();
+    const cancelled = fixture({ cancelSignal: controller.signal });
+    cancelled.child.emit("spawn");
+    controller.abort();
+    cancelled.child.emit("error", new Error("PRIVATE ipc failure"));
+    expect(cancelled.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(cancelled.lines).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(cancelled.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    expect(await cancelled.result).toMatchObject({ status: 1, record: { terminalOutcome: "cancelled" } });
+    // A refused TERM is a cleanup failure even when KILL is accepted.
+    const signalGroupImpl = vi.fn((_pid, signal) => {
+      if (signal === "TERM") throw new Error("SYNTHETIC TERM denied");
+    });
+    const termRefused = fixture({ signalGroupImpl });
+    termRefused.child.emit("spawn");
+    termRefused.child.emit("message", { installerStatus: 1 });
+    termRefused.child.emit("error", new Error("PRIVATE ipc failure"));
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(termRefused.lines).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    expect(await termRefused.result).toMatchObject({ status: 1, record: { terminalOutcome: "cleanup-failure" } });
   });
 });
 

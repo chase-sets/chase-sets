@@ -53,6 +53,12 @@ export type EventStore = Readonly<{
    * actually read (or "any") rather than relying on empty inputs being
    * ignored. `appendToStream` keeps the single-stream shortcut -- with no other
    * participant in the transaction there is nothing for a guard to protect.
+   *
+   * An input may also carry a class-C configuration grant vector. Adapters
+   * validate it against consumer-local canonical histories after acquiring
+   * every key's SHARED guard lock, held through COMMIT. Single-stream and
+   * independent append APIs reject these grants. Omission preserves existing
+   * no-grant behavior.
    */
   appendToStreams?: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
   /**

@@ -133,6 +133,96 @@
     },
     {
       "kind": "claim",
+      "id": "pricing-goal-parameters-360",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal parameters", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-comparison-real-worker" },
+      "viewport": { "width": 360, "height": 800 },
+      "target": {
+        "identity": "expanded-goal-parameters",
+        "selector": "[data-testid='pricing-health-goal-picker']",
+        "populatedSelector": "input[type='number']"
+      },
+      "measurements": [
+        {
+          "identity": "parameters-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 360 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-parameters-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-parameters-390",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal parameters", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-comparison-real-worker" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "expanded-goal-parameters",
+        "selector": "[data-testid='pricing-health-goal-picker']",
+        "populatedSelector": "input[type='number']"
+      },
+      "measurements": [
+        {
+          "identity": "parameters-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-parameters-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-parameters-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal parameters", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-comparison-real-worker" },
+      "viewport": { "width": 820, "height": 1180 },
+      "target": {
+        "identity": "expanded-goal-parameters",
+        "selector": "[data-testid='pricing-health-goal-picker']",
+        "populatedSelector": "input[type='number']"
+      },
+      "measurements": [
+        {
+          "identity": "parameters-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 820 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-parameters-tablet"
+    },
+    {
+      "kind": "claim",
       "id": "pricing-health-what-if-360",
       "file": "deployables/marketplace/e2e/pricing-health-what-if.spec.ts",
       "testTitle": "Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed",

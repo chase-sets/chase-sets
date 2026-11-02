@@ -287,6 +287,8 @@ export function createInventoryDraftListingConsumer(
                       shipFromAddress: message.snapshot.shipFromAddress,
                       totalQuantity: message.snapshot.totalQuantity,
                       acquisitionCostAmount: message.snapshot.acquisitionCostAmount,
+                      // The frozen draft message is amount-only, so its cost denomination stays unknown.
+                      acquisitionCostCurrencyCode: undefined,
                       priceAmount: message.snapshot.priceAmount,
                       priceCurrencyCode: message.snapshot.priceCurrencyCode,
                       quantityCap: message.snapshot.quantityCap,

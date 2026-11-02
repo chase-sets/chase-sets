@@ -445,7 +445,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       expect(callAt(result, file, line)?.outcome, `${file}:${line}`).toBe(outcome);
     }
     expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 867)?.outcome).toBe("not-sql");
-    expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 44)?.outcome).toBe(
+    expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 51)?.outcome).toBe(
       "not-sql",
     );
     expect(callAt(result, "bounded-contexts/identity/features/api-keys/api/route.ts", 168)?.outcome).toBe("not-sql");

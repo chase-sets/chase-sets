@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { payoutUtcMonthWindow } from "../domain/domain";
+import { PAYOUT_SUMMARY_HARD_CAP } from "./payout-summary";
 
 export type SettlementPayoutRow = Readonly<{
   payout_id: string;
@@ -30,6 +31,9 @@ export type SettlementPayoutRow = Readonly<{
   retry_count: number;
   next_retry_at: string | null;
   retry_reason: string | null;
+  /** Settlement-owned operations signals returned by reconciliation reads. */
+  operations_state?: "retry-queued" | "needs-provider-reference" | "ready-to-reconcile" | "review";
+  operations_severity?: "critical" | "warning" | "normal";
 }>;
 
 export type SettlementPayoutRiskSummaryRow = Readonly<{
@@ -137,6 +141,56 @@ export async function listPayouts(
   return {
     items: itemsResult.rows,
     total: Number(countResult.rows[0]?.count ?? 0),
+  };
+}
+
+/**
+ * Loads the account payout state for the Settlement summary. The count is an
+ * independent aggregate, so callers can distinguish a complete read from a
+ * deliberately bounded read instead of publishing a partial answer.
+ */
+export async function listPayoutSummaryRows(
+  db: PgQueryable,
+  accountId: string,
+): Promise<{
+  items: SettlementPayoutRow[];
+  total: number;
+  completeness:
+    | { kind: "complete"; total: number }
+    | { kind: "bounded-incomplete"; total: number; cap: number; reason: "payout-summary-cap-exceeded" };
+}> {
+  const [countResult, itemsResult] = await Promise.all([
+    db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM settlement_payout_pages
+       WHERE account_id = $1
+         AND status IN ('requested', 'in-transit', 'failed')`,
+      [accountId],
+    ),
+    db.query<SettlementPayoutRow>(
+      `${payoutSelect}
+       WHERE account_id = $1
+         AND status IN ('requested', 'in-transit', 'failed')
+       ORDER BY updated_at DESC, payout_id DESC
+       LIMIT $2`,
+      [accountId, PAYOUT_SUMMARY_HARD_CAP + 1],
+    ),
+  ]);
+
+  const total = Number(countResult.rows[0]?.count ?? 0);
+  const overflow = total > PAYOUT_SUMMARY_HARD_CAP || itemsResult.rows.length > PAYOUT_SUMMARY_HARD_CAP;
+  const items = itemsResult.rows.slice(0, PAYOUT_SUMMARY_HARD_CAP);
+  return {
+    items,
+    total,
+    completeness: overflow
+      ? {
+          kind: "bounded-incomplete",
+          total,
+          cap: PAYOUT_SUMMARY_HARD_CAP,
+          reason: "payout-summary-cap-exceeded",
+        }
+      : { kind: "complete", total },
   };
 }
 

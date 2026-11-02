@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjudicationRefundCap, adjudicationRefundPrefill } from "./case-adjudication-panel";
+import { projectSupportOperatorPolicy } from "../read-model/queries";
 import type { SupportRequestDetail } from "./contracts";
 
 function detail(overrides: Partial<SupportRequestDetail> = {}): SupportRequestDetail {
@@ -11,27 +11,41 @@ function detail(overrides: Partial<SupportRequestDetail> = {}): SupportRequestDe
   } as SupportRequestDetail;
 }
 
+function policy(request: SupportRequestDetail) {
+  return projectSupportOperatorPolicy(
+    {
+      ...request,
+      flow_type: "product-not-received",
+      status: "open",
+      seller_response_due_at: null,
+      support_review_due_at: null,
+      seller_condition_attestation_due_at: null,
+    } as never,
+    "2026-06-01T00:00:00.000Z",
+  );
+}
+
 describe("adjudication refund helpers", () => {
   it("caps the refund at the summed affected-line amounts", () => {
     expect(
-      adjudicationRefundCap(
-        detail({
+      policy({
+        ...detail({
           affected_line_items: [
             { lineId: "l1", amount: "40.00", currencyCode: "usd" },
             { lineId: "l2", amount: "10.50", currencyCode: "usd" },
           ],
         }),
-      ),
+      }).refundCap,
     ).toBe("50.50");
   });
 
   it("returns no cap when there is no affected-line snapshot", () => {
-    expect(adjudicationRefundCap(detail())).toBeNull();
-    expect(adjudicationRefundPrefill(detail())).toBeNull();
+    expect(policy(detail()).refundCap).toBeNull();
+    expect(policy(detail()).refundPrefill).toBeNull();
   });
 
   it("prefills the most recent offer's refund when it is within the cap", () => {
-    const prefill = adjudicationRefundPrefill(
+    const prefill = policy(
       detail({
         affected_line_items: [{ lineId: "l1", amount: "40.00", currencyCode: "usd" }],
         offers: [
@@ -71,12 +85,12 @@ describe("adjudication refund helpers", () => {
           },
         ],
       }),
-    );
+    ).refundPrefill;
     expect(prefill).toBe("15.00");
   });
 
   it("clamps an offer that exceeds the cap back down to the cap", () => {
-    const prefill = adjudicationRefundPrefill(
+    const prefill = policy(
       detail({
         affected_line_items: [{ lineId: "l1", amount: "20.00", currencyCode: "usd" }],
         offers: [
@@ -99,7 +113,7 @@ describe("adjudication refund helpers", () => {
           },
         ],
       }),
-    );
+    ).refundPrefill;
     expect(prefill).toBe("20.00");
   });
 });

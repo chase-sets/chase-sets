@@ -24,7 +24,8 @@
 // operator secrets, live drills, and the soak evidence belong to the
 // enablement issue; this module ships with the policy disabled.
 
-import { appendFileSync, readFileSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, readFileSync, mkdtempSync, rmSync, statSync, readdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -399,6 +400,7 @@ export function buildMergeQualificationCandidate(input) {
     candidateSha: input.candidateSha ? lowerTrim(input.candidateSha) : null,
     candidateTreeSha: input.candidateTreeSha ? lowerTrim(input.candidateTreeSha) : null,
     builtImageDigest: lowerTrim(input.builtImageDigest),
+    policyRevision: lowerTrim(input.policyRevision),
     capturedAt: normalize(input.capturedAt),
   };
   return { record, errors: validateMergeQualificationCandidate(record) };
@@ -519,6 +521,7 @@ export function buildMergeQualificationCandidateFromMergeQueueSnapshot(input) {
     candidateSha,
     candidateTreeSha,
     builtImageDigest: input?.builtImageDigest,
+    policyRevision: input?.policyRevision,
     capturedAt: input?.capturedAt,
   });
   return { record: built.record, errors: [...new Set([...metadataErrors, ...built.errors])] };
@@ -609,6 +612,7 @@ export function buildMergeQualificationCandidateFromMergedCommitAssociation(inpu
     candidateSha,
     candidateTreeSha,
     builtImageDigest: input?.builtImageDigest,
+    policyRevision: input?.policyRevision,
     capturedAt: input?.capturedAt,
   });
   return { record: built.record, errors: [...new Set([...metadataErrors, ...built.errors])] };
@@ -628,6 +632,7 @@ export function validateMergeQualificationCandidate(record) {
       "candidateSha",
       "candidateTreeSha",
       "builtImageDigest",
+      "policyRevision",
       "capturedAt",
     ])
   ) {
@@ -662,6 +667,7 @@ export function validateMergeQualificationCandidate(record) {
   if (!isCommitSha(record.candidateSha) || !isCommitSha(record.candidateTreeSha))
     errors.push("candidate git identity is invalid.");
   if (!IMAGE_DIGEST_PATTERN.test(record.builtImageDigest ?? "")) errors.push("candidate builtImageDigest is invalid.");
+  if (!isCommitSha(record.policyRevision)) errors.push("candidate policyRevision is invalid.");
   if (parseTimezoneInstantMs(record.capturedAt) === null) errors.push("candidate capturedAt is invalid.");
   return errors;
 }
@@ -807,9 +813,11 @@ export function recoverMergeQualificationDecision({
   classifierRecord = null,
 } = {}) {
   const title = ADVISORY_RUN_TITLE.exec(run?.display_title ?? "");
+  const recordedPolicyRevision = policyRevision;
   if (
-    !isCommitSha(policyRevision) ||
-    policyRevision !== run?.head_sha ||
+    !isCommitSha(recordedPolicyRevision) ||
+    !isCommitSha(run?.head_sha) ||
+    recordedPolicyRevision !== run.head_sha ||
     parseTimezoneInstantMs(run?.run_started_at) === null ||
     run?.event !== "workflow_dispatch" ||
     run?.path !== ".github/workflows/platform-merge-qualification.yml" ||
@@ -854,7 +862,7 @@ export function recoverMergeQualificationDecision({
     parentWorkflowPath: parentRun.path,
     parentRunId: String(parentRun.id),
     parentRunAttempt: String(parentRun.run_attempt),
-    policyRevision,
+    policyRevision: recordedPolicyRevision,
     policyEnabled: policy.enabled,
     policyReasonCode: policy.reasonCode,
     candidateSha: policy.enabled ? candidate?.candidateSha : null,
@@ -1208,17 +1216,13 @@ export function resolveMergeQualificationTerminalReplay({ decision, records } = 
   return { action: event ? "replay" : "missing", event, errors: [] };
 }
 
-export async function inventoryMergeQualificationAttempts({
-  repository,
-  requestJson,
-  readPolicyContent,
-  now = () => new Date(),
-} = {}) {
-  const refused = (code) => ({ attempts: [], errors: [code] });
+// One complete, created-filtered listing of advisory runs inside the 48-hour
+// window. The observer reads it once per delivery and shares it with the
+// producer join, so inventory pages are not paid twice.
+export async function listMergeQualificationAdvisoryRuns({ repository, requestJson, now = () => new Date() } = {}) {
+  const refused = (code) => ({ runs: null, errors: [code] });
   if (!isRepositoryIdentity(repository)) return refused("attempt_repository_invalid");
-  // Whole seconds: the created filter and run timestamps carry no fractions.
-  const windowStartMs =
-    Math.floor((now().getTime() - MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS * 3_600_000) / 1_000) * 1_000;
+  const windowStartMs = inventoryWindowStartMs(now);
   if (!Number.isFinite(windowStartMs)) return refused("attempt_window_invalid");
   const windowStart = new Date(windowStartMs).toISOString().replace(/\.000Z$/, "Z");
   const lastPage = RUN_SEARCH_RESULT_CEILING / 100;
@@ -1245,9 +1249,37 @@ export async function inventoryMergeQualificationAttempts({
         return refused("attempt_inventory_incomplete");
       }
     }
+    return { runs, errors: [] };
+  } catch {
+    return refused("attempt_authority_unavailable");
+  }
+}
+
+export async function inventoryMergeQualificationAttempts({
+  repository,
+  requestJson,
+  readPolicyContent,
+  advisoryRuns = null,
+  settledIndex = null,
+  now = () => new Date(),
+} = {}) {
+  const refused = (code) => ({ attempts: [], settled: 0, errors: [code] });
+  if (!isRepositoryIdentity(repository)) return refused("attempt_repository_invalid");
+  const windowStartMs = inventoryWindowStartMs(now);
+  if (!Number.isFinite(windowStartMs)) return refused("attempt_window_invalid");
+  const listing =
+    advisoryRuns === null
+      ? await listMergeQualificationAdvisoryRuns({ repository, requestJson, now })
+      : Array.isArray(advisoryRuns) && advisoryRuns.length < RUN_SEARCH_RESULT_CEILING
+        ? { runs: advisoryRuns, errors: [] }
+        : { runs: null, errors: ["attempt_inventory_incomplete"] };
+  if (listing.errors.length) return refused(listing.errors[0]);
+  // An absent or invalid index settles nothing: every attempt stays pending.
+  const settledAttempts = settledLookup(settledIndex, repository);
+  try {
     const latest = new Map();
     const identities = new Set();
-    for (const run of runs) {
+    for (const run of listing.runs) {
       const id = String(run?.id ?? "");
       const attempt = String(run?.run_attempt ?? "");
       if (
@@ -1270,13 +1302,15 @@ export async function inventoryMergeQualificationAttempts({
     }
     const attempts = [];
     const policies = new Map();
+    let settled = 0;
     for (const run of latest.values()) {
-      if (
-        run.status !== "completed" ||
-        run.event !== "workflow_dispatch" ||
-        !ADVISORY_RUN_TITLE.test(run.display_title ?? "")
-      )
+      const producer = ADVISORY_RUN_TITLE.exec(run.display_title ?? "");
+      if (run.status !== "completed" || run.event !== "workflow_dispatch" || !producer) continue;
+      const join = { runId: producer[1], runAttempt: producer[2] };
+      if (isSettledAttempt(settledAttempts, "advisory", String(run.id), String(run.run_attempt), join)) {
+        settled += 1;
         continue;
+      }
       if (!policies.has(run.head_sha)) policies.set(run.head_sha, await readPolicyContent(run.head_sha));
       const policy = evaluateMergeQualificationPolicy(policies.get(run.head_sha), {
         now: () => new Date(run.run_started_at),
@@ -1291,13 +1325,728 @@ export async function inventoryMergeQualificationAttempts({
         conclusion: run.conclusion,
       });
     }
-    // GitHub matrices cap at 256. Never silently drop a tail to fit the worker;
-    // an over-capacity window clears as the window advances.
+    // GitHub matrices cap at 256 pending legs. Never silently drop a tail to
+    // fit the worker; an over-capacity window clears as the window advances.
     if (attempts.length > 256) return refused("attempt_worker_capacity_exceeded");
-    return { attempts, errors: [] };
+    return { attempts, settled, errors: [] };
   } catch {
     return refused("attempt_authority_unavailable");
   }
+}
+
+// Producer-dispatch loss is reconciled from two complete, bounded workflow
+// inventories. The join is deliberately name/identity based so no per-run
+// reads happen until a completed producer has no matching advisory dispatch.
+export const MERGE_QUALIFICATION_PRODUCER_TICK_MS = 15 * 60 * 1000;
+export const MERGE_QUALIFICATION_PRODUCER_TERMINAL_SCHEMA_VERSION = "merge-qualification-terminal/v1";
+const PRODUCER_TERMINAL_STATES = Object.freeze(["infrastructure_error", "conflict"]);
+const PRODUCER_TERMINAL_REASONS = Object.freeze({
+  infrastructure_error: new Set(["advisory_dispatch_missing"]),
+  conflict: new Set(["advisory_dispatch_race"]),
+});
+
+function producerIdentity(run) {
+  return `${String(run?.id ?? "")}/${String(run?.run_attempt ?? "")}`;
+}
+
+function validateProducerRun(run, repository) {
+  if (
+    run?.repository?.full_name !== repository ||
+    run?.path !== PLATFORM_PR_WORKFLOW_PATH ||
+    typeof run?.event !== "string" ||
+    !isBoundedSafeIntegerString(String(run?.id ?? "")) ||
+    !isBoundedSafeIntegerString(String(run?.run_attempt ?? "")) ||
+    !isBoundedSafeIntegerString(String(run?.workflow_id ?? "")) ||
+    !isCommitSha(run?.head_sha) ||
+    parseTimezoneInstantMs(run?.run_started_at) === null ||
+    parseTimezoneInstantMs(run?.created_at) === null ||
+    parseTimezoneInstantMs(run?.updated_at) === null
+  ) {
+    return "producer_identity_invalid";
+  }
+  return null;
+}
+
+export async function readHistoricalProducerPolicy({
+  run,
+  repository,
+  defaultBranch = "main",
+  execFile = execFileSync,
+  readPolicy = readOriginalQualificationPolicy,
+  readLandingEvidence,
+} = {}) {
+  if (!run || typeof defaultBranch !== "string" || !/^[A-Za-z0-9._/-]{1,256}$/.test(defaultBranch)) {
+    throw new Error("producer_policy_authority_invalid");
+  }
+  const at = run.run_started_at;
+  const startMs = parseTimezoneInstantMs(at);
+  if (startMs === null) throw new Error("producer_policy_time_invalid");
+  const ref = defaultBranch.startsWith("origin/")
+    ? defaultBranch
+    : `origin/${defaultBranch.replace(/^refs\/heads\//u, "")}`;
+  const history = execFile("git", ["log", "--format=%H%x09%cI", ref, "--", MERGE_QUALIFICATION_POLICY_PATH], {
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: 65_536,
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+  const candidates = history
+    .split(/\r?\n/u)
+    .map((line) => {
+      const [revision, committedAt] = line.split("\t");
+      return { revision, committedMs: parseTimezoneInstantMs(committedAt) };
+    })
+    .filter(({ revision, committedMs }) => isCommitSha(revision) && committedMs !== null && committedMs <= startMs);
+  if (!candidates.length) throw new Error("producer_policy_revision_unavailable");
+  if (typeof readLandingEvidence !== "function") throw new Error("producer_policy_landing_evidence_unavailable");
+  for (const { revision } of candidates) {
+    const landing = await readLandingEvidence({ repository, revision, defaultBranch });
+    const landed = Array.isArray(landing)
+      ? landing.filter(
+          (pull) =>
+            pull?.base?.ref === defaultBranch.replace(/^refs\/heads\//u, "") &&
+            typeof pull?.merged_at === "string" &&
+            pull?.merge_commit_sha === revision,
+        )
+      : [];
+    if (landed.length > 1) throw new Error("producer_policy_landing_evidence_ambiguous");
+    if (landed.length === 0) throw new Error("producer_policy_landing_evidence_unavailable");
+    const landedMs = parseTimezoneInstantMs(landed[0].merged_at);
+    if (landedMs === null || landedMs > startMs) continue;
+    if (revision === lowerTrim(run.head_sha)) throw new Error("producer_policy_authority_unavailable");
+    const content = await readPolicy(revision);
+    return { revision, content, decision: evaluateMergeQualificationPolicy(content, { now: () => new Date(at) }) };
+  }
+  throw new Error("producer_policy_landing_evidence_unavailable");
+}
+
+async function inventoryWorkflowRuns({ repository, workflowPath, requestJson, windowStart, kind, event }) {
+  const runs = [];
+  let total;
+  for (let page = 1; page <= RUN_SEARCH_RESULT_CEILING / 100; page += 1) {
+    const payload = await requestJson(
+      `repos/${repository}/actions/workflows/${workflowPath}/runs?created=%3E%3D${windowStart}${event ? `&event=${event}` : ""}&per_page=100&page=${page}`,
+    );
+    if (
+      !Number.isSafeInteger(payload?.total_count) ||
+      payload.total_count < 0 ||
+      payload.total_count >= RUN_SEARCH_RESULT_CEILING ||
+      (total !== undefined && total !== payload.total_count) ||
+      !Array.isArray(payload.workflow_runs) ||
+      payload.workflow_runs.length > 100
+    )
+      throw new Error(`${kind}_inventory_incomplete`);
+    total = payload.total_count;
+    runs.push(...payload.workflow_runs);
+    if (runs.length === total) break;
+    if (runs.length > total || payload.workflow_runs.length !== 100 || page === RUN_SEARCH_RESULT_CEILING / 100) {
+      throw new Error(`${kind}_inventory_incomplete`);
+    }
+  }
+  return runs;
+}
+
+// Image eligibility is proven only by the one job and one successful push step;
+// a job that merely ran is not evidence that an image was published.
+export async function readMergeQualificationProducerImageEligibility({ repository, run, requestJson } = {}) {
+  if (!isRepositoryIdentity(repository) || validateProducerRun(run, repository))
+    throw new Error("producer_image_eligibility_invalid");
+  const jobs = await readMergeQualificationRunCollection({
+    repository,
+    runId: String(run.id),
+    runAttempt: String(run.run_attempt),
+    collection: "jobs",
+    requestJson,
+  });
+  const imageJobs = jobs.jobs.filter((job) => job?.name === "Docker Image Build");
+  if (imageJobs.length !== 1) throw new Error("producer_image_eligibility_invalid");
+  if (imageJobs[0].conclusion === "skipped") return false;
+  const pushSteps = Array.isArray(imageJobs[0].steps)
+    ? imageJobs[0].steps.filter((step) => step?.name === "Push boot-smoked merge-group image")
+    : [];
+  if (pushSteps.length !== 1) throw new Error("producer_image_eligibility_invalid");
+  return pushSteps[0].conclusion === "success";
+}
+
+export async function inventoryMergeQualificationProducerAttempts({
+  repository,
+  requestJson,
+  defaultBranch = "main",
+  readHistoricalPolicyContent,
+  readProducerImageEligibility,
+  execFile = execFileSync,
+  readPolicy = readOriginalQualificationPolicy,
+  advisoryRuns: sharedAdvisoryRuns = null,
+  settledIndex = null,
+  now = () => new Date(),
+} = {}) {
+  const refused = (code) => ({ attempts: [], settled: 0, errors: [code] });
+  if (!isRepositoryIdentity(repository)) return refused("producer_repository_invalid");
+  const windowStartMs = inventoryWindowStartMs(now);
+  if (!Number.isFinite(windowStartMs)) return refused("producer_window_invalid");
+  const windowStart = new Date(windowStartMs).toISOString().replace(/\.000Z$/, "Z");
+  if (
+    sharedAdvisoryRuns !== null &&
+    (!Array.isArray(sharedAdvisoryRuns) || sharedAdvisoryRuns.length >= RUN_SEARCH_RESULT_CEILING)
+  )
+    return refused("advisory_inventory_incomplete");
+  // An absent or invalid index settles nothing: every producer stays pending.
+  const settledAttempts = settledLookup(settledIndex, repository);
+  const landingCache = new Map();
+  try {
+    const [producerRuns, advisoryRuns] = await Promise.all([
+      inventoryWorkflowRuns({
+        repository,
+        workflowPath: "platform-pr.yml",
+        requestJson,
+        windowStart,
+        kind: "producer",
+        event: "merge_group",
+      }),
+      sharedAdvisoryRuns ??
+        inventoryWorkflowRuns({
+          repository,
+          workflowPath: "platform-merge-qualification.yml",
+          requestJson,
+          windowStart,
+          kind: "advisory",
+        }),
+    ]);
+    const seen = new Set();
+    const producers = [];
+    for (const run of producerRuns) {
+      const identityError = validateProducerRun(run, repository);
+      if (identityError) return refused(identityError);
+      if (parseTimezoneInstantMs(run.created_at) < windowStartMs) return refused("producer_window_invalid");
+      const identity = producerIdentity(run);
+      if (seen.has(identity)) return refused("producer_identity_invalid");
+      seen.add(identity);
+      if (run.event === "merge_group" && run.status === "completed") producers.push(run);
+    }
+    if (producers.length > 256) return refused("producer_worker_capacity_exceeded");
+    const advisoryByProducer = new Map();
+    for (const run of advisoryRuns) {
+      const title = ADVISORY_RUN_TITLE.exec(String(run?.display_title ?? ""));
+      if (!title) continue;
+      const identity = `${title[1]}/${title[2]}`;
+      if (advisoryByProducer.has(identity)) return refused("advisory_identity_invalid");
+      advisoryByProducer.set(identity, run);
+    }
+    const attempts = [];
+    let settled = 0;
+    const nowMs = now().getTime();
+    for (const run of producers) {
+      const identity = producerIdentity(run);
+      const advisoryRun = advisoryByProducer.get(identity) ?? null;
+      const completedMs = parseTimezoneInstantMs(run.updated_at);
+      if (
+        advisoryRun &&
+        parseTimezoneInstantMs(advisoryRun.created_at) < completedMs + MERGE_QUALIFICATION_PRODUCER_TICK_MS
+      )
+        continue;
+      // A settled loss is suppressed before any candidate, policy or image read,
+      // but only while its recorded advisory join still matches this listing.
+      const advisoryJoin = advisoryRun
+        ? { runId: String(advisoryRun.id ?? ""), runAttempt: String(advisoryRun.run_attempt ?? "") }
+        : null;
+      if (isSettledAttempt(settledAttempts, "producer_loss", String(run.id), String(run.run_attempt), advisoryJoin)) {
+        settled += 1;
+        continue;
+      }
+      const eligibleAfterTick = nowMs - parseTimezoneInstantMs(run.updated_at) >= MERGE_QUALIFICATION_PRODUCER_TICK_MS;
+      if (!eligibleAfterTick) continue;
+      let historical;
+      try {
+        historical = readHistoricalPolicyContent
+          ? await readHistoricalPolicyContent({ run, repository, defaultBranch })
+          : await readHistoricalProducerPolicy({
+              run,
+              repository,
+              defaultBranch,
+              execFile,
+              readPolicy,
+              readLandingEvidence: async ({ revision }) => {
+                if (!landingCache.has(revision))
+                  landingCache.set(revision, await requestJson(`repos/${repository}/commits/${revision}/pulls`));
+                return landingCache.get(revision);
+              },
+            });
+      } catch (error) {
+        attempts.push({
+          run_id: String(run.id),
+          run_attempt: String(run.run_attempt),
+          workflow_id: String(run.workflow_id),
+          conclusion: run.conclusion,
+          historicalPolicyRevision: null,
+          historicalPolicyState: "unknown",
+          historicalPolicyReason: error instanceof Error ? error.message : "producer_policy_authority_unavailable",
+          advisoryRunPresent: Boolean(advisoryRun),
+          imageEligible: null,
+          eligibleAfterTick,
+        });
+        continue;
+      }
+      const policyDecision =
+        historical?.decision ??
+        evaluateMergeQualificationPolicy(historical?.content, {
+          now: () => new Date(run.run_started_at),
+        });
+      // Every canonical evaluator failure is disabled for this producer's
+      // historical instant. Only an unreadable revision/content throws and
+      // refuses the inventory; malformed or expired policy must stay inert.
+      if (!policyDecision || policyDecision.enabled !== true) continue;
+      let imageEligible;
+      try {
+        imageEligible = readProducerImageEligibility ? await readProducerImageEligibility({ run, repository }) : true;
+      } catch (error) {
+        attempts.push({
+          run_id: String(run.id),
+          run_attempt: String(run.run_attempt),
+          workflow_id: String(run.workflow_id),
+          conclusion: run.conclusion,
+          historicalPolicyRevision: historical?.revision ?? null,
+          historicalPolicyState: "unknown",
+          historicalPolicyReason: error instanceof Error ? error.message : "producer_image_eligibility_unavailable",
+          advisoryRunPresent: Boolean(advisoryRun),
+          imageEligible: null,
+          eligibleAfterTick,
+        });
+        continue;
+      }
+      if (imageEligible === false) continue;
+      if (imageEligible !== true) throw new Error("producer_image_eligibility_unavailable");
+      attempts.push({
+        run_id: String(run.id),
+        run_attempt: String(run.run_attempt),
+        workflow_id: String(run.workflow_id),
+        conclusion: run.conclusion,
+        historicalPolicyRevision: historical?.revision ?? null,
+        historicalPolicyState: policyDecision.enabled === true ? "enabled" : "unknown",
+        historicalPolicyReason:
+          policyDecision.enabled === true ? null : (policyDecision.reasonCode ?? "policy_disabled"),
+        advisoryRunPresent: Boolean(advisoryRun),
+        imageEligible: true,
+        eligibleAfterTick,
+      });
+    }
+    return { attempts, settled, errors: [] };
+  } catch (error) {
+    return refused(error instanceof Error ? error.message : "producer_authority_unavailable");
+  }
+}
+
+function producerTerminalFields(input, terminalState, reasonCodes, advisoryRun = null) {
+  const run = input.producer;
+  return {
+    schemaVersion: MERGE_QUALIFICATION_PRODUCER_TERMINAL_SCHEMA_VERSION,
+    idempotencyKey: `merge-qualification-producer:${input.repository}:${run.id}:${run.run_attempt}`,
+    repository: input.repository,
+    producerWorkflowId: String(run.workflow_id),
+    producerWorkflowPath: run.path,
+    producerRunId: String(run.id),
+    producerRunAttempt: String(run.run_attempt),
+    producerHeadSha: lowerTrim(run.head_sha),
+    policyRevision: lowerTrim(input.candidate?.policyRevision),
+    advisoryRunId: advisoryRun ? String(advisoryRun.id ?? "") : null,
+    advisoryRunAttempt: advisoryRun ? String(advisoryRun.run_attempt ?? "") : null,
+    terminalState,
+    reasonCodes,
+    startedAt: run.run_started_at,
+    completedAt: new Date(input.now).toISOString(),
+    cleanupLegs: 0,
+  };
+}
+
+export function validateMergeQualificationProducerTerminal(record) {
+  const fields = [
+    "schemaVersion",
+    "idempotencyKey",
+    "repository",
+    "producerWorkflowId",
+    "producerWorkflowPath",
+    "producerRunId",
+    "producerRunAttempt",
+    "producerHeadSha",
+    "policyRevision",
+    "advisoryRunId",
+    "advisoryRunAttempt",
+    "terminalState",
+    "reasonCodes",
+    "startedAt",
+    "completedAt",
+    "cleanupLegs",
+  ];
+  if (!isClosedObject(record, fields)) return ["producer terminal must be a closed object."];
+  const errors = [];
+  if (record.schemaVersion !== MERGE_QUALIFICATION_PRODUCER_TERMINAL_SCHEMA_VERSION)
+    errors.push("unsupported producer terminal schema.");
+  if (!isRepositoryIdentity(record.repository)) errors.push("producer terminal repository is invalid.");
+  for (const value of [record.producerWorkflowId, record.producerRunId, record.producerRunAttempt]) {
+    if (!isBoundedSafeIntegerString(value)) errors.push("producer terminal identity is invalid.");
+  }
+  if (record.producerWorkflowPath !== PLATFORM_PR_WORKFLOW_PATH) errors.push("producer terminal workflow is invalid.");
+  if (!isCommitSha(record.producerHeadSha) || !isCommitSha(record.policyRevision))
+    errors.push("producer terminal immutable revision is invalid.");
+  if (
+    record.idempotencyKey !==
+    `merge-qualification-producer:${record.repository}:${record.producerRunId}:${record.producerRunAttempt}`
+  )
+    errors.push("producer terminal idempotency key is invalid.");
+  if (record.advisoryRunId !== null && !isBoundedSafeIntegerString(record.advisoryRunId))
+    errors.push("producer terminal advisory identity is invalid.");
+  if (record.advisoryRunAttempt !== null && !isBoundedSafeIntegerString(record.advisoryRunAttempt))
+    errors.push("producer terminal advisory attempt is invalid.");
+  if (!PRODUCER_TERMINAL_STATES.includes(record.terminalState)) errors.push("producer terminal state is invalid.");
+  const allowed = PRODUCER_TERMINAL_REASONS[record.terminalState];
+  if (!Array.isArray(record.reasonCodes) || record.reasonCodes.length !== 1 || !allowed?.has(record.reasonCodes[0]))
+    errors.push("producer terminal reason is invalid.");
+  if (parseTimezoneInstantMs(record.startedAt) === null || parseTimezoneInstantMs(record.completedAt) === null)
+    errors.push("producer terminal timestamps are invalid.");
+  if (record.cleanupLegs !== 0) errors.push("producer terminal cannot create cleanup legs.");
+  return errors;
+}
+
+async function readNamedProducerArtifact({
+  repository,
+  name,
+  fileName = "event.json",
+  defaultBranch,
+  requestJson,
+  downloadArtifact,
+}) {
+  const base = `repos/${repository}/actions`;
+  const artifacts = [];
+  const ids = new Set();
+  let total;
+  for (let page = 1; page <= 100; page += 1) {
+    const payload = await requestJson(`${base}/artifacts?name=${name}&per_page=100&page=${page}`);
+    if (
+      !Number.isSafeInteger(payload?.total_count) ||
+      payload.total_count < 0 ||
+      payload.total_count > 10_000 ||
+      (total !== undefined && total !== payload.total_count) ||
+      !Array.isArray(payload.artifacts) ||
+      payload.artifacts.length > 100
+    )
+      throw new Error("producer_marker_inventory_incomplete");
+    total = payload.total_count;
+    for (const artifact of payload.artifacts) {
+      const id = String(artifact?.id ?? "");
+      if (
+        !isBoundedSafeIntegerString(id) ||
+        ids.has(id) ||
+        artifact?.name !== name ||
+        artifact?.expired !== false ||
+        !isBoundedSafeIntegerString(String(artifact?.workflow_run?.id ?? ""))
+      )
+        throw new Error("producer_marker_artifact_invalid");
+      ids.add(id);
+      artifacts.push(artifact);
+    }
+    if (artifacts.length === total) break;
+    if (artifacts.length > total || payload.artifacts.length !== 100 || page === 100)
+      throw new Error("producer_marker_inventory_incomplete");
+  }
+  if (artifacts.length === 0) return false;
+  if (artifacts.length !== 1) throw new Error("producer_marker_artifact_invalid");
+  const writerId = String(artifacts[0].workflow_run.id);
+  const owner = await requestJson(`${base}/runs/${writerId}`);
+  if (
+    String(owner?.id) !== writerId ||
+    owner?.repository?.full_name !== repository ||
+    owner?.head_repository?.full_name !== repository ||
+    owner?.head_branch !== defaultBranch.replace(/^refs\/heads\//u, "") ||
+    owner?.path !== ".github/workflows/platform-merge-qualification-observer.yml" ||
+    !["schedule", "workflow_run"].includes(owner?.event)
+  )
+    throw new Error("producer_marker_writer_invalid");
+  const bytes = await downloadArtifact({ runId: writerId, name, fileName });
+  if (typeof bytes !== "string" || Buffer.byteLength(bytes) > 65_536)
+    throw new Error("producer_marker_payload_invalid");
+  return bytes;
+}
+
+export async function readMergeQualificationAdvisoryCleanupMarkers({
+  repository,
+  advisoryRun,
+  defaultBranch,
+  requestJson,
+  downloadArtifact,
+} = {}) {
+  if (
+    !isRepositoryIdentity(repository) ||
+    !isBoundedSafeIntegerString(String(advisoryRun?.id ?? "")) ||
+    !isBoundedSafeIntegerString(String(advisoryRun?.run_attempt ?? "")) ||
+    advisoryRun?.repository?.full_name !== repository ||
+    advisoryRun?.path !== ".github/workflows/platform-merge-qualification.yml" ||
+    advisoryRun?.event !== "workflow_dispatch"
+  )
+    return { complete: false, errors: ["producer_advisory_identity_invalid"] };
+  if (typeof defaultBranch !== "string" || !/^[A-Za-z0-9._/-]{1,256}$/.test(defaultBranch))
+    return { complete: false, errors: ["terminal_default_branch_invalid"] };
+  try {
+    const suffix = `${advisoryRun.id}-${advisoryRun.run_attempt}`;
+    const names = [`merge-qualification-cleanup-complete-${suffix}`, `merge-qualification-terminal-${suffix}`];
+    for (const name of names) {
+      const bytes = await readNamedProducerArtifact({
+        repository,
+        name,
+        fileName: name.startsWith("merge-qualification-cleanup-complete-") ? "cleanup-complete.json" : "event.json",
+        defaultBranch,
+        requestJson,
+        downloadArtifact,
+      });
+      if (bytes === false) continue;
+      if (name.startsWith("merge-qualification-cleanup-complete-")) {
+        let marker;
+        try {
+          marker = JSON.parse(bytes);
+        } catch {
+          return { complete: false, errors: ["producer_marker_payload_invalid"] };
+        }
+        if (
+          marker?.runId !== String(advisoryRun.id) ||
+          marker?.runAttempt !== String(advisoryRun.run_attempt) ||
+          marker?.cleanup !== "complete" ||
+          Object.keys(marker).length !== 3
+        )
+          return { complete: false, errors: ["producer_marker_payload_invalid"] };
+      } else {
+        let terminal;
+        try {
+          terminal = JSON.parse(bytes);
+        } catch {
+          return { complete: false, errors: ["producer_marker_payload_invalid"] };
+        }
+        if (
+          validateMergeQualificationEvent(terminal).length > 0 ||
+          terminal.runId !== String(advisoryRun.id) ||
+          terminal.runAttempt !== String(advisoryRun.run_attempt)
+        )
+          return { complete: false, errors: ["producer_marker_payload_invalid"] };
+      }
+      return { complete: true, errors: [] };
+    }
+    return { complete: false, errors: [] };
+  } catch (error) {
+    return {
+      complete: false,
+      errors: [error instanceof Error ? error.message : "producer_marker_authority_unavailable"],
+    };
+  }
+}
+
+export async function readMergeQualificationProducerTerminalRecords({
+  repository,
+  producer,
+  advisoryRun = null,
+  defaultBranch,
+  requestJson,
+  downloadArtifact,
+  readAdvisoryCleanupMarkers = readMergeQualificationAdvisoryCleanupMarkers,
+} = {}) {
+  const refused = (code) => ({ records: null, state: "unknown", advisoryCleanupComplete: false, errors: [code] });
+  if (!isRepositoryIdentity(repository) || validateProducerRun(producer, repository))
+    return refused("producer_identity_invalid");
+  if (typeof defaultBranch !== "string" || !/^[A-Za-z0-9._/-]{1,256}$/.test(defaultBranch))
+    return refused("terminal_default_branch_invalid");
+  const name = `merge-qualification-producer-terminal-${producer.id}-${producer.run_attempt}`;
+  const base = `repos/${repository}/actions`;
+  const artifacts = [];
+  const ids = new Set();
+  let total;
+  try {
+    for (let page = 1; page <= 100; page += 1) {
+      const payload = await requestJson(`${base}/artifacts?name=${name}&per_page=100&page=${page}`);
+      if (
+        !Number.isSafeInteger(payload?.total_count) ||
+        payload.total_count < 0 ||
+        payload.total_count > 10_000 ||
+        (total !== undefined && total !== payload.total_count) ||
+        !Array.isArray(payload.artifacts) ||
+        payload.artifacts.length > 100
+      )
+        return refused("terminal_inventory_incomplete");
+      total = payload.total_count;
+      for (const artifact of payload.artifacts) {
+        const id = String(artifact?.id ?? "");
+        if (
+          !isBoundedSafeIntegerString(id) ||
+          ids.has(id) ||
+          artifact?.name !== name ||
+          artifact?.expired !== false ||
+          !isBoundedSafeIntegerString(String(artifact?.workflow_run?.id ?? ""))
+        )
+          return refused("terminal_artifact_invalid");
+        ids.add(id);
+        artifacts.push(artifact);
+      }
+      if (artifacts.length === total) break;
+      if (artifacts.length > total || payload.artifacts.length !== 100 || page === 100)
+        return refused("terminal_inventory_incomplete");
+    }
+    const records = [];
+    const parsed = [];
+    for (const artifact of artifacts) {
+      const writerId = String(artifact.workflow_run.id);
+      const owner = await requestJson(`${base}/runs/${writerId}`);
+      if (
+        String(owner?.id) !== writerId ||
+        owner?.repository?.full_name !== repository ||
+        owner?.head_repository?.full_name !== repository ||
+        owner?.head_branch !== defaultBranch.replace(/^refs\/heads\//u, "") ||
+        owner?.path !== ".github/workflows/platform-merge-qualification-observer.yml" ||
+        !["schedule", "workflow_run"].includes(owner?.event)
+      )
+        return refused("terminal_writer_invalid");
+      const bytes = await downloadArtifact({ runId: writerId, name });
+      if (typeof bytes !== "string" || Buffer.byteLength(bytes) > 65_536) return refused("terminal_payload_invalid");
+      let record;
+      try {
+        record = JSON.parse(bytes);
+      } catch {
+        return refused("terminal_payload_invalid");
+      }
+      if (
+        validateMergeQualificationProducerTerminal(record).length > 0 ||
+        record.repository !== repository ||
+        record.producerWorkflowPath !== producer.path ||
+        record.producerWorkflowId !== String(producer.workflow_id) ||
+        record.producerRunId !== String(producer.id) ||
+        record.producerRunAttempt !== String(producer.run_attempt) ||
+        record.producerHeadSha !== lowerTrim(producer.head_sha)
+      )
+        return refused("terminal_payload_binding_invalid");
+      records.push(bytes);
+      parsed.push(record);
+    }
+    const unique = new Map(parsed.map((record, index) => [records[index], record]));
+    const values = [...unique.values()];
+    const losses = values.filter((record) => record.terminalState === "infrastructure_error");
+    const conflicts = values.filter((record) => record.terminalState === "conflict");
+    if (
+      losses.length > 1 ||
+      conflicts.length > 1 ||
+      values.length > 2 ||
+      (losses.length && conflicts.length && values.length !== 2)
+    )
+      return refused("terminal_payload_conflict");
+    if (losses.length && conflicts.length)
+      return { records, state: "conflict_settled", advisoryCleanupComplete: true, errors: [] };
+    if (losses.length && advisoryRun) {
+      const marker = await readAdvisoryCleanupMarkers({
+        repository,
+        advisoryRun,
+        defaultBranch,
+        requestJson,
+        downloadArtifact,
+      });
+      if (marker.errors.length) return refused(marker.errors[0]);
+      if (!marker.complete)
+        return { records, state: "awaiting_advisory_cleanup", advisoryCleanupComplete: false, errors: [] };
+      return { records, state: "advisory_cleanup_complete", advisoryCleanupComplete: true, errors: [] };
+    }
+    return {
+      records,
+      state: conflicts.length
+        ? "conflict"
+        : losses.length
+          ? "dispatch_loss"
+          : advisoryRun
+            ? "advisory_present"
+            : "missing",
+      advisoryCleanupComplete: false,
+      errors: [],
+    };
+  } catch {
+    return refused("terminal_authority_unavailable");
+  }
+}
+
+export function reconcileMergeQualificationProducerAttempt({
+  producer,
+  advisoryRun = null,
+  candidate = null,
+  policy = null,
+  policyContent = null,
+  policyAuthorityError = null,
+  existingTerminal = null,
+  existingTerminals = null,
+  advisoryCleanupComplete = false,
+  now = new Date(),
+} = {}) {
+  const repository = producer?.repository?.full_name;
+  if (
+    !isRepositoryIdentity(repository) ||
+    producer?.event !== "merge_group" ||
+    validateProducerRun(producer, repository)
+  )
+    return { state: "unknown", reason: "producer_invalid", event: null };
+  if (policyAuthorityError) return { state: "unknown", reason: policyAuthorityError, event: null };
+  const candidateErrors = candidate ? validateMergeQualificationCandidate(candidate) : ["candidate_missing"];
+  const boundCandidate =
+    candidateErrors.length === 0 &&
+    candidate.repository === repository &&
+    candidate.workflowId === String(producer.workflow_id) &&
+    candidate.workflowPath === producer.path &&
+    candidate.runId === String(producer.id) &&
+    candidate.runAttempt === String(producer.run_attempt) &&
+    candidate.candidateSha === lowerTrim(producer.head_sha) &&
+    candidate.policyRevision !== lowerTrim(producer.head_sha);
+  const evaluatedPolicy =
+    typeof policyContent === "string"
+      ? evaluateMergeQualificationPolicy(policyContent, { now: () => new Date(producer.run_started_at) })
+      : policy;
+  if (!evaluatedPolicy || evaluatedPolicy.enabled !== true || !boundCandidate) {
+    return {
+      state:
+        evaluatedPolicy?.enabled === false || evaluatedPolicy?.reasonCode === "policy_disabled"
+          ? "ineligible"
+          : "unknown",
+      reason:
+        evaluatedPolicy?.enabled === false || evaluatedPolicy?.reasonCode === "policy_disabled"
+          ? "policy_disabled"
+          : "candidate_invalid",
+      event: null,
+    };
+  }
+  const nowMs = now instanceof Date ? now.getTime() : Date.parse(now);
+  const startedMs = parseTimezoneInstantMs(producer.updated_at);
+  const terminals = Array.isArray(existingTerminals) ? existingTerminals : existingTerminal ? [existingTerminal] : [];
+  if (!Number.isFinite(nowMs) || startedMs === null)
+    return { state: "unknown", reason: "producer_time_invalid", event: null };
+  if (advisoryRun && terminals.length === 0)
+    return { state: "advisory_present", reason: "owned_by_advisory", event: null };
+  if (!advisoryRun && nowMs - startedMs < MERGE_QUALIFICATION_PRODUCER_TICK_MS) {
+    return { state: "awaiting_tick", reason: "awaiting_advisory_dispatch_tick", event: null };
+  }
+  const terminalBound = terminals.every((terminal) => {
+    const terminalErrors = validateMergeQualificationProducerTerminal(terminal);
+    return (
+      terminalErrors.length === 0 &&
+      terminal.repository === repository &&
+      terminal.producerRunId === String(producer.id) &&
+      terminal.producerRunAttempt === String(producer.run_attempt) &&
+      terminal.producerHeadSha === lowerTrim(producer.head_sha) &&
+      terminal.policyRevision === lowerTrim(candidate?.policyRevision)
+    );
+  });
+  if (!terminalBound) return { state: "unknown", reason: "terminal_identity_invalid", event: null };
+  const hasLoss = terminals.some((terminal) => terminal.terminalState === "infrastructure_error");
+  const hasConflict = terminals.some((terminal) => terminal.terminalState === "conflict");
+  if (hasLoss && hasConflict)
+    return { state: "conflict_settled", reason: "dispatch_loss_conflict_already_settled", event: null };
+  if (hasLoss && advisoryRun && !advisoryCleanupComplete)
+    return { state: "awaiting_advisory_cleanup", reason: "advisory_cleanup_incomplete", event: null };
+  if (hasLoss && !advisoryRun) return { state: "idempotent", reason: "dispatch_loss_already_settled", event: null };
+  if (hasConflict) return { state: "idempotent", reason: "dispatch_loss_conflict_already_settled", event: null };
+  const event = producerTerminalFields(
+    { repository, producer, candidate, now: nowMs },
+    advisoryRun ? "conflict" : "infrastructure_error",
+    [advisoryRun ? "advisory_dispatch_race" : "advisory_dispatch_missing"],
+    advisoryRun,
+  );
+  return { state: advisoryRun ? "conflict" : "dispatch_loss", reason: event.reasonCodes[0], event };
 }
 
 function readOriginalQualificationPolicy(revision) {
@@ -1436,6 +2185,423 @@ export async function readMergeQualificationTerminalRecords({
     return replay.errors.length ? refused(replay.errors[0]) : { records, errors: [] };
   } catch {
     return refused("terminal_authority_unavailable");
+  }
+}
+
+// The settled-attempt index is a closed, versioned observer projection that
+// only suppresses matrix legs for attempts whose durable evidence already
+// settled; it is never authority for a missing terminal. An advisory attempt
+// settles with its terminal and exact cleanup marker. A producer-loss attempt
+// settles on its terminal alone: no advisory run provisioned resources for it,
+// and a late-run conflict record likewise needs no marker.
+export const MERGE_QUALIFICATION_SETTLED_INDEX_SCHEMA_VERSION = "observer-settled-index/v1";
+export const MERGE_QUALIFICATION_SETTLED_INDEX_ARTIFACT = "merge-qualification-settled-index";
+export const MERGE_QUALIFICATION_SETTLED_ENTRY_ARTIFACT_PREFIX = "merge-qualification-settled-entry-";
+export const MERGE_QUALIFICATION_SETTLED_VARIANTS = Object.freeze(["advisory", "producer_loss"]);
+const OBSERVER_WORKFLOW_PATH = ".github/workflows/platform-merge-qualification-observer.yml";
+const ADVISORY_WORKFLOW_PATH = ".github/workflows/platform-merge-qualification.yml";
+const SETTLED_INDEX_FILE = "settled-index.json";
+// One entry per inventoried advisory or producer attempt; each inventory
+// refuses at the 1,000-result search ceiling.
+const SETTLED_INDEX_MAX_ENTRIES = 2 * RUN_SEARCH_RESULT_CEILING;
+const SETTLED_INDEX_MAX_BYTES = 2_000_000;
+// One delivery admits at most one advisory and one producer leg per matrix slot.
+const SETTLED_ENTRIES_PER_DELIVERY = 2 * 256;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+
+function inventoryWindowStartMs(now) {
+  // Whole seconds: the created filter and run timestamps carry no fractions.
+  return Math.floor((now().getTime() - MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS * 3_600_000) / 1_000) * 1_000;
+}
+
+function sha256Hex(bytes) {
+  return createHash("sha256").update(bytes, "utf8").digest("hex");
+}
+
+function settledKey(variant, runId, runAttempt) {
+  return `${variant}/${runId}/${runAttempt}`;
+}
+
+function isAttemptReference(value) {
+  return (
+    isClosedObject(value, ["runId", "runAttempt"]) &&
+    isBoundedSafeIntegerString(value.runId) &&
+    isBoundedSafeIntegerString(value.runAttempt)
+  );
+}
+
+function sameJoin(left, right) {
+  if (left === null || right === null) return left === right;
+  return left.runId === right.runId && left.runAttempt === right.runAttempt;
+}
+
+function canonicalSettledEntry(entry) {
+  return {
+    variant: entry.variant,
+    runId: entry.runId,
+    runAttempt: entry.runAttempt,
+    join: entry.join === null ? null : { runId: entry.join.runId, runAttempt: entry.join.runAttempt },
+    terminals: entry.terminals.map(({ terminalState, sha256 }) => ({ terminalState, sha256 })),
+    cleanupMarkerSha256: entry.cleanupMarkerSha256,
+    startedAt: entry.startedAt,
+  };
+}
+
+function compareSettledEntries(left, right) {
+  if (left.variant !== right.variant) return left.variant < right.variant ? -1 : 1;
+  for (const field of ["runId", "runAttempt"]) {
+    const difference = BigInt(left[field]) - BigInt(right[field]);
+    if (difference !== 0n) return difference < 0n ? -1 : 1;
+  }
+  return 0;
+}
+
+export function validateMergeQualificationSettledEntry(entry) {
+  const fields = ["variant", "runId", "runAttempt", "join", "terminals", "cleanupMarkerSha256", "startedAt"];
+  if (!isClosedObject(entry, fields)) return ["settled entry must be a closed object."];
+  const errors = [];
+  if (!MERGE_QUALIFICATION_SETTLED_VARIANTS.includes(entry.variant)) errors.push("settled entry variant is invalid.");
+  if (!isBoundedSafeIntegerString(entry.runId) || !isBoundedSafeIntegerString(entry.runAttempt))
+    errors.push("settled entry identity is invalid.");
+  if (entry.join !== null && !isAttemptReference(entry.join)) errors.push("settled entry join is invalid.");
+  if (!isIsoInstant(entry.startedAt)) errors.push("settled entry start is invalid.");
+  const terminals = Array.isArray(entry.terminals) ? entry.terminals : [];
+  if (
+    terminals.length < 1 ||
+    terminals.length > 2 ||
+    terminals.some(
+      (terminal) => !isClosedObject(terminal, ["terminalState", "sha256"]) || !SHA256_PATTERN.test(terminal.sha256),
+    )
+  )
+    errors.push("settled entry terminals are invalid.");
+  const states = terminals.map((terminal) => terminal?.terminalState);
+  if (entry.variant === "advisory") {
+    if (states.length !== 1 || !MERGE_QUALIFICATION_TERMINAL_STATES.includes(states[0]))
+      errors.push("advisory settlement needs exactly one advisory terminal.");
+    if (entry.join === null) errors.push("advisory settlement must retain its producer join.");
+    if (typeof entry.cleanupMarkerSha256 !== "string" || !SHA256_PATTERN.test(entry.cleanupMarkerSha256))
+      errors.push("advisory settlement requires its exact cleanup marker.");
+  } else if (entry.variant === "producer_loss") {
+    if (entry.cleanupMarkerSha256 !== null) errors.push("producer-loss settlement never carries a cleanup marker.");
+    const ordered = [...new Set(states)].sort();
+    if (
+      ordered.length !== states.length ||
+      ordered.join("\n") !== states.join("\n") ||
+      states.some((state) => !PRODUCER_TERMINAL_STATES.includes(state))
+    )
+      errors.push("producer-loss settlement terminals are invalid.");
+    // A loss alone settles only while no advisory run joins it; a late run
+    // reopens the attempt until its conflict record names that run.
+    if (states.includes("conflict") ? entry.join === null : entry.join !== null)
+      errors.push("producer-loss settlement join does not match its terminals.");
+  }
+  return errors;
+}
+
+export function validateMergeQualificationSettledIndex(index, { repository } = {}) {
+  const fields = ["schemaVersion", "repository", "writerRunId", "writerRunAttempt", "windowStart", "entries"];
+  if (!isClosedObject(index, fields)) return ["settled index must be a closed object."];
+  if (index.schemaVersion !== MERGE_QUALIFICATION_SETTLED_INDEX_SCHEMA_VERSION)
+    return ["unsupported settled index schema."];
+  const errors = [];
+  if (!isRepositoryIdentity(index.repository) || (repository !== undefined && index.repository !== repository))
+    errors.push("settled index repository is invalid.");
+  if (!isBoundedSafeIntegerString(index.writerRunId) || !isBoundedSafeIntegerString(index.writerRunAttempt))
+    errors.push("settled index writer is invalid.");
+  const windowStartMs = parseTimezoneInstantMs(index.windowStart);
+  if (windowStartMs === null) errors.push("settled index window is invalid.");
+  if (!Array.isArray(index.entries) || index.entries.length > SETTLED_INDEX_MAX_ENTRIES)
+    return [...errors, "settled index entries are invalid."];
+  let previous = null;
+  for (const entry of index.entries) {
+    if (validateMergeQualificationSettledEntry(entry).length) return [...errors, "settled index entry is invalid."];
+    // Canonical order makes the projection content-derived and its keys unique.
+    if (previous && compareSettledEntries(previous, entry) >= 0) return [...errors, "settled index keys repeat."];
+    if (windowStartMs !== null && parseTimezoneInstantMs(entry.startedAt) < windowStartMs)
+      return [...errors, "settled index retains an aged entry."];
+    previous = entry;
+  }
+  return errors;
+}
+
+function settledLookup(index, repository) {
+  if (!index || validateMergeQualificationSettledIndex(index, { repository }).length) return null;
+  return new Map(index.entries.map((entry) => [settledKey(entry.variant, entry.runId, entry.runAttempt), entry]));
+}
+
+// Settlement suppresses a leg only for the exact variant/run/attempt key with
+// the same producer join; anything else stays pending work.
+function isSettledAttempt(lookup, variant, runId, runAttempt, join) {
+  const entry = lookup?.get(settledKey(variant, runId, runAttempt));
+  return Boolean(entry) && sameJoin(entry.join, join);
+}
+
+function distinctTerminalPayloads(payloads) {
+  if (
+    !Array.isArray(payloads) ||
+    payloads.length > 16 ||
+    payloads.some((bytes) => typeof bytes !== "string" || Buffer.byteLength(bytes) > 65_536)
+  )
+    return null;
+  return [...new Set(payloads)];
+}
+
+function parseJsonOrNull(bytes) {
+  try {
+    return JSON.parse(bytes);
+  } catch {
+    return null;
+  }
+}
+
+// Derives one entry from durable terminal and marker bytes, never from
+// artifact names or presence. `settled: false` without errors is ordinary
+// unsettled work; errors are evidence that must fail the writing leg.
+export function deriveMergeQualificationSettledEntry({
+  variant,
+  repository,
+  terminals,
+  cleanupMarker = null,
+  advisoryJoin = null,
+} = {}) {
+  const invalid = (code) => ({ settled: false, entry: null, errors: [code] });
+  const unsettled = { settled: false, entry: null, errors: [] };
+  if (!MERGE_QUALIFICATION_SETTLED_VARIANTS.includes(variant)) return invalid("settlement_variant_invalid");
+  if (!isRepositoryIdentity(repository)) return invalid("settlement_repository_invalid");
+  if (advisoryJoin !== null && !isAttemptReference(advisoryJoin)) return invalid("settlement_join_invalid");
+  const payloads = distinctTerminalPayloads(terminals);
+  if (payloads === null) return invalid("settlement_terminal_invalid");
+  if (payloads.length === 0) return unsettled;
+  const settled = (entry) => {
+    const errors = validateMergeQualificationSettledEntry(entry);
+    return errors.length ? invalid("settlement_entry_invalid") : { settled: true, entry, errors: [] };
+  };
+
+  if (variant === "advisory") {
+    if (payloads.length !== 1) return invalid("settlement_terminal_conflict");
+    const event = parseJsonOrNull(payloads[0]);
+    if (
+      validateMergeQualificationEvent(event).length ||
+      event.repository !== repository ||
+      event.workflowPath !== ADVISORY_WORKFLOW_PATH ||
+      !isBoundedSafeIntegerString(event.runId) ||
+      !isBoundedSafeIntegerString(event.runAttempt) ||
+      !isBoundedSafeIntegerString(event.parentRunId) ||
+      !isBoundedSafeIntegerString(event.parentRunAttempt)
+    )
+      return invalid("settlement_terminal_invalid");
+    // A terminal without its exact cleanup marker remains unsettled.
+    if (cleanupMarker === null) return unsettled;
+    const marker = typeof cleanupMarker === "string" ? parseJsonOrNull(cleanupMarker) : null;
+    if (
+      !isClosedObject(marker, ["runId", "runAttempt", "cleanup"]) ||
+      marker.runId !== event.runId ||
+      marker.runAttempt !== event.runAttempt ||
+      marker.cleanup !== "complete"
+    )
+      return invalid("settlement_marker_invalid");
+    return settled({
+      variant,
+      runId: event.runId,
+      runAttempt: event.runAttempt,
+      join: { runId: event.parentRunId, runAttempt: event.parentRunAttempt },
+      terminals: [{ terminalState: event.terminalState, sha256: sha256Hex(payloads[0]) }],
+      cleanupMarkerSha256: sha256Hex(cleanupMarker),
+      startedAt: event.startedAt,
+    });
+  }
+
+  const records = payloads.map((bytes) => ({ bytes, record: parseJsonOrNull(bytes) }));
+  const [first] = records;
+  if (
+    records.some(
+      ({ record }) =>
+        validateMergeQualificationProducerTerminal(record).length > 0 ||
+        record.repository !== repository ||
+        [
+          "producerWorkflowId",
+          "producerRunId",
+          "producerRunAttempt",
+          "producerHeadSha",
+          "policyRevision",
+          "startedAt",
+        ].some((field) => record[field] !== first.record?.[field]),
+    )
+  )
+    return invalid("settlement_terminal_invalid");
+  const states = records.map(({ record }) => record.terminalState);
+  if (new Set(states).size !== states.length) return invalid("settlement_terminal_conflict");
+  const conflict = records.find(({ record }) => record.terminalState === "conflict")?.record ?? null;
+  let join = null;
+  if (conflict) {
+    join =
+      conflict.advisoryRunId === null || conflict.advisoryRunAttempt === null
+        ? null
+        : { runId: conflict.advisoryRunId, runAttempt: conflict.advisoryRunAttempt };
+    if (join === null || !sameJoin(join, advisoryJoin)) return invalid("settlement_join_conflict");
+  } else if (advisoryJoin !== null) {
+    // A loss whose advisory run arrived late awaits cleanup and its conflict record.
+    return unsettled;
+  }
+  return settled({
+    variant,
+    runId: first.record.producerRunId,
+    runAttempt: first.record.producerRunAttempt,
+    join,
+    terminals: records
+      .map(({ bytes, record }) => ({ terminalState: record.terminalState, sha256: sha256Hex(bytes) }))
+      .sort((left, right) => (left.terminalState < right.terminalState ? -1 : 1)),
+    cleanupMarkerSha256: null,
+    startedAt: first.record.startedAt,
+  });
+}
+
+// The only permitted change to a retained entry: a settled producer loss whose
+// late advisory run is now named by a conflict record that keeps the loss bytes.
+function refinesProducerLoss(existing, next) {
+  return (
+    existing.variant === "producer_loss" &&
+    next.variant === "producer_loss" &&
+    existing.join === null &&
+    next.join !== null &&
+    existing.startedAt === next.startedAt &&
+    existing.terminals.length === 1 &&
+    next.terminals.some(
+      (terminal) =>
+        terminal.terminalState === existing.terminals[0].terminalState &&
+        terminal.sha256 === existing.terminals[0].sha256,
+    )
+  );
+}
+
+// Monotonic: every prior entry inside the 48-hour window is retained unchanged
+// (or refined as above); entries that age out leave their attempt an explicit
+// unknown, never settled.
+export function writeMergeQualificationSettledIndex({
+  repository,
+  prior = null,
+  entries = [],
+  writerRunId,
+  writerRunAttempt,
+  now = () => new Date(),
+} = {}) {
+  const refused = (code) => ({ index: null, aged: 0, added: 0, errors: [code] });
+  if (!isRepositoryIdentity(repository)) return refused("settled_index_repository_invalid");
+  if (!isBoundedSafeIntegerString(writerRunId) || !isBoundedSafeIntegerString(writerRunAttempt))
+    return refused("settled_index_writer_invalid");
+  if (prior !== null && validateMergeQualificationSettledIndex(prior, { repository }).length)
+    return refused("settled_index_prior_invalid");
+  if (!Array.isArray(entries) || entries.length > SETTLED_ENTRIES_PER_DELIVERY)
+    return refused("settled_index_entries_invalid");
+  const windowStartMs = inventoryWindowStartMs(now);
+  if (!Number.isFinite(windowStartMs)) return refused("settled_index_window_invalid");
+  const merged = new Map();
+  let aged = 0;
+  for (const entry of prior?.entries ?? []) {
+    if (parseTimezoneInstantMs(entry.startedAt) < windowStartMs) {
+      aged += 1;
+      continue;
+    }
+    merged.set(settledKey(entry.variant, entry.runId, entry.runAttempt), canonicalSettledEntry(entry));
+  }
+  let added = 0;
+  for (const candidate of entries) {
+    if (validateMergeQualificationSettledEntry(candidate).length) return refused("settled_index_entry_invalid");
+    if (parseTimezoneInstantMs(candidate.startedAt) < windowStartMs) continue;
+    const entry = canonicalSettledEntry(candidate);
+    const key = settledKey(entry.variant, entry.runId, entry.runAttempt);
+    const existing = merged.get(key);
+    if (existing && JSON.stringify(existing) === JSON.stringify(entry)) continue;
+    if (existing && !refinesProducerLoss(existing, entry)) return refused("settled_index_not_monotonic");
+    merged.set(key, entry);
+    added += 1;
+  }
+  const index = {
+    schemaVersion: MERGE_QUALIFICATION_SETTLED_INDEX_SCHEMA_VERSION,
+    repository,
+    writerRunId,
+    writerRunAttempt,
+    windowStart: new Date(windowStartMs).toISOString().replace(/\.000Z$/, "Z"),
+    entries: [...merged.values()].sort(compareSettledEntries),
+  };
+  if (validateMergeQualificationSettledIndex(index, { repository }).length)
+    return refused("settled_index_capacity_exceeded");
+  return { index, aged, added, errors: [] };
+}
+
+// Exactly three REST calls per delivery: the latest successful default-branch
+// observer run, its named index artifact, and that artifact's download. A
+// stale index is safe because settlement is monotonic; missing, invalid or
+// incomplete evidence is an explicit unknown that leaves every attempt pending.
+export async function readMergeQualificationSettledIndex({
+  repository,
+  defaultBranch,
+  requestJson,
+  downloadArtifact,
+} = {}) {
+  const unknown = (code) => ({ state: "unknown", index: null, writer: null, errors: [code] });
+  if (!isRepositoryIdentity(repository)) return unknown("settled_index_repository_invalid");
+  if (typeof defaultBranch !== "string" || !/^[A-Za-z0-9._/-]{1,256}$/.test(defaultBranch))
+    return unknown("settled_index_branch_invalid");
+  const branch = defaultBranch.replace(/^refs\/heads\//u, "");
+  try {
+    const latest = await requestJson(
+      `repos/${repository}/actions/workflows/platform-merge-qualification-observer.yml/runs?branch=${encodeURIComponent(branch)}&status=success&per_page=1`,
+    );
+    if (
+      !Number.isSafeInteger(latest?.total_count) ||
+      latest.total_count < 0 ||
+      !Array.isArray(latest.workflow_runs) ||
+      latest.workflow_runs.length !== Math.min(1, latest.total_count)
+    )
+      return unknown("settled_index_lookup_incomplete");
+    if (latest.total_count === 0) return unknown("settled_index_missing");
+    const run = latest.workflow_runs[0];
+    const runId = String(run?.id ?? "");
+    const runAttempt = String(run?.run_attempt ?? "");
+    if (
+      !isBoundedSafeIntegerString(runId) ||
+      !isBoundedSafeIntegerString(runAttempt) ||
+      run?.repository?.full_name !== repository ||
+      run?.head_repository?.full_name !== repository ||
+      run?.head_branch !== branch ||
+      run?.path !== OBSERVER_WORKFLOW_PATH ||
+      !["schedule", "workflow_run"].includes(run?.event) ||
+      run?.status !== "completed" ||
+      run?.conclusion !== "success"
+    )
+      return unknown("settled_index_writer_invalid");
+    const listing = await requestJson(
+      `repos/${repository}/actions/runs/${runId}/artifacts?name=${MERGE_QUALIFICATION_SETTLED_INDEX_ARTIFACT}`,
+    );
+    if (
+      !Number.isSafeInteger(listing?.total_count) ||
+      !Array.isArray(listing.artifacts) ||
+      listing.artifacts.length !== listing.total_count
+    )
+      return unknown("settled_index_lookup_incomplete");
+    if (listing.total_count === 0) return unknown("settled_index_missing");
+    const [artifact] = listing.artifacts;
+    const artifactId = String(artifact?.id ?? "");
+    if (
+      listing.total_count !== 1 ||
+      !isBoundedSafeIntegerString(artifactId) ||
+      artifact?.name !== MERGE_QUALIFICATION_SETTLED_INDEX_ARTIFACT ||
+      artifact?.expired !== false ||
+      String(artifact?.workflow_run?.id ?? "") !== runId
+    )
+      return unknown("settled_index_artifact_invalid");
+    const bytes = await downloadArtifact({ artifactId });
+    if (typeof bytes !== "string" || Buffer.byteLength(bytes) > SETTLED_INDEX_MAX_BYTES)
+      return unknown("settled_index_payload_invalid");
+    const index = parseJsonOrNull(bytes);
+    if (validateMergeQualificationSettledIndex(index, { repository }).length)
+      return unknown("settled_index_payload_invalid");
+    if (index.writerRunId !== runId || index.writerRunAttempt !== runAttempt)
+      return unknown("settled_index_writer_invalid");
+    return { state: "valid", index, writer: { runId, runAttempt }, errors: [] };
+  } catch {
+    return unknown("settled_index_authority_unavailable");
   }
 }
 
@@ -1975,20 +3141,128 @@ async function main(argv, env = process.env) {
     }
   }
 
+  if (command === "settled-index-read") {
+    const repository = readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY;
+    const gh = (args, encoding = "utf8") =>
+      execFileSync("gh", args, {
+        encoding,
+        timeout: 30_000,
+        maxBuffer: 8_000_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    const result = await readMergeQualificationSettledIndex({
+      repository,
+      defaultBranch: readOption(argv, "--default-branch") ?? env.GITHUB_REF_NAME ?? "main",
+      requestJson: async (endpoint) => JSON.parse(gh(["api", endpoint])),
+      downloadArtifact: async ({ artifactId }) => {
+        const directory = mkdtempSync(path.join(tmpdir(), "qualification-settled-index-"));
+        try {
+          const archive = path.join(directory, "settled-index.zip");
+          // gh follows the authenticated redirect without forwarding the token to the artifact host.
+          writeFileSync(archive, gh(["api", `repos/${repository}/actions/artifacts/${artifactId}/zip`], "buffer"));
+          const unzip = (args) =>
+            execFileSync("unzip", args, {
+              encoding: "utf8",
+              timeout: 30_000,
+              maxBuffer: SETTLED_INDEX_MAX_BYTES + 1,
+              stdio: ["ignore", "pipe", "pipe"],
+            });
+          if (unzip(["-Z1", archive]).trim() !== SETTLED_INDEX_FILE) throw new Error("settled_index_archive_invalid");
+          return unzip(["-p", archive, SETTLED_INDEX_FILE]);
+        } finally {
+          rmSync(directory, { recursive: true, force: true });
+        }
+      },
+    });
+    const out = readOption(argv, "--out");
+    if (result.state === "valid" && out) {
+      await mkdir(path.dirname(out), { recursive: true });
+      await writeFile(out, `${JSON.stringify(result.index)}\n`);
+    }
+    appendOutputs(readOption(argv, "--github-output"), [
+      ["state", result.state],
+      ["reason", result.errors[0] ?? ""],
+      ["entries", String(result.index?.entries.length ?? 0)],
+    ]);
+    appendSummary(
+      readOption(argv, "--github-summary"),
+      result.state === "valid"
+        ? `Settled-attempt index from observer run ${result.writer.runId} attempt ${result.writer.runAttempt}: ${result.index.entries.length} settled attempts.`
+        : `Settled-attempt index unknown (${result.errors[0]}); every inventoried attempt stays pending work.`,
+    );
+    return 0;
+  }
+
   if (command === "inventory") {
-    const result = await inventoryMergeQualificationAttempts({
+    const repository = readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY;
+    const requestJson = async (endpoint) =>
+      JSON.parse(
+        execFileSync("gh", ["api", endpoint], {
+          encoding: "utf8",
+          timeout: 30_000,
+          maxBuffer: 8_000_000,
+          stdio: ["ignore", "pipe", "pipe"],
+        }),
+      );
+    const listing = await listMergeQualificationAdvisoryRuns({ repository, requestJson, now });
+    const result = listing.errors.length
+      ? { attempts: [], settled: 0, errors: listing.errors }
+      : await inventoryMergeQualificationAttempts({
+          repository,
+          now,
+          requestJson,
+          advisoryRuns: listing.runs,
+          settledIndex: readJsonFileOrNull(readOption(argv, "--settled-index")),
+          readPolicyContent: async (revision) => readOriginalQualificationPolicy(revision),
+        });
+    if (result.errors.length) {
+      console.error(result.errors.join("\n"));
+      return 1;
+    }
+    const advisoryRunsOut = readOption(argv, "--advisory-runs-out");
+    if (advisoryRunsOut) {
+      await mkdir(path.dirname(advisoryRunsOut), { recursive: true });
+      await writeFile(advisoryRunsOut, `${JSON.stringify(listing.runs)}\n`);
+    }
+    appendOutputs(readOption(argv, "--github-output"), [
+      ["matrix", JSON.stringify({ include: result.attempts })],
+      ["pending", result.attempts.length ? "true" : "false"],
+      ["settled", String(result.settled)],
+    ]);
+    appendSummary(
+      readOption(argv, "--github-summary"),
+      result.attempts.length
+        ? `${result.attempts.length} advisory attempts pending; ${result.settled} settled attempts scheduled no leg.`
+        : `No enabled completed advisory attempts require reconciliation; ${result.settled} settled attempts scheduled no leg.`,
+    );
+    return 0;
+  }
+
+  if (command === "producer-inventory") {
+    const requestJson = async (endpoint) =>
+      JSON.parse(
+        execFileSync("gh", ["api", endpoint], {
+          encoding: "utf8",
+          timeout: 30_000,
+          maxBuffer: 8_000_000,
+          stdio: ["ignore", "pipe", "pipe"],
+        }),
+      );
+    const advisoryRunsPath = readOption(argv, "--advisory-runs");
+    const advisoryRuns = advisoryRunsPath ? readJsonFileOrNull(advisoryRunsPath) : null;
+    if (advisoryRunsPath && !Array.isArray(advisoryRuns)) {
+      console.error("advisory_inventory_incomplete");
+      return 1;
+    }
+    const result = await inventoryMergeQualificationProducerAttempts({
       repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
+      defaultBranch: readOption(argv, "--default-branch") ?? env.GITHUB_REF_NAME ?? "main",
       now,
-      requestJson: async (endpoint) =>
-        JSON.parse(
-          execFileSync("gh", ["api", endpoint], {
-            encoding: "utf8",
-            timeout: 30_000,
-            maxBuffer: 8_000_000,
-            stdio: ["ignore", "pipe", "pipe"],
-          }),
-        ),
-      readPolicyContent: async (revision) => readOriginalQualificationPolicy(revision),
+      requestJson,
+      advisoryRuns,
+      settledIndex: readJsonFileOrNull(readOption(argv, "--settled-index")),
+      readProducerImageEligibility: ({ run, repository }) =>
+        readMergeQualificationProducerImageEligibility({ repository, run, requestJson }),
     });
     if (result.errors.length) {
       console.error(result.errors.join("\n"));
@@ -1997,12 +3271,168 @@ async function main(argv, env = process.env) {
     appendOutputs(readOption(argv, "--github-output"), [
       ["matrix", JSON.stringify({ include: result.attempts })],
       ["pending", result.attempts.length ? "true" : "false"],
+      ["settled", String(result.settled)],
     ]);
-    if (!result.attempts.length)
-      appendSummary(
-        readOption(argv, "--github-summary"),
-        "No enabled completed advisory attempts require reconciliation.",
-      );
+    appendSummary(
+      readOption(argv, "--github-summary"),
+      result.attempts.length
+        ? `${result.attempts.length} producer attempts pending; ${result.settled} settled producer losses scheduled no leg.`
+        : `No completed producer attempts are missing advisory dispatch; ${result.settled} settled producer losses scheduled no leg.`,
+    );
+    return 0;
+  }
+
+  if (command === "settled-entry") {
+    const repository = readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY;
+    const readBytes = (file) => {
+      try {
+        return statSync(file).size > 65_536 ? null : readFileSync(file, "utf8");
+      } catch {
+        return null;
+      }
+    };
+    const records = readJsonFileOrNull(readOption(argv, "--terminal-records"))?.records;
+    const eventPath = readOption(argv, "--event");
+    const markerPath = readOption(argv, "--cleanup-marker");
+    const terminals = Array.isArray(records) ? [...records] : null;
+    if (eventPath) terminals?.push(readBytes(eventPath));
+    const cleanupMarker = markerPath ? readBytes(markerPath) : null;
+    if (terminals === null || (markerPath && cleanupMarker === null)) {
+      console.error("settlement_evidence_unreadable");
+      return 1;
+    }
+    const advisoryRunPath = readOption(argv, "--advisory-run");
+    const advisoryRun = advisoryRunPath ? readJsonFileOrNull(advisoryRunPath) : null;
+    const result = deriveMergeQualificationSettledEntry({
+      variant: readOption(argv, "--variant"),
+      repository,
+      terminals,
+      cleanupMarker,
+      advisoryJoin: advisoryRun
+        ? { runId: String(advisoryRun.id ?? ""), runAttempt: String(advisoryRun.run_attempt ?? "") }
+        : null,
+    });
+    if (result.errors.length) {
+      console.error(result.errors.join("\n"));
+      return 1;
+    }
+    if (result.settled) await writeJsonRecord(readOption(argv, "--out"), result.entry);
+    appendOutputs(readOption(argv, "--github-output"), [["settled", result.settled ? "true" : "false"]]);
+    return 0;
+  }
+
+  if (command === "settled-index-write") {
+    const priorPath = readOption(argv, "--prior");
+    const prior = priorPath ? readJsonFileOrNull(priorPath) : null;
+    if (priorPath && prior === null) {
+      console.error("settled_index_prior_invalid");
+      return 1;
+    }
+    const loaded = readSettledEntryArtifacts(readOption(argv, "--entries-dir"));
+    const result = loaded.errors.length
+      ? { index: null, errors: loaded.errors }
+      : writeMergeQualificationSettledIndex({
+          repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
+          prior,
+          entries: loaded.entries,
+          writerRunId: readOption(argv, "--writer-run-id") ?? env.GITHUB_RUN_ID,
+          writerRunAttempt: readOption(argv, "--writer-run-attempt") ?? env.GITHUB_RUN_ATTEMPT,
+          now,
+        });
+    const bytes = result.index ? `${JSON.stringify(result.index)}\n` : "";
+    if (result.errors.length || Buffer.byteLength(bytes) > SETTLED_INDEX_MAX_BYTES) {
+      console.error(result.errors[0] ?? "settled_index_capacity_exceeded");
+      return 1;
+    }
+    const out = readOption(argv, "--out");
+    await mkdir(path.dirname(out), { recursive: true });
+    await writeFile(out, bytes);
+    appendSummary(
+      readOption(argv, "--github-summary"),
+      `Settled-attempt index: ${result.index.entries.length} entries (${result.added} added; ${result.aged} aged out of the ${MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS}-hour window and left explicit unknown).`,
+    );
+    return 0;
+  }
+
+  if (command === "producer-reconcile") {
+    const producer = readJsonFileOrNull(readOption(argv, "--producer"));
+    const candidate = readJsonFileOrNull(readOption(argv, "--candidate"));
+    const policy = readJsonFileOrNull(readOption(argv, "--policy"));
+    const policyAuthorityError = readOption(argv, "--policy-authority-error");
+    const policyPath = readOption(argv, "--policy");
+    let policyContent = null;
+    try {
+      policyContent = policyPath ? readFileSync(policyPath, "utf8") : null;
+    } catch {
+      policyContent = null;
+    }
+    const advisoryRun = readJsonFileOrNull(readOption(argv, "--advisory-run"));
+    const existingTerminal = readJsonFileOrNull(readOption(argv, "--existing-terminal"));
+    const existingTerminals = readJsonFileOrNull(readOption(argv, "--existing-terminals"));
+    const result = reconcileMergeQualificationProducerAttempt({
+      producer,
+      candidate,
+      policy,
+      policyContent,
+      policyAuthorityError,
+      advisoryRun,
+      existingTerminal,
+      existingTerminals,
+      advisoryCleanupComplete: readOption(argv, "--advisory-cleanup-complete") === "true",
+      now: now(),
+    });
+    const out = readOption(argv, "--out");
+    if (out && result.event) await writeQualificationEvidence(out, result.event);
+    appendOutputs(readOption(argv, "--github-output"), [
+      ["state", result.state],
+      ["event_written", result.event ? "true" : "false"],
+    ]);
+    console.log(JSON.stringify(result, null, 2));
+    return result.state === "unknown" ? 1 : 0;
+  }
+
+  if (command === "producer-terminal-inventory") {
+    const producer = readJsonFileOrNull(readOption(argv, "--producer"));
+    const advisoryRun = readJsonFileOrNull(readOption(argv, "--advisory-run"));
+    const repository = readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY;
+    const defaultBranch = readOption(argv, "--default-branch") ?? env.GITHUB_REF_NAME ?? "main";
+    const gh = (args) =>
+      execFileSync("gh", args, {
+        encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 2_000_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    const result = await readMergeQualificationProducerTerminalRecords({
+      repository,
+      producer,
+      advisoryRun,
+      defaultBranch,
+      requestJson: async (endpoint) => JSON.parse(gh(["api", endpoint])),
+      downloadArtifact: async ({ runId, name, fileName = "event.json" }) => {
+        const directory = mkdtempSync(path.join(tmpdir(), "qualification-producer-terminal-"));
+        try {
+          gh(["run", "download", runId, "--repo", repository, "--name", name, "--dir", directory]);
+          const entries = readdirSync(directory, { withFileTypes: true });
+          if (entries.length !== 1 || !entries[0].isFile() || entries[0].name !== fileName)
+            throw new Error("terminal_payload_extra_files");
+          const file = path.join(directory, fileName);
+          if (statSync(file).size > 65_536) throw new Error("terminal_payload_invalid");
+          return readFileSync(file, "utf8");
+        } finally {
+          rmSync(directory, { recursive: true, force: true });
+        }
+      },
+    });
+    if (result.errors.length) {
+      console.error(result.errors.join("\n"));
+      return 1;
+    }
+    await writeJsonRecord(readOption(argv, "--out"), {
+      records: result.records ?? [],
+      state: result.state ?? "unknown",
+      advisoryCleanupComplete: result.advisoryCleanupComplete === true,
+    });
     return 0;
   }
 
@@ -2019,11 +3449,14 @@ async function main(argv, env = process.env) {
       decision,
       defaultBranch: readOption(argv, "--default-branch"),
       requestJson: async (endpoint) => JSON.parse(gh(["api", endpoint])),
-      downloadArtifact: async ({ runId, name }) => {
+      downloadArtifact: async ({ runId, name, fileName = "event.json" }) => {
         const directory = mkdtempSync(path.join(tmpdir(), "qualification-terminal-"));
         try {
           gh(["run", "download", runId, "--repo", decision.repository, "--name", name, "--dir", directory]);
-          const file = path.join(directory, "event.json");
+          const entries = readdirSync(directory, { withFileTypes: true });
+          if (entries.length !== 1 || !entries[0].isFile() || entries[0].name !== fileName)
+            throw new Error("terminal_payload_extra_files");
+          const file = path.join(directory, fileName);
           if (statSync(file).size > 65_536) throw new Error("terminal_payload_invalid");
           return readFileSync(file, "utf8");
         } finally {
@@ -2165,6 +3598,7 @@ async function main(argv, env = process.env) {
       run: readJsonFileOrNull(readOption(argv, "--run-metadata")),
       mergeQueueSnapshot: readJsonFileOrNull(readOption(argv, "--merge-queue-snapshot")),
       queueBaseSha: readOption(argv, "--queue-base-sha"),
+      policyRevision: readOption(argv, "--policy-revision"),
       builtImageDigest: readOption(argv, "--built-image-digest"),
       capturedAt: readOption(argv, "--captured-at") ?? now().toISOString(),
     });
@@ -2630,9 +4064,45 @@ async function main(argv, env = process.env) {
   }
 
   console.error(
-    "usage: merge-qualification.mjs <policy|route|candidate-evidence|decision|recover-decision|cancelled-record|queue-disposition|observe|inventory|prepare-cleanup|terminal-inventory|terminalize> [options]",
+    "usage: merge-qualification.mjs <policy|route|candidate-evidence|decision|recover-decision|cancelled-record|queue-disposition|observe|settled-index-read|inventory|producer-inventory|producer-reconcile|prepare-cleanup|terminal-inventory|terminalize|settled-entry|settled-index-write> [options]",
   );
   return 1;
+}
+
+// Each settlement entry arrives as one artifact holding one file, both named
+// for its exact variant/run/attempt key, downloaded with merge-multiple so the
+// layout is the same for zero, one or many artifacts. The file name must agree
+// with the content it carries.
+function readSettledEntryArtifacts(directory) {
+  const invalid = (code) => ({ entries: [], errors: [code] });
+  let files;
+  try {
+    files = readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return invalid("settled_entries_unreadable");
+  }
+  if (files.length > SETTLED_ENTRIES_PER_DELIVERY) return invalid("settled_entry_artifact_invalid");
+  const entries = [];
+  for (const candidate of files) {
+    const key = candidate.isFile()
+      ? new RegExp(
+          `^${MERGE_QUALIFICATION_SETTLED_ENTRY_ARTIFACT_PREFIX}(advisory|producer_loss)-([1-9][0-9]{0,15})-([1-9][0-9]{0,15})\\.json$`,
+          "u",
+        ).exec(candidate.name)
+      : null;
+    if (!key) return invalid("settled_entry_artifact_invalid");
+    const file = path.join(directory, candidate.name);
+    const entry = statSync(file).size > 65_536 ? null : parseJsonOrNull(readFileSync(file, "utf8"));
+    if (
+      validateMergeQualificationSettledEntry(entry).length ||
+      entry.variant !== key[1] ||
+      entry.runId !== key[2] ||
+      entry.runAttempt !== key[3]
+    )
+      return invalid("settled_entry_artifact_invalid");
+    entries.push(entry);
+  }
+  return { entries, errors: [] };
 }
 
 function readJsonFileOrNull(filePath) {
@@ -2699,3 +4169,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     },
   );
 }
+
+export { main };

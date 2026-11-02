@@ -258,6 +258,61 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
         parameters: candidate.parameters,
       },
     ]);
+    await test.step("pricing-goal-simple-reopen", async () => {
+      // The Health integration's editor URL must not expose compiled controls.
+      for (const width of [390, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/account/desk/repricing/${created!.policyId}?edit=1`);
+        const editor = page.getByTestId("repricing-policy-editor");
+        await expect(editor).toBeVisible();
+        await expect(page.getByRole("dialog")).toHaveAccessibleName("Edit repricing policy");
+        await expect(editor.getByText("Pricing Goal", { exact: true })).toBeVisible();
+        await expect(editor.getByRole("combobox", { name: "Policy scope", exact: true })).toBeVisible();
+        await expect(editor.getByLabel("Minimum price", { exact: true })).toHaveValue("1.00");
+        await expect(editor.getByLabel("Maximum changes per day", { exact: true })).toHaveValue(
+          String(after.maxChangesPerDay),
+        );
+        await expect(page.getByRole("button", { name: "Preview policy", exact: true })).toBeEnabled();
+        await expect(page.getByRole("button", { name: "Save policy", exact: true })).toBeEnabled();
+        await expect(editor.getByRole("button", { name: "Open advanced editor", exact: true })).toBeVisible();
+        await expect(editor.getByText("Advanced rule editor", { exact: true })).toHaveCount(0);
+        await expect(editor.getByLabel("Adjustment (%)", { exact: true })).toHaveCount(0);
+        await editor.getByLabel("Policy name", { exact: true }).focus();
+        await expect(editor.getByLabel("Policy name", { exact: true })).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(editor.getByRole("combobox", { name: "Policy scope", exact: true })).toBeFocused();
+        await captureAccessibilityEvidence({ page, testInfo, surface: `pricing-goal-simple-reopen-${width}` });
+      }
+      const previewResponse = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" && new URL(response.url()).pathname === `${policiesApi}/dry-runs`,
+      );
+      await page.getByRole("button", { name: "Preview policy", exact: true }).click();
+      const previewStarted = await previewResponse;
+      expect(previewStarted.status()).toBe(202);
+      const { dryRunId: previewDryRunId } = await previewStarted.json();
+      expect(previewDryRunId).toEqual(expect.any(String));
+      expect(previewDryRunId).not.toBe("");
+      await expect
+        .poll(async () => readJson(page.request.get(`${policiesApi}/dry-runs/${previewDryRunId}`), 200), {
+          timeout: 45_000,
+          intervals: [500, 1000, 2000],
+        })
+        .toMatchObject({ dryRunId: previewDryRunId, status: "completed" });
+      await expect(page.getByTestId("repricing-dry-run-result")).toBeVisible();
+      await page.getByLabel("Policy name", { exact: true }).fill("Saved simple Pricing Goal");
+      await page.getByRole("button", { name: "Save policy", exact: true }).click();
+      await expect(page.getByTestId("repricing-policy-editor")).toHaveCount(0);
+      await page.reload();
+      await page.getByRole("button", { name: "Edit repricing policy", exact: true }).click();
+      await expect(
+        page.getByTestId("repricing-policy-editor").getByText("Pricing Goal", { exact: true }),
+      ).toBeVisible();
+      const reopened = await readJson<PolicyState>(page.request.get(`${policiesApi}/${created!.policyId}`), 200);
+      expect(reopened.rules).toEqual(after.rules);
+      expect(reopened.scope).toEqual(after.scope);
+      expect(reopened.maxChangesPerDay).toEqual(after.maxChangesPerDay);
+    });
   } finally {
     try {
       if (haltEngaged) {

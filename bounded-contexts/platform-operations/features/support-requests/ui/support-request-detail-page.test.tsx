@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { getSupportFlowDefinition } from "../domain/flow-catalog";
+import { projectSupportParticipantPolicy, type SupportParticipantPolicy } from "../api/support-flow-projection";
 import type { SupportRequestDetail } from "./contracts";
 import { SupportRequestDetailPage } from "./support-request-detail-page";
 
@@ -100,11 +101,40 @@ function buildRequest(overrides: Partial<SupportRequestDetail> = {}): SupportReq
   };
 }
 
+function pendingOfferWith(pendingWithRole: "buyer" | "seller") {
+  return {
+    offerId: "sof_partial",
+    responseId: "srp_partial",
+    offeredByAccountId: "acc_seller" as const,
+    offeredByRole: "seller" as const,
+    pendingWithRole,
+    responseType: "offer-partial-refund" as const,
+    resolutionType: "partial-refund" as const,
+    refundAmount: "12.00",
+    summary: "Keep the item and receive a partial refund.",
+    offeredAt: "2026-07-15T10:00:00.000Z",
+    status: "pending" as const,
+    decidedByAccountId: null,
+    decidedByRole: null,
+    decidedAt: null,
+    decisionSummary: null,
+  };
+}
+
+/**
+ * Renders the page with the participant policy the detail API returns for this
+ * viewer, unless a test supplies one; `opener` says whether the viewer opened the case.
+ */
 function renderPage(
   request: SupportRequestDetail,
   viewerRole: "buyer" | "seller",
-  { canCancel = false }: Readonly<{ canCancel?: boolean }> = {},
+  {
+    opener = false,
+    participantPolicy,
+  }: Readonly<{ opener?: boolean; participantPolicy?: SupportParticipantPolicy }> = {},
 ) {
+  const flow = getSupportFlowDefinition("product-damaged");
+  const accountId = opener ? request.opened_by_account_id : "acc_viewer_not_opener";
   const router = createMemoryRouter(
     [
       {
@@ -112,10 +142,12 @@ function renderPage(
         element: (
           <SupportRequestDetailPage
             request={request}
-            flow={getSupportFlowDefinition("product-damaged")}
+            flow={flow}
             viewerRole={viewerRole}
+            participantPolicy={
+              participantPolicy ?? projectSupportParticipantPolicy(request, { role: viewerRole, accountId }, flow)
+            }
             now={now}
-            canCancel={canCancel}
           />
         ),
       },
@@ -161,6 +193,8 @@ describe("SupportRequestDetailPage", () => {
     expect(screen.getByRole("heading", { name: "Buyer provides item and package photos." })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Submit evidence" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Send response" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Request support review" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel case" })).toBeNull();
   });
 
   it("shows structured flow responses only to the seller when the buyer checklist is complete", () => {
@@ -176,6 +210,11 @@ describe("SupportRequestDetailPage", () => {
     expect(screen.getByLabelText("Response")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Send response" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Submit evidence" })).toBeNull();
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Send response",
+      "Request support review",
+    ]);
+    expect(screen.getAllByRole("heading", { name: "Next action" })).toHaveLength(1);
   });
 
   it("shows the waiting party no mutation controls", () => {
@@ -192,6 +231,25 @@ describe("SupportRequestDetailPage", () => {
     expect(screen.queryByRole("button", { name: "Submit evidence" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel case" })).toBeNull();
   });
+
+  it.each(["accept-return", "offer-partial-refund", "offer-replacement"])(
+    "response form omits derived resolution: %s",
+    (responseType) => {
+      renderPage(
+        buildRequest({
+          checklist: buildRequest().checklist.map((item) => ({ ...item, satisfiedAt: now })),
+        }),
+        "seller",
+      );
+      fireEvent.change(screen.getByLabelText("Response"), { target: { value: responseType } });
+      const form = screen.getByRole("button", { name: "Send response" }).closest("form")!;
+      const data = new FormData(form);
+      expect(data.get("responseType")).toBe(responseType);
+      expect(data.has("offerResolutionType")).toBe(false);
+      expect(data.has("refundAmount")).toBe(responseType === "offer-partial-refund");
+      expect(form.elements.namedItem("summary")).toBeTruthy();
+    },
+  );
 
   it("lets only the party holding a pending offer accept or decline it", () => {
     const pendingOffer = {
@@ -259,7 +317,7 @@ describe("SupportRequestDetailPage", () => {
       ],
     });
 
-    renderPage(evidenceRequest, "buyer", { canCancel: true });
+    renderPage(evidenceRequest, "buyer", { opener: true });
 
     expect(screen.getByRole("heading", { name: "Upload damage photos." })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Describe the item condition." })).toBeTruthy();
@@ -297,7 +355,7 @@ describe("SupportRequestDetailPage", () => {
       offers: [pendingOffer],
     });
 
-    renderPage(offerRequest, "buyer", { canCancel: true });
+    renderPage(offerRequest, "buyer", { opener: true });
 
     expect(screen.getByRole("heading", { name: "Review the offer" })).toBeTruthy();
     expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
@@ -361,5 +419,108 @@ describe("SupportRequestDetailPage", () => {
     expect(text.indexOf("Support review requested")).toBeLessThan(text.indexOf("Case resolved"));
     expect(screen.getByText("$10.00")).toBeTruthy();
     expect(screen.getByText("Decision made; refund processing details will appear here when available.")).toBeTruthy();
+  });
+
+  it("lets a buyer acting next with nothing left to provide request support review, without seller controls", () => {
+    const request = buildRequest({
+      status: "waiting-on-buyer",
+      checklist: buildRequest().checklist.map((item) => ({ ...item, satisfiedAt: "2026-07-15T09:00:00.000Z" })),
+    });
+
+    renderPage(request, "buyer");
+
+    expect(screen.getByText("You need to act")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Next action" })).toBeTruthy();
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Request support review"]);
+    expect(screen.queryByLabelText("Response")).toBeNull();
+  });
+
+  it("shows a seller holding a pending offer only the offer decision", () => {
+    const pendingOffer = pendingOfferWith("seller");
+    renderPage(buildRequest({ pending_offer: pendingOffer, offers: [pendingOffer] }), "seller");
+
+    expect(screen.getByRole("heading", { name: "Review the offer" })).toBeTruthy();
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Accept offer",
+      "Decline offer",
+    ]);
+  });
+
+  it("offers cancellation only to the opener while they act next", () => {
+    const actingBuyer = buildRequest({ status: "waiting-on-buyer" });
+
+    renderPage(actingBuyer, "buyer", { opener: true });
+    expect(screen.getByRole("button", { name: "Cancel case" })).toBeTruthy();
+    cleanup();
+
+    renderPage(actingBuyer, "buyer");
+    expect(screen.queryByRole("button", { name: "Cancel case" })).toBeNull();
+    cleanup();
+
+    renderPage(buildRequest({ status: "waiting-on-seller", checklist: [] }), "buyer", { opener: true });
+    expect(screen.getByText("Waiting on seller until the deadline")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel case" })).toBeNull();
+  });
+
+  it.each([
+    ["resolved", "Resolved"],
+    ["closed", "Closed"],
+    ["cancelled", "Cancelled"],
+  ])("shows a %s case its status without a deadline or any control", (status, label) => {
+    const pendingOffer = pendingOfferWith("buyer");
+    renderPage(buildRequest({ status, pending_offer: pendingOffer, offers: [pendingOffer] }), "buyer", {
+      opener: true,
+    });
+
+    expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^Due in/)).toBeNull();
+    expect(screen.queryByText("You need to act")).toBeNull();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: "Next action" })).toBeNull();
+  });
+
+  it("renders the next actor, deadline and controls the API policy names instead of deriving them from the row", () => {
+    const pendingOffer = pendingOfferWith("buyer");
+    const offerForBuyer = buildRequest({
+      status: "waiting-on-buyer",
+      pending_offer: pendingOffer,
+      offers: [pendingOffer],
+      seller_response_due_at: null,
+      support_review_due_at: null,
+    });
+
+    renderPage(offerForBuyer, "buyer", {
+      opener: true,
+      participantPolicy: { nextActor: "seller", deadlineAt: "2026-07-15T18:00:00.000Z", actions: [] },
+    });
+    expect(screen.getByText("Waiting on seller until the deadline")).toBeTruthy();
+    expect(screen.getByText("Due in 6 hours")).toBeTruthy();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    cleanup();
+
+    renderPage(buildRequest({ checklist: [] }), "buyer", {
+      participantPolicy: {
+        nextActor: "buyer",
+        deadlineAt: null,
+        actions: [{ kind: "submit-evidence", checklistItemKey: "damage-evidence" }, { kind: "cancel" }],
+      },
+    });
+    expect(screen.getByText("You need to act")).toBeTruthy();
+    expect(screen.getByText("No deadline")).toBeTruthy();
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Cancel case"]);
+    cleanup();
+
+    renderPage(buildRequest(), "buyer", {
+      participantPolicy: {
+        nextActor: "buyer",
+        deadlineAt: null,
+        actions: [{ kind: "submit-evidence", checklistItemKey: "damage-evidence" }, { kind: "escalate" }],
+      },
+    });
+    expect(screen.getByRole("heading", { name: "Buyer provides item and package photos." })).toBeTruthy();
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Submit evidence",
+      "Request support review",
+    ]);
   });
 });

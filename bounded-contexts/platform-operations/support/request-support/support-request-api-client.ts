@@ -40,6 +40,7 @@ export class SupportEvidenceUploadError extends Error {
   }
 }
 import type {
+  CustomerSupportRequestListItem,
   SupportFlowSummary,
   PlatformRemedyProposalPreview,
   SupportOrderLookup,
@@ -48,6 +49,9 @@ import type {
   SupportRequestDetailResponse,
   SupportRequestEscalationSnapshot,
   SupportRequestListItem,
+  SupportRequestParticipantDetailResponse,
+  SupportOperationsRequestDetailResponse,
+  SupportOperationsRequestListItem,
 } from "../../features/support-requests/ui/contracts";
 
 export type {
@@ -58,6 +62,9 @@ export type {
   SupportRequestDetailResponse,
   SupportRequestEscalationSnapshot,
   SupportRequestListItem,
+  SupportRequestParticipantDetailResponse,
+  SupportOperationsRequestDetailResponse,
+  SupportOperationsRequestListItem,
 } from "../../features/support-requests/ui/contracts";
 
 type SupportRequestApiClientOptions = Readonly<{
@@ -151,7 +158,11 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
           null,
           rejection?.error?.code === "attachment_reference_unknown"
             ? t("support.features.support_requests.api.route.attachment.reference.unknown")
-            : undefined,
+            : actionKind === "open-support-request" &&
+                response.status === 400 &&
+                rejection?.error?.message === t("support.routes.marketplace.accountSupport.photos.required")
+              ? t("support.routes.marketplace.accountSupport.photos.required")
+              : undefined,
         );
       }
       return await parseJsonResponse<SupportRequestCommandSnapshot>(response);
@@ -178,13 +189,21 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         }),
       ),
     listBuyerSupportRequests: async () =>
-      parseJsonResponse<{ items: readonly SupportRequestListItem[]; total: number; count: number }>(
+      parseJsonResponse<{
+        items: readonly CustomerSupportRequestListItem[];
+        total: number;
+        count: number;
+      }>(
         await clientFetch(`${baseUrl}/support-requests/purchases`, {
           headers: resolveHeaders(options.headers),
         }),
       ),
     listSellerSupportRequests: async () =>
-      parseJsonResponse<{ items: readonly SupportRequestListItem[]; total: number; count: number }>(
+      parseJsonResponse<{
+        items: readonly CustomerSupportRequestListItem[];
+        total: number;
+        count: number;
+      }>(
         await clientFetch(`${baseUrl}/support-requests/sales`, {
           headers: resolveHeaders(options.headers),
         }),
@@ -196,19 +215,19 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         }),
       ),
     listSupportOperationsQueue: async (query = "") =>
-      parseJsonResponse<{ items: readonly SupportRequestListItem[]; total: number; count: number }>(
+      parseJsonResponse<{ items: readonly SupportOperationsRequestListItem[]; total: number; count: number }>(
         await clientFetch(`${baseUrl}/support-requests/ops${query ? `?${query}` : ""}`, {
           headers: resolveHeaders(options.headers),
         }),
       ),
     getSupportRequest: async (supportRequestId: string) =>
-      parseJsonResponse<SupportRequestDetailResponse>(
+      parseJsonResponse<SupportRequestParticipantDetailResponse>(
         await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}`, {
           headers: resolveHeaders(options.headers),
         }),
       ),
     getSupportOperationsRequest: async (supportRequestId: string) =>
-      parseJsonResponse<SupportRequestDetailResponse>(
+      parseJsonResponse<SupportOperationsRequestDetailResponse>(
         await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}`, {
           headers: resolveHeaders(options.headers),
         }),
@@ -218,8 +237,34 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         orderId: string;
         flowType: string;
         affectedLineIds?: readonly string[];
+        intakePhotoReferences?: readonly string[];
+        attachmentOperationId?: string;
       }>,
     ) => participantCommand("open-support-request", body, options.participantAttemptId ?? crypto.randomUUID()),
+    stageParticipantIntakeAttachments: async (
+      body: Readonly<{ attemptId: string; orderId: string; flowType: string; affectedLineIds?: readonly string[] }>,
+      files: readonly File[],
+      operationId: string,
+    ) => {
+      validateSupportAttachmentOperationId(operationId);
+      const formData = new FormData();
+      formData.set("attemptId", body.attemptId);
+      formData.set("orderId", body.orderId);
+      formData.set("flowType", body.flowType);
+      body.affectedLineIds?.forEach((id) => formData.append("affectedLineIds", id));
+      files.forEach((file) => formData.append("attachments", file));
+      const headers = new Headers(resolveHeaders(options.headers));
+      headers.set(SUPPORT_ATTACHMENT_OPERATION_HEADER, operationId);
+      const response = await clientFetch(
+        `${baseUrl}/support-requests/participant-attempts/${encodeURIComponent(body.attemptId)}/attachments`,
+        { method: "POST", headers, body: formData },
+      );
+      if (!response.ok) {
+        const error = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+        throw new SupportEvidenceUploadError(error?.error?.message ?? `API error ${response.status}`, response.status);
+      }
+      return parseJsonResponse<{ attachments: readonly Readonly<{ reference: string }>[] }>(response);
+    },
     uploadSupportEvidenceAttachments: async (supportRequestId: string, files: readonly File[], operationId: string) => {
       validateSupportAttachmentOperationId(operationId);
       const formData = new FormData();

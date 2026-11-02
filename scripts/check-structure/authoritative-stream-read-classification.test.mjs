@@ -62,12 +62,12 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 18,
+      discoveredCallCandidates: 20,
       authoritativeSites: 18,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
-      insufficientReceiverContractSites: 0,
+      insufficientReceiverContractSites: 2,
       authorityAbsentCandidates: 0,
       optionalSyntaxOutcomes: 0,
       dynamicKeyOutcomes: 0,
@@ -101,6 +101,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts", "CANONICAL"],
+      ["bounded-contexts/marketplace/features/listings/api/listing-attempt.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
+      ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
       ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts", "CANONICAL"],
       [
         "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",
@@ -115,7 +117,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
     ]);
-    expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:73"]);
+    expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:79"]);
     expect(production.anchors.helperDeclarations).toEqual(["contracts/event-core/complete-stream.ts:5"]);
     expect(production.program.getCompilerOptions()).toMatchObject({
       allowJs: true,

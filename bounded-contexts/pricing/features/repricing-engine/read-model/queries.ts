@@ -104,7 +104,10 @@ type ListingRow = Readonly<{
 export type RepricingProductKey = Readonly<{ catalogItemId: string; productId: string }>;
 export type RepricingCandidate = Readonly<{
   sellerAccountId: string;
-  body: Pick<CreateRepricingPolicyCommand, "scope" | "excludedListingIds" | "rules" | "maxChangesPerDay">;
+  body: Pick<
+    CreateRepricingPolicyCommand,
+    "scope" | "excludedListingIds" | "rules" | "maxChangesPerDay" | "authoringIntent"
+  >;
   replacingPolicyId?: string;
 }>;
 

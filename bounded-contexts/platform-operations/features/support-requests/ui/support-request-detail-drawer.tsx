@@ -17,20 +17,18 @@ import {
 } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
-import { normalizeFlowType, type SupportResolutionType } from "../domain/common";
-import { getSupportResponsibilityReasonDefinitions } from "../domain/responsibility";
-import { adjudicationRefundCap, adjudicationRefundPrefill, CaseAdjudicationPanel } from "./case-adjudication-panel";
+import { type SupportResolutionType } from "../domain/common";
+import { CaseAdjudicationPanel } from "./case-adjudication-panel";
 import type {
   PlatformRemedyProposalInput,
   PlatformRemedyProposalPreview,
-  SupportRequestDetail,
-  SupportRequestDetailResponse,
+  SupportOperationsRequestDetail,
+  SupportOperationsRequestDetailResponse,
 } from "./contracts";
 import { PlatformRemedyWorkflowPanel } from "./platform-remedy-workflow-panel";
 import { SupportEvidenceAttachmentGallery } from "./support-evidence-attachments";
 import {
   formatSupportDateTime,
-  nextSupportDeadline,
   SupportDeadlineCountdown,
   SupportOrderMarketplaceLinks,
 } from "./support-request-presentation";
@@ -122,20 +120,7 @@ function isTerminalStatus(status: string) {
   return status === "resolved" || status === "closed" || status === "cancelled";
 }
 
-export function supportRequestPrimaryAction(request: SupportRequestDetail, now: string): OperatorAction {
-  if (request.status === "ready-for-support") {
-    return "resolve";
-  }
-
-  const deadline = nextSupportDeadline(request);
-  if (deadline && new Date(deadline).getTime() <= new Date(now).getTime()) {
-    return "escalate";
-  }
-
-  return "response";
-}
-
-function returnContextRows(request: SupportRequestDetail) {
+function returnContextRows(request: SupportOperationsRequestDetail) {
   return Array.isArray(request.order_return_context)
     ? request.order_return_context
         .map((line) => (line && typeof line === "object" ? (line as Record<string, unknown>) : null))
@@ -163,16 +148,14 @@ function gradedCardSummary(line: Record<string, unknown>) {
     .join(" ");
 }
 
-function responsibilityReasonItems(request: SupportRequestDetail) {
-  return getSupportResponsibilityReasonDefinitions(normalizeFlowType(request.flow_type))
-    .filter(({ operatorSelectable }) => operatorSelectable)
-    .map(({ code, responsibility, operatorLabel }) => ({
-      value: `${responsibility}|${code}`,
-      label: t("support.features.supportRequests.ui.supportOperationsPage.resolve.responsibilityReasonOption", {
-        reason: operatorLabel,
-        responsibility,
-      }),
-    }));
+function responsibilityReasonItems(request: SupportOperationsRequestDetail) {
+  return request.operatorPolicy.responsibilityReasons.map(({ code, responsibility, operatorLabel }) => ({
+    value: `${responsibility}|${code}`,
+    label: t("support.features.supportRequests.ui.supportOperationsPage.resolve.responsibilityReasonOption", {
+      reason: operatorLabel,
+      responsibility,
+    }),
+  }));
 }
 
 function ResponseForm({ actionHref }: Readonly<{ actionHref: string }>) {
@@ -223,18 +206,20 @@ function EscalateForm({ actionHref }: Readonly<{ actionHref: string }>) {
  * can never issue an outcome the domain would reject, and it prefills the refund
  * from the affected lines/offer history capped at the domain ceiling.
  */
-function resolutionItemsForFlow(request: SupportRequestDetailResponse) {
+function resolutionItemsForFlow(request: SupportOperationsRequestDetailResponse) {
   const byValue = new Map(resolutionTypeItems.map((item) => [item.value as SupportResolutionType, item]));
   return request.flow.allowedResolutions
     .map((resolution) => byValue.get(resolution))
     .filter((item): item is (typeof resolutionTypeItems)[number] => Boolean(item));
 }
 
-function ResolveForm({ request, actionHref }: Readonly<{ request: SupportRequestDetailResponse; actionHref: string }>) {
+function ResolveForm({
+  request,
+  actionHref,
+}: Readonly<{ request: SupportOperationsRequestDetailResponse; actionHref: string }>) {
   const reasons = responsibilityReasonItems(request);
   const resolutionItems = resolutionItemsForFlow(request);
-  const refundPrefill = adjudicationRefundPrefill(request);
-  const refundCap = adjudicationRefundCap(request);
+  const { refundPrefill, refundCap } = request.operatorPolicy;
 
   return (
     <RouterForm method="post" action={actionHref} spacing="md" data-support-action="resolve">
@@ -293,7 +278,7 @@ function OperatorActionForm({
   action,
   request,
   actionHref,
-}: Readonly<{ action: OperatorAction; request: SupportRequestDetailResponse; actionHref: string }>) {
+}: Readonly<{ action: OperatorAction; request: SupportOperationsRequestDetailResponse; actionHref: string }>) {
   switch (action) {
     case "response":
       return <ResponseForm actionHref={actionHref} />;
@@ -335,7 +320,7 @@ function actionResultMessage(actionResult: string | null | undefined) {
   }
 }
 
-function Notes({ request }: Readonly<{ request: SupportRequestDetail }>) {
+function Notes({ request }: Readonly<{ request: SupportOperationsRequestDetail }>) {
   const notes = request.evidence.filter((item) => item.evidenceType === "support-note");
   return (
     <Stack gap={2}>
@@ -377,7 +362,7 @@ type AuditItem = Readonly<{
   attachments: readonly string[];
 }>;
 
-function auditItems(request: SupportRequestDetail): AuditItem[] {
+function auditItems(request: SupportOperationsRequestDetail): AuditItem[] {
   const items: AuditItem[] = [
     ...request.evidence.map((item) => ({
       id: `evidence:${item.evidenceId}`,
@@ -433,7 +418,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
   return items.sort((left, right) => right.at.localeCompare(left.at));
 }
 
-function AuditTrail({ request }: Readonly<{ request: SupportRequestDetail }>) {
+function AuditTrail({ request }: Readonly<{ request: SupportOperationsRequestDetail }>) {
   const items = auditItems(request);
   return (
     <Stack gap={2}>
@@ -476,7 +461,7 @@ function AuditTrail({ request }: Readonly<{ request: SupportRequestDetail }>) {
   );
 }
 
-function StructuredOffers({ request }: Readonly<{ request: SupportRequestDetail }>) {
+function StructuredOffers({ request }: Readonly<{ request: SupportOperationsRequestDetail }>) {
   if (request.offers.length === 0) {
     return null;
   }
@@ -518,7 +503,7 @@ function StructuredOffers({ request }: Readonly<{ request: SupportRequestDetail 
   );
 }
 
-function Checklist({ request }: Readonly<{ request: SupportRequestDetail }>) {
+function Checklist({ request }: Readonly<{ request: SupportOperationsRequestDetail }>) {
   return (
     <Stack gap={2}>
       <Text weight="semibold">{t("support.features.supportRequests.ui.supportOperationsPage.checklist")}</Text>
@@ -549,7 +534,7 @@ function Checklist({ request }: Readonly<{ request: SupportRequestDetail }>) {
   );
 }
 
-function FullCaseContext({ request }: Readonly<{ request: SupportRequestDetail }>) {
+function FullCaseContext({ request }: Readonly<{ request: SupportOperationsRequestDetail }>) {
   const returnRows = returnContextRows(request);
   const nonNoteEvidence = request.evidence.filter((item) => item.evidenceType !== "support-note");
 
@@ -618,7 +603,7 @@ function OtherActions({
   request,
   actionHref,
   primaryAction,
-}: Readonly<{ request: SupportRequestDetailResponse; actionHref: string; primaryAction: OperatorAction }>) {
+}: Readonly<{ request: SupportOperationsRequestDetailResponse; actionHref: string; primaryAction: OperatorAction }>) {
   const alternateActions = (["response", "escalate", "resolve"] as const).filter((action) => action !== primaryAction);
   const canMutate = !isTerminalStatus(request.status);
 
@@ -712,7 +697,7 @@ export function EntityDetailDrawer({
   remedyProposalInput,
   onClose,
 }: Readonly<{
-  request: SupportRequestDetailResponse;
+  request: SupportOperationsRequestDetailResponse;
   now: string;
   actionHref: string;
   marketplaceOrigin?: string | null;
@@ -723,7 +708,7 @@ export function EntityDetailDrawer({
   remedyProposalInput?: PlatformRemedyProposalInput | null;
   onClose: () => void;
 }>) {
-  const primaryAction = supportRequestPrimaryAction(request, now);
+  const primaryAction = request.operatorPolicy.recommendedAction;
   const successMessage = actionResultMessage(actionResult);
 
   return (
@@ -768,7 +753,7 @@ export function EntityDetailDrawer({
             },
             {
               key: t("support.features.supportRequests.ui.supportOperationsPage.next.deadline"),
-              value: <SupportDeadlineCountdown dueAt={nextSupportDeadline(request)} now={now} />,
+              value: <SupportDeadlineCountdown dueAt={request.operatorPolicy.deadlineAt} now={now} />,
             },
             {
               key: t("support.features.supportRequests.ui.supportOperationsPage.accounts"),

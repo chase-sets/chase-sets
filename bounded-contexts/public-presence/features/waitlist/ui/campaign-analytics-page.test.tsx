@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CampaignAnalyticsPage } from "./campaign-analytics-page";
 import type { CampaignAnalyticsSnapshot } from "../api/contracts";
+import { WAVE_ONE_ADMISSION_BAR } from "../read-model/campaign-admission-bar-policy";
 
 function buildSnapshot(overrides: Partial<CampaignAnalyticsSnapshot> = {}): CampaignAnalyticsSnapshot {
   return {
@@ -44,6 +47,7 @@ function buildSnapshot(overrides: Partial<CampaignAnalyticsSnapshot> = {}): Camp
       },
     ],
     admissionBar: {
+      goals: WAVE_ONE_ADMISSION_BAR,
       totalSignups: 120,
       qualifiedSellerCount: 12,
       totalSignupsMet: false,
@@ -63,6 +67,12 @@ function buildSnapshot(overrides: Partial<CampaignAnalyticsSnapshot> = {}): Camp
 }
 
 describe("campaign analytics page", () => {
+  it("reads displayed admission goals from the analytics response", () => {
+    const source = readFileSync(resolve(import.meta.dirname, "campaign-analytics-page.tsx"), "utf8");
+    expect(source).not.toContain("campaign-admission-bar-policy");
+    expect(source).not.toContain("WAVE_ONE_ADMISSION_BAR");
+  });
+
   it("renders admission-bar status, quality stats, game coverage, and channel attribution", () => {
     render(
       <CampaignAnalyticsPage
@@ -87,6 +97,7 @@ describe("campaign analytics page", () => {
       <CampaignAnalyticsPage
         analytics={buildSnapshot({
           admissionBar: {
+            goals: WAVE_ONE_ADMISSION_BAR,
             totalSignups: 500,
             qualifiedSellerCount: 50,
             totalSignupsMet: true,
@@ -107,5 +118,25 @@ describe("campaign analytics page", () => {
     );
 
     expect(screen.getAllByText("Wave 1 bar met").length).toBeGreaterThan(0);
+  });
+
+  it("uses response goals for progress values and labels", () => {
+    const { container } = render(
+      <CampaignAnalyticsPage
+        analytics={buildSnapshot({
+          admissionBar: {
+            ...buildSnapshot().admissionBar,
+            goals: { minTotalSignups: 240, minQualifiedSellers: 48, minQualifiedSellersPerGame: 5 },
+          },
+        })}
+        funnelDashboardHref="/grafana"
+      />,
+    );
+
+    expect(screen.getByText("120 of 240")).toBeTruthy();
+    expect(screen.getByText("12 of 48")).toBeTruthy();
+    const progressBars = Array.from(container.querySelectorAll<HTMLElement>("[role='progressbar']"));
+    expect(progressBars[0]?.getAttribute("aria-valuenow")).toBe("50");
+    expect(progressBars[1]?.getAttribute("aria-valuenow")).toBe("25");
   });
 });

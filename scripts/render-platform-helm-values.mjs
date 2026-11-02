@@ -347,7 +347,12 @@ export function buildPlatformHelmValues(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
   const runtimeValues = readPlatformRuntimeValues(rootDir);
 
-  const { schemaVersion: _schemaVersion, productionEnvOverrides: _productionEnvOverrides, ...values } = runtimeValues;
+  const {
+    schemaVersion: _schemaVersion,
+    productionEnvOverrides: _productionEnvOverrides,
+    stagingApiEnv,
+    ...values
+  } = runtimeValues;
   const components = Object.fromEntries(
     Object.entries(values.components ?? {}).map(([name, component]) => [
       name,
@@ -358,6 +363,12 @@ export function buildPlatformHelmValues(options = {}) {
       },
     ]),
   );
+  if (options.deploymentEnvironment === "staging") {
+    components["platform-api"] = {
+      ...components["platform-api"],
+      env: [...(components["platform-api"].env ?? []), ...stagingApiEnv],
+    };
+  }
   const digest = options.managedPostgresCaSha256 ?? "";
   if (digest && !/^[0-9a-f]{64}$/.test(digest)) {
     throw new Error("managedPostgresCaSha256 must be a lowercase SHA-256 digest.");
@@ -423,6 +434,10 @@ export function renderPlatformHelmValues(options = {}) {
 }
 
 export function buildPlatformHelmStagingValues(options = {}) {
+  const stagingApiValues = buildPlatformHelmValues({
+    repoRoot: options.repoRoot,
+    deploymentEnvironment: "staging",
+  });
   return {
     generatedBy,
     doksIngress: buildDoksIngressValues({ env: options.env }),
@@ -431,9 +446,32 @@ export function buildPlatformHelmStagingValues(options = {}) {
         rollout: rolloutValues(true, true, "/health/ready"),
       },
       marketplace: {
-        rollout: rolloutValues(true, true, "/health/ready"),
+        replicas: 1,
+        strategy: {
+          type: "RollingUpdate",
+          rollingUpdate: { maxSurge: 1, maxUnavailable: 0 },
+        },
+        resources: {
+          // Retained staging eviction evidence observed 1091900Ki usage with
+          // a zero request. Keep the request above that peak and the limit
+          // below the node's pressure cliff while live recurrence metrics are
+          // unavailable on this seat.
+          requests: { cpu: "200m", memory: "1280Mi" },
+          limits: { cpu: "1", memory: "1536Mi" },
+        },
+        rollout: {
+          ...rolloutValues(true, true, "/health/ready"),
+          canary: {
+            ...rolloutValues(true, true, "/health/ready").canary,
+            maxSurge: 1,
+            maxUnavailable: 0,
+          },
+        },
       },
-      "platform-api": doksStagingApiOverrides,
+      "platform-api": {
+        ...doksStagingApiOverrides,
+        env: stagingApiValues.components["platform-api"].env,
+      },
       "platform-worker": {
         autoscaling: {
           ...doksStagingWorkerAutoscaling,

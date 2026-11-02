@@ -29,7 +29,10 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
   app.get("/", async (c) => {
     const params = searchParamsFromRequest(c.req.url, c.req.query.bind(c.req));
 
-    const result = await services.searchItems(params, { signal: c.req.raw.signal });
+    const result = await services.searchItems(params, {
+      signal: c.req.raw.signal,
+      correlationId: c.var.context?.trace?.traceId,
+    });
 
     const actor = c.var.actor;
     const context = c.var.context;

@@ -10,15 +10,17 @@ import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { sumMoneyAmounts, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { UcpPaymentHandlerHandoff } from "@chase-sets/payments/server";
-import {
-  previewBuyNowCheckoutSupplyThroughOrdering,
-  releaseCheckoutInventoryReservations,
-} from "../request-support/checkout-confirmation";
+import { previewBuyNowCheckoutSupplyThroughOrdering } from "../request-support/checkout-confirmation";
 import type { CheckoutServices } from "../runtime-support/services";
 import { CheckoutDomainError } from "../runtime-support/common";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 import type { CheckoutFulfillmentPreview } from "../../features/sessions/domain/fulfillment-preview";
 import { prepareBuyNowCheckout } from "../../features/sessions/api/buy-now-preparation";
+import {
+  checkoutEntryPayload,
+  computeCheckoutEntryRequestHash,
+} from "../../features/command-attempts/api/entry-attempt-contracts";
+import { cancelCheckout } from "../../features/sessions/api/session-cancellation";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
 type UcpPreflight = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope | null>;
@@ -162,21 +164,43 @@ export function createCheckoutUcpHandlers(
       if (lines.length !== 1)
         throw new CheckoutDomainError("Only one checkout line item is supported.", "multiple_line_items_unsupported");
       const line = lines[0];
+      const meta = input.requestMeta ?? readUcpRequestMeta(input.request, input.arguments);
+      if (!meta.retryKey)
+        throw new CheckoutDomainError(
+          "An Idempotency-Key is required to create a checkout.",
+          "checkout_attempt_required",
+        );
+      const accountId = input.actor!.accountId as AccountId;
+      // The platform retry record is the envelope; once it expires, the entry
+      // attempt keyed by the retry key still returns the first Session, and the
+      // same key with another listing or quantity is a conflict.
+      const entryAttempt = {
+        attemptId: createHash("sha256").update(meta.retryKey).digest("base64url"),
+        requestHash: await computeCheckoutEntryRequestHash(
+          checkoutEntryPayload(
+            { source: { type: "buy-now", listingId: line.listingId, quantity: line.quantity } },
+            null,
+          ),
+        ),
+      };
+      const replayed = await checkout.sessions.resolveEntryAttempt({ accountId, entryAttempt });
+      if (replayed) {
+        const session = await checkout.sessions.getSession(replayed.sessionId, accountId);
+        if (!session) throw new CheckoutDomainError("Checkout was not found.", "not_found");
+        return resourceEnvelope(await payload(input, session));
+      }
       const listing = await options.getPublicListingById(line.listingId);
       if (!listing || listing.visible_quantity < line.quantity)
         throw new CheckoutDomainError("This item is no longer available.", "item_unavailable");
-      const meta = input.requestMeta ?? readUcpRequestMeta(input.request, input.arguments);
-      const sessionIdOverride = meta.retryKey
-        ? (`chk_${createHash("sha256")
-            .update(JSON.stringify([input.actor!.accountId, meta.retryKey, line.listingId]))
-            .digest("hex")
-            .slice(0, 28)}` as CheckoutSessionId)
-        : undefined;
+      const sessionIdOverride = `chk_${createHash("sha256")
+        .update(JSON.stringify([accountId, meta.retryKey, line.listingId]))
+        .digest("hex")
+        .slice(0, 28)}` as CheckoutSessionId;
       const createdAt = now().toISOString();
       const prepared = await prepareBuyNowCheckout({
         request: input.request,
         services: checkout.sessions,
-        accountId: input.actor!.accountId as AccountId,
+        accountId,
         listing: {
           listingId: listing.listing_id,
           catalogItemId: listing.catalog_catalog_item_id,
@@ -189,10 +213,11 @@ export function createCheckoutUcpHandlers(
         quantity: line.quantity,
         context: input.context!,
         sessionIdOverride,
+        entryAttempt,
         createdAt,
         handoffExpiresAt: new Date(Date.parse(createdAt) + handoffTtlMs).toISOString(),
       });
-      const session = await checkout.sessions.getSession(prepared.sessionId, input.actor!.accountId);
+      const session = await checkout.sessions.getSession(prepared.sessionId, accountId);
       if (!session) throw new CheckoutDomainError("Checkout was not found after creation.", "not_found");
       return resourceEnvelope(await payload(input, session, prepared.fulfillmentPreview));
     }),
@@ -231,8 +256,9 @@ export function createCheckoutUcpHandlers(
       if (session.cancelled_at) return resourceEnvelope(await payload(input, session));
       if (!["Signature-Input", "Signature", "Content-Digest"].some((name) => input.request.headers.has(name)))
         return resourceEnvelope(await payload(input, session));
-      await releaseCheckoutInventoryReservations(input.request, session);
-      const result = await checkout.sessions.cancelSession(
+      const result = await cancelCheckout(
+        input.request,
+        checkout.sessions,
         { sessionId: session.session_id, accountId: input.actor!.accountId as AccountId },
         input.context!,
       );

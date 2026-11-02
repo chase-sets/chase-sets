@@ -54,6 +54,7 @@ describe("getAccountRepricingPolicy", () => {
     );
 
     expect(record).toEqual({
+      authoringIntent: null,
       policyId: "rpp_1",
       sellerAccountId: "acc_1",
       name: "Electronics only",

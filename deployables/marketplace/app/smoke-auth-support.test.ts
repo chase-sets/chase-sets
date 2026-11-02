@@ -690,7 +690,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "account-form-pending.spec.ts": [1, 0, 0, 1, "synthetic; account form pending state"],
   "account-payment.spec.ts": [1, 1, 0, 1, "synthetic/configured"],
   "buy-funnel-redesign.spec.ts": [1, 2, 0, 1, "synthetic/configured/seeded"],
-  "critical-flows.spec.ts": [1, 4, 0, 1, "synthetic/configured/later-session/seeded"],
+  "critical-flows.spec.ts": [1, 4, 0, 2, "synthetic/configured/later-session/seeded"],
   "support/auth-trace-artifact.probe.spec.ts": [1, 0, 0, 1, "synthetic operator probe; outside functional counts"],
   "sell-list-evidence.spec.ts": [0, 1, 0, 0, "configured evidence seller"],
   "seller-desk-journey.uat.spec.ts": [0, 1, 0, 0, "configured UAT seller"],

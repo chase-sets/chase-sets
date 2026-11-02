@@ -58,6 +58,15 @@ async function fullQueue(): Promise<SellerAttentionQueue> {
           observedAt: "2026-07-12T00:00:00.000Z",
         }),
       ]),
+      staticSource("dispute-response", [
+        buildSellerAttentionItem({
+          source: "dispute-response",
+          entityId: "ord/1",
+          severity: "critical",
+          summary: { code: "dispute-response", params: {} },
+          observedAt: "2026-07-11T00:00:00.000Z",
+        }),
+      ]),
       staticSource("inventory-resolution", [
         buildSellerAttentionItem({
           source: "inventory-resolution",
@@ -118,6 +127,26 @@ function expectJumpToSales() {
 }
 
 describe("SellerDeskHomePage", () => {
+  it("shows the blocked-capacity correction and a direct Listing link as one attention item", async () => {
+    const item = buildSellerAttentionItem({
+      source: "listing-action",
+      entityId: "lst_capacity",
+      severity: "info",
+      summary: {
+        code: "listing-needs-action",
+        params: { reference: "Lugia", action: "inventory-capacity:evidence-incomplete" },
+      },
+      observedAt: CONTEXT.now,
+    });
+    const queue = await aggregateSellerAttentionQueue([staticSource("listing-action", [item])], CONTEXT);
+    render(<SellerDeskHomePage queue={queue} kpis={KPIS} />);
+    expect(screen.getByText(/Listing Lugia could not resume after inventory capacity returned/)).toBeTruthy();
+    expect(screen.getByText(/Review the Listing evidence checklist/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open listing" }).getAttribute("href")).toBe(
+      "/account/listings/lst_capacity",
+    );
+    expect(document.querySelectorAll('[data-seller-desk-item="listing-action:lst_capacity"]')).toHaveLength(1);
+  });
   it("shows one mixed channel-action row, both summaries, and the shared connection destination", async () => {
     const item = buildSellerAttentionItem({
       source: "channel-action",
@@ -152,11 +181,12 @@ describe("SellerDeskHomePage", () => {
     expect(screen.getByText("Shipment SHP-1 is past its ship-by deadline")).toBeTruthy();
     expect(screen.getByText("Payout PO-1 is blocked: verify your bank account")).toBeTruthy();
 
-    // Ordered by the blueprint policy: ship-by, blocked payout, import, offer, listing.
+    // Ordered by the blueprint policy: ship-by, blocked payout, dispute, import, offer, listing.
     const rows = document.querySelectorAll("[data-seller-desk-item]");
     expect([...rows].map((row) => row.getAttribute("data-seller-desk-item"))).toEqual([
       "fulfillment-ship-by:ship-1",
       "settlement-blocked-payout:pay-1",
+      "dispute-response:ord/1",
       "inventory-resolution:imp-1",
       "offer-response:off-1",
       "listing-action:lst-1",
@@ -183,7 +213,19 @@ describe("SellerDeskHomePage", () => {
       within(shipRow as HTMLElement)
         .getByRole("link")
         .getAttribute("href"),
-    ).toBe("/account/desk/shipments/ship-1");
+    ).toBe("/account/sales/shipments/ship-1");
+    const disputeRow = document.querySelector('[data-seller-desk-item="dispute-response:ord/1"]');
+    expect(
+      within(disputeRow as HTMLElement)
+        .getByRole("link", { name: "Respond to dispute" })
+        .getAttribute("href"),
+    ).toBe("/account/sales/ord%2F1");
+    const listingRow = document.querySelector('[data-seller-desk-item="listing-action:lst-1"]');
+    expect(
+      within(listingRow as HTMLElement)
+        .getByRole("link")
+        .getAttribute("href"),
+    ).toBe("/account/listings/lst-1");
     const importRow = document.querySelector('[data-seller-desk-item="inventory-resolution:imp-1"]');
     expect(
       within(importRow as HTMLElement)

@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/primitives/money";
 import type { EconomicsServices } from "../../economics/api/services";
 import { toEconomicsForPricingGoal, type EconomicsResolution } from "../../economics/domain/resolution";
+import type { ResolveEconomicsRequest } from "../../economics/domain/contracts";
 import {
   listDemandCurvesAsOf,
   type DemandCurveWithPoints,
@@ -72,6 +73,8 @@ export type PricingHealthWhatIfPortfolio = Readonly<{
 export type PricingHealthWhatIf = Readonly<{ portfolios: readonly PricingHealthWhatIfPortfolio[] }>;
 export type PricingHealthWhatIfResult = PricingHealthWhatIf | Readonly<{ status: "unavailable" }>;
 
+export type PricingHealthEconomicsResolver = (request: ResolveEconomicsRequest) => Promise<EconomicsResolution>;
+
 /**
  * Pricing Health's only portfolio adapter. It reads the caller's complete
  * active listing set through keyset pages, resolves each immutable input once,
@@ -81,7 +84,12 @@ export type PricingHealthWhatIfResult = PricingHealthWhatIf | Readonly<{ status:
 export function createPricingHealthWhatIfAdapter({
   db,
   economics,
-}: Readonly<{ db: PgQueryable; economics: Pick<EconomicsServices, "resolve"> }>) {
+  resolve = economics.resolve,
+}: Readonly<{
+  db: PgQueryable;
+  economics: Pick<EconomicsServices, "resolve">;
+  resolve?: PricingHealthEconomicsResolver;
+}>) {
   return {
     get: async (accountId: string, capturedAt: string): Promise<PricingHealthWhatIf> => {
       const rows = await assemblePortfolio(async ({ after, limit }) => {
@@ -126,7 +134,7 @@ export function createPricingHealthWhatIfAdapter({
           const currentPriceAmount = currency ? (row.price_amount as MoneyAmount) : null;
           const economicsResolution =
             currency && row.inventory_item_id
-              ? await economics.resolve({
+              ? await resolve({
                   accountId,
                   scope: { kind: "native-marketplace" },
                   catalogItemId: row.catalog_catalog_item_id,

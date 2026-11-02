@@ -75,19 +75,49 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
     committed_inventory_item_id: null,
     committed_listing_id: null,
     committed_at: null,
+    needs_seller: true,
     created_at: timestamp,
     updated_at: timestamp,
+    row_version: "2026-05-09T00:00:00.123456Z",
     ...overrides,
   };
 }
 
 function detail(rows: readonly InventoryImportBatchRow[]): InventoryImportBatchDetail {
-  return { ...batch({ total_count: rows.length }), rows };
+  return { ...batch({ total_count: rows.length }), can_commit: false, commit_ready_count: 0, rows };
 }
 
 afterEach(() => cleanup());
 
 describe("import-batch resolution drawer", () => {
+  it("uses API flags for the deep-linked drawer and its page-scoped position", () => {
+    render(
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[storageLocation]}
+        currentPath="/account/inventory/imports/imb_1?resolveRowId=imr_second"
+        detail={detail([
+          row({ needs_seller: false }),
+          row({ row_id: "imr_first", row_number: 3, status: "accepted", needs_seller: true }),
+          row({ row_id: "imr_second", row_number: 4, status: "accepted", needs_seller: true }),
+        ])}
+      />,
+    );
+    expect(screen.getByText("Resolve import row 4")).toBeTruthy();
+    expect(screen.getByText("Row 2 of 2 to resolve")).toBeTruthy();
+  });
+
+  it("does not open a rejected unresolved row when needs_seller is false", () => {
+    render(
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[storageLocation]}
+        detail={detail([row({ needs_seller: false })])}
+        currentPath="/account/inventory/imports/imb_1?resolveRowId=imr_1"
+      />,
+    );
+    expect(screen.queryByText("Resolve import row 2")).toBeNull();
+  });
   it("opens the resolution form in a drawer when a row is deep-linked", () => {
     render(
       <InventoryImportBatchPage
@@ -108,6 +138,12 @@ describe("import-batch resolution drawer", () => {
     // The resolution form posts the row-resolution intent for the deep-linked row.
     expect(document.querySelector('input[name="intent"][value="resolve-row"]')).not.toBeNull();
     expect(document.querySelector('input[name="rowId"][value="imr_1"]')).not.toBeNull();
+    // issue-7169-ac7: the form carries the exact row facts it rendered and a persisted attempt slot.
+    expect(
+      document.querySelector('input[name="expectedRowVersion"][value="2026-05-09T00:00:00.123456Z"]'),
+    ).not.toBeNull();
+    expect(document.querySelector('input[name="expectedRowFingerprint"][value="native-csv|2"]')).not.toBeNull();
+    expect(document.querySelector('input[name="inventoryMutationAttemptId"]')).not.toBeNull();
   });
 
   it("keeps the drawer closed for a stale deep link to an already-resolved row", () => {
@@ -115,7 +151,9 @@ describe("import-batch resolution drawer", () => {
       <InventoryImportBatchPage
         batches={[batch({ accepted_count: 1, rejected_count: 0 })]}
         storageLocations={[storageLocation]}
-        detail={detail([row({ status: "accepted", resolution_status: "resolved", catalog_item_id: "cat_1" })])}
+        detail={detail([
+          row({ status: "accepted", resolution_status: "resolved", catalog_item_id: "cat_1", needs_seller: false }),
+        ])}
         currentPath="/account/inventory/imports/imb_1?resolveRowId=imr_1"
       />,
     );

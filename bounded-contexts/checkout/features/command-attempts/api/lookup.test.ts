@@ -226,7 +226,15 @@ describe("checkout command attempt lookup", () => {
         permissions: ["orders.view", "orders.manage"],
       }) as never,
       routes: (routes) => {
-        routes.route("/account", createAccountCommandAttemptRoutes(h.runtime));
+        routes.route(
+          "/account",
+          createAccountCommandAttemptRoutes({
+            lookupCartAttempt: h.runtime.lookupCartAttempt,
+            lookupEntryAttempt: async () => {
+              throw new Error("A cart lookup never reads an entry attempt.");
+            },
+          }),
+        );
         routes.route("/guest", createGuestCommandAttemptRoutes(h.runtime));
       },
     });

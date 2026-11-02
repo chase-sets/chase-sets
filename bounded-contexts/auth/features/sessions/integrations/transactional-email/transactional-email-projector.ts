@@ -1,5 +1,6 @@
 import { defineTransactionalEmail, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { mapMagicLinkRequestedToTransactionalEmail } from "./transactional-email-intents";
+import { getSafeSameSitePath } from "../../../../support/auth-support/same-site-path";
 
 export const AUTH_SESSION_TRANSACTIONAL_EMAIL_PROJECTION = "auth-session-transactional-email-projection";
 
@@ -38,13 +39,11 @@ function safeOrigin(value: unknown) {
 }
 
 function safeLandingPath(value: unknown) {
-  const path = typeof value === "string" ? value.trim() : "";
-  return path.startsWith("/") && !path.startsWith("//") ? path : "/sign-in/magic";
+  return getSafeSameSitePath(value, { trim: true }) ?? "/sign-in/magic";
 }
 
 function safeReturnTo(value: unknown) {
-  const path = typeof value === "string" ? value.trim() : "";
-  return path.startsWith("/") && !path.startsWith("//") ? path : null;
+  return getSafeSameSitePath(value, { trim: true });
 }
 
 export function buildMagicLinkUrl(
@@ -55,7 +54,11 @@ export function buildMagicLinkUrl(
     returnTo?: string | null;
   }>,
 ) {
-  const url = new URL(safeLandingPath(input.landingPath), safeOrigin(input.origin));
+  const origin = safeOrigin(input.origin);
+  let url = new URL(safeLandingPath(input.landingPath), origin);
+  if (url.origin !== origin) {
+    url = new URL("/sign-in/magic", origin);
+  }
   url.searchParams.set("token", input.token);
   const returnTo = safeReturnTo(input.returnTo);
   if (returnTo) {
