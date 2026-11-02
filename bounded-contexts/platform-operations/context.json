@@ -564,6 +564,11 @@
       "purpose": "Store and privately read case-scoped Support Evidence images through the shared object-storage infrastructure without exposing public asset URLs or provider metadata."
     },
     {
+      "portName": "supportEvidenceCanonicalizer",
+      "providedBy": "platform-api",
+      "purpose": "Bounded per-process Support Evidence canonicalization queue, opened behind the encoder fingerprint gate, that re-encodes each staged image before it reaches private storage; without it every staging request is refused as storage-unavailable."
+    },
+    {
       "portName": "supportEvidenceCleanup",
       "providedBy": "platform-worker",
       "purpose": "available|not-mounted Support Evidence Cleanup Binding capability: a valid, active, instance-scoped binding with delete-and-verify-only private storage mounts the support-evidence-operation-cleanup runner; every other host and an omitted port is not-mounted."
