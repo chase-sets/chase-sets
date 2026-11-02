@@ -627,7 +627,7 @@ describe("Catalog integrations route", () => {
     const rejectForm = document.querySelector<HTMLFormElement>('form[data-attention-resolution="alias.reject"]');
     expect(acceptForm?.getAttribute("action")).toBe(expectedActionHref);
     expect(rejectForm?.getAttribute("action")).toBe(expectedActionHref);
-    expect(acceptForm?.querySelector<HTMLInputElement>('input[name="aliasHash"]')?.value).toBe("h1");
+    expect(acceptForm?.querySelector<HTMLInputElement>('input[name="aliasHashes"]')?.value).toBe("h1");
     expect(rejectForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.value).toBe("Reject");
     const acceptButtons = attentionCommandButtons("alias.accept");
     const rejectButtons = attentionCommandButtons("alias.reject");
