@@ -54,17 +54,17 @@ pub mod offline_page {
 
 /// admin-web's web app manifest (`routes/manifest.ts`), and its service worker as Corten's
 /// (`corten::pwa`): pages from the network, the offline page when there is none, and the static
-/// files from the cache. admin-web's `orientation` (`any`, the default) and `categories`
-/// (`business`, `productivity`) are not written: Corten's manifest has neither
-/// (todd-skelton/corten#515). The description is in English, as admin-web's is.
+/// files from the cache. The description is in English, as admin-web's is.
 pub fn pwa() -> corten::pwa::Pwa {
     use corten::{
         i18n::Messages as _,
-        pwa::{Manifest, Pwa},
+        pwa::{Manifest, Orientation, Pwa},
     };
     let t = SiteMsg::for_locale("en");
     let manifest = Manifest::new("Chase Sets Admin", "CS Admin")
         .description(t.manifest_description())
+        .orientation(Orientation::Any)
+        .categories(&["business", "productivity"])
         .theme_color("#0f766e")
         .background_color("#f7f5f1")
         .icon(Static::ICONS_CHASE_SETS_ADMIN_192_PNG, "192x192")
