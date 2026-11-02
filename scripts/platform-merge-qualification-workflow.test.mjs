@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { repoRoot } from "./lib/repo.mjs";
+import {
+  MERGE_QUALIFICATION_SETTLED_ENTRY_ARTIFACT_PREFIX,
+  MERGE_QUALIFICATION_SETTLED_INDEX_ARTIFACT,
+} from "./merge-qualification.mjs";
 
 const read = (file) => readFileSync(path.join(repoRoot, file), "utf8");
 const platformPr = read(".github/workflows/platform-pr.yml");
@@ -433,6 +437,117 @@ describe("event-driven exact cleanup", () => {
       if (id !== "reconcile") expect(job(observer, id)).toContain("fromJSON(needs.reconcile.outputs.matrix)");
     }
     expect(minutes).toBeLessThanOrEqual(15);
+  });
+});
+
+describe("settled-attempt index wiring", () => {
+  const reconcile = job(observer, "reconcile");
+  const settle = job(observer, "settle");
+  const before = (block, first, second) => {
+    const firstAt = block.indexOf(`- name: ${first}\n`);
+    expect(firstAt, first).toBeGreaterThanOrEqual(0);
+    expect(firstAt, `${first} before ${second}`).toBeLessThan(block.indexOf(`- name: ${second}\n`));
+  };
+
+  it("AC1 reads one index before both inventories and admits only unsettled attempts to every leg", () => {
+    expect(step(observer, "Read latest settled-attempt index")).toContain("merge-qualification.mjs settled-index-read");
+    before(reconcile, "Read latest settled-attempt index", "Inventory original enabled advisory attempts");
+    before(
+      reconcile,
+      "Inventory original enabled advisory attempts",
+      "Inventory completed producer attempts missing advisory dispatch",
+    );
+    const advisory = step(observer, "Inventory original enabled advisory attempts");
+    const producer = step(observer, "Inventory completed producer attempts missing advisory dispatch");
+    for (const block of [advisory, producer]) {
+      expect(block).toContain("--settled-index artifacts/merge-qualification-settled/prior/settled-index.json");
+    }
+    // One shared advisory listing and one inventory instant for both joins.
+    expect(advisory).toContain("--advisory-runs-out artifacts/merge-qualification-settled/advisory-runs.json");
+    expect(producer).toContain("--advisory-runs artifacts/merge-qualification-settled/advisory-runs.json");
+    expect(advisory).toContain('--now "$inventory_now"');
+    expect(producer).toContain('--now "$INVENTORY_NOW"');
+    for (const id of ["inspect", "cleanup", "terminalize"]) {
+      expect(job(observer, id)).toContain("matrix: ${{ fromJSON(needs.reconcile.outputs.matrix) }}");
+    }
+    expect(job(observer, "producer-inspect")).toContain(
+      "matrix: ${{ fromJSON(needs.reconcile.outputs.producer_matrix) }}",
+    );
+  });
+
+  it("AC1 derives an advisory entry only after its durable terminal and exact cleanup marker", () => {
+    const terminalize = job(observer, "terminalize");
+    before(terminalize, "Verify exact cleanup completion", "Upload deterministic terminal event");
+    before(terminalize, "Upload deterministic terminal event", "Derive advisory settlement entry");
+    before(terminalize, "Derive advisory settlement entry", "Upload advisory settlement entry");
+    const derive = step(observer, "Derive advisory settlement entry");
+    expect(derive).toContain("--variant advisory");
+    expect(derive).toContain("--terminal-records artifacts/merge-qualification/terminal-records.json");
+    expect(derive).toContain("--cleanup-marker artifacts/merge-qualification-cleanup-complete/cleanup-complete.json");
+    const key = `${MERGE_QUALIFICATION_SETTLED_ENTRY_ARTIFACT_PREFIX}advisory-\${{ matrix.run_id }}-\${{ matrix.run_attempt }}`;
+    expect(derive).toContain(`--out "artifacts/merge-qualification-settled/${key}.json"`);
+    const upload = step(observer, "Upload advisory settlement entry");
+    expect(upload).toContain("if: steps.settle.outputs.settled == 'true'");
+    expect(upload).toContain(`name: ${key}\n`);
+    // One key-named file per artifact, so the merged download binds name to content.
+    expect(upload).toContain(`path: artifacts/merge-qualification-settled/${key}.json\n`);
+    expect(upload).toContain("if-no-files-found: error");
+  });
+
+  it("AC1 derives a producer-loss entry from its terminal alone after publication", () => {
+    const producer = job(observer, "producer-inspect");
+    before(producer, "Upload producer dispatch-loss terminal", "Derive producer-loss settlement entry");
+    before(producer, "Derive producer-loss settlement entry", "Upload producer-loss settlement entry");
+    const derive = step(observer, "Derive producer-loss settlement entry");
+    expect(derive).toContain("--variant producer_loss");
+    expect(derive).toContain("--terminal-records artifacts/merge-qualification-producer/terminal/records.json");
+    expect(derive).toContain("--advisory-run artifacts/merge-qualification-producer/advisory.json");
+    expect(derive).not.toContain("--cleanup-marker");
+    const key = `${MERGE_QUALIFICATION_SETTLED_ENTRY_ARTIFACT_PREFIX}producer_loss-\${{ matrix.run_id }}-\${{ matrix.run_attempt }}`;
+    expect(derive).toContain(`--out "artifacts/merge-qualification-settled/${key}.json"`);
+    const upload = step(observer, "Upload producer-loss settlement entry");
+    expect(upload).toContain("if: steps.settle.outputs.settled == 'true'");
+    expect(upload).toContain(`name: ${key}\n`);
+    expect(upload).toContain(`path: artifacts/merge-qualification-settled/${key}.json\n`);
+    expect(upload).toContain("if-no-files-found: error");
+  });
+
+  it("AC3 carries only a validated index and publishes one monotonic index per delivery", () => {
+    expect(reconcile).toContain("settled_index_state: ${{ steps.settled_index.outputs.state }}");
+    expect(step(observer, "Carry validated settled-attempt index to the writer")).toContain(
+      "if: steps.settled_index.outputs.state == 'valid'",
+    );
+    expect(settle).toContain("needs: [reconcile, producer-inspect, terminalize]");
+    expect(settle).toContain("if: ${{ !cancelled() && needs.reconcile.result == 'success' }}");
+    // A failed leg fails the run, so the latest-successful lookup never reads its index.
+    expect(settle).not.toMatch(/needs\.(?:inspect|cleanup|terminalize|producer-inspect)\.result/u);
+    expect(step(observer, "Download validated prior settled-attempt index")).toContain(
+      "if: needs.reconcile.outputs.settled_index_state == 'valid'",
+    );
+    // download-artifact unpacks a lone pattern match without its artifact-named
+    // directory; merge-multiple gives zero, one or many entries one flat layout.
+    const entries = step(observer, "Download this delivery's settlement entries");
+    expect(entries).toContain(`pattern: ${MERGE_QUALIFICATION_SETTLED_ENTRY_ARTIFACT_PREFIX}*`);
+    expect(entries).toContain("merge-multiple: true");
+    const write = step(observer, "Write monotonic settled-attempt index");
+    expect(write).toContain("merge-qualification.mjs settled-index-write");
+    expect(write).toContain('--writer-run-id "${{ github.run_id }}"');
+    expect(write).toContain('--writer-run-attempt "${{ github.run_attempt }}"');
+    const upload = step(observer, "Upload settled-attempt index");
+    expect(upload).toContain(`name: ${MERGE_QUALIFICATION_SETTLED_INDEX_ARTIFACT}\n`);
+    expect(upload).toContain("path: artifacts/merge-qualification-settled/settled-index.json");
+    expect(upload).toContain("if-no-files-found: error");
+    expect(upload).not.toContain("if: ");
+    expect(observer.match(new RegExp(`name: ${MERGE_QUALIFICATION_SETTLED_INDEX_ARTIFACT}\\n`, "gu"))).toHaveLength(1);
+  });
+
+  it("AC2 keeps the index lookup and writer provider-inert with read-only permissions", () => {
+    expect(settle).toContain("permissions:\n      contents: read\n      actions: read");
+    for (const block of [reconcile, settle]) {
+      expect(block).not.toContain("secrets.");
+      expect(block).not.toContain("kubectl");
+      expect(block).not.toContain("doctl");
+    }
   });
 });
 

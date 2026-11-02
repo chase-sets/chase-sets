@@ -116,7 +116,12 @@ export type OrderingOrderListRow = Readonly<{
   cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
   self_service_cancellation_available: boolean;
-  cancellation_unavailable_reason: "payment-pending" | "fulfillment-started" | "already-cancelled" | null;
+  cancellation_unavailable_reason:
+    | "payment-pending"
+    | "payment-unresolved"
+    | "fulfillment-started"
+    | "already-cancelled"
+    | null;
   line_count: number;
   total_quantity: number;
   item_titles: readonly string[];
@@ -177,7 +182,12 @@ type BaseOrderPageRow = Readonly<{
   cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
   self_service_cancellation_available: boolean;
-  cancellation_unavailable_reason: "payment-pending" | "fulfillment-started" | "already-cancelled" | null;
+  cancellation_unavailable_reason:
+    | "payment-pending"
+    | "payment-unresolved"
+    | "fulfillment-started"
+    | "already-cancelled"
+    | null;
   line_count: number;
   total_quantity: number;
   item_titles: readonly string[];
@@ -255,6 +265,10 @@ const baseOrderSelect = `
     page.cancellation_reason,
     page.ready_for_fulfillment_at,
     CASE
+      WHEN page.status IN ('pending-payment', 'pending-reservation')
+        AND payment_deadline.payment_id IS NOT NULL
+        AND payment_deadline.terminal_failure_at IS NULL
+      THEN false
       WHEN page.status IN ('pending-payment', 'pending-reservation') THEN true
       WHEN page.status = 'ready-for-fulfillment'
         AND fulfillment.shipment_status = 'awaiting-package'
@@ -266,6 +280,10 @@ const baseOrderSelect = `
     END AS self_service_cancellation_available,
     CASE
       WHEN page.status = 'cancelled' THEN 'already-cancelled'
+      WHEN page.status IN ('pending-payment', 'pending-reservation')
+        AND payment_deadline.payment_id IS NOT NULL
+        AND payment_deadline.terminal_failure_at IS NULL
+      THEN 'payment-unresolved'
       WHEN page.status IN ('pending-payment', 'pending-reservation') THEN NULL
       WHEN page.status = 'ready-for-fulfillment'
         AND fulfillment.shipment_status = 'awaiting-package'

@@ -276,6 +276,9 @@ export function buildCatalogAdminBlueprintProjectionHandlers(db: PgQueryable): P
     "catalog.component.rules-configured": async (event) => {
       await refreshComponentDependents(extractIdFromStreamId(event.streamId, COMPONENT_STREAM_PREFIX));
     },
+    "catalog.component.revised": async (event) => {
+      await refreshComponentDependents(extractIdFromStreamId(event.streamId, COMPONENT_STREAM_PREFIX));
+    },
     "catalog.component.activated": async (event) => {
       await refreshComponentDependents(extractIdFromStreamId(event.streamId, COMPONENT_STREAM_PREFIX));
     },

@@ -2,7 +2,9 @@ import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SettlementApiEnv } from "../../../api";
 import { createPayoutReadinessRoutes } from "./route";
-import { PayoutAccountManagementError, type PayoutReadinessServices } from "./runtime";
+import { createPayoutReadinessRuntime, PayoutAccountManagementError, type PayoutReadinessServices } from "./runtime";
+import { buildPayoutSetupProgress } from "../domain/setup-progress";
+import { payoutReadinessFixture, payoutSetupMatrix } from "../tests/setup-decision.test-data";
 
 const originalFetch = globalThis.fetch;
 
@@ -69,6 +71,107 @@ function mockIdentityCurrentActorDisplay(email: string | null) {
 }
 
 describe("settlement payout setup routes", () => {
+  it.each(payoutSetupMatrix)(
+    "returns next_step and availability for every matrix row: $name",
+    async ({ projection, expected }) => {
+      const getPayoutReadiness = vi.fn(async () => projection);
+      const response = await createApp({ getPayoutReadiness }, ["payouts.view"]).request("/payout-readiness");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ...projection, ...expected });
+      expect(getPayoutReadiness).toHaveBeenCalledWith("acc_seller");
+    },
+  );
+
+  it("returns the display-only setup attention fields at the strict boundary", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T15:00:00.000Z"));
+    try {
+      const projection = payoutReadinessFixture({
+        status: "ready",
+        provider_reference: "acct_test",
+        updated_at: "2026-06-01T15:00:00.000Z",
+      });
+      const response = await createApp({ getPayoutReadiness: async () => projection }, ["payouts.view"]).request(
+        "/payout-readiness",
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        setup_blocked: false,
+        setup_stale: false,
+        setup_stale_after_days: 30,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(payoutSetupMatrix)(
+    "progress and readiness share the decision contract: $name",
+    async ({ projection, expected }) => {
+      const app = createApp(
+        {
+          getPayoutReadiness: async () => projection,
+          getPayoutSetupProgress: async () => buildPayoutSetupProgress(projection),
+        },
+        ["payouts.view"],
+      );
+      for (const path of ["/payout-readiness", "/payout-setup/progress"]) {
+        const response = await app.request(path);
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject(expected);
+      }
+    },
+  );
+
+  it("captures disabled_reason and updated_at at the authenticated persisted-projection read boundary without provider access or replay", async () => {
+    const projection = payoutReadinessFixture({ status: "restricted", disabled_reason: "requirements.review" });
+    const query = vi.fn(async (_sql: string, _parameters?: readonly unknown[]) => ({ rows: [projection] }));
+    const readStream = vi.fn(() => {
+      throw new Error("read must not replay");
+    });
+    const providerCall = vi.fn(() => {
+      throw new Error("read must not contact a provider");
+    });
+    const services = createPayoutReadinessRuntime({
+      db: { query } as never,
+      eventStore: { readStream } as never,
+      checkpointStore: {} as never,
+      moneyMovementGateway: new Proxy({}, { get: () => providerCall }) as never,
+    });
+    const app = createApp(services, ["payouts.view"]);
+    for (const path of ["/payout-readiness", "/payout-setup/progress"]) {
+      const response = await app.request(path);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        account_id: "acc_seller",
+        disabled_reason: "requirements.review",
+        next_step: "restricted_review",
+        support_recommended: true,
+        ...(path === "/payout-readiness"
+          ? { updated_at: "2026-06-01T15:00:00.000Z" }
+          : { last_checked_at: "2026-06-01T15:00:00.000Z" }),
+      });
+    }
+    expect(query).toHaveBeenCalledTimes(2);
+    for (const [sql, parameters] of query.mock.calls) {
+      expect(sql).toContain("disabled_reason");
+      expect(sql).toContain("updated_at");
+      expect(sql).toContain("WHERE account_id = $1");
+      expect(parameters).toEqual(["acc_seller"]);
+    }
+    expect(readStream).not.toHaveBeenCalled();
+    expect(providerCall).not.toHaveBeenCalled();
+  });
+
+  it.each(["/payout-readiness", "/payout-setup/progress"])("requires authentication for %s", async (path) => {
+    const getPayoutReadiness = vi.fn();
+    const getPayoutSetupProgress = vi.fn();
+    const response = await createApp({ getPayoutReadiness, getPayoutSetupProgress }, null).request(path);
+    expect(response.status).toBe(401);
+    expect(getPayoutReadiness).not.toHaveBeenCalled();
+    expect(getPayoutSetupProgress).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["GET", "/payout-readiness", "getPayoutReadiness"],
     ["GET", "/payout-setup/progress", "getPayoutSetupProgress"],
@@ -155,6 +258,10 @@ describe("settlement payout setup routes", () => {
         account_id: "acc_seller",
         status: "pending",
         provider_reference: "acct_test",
+        next_step: "complete_requirements",
+        support_recommended: true,
+        provider_setup_available: true,
+        provider_management_available: true,
       }),
     });
     expect(createPayoutSetupSession).toHaveBeenCalledWith(
@@ -199,6 +306,10 @@ describe("settlement payout setup routes", () => {
       status: "pending",
       ready: false,
       last_checked_at: null,
+      next_step: "complete_requirements",
+      support_recommended: true,
+      provider_setup_available: true,
+      provider_management_available: false,
       missing_requirement_groups: [
         {
           id: "payout-account",
@@ -223,6 +334,10 @@ describe("settlement payout setup routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       account_id: "acc_seller",
+      next_step: "complete_requirements",
+      support_recommended: true,
+      provider_setup_available: true,
+      provider_management_available: false,
       missing_requirement_groups: [expect.objectContaining({ id: "payout-account", label: "Payout account" })],
       steps: [expect.objectContaining({ id: "payout-setup" })],
     });
@@ -382,6 +497,12 @@ describe("settlement payout setup routes", () => {
     });
 
     expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      next_step: "none",
+      support_recommended: false,
+      provider_setup_available: false,
+      provider_management_available: false,
+    });
     expect(refreshProviderReadiness).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: "acc_seller",

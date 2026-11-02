@@ -382,6 +382,45 @@ function shouldRefreshPaymentStart(error: unknown) {
   return readApiErrorCode(error.body) === "payment_start_pending";
 }
 
+function isConfirmationChanged(error: unknown) {
+  return (
+    error instanceof CheckoutApiError &&
+    error.status === 409 &&
+    readApiErrorCode(error.body) === "checkout_confirmation_changed"
+  );
+}
+
+/**
+ * A confirm answer that cannot prove the request never reached Checkout: no
+ * HTTP answer at all, a timeout, or a server or gateway failure that is not a
+ * decided refusal such as a closed checkout.
+ */
+function isConfirmPossibleSendLoss(error: unknown) {
+  if (!(error instanceof CheckoutApiError)) {
+    return true;
+  }
+
+  return error.status === 408 || (error.status >= 500 && readApiErrorCode(error.body) !== "checkout_closed");
+}
+
+/**
+ * After a possible-send loss the action never resends confirm, purchase
+ * intent or payment start. One Session read decides: a started payment or a
+ * submitted Offer is the first result; anything else stays ambiguous.
+ */
+async function settleConfirmAfterPossibleSendLoss(api: CheckoutRequestApiClient, sessionId: string) {
+  const session = await api.getCheckoutSession(sessionId).catch(() => null);
+  if (session?.submitted_offer_id) {
+    return redirect(`/account/offers/submitted/${session.submitted_offer_id}`);
+  }
+
+  if (session?.payment_id) {
+    return redirect(`/checkout/buy/session/${sessionId}`);
+  }
+
+  return { confirmationState: "ambiguous" as const };
+}
+
 function shouldRefreshReservationUnavailable(error: unknown) {
   if (!(error instanceof CheckoutApiError) || error.status !== 409) {
     return false;
@@ -825,6 +864,13 @@ async function handleAction(intent: string, { request, params, formData }: FormA
   const writeApi = createCheckoutRequestApiClient(internalApiRequest);
 
   try {
+    if (intent === "cancel-checkout") {
+      const result = await writeApi.cancelCheckoutSession(params.sessionId);
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(result, `/checkout/buy/session/${params.sessionId}`),
+      );
+    }
+
     if (intent === "select-optimization-goal") {
       const result = await writeApi.selectOptimizationGoal(params.sessionId, {
         optimizationGoal: formData.get("optimizationGoal") === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
@@ -898,6 +944,11 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         typeof readApi.getCheckoutSession === "function" ? await readApi.getCheckoutSession(params.sessionId) : null;
       if (session && isExpiredCheckoutHandoff(session, Date.now())) {
         return { code: "checkout_expired", error: CHECKOUT_HANDOFF_EXPIRED_MESSAGE };
+      }
+      if (session?.cancelled_at) {
+        // A cancelled Session is final: a replayed confirm sends nothing and
+        // shows the Session as it stands.
+        return redirect(`/checkout/buy/session/${params.sessionId}`);
       }
       const hasCommittedSideEffects = hasCommittedCheckoutSideEffects(session);
       const pendingAddressBookWrite = shippingAddressResolution.pendingAddressBookWrite;
@@ -1024,6 +1075,17 @@ async function handleAction(intent: string, { request, params, formData }: FormA
           );
         }
 
+        if (isConfirmationChanged(error)) {
+          return {
+            confirmationState: "changed" as const,
+            error: t("checkout.routes.checkoutSession.confirmation.changed"),
+          };
+        }
+
+        if (isConfirmPossibleSendLoss(error)) {
+          return settleConfirmAfterPossibleSendLoss(readApi, params.sessionId);
+        }
+
         throw error;
       }
       if (result.offer_id) {
@@ -1065,6 +1127,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
 export const action = defineFormAction({
   prepare: async (args) => ({ ...args, request: await resolveCheckoutSessionPostWriteRequest(args.request) }),
   intents: {
+    "cancel-checkout": (context) => handleAction("cancel-checkout", context),
     "confirm-checkout": (context) => handleAction("confirm-checkout", context),
     "retry-wallet-balance": (context) => handleAction("retry-wallet-balance", context),
     "refresh-checkout-preview": (context) => handleAction("refresh-checkout-preview", context),
@@ -1116,8 +1179,13 @@ export default function CheckoutSessionRoute() {
       canSavePaymentMethods={data.canSavePaymentMethods}
       isSignedInBuyer={data.isSignedInBuyer}
       errorMessage={
-        actionData?.error ?? (data.expiredCheckout ? CHECKOUT_HANDOFF_EXPIRED_MESSAGE : data.previewError) ?? null
+        (actionData && "error" in actionData ? actionData.error : null) ??
+        (data.expiredCheckout ? CHECKOUT_HANDOFF_EXPIRED_MESSAGE : data.previewError) ??
+        null
       }
+      confirmationAmbiguous={Boolean(
+        actionData && "confirmationState" in actionData && actionData.confirmationState === "ambiguous",
+      )}
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}
       preparedPaymentEntry={

@@ -12,6 +12,7 @@ import {
 } from "../domain/import-source-adapters";
 import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
 import { InventoryImportBatchPage } from "./import-batch-page";
+import { InventoryMutationProvider } from "../../../support/ui-support/mutation-recovery";
 
 const timestamp = "2026-05-09T00:00:00.000Z";
 
@@ -68,6 +69,7 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
     needs_seller: false,
     created_at: timestamp,
     updated_at: timestamp,
+    row_version: "2026-05-09T00:00:00.000001Z",
     ...overrides,
   };
 }
@@ -514,12 +516,14 @@ function renderResolveRow(
   sourceKey: InventoryImportBatch["source_key"] = "tcgplayer-csv",
 ) {
   render(
-    <InventoryImportBatchPage
-      batches={[batch({ source_key: sourceKey })]}
-      storageLocations={[storageLocation]}
-      detail={{ ...detail([resolveRow]), source_key: sourceKey }}
-      currentPath="/account/inventory/imports/imb_1?resolveRowId=imr_1"
-    />,
+    <InventoryMutationProvider authority={{ accountId: "acc_1", actorUserId: "usr_1" }}>
+      <InventoryImportBatchPage
+        batches={[batch({ source_key: sourceKey })]}
+        storageLocations={[storageLocation]}
+        detail={{ ...detail([resolveRow]), source_key: sourceKey }}
+        currentPath="/account/inventory/imports/imb_1?resolveRowId=imr_1"
+      />
+    </InventoryMutationProvider>,
   );
   const input = screen.getByRole("combobox", { name: "Catalog item" }) as HTMLInputElement;
   return { input, form: input.closest("form")! };
@@ -695,9 +699,12 @@ describe("Import row Catalog picker", () => {
     expect(requestedUrls(fetch)).toHaveLength(2);
 
     expect([...new FormData(form).entries()].map(([key, value]) => [key, String(value)])).toEqual([
+      ["inventoryMutationAttemptId", ""],
       ["intent", "resolve-row"],
       ["batchId", "imb_1"],
       ["rowId", "imr_1"],
+      ["expectedRowVersion", "2026-05-09T00:00:00.000001Z"],
+      ["expectedRowFingerprint", "native-csv|2|cat_1"],
       ["catalogItemId", "cat_zard"],
       ["selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }])],
       ["storageLocationId", "loc_1"],

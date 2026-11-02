@@ -14,8 +14,427 @@ import {
   attemptId,
   requestHash,
   actorContext,
+  responseCases,
+  responseFixture,
+  responseSeller,
 } from "./participant-attempt.test-support";
 import { participantOpenSupportRequestId, validateParticipantHistory } from "./participant-runtime";
+import { evolveSupportRequest, initialSupportRequestState, type SupportRequestEvent } from "../domain/domain";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { canonicalParticipantRequest } from "../domain/participant-attempt";
+import { supportFlowCatalog } from "../domain/flow-catalog";
+import type { SupportEvidenceType } from "../domain/common";
+import {
+  attachmentManifestReferences,
+  attachmentOperationStreamId,
+  createAttachmentManifest,
+} from "../domain/attachment-operation";
+
+describe("atomic participant intake", () => {
+  const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const body = { ...openBody, flowType: "product-damaged", affectedLineIds: ["line_a"] };
+  it("preserves legacy empty intake bytes without discarding reference or operation authority", () => {
+    const legacy = canonicalParticipantRequest("open-support-request", openBody);
+    expect(legacy).toBe(
+      JSON.stringify({
+        version: 1,
+        actionKind: "open-support-request",
+        payload: { ...openBody, affectedLineIds: null },
+      }),
+    );
+    expect(canonicalParticipantRequest("open-support-request", { ...openBody, intakePhotoReferences: [] })).toBe(
+      legacy,
+    );
+    expect(
+      canonicalParticipantRequest("open-support-request", { ...openBody, attachmentOperationId: operationId }),
+    ).not.toBe(legacy);
+    const reference = `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg`;
+    const photo = { ...openBody, intakePhotoReferences: [reference], attachmentOperationId: operationId };
+    expect(canonicalParticipantRequest("open-support-request", photo)).not.toBe(legacy);
+    expect(
+      canonicalParticipantRequest("open-support-request", {
+        ...photo,
+        attachmentOperationId: "sao_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      }),
+    ).not.toBe(canonicalParticipantRequest("open-support-request", photo));
+    expect(() =>
+      canonicalParticipantRequest("open-support-request", { ...photo, intakePhotoReferences: ["invalid"] }),
+    ).toThrow();
+  });
+  it("opens a whole-order request when no affected line ids are supplied", async () => {
+    const f = participantFixture();
+
+    await expect(f.executeParticipant("open-support-request", openBody)).resolves.toMatchObject({ status: "opened" });
+    expect(
+      f.allEvents.find((event) => event.eventType === "support.support-request.affected-line-items-recorded")?.payload,
+    ).toMatchObject({
+      affectedLineItems: [
+        { lineId: "line_a", amount: "12.00", currencyCode: "usd" },
+        { lineId: "line_b", amount: "12.00", currencyCode: "usd" },
+      ],
+    });
+  });
+  it("rejects an explicitly empty line selection when the order has lines", async () => {
+    const f = participantFixture();
+
+    await expect(f.executeParticipant("open-support-request", { ...openBody, affectedLineIds: [] })).rejects.toThrow(
+      "Affected line items must include one or more unique line ids.",
+    );
+    expect(f.allEvents).toHaveLength(0);
+  });
+  async function staged(f: ReturnType<typeof participantFixture>, scenario = "complete") {
+    const id = participantOpenSupportRequestId(buyer.tenantId, buyer.accountId, attemptId);
+    const context = actorContext(buyer);
+    const owner = {
+      tenantId: scenario === "foreign-tenant" ? "tnt_other" : buyer.tenantId,
+      accountId: scenario === "foreign-account" ? "acc_other" : buyer.accountId,
+      supportRequestId:
+        scenario === "other-attempt"
+          ? participantOpenSupportRequestId(buyer.tenantId, buyer.accountId, `${attemptId}_other`)
+          : id,
+      operationId,
+    };
+    const manifest = createAttachmentManifest({
+      owner,
+      profile: "support-evidence-raster/v1",
+      encoderFingerprint: {
+        profile: "support-evidence-raster/v1",
+        sharp: "test",
+        libvips: "test",
+        platform: "test",
+        arch: "test",
+        libc: "test",
+      },
+      images: ["a", "b"].map((hash) => ({ canonicalSha256: hash.repeat(64), contentType: "image/jpeg", byteSize: 10 })),
+    });
+    await f.eventStore.appendToStream({
+      streamId: attachmentOperationStreamId(owner),
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        { eventType: "support.attachment-operation.staged", payload: manifest },
+        ...(scenario === "unstored"
+          ? []
+          : manifest.items.map((item) => ({
+              eventType: "support.attachment-operation.stored",
+              payload: { index: item.index },
+            }))),
+      ],
+    });
+    const bound = {
+      ...body,
+      ...(scenario === "wrong-order" ? { orderId: "ord_other" } : {}),
+      ...(scenario === "wrong-flow" ? { flowType: "product-not-as-described" } : {}),
+      ...(scenario === "wrong-lines" ? { affectedLineIds: ["line_b"] } : {}),
+    };
+    await f.eventStore.appendToStream({
+      streamId: `support.participant-intake-${id}-${operationId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "support.participant-intake.bound",
+          payload: { binding: canonicalParticipantRequest("open-support-request", bound) },
+        },
+      ],
+    });
+    return {
+      id,
+      intakePhotoReferences: attachmentManifestReferences(manifest).slice(0, scenario === "partial" ? 1 : 2),
+    };
+  }
+  for (const flow of supportFlowCatalog) {
+    for (const role of flow.openedBy.filter((value) => value === "buyer" || value === "seller")) {
+      it(`${flow.flowType}/${role} resolves mandatory photo intake from the catalog, ignoring tampered flags and role`, async () => {
+        const f = participantFixture();
+        const actor = role === "buyer" ? buyer : { ...buyer, accountId: "acc_seller" };
+        const requiresPhoto = flow.checklist.some((item) => {
+          const evidenceTypes: readonly SupportEvidenceType[] = item.evidenceTypes;
+          return item.required && item.ownerRole === role && evidenceTypes.includes("photo");
+        });
+        const command = f.executeParticipant(
+          "open-support-request",
+          {
+            ...openBody,
+            flowType: flow.flowType,
+            photoRequired: false,
+            openedByRole: role === "buyer" ? "seller" : "buyer",
+          },
+          undefined,
+          attemptId,
+          actor,
+        );
+        if (requiresPhoto) {
+          await expect(command).rejects.toThrow("Add the required evidence photos before opening this case.");
+          expect(f.allEvents).toHaveLength(0);
+        } else {
+          await expect(command).resolves.toMatchObject({ status: "opened" });
+          expect(f.allEvents.find((event) => event.eventType.endsWith(".opened"))?.payload.openedByRole).toBe(role);
+        }
+      });
+    }
+  }
+  it("records open, complete photo evidence and receipt atomically, consumes once and replays the same attempt", async () => {
+    const f = participantFixture();
+    const batch = await staged(f);
+    const input = { ...body, intakePhotoReferences: batch.intakePhotoReferences, attachmentOperationId: operationId };
+    const first = await f.executeParticipant("open-support-request", input);
+    expect(first).toMatchObject({ id: batch.id, status: "opened", evidenceId: expect.stringMatching(/^sev_/) });
+    const history = await readCompleteStream(f.eventStore, { streamId: `support.support-request-${batch.id}` });
+    const validated = validateParticipantHistory(history, batch.id);
+    expect(validated.state.evidence).toHaveLength(1);
+    expect(validated.state.evidence[0]).toMatchObject({
+      attachments: batch.intakePhotoReferences,
+      submittedByRole: "buyer",
+    });
+    expect(validated.receipts[0]!.facts.map((event) => event.eventType)).toContain("support.support-request.opened");
+    expect(validated.receipts[0]!.facts.map((event) => event.eventType)).toContain(
+      "support.support-request.evidence-submitted",
+    );
+    const count = f.allEvents.length;
+    expect(await f.executeParticipant("open-support-request", input)).toEqual(first);
+    expect(f.allEvents).toHaveLength(count);
+    await expect(
+      f.executeParticipant("open-support-request", {
+        ...input,
+        intakePhotoReferences: input.intakePhotoReferences.slice(0, 1),
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      f.executeParticipant(
+        "submit-evidence",
+        {
+          evidenceType: "photo",
+          summary: "Reuse",
+          attachments: batch.intakePhotoReferences,
+          attachmentOperationId: operationId,
+        },
+        batch.id,
+        `${attemptId}_reuse`,
+      ),
+    ).rejects.toThrow();
+    expect(f.allEvents.filter((event) => event.eventType.endsWith(".evidence-submitted"))).toHaveLength(1);
+  });
+  it.each([
+    "unstored",
+    "partial",
+    "foreign-account",
+    "foreign-tenant",
+    "other-attempt",
+    "wrong-order",
+    "wrong-flow",
+    "wrong-lines",
+  ])("rejects %s before any case fact or receipt", async (scenario) => {
+    const f = participantFixture();
+    const batch = await staged(f, scenario);
+    await expect(
+      f.executeParticipant("open-support-request", {
+        ...body,
+        intakePhotoReferences: batch.intakePhotoReferences,
+        attachmentOperationId: operationId,
+      }),
+    ).rejects.toThrow();
+    expect(await readCompleteStream(f.eventStore, { streamId: `support.support-request-${batch.id}` })).toEqual([]);
+  });
+  it("rejects references without their operation and a changed operation before case append", async () => {
+    const f = participantFixture();
+    const batch = await staged(f);
+    for (const attachmentOperationId of [undefined, "sao_01ARZ3NDEKTSV4RRFFQ69G5FAW"]) {
+      await expect(
+        f.executeParticipant("open-support-request", {
+          ...body,
+          intakePhotoReferences: batch.intakePhotoReferences,
+          ...(attachmentOperationId ? { attachmentOperationId } : {}),
+        }),
+      ).rejects.toThrow();
+      expect(await readCompleteStream(f.eventStore, { streamId: `support.support-request-${batch.id}` })).toEqual([]);
+    }
+  });
+  it("failed atomic case append leaves no open-only case and retries recover the same claim", async () => {
+    const memory = createInMemoryEventStore();
+    let fail = true;
+    const appendToStreams: NonNullable<typeof memory.eventStore.appendToStreams> = async (inputs) => {
+      if (
+        fail &&
+        inputs.some((input) => input.events.some((event) => event.eventType === "support.support-request.opened"))
+      )
+        throw new Error("atomic append unavailable");
+      return memory.eventStore.appendToStreams!(inputs);
+    };
+    const f = participantFixture({ ...memory.eventStore, appendToStreams });
+    const batch = await staged(f);
+    const input = { ...body, intakePhotoReferences: batch.intakePhotoReferences, attachmentOperationId: operationId };
+    await expect(f.executeParticipant("open-support-request", input)).rejects.toThrow("atomic append unavailable");
+    expect(await readCompleteStream(f.eventStore, { streamId: `support.support-request-${batch.id}` })).toEqual([]);
+    fail = false;
+    await expect(f.executeParticipant("open-support-request", input)).resolves.toMatchObject({ status: "opened" });
+  });
+});
+
+describe("participant response derives resolution after hashing", () => {
+  for (const scenario of responseCases.filter((entry) => entry.resolutionType !== null)) {
+    it(`${scenario.responseType}: explicit, omitted, null and empty have equivalent facts and state`, async () => {
+      const snapshots = [];
+      for (const field of [
+        { offerResolutionType: scenario.resolutionType },
+        {},
+        { offerResolutionType: null },
+        { offerResolutionType: "" },
+      ]) {
+        const f = await responseFixture(scenario.responseType, "Offer");
+        const body = { ...f.body, ...field };
+        const result = await f.executeParticipant("record-response", body, f.id, attemptId, responseSeller);
+        const history = await readCompleteStream(f.eventStore, { streamId: `support.support-request-${f.id}` });
+        const codec = createPassthroughDomainEventCodec<SupportRequestEvent>();
+        const state = history.reduce(
+          (current, event) => evolveSupportRequest(current, codec.decode(event)),
+          initialSupportRequestState,
+        );
+        expect(state.status).toBe("waiting-on-buyer");
+        expect(state.pendingOffer).toMatchObject({
+          resolutionType: scenario.resolutionType,
+          pendingWithRole: "buyer",
+          refundAmount:
+            scenario.responseType === "offer-partial-refund"
+              ? "6.00"
+              : scenario.responseType === "accept-return"
+                ? "24.00"
+                : null,
+        });
+        const fact = history.find((event) => event.eventType.endsWith(".response-recorded"))!;
+        const response = fact.payload.response as Record<string, unknown>;
+        const offer = fact.payload.offer as Record<string, unknown>;
+        snapshots.push({
+          ...fact.payload,
+          supportRequestId: "generated",
+          response: { ...response, responseId: "generated", offerId: "generated" },
+          offer: { ...offer, responseId: "generated", offerId: "generated" },
+        });
+        expect(await f.executeParticipant("record-response", body, f.id, attemptId, responseSeller)).toEqual(result);
+        expect(await f.lookup("record-response", body, f.id, attemptId, responseSeller)).toMatchObject({
+          outcome: "confirming",
+          result,
+        });
+        expect(await readCompleteStream(f.eventStore, { streamId: `support.support-request-${f.id}` })).toEqual(
+          history,
+        );
+      }
+      for (const snapshot of snapshots) expect(snapshot).toEqual(snapshots[0]);
+    });
+  }
+});
+
+describe("participant response refusal controls", () => {
+  for (const scenario of responseCases) {
+    it(`${scenario.responseType}: mismatches refuse without an append`, async () => {
+      const f = await responseFixture(scenario.responseType, "Offer");
+      const before = f.allEvents.length;
+      const wrong = scenario.resolutionType === "replacement" ? "partial-refund" : "replacement";
+      await expect(
+        f.executeParticipant(
+          "record-response",
+          { ...f.body, offerResolutionType: wrong },
+          f.id,
+          attemptId,
+          responseSeller,
+        ),
+      ).rejects.toThrow(
+        scenario.resolutionType
+          ? "Offer resolution does not match the response type."
+          : "Only offer responses can include an offer resolution.",
+      );
+      expect(f.allEvents).toHaveLength(before);
+    });
+    if (scenario.resolutionType === null) {
+      for (const field of [{}, { offerResolutionType: null }]) {
+        it(`${scenario.responseType}: ${JSON.stringify(field)} has no offer`, async () => {
+          const f = await responseFixture(scenario.responseType, "Offer");
+          await f.executeParticipant("record-response", { ...f.body, ...field }, f.id, attemptId, responseSeller);
+          expect(f.allEvents.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toBeNull();
+        });
+      }
+    }
+  }
+  it("preserves wrong-role, unknown/type/nested, hash, id, amount, flow and terminal guards", async () => {
+    for (const invalid of [
+      { responseType: "unknown" },
+      { offerResolutionType: "unknown" },
+      { offerResolutionType: 3 },
+      { offerResolutionType: { value: "partial-refund" } },
+      { summary: { unknown: true } },
+      { affectedLineIds: [{ unknown: true }] },
+      { extra: { unknown: true } },
+      { submittedByRole: "buyer" },
+      { refundAmount: "0.00" },
+      { refundAmount: "24.01" },
+    ]) {
+      const f = await responseFixture("offer-partial-refund", "Offer");
+      const before = f.allEvents.length;
+      await expect(
+        f.runtime.executeParticipantAttempt(
+          {
+            actionKind: "record-response",
+            body: { ...f.body, ...invalid },
+            targetId: f.id,
+            accountId: responseSeller.accountId,
+            actor: responseSeller,
+            attempt: {
+              attemptId,
+              requestHash: requestHash(
+                "record-response",
+                "refundAmount" in invalid || "submittedByRole" in invalid ? { ...f.body, ...invalid } : f.body,
+              ),
+            },
+          },
+          actorContext(responseSeller),
+        ),
+      ).rejects.toThrow();
+      expect(f.allEvents).toHaveLength(before);
+    }
+    const f = await responseFixture("offer-partial-refund", "Offer");
+    const before = f.allEvents.length;
+    await expect(f.executeParticipant("record-response", f.body, f.id)).rejects.toThrow(
+      "Support responses must come from the seller or support.",
+    );
+    for (const attempt of [
+      { attemptId: "bad", requestHash: requestHash("record-response", f.body) },
+      { attemptId, requestHash: "a".repeat(64) },
+    ]) {
+      await expect(
+        f.runtime.executeParticipantAttempt(
+          {
+            actionKind: "record-response",
+            body: f.body,
+            targetId: f.id,
+            accountId: responseSeller.accountId,
+            actor: responseSeller,
+            attempt,
+          },
+          actorContext(responseSeller),
+        ),
+      ).rejects.toThrow();
+    }
+    expect(f.allEvents).toHaveLength(before);
+    await f.executeParticipant("cancel", { reason: "Withdrawn" }, f.id, `${attemptId}_cancel`);
+    const terminalCount = f.allEvents.length;
+    await expect(f.executeParticipant("record-response", f.body, f.id, attemptId, responseSeller)).rejects.toThrow(
+      "Closed support requests cannot accept responses.",
+    );
+    expect(f.allEvents).toHaveLength(terminalCount);
+    const wrongFlow = await responseFixture("provide-tracking", "Offer");
+    const flowCount = wrongFlow.allEvents.length;
+    await expect(
+      wrongFlow.executeParticipant(
+        "record-response",
+        { responseType: "accept-return", summary: "Offer" },
+        wrongFlow.id,
+        attemptId,
+        responseSeller,
+      ),
+    ).rejects.toThrow("This response is not accepted for the support flow.");
+    expect(wrongFlow.allEvents).toHaveLength(flowCount);
+  });
+});
 
 describe("scoped-attempt matrix", () => {
   it("participant open identity is a deterministic canonical typed ULID with a SUP display reference", () => {

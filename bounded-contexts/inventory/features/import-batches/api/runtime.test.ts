@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { Hono } from "hono";
+import type {
+  PgQueryResult,
+  PgQueryable,
+  PgTransactionalPool,
+  PostgresEventStore,
+} from "@chase-sets/event-core-postgres";
+import { ZERO_GLOBAL_POSITION, type EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import { inventoryDraftListingMessageSchema } from "@chase-sets/inventory-draft-listing";
 import type { InventoryCatalogItemServices } from "../../inventory-items/integrations/catalog/runtime";
@@ -8,7 +14,8 @@ import type {
   InventoryProductSchema,
   InventorySelectedOptionEntry,
 } from "../../inventory-items/integrations/catalog/versioning";
-import type { InventoryItemServices } from "../../inventory-items/api/runtime";
+import { createInventoryItemRuntime, type InventoryItemServices } from "../../inventory-items/api/runtime";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import {
   createInventoryImportBatchRuntime,
   createInventoryImportRowValidator,
@@ -22,6 +29,10 @@ import { readFileSync } from "node:fs";
 import { prepareInventoryImportSnapshot } from "./safe-snapshot";
 import { contractInventoryImportSources } from "./source-migration";
 import type { InventoryImportBatchStatus } from "../read-model/queries";
+import { ImportRowResolveConflict } from "../domain/row-resolve-conflict";
+import { inventoryImportBatchRoutes } from "./route";
+import type { InventoryApiEnv } from "../../../api";
+import { createInventoryMutationRuntime } from "../../../support/runtime-support/mutation-attempt";
 
 type StoredBatch = Readonly<{
   batch_id: string;
@@ -116,6 +127,20 @@ type StoredAccountSkuMapping = Readonly<{
 
 const now = "2026-05-09T00:00:00.000Z";
 
+/** Mirrors the `to_char(... 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')` row_version projection. */
+function rowVersionOf(updatedAt: string) {
+  return new Date(updatedAt).toISOString().replace(/Z$/, "000Z");
+}
+
+function rowFacts(
+  detail: Readonly<{ rows: readonly { row_id: string; row_version: string; row_fingerprint: string }[] }>,
+  rowId: string,
+) {
+  const row = detail.rows.find((candidate) => candidate.row_id === rowId);
+  if (!row) throw new Error(`Fixture row ${rowId} is missing.`);
+  return { expectedRowVersion: row.row_version, expectedRowFingerprint: row.row_fingerprint };
+}
+
 const productSchema = {
   canonicalDimensionOrder: [{ dimensionId: "condition", dimensionName: "Condition" }],
   dimensions: [
@@ -165,6 +190,7 @@ class ImportBatchDb implements PgQueryable {
   public readonly locations = new Map<string, StoredLocation>();
   public readonly items = new Map<string, StoredInventoryItem>();
   public accountSkuMappings: StoredAccountSkuMapping[] = [];
+  private resolveWrites = 0;
 
   public async query<Row = Record<string, unknown>>(
     sql: string,
@@ -340,8 +366,18 @@ class ImportBatchDb implements PgQueryable {
 
     if (sql.includes("UPDATE inventory_import_batch_rows") && sql.includes("resolution_status = 'resolved'")) {
       const rowId = String(values[0]);
+      // Each fence predicate applies only when the SQL carries it, so a mutant that drops one is observable.
+      const fenced = (row: StoredRow) =>
+        row.row_id === rowId &&
+        row.batch_id === values[20] &&
+        (!sql.includes("status <> 'committed'") || row.status !== "committed") &&
+        (!sql.includes("updated_at = $22::timestamptz") || rowVersionOf(row.updated_at) === values[21]) &&
+        (!sql.includes("row_fingerprint = $23") || row.row_fingerprint === values[22]) &&
+        (!sql.includes("batch.account_id = $24") || this.batches.get(row.batch_id)?.account_id === values[23]);
+      const matched = this.rows.find(fenced);
+      const writtenAt = new Date(Date.parse(now) + ++this.resolveWrites).toISOString();
       this.rows = this.rows.map((row) =>
-        row.row_id === rowId && row.batch_id === values[20]
+        row === matched
           ? {
               ...row,
               status: values[1] as StoredRow["status"],
@@ -364,11 +400,11 @@ class ImportBatchDb implements PgQueryable {
               listing_quantity_cap: typeof values[17] === "number" ? values[17] : null,
               row_note: typeof values[18] === "string" ? values[18] : null,
               validation_errors: JSON.parse(String(values[19])) as string[],
-              updated_at: now,
+              updated_at: writtenAt,
             }
           : row,
       );
-      return this.result([]);
+      return this.result(matched ? ([{ row_id: rowId }] as unknown as Row[]) : []);
     }
 
     if (sql.includes("UPDATE inventory_import_batch_rows")) {
@@ -415,7 +451,8 @@ class ImportBatchDb implements PgQueryable {
     ) {
       const rows = this.rows
         .filter((row) => row.batch_id === values[0])
-        .sort((left, right) => left.row_number - right.row_number);
+        .sort((left, right) => left.row_number - right.row_number)
+        .map((row) => (sql.includes("AS row_version") ? { ...row, row_version: rowVersionOf(row.updated_at) } : row));
       return this.result(
         (sql.includes("LIMIT $2 OFFSET $3")
           ? rows.slice(Number(values[2]), Number(values[2]) + Number(values[1]))
@@ -555,17 +592,18 @@ function runtime(
   adjustments: Array<Parameters<InventoryItemServices["adjustItem"]>[0]> = [],
   creations: Array<Parameters<InventoryItemServices["createItem"]>[0]> = [],
   catalogItems: InventoryCatalogItemServices = catalogServices(),
+  items: InventoryItemServices = itemServices(
+    (params) => {
+      creations.push(params);
+      itemIds.push(params.itemIdOverride ?? ("inv_generated" as InventoryItemId));
+    },
+    (params) => adjustments.push(params),
+  ),
 ) {
   const services = createInventoryImportBatchRuntime({
     db,
     catalogItems,
-    items: itemServices(
-      (params) => {
-        creations.push(params);
-        itemIds.push(params.itemIdOverride ?? ("inv_generated" as InventoryItemId));
-      },
-      (params) => adjustments.push(params),
-    ),
+    items,
     draftListingCreator: vi.fn(async (params) => ({
       listingId: params.listingIdOverride,
       version: 1,
@@ -848,26 +886,28 @@ describe("inventory import batch runtime", () => {
         },
         context,
       );
-      const resolve = (rowId: string) =>
+      const resolve = (current: typeof batch, rowId: string) =>
         services.resolveRow(
           {
             accountId: "acc_1" as AccountId,
             batchId: batch.batch_id,
             rowId,
+            ...rowFacts(current, rowId),
             catalogItemId: "cat_active",
             storageLocationId: "loc_active",
             selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
           },
           context,
         );
-      const next = await resolve(batch.rows[0]!.row_id);
+      const next = await resolve(batch, batch.rows[0]!.row_id);
       expect(next).toMatchObject({
         next_needs_seller_row_id: `imr_${batch.batch_id.slice(4)}_101`,
         can_commit: true,
         commit_ready_count: 100,
       });
       expect(next.rows[0]?.needs_seller).toBe(false);
-      expect((await resolve(next.next_needs_seller_row_id!)).next_needs_seller_row_id).toBeNull();
+      // Row 101 sits beyond the first 100-row page; the resolve authority still decides it from the full batch.
+      expect((await resolve(next, next.next_needs_seller_row_id!)).next_needs_seller_row_id).toBeNull();
     },
   );
 
@@ -964,6 +1004,7 @@ describe("inventory import batch runtime", () => {
           accountId: "acc_1" as AccountId,
           batchId: batch.batch_id,
           rowId: batch.rows[0]!.row_id,
+          ...rowFacts(batch, batch.rows[0]!.row_id),
           catalogItemId: "cat_active",
           storageLocationId: "loc_active",
           selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
@@ -1139,6 +1180,7 @@ describe("inventory import batch runtime", () => {
         accountId: "acc_1" as AccountId,
         batchId: batch.batch_id,
         rowId: batch.rows[0]!.row_id,
+        ...rowFacts(batch, batch.rows[0]!.row_id),
         catalogItemId: "cat_active",
         storageLocationId: "loc_active",
         selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
@@ -1339,6 +1381,7 @@ describe("inventory import batch runtime", () => {
       {
         batchId: batch.batch_id,
         rowId: batch.rows[0]!.row_id,
+        ...rowFacts(batch, batch.rows[0]!.row_id),
         accountId: "acc_1" as AccountId,
         catalogItemId: "cat_active",
         selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
@@ -1711,6 +1754,7 @@ describe("inventory import batch runtime", () => {
         accountId: "acc_1" as AccountId,
         batchId: firstBatch.batch_id,
         rowId: firstBatch.rows[0]!.row_id,
+        ...rowFacts(firstBatch, firstBatch.rows[0]!.row_id),
         catalogItemId: "cat_active",
         selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
         storageLocationId: "loc_active",
@@ -1770,6 +1814,7 @@ describe("inventory import batch runtime", () => {
         accountId: "acc_1" as AccountId,
         batchId: batch.batch_id,
         rowId: batch.rows[0]!.row_id,
+        ...rowFacts(batch, batch.rows[0]!.row_id),
         catalogItemId: "cat_active",
         selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
         storageLocationId: "loc_active",
@@ -1827,6 +1872,7 @@ describe("inventory import batch runtime", () => {
           accountId: "acc_1" as AccountId,
           batchId: batch.batch_id,
           rowId: batch.rows[0]!.row_id,
+          ...rowFacts(batch, batch.rows[0]!.row_id),
           catalogItemId: "cat_active",
           selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
           storageLocationId: "loc_active",
@@ -2289,5 +2335,478 @@ describe("inventory import batch runtime", () => {
     expect(stagedInputDelete?.sql).toContain("LIMIT $2");
     expect(stagedInputDelete?.sql).toContain("status IN ('queued', 'running')");
     expect(stagedInputDelete?.values[1]).toBe(17);
+  });
+});
+
+describe("commit derives graded card details", () => {
+  const whenGraded = [{ dimensionId: "dim_form", optionIds: ["opt_graded"] }];
+  const gradedSchema = (gradeRequired: boolean) =>
+    ({
+      canonicalDimensionOrder: [
+        { dimensionId: "dim_form", dimensionName: "Form" },
+        { dimensionId: "dim_company", dimensionName: "Grading Company" },
+        { dimensionId: "dim_grade", dimensionName: "Grade" },
+      ],
+      dimensions: [
+        {
+          dimensionId: "dim_form",
+          dimensionName: "Form",
+          required: true,
+          appliesWhen: [],
+          allowedOptions: [
+            { optionId: "opt_raw", code: "raw", label: "Raw" },
+            { optionId: "opt_graded", code: "graded", label: "Graded" },
+          ],
+        },
+        {
+          dimensionId: "dim_company",
+          dimensionName: "Grading Company",
+          required: true,
+          appliesWhen: whenGraded,
+          allowedOptions: [{ optionId: "opt_psa", code: "psa", label: "PSA" }],
+        },
+        {
+          dimensionId: "dim_grade",
+          dimensionName: "Grade",
+          required: gradeRequired,
+          appliesWhen: whenGraded,
+          allowedOptions: [{ optionId: "opt_ten", code: "ten", label: "10" }],
+        },
+      ],
+    }) satisfies InventoryProductSchema;
+  const schemas: Record<string, InventoryProductSchema> = {
+    cat_graded_required: gradedSchema(true),
+    cat_graded_optional: gradedSchema(false),
+  };
+  const graded = { "option:dim_form": "opt_graded", "option:dim_company": "opt_psa", "option:dim_grade": "opt_ten" };
+
+  function setup() {
+    const db = dbWithLocations();
+    const catalog = catalogServices();
+    const catalogItems: InventoryCatalogItemServices = {
+      ...catalog,
+      getCatalogItem: async (itemId) => {
+        const item = await catalog.getCatalogItem(itemId);
+        return item && itemId in schemas ? { ...item, product_schema: schemas[itemId]! } : item;
+      },
+    };
+    const { eventStore, streams } = createInMemoryEventStore();
+    // The real create runtime, not a createItem stub: derivation and refusals run on the emitted events.
+    const items = createInventoryItemRuntime(
+      {
+        eventStore,
+        db,
+        checkpointStore: {
+          loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
+          saveCheckpoint: async () => undefined,
+        },
+      },
+      catalogItems,
+      { listStorageLocations: vi.fn() } as never,
+    );
+    const createItem = vi.spyOn(items, "createItem");
+    const services = runtime(db, [], [], [], catalogItems, items);
+    async function batchOf(catalogItemId: string, options: Record<string, string>) {
+      return services.createBatch(
+        {
+          accountId: "acc_1" as AccountId,
+          sourceKey: "native-csv",
+          defaultStorageLocationId: "loc_active",
+          parsedRows: [{ rowNumber: 1, values: { catalogItemId, totalQuantity: "2", ...options } }],
+        },
+        context,
+      );
+    }
+    return { services, eventStore, streams, createItem, batchOf };
+  }
+
+  it("commits a graded row with the card derived from its options and a null certification number", async () => {
+    const { services, eventStore, createItem, batchOf } = setup();
+    const batch = await batchOf("cat_graded_required", graded);
+    expect(batch.rows[0]).toMatchObject({ status: "accepted" });
+    await services.commitBatch({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context);
+
+    expect(createItem).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ certificationNumber: null }),
+      expect.anything(),
+    );
+    expect(createItem.mock.calls[0]![0]).not.toHaveProperty("gradedCard");
+    const itemId = batch.rows[0]!.row_id.replace(/^imr_/, "inv_");
+    const events = await eventStore.readStream({ streamId: `inventory.item-${itemId}` });
+    expect(events.map((event) => event.eventType)).toEqual(["inventory.item.created"]);
+    expect(events[0]!.payload).toMatchObject({
+      selectedOptions: [
+        { dimensionId: "dim_form", optionId: "opt_graded" },
+        { dimensionId: "dim_company", optionId: "opt_psa" },
+        { dimensionId: "dim_grade", optionId: "opt_ten" },
+      ],
+      gradedCard: {
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: null,
+        population: null,
+        conditionDescriptors: [],
+      },
+    });
+  });
+
+  it("commits a raw row from the same schema without a card", async () => {
+    const { services, eventStore, batchOf } = setup();
+    const batch = await batchOf("cat_graded_required", { "option:dim_form": "opt_raw" });
+    await services.commitBatch({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context);
+    const itemId = batch.rows[0]!.row_id.replace(/^imr_/, "inv_");
+    const events = await eventStore.readStream({ streamId: `inventory.item-${itemId}` });
+    expect(events[0]!.payload).toMatchObject({ gradedCard: null });
+  });
+
+  it("refuses an optional grade left out with the missing-details text and writes no item", async () => {
+    const { services, streams, batchOf } = setup();
+    const { "option:dim_grade": _grade, ...withoutGrade } = graded;
+    const batch = await batchOf("cat_graded_optional", withoutGrade);
+    expect(batch.rows[0]).toMatchObject({ status: "accepted" });
+    await expect(
+      services.commitBatch({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context),
+    ).rejects.toThrow("Choose a grading company and grade before creating a Graded inventory item.");
+    expect([...streams.keys()].filter((streamId) => streamId.startsWith("inventory.item-"))).toEqual([]);
+  });
+
+  it("keeps the schema validation error for a required grade left out", async () => {
+    const { batchOf } = setup();
+    const { "option:dim_grade": _grade, ...withoutGrade } = graded;
+    const batch = await batchOf("cat_graded_required", withoutGrade);
+    expect(batch.rows[0]).toMatchObject({ status: "rejected" });
+    expect(batch.rows[0]!.validation_errors).toContain("Selected options must include Grade.");
+  });
+});
+
+describe("issue-7169-ac7 resolve authority", () => {
+  const unresolvedRows = [
+    {
+      rowNumber: 1,
+      values: {
+        catalogItemId: "cat_unknown",
+        storageLocationId: "loc_active",
+        totalQuantity: "2",
+        "option:condition": "near_mint",
+      },
+    },
+  ];
+  const fix = {
+    accountId: "acc_1" as AccountId,
+    catalogItemId: "cat_active",
+    storageLocationId: "loc_active",
+    selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+  };
+  const resolveWrites = (db: ImportBatchDb) =>
+    db.queries.filter(
+      (query) => query.sql.includes("UPDATE inventory_import_batch_rows") && query.sql.includes("'resolved'"),
+    ).length;
+
+  async function seeded(sourceKey: InventoryImportSourceKey = "native-csv") {
+    const db = dbWithLocations();
+    const services = runtime(db);
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        sourceKey,
+        defaultStorageLocationId: "loc_active",
+        parsedRows: unresolvedRows,
+      },
+      context,
+    );
+    return { db, services, batch, rowId: batch.rows[0]!.row_id };
+  }
+
+  async function refusal(work: Promise<unknown>) {
+    const error = await work.then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(ImportRowResolveConflict);
+    return (error as ImportRowResolveConflict).code;
+  }
+
+  it("accepts the caller's current row facts and moves the row version", async () => {
+    const { db, services, batch, rowId } = await seeded();
+    const resolved = await services.resolveRow(
+      { ...fix, batchId: batch.batch_id, rowId, ...rowFacts(batch, rowId) },
+      context,
+    );
+    expect(resolved.rows[0]).toMatchObject({ status: "accepted", resolution_status: "resolved" });
+    expect(resolved.rows[0]!.row_version).not.toBe(batch.rows[0]!.row_version);
+    expect(resolveWrites(db)).toBe(1);
+  });
+
+  it("stale-resolve-wins: refuses facts the caller read before another resolve, without a write", async () => {
+    const { db, services, batch, rowId } = await seeded();
+    await services.resolveRow({ ...fix, batchId: batch.batch_id, rowId, ...rowFacts(batch, rowId) }, context);
+    const before = structuredClone(db.rows);
+    const batchBefore = structuredClone(db.batches.get(batch.batch_id));
+    expect(
+      await refusal(
+        services.resolveRow(
+          { ...fix, batchId: batch.batch_id, rowId, storageLocationId: "loc_active", ...rowFacts(batch, rowId) },
+          context,
+        ),
+      ),
+    ).toBe("stale_row_facts");
+    expect(db.rows).toEqual(before);
+    expect(db.batches.get(batch.batch_id)).toEqual(batchBefore);
+  });
+
+  it("terminal-row-reruns: refuses a committed row even with its current facts, without a write", async () => {
+    const { db, services, batch, rowId } = await seeded();
+    db.rows = db.rows.map((row) => ({ ...row, status: "committed" as const, committed_at: now }));
+    const current = (await services.getBatch(batch.batch_id, "acc_1" as AccountId))!;
+    const before = structuredClone(db.rows);
+    expect(
+      await refusal(
+        services.resolveRow({ ...fix, batchId: batch.batch_id, rowId, ...rowFacts(current, rowId) }, context),
+      ),
+    ).toBe("terminal_row");
+    expect(db.rows).toEqual(before);
+    expect(resolveWrites(db)).toBe(0);
+  });
+
+  it.each([
+    ["date-only version", "2026-05-09", "fp", "invalid_row_facts"],
+    ["offset version", "2026-05-09T00:00:00.000000+00:00", "fp", "invalid_row_facts"],
+    ["PostgreSQL text version", "2026-05-09 00:00:00.000000+00", "fp", "invalid_row_facts"],
+    ["millisecond version", "2026-05-09T00:00:00.000Z", "fp", "invalid_row_facts"],
+    ["numeric version", 1746748800000, "fp", "invalid_row_facts"],
+    ["null version", null, "fp", "invalid_row_facts"],
+    ["missing version", undefined, "fp", "invalid_row_facts"],
+    ["impossible version", "2026-02-30T25:61:00.000000Z", "fp", "invalid_row_facts"],
+    ["empty version", "", "fp", "missing_row_facts"],
+    ["empty fingerprint", "2026-05-09T00:00:00.000000Z", "", "missing_row_facts"],
+    ["numeric fingerprint", "2026-05-09T00:00:00.000000Z", 7, "invalid_row_facts"],
+    ["control fingerprint", "2026-05-09T00:00:00.000000Z", "fp\u0000", "invalid_row_facts"],
+    ["oversized fingerprint", "2026-05-09T00:00:00.000000Z", "f".repeat(2049), "invalid_row_facts"],
+  ] as const)("refuses malformed caller facts before any read: %s", async (_case, version, fingerprint, code) => {
+    const { db, services, batch, rowId } = await seeded();
+    const queries = db.queries.length;
+    expect(
+      await refusal(
+        services.resolveRow(
+          {
+            ...fix,
+            batchId: batch.batch_id,
+            rowId,
+            expectedRowVersion: version as never,
+            expectedRowFingerprint: fingerprint as never,
+          },
+          context,
+        ),
+      ),
+    ).toBe(code);
+    expect(db.queries).toHaveLength(queries);
+  });
+
+  it("refuses a cross-batch row and an unknown batch as row_not_found", async () => {
+    const { db, services, batch, rowId } = await seeded();
+    const other = await services.createBatch(
+      { accountId: "acc_1" as AccountId, defaultStorageLocationId: "loc_active", parsedRows: unresolvedRows },
+      context,
+    );
+    const otherRowId = other.rows[0]!.row_id;
+    expect(
+      await refusal(
+        services.resolveRow(
+          { ...fix, batchId: batch.batch_id, rowId: otherRowId, ...rowFacts(other, otherRowId) },
+          context,
+        ),
+      ),
+    ).toBe("row_not_found");
+    expect(
+      await refusal(services.resolveRow({ ...fix, batchId: "imb_missing", rowId, ...rowFacts(batch, rowId) }, context)),
+    ).toBe("row_not_found");
+    expect(resolveWrites(db)).toBe(0);
+  });
+
+  it("fails a legacy empty-fingerprint row closed", async () => {
+    const { db, services, batch, rowId } = await seeded();
+    db.rows = db.rows.map((row) => ({ ...row, row_fingerprint: "" }));
+    expect(
+      await refusal(
+        services.resolveRow(
+          {
+            ...fix,
+            batchId: batch.batch_id,
+            rowId,
+            expectedRowVersion: batch.rows[0]!.row_version,
+            expectedRowFingerprint: "legacy",
+          },
+          context,
+        ),
+      ),
+    ).toBe("missing_row_facts");
+    expect(resolveWrites(db)).toBe(0);
+  });
+
+  it.each(["validating", "committing", "failed-safe", "ambiguous", "expired"] as const)(
+    "refuses while the batch is %s",
+    async (status) => {
+      const { db, services, batch, rowId } = await seeded();
+      db.batches.set(batch.batch_id, { ...db.batches.get(batch.batch_id)!, status });
+      expect(
+        await refusal(
+          services.resolveRow({ ...fix, batchId: batch.batch_id, rowId, ...rowFacts(batch, rowId) }, context),
+        ),
+      ).toBe("batch_not_resolvable");
+      expect(resolveWrites(db)).toBe(0);
+    },
+  );
+
+  it.each(["partial", "committed"] as const)("resolves a nonterminal row while the batch is %s", async (status) => {
+    const { db, services, batch, rowId } = await seeded();
+    db.batches.set(batch.batch_id, { ...db.batches.get(batch.batch_id)!, status });
+    const resolved = await services.resolveRow(
+      { ...fix, batchId: batch.batch_id, rowId, ...rowFacts(batch, rowId) },
+      context,
+    );
+    expect(resolved.rows[0]).toMatchObject({ status: "accepted" });
+  });
+
+  describe("through the HTTP route and the real mutation attempt executor", () => {
+    function attemptStore(db: ImportBatchDb) {
+      const receipts = new Map<string, Record<string, unknown>>();
+      let pending = new Map<string, Record<string, unknown>>();
+      const query = async (sql: string, values: readonly unknown[] = []) => {
+        if (/^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE|SELECT pg_advisory_xact_lock|SELECT set_config)/.test(sql)) {
+          if (sql === "COMMIT") {
+            for (const [key, receipt] of pending) receipts.set(key, receipt);
+            pending = new Map();
+          }
+          if (sql === "ROLLBACK") pending = new Map();
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.startsWith("SELECT * FROM inventory_mutation_attempts")) {
+          const receipt = pending.get(String(values[0])) ?? receipts.get(String(values[0]));
+          return { rows: receipt ? [receipt] : [], rowCount: receipt ? 1 : 0 };
+        }
+        if (sql.includes("INSERT INTO inventory_mutation_attempts")) {
+          const [attemptKey, tenantId, actorUserId, accountId, family, targetId, intentHash, requestingAccountId] =
+            values;
+          pending.set(String(attemptKey), {
+            attempt_key: attemptKey,
+            tenant_id: tenantId,
+            actor_user_id: actorUserId,
+            account_id: accountId,
+            requesting_account_id: requestingAccountId,
+            family,
+            target_id: targetId,
+            intent_hash: intentHash,
+            fingerprint_version: 1,
+            receipt_version: 1,
+            status: "accepted",
+          });
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes("UPDATE inventory_mutation_attempts SET status = 'succeeded'")) {
+          const accepted = pending.get(String(values[0]));
+          if (!accepted) return { rows: [], rowCount: 0 };
+          pending.set(String(values[0]), {
+            ...accepted,
+            status: "succeeded",
+            result: JSON.parse(String(values[7])),
+            result_hash: values[8],
+            completed_at: now,
+          });
+          return { rows: [{ attempt_key: values[0] }], rowCount: 1 };
+        }
+        return db.query(sql, values);
+      };
+      const pool = { query, connect: async () => ({ query, release: () => undefined }) };
+      return { pool: pool as unknown as PgTransactionalPool, receipts };
+    }
+
+    async function attemptedApp() {
+      const seed = await seeded();
+      const store = attemptStore(seed.db);
+      const mutations = createInventoryMutationRuntime(store.pool, {} as PostgresEventStore);
+      const services = createInventoryImportBatchRuntime({
+        db: mutations.db,
+        catalogItems: catalogServices(),
+        items: itemServices(
+          () => undefined,
+          () => undefined,
+        ),
+        executeMutation: mutations.execute,
+      });
+      const app = new Hono<InventoryApiEnv>();
+      app.use("*", async (c, next) => {
+        c.set("actor", { accountId: "acc_1", permissions: ["inventory.manage"] } as never);
+        c.set("context", context);
+        await next();
+      });
+      app.route("/", inventoryImportBatchRoutes(services));
+      const post = (attemptId: string, body: Record<string, unknown>) =>
+        app.request(`/${seed.batch.batch_id}/rows/${seed.rowId}/resolve`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "Inventory-Mutation-Attempt": attemptId },
+          body: JSON.stringify(body),
+        });
+      const body = (detail: typeof seed.batch, overrides: Record<string, unknown> = {}) => ({
+        catalogItemId: fix.catalogItemId,
+        selectedOptions: fix.selectedOptions,
+        storageLocationId: fix.storageLocationId,
+        ...rowFacts(detail, seed.rowId),
+        ...overrides,
+      });
+      return { ...seed, ...store, post, body };
+    }
+
+    it("accepts only the current row version fingerprint and stable attempt", async () => {
+      const { db, receipts, post, body, batch, rowId } = await attemptedApp();
+      const attempt = "2f1d6c4e-8a3b-4c5d-9e6f-7a8b9c0d1e2f";
+
+      const first = await post(attempt, body(batch));
+      expect(first.status).toBe(200);
+      expect(((await first.json()) as { rows: Array<{ status: string }> }).rows[0]?.status).toBe("accepted");
+      expect([...receipts.values()]).toEqual([
+        expect.objectContaining({
+          family: "import-resolve-row",
+          target_id: rowId,
+          status: "succeeded",
+          result: { batchId: batch.batch_id, rowId },
+        }),
+      ]);
+      expect(resolveWrites(db)).toBe(1);
+      const afterFirst = structuredClone(db.rows);
+
+      // Same attempt, same caller facts: replays the receipt without a second write.
+      expect((await post(attempt, body(batch))).status).toBe(200);
+      expect(resolveWrites(db)).toBe(1);
+      expect(db.rows).toEqual(afterFirst);
+
+      // New attempt still carrying the facts read before the first write: stale, no write, no receipt.
+      const stale = await post("3a2b1c0d-9e8f-4a6b-8c4d-2e1f0a9b8c7d", body(batch));
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toEqual({
+        error: { code: "stale_row_facts", message: new ImportRowResolveConflict("stale_row_facts").message },
+      });
+      expect(db.rows).toEqual(afterFirst);
+      expect(receipts.size).toBe(1);
+
+      // The first attempt reused with a different fix: changed intent, no write.
+      const changed = await post(attempt, body(batch, { storageLocationId: "loc_other" }));
+      expect(changed.status).toBe(409);
+      expect(((await changed.json()) as { error: { code: string } }).error.code).toBe("attempt_conflict");
+      expect(db.rows).toEqual(afterFirst);
+      expect(receipts.size).toBe(1);
+    });
+
+    it("rolls a refused attempted resolve back without a receipt, so the same attempt can retry", async () => {
+      const { db, receipts, post, body, batch } = await attemptedApp();
+      db.batches.set(batch.batch_id, { ...db.batches.get(batch.batch_id)!, status: "committing" });
+      const attempt = "4b3c2d1e-0f9a-4b7c-8d5e-3f2a1b0c9d8e";
+      const refused = await post(attempt, body(batch));
+      expect(refused.status).toBe(409);
+      expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("batch_not_resolvable");
+      expect(receipts.size).toBe(0);
+      db.batches.set(batch.batch_id, { ...db.batches.get(batch.batch_id)!, status: "uploaded" });
+      expect((await post(attempt, body(batch))).status).toBe(200);
+      expect(receipts.size).toBe(1);
+    });
   });
 });

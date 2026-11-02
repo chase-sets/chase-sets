@@ -18,6 +18,7 @@ export type CheckoutRecoveryAction = Readonly<{
 
 export type CheckoutRecoveryKind =
   | "access-required"
+  | "attempt-changed"
   | "cart-empty"
   | "checkout-closed"
   | "checkout-handoff-expired"
@@ -49,6 +50,12 @@ export type CheckoutPostWriteResult =
   | Readonly<{
       kind: "validation-blocker";
       reason: "validation-failed";
+      recoveryKind: "action-required";
+      retryable: false;
+    }>
+  | Readonly<{
+      kind: "attempt-conflict";
+      reason: "attempt-changed";
       recoveryKind: "action-required";
       retryable: false;
     }>
@@ -100,6 +107,7 @@ function recoveryKindForCheckoutRecoveryKind(kind: CheckoutRecoveryKind): PostWr
     case "checkout-handoff-expired":
       return "expired-handoff";
     case "access-required":
+    case "attempt-changed":
     case "cart-empty":
     case "checkout-closed":
     case "guest-access-expired":
@@ -169,6 +177,15 @@ function defaultPostWriteResultForRecoveryKind(
     };
   }
 
+  if (kind === "attempt-changed") {
+    return {
+      kind: "attempt-conflict",
+      reason: "attempt-changed",
+      recoveryKind: "action-required",
+      retryable: false,
+    };
+  }
+
   return {
     kind: "validation-blocker",
     reason: "validation-failed",
@@ -217,6 +234,18 @@ export function checkoutRecoveryForKind(
         description: t("checkout.routes.checkoutRecovery.checkout.closed.description"),
         trustCue: t("checkout.routes.checkoutSession.payment.has.not.started"),
         primaryAction: cartAction,
+      };
+    case "attempt-changed":
+      return {
+        kind,
+        recoveryKind,
+        postWriteResult,
+        status: 409,
+        title: t("checkout.routes.checkoutRecovery.checkout.attempt.changed"),
+        description: t("checkout.routes.checkoutRecovery.checkout.attempt.changed.description"),
+        trustCue: t("checkout.routes.checkoutSession.payment.has.not.started"),
+        primaryAction: refreshAction,
+        secondaryAction: cartAction,
       };
     case "access-required":
       return {
@@ -359,6 +388,12 @@ export function checkoutRecoveryForError(
 
   if (error.status === 404) {
     return checkoutRecoveryForKind("session-not-found", currentPath);
+  }
+
+  // The same entry key was already used with a different checkout; nothing
+  // was opened, and the page's fresh key lets the next submit start one.
+  if (error.status === 409 && errorBodyCode(error) === "checkout_attempt_conflict") {
+    return checkoutRecoveryForKind("attempt-changed", currentPath);
   }
 
   if (error.status === 503 && errorBodyCode(error) === "checkout_closed") {

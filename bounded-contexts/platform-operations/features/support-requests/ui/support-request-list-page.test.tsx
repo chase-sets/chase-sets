@@ -9,6 +9,7 @@ import MarketplaceAccountSupportRoute, { action, loader } from "../../../routes/
 import AccountSupportDetailRoute, { loader as detailLoader } from "../../../routes/marketplace/account-support-detail";
 import { supportParticipantDetailFixture, withParticipantPolicy } from "./participant-router.test-data";
 import { multipartRequest, nativeFormData } from "../tests/attachment-intake.test-support";
+import { formatDateTime } from "@chase-sets/localization";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer", tenantId: "tnt_identity" })),
@@ -144,6 +145,7 @@ describe("SupportRequestListPage", () => {
                 : null,
             });
           if (url.endsWith("/support-requests")) {
+            if (failing && failure === "submit-conflict") return json({ error: { message: "Submit conflict" } }, 409);
             opened = true;
             return json({ id: "sup_1" }, 201);
           }
@@ -245,7 +247,7 @@ describe("SupportRequestListPage", () => {
         expect(field().value).toBe(originalId);
         expect(uploadIds).toEqual([originalId]);
         expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull();
-        expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')?.value).toBe("sup_1");
+        expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')).toBeNull();
         expect(screen.queryByText("You already have an open case for this order")).toBeNull();
         if (failure === "submit-conflict") {
           const status = screen.getByRole("heading", {
@@ -277,7 +279,7 @@ describe("SupportRequestListPage", () => {
         await user.click(screen.getByRole("button", { name: "Start a new photo batch" }));
         const freshId = field().value;
         expect(freshId).not.toBe(originalId);
-        expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')?.value).toBe("sup_1");
+        expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')).toBeNull();
         expect(document.querySelector('input[name="uploadedAttachmentReferences"]')).toBeNull();
         expect(document.querySelector<HTMLInputElement>('input[name="uploadUncertain"]')?.value).toBe("false");
         failing = false;
@@ -419,12 +421,50 @@ describe("SupportRequestListPage", () => {
       closure_blocking_reasons: [],
       next_remedy_action: null,
       remedy_repair_guidance: [],
+      customerRemedyStatus: null,
+      nextDeadline: "2026-07-17T08:00:00.000Z",
     };
 
-    renderPage(null, [request], [request]);
+    const projection = {
+      state: "completed" as const,
+      terminal: true,
+      role: "buyer" as const,
+      outcome: "fullRefund" as const,
+      coverage: "full" as const,
+      noFaultFinding: false,
+      returnDirective: "no-return" as const,
+      refundTrigger: "immediate" as const,
+      nextAction: null,
+      amount: "5.00",
+      currencyCode: "usd",
+      sellerAmount: "0.00",
+      platformAmount: "5.00",
+      allocationCurrencyCode: "usd",
+    };
+    const nextDeadline = "2026-07-30T08:00:00.000Z";
+    renderPage(
+      null,
+      [{ ...request, nextDeadline, customerRemedyStatus: projection }],
+      [
+        {
+          ...request,
+          nextDeadline,
+          customerRemedyStatus: {
+            ...projection,
+            role: "seller",
+            outcome: "completedCovered",
+            coverage: null,
+            noFaultFinding: true,
+          },
+        },
+      ],
+    );
 
     const links = screen.getAllByRole("link", { name: "SUP-CASEDETA" });
     expect(links).toHaveLength(4);
     expect(links.every((link) => link.getAttribute("href") === "/account/support/sup_case_detail")).toBe(true);
+    expect(screen.getAllByText("Full refund of $5.00 approved.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Seller charge: $0.00. Chase Sets covered $5.00.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatDateTime(nextDeadline, { preset: "short" })).length).toBeGreaterThan(0);
   });
 });

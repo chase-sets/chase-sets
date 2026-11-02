@@ -17,6 +17,7 @@ const families: readonly InventoryMutationFamily[] = [
   "location-archive",
   "restock-record",
   "import-create",
+  "import-resolve-row",
 ];
 
 type Controller = ReturnType<typeof createInventoryMutationRecovery>;

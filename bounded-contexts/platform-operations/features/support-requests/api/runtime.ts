@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
+import { t } from "@chase-sets/localization";
+import { canonicalParticipantRequest, parseParticipantAttempt } from "../domain/participant-attempt";
 import {
   createParticipantRuntime,
+  participantOpenSupportRequestId,
   type ParticipantCommandInput,
   type ParticipantLookupInput,
   type PrepareSupportEvidence,
@@ -82,6 +85,7 @@ import {
 import { buildSupportRequestProjectionHandlers } from "../read-model/projection";
 import {
   readSupportEvidenceAttachment,
+  SupportEvidenceAttachmentError,
   storeSupportEvidenceAttachments,
   type StoredSupportEvidenceAttachment,
   type SupportEvidenceAttachmentStorage,
@@ -106,6 +110,7 @@ import {
   attachmentOperationStreamId,
   canonicalJson,
   decideAttachmentOperation,
+  hasUnsettledAttachmentPut,
   replayAttachmentOperation,
   type AttachmentOperationOwner,
   type AttachmentOperationEvent,
@@ -218,6 +223,17 @@ function deterministicSupportId(prefix: "sup" | "sev", sourceReference: string):
 }
 
 export type SupportRequestServices = Readonly<{
+  stageParticipantIntakeAttachments: (
+    params: Readonly<{
+      attemptId: string;
+      orderId: string;
+      flowType: string;
+      affectedLineIds: readonly string[] | null;
+      operationId: string;
+      actor: ResolvedActor;
+      uploads: () => Promise<readonly SupportEvidenceAttachmentUpload[]>;
+    }>,
+  ) => Promise<readonly StoredSupportEvidenceAttachment[]>;
   executeParticipantAttempt: (input: ParticipantCommandInput, context: EventStoreContext) => Promise<ParticipantResult>;
   getParticipantAttempt: (input: ParticipantLookupInput) => Promise<ParticipantLookup>;
   commandHandler: CommandHandler<SupportRequestCommand, SupportRequestState, SupportRequestEvent>;
@@ -479,7 +495,10 @@ export type SupportRequestServices = Readonly<{
     supportRequestId: string,
     accountId: string,
   ) => ReturnType<typeof getAccountSupportRequest>;
-  getSupportOperationsRequest: (supportRequestId: string) => ReturnType<typeof getSupportOperationsRequest>;
+  getSupportOperationsRequest: (
+    supportRequestId: string,
+    now?: string,
+  ) => ReturnType<typeof getSupportOperationsRequest>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -1086,17 +1105,59 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     };
   }
 
+  function intakeBinding(
+    body: Readonly<{ orderId: string; flowType: string; affectedLineIds: readonly string[] | null }>,
+  ) {
+    return canonicalParticipantRequest("open-support-request", {
+      orderId: body.orderId,
+      flowType: body.flowType,
+      affectedLineIds: body.affectedLineIds,
+    });
+  }
+  function intakeBindingStream(supportRequestId: string, operationId: string) {
+    validateSupportAttachmentOperationId(operationId);
+    return `support.participant-intake-${supportRequestId}-${operationId}`;
+  }
+  async function readIntakeBinding(supportRequestId: string, operationId: string, tenantId: string, accountId: string) {
+    const events = await readCompleteStream(deps.eventStore, {
+      streamId: intakeBindingStream(supportRequestId, operationId),
+    });
+    if (
+      events.length !== 1 ||
+      events[0]!.tenantId !== tenantId ||
+      events[0]!.forAccountId !== accountId ||
+      events[0]!.eventType !== "support.participant-intake.bound" ||
+      typeof events[0]!.payload.binding !== "string"
+    )
+      throw new SupportDomainError("attachment_reference_unknown");
+    return events[0]!.payload.binding;
+  }
   const participantRuntime = createParticipantRuntime({
     prepareEvidence,
     eventStore: deps.eventStore,
     now: deps.now,
     authorizeEvidence: (targetId, actor) => authorizeEvidenceAccess(targetId, actor, "submit-participant"),
-    prepareOpen: async (body, accountId, supportRequestId) => {
+    prepareOpen: async (body, accountId, supportRequestId, context) => {
       const order = await getOrderSource(deps.db, normalizeOrderId(body.orderId));
       if (!order) throw new SupportDomainError("Order not found for support.");
       const openedByRole = participantRoleForOrder(order, accountId);
       const flowType = normalizeFlowType(body.flowType);
-      getSupportFlowDefinition(flowType);
+      const flow = getSupportFlowDefinition(flowType);
+      if (
+        flow.checklist.some(
+          (item) => item.required && item.ownerRole === openedByRole && item.evidenceTypes.includes("photo"),
+        ) &&
+        body.intakePhotoReferences.length === 0
+      )
+        throw new SupportDomainError(t("support.routes.marketplace.accountSupport.photos.required"));
+      if (body.intakePhotoReferences.length) {
+        if (
+          !body.attachmentOperationId ||
+          (await readIntakeBinding(supportRequestId, body.attachmentOperationId, context.tenantId, accountId)) !==
+            intakeBinding(body)
+        )
+          throw new SupportDomainError("attachment_reference_unknown");
+      }
       const existing = await findOpenSupportRequestForOrder(deps.db, { orderId: order.order_id });
       if (existing) throw new SupportDomainError("A support case is already open for this order.");
       const affectedLineItems = selectAffectedLineItems(order, body.affectedLineIds);
@@ -1345,6 +1406,70 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       });
 
       return { supportRequestId, version: result.version };
+    },
+    stageParticipantIntakeAttachments: async (params) => {
+      const actor = params.actor;
+      if (!actor.permissions.includes("support.manage")) throw new EvidenceAccessError(403);
+      parseParticipantAttempt({ attemptId: params.attemptId, requestHash: "0".repeat(64) });
+      validateSupportAttachmentOperationId(params.operationId);
+      const canonical = intakeBinding(params);
+      const body = JSON.parse(canonical).payload as {
+        orderId: string;
+        flowType: SupportFlowType;
+        affectedLineIds: readonly string[] | null;
+      };
+      const order = await getOrderSource(deps.db, normalizeOrderId(body.orderId));
+      if (!order || (order.buyer_account_id !== actor.accountId && order.seller_account_id !== actor.accountId))
+        throw new EvidenceAccessError(404);
+      const role = participantRoleForOrder(order, actor.accountId);
+      const flow = getSupportFlowDefinition(body.flowType);
+      if (!flow.openedBy.includes(role)) throw new SupportDomainError("attachment_reference_unknown");
+      selectAffectedLineItems(order, body.affectedLineIds);
+      const supportRequestId = participantOpenSupportRequestId(actor.tenantId, actor.accountId, params.attemptId);
+      const context: EventStoreContext = {
+        tenantId: actor.tenantId as EventStoreContext["tenantId"],
+        audit: {
+          performedByUserId: actor.userId as EventStoreContext["audit"]["performedByUserId"],
+          forAccountId: actor.accountId as EventStoreContext["audit"]["forAccountId"],
+        },
+      };
+      const streamId = intakeBindingStream(supportRequestId, params.operationId);
+      const events = await readCompleteStream(deps.eventStore, { streamId });
+      if (!events.length) {
+        try {
+          await deps.eventStore.appendToStream({
+            streamId,
+            expectedVersion: "no_stream",
+            context,
+            events: [{ eventType: "support.participant-intake.bound", payload: { binding: canonical } }],
+          });
+        } catch (error) {
+          if ((error as { code?: string }).code !== "concurrency_conflict") throw error;
+        }
+      }
+      if (
+        (await readIntakeBinding(supportRequestId, params.operationId, actor.tenantId, actor.accountId)) !== canonical
+      )
+        throw new SupportDomainError("attachment_reference_unknown");
+      const operationEvents = await readCompleteStream(deps.eventStore, {
+        streamId: attachmentOperationStreamId({
+          supportRequestId,
+          operationId: params.operationId,
+        }),
+      });
+      const operationCodec = createPassthroughDomainEventCodec<AttachmentOperationEvent>();
+      const operationState = replayAttachmentOperation(operationEvents.map((event) => operationCodec.decode(event)));
+      if (hasUnsettledAttachmentPut(operationState))
+        throw new SupportEvidenceAttachmentError("Support evidence storage is unavailable.", "storage-unavailable");
+      return storeSupportEvidenceAttachments({
+        supportRequestId,
+        operationId: params.operationId,
+        context,
+        eventStore: deps.eventStore,
+        uploads: await params.uploads(),
+        storage: deps.attachmentStorage,
+        canonicalizer: deps.attachmentCanonicalizer,
+      });
     },
     uploadAttachments: async (params) => {
       await authorizeEvidenceAccess(params.supportRequestId, params.actor, "upload");
@@ -2120,7 +2245,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     listSellerSupportRequests: (params) => listSellerSupportRequests(deps.db, params),
     getAccountSupportRequest: (supportRequestId, accountId) =>
       getAccountSupportRequest(deps.db, supportRequestId, accountId),
-    getSupportOperationsRequest: (supportRequestId) => getSupportOperationsRequest(deps.db, supportRequestId),
+    getSupportOperationsRequest: (supportRequestId, now) => getSupportOperationsRequest(deps.db, supportRequestId, now),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "support-request-projection",

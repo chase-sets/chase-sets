@@ -5,6 +5,14 @@ import { createMarketplaceOfferMcpHandlers } from "./mcp";
 import type { MarketplaceOfferServices } from "./runtime";
 import { ManagedOfferConflictError } from "./managed-authority";
 import { privatePolicyFields } from "../../offer-policy/tests/fixtures";
+import { createMarketplaceOfferRuntime } from "./runtime";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import { buildListingEvidenceSnapshot } from "../../listings/domain/evidence-snapshot";
+import { hashMarketplaceRequest } from "../../mutation-recovery/api/attempt";
+import { marketplaceOfferCanonicalRequest } from "../../mutation-recovery/domain/contracts";
+import type { OfferMatchRow } from "../read-model/queries";
 
 const actor = {
   sessionId: "sess_1",
@@ -33,7 +41,7 @@ function mcpRequest(arguments_: Record<string, unknown>, requestActor: ResolvedA
   };
 }
 
-function offerRow(overrides: Record<string, unknown> = {}) {
+function offerRow(overrides: Partial<OfferMatchRow> = {}): OfferMatchRow {
   return {
     ...privatePolicyFields,
     offer_id: "off_1",
@@ -53,6 +61,26 @@ function offerRow(overrides: Record<string, unknown> = {}) {
       country: "US",
     },
     price_amount: "20.00",
+    price_currency_code: "USD",
+    last_stream_version: 1,
+    accepted_listing_id: null,
+    accepted_inventory_item_id: null,
+    listing_evidence_policy_hash: null,
+    listing_evidence_snapshot_hash: null,
+    listing_id: "lst_1",
+    listing_price_amount: "24.00",
+    listing_price_currency_code: "USD",
+    listing_stream_version: 2,
+    listing_quantity_cap: 1,
+    listing_visible_quantity: 1,
+    offer_price_gap_amount: "4.00",
+    offer_to_listing_price_bps: 8333,
+    buyer_display_name: "Buyer",
+    buyer_average_rating: null,
+    buyer_review_count: 0,
+    seller_available_quantity: 1,
+    seller_listing_availability_status: "available",
+    can_fulfill: true,
     quantity_requested: 1,
     status: "submitted",
     accepted_seller_account_id: null,
@@ -64,7 +92,14 @@ function offerRow(overrides: Record<string, unknown> = {}) {
 }
 
 function services(): MarketplaceOfferServices {
+  const db = { query: async <Row>() => ({ rows: [] as Row[] }) };
   return {
+    ...createMarketplaceOfferRuntime({
+      eventStore: createInMemoryEventStore().eventStore,
+      db,
+      checkpointStore: createPostgresProjectionStore({ db }),
+      commercialTermsResolver: createNoopCommercialTermsResolver(),
+    }),
     submitOffer: vi.fn(async (params) => ({
       offerId: params.offerId ?? "off_1",
       version: 1,
@@ -72,6 +107,9 @@ function services(): MarketplaceOfferServices {
     acceptOffer: vi.fn(async (params) => ({
       offerId: params.offerId,
       version: 2,
+      listingId: params.listingId,
+      inventoryItemId: "inv_one",
+      listingEvidenceSnapshot: buildListingEvidenceSnapshot({ evidence: [], createdAt: "2026-01-01T00:00:00.000Z" }),
     })),
     declineOfferMatch: vi.fn(async (params) => ({
       offerId: params.offerId,
@@ -80,6 +118,7 @@ function services(): MarketplaceOfferServices {
     listSubmittedOffers: vi.fn(async () => ({
       items: [offerRow({ buyer_account_id: "acc_1" })],
       total: 1,
+      statusCounts: { submitted: 1, paused: 0, withdrawn: 0, accepted: 0 },
     })),
     listOfferMatches: vi.fn(async () => ({
       items: [
@@ -97,10 +136,12 @@ function services(): MarketplaceOfferServices {
     getOfferMatch: vi.fn(async (offerId) =>
       offerId === "off_match" ? offerRow({ offer_id: offerId, listing_id: "lst_1" }) : null,
     ),
-  } as unknown as MarketplaceOfferServices;
+  };
 }
 
 const submitArgs = {
+  attemptId: "mcp_attempt_identity_0001",
+  requestHash: "a".repeat(64),
   accountId: "acc_1",
   catalogItemId: "cat_1",
   productId: "cat_1::condition:near-mint",
@@ -121,6 +162,100 @@ const submitArgs = {
 };
 
 describe("marketplace offer MCP handlers", () => {
+  it.each([
+    "marketplace.submit-offer",
+    "marketplace.counter-offer",
+    "marketplace.update-offer-price",
+    "marketplace.accept-offer",
+    "marketplace.decline-offer",
+  ])("%s refuses missing attempt id or hash before the service", async (tool) => {
+    const service = services();
+    vi.spyOn(service, "updateOfferPrice");
+    const handlers = createMarketplaceOfferMcpHandlers(service);
+    const args = { ...submitArgs, counteredOfferId: "off_original", offerId: "off_one", listingId: "lst_one" };
+    for (const field of ["attemptId", "requestHash"] as const) {
+      const missing: Record<string, unknown> = { ...args };
+      delete missing[field];
+      await expect(handlers.toolHandlers[tool]!(mcpRequest(missing))).rejects.toThrow(field);
+    }
+    for (const method of [
+      service.submitOffer,
+      service.updateOfferPrice,
+      service.acceptOffer,
+      service.declineOfferMatch,
+    ])
+      expect(method).not.toHaveBeenCalled();
+  });
+
+  it("rail attempt identity never grants cross-account authority", async () => {
+    const service = services();
+    const handlers = createMarketplaceOfferMcpHandlers(service);
+    await expect(
+      handlers.toolHandlers["marketplace.submit-offer"]!(mcpRequest({ ...submitArgs, accountId: "acc_other" })),
+    ).rejects.toThrow();
+    expect(service.submitOffer).not.toHaveBeenCalled();
+  });
+
+  it.each(["marketplace.submit-offer", "marketplace.counter-offer"])(
+    "%s replays a real runtime first receipt after response loss with no second append",
+    async (tool) => {
+      const store = createInMemoryEventStore().eventStore;
+      const db = {
+        query: async <Row>(sql: string) => ({
+          rows: (sql.includes("FROM marketplace_catalog_items")
+            ? [{ status: "active", product_schema: null }]
+            : []) as Row[],
+        }),
+      };
+      const service = createMarketplaceOfferRuntime({
+        eventStore: store,
+        db,
+        checkpointStore: createPostgresProjectionStore({ db }),
+        commercialTermsResolver: createNoopCommercialTermsResolver(),
+      });
+      const args = {
+        ...submitArgs,
+        productId: "cat_1::",
+        selectedOptions: [],
+        ...(tool.endsWith("counter-offer") ? { counteredOfferId: "off_original" } : {}),
+      };
+      const request = {
+        offerId: args.offerIdOverride,
+        ...(tool.endsWith("counter-offer") ? { counteredOfferId: "off_original" } : {}),
+        catalogItemId: args.catalogItemId,
+        productId: args.productId,
+        itemTitle: args.itemTitle,
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        shippingDestinationSnapshot: {
+          ...args.shippingDestinationSnapshot,
+          company: null,
+          line2: null,
+          phone: null,
+          email: null,
+        },
+        priceAmount: args.priceAmount,
+        priceCurrencyCode: args.priceCurrencyCode,
+        quantityRequested: args.quantityRequested,
+      };
+      args.requestHash = hashMarketplaceRequest(marketplaceOfferCanonicalRequest("offer.submit", request));
+      const handlers = createMarketplaceOfferMcpHandlers(service);
+      const first = await handlers.toolHandlers[tool]!(mcpRequest(args));
+      await expect(
+        Promise.resolve().then(() => {
+          throw new TypeError("injected response loss after commit");
+        }),
+      ).rejects.toThrow("loss");
+      const append = vi.spyOn(store, "appendToStreams");
+      expect(await handlers.toolHandlers[tool]!(mcpRequest(args))).toEqual(first);
+      expect(append).not.toHaveBeenCalled();
+      await expect(handlers.toolHandlers[tool]!(mcpRequest({ ...args, priceAmount: "21.00" }))).rejects.toMatchObject({
+        code: "attempt_conflict",
+      });
+      expect(append).not.toHaveBeenCalled();
+    },
+  );
   it("submits buyer offers through the Marketplace offer service and returns a receipt", async () => {
     const fakeServices = services();
     const handlers = createMarketplaceOfferMcpHandlers(fakeServices);
@@ -180,11 +315,20 @@ describe("marketplace offer MCP handlers", () => {
           listingId: "lst_1",
           feeQuoteFingerprint: "20.00|1.00|19.00|cts_default|",
           sourceActionKey: "mcp:accept:off_1",
+          attemptId: "mcp_attempt_identity_0002",
+          requestHash: "b".repeat(64),
         }),
       ),
     ).resolves.toMatchObject({ offerId: "off_1", version: 2, status: "accepted" });
     await expect(
-      handlers.toolHandlers["marketplace.decline-offer"]?.(mcpRequest({ accountId: "acc_1", offerId: "off_1" })),
+      handlers.toolHandlers["marketplace.decline-offer"]?.(
+        mcpRequest({
+          accountId: "acc_1",
+          offerId: "off_1",
+          attemptId: "mcp_attempt_identity_0003",
+          requestHash: "c".repeat(64),
+        }),
+      ),
     ).resolves.toMatchObject({ offerId: "off_1", version: 3, status: "declined" });
 
     expect(fakeServices.acceptOffer).toHaveBeenCalledWith(
@@ -193,7 +337,8 @@ describe("marketplace offer MCP handlers", () => {
         sellerAccountId: "acc_1",
         listingId: "lst_1",
         feeQuoteFingerprint: "20.00|1.00|19.00|cts_default|",
-        sourceActionKey: "mcp:accept:off_1",
+        sourceActionKey: "mcp_attempt_identity_0002",
+        requestHash: "b".repeat(64),
       },
       expect.any(Object),
     );
@@ -201,6 +346,8 @@ describe("marketplace offer MCP handlers", () => {
       {
         offerId: "off_1",
         sellerAccountId: "acc_1",
+        attemptId: "mcp_attempt_identity_0003",
+        requestHash: "c".repeat(64),
       },
       expect.any(Object),
     );
@@ -212,7 +359,14 @@ describe("marketplace offer MCP handlers", () => {
     const handlers = createMarketplaceOfferMcpHandlers(fake);
     await expect(
       handlers.toolHandlers["marketplace.accept-offer"]!(
-        mcpRequest({ accountId: "acc_1", offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "old" }),
+        mcpRequest({
+          accountId: "acc_1",
+          offerId: "off_1",
+          listingId: "lst_1",
+          feeQuoteFingerprint: "old",
+          attemptId: "mcp_attempt_identity_0004",
+          requestHash: "d".repeat(64),
+        }),
       ),
     ).rejects.toMatchObject({ code: "managed_offer_refresh_required" });
     expect(fake.acceptOffer).toHaveBeenCalledTimes(1);
@@ -311,7 +465,14 @@ describe("marketplace offer MCP price receipts", () => {
     const handlers = createMarketplaceOfferMcpHandlers(fakeServices);
 
     const result = await handlers.toolHandlers["marketplace.update-offer-price"]?.(
-      mcpRequest({ accountId: "acc_1", offerId: "off_1", priceAmount: "21.00", priceCurrencyCode: "USD" }),
+      mcpRequest({
+        accountId: "acc_1",
+        offerId: "off_1",
+        priceAmount: "21.00",
+        priceCurrencyCode: "USD",
+        attemptId: "paused_mcp_price_attempt_01",
+        requestHash: "a".repeat(64),
+      }),
     );
 
     expect(result).toMatchObject({ offerId: "off_1", version: 3, status: "paused" });

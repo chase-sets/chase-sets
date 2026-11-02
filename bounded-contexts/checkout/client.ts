@@ -30,6 +30,7 @@ import {
   type CheckoutCartAttemptKind,
   type CheckoutCommandAttemptResult,
 } from "./features/command-attempts/api/contracts";
+import type { CheckoutEntryAttemptQuery } from "./features/command-attempts/api/entry-attempt-contracts";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -503,6 +504,18 @@ export function createCheckoutApiClient({
         ),
       );
     },
+    /** The owner lookup for one Session entry attempt of the presenting Account (guest-buyer included). */
+    async getCheckoutEntryAttempt(query: CheckoutEntryAttemptQuery): Promise<CheckoutCommandAttemptResult> {
+      return parseCommandAttemptLookup(
+        await parseJsonResponse<{ attempt: unknown }>(
+          await client.account["command-attempts"][":attemptId"].$get({
+            param: { attemptId: query.attemptId },
+            query: { kind: query.kind, target: query.target, requestHash: query.requestHash },
+            header: headers,
+          }),
+        ),
+      );
+    },
     async getGuestCartCommandAttempt(
       anonymousCartId: string,
       query: CheckoutCartCommandAttemptQuery,
@@ -847,6 +860,21 @@ export function createCheckoutApiClient({
         await client.account["checkout-sessions"][":sessionId"]["optimization-goal"].$post({
           param: { sessionId },
           json: body,
+          header: headers,
+        }),
+      );
+    },
+    async cancelCheckoutSession(sessionId: string): Promise<
+      CheckoutMutationResult<{
+        session_id: string;
+        status: "cancelled" | "already-cancelled";
+        cancelled_at: string | null;
+        released_reservation_ids: readonly string[];
+      }>
+    > {
+      return parseJsonResponse(
+        await client.account["checkout-sessions"][":sessionId"].cancel.$post({
+          param: { sessionId },
           header: headers,
         }),
       );

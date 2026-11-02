@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
+import {
+  payoutReadinessFixture,
+  payoutSetupMatrix,
+} from "../../features/payout-readiness/tests/setup-decision.test-data";
 
 const { mockCreateSettlementRequestApiClient, mockRequireActorFromAuthApi, mockResolveRequiredActorFromAuthApi } =
   vi.hoisted(() => ({
@@ -42,19 +46,11 @@ async function readResolvedFreshWriteToken(url: URL) {
 
 function readyPayoutReadiness() {
   return {
-    account_id: "acc_seller",
-    status: "ready",
-    missing_requirements: [],
-    provider_reference: "acct_test",
-    onboarding_status: "complete",
-    transfer_capability_status: "active",
-    payout_capability_status: "active",
-    payout_destination_status: "ready",
-    payout_account_dashboard: "none",
-    losses_collector: "application",
-    fees_collector: "application",
-    requirements_collector: "application",
-    updated_at: "2026-06-15T20:00:00.000Z",
+    ...payoutReadinessFixture({ status: "ready", updated_at: "2026-06-15T20:00:00.000Z" }),
+    next_step: "none" as const,
+    support_recommended: false,
+    provider_setup_available: false,
+    provider_management_available: true,
   };
 }
 
@@ -67,6 +63,43 @@ function formRequest(form: URLSearchParams, url = "http://localhost/account/desk
 }
 
 describe("settlement account payout setup route action", () => {
+  it.each(payoutSetupMatrix)(
+    "passes API decisions unchanged through the account loader: $name",
+    async ({ projection, expected }) => {
+      const payoutReadiness = { ...projection, ...expected };
+      mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+        kind: "authorized",
+        actor: { accountId: "acc_seller", permissions: ["payouts.setup"] },
+      });
+      const getPayoutReadiness = vi.fn(async () => payoutReadiness);
+      mockCreateSettlementRequestApiClient.mockReturnValue({ getPayoutReadiness });
+      const result = await accountPayoutSetupLoader({
+        request: new Request("http://localhost/account/desk/settings?mode=manage"),
+        params: {},
+        context: undefined,
+      } as never);
+      expect(result.payoutReadiness).toBe(payoutReadiness);
+      expect(result.mode).toBe(expected.provider_management_available ? "management" : "setup");
+      expect(getPayoutReadiness).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("uses management availability rather than a provider reference in the loader", async () => {
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "authorized",
+      actor: { accountId: "acc_seller", permissions: ["payouts.setup"] },
+    });
+    mockCreateSettlementRequestApiClient.mockReturnValue({
+      getPayoutReadiness: async () => ({ ...readyPayoutReadiness(), provider_management_available: false }),
+    });
+    const result = await accountPayoutSetupLoader({
+      request: new Request("http://localhost/account/desk/settings?mode=manage"),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(result.mode).toBe("setup");
+  });
+
   afterEach(() => {
     vi.resetAllMocks();
   });

@@ -1,5 +1,11 @@
 import type { SupportFlowDefinition } from "../domain/flow-catalog";
-import type { SupportRequestDetailRow, SupportRequestListRow } from "../read-model/queries";
+import type {
+  CustomerSupportRequestListRow,
+  SupportOperationsRequestDetailRow,
+  SupportOperationsRequestListRow,
+  SupportRequestDetailRow,
+  SupportRequestListRow,
+} from "../read-model/queries";
 import type { SupportFlowDetail, SupportParticipantPolicy } from "../api/support-flow-projection";
 
 export type SupportFlowSummary = SupportFlowDefinition;
@@ -24,8 +30,13 @@ export type SupportOrderLookup = Readonly<{
   }>;
 }>;
 export type SupportRequestListItem = SupportRequestListRow;
+export type SupportOperationsRequestListItem = SupportOperationsRequestListRow;
+export type CustomerSupportRequestListItem = CustomerSupportRequestListRow;
 export type SupportRequestDetail = SupportRequestDetailRow;
+export type SupportOperationsRequestDetail = SupportOperationsRequestDetailRow;
 export type SupportRequestDetailResponse = SupportRequestDetailRow & Readonly<{ flow: SupportFlowDetail }>;
+export type SupportOperationsRequestDetailResponse = SupportOperationsRequestDetailRow &
+  Readonly<{ flow: SupportFlowDetail }>;
 export type SupportRequestParticipantDetailResponse = SupportRequestDetailResponse &
   Readonly<{ participantPolicy: SupportParticipantPolicy }>;
 

@@ -1,6 +1,7 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { attachResponseMetadata, type MutationResult } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
+import type { CommercialTermsHome } from "../api/home-read";
 
 export class CommercialTermsApiError extends Error {
   public constructor(
@@ -169,6 +170,10 @@ export function createCommercialTermsRequestApiClient(request: Request) {
   }
 
   return {
+    async getHome(scheduleId: string | null) {
+      const query = scheduleId ? `?${new URLSearchParams({ schedule: scheduleId })}` : "";
+      return requestJson<CommercialTermsHome>(`${baseUrl}/home${query}`);
+    },
     async listSchedules(query = "") {
       return requestJson<{ items: CommercialTermsSchedule[]; total: number; count: number }>(
         `${baseUrl}/schedules${queryFromString(query)}`,

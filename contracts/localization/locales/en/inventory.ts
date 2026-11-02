@@ -1,6 +1,4 @@
 export const inventoryEnglishTranslations = {
-  "inventory.features.inventoryItems.ui.inventoryItemListPage.graded.details.required":
-    "Choose a grading company and grade before creating a Graded inventory item.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.certification.number": "Certification number (optional)",
   "inventory.import.resume.title": "Resume an import",
   "inventory.import.resume.description":

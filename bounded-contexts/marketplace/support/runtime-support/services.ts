@@ -29,6 +29,7 @@ import { createListingActionAttentionSourceFromReadModel } from "../../features/
 import { createOfferResponseAttentionSourceFromReadModel } from "../../features/offers/read-model/seller-attention-source";
 import { createMarketplaceChannelInboundClampRuntime } from "../../features/channel-inbound-clamp/api/runtime";
 import { createBuyerOfferPolicyRuntime } from "../../features/offer-policy/api/runtime";
+import { createMarketplaceMutationLookup } from "../../features/mutation-recovery/api/lookup";
 import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
 import type { MarketplaceOfferLifecycleAdmission } from "../../features/offers/api/lifecycle-admission";
 import { createManagedOfferWork } from "../../features/offers/integrations/managed-work";
@@ -47,6 +48,7 @@ export type MarketplaceServiceOptions = Readonly<{
 }>;
 
 export type MarketplaceServices = Readonly<{
+  mutationRecovery: ReturnType<typeof createMarketplaceMutationLookup>;
   inventoryDraftListingConsumer: InventoryDraftListingConsumer;
   reviewOpportunityPublication: ReturnType<typeof createReviewOpportunityPublication>;
   managedOfferWork: ReturnType<typeof createManagedOfferWork>;
@@ -129,6 +131,7 @@ export function createMarketplaceServices(
   ]);
   const channelInboundClamp = createMarketplaceChannelInboundClampRuntime(pool, listings);
   return {
+    mutationRecovery: createMarketplaceMutationLookup(eventStore),
     inventoryDraftListingConsumer: createInventoryDraftListingConsumer({
       pool,
       eventStore,

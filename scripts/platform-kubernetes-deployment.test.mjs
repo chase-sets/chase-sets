@@ -2152,6 +2152,7 @@ describe("platform Kubernetes deployment", () => {
         status: "pending",
         ...overrides.successor,
       };
+      let jobsFailures = overrides.jobsFailures ?? 0;
       const fetch = vi.fn(async (url) => {
         const request = new URL(url);
         let body;
@@ -2180,7 +2181,10 @@ describe("platform Kubernetes deployment", () => {
           request.pathname ===
           `/repos/synthetic/repository/actions/runs/${successor.id}/attempts/${successor.run_attempt}/jobs`
         ) {
-          if (overrides.jobsFailure) return { ok: false, status: 503 };
+          if (jobsFailures > 0) {
+            jobsFailures -= 1;
+            return { ok: false, status: 503 };
+          }
           body = overrides.jobs ?? { total_count: 0, jobs: [] };
         } else {
           throw new Error(`Unexpected synthetic request: ${url}`);
@@ -2297,13 +2301,19 @@ describe("platform Kubernetes deployment", () => {
 
     it.each([
       ["unavailable workflow", { sourceFailure: true }, /workflow source.*HTTP 403/],
-      ["unavailable jobs", { jobsFailure: true }, /job census.*HTTP 503/],
+      ["jobs unavailable after two re-reads", { jobsFailures: 3 }, /job census.*HTTP 503/],
       ["malformed workflow response", { sourceBody: { type: "file", encoding: "none" } }, /workflow source census/],
       ["malformed runs response", { runsBody: { total_count: 0 } }, /run census.*invalid response/],
       ["missing run identity", { successor: { id: undefined } }, /malformed run identity/],
       ["duplicate run identity", { successor: { id: 91001 } }, /duplicate or moving run/],
     ])("fails closed for %s", async (_label, overrides, error) => {
       await expect(collect(overrides)).rejects.toThrow(error);
+    });
+
+    it("re-reads a job census 503 twice and admits the recovered answer", async () => {
+      const { census, fetch } = await collect({ jobsFailures: 2 });
+      expect(census.concurrencyQueuedRuns.map(({ id }) => id)).toEqual([91002]);
+      expect(fetch.mock.calls.filter(([url]) => new URL(url).pathname.endsWith("/jobs"))).toHaveLength(3);
     });
 
     describe("successor serialization projection", () => {
@@ -2537,7 +2547,11 @@ describe("platform Kubernetes deployment", () => {
       });
 
       it("fails closed for an unparseable successor definition", async () => {
-        await expect(collect({ source: "name: [Platform Deploy\n" })).rejects.toThrow(YAMLParseError);
+        // The refusal keeps the parser error as its cause but never quotes the definition.
+        await expect(collect({ source: "name: [Platform Deploy\n" })).rejects.toMatchObject({
+          message: expect.stringMatching(/^census-unclassified after 1 pass: YAMLParseError \(BAD_INDENT\)\. /),
+          cause: expect.any(YAMLParseError),
+        });
       });
 
       it.each([
@@ -2632,7 +2646,14 @@ describe("platform Kubernetes deployment", () => {
       GITHUB_API_URL: "https://api.example.invalid",
     };
 
-    async function collect({ listed = [], direct = current, httpStatus = 200, environment = {} } = {}) {
+    async function collect({
+      listed = [],
+      direct = current,
+      httpStatus = 200,
+      environment = {},
+      directReads = [],
+      sleep = vi.fn(async () => {}),
+    } = {}) {
       const fetch = vi.fn(async (url) => {
         const request = new URL(url);
         if (request.pathname.endsWith("/actions/runs")) {
@@ -2640,9 +2661,9 @@ describe("platform Kubernetes deployment", () => {
           return { ok: true, json: async () => ({ total_count: workflow_runs.length, workflow_runs }) };
         }
         expect(request.pathname).toBe(`/repos/synthetic/repository/actions/runs/${current.id}`);
+        directReads.push(url);
         return { ok: httpStatus === 200, status: httpStatus, json: async () => direct };
       });
-      const sleep = vi.fn(async () => {});
       const census = await readGitHubProductionWriterCensus({ fetch, sleep, env: { ...env, ...environment } });
       return { census, fetch, sleep };
     }
@@ -2754,8 +2775,14 @@ describe("platform Kubernetes deployment", () => {
       await expect(collect({ environment })).rejects.toThrow("current run census returned an unverified run identity");
     });
 
-    it("fails closed when the direct GET is unavailable", async () => {
-      await expect(collect({ httpStatus: 503 })).rejects.toThrow("current run census failed with HTTP 503");
+    it("fails closed when the direct GET stays unavailable after two re-reads", async () => {
+      const directReads = [];
+      const sleep = vi.fn(async () => {});
+      await expect(collect({ httpStatus: 503, directReads, sleep })).rejects.toThrow(
+        "current run census failed with HTTP 503",
+      );
+      expect(directReads).toHaveLength(3);
+      expect(sleep.mock.calls).toEqual([[1_000], [2_000]]);
     });
   });
 
@@ -2776,35 +2803,102 @@ describe("platform Kubernetes deployment", () => {
       `${pass}:waiting:1`,
     ];
 
-    // Each pass is a status -> pages script; the last pass repeats once the script runs out.
-    async function readPasses(passes) {
+    // Each pass is a status -> pages script, plus `windows`: created -> pages (a map or a
+    // function) for partition reads; the last pass repeats once the script runs out. A page
+    // given as an array answers successive reads of that page in order, its last entry repeating.
+    async function readPasses(passes, { token = "synthetic-token", headers = {} } = {}) {
       let pass = 0;
       const requests = [];
-      const fetch = vi.fn(async (url) => {
+      const inits = [];
+      const lines = [];
+      const served = new Map();
+      const fetch = vi.fn(async (url, init) => {
         const request = new URL(url);
         const status = request.searchParams.get("status");
+        const created = request.searchParams.get("created");
         const pageNumber = Number(request.searchParams.get("page"));
         if (status === "requested" && pageNumber === 1) pass += 1;
-        requests.push(`${pass}:${status}:${pageNumber}`);
-        const body = (passes[Math.min(pass, passes.length) - 1][status] ?? [page(0, [])])[pageNumber - 1];
-        if (body?.httpStatus) return { ok: false, status: body.httpStatus };
-        return { ok: true, status: 200, json: async () => body };
+        const key = created === null ? `${pass}:${status}:${pageNumber}` : `${pass}:${status}:${created}:${pageNumber}`;
+        requests.push(key);
+        inits.push(init);
+        const script = passes[Math.min(pass, passes.length) - 1];
+        const pages =
+          created === null
+            ? script[status]
+            : typeof script.windows === "function"
+              ? script.windows(created)
+              : script.windows?.[created];
+        let body = (pages ?? [page(0, [])])[pageNumber - 1];
+        if (Array.isArray(body)) {
+          const index = served.get(key) ?? 0;
+          served.set(key, index + 1);
+          body = body[Math.min(index, body.length - 1)];
+        }
+        const responseHeaders = new Headers({
+          "x-github-request-id": `SYNTH:${pass}:${status}:${pageNumber}`,
+          link: `<https://api.example.invalid/repositories/1/actions/runs?status=${status}&per_page=100&page=${pageNumber + 1}>; rel="next"`,
+          ...headers,
+        });
+        if (body?.transportError) throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } });
+        if (body?.fetchError) throw new Error("SENTINEL-FETCH-ERROR");
+        if (body?.httpStatus) return { ok: false, status: body.httpStatus, headers: responseHeaders };
+        if (body?.malformedJson) {
+          return {
+            ok: true,
+            status: 200,
+            headers: responseHeaders,
+            json: async () => JSON.parse("SENTINEL-BODY-10858 {"),
+          };
+        }
+        if (body?.transportJsonError) {
+          return {
+            ok: true,
+            status: 200,
+            headers: responseHeaders,
+            json: async () => {
+              throw new TypeError("terminated");
+            },
+          };
+        }
+        if (body?.jsonTypeError || body?.abortError || body?.timeoutError) {
+          return {
+            ok: true,
+            status: 200,
+            headers: responseHeaders,
+            json: async () => {
+              const error = body.jsonTypeError
+                ? new TypeError("SENTINEL-BODY-ERROR")
+                : new Error("SENTINEL-BODY-ERROR");
+              if (!body.jsonTypeError) error.name = body.abortError ? "AbortError" : "TimeoutError";
+              throw error;
+            },
+          };
+        }
+        return { ok: true, status: 200, headers: responseHeaders, json: async () => body };
       });
       const sleep = vi.fn(async () => {});
+      const stderrSink = { write: (chunk) => lines.push(String(chunk)) };
+      const evidence = () => {
+        expect(lines).toHaveLength(1);
+        expect(lines[0].startsWith("production-writer-census-evidence {")).toBe(true);
+        expect(lines[0].indexOf("\n")).toBe(lines[0].length - 1);
+        return JSON.parse(lines[0].slice("production-writer-census-evidence ".length));
+      };
       try {
         const census = await readGitHubProductionWriterCensus({
           fetch,
           sleep,
+          stderrSink,
           env: {
-            GITHUB_TOKEN: "synthetic-token",
+            GITHUB_TOKEN: token,
             GITHUB_REPOSITORY: "synthetic/repository",
             GITHUB_RUN_ID: String(deploy.id),
             GITHUB_API_URL: "https://api.example.invalid",
           },
         });
-        return { census, requests, sleep };
+        return { census, requests, sleep, inits, lines, evidence };
       } catch (error) {
-        return { error, requests, sleep };
+        return { error, requests, sleep, inits, lines, evidence };
       }
     }
 
@@ -2851,7 +2945,10 @@ describe("platform Kubernetes deployment", () => {
     it("keeps refusing with the original error when every bounded pass moves", async () => {
       const { census, error, requests, sleep } = await readPasses([movingPass]);
       expect(census).toBeUndefined();
-      expect(error.message).toBe("GitHub Actions in_progress run census total moved during pagination.");
+      // Every pass repeats the same moved total, so the provider answer is stable (N3 keeps the sub-reason).
+      expect(error.message).toBe(
+        "census-stable-count-list-drift after 5 passes: GitHub Actions in_progress run census total moved during pagination. Final pass per-status total/collected: requested 0/0, pending 0/0, queued 0/0, in_progress 101/100.",
+      );
       expect(requests.filter((request) => request.endsWith(":requested:1"))).toHaveLength(5);
       expect(requests.at(-1)).toBe("5:in_progress:2");
       expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
@@ -2871,19 +2968,846 @@ describe("platform Kubernetes deployment", () => {
     });
 
     it.each([
-      ["a malformed run identity", [page(1, [{ id: 0, name: "Synthetic CI" }])], /malformed run identity/],
-      ["an invalid response", [{ total_count: 1 }], /in_progress run census returned an invalid response/],
-      ["an HTTP failure", [{ httpStatus: 502 }], /in_progress run census failed with HTTP 502/],
+      [
+        "a malformed run identity",
+        [page(1, [{ id: 0, name: "Synthetic CI" }])],
+        /malformed run identity/,
+        "census-malformed",
+      ],
+      [
+        "an invalid response",
+        [{ total_count: 1 }],
+        /in_progress run census returned an invalid response/,
+        "census-invalid-response",
+      ],
+      [
+        "an HTTP client failure",
+        [{ httpStatus: 404 }],
+        /in_progress run census failed with HTTP 404/,
+        "census-http-status",
+      ],
       [
         "an exceeded page bound",
         Array.from({ length: 10 }, (_, index) => page(1001, ciBatch(1 + index * 100, 100))),
         /exceeded the bounded 10-page limit/,
+        "census-page-limit",
       ],
-    ])("does not retry %s", async (_label, inProgress, message) => {
-      const { error, requests, sleep } = await readPasses([{ in_progress: inProgress }, stablePass]);
+    ])("does not retry %s", async (_label, inProgress, message, refusalClass) => {
+      const { error, requests, sleep, evidence } = await readPasses([{ in_progress: inProgress }, stablePass]);
       expect(error.message).toMatch(message);
+      expect(error.message.startsWith(`${refusalClass} after 1 pass: GitHub Actions `)).toBe(true);
       expect(requests.every((request) => request.startsWith("1:"))).toBe(true);
       expect(sleep).not.toHaveBeenCalled();
+      expect(evidence()).toMatchObject({ outcome: "refused", refusalClass, message: error.message });
+    });
+
+    it("records the HTTP status and request ID of every refused read and each 5xx retry", async () => {
+      const { evidence } = await readPasses([{ in_progress: [{ httpStatus: 502 }] }]);
+      const refused = {
+        path: "actions/runs?status=in_progress&per_page=100&page=1",
+        httpStatus: 502,
+        requestId: "SYNTH:1:in_progress:1",
+        linkPages: { next: 2 },
+      };
+      const line = evidence();
+      expect(line.passes[0].statuses.in_progress.requests).toEqual([refused, refused, refused]);
+      expect(line.serverErrorRetries).toEqual([
+        { ...refused, delayMs: 1_000 },
+        { ...refused, delayMs: 2_000 },
+      ]);
+    });
+
+    describe("census server errors", () => {
+      const ok = page(1, [deploy]);
+      it.each([
+        ["502 then OK recovers", { in_progress: [[{ httpStatus: 502 }, ok]] }, 2, [[1_000]], null],
+        [
+          "three 503s refuse",
+          { in_progress: [[{ httpStatus: 503 }, { httpStatus: 503 }, { httpStatus: 503 }, ok]] },
+          3,
+          [[1_000], [2_000]],
+          "census-http-status after 1 pass: GitHub Actions in_progress run census failed with HTTP 503.",
+        ],
+        [
+          "404 is read once",
+          { in_progress: [[{ httpStatus: 404 }, ok]] },
+          1,
+          [],
+          "census-http-status after 1 pass: GitHub Actions in_progress run census failed with HTTP 404.",
+        ],
+        [
+          "429 is read once",
+          { in_progress: [[{ httpStatus: 429 }, ok]] },
+          1,
+          [],
+          "census-http-status after 1 pass: GitHub Actions in_progress run census failed with HTTP 429.",
+        ],
+        [
+          "malformed JSON is read once",
+          { in_progress: [[{ malformedJson: true }, ok]] },
+          1,
+          [],
+          "census-invalid-response after 1 pass: GitHub Actions in_progress run census returned an invalid response.",
+        ],
+        [
+          "an invalid page is read once",
+          { in_progress: [[{ total_count: 1 }, ok]] },
+          1,
+          [],
+          "census-invalid-response after 1 pass: GitHub Actions in_progress run census returned an invalid response.",
+        ],
+        [
+          "the exhausted six-retry budget refuses",
+          {
+            pending: [[{ httpStatus: 502 }, { httpStatus: 502 }, page(0, [])]],
+            queued: [[{ httpStatus: 502 }, { httpStatus: 502 }, page(0, [])]],
+            in_progress: [[{ httpStatus: 502 }, { httpStatus: 502 }, ok]],
+            waiting: [[{ httpStatus: 502 }, page(0, [])]],
+          },
+          3,
+          [[1_000], [2_000], [1_000], [2_000], [1_000], [2_000]],
+          "census-http-status after 1 pass: GitHub Actions waiting run census failed with HTTP 502.",
+        ],
+      ])("%s", async (_label, pass, inProgressReads, sleeps, refusal) => {
+        const { census, error, requests, sleep, lines, evidence } = await readPasses([pass]);
+        expect(requests.filter((request) => request === "1:in_progress:1")).toHaveLength(inProgressReads);
+        expect(sleep.mock.calls).toEqual(sleeps);
+        expect(requests.every((request) => request.startsWith("1:"))).toBe(true);
+        if (refusal === null) {
+          expect(error).toBeUndefined();
+          expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+          expect(evidence()).toMatchObject({
+            outcome: "admitted",
+            passes: [{ pass: 1, reason: null }],
+            serverErrorRetries: [{ path: "actions/runs?status=in_progress&per_page=100&page=1", httpStatus: 502 }],
+          });
+        } else {
+          expect(census).toBeUndefined();
+          expect(error.message.startsWith(refusal)).toBe(true);
+          expect(evidence().serverErrorRetries).toHaveLength(sleeps.length);
+          expect(lines.join("")).not.toContain("SENTINEL-BODY-10858");
+        }
+      });
+    });
+
+    describe("census transport errors", () => {
+      const ok = page(1, [deploy]);
+      const transportPath = "actions/runs?status=in_progress&per_page=100&page=1";
+
+      it.each([
+        [
+          "fetch failure recovers",
+          { in_progress: [[{ transportError: true }, { transportError: true }, ok]] },
+          "transport error (ECONNRESET)",
+        ],
+        [
+          "response body reset recovers",
+          { in_progress: [[{ transportJsonError: true }, { transportJsonError: true }, ok]] },
+          "transport error",
+        ],
+      ])("re-reads %s with bounded delays and admits", async (_label, pass, failure) => {
+        const { census, error, requests, sleep, evidence } = await readPasses([pass]);
+        expect(error).toBeUndefined();
+        expect(requests.filter((request) => request === `1:in_progress:1`)).toHaveLength(3);
+        expect(sleep.mock.calls).toEqual([[1_000], [2_000]]);
+        expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+        expect(evidence()).toMatchObject({
+          outcome: "admitted",
+          transportRetries: [
+            { path: transportPath, failure, delayMs: 1_000 },
+            { path: transportPath, failure, delayMs: 2_000 },
+          ],
+        });
+      });
+
+      it("redacts transport details and refuses after three failures", async () => {
+        const { census, error, requests, sleep, lines, evidence } = await readPasses([
+          { in_progress: [[{ transportError: true }, { transportError: true }, { transportError: true }, ok]] },
+        ]);
+        expect(census).toBeUndefined();
+        expect(error.message).toBe(
+          "census-transport after 1 pass: GitHub Actions in_progress run census encountered transport error (ECONNRESET). Final pass per-status total/collected: requested 0/0, pending 0/0, queued 0/0.",
+        );
+        expect(requests.filter((request) => request === "1:in_progress:1")).toHaveLength(3);
+        expect(sleep.mock.calls).toEqual([[1_000], [2_000]]);
+        expect(evidence()).toMatchObject({
+          outcome: "refused",
+          refusalClass: "census-transport",
+          transportRetries: [
+            { path: transportPath, failure: "transport error (ECONNRESET)", delayMs: 1_000 },
+            { path: transportPath, failure: "transport error (ECONNRESET)", delayMs: 2_000 },
+          ],
+        });
+        expect(lines.join("")).not.toContain("SENTINEL");
+      });
+
+      it("shares the six-retry budget between 5xx and transport failures", async () => {
+        const { census, error, sleep, evidence } = await readPasses([
+          {
+            pending: [[{ httpStatus: 502 }, { transportError: true }, page(0, [])]],
+            queued: [[{ httpStatus: 502 }, { transportError: true }, page(0, [])]],
+            in_progress: [[{ httpStatus: 502 }, { transportError: true }, ok]],
+            waiting: [[{ transportError: true }, page(0, [])]],
+          },
+        ]);
+        expect(census).toBeUndefined();
+        expect(error.message.startsWith("census-transport after 1 pass: GitHub Actions waiting run census")).toBe(true);
+        expect(sleep.mock.calls).toEqual([[1_000], [2_000], [1_000], [2_000], [1_000], [2_000]]);
+        expect(evidence()).toMatchObject({
+          refusalClass: "census-transport",
+          serverErrorRetries: expect.any(Array),
+          transportRetries: expect.any(Array),
+        });
+        expect(evidence().serverErrorRetries).toHaveLength(3);
+        expect(evidence().transportRetries).toHaveLength(3);
+      });
+
+      it.each([
+        ["a TypeError with another message", { in_progress: [{ jsonTypeError: true }] }, "census-invalid-response"],
+        ["AbortError", { in_progress: [{ abortError: true }] }, "census-invalid-response"],
+        ["TimeoutError", { in_progress: [{ timeoutError: true }] }, "census-invalid-response"],
+        ["a non-TypeError rejection", { in_progress: [{ fetchError: true }] }, "census-unclassified"],
+      ])("does not retry %s", async (_label, pass, refusalClass) => {
+        const { error, sleep, evidence, lines } = await readPasses([pass]);
+        expect(error.message.startsWith(`${refusalClass} after 1 pass: `)).toBe(true);
+        expect(sleep).not.toHaveBeenCalled();
+        expect(evidence()).toMatchObject({ outcome: "refused", refusalClass, transportRetries: [] });
+        expect(lines.join("")).not.toContain("SENTINEL");
+      });
+    });
+
+    // Synthetic reproduction of #10842's refusal shape: page 1 lists nine runs, page 2 is empty, total_count is 10.
+    const countListDrift = { in_progress: [page(10, [deploy, ...ciBatch(1, 8)]), page(10, [])] };
+    const movingShortfall = (pass) => ({ in_progress: [page(10, [deploy, ...ciBatch(pass * 100, 8)]), page(10, [])] });
+
+    it("partitions five identical shortfall passes and refuses windows that do not reconcile", async () => {
+      // No window lists a run here, so the partition reads 0 + 0 against the total of 10.
+      const { census, error, requests, sleep, inits, evidence } = await readPasses([countListDrift]);
+      expect(census).toBeUndefined();
+      expect(error.message).toBe(
+        "census-partition-unreconciled after 5 passes: GitHub Actions in_progress run census partition did not reconcile: window totals sum to 0, not the global total 10. Final pass per-status total/collected: requested 0/0, pending 0/0, queued 0/0, in_progress 10/9.",
+      );
+      expect(error.message.length).toBeLessThanOrEqual(512);
+      expect(requests.filter((request) => request.endsWith(":requested:1"))).toHaveLength(5);
+      expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
+      expect(inits).toHaveLength(27);
+      for (const init of inits) {
+        expect(init.method).toBe("GET");
+        expect(init).not.toHaveProperty("body");
+      }
+      const line = evidence();
+      expect(line).toMatchObject({
+        schemaVersion: "production-writer-census-evidence/v1",
+        repository: "synthetic/repository",
+        currentRunId: String(deploy.id),
+        outcome: "refused",
+        refusalClass: "census-partition-unreconciled",
+        message: error.message,
+        reads: [],
+        truncated: false,
+      });
+      expect(line.partitions).toMatchObject([
+        {
+          status: "in_progress",
+          totalCount: 10,
+          windows: [
+            { totalCounts: [0], runIds: [] },
+            { totalCounts: [0], runIds: [] },
+          ],
+          reread: null,
+          statuses: {},
+        },
+      ]);
+      expect(line.passes.map(({ pass }) => pass)).toEqual([1, 2, 3, 4, 5]);
+      for (const pass of line.passes) {
+        expect(pass.reason).toBe("GitHub Actions in_progress run census pagination was incomplete; collected 9 of 10.");
+        // The incomplete status ends the pass before waiting is read.
+        expect(Object.keys(pass.statuses)).toEqual(["requested", "pending", "queued", "in_progress"]);
+        expect(pass.statuses.in_progress).toMatchObject({
+          readAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/),
+          totalCounts: [10, 10],
+          pageLengths: [9, 0],
+          runIds: [deploy.id, 1, 2, 3, 4, 5, 6, 7, 8],
+        });
+        expect(
+          pass.statuses.in_progress.requests.map(({ path, requestId, linkPages }) => [path, requestId, linkPages]),
+        ).toEqual([
+          ["actions/runs?status=in_progress&per_page=100&page=1", `SYNTH:${pass.pass}:in_progress:1`, { next: 2 }],
+          ["actions/runs?status=in_progress&per_page=100&page=2", `SYNTH:${pass.pass}:in_progress:2`, { next: 3 }],
+        ]);
+      }
+      // Only the writer candidate keeps full identity; unchanged non-writers stay IDs per status.
+      expect(line.runs).toEqual([
+        {
+          id: deploy.id,
+          status: "in_progress",
+          name: "Platform Deploy",
+          path: null,
+          event: null,
+          headSha: null,
+          headBranch: null,
+          runAttempt: null,
+          createdAt: null,
+          updatedAt: null,
+          passes: [1, 2, 3, 4, 5],
+        },
+      ]);
+    });
+
+    it("classifies a shortfall whose run IDs change between passes as moving", async () => {
+      const { error, requests, sleep, evidence } = await readPasses([1, 2, 3, 4, 5].map(movingShortfall));
+      expect(error.message).toBe(
+        "census-moving after 5 passes: GitHub Actions in_progress run census pagination was incomplete; collected 9 of 10. Final pass per-status total/collected: requested 0/0, pending 0/0, queued 0/0, in_progress 10/9.",
+      );
+      // Moving passes never engage the partition: five passes, no window read.
+      expect(requests).toEqual([1, 2, 3, 4, 5].flatMap((pass) => passRequests(pass, 2).slice(0, -1)));
+      expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
+      const line = evidence();
+      expect(line.refusalClass).toBe("census-moving");
+      // Runs whose membership differs across passes keep full identity, with the passes that listed them.
+      expect(line.runs.find(({ id }) => id === 100)).toMatchObject({ name: "Synthetic CI", passes: [1] });
+      expect(line.runs.find(({ id }) => id === 500)).toMatchObject({ name: "Synthetic CI", passes: [5] });
+      expect(line.runs).toHaveLength(41);
+    });
+
+    it("writes one admitted evidence line after a discarded pass and none for a first stable pass", async () => {
+      const retried = await readPasses([movingPass, stablePass]);
+      expect(retried.error).toBeUndefined();
+      expect(retried.evidence()).toMatchObject({
+        outcome: "admitted",
+        refusalClass: null,
+        message: null,
+        passes: [
+          { pass: 1, reason: "GitHub Actions in_progress run census total moved during pagination." },
+          { pass: 2, reason: null },
+        ],
+      });
+      const stable = await readPasses([stablePass]);
+      expect(stable.census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+      expect(stable.lines).toEqual([]);
+    });
+
+    it("keeps the token, other headers, display titles, commit bodies and raw names out of every output", async () => {
+      const sentinels = [
+        "SENTINEL-TOKEN-10850",
+        "SENTINEL-HEADER-10850",
+        "SENTINEL-TITLE-10850",
+        "SENTINEL-COMMIT-10850",
+      ];
+      const leaky = (id) => ({
+        ...ci(id),
+        display_title: "SENTINEL-TITLE-10850",
+        head_commit: { message: "SENTINEL-COMMIT-10850", author: { email: "SENTINEL-COMMIT-10850" } },
+      });
+      const injected = { ...leaky(77), name: "Synthetic CI\n::error::injected" };
+      const passes = [
+        { in_progress: [page(10, [deploy, injected, leaky(1), leaky(2)]), page(10, [])] },
+        { in_progress: [page(10, [deploy, leaky(1), leaky(2)]), page(10, [])] },
+      ];
+      const options = {
+        token: "SENTINEL-TOKEN-10850",
+        headers: {
+          "x-sentinel": "SENTINEL-HEADER-10850",
+          link: '<https://SENTINEL-HEADER-10850.invalid/runs?page=4>; rel="last"',
+        },
+      };
+      const refused = await readPasses(passes, options);
+      const admitted = await readPasses([passes[0], { in_progress: [page(3, [deploy, leaky(1), leaky(2)])] }], options);
+      // Window and 5xx records: stable drift, a 502 window read, then a recovered leaky run.
+      const dated = (run, minute) => ({ ...run, created_at: `2026-10-31T08:0${minute}:00Z` });
+      const listed = [dated(deploy, 0), dated(leaky(1), 1), dated(leaky(2), 2)];
+      const partitioned = await readPasses(
+        [
+          {
+            in_progress: [page(4, listed), page(4, [])],
+            windows: {
+              "<2026-10-31T08:01:00Z": [page(1, listed.slice(0, 1))],
+              ">=2026-10-31T08:01:00Z": [[{ httpStatus: 502 }, page(3, [...listed.slice(1), dated(leaky(3), 3)])]],
+            },
+          },
+        ],
+        options,
+      );
+      expect(refused.error.message.startsWith("census-moving after 5 passes: ")).toBe(true);
+      expect(admitted.error).toBeUndefined();
+      expect(partitioned.error).toBeUndefined();
+      expect(partitioned.evidence()).toMatchObject({
+        partitions: [{ windows: [{ totalCounts: [1] }, { totalCounts: [3], pageLengths: [3] }] }],
+        serverErrorRetries: [{ httpStatus: 502, linkPages: { last: 4 }, delayMs: 1_000 }],
+      });
+      const outputs = [
+        refused.lines.join(""),
+        refused.error.message,
+        admitted.lines.join(""),
+        JSON.stringify(admitted.census),
+        partitioned.lines.join(""),
+        JSON.stringify(partitioned.census),
+      ];
+      for (const output of outputs) {
+        for (const sentinel of sentinels) expect(output).not.toContain(sentinel);
+        expect(output).not.toMatch(/authorization|bearer/i);
+      }
+      for (const { lines, evidence } of [refused, admitted]) {
+        const line = evidence();
+        expect(lines[0]).toContain(String.raw`"name":"Synthetic CI\n::error::injected"`);
+        expect(lines[0].split("\n")).toEqual([expect.stringMatching(/^production-writer-census-evidence \{/), ""]);
+        expect(line.passes[0].statuses.in_progress.requests[0].linkPages).toEqual({ last: 4 });
+        expect(line.runs.find(({ id }) => id === 77)).toMatchObject({ name: "Synthetic CI\n::error::injected" });
+      }
+    });
+
+    it.each([
+      [
+        "writer-candidate identities only",
+        1,
+        (line) => expect(line.passes[0].statuses.in_progress.runIds).toHaveLength(900),
+      ],
+      [
+        "run ID counts",
+        1_000_000_000_000,
+        (line) => {
+          expect(line.passes[0].statuses.in_progress).not.toHaveProperty("runIds");
+          expect(line.passes[0].statuses.in_progress.runIdCount).toBe(900);
+        },
+      ],
+    ])("caps the evidence line at 64 KiB by keeping %s", async (_label, idBase, expectKept) => {
+      // Nine full pages of new runs per pass under a total of 1,000 move every pass and keep 4,500 identities.
+      const bulk = (pass) => ({
+        in_progress: [
+          ...Array.from({ length: 9 }, (_, index) =>
+            page(
+              1_000,
+              ciBatch(idBase + pass * 10_000 + index * 100, 100).map((run, offset) =>
+                index === 0 && offset === 0 ? deploy : run,
+              ),
+            ),
+          ),
+          page(1_000, []),
+        ],
+      });
+      const { error, lines, evidence } = await readPasses([1, 2, 3, 4, 5].map(bulk));
+      expect(error.message.startsWith("census-moving after 5 passes: ")).toBe(true);
+      const json = lines[0].slice("production-writer-census-evidence ".length, -1);
+      expect(Buffer.byteLength(json, "utf8")).toBeLessThanOrEqual(65_536);
+      const line = evidence();
+      expect(line).toMatchObject({ truncated: true, refusalClass: "census-moving", message: error.message });
+      expect(line.runs.map(({ id }) => id)).toEqual([deploy.id]);
+      expectKept(line);
+    });
+
+    describe("stable count/list drift partition", () => {
+      // Synthetic identities created a minute apart; #10842's shape lists nine runs under a total of 10.
+      const deployPath = ".github/workflows/platform-production.yml";
+      const recoveryPath = ".github/workflows/platform-production-stale-helm-recovery.yml";
+      const signaturesPath = ".github/workflows/platform-merge-group-failure-signatures.yml";
+      const at = (minute) => `2026-10-31T08:${String(minute).padStart(2, "0")}:00Z`;
+      const datedDeploy = { ...deploy, path: deployPath, created_at: at(0) };
+      const dated = (id, overrides = {}) => ({
+        ...ci(id),
+        path: ".github/workflows/synthetic-ci.yml",
+        created_at: at(id),
+        ...overrides,
+      });
+      const datedBatch = (from, count) => Array.from({ length: count }, (_, index) => dated(from + index));
+      const listed = [datedDeploy, ...datedBatch(1, 8)];
+      const recovered = dated(9);
+      // The median of the nine listed creation times.
+      const split = at(4);
+      const before = `<${split}`;
+      const after = `>=${split}`;
+      const reconciled = {
+        [before]: [page(4, listed.slice(0, 4))],
+        [after]: [page(6, [...listed.slice(4), recovered])],
+      };
+      const drift = (windows, overrides = {}) => ({
+        in_progress: [page(10, listed), page(10, [])],
+        windows,
+        ...overrides,
+      });
+      const driftPasses = [1, 2, 3, 4, 5].flatMap((pass) => passRequests(pass, 2).slice(0, -1));
+      const onePerPage = (total, runs) => runs.map((run) => page(total, [run]));
+      const earlier = (run) => ({ ...run, created_at: "2026-10-31T07:59:00Z" });
+      // Captured identity of the provider-side queued ghost (marker-go-1030-r2.run-37642385358.json), unchanged.
+      const ghost = {
+        id: 37642385358,
+        name: "Platform Delivery Failure Signatures",
+        workflow_id: 311990192,
+        path: signaturesPath,
+        status: "queued",
+        event: "workflow_run",
+        head_sha: "7bef4f208a3586d4f6e1150b129b64b4216de485",
+        head_branch: "main",
+        run_attempt: 1,
+        created_at: "2026-10-07T15:09:11Z",
+        run_started_at: "2026-10-07T15:09:11Z",
+        updated_at: "2026-10-07T15:09:11Z",
+      };
+      const unknownQueued = {
+        id: 98599,
+        name: "Synthetic Unknown Workflow",
+        path: ".github/workflows/synthetic-unknown.yml",
+        status: "queued",
+        created_at: at(30),
+      };
+      // The ghost is listed; an unknown queued run is counted but unlisted until the windows.
+      const queuedDrift = (windowGhost) => ({
+        queued: [page(2, [ghost]), page(2, [])],
+        in_progress: [page(1, [datedDeploy])],
+        windows: {
+          [`<${ghost.created_at}`]: [page(0, [])],
+          [`>=${ghost.created_at}`]: [page(2, [windowGhost, unknownQueued])],
+        },
+      });
+
+      it("admits the drifted status when complementary windows list exactly its total", async () => {
+        const { census, error, requests, sleep, inits, evidence } = await readPasses([drift(reconciled)]);
+        expect(error).toBeUndefined();
+        expect(requests).toEqual([
+          ...driftPasses,
+          `5:in_progress:${before}:1`,
+          `5:in_progress:${after}:1`,
+          "5:in_progress:1",
+          "5:in_progress:2",
+          "5:waiting:1",
+        ]);
+        expect(requests.length - driftPasses.length).toBeLessThanOrEqual(20);
+        for (const init of inits) {
+          expect(init.method).toBe("GET");
+          expect(init).not.toHaveProperty("body");
+        }
+        expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
+        expect(census.runs.map(({ id }) => id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, deploy.id]);
+        expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+        expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
+        const line = evidence();
+        expect(line).toMatchObject({
+          outcome: "admitted",
+          refusalClass: null,
+          truncated: false,
+          partitions: [
+            {
+              pass: "partition",
+              status: "in_progress",
+              totalCount: 10,
+              split,
+              windows: [
+                {
+                  created: before,
+                  totalCounts: [4],
+                  pageLengths: [4],
+                  runIds: [deploy.id, 1, 2, 3],
+                  requests: [
+                    {
+                      path: `actions/runs?status=in_progress&created=${encodeURIComponent(before)}&per_page=100&page=1`,
+                      httpStatus: 200,
+                      requestId: "SYNTH:5:in_progress:1",
+                    },
+                  ],
+                },
+                { created: after, totalCounts: [6], pageLengths: [6], runIds: [4, 5, 6, 7, 8, 9] },
+              ],
+              reread: { totalCounts: [10, 10], pageLengths: [9, 0] },
+              statuses: { waiting: { totalCounts: [0], runIds: [] } },
+            },
+          ],
+        });
+        // Only the partition listed the recovered run, so it keeps full identity.
+        expect(line.runs.find(({ id }) => id === 9)).toMatchObject({ name: "Synthetic CI", passes: ["partition"] });
+      });
+
+      it("recovers an unknown queued non-writer beside the unchanged ghost and leaves writerRuns identical", async () => {
+        const baseline = await readPasses([
+          { queued: [page(2, [ghost, unknownQueued])], in_progress: [page(1, [datedDeploy])] },
+        ]);
+        const { census, error, requests } = await readPasses([queuedDrift(ghost)]);
+        expect(error).toBeUndefined();
+        expect(requests.slice(-6)).toEqual([
+          `5:queued:<${ghost.created_at}:1`,
+          `5:queued:>=${ghost.created_at}:1`,
+          "5:queued:1",
+          "5:queued:2",
+          "5:in_progress:1",
+          "5:waiting:1",
+        ]);
+        expect(census.runs.map(({ id }) => id)).toEqual(baseline.census.runs.map(({ id }) => id));
+        expect(census.writerRuns).toEqual(baseline.census.writerRuns);
+        expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+      });
+
+      it("splits at the final global read time when no listed run is dated", async () => {
+        const { census, error, requests, evidence } = await readPasses([
+          {
+            queued: [page(1, [])],
+            in_progress: [page(1, [datedDeploy])],
+            windows: (created) => (created.startsWith("<") ? [page(1, [ghost])] : [page(0, [])]),
+          },
+        ]);
+        expect(error).toBeUndefined();
+        const readAt = evidence().passes[4].statuses.queued.readAt;
+        expect(requests.filter((request) => /[<>]/.test(request))).toEqual([
+          `5:queued:<${readAt.slice(0, 19)}Z:1`,
+          `5:queued:>=${readAt.slice(0, 19)}Z:1`,
+        ]);
+        expect(census.runs.map(({ id }) => id)).toEqual([deploy.id, ghost.id]);
+        expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+      });
+
+      it.each([
+        ["Platform Deploy at the failure-signatures path", dated(9, { name: "Platform Deploy", path: signaturesPath })],
+        [
+          "Platform Delivery Failure Signatures at the Platform Deploy path",
+          dated(9, { name: "Platform Delivery Failure Signatures", path: deployPath }),
+        ],
+      ])("refuses the marker when the recovered run is %s", async (_label, writer) => {
+        const { census, error } = await readPasses([
+          drift({ [before]: reconciled[before], [after]: [page(6, [...listed.slice(4), writer])] }),
+        ]);
+        expect(error).toBeUndefined();
+        expect(census.writerRuns.map(({ id }) => id)).toEqual([9, deploy.id]);
+        expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).toThrow(
+          "active or conflicting production writer",
+        );
+        expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: String(deploy.id) })).toThrow(
+          /only active writer; observed 2/,
+        );
+      });
+
+      const listed21 = [datedDeploy, ...datedBatch(1, 20)];
+      const listed19 = [datedDeploy, ...datedBatch(1, 18)];
+      const cappedWriter = earlier(
+        dated(98502, { name: "Platform Production Stale Helm Recovery", path: recoveryPath }),
+      );
+      it.each([
+        [
+          "an unknown queued run counted but never listed in its window",
+          {
+            queued: [page(2, [unknownQueued]), page(2, [])],
+            in_progress: [page(1, [datedDeploy])],
+            windows: { [`<${at(30)}`]: [page(1, [])], [`>=${at(30)}`]: [page(1, [unknownQueued])] },
+          },
+          /window created<2026-10-31T08:30:00Z pagination was incomplete; collected 0 of 1\./,
+        ],
+        [
+          "a window with an empty page before its total",
+          drift({ [before]: reconciled[before], [after]: [page(6, listed.slice(4)), page(6, [])] }),
+          /window created>=2026-10-31T08:04:00Z pagination was incomplete; collected 5 of 6\./,
+        ],
+        [
+          "a window that lists more runs than it counts",
+          drift({ [before]: [page(3, listed.slice(0, 4))], [after]: [page(7, [...listed.slice(4), recovered])] }),
+          /window created<2026-10-31T08:04:00Z pagination was incomplete; collected 4 of 3\./,
+        ],
+        [
+          "window totals that differ from total_count",
+          drift({ [before]: reconciled[before], [after]: [page(5, listed.slice(4))] }),
+          /window totals sum to 9, not the global total 10\./,
+        ],
+        [
+          "a duplicate ID across windows",
+          drift({
+            [before]: reconciled[before],
+            [after]: [page(6, [...listed.slice(4), dated(3, { created_at: at(9) })])],
+          }),
+          /duplicate or moving run 3\./,
+        ],
+        [
+          "a window run with another status",
+          drift({
+            [before]: reconciled[before],
+            [after]: [page(6, [...listed.slice(4), dated(9, { status: "queued" })])],
+          }),
+          /window created>=2026-10-31T08:04:00Z listed run 9 with status "queued"\./,
+        ],
+        [
+          "the ghost renamed between the passes and the windows",
+          queuedDrift({ ...ghost, name: "Synthetic Renamed Workflow" }),
+          /listed run 37642385358 is absent from or changed in the windows\./,
+        ],
+        [
+          "the ghost with a changed head between the passes and the windows",
+          queuedDrift({ ...ghost, head_sha: "c".repeat(40) }),
+          /listed run 37642385358 is absent from or changed in the windows\./,
+        ],
+        [
+          "the ghost with a changed status between the passes and the windows",
+          queuedDrift({ ...ghost, status: "in_progress" }),
+          /listed run 37642385358 with status "in_progress"\./,
+        ],
+        [
+          "a final global re-read that no longer repeats the drift",
+          drift(reconciled, { in_progress: [[page(10, listed), page(10, [...listed, recovered])], page(10, [])] }),
+          /the final global re-read did not repeat the drift signature\./,
+        ],
+        [
+          "a writer-named run only beyond a window's 10-page bound",
+          {
+            in_progress: [page(22, listed21), page(22, [])],
+            windows: {
+              [`<${at(10)}`]: onePerPage(11, [...listed21.slice(0, 10), cappedWriter]),
+              [`>=${at(10)}`]: [page(11, listed21.slice(10))],
+            },
+          },
+          /window created<2026-10-31T08:10:00Z exceeded the bounded 10-page limit\./,
+        ],
+        [
+          "an exceeded GET bound",
+          {
+            in_progress: [page(20, listed19), page(20, [])],
+            windows: {
+              [`<${at(9)}`]: onePerPage(10, [...listed19.slice(0, 9), earlier(dated(19))]),
+              [`>=${at(9)}`]: onePerPage(10, listed19.slice(9)),
+            },
+          },
+          /the fallback exceeded the bounded 20-read limit\./,
+        ],
+      ])("refuses %s as census-partition-unreconciled", async (_label, pass, reason) => {
+        const { census, error, evidence } = await readPasses([pass]);
+        expect(census).toBeUndefined();
+        expect(error.message).toMatch(
+          /^census-partition-unreconciled after 5 passes: GitHub Actions (in_progress|queued) run census partition did not reconcile: /,
+        );
+        expect(error.message).toMatch(reason);
+        expect(evidence()).toMatchObject({ outcome: "refused", refusalClass: "census-partition-unreconciled" });
+      });
+    });
+  });
+
+  describe("writer candidates by name or path", () => {
+    const deployPath = ".github/workflows/platform-production.yml";
+    const recoveryPath = ".github/workflows/platform-production-stale-helm-recovery.yml";
+    const signaturesPath = ".github/workflows/platform-merge-group-failure-signatures.yml";
+    // Synthetic current writer runs.
+    const deploy = {
+      id: 98401,
+      name: "Platform Deploy",
+      workflow_id: 984,
+      path: deployPath,
+      status: "in_progress",
+      event: "workflow_dispatch",
+      head_sha: "a".repeat(40),
+      head_branch: "main",
+      run_attempt: 1,
+      created_at: "2026-10-30T23:00:00Z",
+      updated_at: "2026-10-30T23:00:01Z",
+    };
+    const recovery = {
+      ...deploy,
+      id: 98402,
+      name: "Platform Production Stale Helm Recovery",
+      workflow_id: 985,
+      path: recoveryPath,
+    };
+    // Captured identity of the provider-side queued ghost (marker-go-1030-r2.run-37642385358.json), unchanged.
+    const ghost = {
+      id: 37642385358,
+      name: "Platform Delivery Failure Signatures",
+      workflow_id: 311990192,
+      path: signaturesPath,
+      status: "queued",
+      event: "workflow_run",
+      head_sha: "7bef4f208a3586d4f6e1150b129b64b4216de485",
+      head_branch: "main",
+      run_attempt: 1,
+      created_at: "2026-10-07T15:09:11Z",
+      run_started_at: "2026-10-07T15:09:11Z",
+      updated_at: "2026-10-07T15:09:11Z",
+    };
+    const workflowSource = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+
+    // Lists `current` and `listed` by status; serves real workflow sources and zero jobs so that
+    // only the writer projection, never the fixture, can keep a candidate out of writerRuns.
+    async function collect({ current = deploy, listed = [] } = {}) {
+      const fetch = vi.fn(async (url) => {
+        const request = new URL(url);
+        let body;
+        if (request.pathname.endsWith("/actions/runs")) {
+          const workflow_runs = [current, ...listed].filter((run) => run.status === request.searchParams.get("status"));
+          body = { total_count: workflow_runs.length, workflow_runs };
+        } else if (request.pathname.includes("/contents/")) {
+          const content = workflowSource(request.pathname.split("/contents/")[1]);
+          body = { type: "file", encoding: "base64", content: Buffer.from(content).toString("base64") };
+        } else if (/\/actions\/runs\/\d+\/attempts\/\d+\/jobs$/.test(request.pathname)) {
+          body = { total_count: 0, jobs: [] };
+        } else {
+          throw new Error(`Unexpected synthetic request: ${url}`);
+        }
+        return { ok: true, status: 200, json: async () => body };
+      });
+      return readGitHubProductionWriterCensus({
+        fetch,
+        sleep: async () => {},
+        stderrSink: { write: () => {} },
+        env: {
+          GITHUB_TOKEN: "synthetic-token",
+          GITHUB_REPOSITORY: "synthetic/repository",
+          GITHUB_RUN_ID: String(current.id),
+          GITHUB_RUN_ATTEMPT: String(current.run_attempt),
+          GITHUB_WORKFLOW: current.name,
+          GITHUB_API_URL: "https://api.example.invalid",
+        },
+      });
+    }
+
+    it.each([
+      ["none of them", []],
+      ["the ghost's captured identity", [ghost]],
+      [
+        "the ghost ID with a synthetic changed name, head and status (still non-writer)",
+        [{ ...ghost, name: "Synthetic Renamed Workflow", head_sha: "c".repeat(40), status: "pending" }],
+      ],
+      [
+        "an unknown queued non-writer",
+        [{ ...ghost, id: 98499, name: "Synthetic Unknown Workflow", path: ".github/workflows/synthetic-unknown.yml" }],
+      ],
+    ])("admits the current Platform Deploy with %s", async (_label, listed) => {
+      const census = await collect({ listed });
+      expect(census.writerRuns).toEqual((await collect()).writerRuns);
+      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+      expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
+      // Non-writers stay recorded as evidence in runs.
+      expect(census.runs.map(({ id }) => id)).toEqual([deploy.id, ...listed.map(({ id }) => id)].sort((a, b) => a - b));
+    });
+
+    it("records the ghost with its created and updated times", async () => {
+      const census = await collect({ listed: [ghost] });
+      expect(census.runs.find(({ id }) => id === ghost.id)).toMatchObject({
+        name: "Platform Delivery Failure Signatures",
+        path: signaturesPath,
+        status: "queued",
+        createdAt: "2026-10-07T15:09:11Z",
+        updatedAt: "2026-10-07T15:09:11Z",
+      });
+    });
+
+    it.each([
+      ["a Platform Deploy run at a non-writer path", deploy, { ...deploy, id: 98410, path: signaturesPath }],
+      [
+        "a non-writer name at the Platform Deploy path",
+        deploy,
+        { ...deploy, id: 98411, name: "Platform Delivery Failure Signatures", workflow_id: 311990192 },
+      ],
+      ["the ghost identity renamed Platform Deploy", deploy, { ...ghost, name: "Platform Deploy" }],
+      [
+        "a queued zero-job Platform Production Stale Helm Recovery",
+        deploy,
+        { ...recovery, id: 98412, status: "queued", head_sha: "b".repeat(40) },
+      ],
+      [
+        "a non-writer name at the Platform Deploy path while the recovery is current",
+        recovery,
+        { ...deploy, id: 98413, name: "Platform Delivery Failure Signatures", workflow_id: 311990192 },
+      ],
+    ])("refuses %s as a writer candidate", async (_label, current, candidate) => {
+      const census = await collect({ current, listed: [candidate] });
+      // Admission is asserted first, so each caller's refusal is proven on its own.
+      expect(() => assertExclusiveMarkerWriter(census, String(current.id))).toThrow(
+        "active or conflicting production writer",
+      );
+      expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: String(current.id) })).toThrow(
+        /only active writer; observed 2/,
+      );
+      expect(census.writerRuns.map(({ id }) => id)).toEqual([current.id, candidate.id].sort((a, b) => a - b));
+      expect(census.concurrencyQueuedRuns).toEqual([]);
     });
   });
 

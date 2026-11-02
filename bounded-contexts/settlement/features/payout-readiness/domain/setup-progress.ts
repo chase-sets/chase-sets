@@ -21,6 +21,51 @@ export type MissingRequirementGroup = Readonly<{
   detail: string;
 }>;
 
+export const PAYOUT_SETUP_NEXT_STEPS = [
+  "restricted_past_due",
+  "restricted_review",
+  "restricted_rejected",
+  "restricted_paused",
+  "restricted",
+  "platform_review",
+  "complete_requirements",
+  "add_destination",
+  "provider_review",
+  "none",
+] as const;
+
+export type PayoutSetupNextStep = (typeof PAYOUT_SETUP_NEXT_STEPS)[number];
+
+export type PayoutSetupDecision = Readonly<{
+  next_step: PayoutSetupNextStep;
+  support_recommended: boolean;
+  provider_setup_available: boolean;
+  provider_management_available: boolean;
+}>;
+
+export type PayoutSetupAttention = Readonly<{
+  setup_blocked: boolean;
+  setup_stale: boolean;
+  setup_stale_after_days: 30;
+}>;
+
+export const PAYOUT_SETUP_STALE_AFTER_DAYS = 30;
+export const PAYOUT_SETUP_STALE_AFTER_MS = PAYOUT_SETUP_STALE_AFTER_DAYS * 24 * 60 * 60 * 1_000;
+
+export function derivePayoutSetupAttention(
+  readiness: Pick<SettlementPayoutReadinessRow, "status" | "provider_reference" | "updated_at">,
+  evaluatedAt = new Date().toISOString(),
+): PayoutSetupAttention {
+  const updatedAt = readiness.updated_at ? Date.parse(readiness.updated_at) : null;
+  const now = Date.parse(evaluatedAt);
+
+  return {
+    setup_blocked: readiness.status !== "ready" || !readiness.provider_reference,
+    setup_stale: updatedAt !== null && Number.isFinite(updatedAt) && now - updatedAt > PAYOUT_SETUP_STALE_AFTER_MS,
+    setup_stale_after_days: PAYOUT_SETUP_STALE_AFTER_DAYS,
+  };
+}
+
 export type PayoutSetupProgress = Readonly<{
   account_id: string;
   status: SettlementPayoutReadinessRow["status"];
@@ -31,7 +76,8 @@ export type PayoutSetupProgress = Readonly<{
   disabled_reason: string | null;
   requirements_deadline: string | null;
   steps: readonly PayoutSetupProgressStep[];
-}>;
+}> &
+  PayoutSetupDecision;
 
 function capabilityStepStatus(value: "inactive" | "pending" | "active") {
   if (value === "active") {
@@ -86,6 +132,71 @@ function missingRequirementGroupId(requirement: string): MissingRequirementGroup
     return "account-agreement";
   }
   return "verification-review";
+}
+
+function hasPendingProviderStatus(readiness: SettlementPayoutReadinessRow) {
+  return (
+    readiness.onboarding_status === "pending" ||
+    readiness.transfer_capability_status === "pending" ||
+    readiness.payout_capability_status === "pending" ||
+    readiness.payout_destination_status === "pending"
+  );
+}
+
+function restrictedNextStep(disabledReason: string | null): PayoutSetupNextStep {
+  const normalized = disabledReason?.toLowerCase() ?? "";
+  if (normalized.includes("past_due")) {
+    return "restricted_past_due";
+  }
+  if (normalized.includes("review") || normalized.includes("pending")) {
+    return "restricted_review";
+  }
+  if (normalized.includes("rejected") || normalized.includes("fraud")) {
+    return "restricted_rejected";
+  }
+  if (normalized.includes("paused") || normalized.includes("inactivity")) {
+    return "restricted_paused";
+  }
+  return "restricted";
+}
+
+export function derivePayoutSetupDecision(readiness: SettlementPayoutReadinessRow): PayoutSetupDecision {
+  const missingRequirementGroups = buildMissingRequirementGroups(readiness.missing_requirements);
+  const hasMissingRequirements = missingRequirementGroups.length > 0;
+  const onlyPlatformReview =
+    hasMissingRequirements && missingRequirementGroups.every((group) => group.id === "platform-review");
+
+  let next_step: PayoutSetupNextStep;
+  if (readiness.status === "restricted") {
+    next_step = restrictedNextStep(readiness.disabled_reason);
+  } else if (readiness.status === "ready") {
+    next_step = "none";
+  } else if (onlyPlatformReview) {
+    next_step = "platform_review";
+  } else if (hasMissingRequirements) {
+    next_step = "complete_requirements";
+  } else if (readiness.payout_destination_status === "missing") {
+    next_step = "add_destination";
+  } else if (hasPendingProviderStatus(readiness)) {
+    next_step = "provider_review";
+  } else {
+    next_step = "none";
+  }
+
+  return {
+    next_step,
+    support_recommended: readiness.status === "restricted" || hasMissingRequirements,
+    provider_setup_available:
+      readiness.status !== "ready" &&
+      (!hasMissingRequirements || missingRequirementGroups.some((group) => group.id !== "platform-review")),
+    provider_management_available: Boolean(readiness.provider_reference),
+  };
+}
+
+export function withPayoutSetupDecision(
+  readiness: SettlementPayoutReadinessRow,
+): SettlementPayoutReadinessRow & PayoutSetupDecision {
+  return { ...readiness, ...derivePayoutSetupDecision(readiness) };
 }
 
 function groupLabel(id: MissingRequirementGroupId) {
@@ -144,7 +255,9 @@ export function buildMissingRequirementGroups(requirements: readonly string[]): 
   });
 }
 
-export function buildPayoutSetupProgress(readiness: SettlementPayoutReadinessRow): PayoutSetupProgress {
+export function buildPayoutSetupProgressDetails(
+  readiness: SettlementPayoutReadinessRow,
+): Omit<PayoutSetupProgress, keyof PayoutSetupDecision> {
   const onboardingStatus =
     readiness.onboarding_status === "complete"
       ? "ready"
@@ -226,4 +339,8 @@ export function buildPayoutSetupProgress(readiness: SettlementPayoutReadinessRow
       },
     ],
   };
+}
+
+export function buildPayoutSetupProgress(readiness: SettlementPayoutReadinessRow): PayoutSetupProgress {
+  return { ...buildPayoutSetupProgressDetails(readiness), ...derivePayoutSetupDecision(readiness) };
 }

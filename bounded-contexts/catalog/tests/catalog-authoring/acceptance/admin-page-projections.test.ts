@@ -425,12 +425,10 @@ describe("Admin page projections", () => {
       numericValue: null,
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
-      type: "ConfigureComponentRules",
+      type: "ReviseComponent",
       key: "base-card-info",
       name: l10n("Base Card Info V2"),
       description: l10n("Core fields"),
-      fieldRules: [{ fieldId, required: true }],
-      dimensionRules: [{ dimensionId, required: true, allowedOptionIds: [optionId] }],
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "ReviseBlueprint",
@@ -644,11 +642,9 @@ describe("Admin page projections", () => {
       (newerEvent.data as { title: { values: { en: string } } }).title.values.en,
     );
 
-    const olderHistory = sourceEvents.filter((event) => event.streamVersion <= olderEvent.streamVersion);
+    // Replaying the older event rebuilds from the stored prefix through that event only.
     const handlers = buildCatalogAdminCatalogItemProjectionHandlers(pool);
-    await handlers["catalog.catalog-item.metadata-revised"]?.(olderEvent, {
-      readSourceStreamHistory: async () => olderHistory,
-    });
+    await handlers["catalog.catalog-item.metadata-revised"]?.(olderEvent);
 
     const itemList = await getJson(`/api/catalog/items?limit=10&offset=0&blueprintId=${blueprintId}`);
     expect(itemList.json.items).toEqual(
