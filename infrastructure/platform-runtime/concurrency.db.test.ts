@@ -2532,15 +2532,18 @@ describe("busy-group-pass-attribution Postgres", () => {
         leaseTtlMs: loopOptions.leaseTtlMs,
         leaseRenewIntervalMs: loopOptions.leaseRenewIntervalMs,
         pollIntervalMs: loopOptions.pollIntervalMs,
-        groups: runtime.projectionGroups.filter((candidate) => workers.some((runner) => runner.name === createProjectionGroupRunnerName(candidate))).map((mountedGroup) => ({
-          runner: workers.find((candidate) => candidate.name === createProjectionGroupRunnerName(mountedGroup))!.name,
-          targetContextName: mountedGroup.targetContextName,
-          projectionName: mountedGroup.projectionName,
-          priority: String(
-            workers.find((candidate) => candidate.name === createProjectionGroupRunnerName(mountedGroup))!.priority!(),
-          ),
-          subscriptions: mountedGroup.subscriptionRunners.map((subscription) => subscription.getStatus()),
-        })),
+        groups: runtime.projectionGroups
+          .filter((candidate) => workers.some((runner) => runner.name === createProjectionGroupRunnerName(candidate)))
+          .map((mountedGroup) => ({
+            runner: workers.find((candidate) => candidate.name === createProjectionGroupRunnerName(mountedGroup))!.name,
+            targetContextName: mountedGroup.targetContextName,
+            projectionName: mountedGroup.projectionName,
+            priority: String(
+              workers.find((candidate) => candidate.name === createProjectionGroupRunnerName(mountedGroup))!
+                .priority!(),
+            ),
+            subscriptions: mountedGroup.subscriptionRunners.map((subscription) => subscription.getStatus()),
+          })),
       });
       expect(workers.length).toBeGreaterThan(loopOptions.maxConcurrentRunners);
       const handoff = new Promise<void>((resolve) => {
