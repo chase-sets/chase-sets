@@ -27,6 +27,12 @@ export type SessionRow = Readonly<{
    * (`resolveRecentAuthenticationStatus`) fail closed when it is absent.
    */
   started_at?: string;
+  /**
+   * The User Session Authority generation the Session started in; 0 for every
+   * row projected before the Session Generation floor. Display only: actor
+   * resolution reads the generation from the Session stream, never this row.
+   */
+  session_generation?: number;
   updated_at: string;
 }>;
 
@@ -77,6 +83,7 @@ export async function listSessions(db: PgQueryable, params: ListParams = {}) {
             sessions.status,
             sessions.expires_at,
             sessions.started_at,
+            sessions.session_generation,
             sessions.updated_at
      ${from}
      ${where}
@@ -101,6 +108,7 @@ export async function getSession(db: PgQueryable, sessionId: string) {
             sessions.status,
             sessions.expires_at,
             sessions.started_at,
+            sessions.session_generation,
             sessions.updated_at
      FROM identity_sessions AS sessions
      LEFT JOIN auth_identity_users AS users ON users.user_id = sessions.user_id

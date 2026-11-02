@@ -10,6 +10,7 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import {
   EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS,
   isSocialLoginProviderKey,
+  isSyntheticAuthSessionId,
   ROLE_PERMISSIONS,
   type OperatorAuthority,
   type ResolvedActor,
@@ -353,7 +354,7 @@ export type InteractiveAuthResult =
  * `updated_at` may still be approximated: nothing gates on it.
  */
 function toSessionRowFromState(
-  state: SessionState,
+  state: Omit<SessionState, "sessionGeneration"> & Readonly<{ sessionGeneration?: SessionState["sessionGeneration"] }>,
   timestamps: Readonly<{ startedAt: string | null; updatedAt: string }>,
 ): SessionRow | null {
   if (
@@ -386,6 +387,7 @@ function toSessionRowFromState(
     status: state.status,
     expires_at: state.expiresAt,
     ...(timestamps.startedAt === null ? {} : { started_at: timestamps.startedAt }),
+    ...(typeof state.sessionGeneration === "number" ? { session_generation: state.sessionGeneration } : {}),
     updated_at: timestamps.updatedAt,
   };
 }
@@ -401,10 +403,14 @@ function isAuthMethod(value: unknown): value is AuthMethod {
 }
 
 async function getSessionForAuth(services: AuthServices, sessionId: string): Promise<SessionRow | null> {
+  // A guest-checkout or linked-platform handle never names a Session stream.
+  if (isSyntheticAuthSessionId(sessionId)) {
+    return null;
+  }
   // The Session stream is the lifecycle and account authority. Consult it
   // before an active projection can grant an actor, and fail closed before
   // identity resolution when the aggregate is absent, malformed, inactive,
-  // or elapsed.
+  // elapsed, or outside its User's current Session Generation.
   const authenticatedSession = await services.sessions.readAuthenticatedSession(sessionId);
   if (!authenticatedSession || authenticatedSession.state.status !== "active") {
     return null;
@@ -652,6 +658,7 @@ export async function resolveActorFromSessionId(
 
   return {
     sessionId: session.session_id,
+    sessionProvenance: "auth-session",
     tenantId: AUTH_BOOTSTRAP_TENANT_ID,
     userId: session.user_id,
     accountId: session.account_id,
