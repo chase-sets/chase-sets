@@ -21,8 +21,9 @@ use crate::{
     checkout::{
         CheckoutForm, ConfirmationScreen, Edit, MANUAL, Notice, Place, Recovery, SHIPPING, Screen, signature, support_reference,
     },
-    text::CheckoutMsg,
+    text::{CheckoutMsg, Pilot},
 };
+use platform::ui::steps::{Step, StepState, Steps as KitSteps};
 
 corten::script::script!(pub mod handlers = "checkout_page.js");
 
@@ -156,7 +157,7 @@ pub fn CheckoutRecovery(t: CheckoutMsg, kind: Recovery) -> impl Render {
 
 /// The page.
 #[component(css)]
-pub fn CheckoutPage<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
+pub fn CheckoutPage<'a>(t: CheckoutMsg, p: Pilot, screen: &'a Screen) -> impl Render {
     let empty = screen.session.lines.is_empty();
     html! {
         <div class={Checkout} data-checkout>
@@ -193,7 +194,7 @@ pub fn CheckoutPage<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 </details>
                 <div class={Flow}>
                     <div class={Main}>
-                        <Stepper t={t} screen={screen} />
+                        <Stepper t={t} p={p} screen={screen} />
                         if let Some(error) = &screen.error {
                             <div class={Banner} data-tone="danger" role="alert" data-checkout-error>
                                 <p class={Strong}>{t.page_checkout_issue()}</p>
@@ -263,20 +264,27 @@ fn total_label(t: CheckoutMsg, screen: &Screen) -> &'static str {
     if screen.offer { t.page_total() } else { t.page_payable_total() }
 }
 
+/// The steps (`PageStepper`), as the kit's `Steps`: a step is done, current, blocked (Review
+/// while the session cannot be confirmed) or not started, with its words read after its name, and
+/// its description under it from 40rem.
 #[component(css = CheckoutPage)]
-fn Stepper<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
+fn Stepper<'a>(t: CheckoutMsg, p: Pilot, screen: &'a Screen) -> impl Render {
     html! {
-        <ol class={Steps} aria-label={t.page_checkout_steps()}>
-            for (label, description, status) in steps(t, screen) {
-                <li class={Step} data-status={status} aria-current={(status == "current").then_some("step")}>
-                    <span class={StepMark} aria-hidden="true"></span>
-                    <span class={StepText}>
-                        <span class={Strong}>{label}</span>
-                        <span class={StepDescription}>{description}</span>
-                    </span>
-                </li>
-            }
-        </ol>
+        let steps: Vec<Step> = steps(t, screen)
+            .into_iter()
+            .map(|(label, description, status)| Step { label, description: Some(description), link: None, state: step_state(p, status) })
+            .collect();
+        <KitSteps label={t.page_checkout_steps()} steps={&steps} />
+    }
+}
+
+/// A step's status as the kit's state, with its words.
+fn step_state(p: Pilot, status: &str) -> StepState<'static> {
+    match status {
+        "complete" => StepState::Done(p.steps_done()),
+        "current" => StepState::Current,
+        "blocked" => StepState::Blocked(p.steps_blocked()),
+        _ => StepState::Todo(p.steps_not_started()),
     }
 }
 

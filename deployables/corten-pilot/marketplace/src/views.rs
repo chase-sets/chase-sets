@@ -160,7 +160,7 @@ pub const OFFLINE: &[Component] = &[OfflinePage];
 
 /// The buy checkout page (`/checkout/buy/session/{id}`) and the script that says a changed field
 /// needs its totals updated.
-pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMPONENT];
+pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMPONENT, platform::ui::steps::Steps];
 
 /// Checkout start's components (`/checkout/buy/readiness`).
 pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
@@ -284,6 +284,7 @@ pub const SHIPMENTS: &[Component] = &[ShipmentPage];
 pub const SALE_SHIPMENTS: &[Component] = &[
     ShipmentPage,
     PackingPage,
+    platform::ui::steps::Steps,
     packing_page::handlers::COMPONENT,
     corten_ui::CopyButton,
     PackingSlipsPage,
