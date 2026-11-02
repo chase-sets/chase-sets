@@ -19,6 +19,7 @@ import { contextManifest as paymentsManifest, module as paymentsModule } from "@
 import { contextManifest as platformOperationsManifest, module as platformOperationsModule } from "@chase-sets/platform-operations";
 import { contextManifest as pricingManifest, module as pricingModule } from "@chase-sets/pricing";
 import { contextManifest as publicPresenceManifest, module as publicPresenceModule } from "@chase-sets/public-presence";
+import { contextManifest as scanningManifest, module as scanningModule } from "@chase-sets/scanning";
 import { contextManifest as settlementManifest, module as settlementModule } from "@chase-sets/settlement";
 
 export const apiContextRegistry = [
@@ -135,6 +136,12 @@ export const apiContextRegistry = [
     packageName: "@chase-sets/public-presence",
     manifest: publicPresenceManifest,
     module: publicPresenceModule,
+  },
+  {
+    contextName: "scanning",
+    packageName: "@chase-sets/scanning",
+    manifest: scanningManifest,
+    module: scanningModule,
   },
   {
     contextName: "settlement",

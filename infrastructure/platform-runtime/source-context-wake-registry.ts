@@ -37,6 +37,7 @@ import { paymentsWakeRegistryEntry } from "./source-context-wake-registry/paymen
 import { platformOperationsWakeRegistryEntry } from "./source-context-wake-registry/platform-operations";
 import { pricingWakeRegistryEntry } from "./source-context-wake-registry/pricing";
 import { publicPresenceWakeRegistryEntry } from "./source-context-wake-registry/public-presence";
+import { scanningWakeRegistryEntry } from "./source-context-wake-registry/scanning";
 import { settlementWakeRegistryEntry } from "./source-context-wake-registry/settlement";
 
 export {
@@ -133,6 +134,7 @@ export const sourceContextWakeRegistry = [
   platformOperationsWakeRegistryEntry,
   pricingWakeRegistryEntry,
   publicPresenceWakeRegistryEntry,
+  scanningWakeRegistryEntry,
   settlementWakeRegistryEntry,
 ] as const satisfies readonly SourceContextWakeRegistryEntry[];
 

@@ -1,0 +1,25 @@
+{
+  "contextName": "scanning",
+  "packageName": "@chase-sets/scanning",
+  "ownedNouns": ["card-scan", "scan-session", "identification-candidate", "confirmed-match"],
+  "streamPrefix": "scanning.",
+  "apiBasePath": "/api/scanning",
+  "slices": ["scan-sessions"],
+  "allowedSupportDirectories": ["runtime-support"],
+  "publicExports": [".", "./context"],
+  "allowedContextDependencies": [],
+  "seedRequirements": [],
+  "hostPorts": [],
+  "projectionGroups": [{
+    "projectionName": "scanning-scan-session-projection",
+    "sourceContextNames": ["scanning"],
+    "ownedTables": ["scanning_scan_sessions", "scanning_scan_records"],
+    "requiredDuringBootstrap": false,
+    "resetStrategy": "truncate-owned-tables"
+  }],
+  "apiMounts": [],
+  "apiDeployables": ["platform-api"],
+  "runtimeDeployables": ["platform-worker"],
+  "apiRuntimeProfiles": ["proof", "public"],
+  "workerRuntimeProfiles": ["proof", "public"]
+}
