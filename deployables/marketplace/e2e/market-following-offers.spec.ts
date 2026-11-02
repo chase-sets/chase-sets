@@ -2,7 +2,10 @@ import { expect, test, type APIResponse, type BrowserContext } from "@playwright
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
-import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { module as checkoutModule } from "@chase-sets/checkout";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -25,7 +28,7 @@ import {
   marketplaceBrowserE2eSeedContract,
 } from "./support/seed-contract";
 
-test("market-following consent, held evidence and permanent stop @marketplace-account @browser-e2e-seed", async ({
+test("market-following consent, changed target, Checkout acceptance and permanent stop @marketplace-account @browser-e2e-seed", async ({
   page,
   browser,
 }, testInfo) => {
@@ -52,14 +55,17 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
   )
     throw new Error("Synthetic estimate requires the owned local E2E database.");
   const pool = createPgPool(databaseUrl.toString(), { max: 1 });
-  let removeEstimate: (() => Promise<void>) | undefined;
+  const removeEstimates: (() => Promise<void>)[] = [];
+  const companionPools: PgTransactionalPool[] = [];
+  const timeline: unknown[] = [];
+  let listingId: string | undefined;
   let policyId: string | undefined;
   let sellerContext: BrowserContext | undefined;
   const authorizations: unknown[] = [];
   const writes: unknown[] = [];
   try {
     await test.step("Prepare and verify the exact synthetic Pricing estimate before Preview (not worker proof)", async () => {
-      removeEstimate = await seedSyntheticOfferMarketPrice(pool, fixture);
+      removeEstimates.push(await seedSyntheticOfferMarketPrice(pool, fixture));
     });
     const credentials = marketplaceBrowserE2eBuyerCredentials();
     await signInWithPassword(page, String(testInfo.project.use.baseURL), credentials);
@@ -161,6 +167,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
         const command = fields.get("command");
         if (command && JSON.parse(command).type === "AuthorizeBuyerOfferPolicy")
           authorizations.push(JSON.parse(command));
+        if (command) timeline.push({ step: "buyer policy command", command: JSON.parse(command) });
       }
     });
     await page.goto(appendFreshWriteTokenFromSources("/account/offers/submitted", writes));
@@ -231,6 +238,49 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     expect(owner).toMatchObject({ policyId, status: "active" });
     for (const field of ["itemCommitmentAllowance", "consumedItemAmount", "remainingItemAllowance"])
       expect(JSON.stringify(owner)).not.toContain(`"${field}"`);
+    await test.step("A versioned Market Price changes the authorized Offer through the real worker", async () => {
+      await expect(
+        seedSyntheticOfferMarketPrice(pool, {
+          ...fixture,
+          estimateVersion: "8347002",
+          previousEstimateVersion: "999",
+          amount: "135.00",
+        }),
+      ).rejects.toThrow("exact previous owned estimate");
+      removeEstimates.push(
+        await seedSyntheticOfferMarketPrice(pool, {
+          ...fixture,
+          estimateVersion: "8347002",
+          previousEstimateVersion: fixture.estimateVersion,
+          amount: "135.00",
+        }),
+      );
+      await expect
+        .poll(async () => {
+          const response = await page.request.get(`/api/marketplace/account/offers/submitted/${controlOfferId}`);
+          expect(response.ok()).toBe(true);
+          return (await response.json()).price_amount;
+        })
+        .toBe("135.00");
+      await page.reload();
+      await expect(page.getByText("$135.00", { exact: true }).first()).toBeVisible();
+      for (const [width, height] of [
+        [360, 800],
+        [1440, 1000],
+      ]) {
+        await page.setViewportSize({ width: width!, height: height! });
+        await page.getByRole("button", { name: "Pause market following" }).scrollIntoViewIfNeeded();
+        await expect(page.getByRole("button", { name: "Pause market following" })).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath(`market-following-active-${width}.png`), fullPage: true });
+      }
+      timeline.push({
+        step: "worker target observed",
+        offerId: controlOfferId,
+        amount: "135.00",
+        estimateVersion: "8347002",
+      });
+    });
     await page.getByRole("button", { name: "Pause market following" }).click();
     await expect(page.getByText("Paused", { exact: true }).first()).toBeVisible();
     sellerContext = await browser.newContext({ baseURL: String(testInfo.project.use.baseURL) });
@@ -282,6 +332,195 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     await expect(consent).toBeChecked();
     await page.getByRole("button", { name: "Authorize reviewed Offers" }).click();
     await expect(page.getByText("Active", { exact: true }).first()).toBeVisible();
+    await test.step("The seller accepts the visibly authorized Match through Checkout sell-confirm", async () => {
+      const seller = await sellerContext!.newPage();
+      if (marketplaceBrowserE2eSellerCredentials().email !== marketplaceBrowserE2eSeedContract.seller.email)
+        throw new Error("This journey requires the seeded synthetic seller.");
+      try {
+        const listing = await seller.request.post("/api/marketplace/account/listings", {
+          data: {
+            idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
+            inventoryItemId: inventorySeedIds.items.surgingSparksBoosterBox,
+            priceAmount: "135.00",
+            priceCurrencyCode: "USD",
+            quantityCap: owner.authority.offers.find((offer: { offerId: string }) => offer.offerId === controlOfferId)
+              .quantity,
+          },
+        });
+        expect(listing.status(), "create test-owned stock; the seeded demo Listing is withdrawn").toBe(201);
+        rememberWrite(listing);
+        const draft = await listing.json();
+        listingId = draft.id;
+        const published = await seller.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
+          data: {
+            idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
+            feeQuoteFingerprint: draft.feeQuoteFingerprint,
+          },
+        });
+        expect(published.ok(), "publish the test-owned Listing through its normal gates").toBe(true);
+        rememberWrite(published);
+        const fixtureRead = await seller.request.get(`/api/marketplace/account/listings/${listingId}`, {
+          headers: freshReadHeaders("marketplace"),
+        });
+        expect(fixtureRead.ok(), "receipted read of the exact owned seller stock").toBe(true);
+        expect(await fixtureRead.json()).toMatchObject({
+          listing_id: listingId,
+          product_id: fixture.productId,
+          price_currency_code: "USD",
+          status: "active",
+        });
+        // Marketplace's Listing read does not fence Ordering's independent supply inputs.
+        // Establish those inputs before acceptance can wake the Order-creation reaction.
+        const orderingFixtureRead = await seller.request.get(`/api/marketplace/account/listings/${listingId}`, {
+          headers: freshReadHeaders("ordering"),
+        });
+        expect(orderingFixtureRead.ok(), "Ordering has applied the test-owned Listing's publication receipt").toBe(
+          true,
+        );
+
+        const sellerSession = await seller.request.get("/api/auth/session");
+        expect(sellerSession.ok()).toBe(true);
+        const sellerActor = (await sellerSession.json()).actor;
+        for (const contextName of ["settlement", "checkout"]) {
+          const url = new URL(sandbox[`DATABASE_URL_${contextName.toUpperCase()}`] ?? "");
+          if (
+            url.host !== databaseUrl.host ||
+            url.pathname !== databaseUrl.pathname.replace(/_pricing$/, `_${contextName}`)
+          )
+            throw new Error("Payout fixture requires the same owned E2E sandbox.");
+          companionPools.push(createPgPool(url.toString(), { max: 1 }));
+        }
+        const [settlementPool, checkoutPool] = companionPools;
+        const settlement = createPostgresEventStore({ pool: settlementPool! });
+        const streamId = `settlement.payout-readiness-${sellerActor.accountId}`;
+        const prior = (await readCompleteStream(settlement, { streamId })).at(-1);
+        const [ready] = await settlement.appendToStream({
+          streamId,
+          expectedVersion: prior?.streamVersion ?? 0,
+          context: {
+            tenantId: sellerActor.tenantId,
+            audit: { forAccountId: sellerActor.accountId, performedByUserId: sellerActor.userId },
+          },
+          events: [
+            {
+              eventType: "settlement.payout-readiness.recorded",
+              payload: {
+                accountId: sellerActor.accountId,
+                status: "ready",
+                missingRequirements: [],
+                recordedAt: new Date().toISOString(),
+                syntheticFixture: "market-following-e2e-only",
+              },
+            },
+          ],
+        });
+        const checkout = checkoutModule.createServices(checkoutPool!, {});
+        const projector = checkoutModule.buildSubscriptions!(checkout).find(
+          (entry) => entry.sourceContextName === "settlement",
+        )!;
+        await projector.handlers["settlement.payout-readiness.recorded"]!(toTransportEvent(ready!));
+        timeline.push({ step: "synthetic payout readiness", eventId: ready!.eventId });
+        await expect
+          .poll(async () => {
+            const response = await seller.request.get(`/api/marketplace/account/offers/matches/${controlOfferId}`, {
+              headers: freshReadHeaders("marketplace"),
+            });
+            expect(response.ok()).toBe(true);
+            const match = await response.json();
+            return { can_fulfill: match.can_fulfill, amount: match.price_amount, listingId: match.listing_id };
+          })
+          .toEqual({ can_fulfill: true, amount: "135.00", listingId });
+        seller.on("request", (request) => {
+          if (request.method() === "POST") {
+            const fields = new URLSearchParams(request.postData() ?? "");
+            timeline.push({
+              step: "seller command",
+              path: new URL(request.url()).pathname,
+              intent: fields.get("intent"),
+              sessionId: fields.get("sessionId"),
+            });
+          }
+        });
+        await seller.goto(`/account/offers/matches/${controlOfferId}`);
+        for (const field of ["maximumUnitItemAmount", "buyerOfferPolicyId", "adjustmentBps", "itemCommitmentAllowance"])
+          expect(await seller.content()).not.toContain(`"${field}"`);
+        await seller.getByRole("button", { name: "Accept offer match", exact: true }).first().click();
+        await expect(seller).toHaveURL(/\/account\/sell-list/);
+        await seller
+          .locator('a[href*="/checkout/sell/"], button')
+          .filter({ hasText: /seller checkout|review sale/i })
+          .first()
+          .click();
+        await expect(seller).toHaveURL(/\/checkout\/sell\/session\//);
+        for (const [name, value] of Object.entries({
+          sellerName: "Synthetic Seller",
+          email: marketplaceBrowserE2eSeedContract.seller.email,
+          shipFromName: "Synthetic Seller",
+          shipFromLine1: "1 Main Street",
+          shipFromCity: "Chicago",
+          shipFromState: "IL",
+          shipFromPostalCode: "60601",
+          shipFromCountry: "US",
+        })) {
+          const field = seller.locator(`input[name="${name}"]:visible`);
+          if (await field.count()) await field.fill(value);
+        }
+        await seller.locator('input[name="termsAccepted"]').check();
+        await seller.getByRole("button", { name: "Review sale", exact: true }).first().click();
+        await expect(seller).toHaveURL(/\/checkout\/sell\/.*confirmation/);
+        const readAccepted = async () => {
+          const response = await page.request.get(`/api/marketplace/account/offers/submitted/${controlOfferId}`);
+          expect(response.ok()).toBe(true);
+          return response.json();
+        };
+        await expect.poll(async () => (await readAccepted()).status).toBe("accepted");
+        const accepted = await readAccepted();
+        expect(accepted).toMatchObject({ status: "accepted", price_amount: "135.00" });
+        const readOrders = async () => {
+          const response = await page.request.get("/api/marketplace/account/purchases?limit=100");
+          expect(response.ok()).toBe(true);
+          const result = await response.json();
+          expect(result.count).toBe(result.total);
+          return result.items.filter(
+            (order: { source_reference_id: string }) => order.source_reference_id === controlOfferId,
+          );
+        };
+        await expect.poll(async () => (await readOrders()).length).toBe(1);
+        const orders = await readOrders();
+        const orderResponse = await page.request.get(`/api/marketplace/account/purchases/${orders[0].order_id}`);
+        expect(orderResponse.ok()).toBe(true);
+        const order = await orderResponse.json();
+        expect(accepted.quantity_requested).toBe(
+          owner.authority.offers.find((offer: { offerId: string }) => offer.offerId === controlOfferId).quantity,
+        );
+        expect(order.lines).toEqual([
+          expect.objectContaining({ unit_price_amount: "135.00", quantity: accepted.quantity_requested }),
+        ]);
+        timeline.push({ step: "immutable acceptance", offer: accepted, order });
+        await page.goto("/account/offers/submitted");
+        await page.getByRole("button", { name: "Pause market following" }).click();
+        await expect(page.getByText("Paused", { exact: true }).first()).toBeVisible();
+        removeEstimates.push(
+          await seedSyntheticOfferMarketPrice(pool, {
+            ...fixture,
+            estimateVersion: "8347003",
+            previousEstimateVersion: "8347002",
+            amount: "100.00",
+          }),
+        );
+        expect(await readAccepted()).toMatchObject({
+          status: "accepted",
+          price_amount: "135.00",
+          quantity_requested: accepted.quantity_requested,
+        });
+        await seller.screenshot({
+          path: testInfo.outputPath("market-following-checkout-confirmation.png"),
+          fullPage: true,
+        });
+      } finally {
+        await seller.close();
+      }
+    });
     const stopConfirmation = page.getByRole("checkbox", { name: /^Stop is permanent/ });
     await stopConfirmation.focus();
     await page.keyboard.press("Space");
@@ -289,242 +528,9 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     await page.getByRole("button", { name: "Stop market following" }).click();
     await expect(page.getByText("Stopped", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Preview to resume" })).toHaveCount(0);
-    await page.goto(`/account/offers/submitted/${controlOfferId}`);
+    await page.goto(`/account/offers/submitted/${heldControlOfferId}`);
     await page.getByRole("button", { name: /^Manage Stopped/ }).click();
     await expect(page.getByText(/Stop is permanent/)).toBeVisible();
-    await test.step("Two Offers of one policy each create exactly one distinct Order", async () => {
-      const offerIds: string[] = [];
-      for (let index = 0; index < 2; index++) {
-        offerIds.push(
-          await submitTestOffer({
-            catalogItemId: fixture.catalogItemId,
-            productId: fixture.productId,
-            itemTitle: "Surging Sparks Booster Box",
-            selectedOptions: [],
-            priceAmount: fixture.amount,
-            priceCurrencyCode: "USD",
-            quantityRequested: 1,
-          }),
-        );
-      }
-      const acceptancePolicyId = `bop_${crypto.randomUUID()}`;
-      const commandUrl = `/api/marketplace/account/offer-policies/${acceptancePolicyId}/commands`;
-      let created = false;
-      try {
-        const creation = await page.request.post(commandUrl, {
-          data: {
-            type: "CreateBuyerOfferPolicy",
-            attemptId: crypto.randomUUID(),
-            expectedVersion: 0,
-            operationId: crypto.randomUUID(),
-          },
-        });
-        expect(creation.ok()).toBe(true);
-        created = true;
-        const preview = await page.request.post(commandUrl, {
-          data: {
-            type: "PreviewBuyerOfferPolicy",
-            attemptId: crypto.randomUUID(),
-            expectedVersion: 1,
-            operationId: crypto.randomUUID(),
-            terms: {
-              currency: "USD",
-              adjustmentBps: 0,
-              offers: offerIds.map((offerId) => ({
-                offerId,
-                offerVersion: 1,
-                catalogItemId: fixture.catalogItemId,
-                productId: fixture.productId,
-                selectedOptions: [],
-                quantity: 1,
-                maximumUnitItemAmount: "140.00",
-              })),
-            },
-          },
-        });
-        expect(preview.ok()).toBe(true);
-        const reviewed = await preview.json();
-        expect(reviewed.preview.outcomes).toEqual(
-          offerIds.map((offerId) =>
-            expect.objectContaining({
-              offerId,
-              result: expect.objectContaining({ status: "target", unitItemAmount: fixture.amount }),
-            }),
-          ),
-        );
-        const authorized = await page.request.post(commandUrl, {
-          data: {
-            type: "AuthorizeBuyerOfferPolicy",
-            attemptId: crypto.randomUUID(),
-            expectedVersion: reviewed.version,
-            previewId: reviewed.preview.previewId,
-            consent: true,
-            operationId: crypto.randomUUID(),
-          },
-        });
-        expect(authorized.ok()).toBe(true);
-        expect(await authorized.json()).toMatchObject({
-          policyId: acceptancePolicyId,
-          status: "active",
-          version: reviewed.version + 1,
-          authority: { offers: offerIds.map((offerId) => ({ offerId })) },
-        });
-        const seller = await sellerContext!.newPage();
-        let listingId: string | undefined;
-        try {
-          const listing = await seller.request.post("/api/marketplace/account/listings", {
-            data: {
-              idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
-              inventoryItemId: inventorySeedIds.items.surgingSparksBoosterBox,
-              priceAmount: fixture.amount,
-              priceCurrencyCode: "USD",
-              quantityCap: 2,
-            },
-          });
-          expect(listing.status(), "create test-owned stock; the seeded demo Listing is withdrawn").toBe(201);
-          rememberWrite(listing);
-          const draft = await listing.json();
-          listingId = draft.id;
-          const published = await seller.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
-            data: {
-              idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
-              feeQuoteFingerprint: draft.feeQuoteFingerprint,
-            },
-          });
-          expect(published.ok(), "publish the test-owned two-unit Listing through its normal gates").toBe(true);
-          rememberWrite(published);
-          const fixtureRead = await seller.request.get(`/api/marketplace/account/listings/${listingId}`, {
-            headers: freshReadHeaders("marketplace"),
-          });
-          expect(fixtureRead.ok(), "receipted read of the exact owned seller stock").toBe(true);
-          expect(await fixtureRead.json()).toMatchObject({
-            listing_id: listingId,
-            product_id: fixture.productId,
-            price_currency_code: "USD",
-            status: "active",
-          });
-          // Marketplace's Listing read does not fence Ordering's independent supply inputs.
-          // Establish those inputs before acceptance can wake the Order-creation reaction.
-          const orderingFixtureRead = await seller.request.get(`/api/marketplace/account/listings/${listingId}`, {
-            headers: freshReadHeaders("ordering"),
-          });
-          expect(orderingFixtureRead.ok(), "Ordering has applied the test-owned Listing's publication receipt").toBe(
-            true,
-          );
-          for (const offerId of offerIds) {
-            await expect
-              .poll(async () => {
-                const response = await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`, {
-                  headers: freshReadHeaders("marketplace"),
-                });
-                const match = await response.json();
-                return {
-                  httpStatus: response.status(),
-                  ...match,
-                  hasStock: match.seller_available_quantity >= match.quantity_requested,
-                };
-              })
-              .toMatchObject({
-                httpStatus: 200,
-                can_fulfill: true,
-                listing_id: listingId,
-                managed_status: null,
-                seller_listing_availability_status: "available",
-                hasStock: true,
-              });
-            const match = await (
-              await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`, {
-                headers: freshReadHeaders("marketplace"),
-              })
-            ).json();
-            const quote = await seller.request.get(
-              `/api/marketplace/account/offers/matches/${offerId}/terms-preview?listingId=${match.listing_id}`,
-              { headers: freshReadHeaders("marketplace") },
-            );
-            expect(quote.ok()).toBe(true);
-            const acceptance = await seller.request.post(`/api/marketplace/account/offers/matches/${offerId}/accept`, {
-              data: {
-                sourceActionKey: crypto.randomUUID(),
-                listingId: match.listing_id,
-                feeQuoteFingerprint: (await quote.json()).fee_quote_fingerprint,
-              },
-            });
-            expect(acceptance.status()).toBe(201);
-            rememberWrite(acceptance);
-            const accepted = await acceptance.json();
-            expect(accepted).toMatchObject({
-              id: offerId,
-              listingId,
-              inventoryItemId: inventorySeedIds.items.surgingSparksBoosterBox,
-              status: "accepted",
-            });
-            expect(accepted.version, "acceptance advances this exact Offer's stream").toBeGreaterThan(
-              match.last_stream_version,
-            );
-          }
-          const sales = await seller.request.get("/api/marketplace/account/sales?limit=100", {
-            headers: freshReadHeaders("ordering"),
-          });
-          expect(sales.ok(), "receipted Sales handoff waits for accepted Offers and their Order projections").toBe(
-            true,
-          );
-          const committedSales = await sales.json();
-          expect(committedSales.count).toBe(committedSales.total);
-          const offerOrders = committedSales.items.filter(
-            (order: { source_type: string; source_reference_id: string }) =>
-              order.source_type === "offer-acceptance" && offerIds.includes(order.source_reference_id),
-          );
-          for (const offerId of offerIds)
-            expect(
-              offerOrders.filter((order: { source_reference_id: string }) => order.source_reference_id === offerId),
-            ).toHaveLength(1);
-          expect(new Set(offerOrders.map((order: { order_id: string }) => order.order_id)).size).toBe(2);
-        } finally {
-          try {
-            if (listingId) {
-              const withdrawn = await seller.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`, {
-                data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
-              });
-              expect(withdrawn.ok(), "withdraw only the test-owned Listing").toBe(true);
-            }
-          } finally {
-            await seller.close();
-          }
-        }
-        const readOrders = async () => {
-          const response = await page.request.get("/api/marketplace/account/purchases?limit=100");
-          expect(response.ok()).toBe(true);
-          const result = await response.json();
-          expect(result.count).toBe(result.total);
-          return result.items.filter(
-            (order: { source_type: string; source_reference_id: string }) =>
-              order.source_type === "offer-acceptance" && offerIds.includes(order.source_reference_id),
-          );
-        };
-        await expect.poll(async () => (await readOrders()).length).toBe(2);
-        const orders = await readOrders();
-        for (const offerId of offerIds)
-          expect(
-            orders.filter((order: { source_reference_id: string }) => order.source_reference_id === offerId),
-          ).toHaveLength(1);
-        expect(new Set(orders.map((order: { order_id: string }) => order.order_id)).size).toBe(2);
-      } finally {
-        if (created) {
-          const response = await page.request.get(`/api/marketplace/account/offer-policies/${acceptancePolicyId}`);
-          expect(response.ok()).toBe(true);
-          const current = await response.json();
-          const stopped = await page.request.post(commandUrl, {
-            data: {
-              type: "StopBuyerOfferPolicy",
-              attemptId: crypto.randomUUID(),
-              expectedVersion: current.version,
-              operationId: crypto.randomUUID(),
-            },
-          });
-          expect(stopped.ok()).toBe(true);
-        }
-      }
-    });
   } finally {
     try {
       if (policyId) {
@@ -549,10 +555,25 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       }
     } finally {
       try {
+        if (listingId && sellerContext) {
+          const withdrawn = await sellerContext.request.post(
+            `/api/marketplace/account/listings/${listingId}/withdraw`,
+            {
+              data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
+            },
+          );
+          expect(withdrawn.ok()).toBe(true);
+        }
         await sellerContext?.close();
       } finally {
         try {
-          await removeEstimate?.();
+          await testInfo.attach("market-following-command-timeline", {
+            body: JSON.stringify(timeline, null, 2),
+            contentType: "application/json",
+          });
+          for (const remove of removeEstimates.reverse()) await remove();
+          for (const companion of companionPools)
+            await (companion as PgTransactionalPool & { end: () => Promise<void> }).end();
         } finally {
           await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
         }

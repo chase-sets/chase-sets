@@ -5,7 +5,15 @@ import {
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  createPostgresProjectionStore,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
+import { module as orderingModule } from "@chase-sets/ordering";
+import { module as pricingModule } from "@chase-sets/pricing";
+import { createMarketplaceOfferRuntime } from "../../../bounded-contexts/marketplace/features/offers/api/runtime";
+import { createManagedOfferWork } from "../../../bounded-contexts/marketplace/features/offers/integrations/managed-work";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
@@ -501,6 +509,426 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         { generation: String(initialGeneration + BigInt(generation + 1)), pending_work_ids: [] },
       ]);
     }
+    expect(externalFetch).not.toHaveBeenCalled();
+  });
+
+  it("commits two managed Offers and two Orders across duplicate delivery, crash, replacement and an acceptance/repricing append barrier", async () => {
+    const services = runtime.services.marketplace as MarketplaceServices;
+    const ordering = runtime.services.ordering as ReturnType<typeof orderingModule.createServices>;
+    const store = createPostgresEventStore({ pool: pools.marketplace });
+    const orderStore = createPostgresEventStore({ pool: pools.ordering });
+    const pricing = pricingModule.createServices(pools.pricing, syntheticPricingHostPorts);
+    const priceStore = createPostgresEventStore({ pool: pools.pricing });
+    const buyer = "acc_race_buyer";
+    const policyId = "bop_postgres_race";
+    const product = { catalogItemId: "cat_postgres_race", productId: "cat_postgres_race::" };
+    const context = {
+      tenantId: "tnt_identity" as never,
+      audit: { forAccountId: buyer as never, performedByUserId: "usr_race" as never },
+    };
+    let estimateVersion = 0;
+    async function publishPrice(amount: string) {
+      const estimatedAt = new Date().toISOString();
+      const [event] = await priceStore.appendToStream({
+        streamId: "pricing.market-price-postgres-race",
+        expectedVersion: estimateVersion++,
+        context,
+        events: [
+          {
+            eventType: "pricing.market-price.estimated",
+            payload: {
+              schemaVersion: 1,
+              ...product,
+              estimateVersion: String(estimateVersion),
+              amount,
+              currencyCode: "USD",
+              estimatedAt,
+              freshUntil: new Date(Date.now() + 3_600_000).toISOString(),
+              window: { startedAt: estimatedAt, endedAt: estimatedAt },
+              confidence: "low",
+              band: null,
+              disclosure: "internal",
+              previousAmount: null,
+              inputs: { platformVerifiedTradeCount: 0, platformTradeCount: 0, externalCompCount: 0 },
+            },
+          },
+        ],
+      });
+      for (const set of pricing.projectors) await set.handlers[event!.eventType]?.(toTransportEvent(event!));
+      return event!;
+    }
+    const address = {
+      name: "Synthetic Buyer",
+      company: null,
+      line1: "1 Main Street",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: null,
+      email: null,
+    };
+    const measure = {
+      ...product,
+      selectedOptions: [],
+      measureVersion: "synthetic-race-v1",
+      unitLengthInches: 3.5,
+      unitWidthInches: 2.5,
+      unitHeightInches: 0.012,
+      unitWeightOunces: 0.064,
+      physicalFlags: ["raw-card"],
+      stackBehavior: "stackable-thickness",
+      source: "profile",
+      confidence: "measured",
+    };
+    const ids = ["one", "two"].map((suffix) => ({
+      offerId: `off_postgres_race_${suffix}`,
+      listingId: `lst_postgres_race_${suffix}`,
+      sellerAccountId: `acc_race_${suffix}`,
+      inventoryItemId: `inv_race_${suffix}`,
+    }));
+    await pools.marketplace.query(
+      "INSERT INTO marketplace_account_pages (account_id, display_name, status) VALUES ($1, 'Synthetic buyer', 'active')",
+      [buyer],
+    );
+    for (const item of ids) {
+      await pools.marketplace.query(
+        "INSERT INTO marketplace_account_pages (account_id, display_name, status) VALUES ($1, 'Synthetic seller', 'active')",
+        [item.sellerAccountId],
+      );
+      await pools.marketplace.query(
+        `INSERT INTO marketplace_supply_items (item_id, account_id, catalog_catalog_item_id, product_id, storage_location_id, total_quantity) VALUES ($1, $2, $3, $4, 'loc_race', 10)`,
+        [item.inventoryItemId, item.sellerAccountId, product.catalogItemId, product.productId],
+      );
+      await pools.ordering.query(
+        `INSERT INTO ordering_inventory_item_inputs (item_id, seller_account_id, catalog_catalog_item_id, product_id, total_quantity, updated_at, last_stream_version) VALUES ($1, $2, $3, $4, 10, now(), 1)`,
+        [item.inventoryItemId, item.sellerAccountId, product.catalogItemId, product.productId],
+      );
+      await store.appendToStream({
+        streamId: `marketplace.listing-${item.listingId}`,
+        expectedVersion: 0,
+        context,
+        events: [
+          {
+            eventType: "marketplace.listing.created",
+            payload: {
+              ...item,
+              accountId: item.sellerAccountId,
+              ...product,
+              itemTitle: "Synthetic race",
+              itemSubtitle: null,
+              selectedOptions: [],
+              productSummary: null,
+              productMeasureSnapshot: measure,
+              gradedCard: null,
+              storageLocationName: "Synthetic stock",
+              shipFromCode: "CHI",
+              shipFromAddress: address,
+              priceAmount: "12.00",
+              priceCurrencyCode: "USD",
+              marketplaceSalesFeeUnitAmount: "0.00",
+              sellerNetUnitAmount: "12.00",
+              shippingAllowancePercentageBps: 500,
+              termsScheduleId: "sch_race",
+              termsAgreementId: null,
+              termsResolvedAt: new Date().toISOString(),
+              feeQuoteFingerprint: "synthetic",
+              feeLocks: [],
+              quantityCap: 10,
+              purchaseLimits: { maxUnitsPerOrder: null, maxUnitsPerDay: null, maxUnitsPerCustomerAccount: null },
+              evidenceRequirements: null,
+              evidence: [],
+            },
+          },
+          { eventType: "marketplace.listing.published", payload: { listingId: item.listingId } },
+        ],
+      });
+      await services.offers.commandHandler({
+        streamId: `marketplace.offer-${item.offerId}`,
+        context,
+        command: {
+          type: "SubmitOffer",
+          offerId: item.offerId as never,
+          buyerAccountId: buyer as never,
+          ...product,
+          catalogItemId: product.catalogItemId as never,
+          productId: product.productId as never,
+          itemTitle: "Synthetic race",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          shippingDestinationSnapshot: address,
+          priceAmount: "10.00",
+          priceCurrencyCode: "USD",
+          quantityRequested: 1,
+        },
+      });
+    }
+    const orderingHandlers = orderingModule.buildSubscriptions!(ordering).filter(
+      (entry) => entry.sourceContextName === "marketplace",
+    );
+    const orderingSupply = orderingHandlers.find(
+      (entry) => entry.projectionName === "ordering-marketplace-supply-input-projection",
+    )!;
+    const orderingAcceptance = orderingHandlers.find(
+      (entry) => entry.reactionName === "ordering-marketplace-offer-acceptance",
+    )!;
+    async function project() {
+      for (const streamId of [
+        ...ids.flatMap((item) => [`marketplace.listing-${item.listingId}`, `marketplace.offer-${item.offerId}`]),
+        `marketplace.offer-policy-${policyId}`,
+      ]) {
+        for (const event of await readCompleteStream(store, { streamId })) {
+          for (const set of services.projectors) await set.handlers[event.eventType]?.(toTransportEvent(event));
+          const orderingHandler =
+            event.eventType === "marketplace.offer.accepted" ? orderingAcceptance : orderingSupply;
+          await orderingHandler.handlers[event.eventType]?.(toTransportEvent(event));
+        }
+      }
+    }
+    await services.buyerOfferPolicies.execute(
+      policyId,
+      {
+        type: "CreateBuyerOfferPolicy",
+        expectedVersion: 0,
+        operationId: "create",
+        attemptId: "postgres_race_create_attempt",
+      },
+      context,
+    );
+    const preview = await services.buyerOfferPolicies.execute(
+      policyId,
+      {
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: 1,
+        operationId: "preview",
+        attemptId: "postgres_race_preview_attempt",
+        terms: {
+          currency: "USD",
+          adjustmentBps: 0,
+          offers: ids.map(({ offerId }) => ({
+            ...product,
+            offerId,
+            offerVersion: 1,
+            selectedOptions: [],
+            quantity: 1,
+            maximumUnitItemAmount: "15.00",
+          })),
+        },
+      },
+      context,
+    );
+    await services.buyerOfferPolicies.execute(
+      policyId,
+      {
+        type: "AuthorizeBuyerOfferPolicy",
+        expectedVersion: 2,
+        operationId: "authorize",
+        attemptId: "postgres_race_authorize_attempt",
+        previewId: preview.preview!.previewId,
+        consent: true,
+      },
+      context,
+    );
+    await project();
+    await publishPrice("12.00");
+    let clock = Date.now();
+    const now = () => new Date(clock);
+    const makeWorker = (offers = services.offers) =>
+      createManagedOfferWork({ eventStore: store, db: pools.marketplace, offers, now });
+    const worker = makeWorker();
+    const workId = await worker.enqueue(product, "synthetic-race-delivery", context);
+    expect(await worker.enqueue(product, "synthetic-race-delivery", context)).toBe(workId);
+    const workStream = `marketplace.offer-work-${workId}`;
+    const workProjection = services.projectors.find((entry) => entry.handlers["marketplace.offer.work-requested"])!;
+    async function projectWork() {
+      for (const event of await readCompleteStream(store, { streamId: workStream }))
+        await workProjection.handlers[event.eventType]!(toTransportEvent(event));
+    }
+    await projectWork();
+    const crash = createManagedOfferWork({
+      eventStore: store,
+      db: pools.marketplace,
+      now,
+      offers: {
+        applyManagedOfferPage: async (...args) => {
+          await services.offers.applyManagedOfferPage(...args);
+          throw new Error("synthetic crash after Offer append before work progress");
+        },
+      },
+    });
+    await expect(crash.run(context)).rejects.toThrow("synthetic crash after Offer append");
+    const afterCrash = await Promise.all(
+      ids.map((item) => readCompleteStream(store, { streamId: `marketplace.offer-${item.offerId}` })),
+    );
+    expect(
+      afterCrash.map((events) =>
+        events
+          .filter((event) => event.eventType === "marketplace.offer.price-updated")
+          .map((event) => event.payload.priceAmount),
+      ),
+    ).toEqual([["12.00"], ["12.00"]]);
+    await projectWork();
+    await project();
+    clock += 61_000; // Expire only the durable work lease, never the Offer.
+    expect(await makeWorker().run(context)).toBe(2);
+    expect(
+      await Promise.all(
+        ids.map((item) => readCompleteStream(store, { streamId: `marketplace.offer-${item.offerId}` })),
+      ),
+    ).toEqual(afterCrash);
+    await projectWork();
+    expect(await makeWorker().run(context)).toBe(0);
+    expect(
+      (await readCompleteStream(store, { streamId: workStream })).filter(
+        (event) => event.eventType === "marketplace.offer.work-requested",
+      ),
+    ).toHaveLength(1);
+
+    let release!: () => void;
+    let reached!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const atAppend = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const append = store.appendToStreams!;
+    let armed = true;
+    const racingStore = {
+      ...store,
+      appendToStreams: async (inputs: Parameters<typeof append>[0]) => {
+        if (
+          armed &&
+          inputs.some((input) =>
+            input.events.some((event) => event.eventType === "marketplace.offer.managed-evaluated"),
+          )
+        ) {
+          armed = false;
+          expect(
+            inputs.some(
+              (input) => input.streamId === `marketplace.offer-policy-${policyId}` && input.events.length === 0,
+            ),
+          ).toBe(true);
+          expect(
+            inputs.some((input) => input.streamId.startsWith("marketplace.offer-work-") && input.events.length === 0),
+          ).toBe(true);
+          reached();
+          await blocked;
+        }
+        return append(inputs);
+      },
+    };
+    const racingOffers = createMarketplaceOfferRuntime({
+      eventStore: racingStore,
+      db: pools.marketplace,
+      checkpointStore: createPostgresProjectionStore({ db: pools.marketplace }),
+      commercialTermsResolver: services.commercialTermsResolver,
+      listingEvidencePolicyEvaluator: services.listingEvidencePolicies,
+      managedOfferPricing: createBuyerOfferPricing(pools.pricing),
+    });
+    const racingWorker = createManagedOfferWork({
+      eventStore: racingStore,
+      db: pools.marketplace,
+      offers: racingOffers,
+      now,
+    });
+    await publishPrice("13.00");
+    const raceWorkId = await racingWorker.enqueue(product, "synthetic-concurrent-reprice", context);
+    for (const event of await readCompleteStream(store, { streamId: `marketplace.offer-work-${raceWorkId}` }))
+      await workProjection.handlers[event.eventType]!(toTransportEvent(event));
+    const acceptances = await Promise.all(
+      ids.map(async (item) => ({
+        offerId: item.offerId,
+        listingId: item.listingId,
+        sellerAccountId: item.sellerAccountId,
+        sourceActionKey: `synthetic_race_accept_${item.offerId}`,
+        feeQuoteFingerprint: (
+          await services.offers.previewOfferAcceptanceTerms({
+            offerId: item.offerId as never,
+            listingId: item.listingId,
+            sellerAccountId: item.sellerAccountId as never,
+          })
+        ).fee_quote_fingerprint,
+      })),
+    );
+    const pending = racingWorker.run(context);
+    const observed = pending.catch((error: unknown) => error);
+    let workerOutcome: unknown;
+    try {
+      await Promise.race([
+        atAppend,
+        pending.then(() => {
+          throw new Error("Repricing did not reach its append barrier.");
+        }),
+      ]);
+      // The seller confirms the latest Market Price, not the blocked worker's older evaluation.
+      await publishPrice("12.00");
+      const accepted = await Promise.all(
+        acceptances.map((item) =>
+          services.offers.acceptOffer(
+            { ...item, offerId: item.offerId as never, sellerAccountId: item.sellerAccountId as never },
+            { ...context, audit: { ...context.audit, forAccountId: item.sellerAccountId as never } },
+          ),
+        ),
+      );
+      expect(accepted).toHaveLength(2);
+    } finally {
+      release();
+      workerOutcome = await observed;
+    }
+    expect(workerOutcome).toMatchObject({ code: "managed_offer_conflict" });
+    await project();
+    const acceptedFacts = await Promise.all(
+      ids.map((item) => readCompleteStream(store, { streamId: `marketplace.offer-${item.offerId}` })),
+    );
+    for (const events of acceptedFacts)
+      expect(events.filter((event) => event.eventType === "marketplace.offer.accepted")).toEqual([
+        expect.objectContaining({ payload: expect.objectContaining({ priceAmount: "12.00", quantityRequested: 1 }) }),
+      ]);
+    await services.buyerOfferPolicies.execute(
+      policyId,
+      {
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: 3,
+        operationId: "pause",
+        attemptId: "postgres_race_pause_attempt",
+      },
+      context,
+    );
+    for (const item of acceptances) {
+      const params = { ...item, offerId: item.offerId as never, sellerAccountId: item.sellerAccountId as never };
+      const sellerContext = { ...context, audit: { ...context.audit, forAccountId: item.sellerAccountId as never } };
+      await Promise.all([
+        services.offers.acceptOffer(params, sellerContext),
+        services.offers.acceptOffer(params, sellerContext),
+      ]);
+    }
+    await publishPrice("13.00");
+    clock += 61_000;
+    for (const event of await readCompleteStream(store, { streamId: `marketplace.offer-work-${raceWorkId}` }))
+      await workProjection.handlers[event.eventType]!(toTransportEvent(event));
+    await makeWorker().run(context);
+    for (const item of ids)
+      expect(await services.offers.applyManagedOffer(item.offerId as never, "after-acceptance", context)).toMatchObject(
+        { status: "unchanged" },
+      );
+    expect(
+      await Promise.all(
+        ids.map((item) => readCompleteStream(store, { streamId: `marketplace.offer-${item.offerId}` })),
+      ),
+    ).toEqual(acceptedFacts);
+    await project(); // Duplicate source delivery must not create another Order.
+    const orderEvents = (await orderStore.readAll()).filter(
+      (event) =>
+        event.eventType === "ordering.order.created" &&
+        ids.some((item) => event.payload.sourceReferenceId === item.offerId),
+    );
+    expect(orderEvents).toHaveLength(2);
+    expect(new Set(orderEvents.map((event) => event.streamId)).size).toBe(2);
+    for (const item of ids)
+      expect(orderEvents.filter((event) => event.payload.sourceReferenceId === item.offerId)).toHaveLength(1);
     expect(externalFetch).not.toHaveBeenCalled();
   });
 
