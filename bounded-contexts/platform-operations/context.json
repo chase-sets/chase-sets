@@ -24,8 +24,7 @@
     "platform-remedy-policy",
     "remedy-approval",
     "seller-compliance-sale",
-    "appealable-enforcement-action",
-    "seller-compliance-cohort"
+    "appealable-enforcement-action"
   ],
   "streamPrefix": "platform-operations.",
   "accountCapabilities": [
@@ -1501,8 +1500,8 @@
     },
     "seller-compliance-cohorts": {
       "classification": "slice",
-      "purpose": "Own policy-configured rolling-window seller compliance cohort evaluation, durable state, transition envelopes, failure records, and operator read queries over seller-compliance sale facts.",
-      "expectedConsumers": ["Internal platform-operations module composition", "Platform worker scheduled runner"]
+      "purpose": "Own policy-configured rolling-window seller compliance cohort evaluation over seller-compliance sale facts; durable state and runtime scheduling are successor-owned.",
+      "expectedConsumers": ["Internal platform-operations module composition"]
     }
   },
   "runtimeDeployables": ["platform-worker"],

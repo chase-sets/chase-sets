@@ -1,10 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { addUtcMonths, evaluateSellerComplianceCohort } from "./cohort-window";
+import {
+  addUtcMonths,
+  evaluateSellerComplianceCohort as evaluateDomain,
+  type CohortEvaluationInput,
+} from "./cohort-window";
 import {
   SELLER_COMPLIANCE_COHORT_POLICY_DEFAULT_VALUE,
   decodeSellerComplianceCohortPolicyValue,
   type SellerComplianceCohortPolicyValue,
 } from "./seller-compliance-cohort-policy";
+
+const identity = {
+  policyKey: "platform-operations.seller-compliance-cohort",
+  documentId: "policy-test",
+  eventId: "policy-test-revision",
+  streamVersion: 1,
+};
+function evaluateSellerComplianceCohort(
+  input: Omit<CohortEvaluationInput, "observedAt" | "policyIdentity"> &
+    Partial<Pick<CohortEvaluationInput, "observedAt" | "policyIdentity">>,
+) {
+  return evaluateDomain({ observedAt: input.evaluationAt, policyIdentity: identity, ...input });
+}
 
 const policy: SellerComplianceCohortPolicyValue = {
   ...SELLER_COMPLIANCE_COHORT_POLICY_DEFAULT_VALUE,
@@ -71,8 +88,8 @@ type ScanSale = Readonly<{ sale: ReturnType<typeof sale>; at: number; qualifying
 
 /**
  * 200 seeded sales over the 24 months of 2024-2025 with uneven monthly volume, mixed gross and a share of
- * foreign-currency, unclassified and fully refunded sales, plus one burst. Days stay within 1-28: the clamped month-end anchors
- * are pinned by the AC2 edge test, and the issue's slide-right argument assumes month addition preserves order.
+ * foreign-currency, unclassified and fully refunded sales, plus one burst.
+ * All month-end days are eligible, including leap day and intraday milliseconds.
  */
 function generateScanSales(): readonly ScanSale[] {
   const monthlyCounts = [12, 3, 9, 14, 2, 8, 11, 4, 13, 6, 1, 10, 9, 12, 2, 7, 15, 3, 8, 11, 5, 12, 9, 14];
@@ -81,7 +98,8 @@ function generateScanSales(): readonly ScanSale[] {
   const scan: ScanSale[] = [];
   monthlyCounts.forEach((count, month) => {
     for (let index = 0; index < count; index++) {
-      const at = Date.UTC(2024, month, 1 + Math.floor(random() * 28)) + Math.floor(random() * 86_399_998);
+      const days = new Date(Date.UTC(2024, month + 1, 0)).getUTCDate();
+      const at = Date.UTC(2024, month, 1 + Math.floor(random() * days)) + Math.floor(random() * 86_399_998);
       const amount = amounts[Math.floor(random() * amounts.length)]!;
       const roll = random();
       const kind = roll < 0.1 ? "foreign" : roll < 0.18 ? "unclassified" : roll < 0.25 ? "refunded" : "qualifying";
@@ -132,18 +150,6 @@ function addMonthsMs(at: number, months: number): number {
   );
 }
 
-function earliestContainingStartMs(at: number, months: number): number {
-  let low = at - (months * 32 + 3) * 86_400_000;
-  let high = at;
-  while (addMonthsMs(low, months) > at) low -= 32 * 86_400_000;
-  while (high - low > 1) {
-    const middle = Math.floor((low + high) / 2);
-    if (addMonthsMs(middle, months) > at) high = middle;
-    else low = middle;
-  }
-  return high;
-}
-
 type LifecycleEntry = Readonly<{
   at: string;
   state: string;
@@ -156,32 +162,69 @@ type LifecycleEntry = Readonly<{
 }>;
 
 /**
- * Independent continuous-start lifecycle oracle. Candidate starts are the
- * earliest containing start for every sale plus sale instants; each candidate
- * is subject to the lookback horizon at the evaluation tick. Transition
- * instants are searched over sale, window-end and lookback boundaries.
+ * Independent continuous oracle: enumerate every UTC day, intersect the
+ * half-open containing intervals of all sales, and tally each constant set
+ * directly. No production helper or production candidate generator is used.
  */
 function oracleLifecycle(
   scan: readonly ScanSale[],
   rule: Readonly<{ count: number; gross: bigint; disclosure: bigint; windowMonths: number; lookbackMonths: number }>,
   ticks: readonly number[],
+  mutant?: "sale-only" | "entries-only" | "inverse" | "closed-end",
 ): LifecycleEntry[] {
   const ordered = [...scan].sort(
     (a, b) =>
       a.at - b.at || a.sale.paymentId.localeCompare(b.sale.paymentId) || a.sale.orderId.localeCompare(b.sale.orderId),
   );
-  const windows = [
-    ...new Set(ordered.flatMap((entry) => [earliestContainingStartMs(entry.at, rule.windowMonths), entry.at])),
-  ]
-    .sort((a, b) => a - b)
-    .map((start) => {
-      const end = addMonthsMs(start, rule.windowMonths);
-      return {
-        start,
-        admissibleThrough: addMonthsMs(start, rule.lookbackMonths),
-        members: ordered.filter((entry) => entry.qualifying && entry.at >= start && entry.at < end),
-      };
-    });
+  const windows: {
+    start: number;
+    last: number;
+    offset: number;
+    admissibleThrough: number;
+    members: readonly ScanSale[];
+  }[] = [];
+  const dayMs = 86_400_000;
+  const lower = Math.floor((ordered[0]!.at - (rule.windowMonths * 32 + 3) * dayMs) / dayMs) * dayMs;
+  for (let day = lower; day <= ordered.at(-1)!.at; day += dayMs) {
+    const offset = addMonthsMs(day, rule.windowMonths) - day;
+    const lOffset = addMonthsMs(day, rule.lookbackMonths) - day;
+    const cuts = [day, day + dayMs];
+    for (const entry of ordered) {
+      for (const cut of [entry.at + 1, entry.at - offset + (mutant === "closed-end" ? 0 : 1)])
+        if (cut > day && cut < day + dayMs) cuts.push(cut);
+    }
+    const points = [...new Set(cuts)].sort((a, b) => a - b);
+    for (let i = 0; i < points.length - 1; i++) {
+      const start = points[i]!;
+      const last = points[i + 1]! - 1;
+      const members = ordered.filter(
+        (entry) =>
+          entry.qualifying &&
+          entry.at >= start &&
+          (mutant === "closed-end" ? entry.at <= start + offset : entry.at < start + offset),
+      );
+      if (members.length >= rule.count)
+        windows.push({ start, last, offset: lOffset, admissibleThrough: last + lOffset, members });
+    }
+  }
+  if (mutant === "sale-only") {
+    windows.splice(
+      0,
+      windows.length,
+      ...ordered.map((entry) => ({
+        start: entry.at,
+        last: entry.at,
+        offset: addMonthsMs(entry.at, rule.lookbackMonths) - entry.at,
+        admissibleThrough: addMonthsMs(entry.at, rule.lookbackMonths),
+        members: ordered.filter(
+          (sale) => sale.qualifying && sale.at >= entry.at && sale.at < addMonthsMs(entry.at, rule.windowMonths),
+        ),
+      })),
+    );
+  }
+  if (mutant === "entries-only") for (const window of windows) window.last = window.start;
+  const eligibleStart = (window: (typeof windows)[number], at: number) =>
+    Math.max(window.start, mutant === "inverse" ? addMonthsMs(at, -rule.lookbackMonths) : at - window.offset);
   const visible = (entry: ScanSale, at: number, inclusive: boolean) => (inclusive ? entry.at <= at : entry.at < at);
   const tally = (members: readonly ScanSale[], at: number, inclusive: boolean) => {
     let count = 0;
@@ -197,7 +240,10 @@ function oracleLifecycle(
     value.count >= rule.count && value.gross >= gross;
   const verdict = (at: number, inclusive: boolean) => {
     const sliding = windows.find(
-      (window) => at <= window.admissibleThrough && meets(tally(window.members, at, inclusive), rule.gross),
+      (window) =>
+        eligibleStart(window, at) <= window.last &&
+        eligibleStart(window, at) < at &&
+        meets(tally(window.members, at, inclusive), rule.gross),
     );
     if (!sliding) return { member: false, band: "none", window: null };
     const totals = tally(sliding.members, at, inclusive);
@@ -205,8 +251,8 @@ function oracleLifecycle(
       member: true,
       band: totals.gross >= rule.disclosure ? "disclosure" : "none",
       window: {
-        start: sliding.start,
-        end: addMonthsMs(sliding.start, rule.windowMonths),
+        start: eligibleStart(sliding, at),
+        end: addMonthsMs(eligibleStart(sliding, at), rule.windowMonths),
         ...totals,
         members: sliding.members,
       },
@@ -243,9 +289,9 @@ function oracleLifecycle(
     const instants = [...new Set([lower + 1, ...grid.filter((at) => at > lower && at < upper), upper])].sort(
       (a, b) => a - b,
     );
-    const found = instants.find((at) => holds(verdict(at, at !== upper)));
+    const found = instants.find((at) => holds(verdict(at, false)));
     if (found === undefined) throw new Error("The oracle found no transition instant.");
-    return found;
+    return ordered.some((entry) => entry.at + 1 === found) && found - 1 > lower ? found - 1 : found;
   };
   const iso = (at: number) => new Date(at).toISOString();
   let previous: { member: boolean; band: string; since: number } | null = null;
@@ -332,6 +378,121 @@ function evaluatorLifecycle(
 }
 
 describe("seller compliance cohort window", () => {
+  it("continuous oracle pins every clamp-piece row, exact exit and omission mutants", () => {
+    const sales = [
+      sale("jan", "2025-01-31T00:00:00.000Z", "250000"),
+      sale("feb", "2025-02-28T12:00:00.000Z", "250000"),
+    ];
+    const scan = sales.map((sale) => ({ sale, at: Date.parse(sale.occurredAt), qualifying: true, gross: 250000n }));
+    const rule = { count: 2, gross: 500000n, disclosure: 2000000n, windowMonths: 1, lookbackMonths: 2 };
+    const rows = [
+      ["2025-03-05T00:00:00.000Z", "2025-01-28T12:00:00.001Z"],
+      ["2025-03-29T18:00:00.000Z", "2025-01-29T18:00:00.000Z"],
+      ["2025-03-30T12:00:00.001Z", "2025-01-30T12:00:00.001Z"],
+      ["2025-03-30T12:00:00.002Z", "2025-01-30T12:00:00.002Z"],
+      ["2025-03-30T18:00:00.000Z", "2025-01-30T18:00:00.000Z"],
+      ["2025-03-30T23:59:59.999Z", "2025-01-30T23:59:59.999Z"],
+      ["2025-03-31T00:00:00.000Z", null],
+    ] as const;
+    const ticks = rows.map(([at]) => Date.parse(at));
+    const oracle = oracleLifecycle(scan, rule, ticks);
+    expect(oracle.map((value) => [value.at, value.windowStart])).toEqual(rows);
+    expect(evaluatorLifecycle(sales, policy, ticks)).toEqual(oracle);
+    expect(oracle.at(-1)!.transitions).toEqual([["exited", "2025-03-31T00:00:00.000Z"]]);
+    for (const mutant of ["sale-only", "closed-end"] as const)
+      expect(
+        oracleLifecycle(scan, rule, [ticks[0]!], mutant).map((value) => value.windowStart),
+        mutant,
+      ).not.toEqual([rows[0][1]]);
+    expect(oracleLifecycle(scan, rule, [ticks[4]!], "entries-only")[0]!.state).toBe("outside");
+  });
+
+  it("continuous oracle preserves Feb28 forward expiry and kills the inverse mutant", () => {
+    const fact = sale("feb28", "2025-02-28T06:00:00.000Z", "500000");
+    const scan = [{ sale: fact, at: Date.parse(fact.occurredAt), qualifying: true, gross: 500000n }];
+    const rule = { count: 1, gross: 500000n, disclosure: 2000000n, windowMonths: 1, lookbackMonths: 1 };
+    const ticks = [
+      "2025-03-28T06:00:00.000Z",
+      "2025-03-28T06:00:00.001Z",
+      "2025-03-29T06:00:00.000Z",
+      "2025-03-30T06:00:00.000Z",
+      "2025-03-31T06:00:00.000Z",
+    ].map(Date.parse);
+    const oracle = oracleLifecycle(scan, rule, ticks);
+    expect(oracle.map((entry) => entry.state)).toEqual(["member", "outside", "outside", "outside", "outside"]);
+    expect(oracle[1]!.transitions).toEqual([["exited", "2025-03-28T06:00:00.001Z"]]);
+    expect(evaluatorLifecycle([fact], { ...policy, qualifyingTransactionCount: 1, lookbackMonths: 1 }, ticks)).toEqual(
+      oracle,
+    );
+    expect(oracleLifecycle(scan, rule, [ticks[2]!], "inverse")[0]!.state).toBe("member");
+  });
+
+  it("sale/read and causal-envelope: strict visibility, injected observation and policy identity", () => {
+    const fact = sale("visible", "2025-01-01T12:00:00.000Z", "500000");
+    const one = { ...policy, qualifyingTransactionCount: 1 };
+    const exact = evaluateSellerComplianceCohort({ sales: [fact], policy: one, evaluationAt: fact.occurredAt });
+    expect(exact.state).toBe("outside");
+    const visible = evaluateSellerComplianceCohort({
+      sales: [fact],
+      policy: one,
+      evaluationAt: "2025-01-01T12:00:00.001Z",
+      observedAt: "2025-01-02T00:00:00.000Z",
+    });
+    expect(visible).toMatchObject({
+      state: "member",
+      effectiveAt: fact.occurredAt,
+      observedAt: "2025-01-02T00:00:00.000Z",
+      policyIdentity: identity,
+    });
+  });
+
+  it("revision-time: deactivation exits at its causal revision, not the late observation", () => {
+    const sales = [sale("one", "2025-01-01T00:00:00.000Z", "500000")];
+    const active = { ...policy, qualifyingTransactionCount: 1 };
+    const entry = evaluateSellerComplianceCohort({ sales, policy: active, evaluationAt: "2025-01-02T00:00:00.000Z" });
+    const result = evaluateSellerComplianceCohort({
+      sales,
+      policy: { ...active, activated: false },
+      evaluationAt: "2025-02-20T00:00:00.000Z",
+      observedAt: "2025-02-21T00:00:00.000Z",
+      previous: entry,
+      revisionEffectiveAt: "2025-02-10T00:00:00.000Z",
+      priorPolicies: [{ effectiveFrom: "2025-01-01T00:00:00.000Z", policy: active }],
+    });
+    expect(result).toMatchObject({
+      state: "outside",
+      band: "none",
+      effectiveAt: "2025-02-10T00:00:00.000Z",
+      exitEffectiveAt: "2025-02-10T00:00:00.000Z",
+      observedAt: "2025-02-21T00:00:00.000Z",
+      nextReevaluationAt: null,
+    });
+  });
+
+  it("due lifecycle: every no-sale due advances through steady state to exact expiry", () => {
+    const facts = [
+      sale("jan", "2025-01-31T00:00:00.000Z", "250000"),
+      sale("feb", "2025-02-28T12:00:00.000Z", "250000"),
+    ];
+    let result = evaluateSellerComplianceCohort({ sales: facts, policy, evaluationAt: "2025-03-05T00:00:00.000Z" });
+    for (let step = 0; step < 20 && result.nextReevaluationAt !== null; step++) {
+      const due = result.nextReevaluationAt;
+      const next = evaluateSellerComplianceCohort({
+        sales: facts,
+        policy,
+        evaluationAt: due,
+        previous: { ...result, transitionEffectiveAt: result.entryEffectiveAt },
+      });
+      expect(next.nextReevaluationAt === null || next.nextReevaluationAt > due).toBe(true);
+      result = next;
+    }
+    expect(result).toMatchObject({
+      state: "outside",
+      nextReevaluationAt: null,
+      exitEffectiveAt: "2025-03-31T00:00:00.000Z",
+    });
+  });
+
   it("evaluates continuous starts for the AC3 intraday clamp example", () => {
     const result = evaluateSellerComplianceCohort({
       sales: [sale("jan", "2025-01-31T00:00:00.000Z", "250000"), sale("feb", "2025-02-28T12:00:00.000Z", "250000")],
@@ -558,9 +719,7 @@ describe("seller compliance cohort window", () => {
       // window. Transition dating has its own causal-envelope fixtures below;
       // keeping those concerns separate prevents a shared boundary convention
       // from masking a verdict mismatch.
-      expect(actual.map(({ transitions: _actual, ...value }) => value)).toEqual(
-        oracle.map(({ transitions: _oracle, ...value }) => value),
-      );
+      expect(actual).toEqual(oracle);
       return { ticks, oracle, actual };
     });
     // The fixture exercises every lifecycle edge rather than a constant verdict.
@@ -606,6 +765,13 @@ describe("seller compliance cohort window", () => {
     });
     expect(result.state).toBe("outside");
     expect(result.unclassifiableCount).toBe(1);
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: [unclassified],
+        policy: { ...policy, qualifyingTransactionCount: 1, unclassifiableTreatment: "count-unclassifiable" },
+        evaluationAt: "2025-01-03T00:00:00.000Z",
+      }),
+    ).toMatchObject({ state: "member", qualifyingCount: 1, unclassifiableCount: 1 });
     expect(
       evaluateSellerComplianceCohort({
         sales: [
@@ -781,7 +947,19 @@ describe("seller compliance cohort window", () => {
       evaluationAt: "2025-05-01T00:00:00.000Z",
       previous,
     });
-    expect(clamped.exitEffectiveAt).toBe("2025-04-30T00:00:00.001Z");
+    // March 30's rightmost millisecond is a qualifying start for both sales;
+    // its forward L expiry is later than the March 31 sale anchor's expiry.
+    const clampFacts = [
+      sale("clamped-a", "2025-03-31T00:00:00.000Z", "250000"),
+      sale("clamped-b", "2025-03-31T01:00:00.000Z", "250000"),
+    ];
+    const clampOracle = oracleLifecycle(
+      clampFacts.map((sale) => ({ sale, at: Date.parse(sale.occurredAt), gross: 250000n, qualifying: true })),
+      { count: 2, gross: 500000n, disclosure: 2000000n, windowMonths: 1, lookbackMonths: 1 },
+      [Date.parse("2025-04-01T00:00:00.000Z"), Date.parse("2025-05-01T00:00:00.000Z")],
+    );
+    expect(clampOracle[1]!.transitions).toEqual([["exited", "2025-05-01T00:00:00.000Z"]]);
+    expect(clamped.exitEffectiveAt).toBe(clampOracle[1]!.transitions[0]![1]);
 
     const due = evaluateSellerComplianceCohort({
       sales: [sale("due", "2025-02-01T00:00:00.000Z", "500000")],
@@ -924,6 +1102,14 @@ describe("seller compliance cohort window", () => {
     expect(at("2025-03-01T00:00:00.000Z")).toEqual(["member", "disclosure", null]);
     for (const late of ["2025-03-01T00:00:00.001Z", "2025-03-12T00:00:00.000Z", "2025-03-20T00:00:00.000Z"])
       expect(at(late)).toEqual(["member", "none", "2025-03-01T00:00:00.001Z"]);
+    expect(
+      evaluateSellerComplianceCohort({ sales, policy, evaluationAt: "2025-03-12T00:00:00.000Z", previous }),
+    ).toMatchObject({
+      effectiveAt: "2025-03-01T00:00:00.001Z",
+      observedAt: "2025-03-12T00:00:00.000Z",
+      state: "member",
+      band: "none",
+    });
     // Exit still clears the band in one transition: the outside verdict carries band none.
     const exit = evaluateSellerComplianceCohort({
       sales,
@@ -932,6 +1118,7 @@ describe("seller compliance cohort window", () => {
       previous: { ...previous, band: "none", transitionEffectiveAt: "2025-03-01T00:00:00.001Z" },
     });
     expect([exit.state, exit.band, exit.exitEffectiveAt]).toEqual(["outside", "none", "2025-04-01T00:00:00.001Z"]);
+    expect(exit).toMatchObject({ effectiveAt: "2025-04-01T00:00:00.001Z", observedAt: "2025-04-20T00:00:00.000Z" });
   });
 
   it("keeps an ordinary roll-off exit when a later revision is evaluated", () => {

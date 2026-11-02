@@ -46,7 +46,6 @@ import { createAccountAppealRuntime, type AccountAppealRuntime } from "../../fea
 import type { ProjectionOperationsSnapshot } from "../../features/projection-operations/read-model/contracts";
 import type { WakeStoreStatus } from "../../features/projection-operations/read-model/wake-status-contracts";
 import { buildAccountAppealProjectionHandlerSet } from "../../features/account-appeals/read-model/projection";
-import { sellerComplianceCohortPolicy } from "../../features/seller-compliance-cohorts/domain/seller-compliance-cohort-policy";
 
 export type OperationsAttentionRuntimeReads = Readonly<{
   loadBlockedProjections: () => Promise<ProjectionOperationsSnapshot["blockedProjections"]>;
@@ -162,7 +161,6 @@ export function createPlatformOperationsServices(
     rateLimitPolicy,
     supportDeadlinePolicy,
     platformRemedyPolicy,
-    sellerComplianceCohortPolicy,
   ] as unknown as readonly PolicyDefinition<JsonValue>[];
   const policyConsoleEntries: readonly PolicyConsoleEntry[] = [
     ...ownPolicyDefinitions.map(
