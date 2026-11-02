@@ -179,7 +179,7 @@ fn PackingView<'a>(
     );
     let writes = screen.outcome.writes();
     let start = url::PackingStart { id }.href();
-    let shipment = url::SaleShipment { id, after: Default::default() }.href();
+    let shipment = url::SaleShipment { id, place: Default::default() }.href();
     html! {
         <div class={Page}>
             <header class={Heading}>

@@ -93,7 +93,7 @@
   "shipments": {
     "line": "{count} line",
     "lines": "{count} lines",
-    "actions_on_marketplace": "Labels and the shipment's other actions are on marketplace for now.",
+    "actions_on_marketplace": "This shipment's actions are on marketplace for now.",
     "open_on_marketplace": "Open on marketplace"
   },
   "packing": {

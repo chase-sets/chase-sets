@@ -160,7 +160,7 @@ pub(crate) async fn act(
         return render(&req, &viewer, &config, &headers, None, outcome, shipment, StatusCode::UNPROCESSABLE_ENTITY, &chrome)
             .await;
     };
-    let fields = ActionFields { exception_type: input.exception_type, notes: input.notes };
+    let fields = ActionFields { exception_type: input.exception_type, notes: input.notes, ..ActionFields::default() };
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.shipment_action(&shipment, action, &fields, &attempt).await {
         Ok(receipt) => applied(&req, &shipment, &attempt, receipt),

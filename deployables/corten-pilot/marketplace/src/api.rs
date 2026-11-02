@@ -3554,6 +3554,9 @@ pub struct AddressSnapshot {
     pub state: Option<String>,
     pub postal_code: Option<String>,
     pub country: Option<String>,
+    /// The label form's contact fields.
+    pub phone: Option<String>,
+    pub email: Option<String>,
 }
 
 /// An order's line (`OrderingOrderProjectionLine`, the fields shown).
@@ -3890,13 +3893,86 @@ pub trait ShipmentCommands {
     ) -> Result<Option<Receipt>, ApiError>;
 }
 
-/// What an action sends beyond the shipment: Raise exception's type and notes. Empty notes are
-/// sent as `null` and an empty type as `other`, as marketplace's adapter sends them; its command
-/// center sends Record return without a reason, so the pilot does too.
+/// What an action sends beyond the shipment: Raise exception's type and notes, Record return's
+/// reason, and Buy label's label. Empty notes and an empty reason are sent as `null` and an empty
+/// type as `other`, as marketplace's adapter sends them; the command center sends no reason and
+/// no label (Ground Advantage, the API's addresses and package), as marketplace's does.
 #[derive(Clone, Debug, Default)]
 pub struct ActionFields {
     pub exception_type: String,
     pub notes: String,
+    pub reason: String,
+    pub label: Option<LabelPurchase>,
+}
+
+/// A label bought from the shipment's page (marketplace's `purchase-label` intent): the service,
+/// the sender's and recipient's addresses as the seller left them, why they changed, and the
+/// package. A letter sends only its service. The API decides whether the addresses changed and
+/// whether the reason is needed.
+#[derive(Clone, Debug, Default)]
+pub struct LabelPurchase {
+    pub service_level: String,
+    pub sender: Option<LabelAddress>,
+    pub recipient: Option<LabelAddress>,
+    pub override_reason: String,
+    /// Length, width and height in inches and weight in ounces, as typed.
+    pub package: Option<[String; 4]>,
+}
+
+/// An address on the label form, as typed.
+#[derive(Clone, Debug, Default)]
+pub struct LabelAddress {
+    pub name: String,
+    pub company: String,
+    pub street1: String,
+    pub street2: String,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub country: String,
+    pub phone: String,
+    pub email: String,
+}
+
+impl LabelPurchase {
+    /// The body marketplace's route sends (`account-sale-shipment.tsx`): every address field as a
+    /// string (an empty country is `US`), the reason as typed (empty too), and each size as `Number()` reads
+    /// it, an empty one as the form's default (7, 5, 1 and 4) and one that is not a number as
+    /// `null`.
+    pub fn body(&self) -> serde_json::Value {
+        use serde_json::{Value, json};
+        let mut body = serde_json::Map::new();
+        body.insert("serviceLevel".into(), json!(self.service_level));
+        for (prefix, address) in [("sender", &self.sender), ("recipient", &self.recipient)] {
+            let Some(a) = address else { continue };
+            let country = if a.country.is_empty() { "US" } else { a.country.as_str() };
+            let fields = [
+                ("Name", a.name.as_str()),
+                ("Company", &a.company),
+                ("Street1", &a.street1),
+                ("Street2", &a.street2),
+                ("City", &a.city),
+                ("State", &a.state),
+                ("PostalCode", &a.postal_code),
+                ("Country", country),
+                ("Phone", &a.phone),
+                ("Email", &a.email),
+            ];
+            for (field, value) in fields {
+                body.insert(format!("{prefix}{field}"), json!(value));
+            }
+        }
+        body.insert("overrideReason".into(), json!(self.override_reason));
+        if let Some(sizes) = &self.package {
+            let names = ["packageLengthInches", "packageWidthInches", "packageHeightInches", "packageWeightOunces"];
+            for ((name, default), value) in names.into_iter().zip([7.0, 5.0, 1.0, 4.0]).zip(sizes) {
+                let value = value.trim();
+                let number = if value.is_empty() { Some(default) } else { value.parse::<f64>().ok().filter(|n| n.is_finite()) };
+                body.insert(name.into(), number.map_or(Value::Null, |n| json!(n)));
+            }
+        }
+        Value::Object(body)
+    }
 }
 
 impl ShipmentCommands for Caller<'_> {
@@ -3915,12 +3991,15 @@ impl ShipmentCommands for Caller<'_> {
         let text = |value: &str| if value.trim().is_empty() { serde_json::Value::Null } else { json!(value.trim()) };
         let (path, body) = match action {
             // The label marketplace's command center buys (`runShipmentCommandCenterAction`).
-            ShipmentAction::BuyLabel => ("label/purchase", json!({ "serviceLevel": "USPS_GROUND_ADVANTAGE" })),
+            ShipmentAction::BuyLabel => match &fields.label {
+                Some(label) => ("label/purchase", label.body()),
+                None => ("label/purchase", json!({ "serviceLevel": "USPS_GROUND_ADVANTAGE" })),
+            },
             ShipmentAction::VoidLabel => ("label/void", json!({})),
             ShipmentAction::CancelShipment => ("cancel", json!({})),
             ShipmentAction::Dispatch => ("dispatch", json!({})),
             ShipmentAction::RecordDelivery => ("deliver", json!({})),
-            ShipmentAction::Return => ("return", json!({ "reason": null })),
+            ShipmentAction::Return => ("return", json!({ "reason": text(&fields.reason) })),
             ShipmentAction::RaiseException => {
                 let kind = if fields.exception_type.trim().is_empty() { "other" } else { fields.exception_type.trim() };
                 ("exception", json!({ "exceptionType": kind, "notes": text(&fields.notes) }))
@@ -3989,6 +4068,9 @@ pub struct ShipmentDetail {
     pub label_refund_status: Option<String>,
     pub label_refund_reference: Option<String>,
     pub delivered_at: Option<String>,
+    /// The exception the shipment is in, if any (Raise exception's defaults).
+    pub current_exception_type: Option<String>,
+    pub current_exception_notes: Option<String>,
     /// When packing started (the packing page's lock), and when the shipment last changed.
     pub packing_started_at: Option<String>,
     pub updated_at: String,
@@ -4009,6 +4091,21 @@ pub struct ShipmentDetail {
 #[serde(default, rename_all = "camelCase")]
 pub struct PackagePlanSnapshot {
     pub postage_policy_snapshot: Option<PostagePolicySnapshot>,
+    pub packages: Vec<PlannedPackage>,
+}
+
+impl PackagePlanSnapshot {
+    /// Every package is a letter (`isLetterMailpiece`): the label is bought as letter mail.
+    pub fn letter(&self) -> bool {
+        !self.packages.is_empty() && self.packages.iter().all(|p| p.mailpiece_class.as_deref() == Some("letter"))
+    }
+}
+
+/// A package the order planned, the part the page reads.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PlannedPackage {
+    pub mailpiece_class: Option<String>,
 }
 
 /// What the postage policy required when the order was placed.

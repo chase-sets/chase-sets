@@ -1528,12 +1528,13 @@ pub mod url {
             pub format: Option<&'a str>,
         }
 
-        /// A shipment the seller sends, read after the write whose receipt it carries.
-        #[route("/account/sales/shipments/{id}", get = crate::shipments::sale)]
+        /// A shipment the seller sends, read after the write whose receipt it carries; its
+        /// actions post to it.
+        #[route("/account/sales/shipments/{id}", get = crate::shipments::sale, post = crate::shipments::act)]
         pub struct SaleShipment<'a> {
             pub id: &'a str,
             #[route(query)]
-            pub after: crate::cart::AfterWrite,
+            pub place: crate::shipments::SalePlace,
         }
 
         /// Packing the shipment (see `packing`).

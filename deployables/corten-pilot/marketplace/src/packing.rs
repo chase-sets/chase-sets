@@ -604,9 +604,11 @@ pub(crate) async fn pack(
             Failed::Unknown(error) => return Err(error),
         },
     };
-    // The shipment's page, read after the write, as marketplace's `navigateAfterWrite` does.
-    let after = crate::cart::AfterWrite { after_write: receipt.map(|r| r.param()) };
-    req.redirect(&url::SaleShipment { id: &id, after })
+    // The shipment's page, read after the write, as marketplace's `navigateAfterWrite` does,
+    // saying it settles the attempt (the shipment's page remembers its own actions' attempts).
+    let place =
+        crate::shipments::SalePlace { after_write: receipt.map(|r| r.param()), done: Some(attempt.to_owned()), check: None };
+    req.redirect(&url::SaleShipment { id: &id, place })
 }
 
 #[cfg(test)]

@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// The word an action is posted as (`ShipmentActionName`).
-fn action_value(action: ShipmentAction) -> &'static str {
+pub(super) fn action_value(action: ShipmentAction) -> &'static str {
     match action {
         ShipmentAction::StartPacking => "start-packing",
         ShipmentAction::CompletePacking => "complete-packing",
@@ -154,7 +154,7 @@ fn ItemCard<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, item: &'a Command
     let id = item.shipment_id.as_str();
     let buyer = item.buyer_display_name.as_deref().filter(|b| !b.is_empty()).unwrap_or(t.center_buyer_unknown());
     let summary = t.center_summary(buyer, item.total_quantity, item.line_count).to_string();
-    let open = url::SaleShipment { id, after: Default::default() }.href();
+    let open = url::SaleShipment { id, place: Default::default() }.href();
     let disclosed: Vec<(ShipmentAction, &str)> =
         item.plan.disclosed.iter().filter_map(|a| action_label(t, *a).map(|label| (*a, label))).collect();
     html! {
