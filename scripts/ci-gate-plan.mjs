@@ -1,7 +1,7 @@
 import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { batchE2eSuiteIds } from "./e2e-suites.mjs";
+import { batchBrowserE2eSuiteIds } from "./e2e-suites.mjs";
 
 export const CI_GATE_PLAN_SCHEMA_VERSION = "ci-gate-plan/v1";
 export const CI_GATE_MODES = Object.freeze(["pull-request", "merge-group"]);
@@ -210,7 +210,7 @@ export function createCiGatePlan({ mode, labels = [], provenance, scope, definit
   const normalizedProvenance = mode === "merge-group" ? null : (provenance ?? null);
   validateCiGateScope(scope);
   const lane = laneState(mode, normalizedLabels, scope);
-  const e2eBatches = batchE2eSuiteIds(scope.e2eSuiteIds);
+  const e2eBatches = batchBrowserE2eSuiteIds(scope.e2eSuiteIds);
   const gates = definitions.map((definition) => {
     const decision =
       definition.category === "pr-complement"

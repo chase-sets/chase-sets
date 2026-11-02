@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { extname, relative, resolve } from "node:path";
+import { extname, posix, relative, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -57,13 +57,20 @@ function normalizeLiteralPath(value) {
     .replaceAll("\\", "/");
 }
 
-export function literalOutPaths(run) {
-  const pattern =
-    /--out(?:(?:=)(?:"([^"$\r\n]+)"|'([^'$\r\n]+)'|([^\s\\'"$]+))|\s+(?:"([^"$\r\n]+)"|'([^'$\r\n]+)'|([^\s\\'"$]+)))/g;
+// Upload paths are workspace-relative, so a producer path is literal only when
+// it is workspace-anchored or relative to a literal step working directory.
+const workspaceAnchor = /^\$(?:GITHUB_WORKSPACE|\{GITHUB_WORKSPACE\})\//;
+
+export function literalOutPaths(run, { workingDirectory = null } = {}) {
+  const pattern = /--out(?:=|\s+)(?:"([^"\r\n]+)"|'([^'$\r\n]+)'|([^\s\\'"$]+))/g;
   const paths = new Set();
-  for (const match of run.matchAll(pattern)) {
-    const value = match.slice(1).find(Boolean);
-    if (value) paths.add(normalizeLiteralPath(value));
+  for (const [, doubleQuoted, singleQuoted, unquoted] of run.matchAll(pattern)) {
+    const anchored = doubleQuoted?.match(workspaceAnchor);
+    const value = anchored ? doubleQuoted.slice(anchored[0].length) : (doubleQuoted ?? singleQuoted ?? unquoted);
+    if (value.includes("$")) continue;
+    const path = normalizeLiteralPath(value);
+    if (anchored || path.startsWith("/") || workingDirectory === null) paths.add(path);
+    else if (!workingDirectory.includes("$")) paths.add(posix.join(workingDirectory, path));
   }
   return [...paths].sort();
 }
@@ -120,7 +127,8 @@ export function checkWorkflowCanonicalArtifacts(source, { workflowFile = "workfl
   for (const step of steps) {
     const run = runBlock(step.source);
     if (run && executableProducerPattern.test(run) && !bestEffortProducerPattern.test(run)) {
-      for (const outPath of literalOutPaths(run)) {
+      const workingDirectory = scalarStepField(step.source, "working-directory");
+      for (const outPath of literalOutPaths(run, { workingDirectory })) {
         if (extname(outPath) === ".json") producers.push({ ...step, outPath });
       }
     }
@@ -206,20 +214,23 @@ function workflowFiles(root) {
   };
   visit(resolve(root, ".github/workflows"));
   visit(resolve(root, ".github/actions"));
-  return files.sort();
+  return files;
 }
 
 export function scanWorkflowCanonicalArtifacts({ root = process.cwd() } = {}) {
-  const files = workflowFiles(root);
+  const files = workflowFiles(root)
+    .map((file) => relative(root, file).replaceAll("\\", "/"))
+    .sort();
   const findings = [];
   const surfaces = [];
-  let scannedFiles = 0;
-  for (const file of files) {
-    const workflowFile = relative(root, file).replaceAll("\\", "/");
-    const result = checkWorkflowCanonicalArtifacts(readFileSync(file, "utf8"), { workflowFile });
+  const scannedFiles = [];
+  for (const workflowFile of files) {
+    const result = checkWorkflowCanonicalArtifacts(readFileSync(resolve(root, workflowFile), "utf8"), {
+      workflowFile,
+    });
     findings.push(...result.findings);
     surfaces.push(...result.surfaces);
-    scannedFiles += 1;
+    scannedFiles.push(workflowFile);
   }
   const playwrightUploadFence = scanPlaywrightArtifactUploads({ root });
   return {
@@ -228,7 +239,8 @@ export function scanWorkflowCanonicalArtifacts({ root = process.cwd() } = {}) {
     violations: findings.map((finding) => finding.message),
     surfaces,
     discovery: {
-      scannedFiles,
+      files: scannedFiles,
+      scannedFiles: scannedFiles.length,
       totalFiles: files.length,
       scannedSurfaces: surfaces.length,
       totalSurfaces: surfaces.length,
@@ -282,6 +294,11 @@ export function evaluateWorkflowCanonicalArtifactRatchet(result, baseline) {
 
   const missingExpectedSurfaces = baseline.surfaces.filter((surface) => !currentSurfaces.has(surfaceIdentity(surface)));
   const coverageRegressions = [];
+  // Coverage is membership: every git-tracked Actions file the upload fence parsed must also be scanned here.
+  const scannedFiles = new Set(result.discovery.files);
+  for (const file of result.playwrightUploadFence.census.files) {
+    if (!scannedFiles.has(file)) coverageRegressions.push(`tracked workflow/action file '${file}' was not scanned`);
+  }
   if (result.discovery.scannedFiles < baseline.discovery.scannedFiles) {
     coverageRegressions.push(
       `scanned workflow/action files fell from ${baseline.discovery.scannedFiles} to ${result.discovery.scannedFiles}`,

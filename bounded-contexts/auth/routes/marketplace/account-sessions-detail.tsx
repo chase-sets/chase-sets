@@ -41,5 +41,5 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountSessionDetailRoute() {
   const data = useLoaderData<typeof loader>();
-  return <SessionDetailPage data={data.data} />;
+  return <SessionDetailPage data={data.data} submissionMode="router" />;
 }

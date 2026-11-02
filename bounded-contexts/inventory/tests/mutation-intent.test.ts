@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeInventoryMutationIntent } from "../support/runtime-support/mutation-intent";
+import {
+  inventoryMutationFingerprint,
+  normalizeInventoryMutationIntent,
+} from "../support/runtime-support/mutation-intent";
+import { inventorySeedMutationIntent } from "../support/seed-support/mutation-command";
 
 describe("issue-7169-ac2-single-target-replay: normalized intent", () => {
   it("normalizes timezone and trailing precision without losing sub-millisecond intent", () => {
@@ -43,6 +47,69 @@ describe("issue-7169-ac2-single-target-replay: normalized intent", () => {
       }),
     );
   });
+  it("preserves old raw and seed fingerprints and distinguishes cert", () => {
+    const fingerprint = (value: unknown) =>
+      inventoryMutationFingerprint(normalizeInventoryMutationIntent("item-create", value));
+    // Pinned from the origin/main normalizer before certification numbers joined the intent.
+    const rawFingerprint = "34bd848d715f07876282bc99f33ded36b9acdce7b3a40e9f9dc4491860b0e578";
+    expect(fingerprint(item)).toBe(rawFingerprint);
+    expect(
+      fingerprint({
+        ...item,
+        gradedCard: null,
+        acquisitionCostAmount: null,
+        acquisitionCostCurrencyCode: null,
+        acquisitionOccurrence: { kind: "unknown" },
+      }),
+    ).toBe(rawFingerprint);
+    for (const certificationNumber of [null, "", "   "]) {
+      expect(fingerprint({ ...item, certificationNumber })).toBe(rawFingerprint);
+    }
+
+    const seed = inventorySeedMutationIntent(
+      {
+        type: "CreateInventoryItem",
+        catalogItemId: "cat_seed",
+        selectedOptions: [{ dimensionId: "form", optionId: "graded" }],
+        gradedCard: {
+          gradingCompany: "PSA",
+          grade: "10",
+          certificationNumber: "SEED-1",
+          population: { populationAtGrade: 5, populationHigher: 0, source: "PSA", asOf: "2026-01-01" },
+          conditionDescriptors: ["Centered"],
+        },
+        storageLocationId: "loc_seed",
+        totalQuantity: 1,
+        acquisitionCostAmount: "10.00",
+        acquisitionCostCurrencyCode: "USD",
+      },
+      "inv_seed",
+      "acc_seed",
+    );
+    expect(seed.family).toBe("item-create");
+    expect(fingerprint(seed.params)).toBe("8de58675ee779daab0acf8d6afe1817a94631f4791fa62e1071192f3ab808fca");
+
+    const graded = { ...item, selectedOptions: [{ dimensionId: "form", optionId: "graded" }] };
+    const certified = fingerprint({ ...graded, certificationNumber: "cert-123" });
+    expect(fingerprint({ ...graded, certificationNumber: "  cert-123 " })).toBe(certified);
+    expect(fingerprint({ ...graded, certificationNumber: "cert-124" })).not.toBe(certified);
+    expect(certified).not.toBe(fingerprint({ ...graded, certificationNumber: null }));
+    const oldGradedCreate = {
+      ...graded,
+      gradedCard: {
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: "cert-123",
+        population: null,
+        conditionDescriptors: [],
+      },
+    };
+    expect(fingerprint(oldGradedCreate)).not.toBe(certified);
+    expect(() => normalizeInventoryMutationIntent("item-create", { ...item, certificationNumber: 123 })).toThrow(
+      "Inventory mutation text is invalid.",
+    );
+  });
+
   it("normalizes semantic option order while preserving changed choices", () => {
     const options = [
       { dimensionId: "form", optionId: "raw" },

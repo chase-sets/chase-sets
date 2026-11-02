@@ -9,6 +9,7 @@ export type ForecastLedgerPolicyValue = Readonly<{
   /** The Forecast Kind the Adoption Gate compares, at its horizon. */
   adoptedForecastKind: string;
   adoptionHorizonDays: number;
+  gradeDisclosureMinimumCount: number;
 }>;
 
 /** The parity app's horizons and grace, and the Demand Curve forecast that goals price on. */
@@ -17,9 +18,10 @@ export const FORECAST_LEDGER_LAUNCH_POLICY_VALUE: ForecastLedgerPolicyValue = {
   graceDays: 2,
   adoptedForecastKind: "curve",
   adoptionHorizonDays: 21,
+  gradeDisclosureMinimumCount: 30,
 };
 
-const KEYS = ["horizonsDays", "graceDays", "adoptedForecastKind", "adoptionHorizonDays"];
+const KEYS = ["horizonsDays", "graceDays", "adoptedForecastKind", "adoptionHorizonDays", "gradeDisclosureMinimumCount"];
 
 export function decodeForecastLedgerPolicyValue(raw: JsonValue): ForecastLedgerPolicyValue {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
@@ -52,11 +54,15 @@ export function decodeForecastLedgerPolicyValue(raw: JsonValue): ForecastLedgerP
   if (!value.horizonsDays.includes(value.adoptionHorizonDays)) {
     throw new Error("adoptionHorizonDays must be one of horizonsDays.");
   }
+  if (!Number.isSafeInteger(value.gradeDisclosureMinimumCount) || value.gradeDisclosureMinimumCount < 1) {
+    throw new Error("gradeDisclosureMinimumCount must be a positive safe integer.");
+  }
   return {
     horizonsDays: [...value.horizonsDays],
     graceDays: value.graceDays,
     adoptedForecastKind: value.adoptedForecastKind,
     adoptionHorizonDays: value.adoptionHorizonDays,
+    gradeDisclosureMinimumCount: value.gradeDisclosureMinimumCount,
   };
 }
 
@@ -64,7 +70,7 @@ export const forecastLedgerPolicy = definePolicy({
   policyKey: "pricing.forecast-ledger",
   contextName: "pricing",
   schemaSummary:
-    "{ horizonsDays: ascending integers 1-90 (default [14, 21, 28]), graceDays: integer below the shortest horizon (default 2), adoptedForecastKind: Forecast Kind name (default curve), adoptionHorizonDays: one of horizonsDays (default 21) }",
+    "{ horizonsDays: ascending integers 1-90 (default [14, 21, 28]), graceDays: integer below the shortest horizon (default 2), adoptedForecastKind: Forecast Kind name (default curve), adoptionHorizonDays: one of horizonsDays (default 21), gradeDisclosureMinimumCount: positive safe integer (default 30) }",
   defaultValue: FORECAST_LEDGER_LAUNCH_POLICY_VALUE,
   decodeValue: decodeForecastLedgerPolicyValue,
 });

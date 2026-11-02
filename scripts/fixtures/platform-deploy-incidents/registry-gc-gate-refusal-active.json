@@ -1,0 +1,20 @@
+{
+  "name": "gate refusal records active garbage collection",
+  "input": {
+    "phase": "build-image",
+    "diagnostics": [
+      {
+        "schemaVersion": "digitalocean-registry-gc-gate/v1",
+        "result": "refused",
+        "rootCauseCode": "registry-gc-read-only",
+        "active": true,
+        "status": "deleting unreferenced blobs"
+      }
+    ]
+  },
+  "expected": {
+    "rootCauseCode": "registry-gc-read-only",
+    "affectedComponent": "digitalocean-container-registry",
+    "phase": "registry-gc"
+  }
+}

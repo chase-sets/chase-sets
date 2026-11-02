@@ -1,0 +1,7 @@
+{
+  "mode": "test",
+  "paymentProcessorKind": "stripe",
+  "moneyMovementKind": "stripe",
+  "deploymentEnvironment": "staging",
+  "observedAt": "2026-10-19T13:00:00Z"
+}

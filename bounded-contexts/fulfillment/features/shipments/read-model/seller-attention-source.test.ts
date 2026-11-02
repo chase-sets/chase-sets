@@ -38,7 +38,7 @@ describe("toShipByAttentionItems", () => {
   it("carries the ship-by as the deadline and deep-links to the shipment surface", () => {
     const [item] = toShipByAttentionItems([row()], CONTEXT);
     expect(item.dueAt).toBe("2026-07-16T12:00:00.000Z");
-    expect(item.deepLink).toEqual({ surface: "shipment", href: "/account/desk/shipments/ship-1" });
+    expect(item.deepLink).toEqual({ surface: "shipment", href: "/account/sales/shipments/ship-1" });
     expect(isSellerAttentionItem(item, "fulfillment-ship-by")).toBe(true);
   });
 });

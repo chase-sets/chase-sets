@@ -21,13 +21,14 @@ const apiPath = "/api/catalog/scope-sync-batches";
 const refused = () => new Error("count-capture-runner-refused");
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const credentialNames = ["CATALOG_ADMIN_E2E_EMAIL", "CATALOG_ADMIN_E2E_PASSWORD", "GH_TOKEN"];
-const actionPaths = new Set([
+export const captureActionPaths = new Set([
   "/count-capture/baseline",
   "/count-capture/initial-notice",
   "/count-capture/usage",
   "/count-capture/quote-readback",
   "/count-capture/final-notice",
   "/count-capture/freeze",
+  "/count-capture/complete",
   "/count-capture/pre-confirm",
   "/counts/quote",
   "/counts/acquire",
@@ -188,7 +189,17 @@ export async function captureActionInPage({
     ],
     "capture-freeze": [
       "/count-capture/freeze",
-      { runnerRunId: runId, runnerRunAttempt: Number(runAttempt), collection: JSON.parse(fields.collection) },
+      { dispatchId: fields.dispatchId, runnerRunId: runId, runnerRunAttempt: Number(runAttempt) },
+    ],
+    "capture-complete": [
+      "/count-capture/complete",
+      {
+        runId: fields.runId,
+        dispatchId: fields.dispatchId,
+        runnerRunId: runId,
+        runnerRunAttempt: Number(runAttempt),
+        collection: JSON.parse(fields.collection),
+      },
     ],
   };
   const route = routes[intent];
@@ -287,10 +298,10 @@ export async function capture(env = process.env, workspace = process.cwd()) {
       const relativePath = url.pathname.startsWith(apiPath) ? url.pathname.slice(apiPath.length) : null;
       if (
         url.origin !== origin ||
-        (request.method() !== "GET" && !url.pathname.startsWith("/access/") && !actionPaths.has(relativePath))
+        (request.method() !== "GET" && !url.pathname.startsWith("/access/") && !captureActionPaths.has(relativePath))
       )
         return route.abort("blockedbyclient");
-      if (request.method() !== "GET" && actionPaths.has(relativePath)) return route.continue();
+      if (request.method() !== "GET" && captureActionPaths.has(relativePath)) return route.continue();
       // Intercept redirects before a 307 can forward sign-in credentials.
       const response = await route.fetch({ maxRedirects: 0, maxRetries: 0 });
       const location = response.headers().location;

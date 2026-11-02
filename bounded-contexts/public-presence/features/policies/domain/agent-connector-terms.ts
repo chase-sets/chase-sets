@@ -58,6 +58,7 @@ export const agentConnectorTermsPolicyArtifact: PublicPolicyArtifact<
         ],
         openQuestions: [
           "How should qualified counsel define the parties, covered automation, and document precedence without implying that every API, tool, or resource is available?",
+          "Channels ships a Connector (bounded-contexts/channels/GLOSSARY.md:21-32): a client authorized for one Channel Connection through a separate Auth-issued grant, neither an agent nor a seller actor, bound to that Channel Connection by a Connector Pairing after a seller consumes a one-use pairing code. These draft terms do not describe Connectors or Connector Pairing; whether these terms, another policy, or neither should govern Connector access, without treating a Connector as an agent, is a counsel question.",
         ],
         assumptions: [
           {

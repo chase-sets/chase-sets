@@ -33,11 +33,11 @@ describe("ephemeral verification namespaces", () => {
         { now: "2026-07-12T12:00:00.000Z" },
       ),
     ).toEqual([
-      { namespace: "chase-sets-verify-100-1", release: "csv-100-1", slug: "verify-100-1" },
+      { namespace: "chase-sets-verify-100-1", release: "csv-100-1", slug: "gate-100-1" },
       {
         namespace: "chase-sets-verify-manual-proof",
         release: "csv-manual-proof",
-        slug: "verify-manual-proof",
+        slug: "gate-manual-proof",
       },
     ]);
   });

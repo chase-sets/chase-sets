@@ -26,7 +26,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { createStripeConnectAppearance } from "@chase-sets/stripe-appearance";
-import type { SettlementPayoutReadinessRow } from "../read-model/queries";
+import type { SettlementPayoutReadinessRow } from "../../../client";
 import { buildMissingRequirementGroups, type MissingRequirementGroup } from "../domain/setup-progress";
 import { PayoutReadinessPanel } from "./payout-readiness-panel";
 import { StripeConnectNotificationBanner } from "./stripe-connect-notification-banner";
@@ -421,16 +421,14 @@ export function PayoutSetupPage({
   providerErrorMessage?: string | null;
   onProviderExit?: () => void;
 }) {
-  const hasProviderAccount = Boolean(payoutReadiness.provider_reference);
+  const hasProviderAccount = payoutReadiness.provider_management_available === true;
   const missingRequirementGroups = buildMissingRequirementGroups(payoutReadiness.missing_requirements);
-  const hasSellerActionableRequirement = missingRequirementGroups.some((group) => group.id !== "platform-review");
   const canRenderProviderComponent =
     mode === "setup"
-      ? payoutReadiness.status !== "ready" && (missingRequirementGroups.length === 0 || hasSellerActionableRequirement)
-      : hasProviderAccount;
+      ? payoutReadiness.provider_setup_available === true
+      : payoutReadiness.provider_management_available === true;
   const missingRequirementCount = missingRequirementGroups.reduce((count, group) => count + group.count, 0);
-  const showSupportEscalation =
-    payoutReadiness.status === "restricted" || providerErrorMessage !== null || missingRequirementCount > 0;
+  const showSupportEscalation = payoutReadiness.support_recommended === true || providerErrorMessage !== null;
 
   return (
     <Page>

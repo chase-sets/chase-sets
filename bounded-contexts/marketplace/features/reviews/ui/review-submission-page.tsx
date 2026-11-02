@@ -21,6 +21,8 @@ import {
   Textarea,
 } from "@chase-sets/design-system";
 import type { ReviewOpportunity } from "./contracts";
+import { AuthoredTextGuidance, AuthoredTextRecoverySummary } from "./authored-text-guidance";
+import type { AuthoredTextRecovery } from "./authored-text-recovery";
 import {
   intakeFlowForProblemCategory,
   isReviewProblemCategory,
@@ -53,10 +55,13 @@ function draftStorageKey(orderId: string) {
   return `chase-sets:review-draft:${orderId}`;
 }
 
+const FEEDBACK_FIELD_ID = "review-feedback";
+
 export function ReviewSubmissionPage({
   backHref,
   opportunity,
   errorMessage,
+  feedbackRecovery,
   isSubmitting = false,
   defaultRating = 5,
   defaultFeedback = "",
@@ -65,6 +70,8 @@ export function ReviewSubmissionPage({
   backHref: string;
   opportunity: ReviewOpportunity;
   errorMessage?: string | null;
+  /** A closed Feedback rejection; replaces the generic error notice. */
+  feedbackRecovery?: AuthoredTextRecovery | null;
   isSubmitting?: boolean;
   defaultRating?: number;
   defaultFeedback?: string;
@@ -364,14 +371,20 @@ export function ReviewSubmissionPage({
         ) : (
           <Card elevation="tinted">
             <Stack gap={3}>
-              {errorMessage ? (
+              {feedbackRecovery ? (
+                <AuthoredTextRecoverySummary
+                  recovery={feedbackRecovery}
+                  fieldId={FEEDBACK_FIELD_ID}
+                  fieldName={t("reputation.features.reviews.ui.reviewSubmissionPage.feedback")}
+                />
+              ) : errorMessage ? (
                 <MarketplaceNotice
                   tone="danger"
                   title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")}
                   description={errorMessage}
                 />
               ) : null}
-              <Form spacing="none" method="post" onSubmit={handleSubmit}>
+              <Form spacing="none" method="post" errorAnnouncement="summary" onSubmit={handleSubmit}>
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="rating" value={rating} />
                   {problemCategories.map((category) => (
@@ -387,6 +400,7 @@ export function ReviewSubmissionPage({
                     />
                   </Stack>
                   <Textarea
+                    id={FEEDBACK_FIELD_ID}
                     name="feedback"
                     label={t("reputation.features.reviews.ui.reviewSubmissionPage.feedback")}
                     value={feedback}
@@ -395,7 +409,9 @@ export function ReviewSubmissionPage({
                     description={t(
                       "reputation.features.reviews.ui.reviewSubmissionPage.tell.the.account.what.went.well",
                     )}
+                    error={feedbackRecovery?.fieldLevel ? feedbackRecovery.message : undefined}
                   />
+                  <AuthoredTextGuidance />
                   {isBuyerAuthor ? (
                     <CheckboxGroup
                       label={t("reputation.features.reviews.ui.reviewSubmissionPage.problem.indicators.label")}

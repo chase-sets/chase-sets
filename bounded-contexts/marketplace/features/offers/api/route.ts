@@ -18,6 +18,8 @@ import {
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 import { omitPrivateOfferResponseFields, publicOfferListResponse } from "./response-shape";
 import { ManagedOfferConflictError } from "./managed-authority";
+import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
+import { marketplaceReceiptResponse } from "../../mutation-recovery/api/receipt";
 import { parseSubmittedOfferStatus } from "../read-model/queries";
 import type { OfferLifecycleAction } from "../domain/domain";
 import { MarketplaceOfferLifecycleClosedError } from "./lifecycle-admission";
@@ -148,6 +150,11 @@ function validationError(
   },
   error: unknown,
 ) {
+  if (error instanceof MarketplaceAttemptError)
+    return c.json(
+      { error: { code: error.code, message: error.message } },
+      error.code === "invalid_attempt" ? 400 : 409,
+    );
   if (error instanceof ManagedOfferConflictError)
     return c.json({ error: { code: error.code, message: error.message } }, 409);
   if (error instanceof MarketplaceOfferFeeQuoteStaleError) {
@@ -440,6 +447,8 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
     try {
       const result = await services.submitOffer(
         {
+          attemptId: String(body.attemptId ?? ""),
+          ...(body.requestHash === undefined ? {} : { requestHash: String(body.requestHash) }),
           offerId: parseOptionalTypedIdBoundary(body.offerId, "off", "offerId"),
           buyerAccountId: access.actor.accountId as AccountId,
           catalogItemId: String(body.catalogItemId ?? ""),
@@ -458,7 +467,10 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
         context,
       );
 
-      return c.json({ id: result.offerId, version: result.version, status: "submitted" }, 201);
+      return marketplaceReceiptResponse(
+        c.json({ id: result.offerId, version: result.version, status: "submitted" }, 201),
+        result,
+      );
     } catch (error) {
       return validationError(c, error);
     }
@@ -485,6 +497,8 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
     try {
       const result = await services.updateOfferPrice(
         {
+          attemptId: String(body.attemptId ?? ""),
+          ...(body.requestHash === undefined ? {} : { requestHash: String(body.requestHash) }),
           offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
           buyerAccountId: access.actor.accountId as AccountId,
           priceAmount: String(body.priceAmount ?? ""),
@@ -492,7 +506,10 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
         },
         context,
       );
-      return c.json({ id: result.offerId, version: result.version, status: result.status });
+      return marketplaceReceiptResponse(
+        c.json({ id: result.offerId, version: result.version, status: result.status }),
+        result,
+      );
     } catch (error) {
       return validationError(c, error);
     }
@@ -649,7 +666,8 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
               ? String(body.feeQuoteFingerprint ?? "")
               : null,
           sourceActionKey:
-            body && typeof body === "object" && "sourceActionKey" in body ? String(body.sourceActionKey ?? "") : null,
+            body && typeof body === "object" && "sourceActionKey" in body ? String(body.sourceActionKey ?? "") : "",
+          ...(body.requestHash === undefined ? {} : { requestHash: String(body.requestHash) }),
           acceptanceBatchId:
             body && typeof body === "object" && "acceptanceBatchId" in body
               ? String(body.acceptanceBatchId ?? "")
@@ -660,16 +678,19 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
         context,
       );
 
-      return c.json(
-        {
-          id: result.offerId,
-          listingId: result.listingId,
-          inventoryItemId: result.inventoryItemId,
-          evidenceSnapshotHash: result.listingEvidenceSnapshot.snapshotHash,
-          version: result.version,
-          status: "accepted",
-        },
-        201,
+      return marketplaceReceiptResponse(
+        c.json(
+          {
+            id: result.offerId,
+            listingId: result.listingId,
+            inventoryItemId: result.inventoryItemId,
+            evidenceSnapshotHash: result.listingEvidenceSnapshot.snapshotHash,
+            version: result.version,
+            status: "accepted",
+          },
+          201,
+        ),
+        result,
       );
     } catch (error) {
       return validationError(c, error);
@@ -703,15 +724,21 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     try {
+      const body = await c.req.json();
       const result = await services.declineOfferMatch(
         {
+          attemptId: String(body.attemptId ?? ""),
+          ...(body.requestHash === undefined ? {} : { requestHash: String(body.requestHash) }),
           offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
           sellerAccountId: access.actor.accountId as AccountId,
         },
         context,
       );
 
-      return c.json({ id: result.offerId, version: result.version, status: "declined" }, 201);
+      return marketplaceReceiptResponse(
+        c.json({ id: result.offerId, version: result.version, status: "declined" }, 201),
+        result,
+      );
     } catch (error) {
       return validationError(c, error);
     }

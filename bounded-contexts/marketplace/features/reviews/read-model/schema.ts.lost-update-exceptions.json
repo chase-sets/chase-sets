@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-5c7685802442eea5",
+    "binding": {
+      "module": "bounded-contexts/marketplace/features/reviews/read-model/schema.ts",
+      "kind": "UPDATE",
+      "table": "marketplace_review_pages",
+      "digest": "6c69459833e6b7d52ef296efd2e6c1d2923b93553597190de4c8c1df7a696e79"
+    },
+    "classification": "key-only but safe",
+    "reason": "Migration initializes contribution status from persisted review state before the projection stream resumes."
+  },
+  {
+    "id": "exception-8e07dd2e84fba56c",
+    "binding": {
+      "module": "bounded-contexts/marketplace/features/reviews/read-model/schema.ts",
+      "kind": "UPDATE",
+      "table": "marketplace_review_summary_pages",
+      "digest": "55e693ef2da4618fcd044de517831fcf7ec9c9597dbb1fab0456e59752b127fd"
+    },
+    "classification": "key-only but safe",
+    "reason": "Migration initializes the derived summary counters once from their current persisted review-page data."
+  },
+  {
+    "id": "exception-69a69184288e8805",
+    "binding": {
+      "module": "bounded-contexts/marketplace/features/reviews/read-model/schema.ts",
+      "kind": "UPDATE",
+      "table": "marketplace_review_eligibility_pages",
+      "digest": "cba63923f7c5534315ea2498f7fe38ec6decd0b6221a6d62fd9c0652d7ee421a"
+    },
+    "classification": "key-only but safe",
+    "reason": "Migration backfills missing clock fields only; the WHERE clause limits the operation to incomplete rows."
+  }
+]

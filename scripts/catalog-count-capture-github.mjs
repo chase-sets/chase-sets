@@ -20,6 +20,10 @@ const refused = () => new Error("count-capture-deployment-unknown");
 const instantSecond = String.raw`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z`;
 const jsonPaths = [
   new RegExp(String.raw`^/actions/runs\?per_page=100&page=[1-9]\d{0,3}&created=${instantSecond}\.\.${instantSecond}$`),
+  // The staging deploy generation's workflow-scoped listing (staging-deploy-generation.mjs).
+  new RegExp(
+    String.raw`^/actions/workflows/platform-production\.yml/runs\?per_page=100&page=[1-9]\d{0,3}&created=${instantSecond}\.\.${instantSecond}$`,
+  ),
   /^\/actions\/runs\/[1-9]\d{0,19}\/attempts\/[1-9]\d{0,3}\/jobs\?per_page=100&page=[1-9]\d{0,3}$/,
   /^\/actions\/runs\/[1-9]\d{0,19}\/attempts\/[1-9]\d{0,3}$/,
 ];

@@ -1,0 +1,68 @@
+[
+  {
+    "id": "exception-9e4e593557df6af6",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts",
+      "kind": "UPDATE",
+      "table": "discovery_saved_list_picker",
+      "digest": "8858da09de57aabd7a588a564b3bd44dfa8657195cbca91b97ab8ddcff7ede13"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts:49 directly synchronizes discovery_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-8a62689d1a2204e7",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts",
+      "kind": "UPDATE",
+      "table": "discovery_saved_list_picker",
+      "digest": "21a05235ffb57e828b83d18c26dad70b9d39a07dea15c07162d271100eb62164"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts:58 directly synchronizes discovery_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-7abff168d3ffe204",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts",
+      "kind": "UPDATE",
+      "table": "discovery_saved_list_picker",
+      "digest": "d9f174abbcd0f40e8ef932a51e855914a5b93124c7dccbb573c3c351b2846e70"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts:70 directly synchronizes discovery_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-cc0dc7567b9af166",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts",
+      "kind": "UPDATE",
+      "table": "discovery_saved_list_picker",
+      "digest": "9257c11084a77948f073393e59fa3e33d382c83e369533c60a9779f0108b28d0"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts:83 directly synchronizes discovery_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-e5684b1ce854d0da",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts",
+      "kind": "UPDATE",
+      "table": "discovery_saved_list_picker",
+      "digest": "91891eba61f820ad7509064b7470ff20cf357cac5453edadd65e321f78e63d39"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts:98 directly synchronizes discovery_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-c6cf61e6a34b3532",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts",
+      "kind": "UPDATE",
+      "table": "discovery_saved_list_picker",
+      "digest": "afe74b4c875c5ef734e34e2b3f1f8f5a65f98223b98295dff7c41217b13fa067"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/discovery/features/saved-list-addition/integrations/collections/projection.ts:118 directly synchronizes discovery_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

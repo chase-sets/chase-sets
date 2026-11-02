@@ -1,8 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { AppendToStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
+import {
+  EVENT_STORE_READ_PAGE_SIZE_MAX,
+  type AppendToStreamInput,
+  type StoredEvent,
+} from "@chase-sets/event-core/storage";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
 import {
   closeMultiContextTestPools,
@@ -12,21 +18,19 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { buildIdentityApi } from "../api";
-import { createAccountRuntime } from "../features/accounts/api/runtime";
-import { createConsentRuntime } from "../features/consents/api/runtime";
-import { createMembershipRuntime } from "../features/memberships/api/runtime";
-import { createUserRuntime } from "../features/users/api/runtime";
 import { identityAccountSchemaSql } from "../features/accounts/read-model/schema";
 import {
   mintRegistrationConsentResolution,
   type RegistrationConsentRequirement,
 } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
-import type { IdentityServices } from "../support/runtime-support/services";
+import { createIdentityServices, type IdentityServices } from "../support/runtime-support/services";
 import { activeRegistrationConsentFixture } from "./consent-activation-authority-fixtures";
 import { identityConsentActiveVersionPolicies } from "../features/consents/domain/terms-of-service-policy";
 import { createIdentityBootstrapContext } from "../support/runtime-support/bootstrap-context";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
+import * as consentBundle from "../features/consents/domain/consent-bundle";
+import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../features/account-capabilities/api/authority";
 
 // Exercised against a real Postgres sandbox, never mocked: transaction
 // rollback, expected-version enforcement and uniqueness are exactly the
@@ -43,6 +47,15 @@ function requireDatabaseBaseUrl(): string {
     throw new Error("TEST_DATABASE_URL is required for database-backed tests.");
   }
   return databaseBaseUrl;
+}
+
+// Production serves this router behind the platform error boundary, which owns
+// the generic body an unclassified registration failure returns.
+function buildApp(services: IdentityServices) {
+  const app = new Hono();
+  app.onError(errorHandler);
+  app.route("/", buildIdentityApi(services));
+  return app;
 }
 
 /** Isolated activatable publications; the compiled production corpus remains dormant. */
@@ -64,7 +77,9 @@ function participantOf(streamId: string, consentOrdinal: (streamId: string) => n
   if (streamId.startsWith("identity.account-")) return "account";
   if (streamId.startsWith("identity.user-")) return "user";
   if (streamId.startsWith("identity.membership-")) return "membership";
-  if (streamId.startsWith("identity.csat-outcome-fact-")) return "outcome-fact";
+  if (streamId.startsWith("identity.registration-") && !streamId.startsWith("identity.registration-operation-")) {
+    return "outcome-fact";
+  }
   if (!streamId.startsWith("identity.consent-")) return null;
 
   const ordinal = consentOrdinal(streamId);
@@ -136,6 +151,7 @@ describeDb("registration atomicity and convergence", () => {
   let pool: PgTransactionalPool;
   let consentFixture: Awaited<ReturnType<typeof activeRegistrationConsentFixture>>;
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
+  let resolveBundleMock: { mockRestore(): void } | undefined;
 
   beforeAll(async () => {
     const databaseUrls = createMultiContextTestDatabaseUrls(
@@ -159,6 +175,7 @@ describeDb("registration atomicity and convergence", () => {
   });
 
   async function resetIdentitySchema() {
+    resolveBundleMock?.mockRestore();
     await resetMultiContextTestSchemas({ identity: pool });
     await pool.query(eventCorePostgresSchemaSql);
     await pool.query(identityAccountSchemaSql);
@@ -166,33 +183,42 @@ describeDb("registration atomicity and convergence", () => {
       "terms-of-service": "v1",
       "privacy-policy": "v3",
     });
+    resolveBundleMock = vi
+      .spyOn(consentBundle, "resolveConsentBundle")
+      .mockImplementation((authority, bundleKey) =>
+        consentBundle.resolveConsentBundleAgainstCorpus(authority, bundleKey, consentFixture.publications),
+      );
   }
 
   function createServices(eventStore: EventStore): IdentityServices {
-    const deps = {
+    return {
+      ...createIdentityServices(pool, {
+        capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+      }),
       eventStore,
-      checkpointStore: createPostgresProjectionStore({ db: pool }),
-      db: pool,
-    } as const;
-
-    const services = {
-      ...consentFixture,
-      eventStore,
-      db: pool,
-      accounts: createAccountRuntime(deps),
-      users: createUserRuntime(deps),
-      memberships: createMembershipRuntime(deps),
-      consents: createConsentRuntime(deps),
-      projectors: [],
-    } as unknown as IdentityServices;
-
-    return services;
+    };
   }
 
   function createHarness(): Harness {
     const fault: FaultControl = { position: null };
     const eventStore = faultInjectingEventStore(createPostgresEventStore({ pool }), fault);
     return { services: createServices(eventStore), fault, eventStore };
+  }
+
+  async function readCompleteEventHistory(store: EventStore): Promise<readonly StoredEvent[]> {
+    const events: StoredEvent[] = [];
+    let afterGlobalPosition: StoredEvent["globalPosition"] | undefined;
+    while (true) {
+      const page = await store.readAll({
+        limit: EVENT_STORE_READ_PAGE_SIZE_MAX,
+        ...(afterGlobalPosition ? { afterGlobalPosition } : {}),
+      });
+      events.push(...page);
+      if (page.length < EVENT_STORE_READ_PAGE_SIZE_MAX) return events;
+      const lastEvent = page.at(-1);
+      if (!lastEvent) throw new Error("A full event-store page must have a final event.");
+      afterGlobalPosition = lastEvent.globalPosition;
+    }
   }
 
   function safeJson(text: string): Record<string, unknown> {
@@ -207,7 +233,7 @@ describeDb("registration atomicity and convergence", () => {
     harness: Harness,
     body: Readonly<Record<string, unknown>>,
   ): Promise<Readonly<{ status: number; body: Record<string, unknown> }>> {
-    const response = await buildIdentityApi(harness.services).request("/internal/auth/personal-identities", {
+    const response = await buildApp(harness.services).request("/internal/auth/personal-identities", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -230,7 +256,7 @@ describeDb("registration atomicity and convergence", () => {
   }
 
   async function postState(harness: Harness) {
-    const events = await harness.eventStore.readAll({ limit: 500 });
+    const events = await readCompleteEventHistory(harness.eventStore);
     const streamsWithPrefix = (prefix: string) => [
       ...new Set(events.filter((event: StoredEvent) => event.streamId.startsWith(prefix)).map((e) => e.streamId)),
     ];
@@ -246,6 +272,28 @@ describeDb("registration atomicity and convergence", () => {
       reservations: reservations.rows,
     };
   }
+
+  it("rejects a forged Consent Activation Authority guard before registration append", async () => {
+    const harness = createHarness();
+    const before = await readCompleteEventHistory(harness.eventStore);
+    const originalRead = harness.services.policies.consentActivation.read;
+    vi.spyOn(harness.services.policies.consentActivation, "read").mockImplementation(async (policyKey) => {
+      const snapshot = await originalRead(policyKey);
+      if (policyKey !== identityConsentActiveVersionPolicies["terms-of-service"].policyKey) return snapshot;
+      return { ...snapshot, guard: { ...snapshot.guard } } as never;
+    });
+    const append = vi.spyOn(harness.eventStore, "appendToStreams");
+
+    const response = await register(harness, {});
+
+    expect(response).toEqual({
+      status: 500,
+      body: { error: { code: "internal_error", message: "Internal server error." } },
+    });
+    expect(append).not.toHaveBeenCalled();
+    expect(await readCompleteEventHistory(harness.eventStore)).toEqual(before);
+    expect(JSON.stringify(response.body)).not.toContain("platform-policy.consent-activation-authority");
+  });
 
   const positions: readonly InjectionPosition[] = ["account", "user", "membership", "consent-1", "consent-2"];
 
@@ -288,7 +336,7 @@ describeDb("registration atomicity and convergence", () => {
       return bound;
     });
     const append = vi.spyOn(harness.eventStore, "appendToStreams");
-    const before = (await harness.eventStore.readAll({ limit: 500 })).filter((event) =>
+    const before = (await readCompleteEventHistory(harness.eventStore)).filter((event) =>
       event.streamId.startsWith("identity."),
     );
     const failed = await register(harness, {});
@@ -319,7 +367,7 @@ describeDb("registration atomicity and convergence", () => {
       })),
     );
     expect(
-      (await harness.eventStore.readAll({ limit: 500 })).filter((event) => event.streamId.startsWith("identity.")),
+      (await readCompleteEventHistory(harness.eventStore)).filter((event) => event.streamId.startsWith("identity.")),
     ).toEqual(before);
     expect((await postState(harness)).reservations).toEqual([]);
   });
@@ -382,7 +430,7 @@ describeDb("registration atomicity and convergence", () => {
         { expectedVersion: "no_stream", events: [] },
         { expectedVersion: "no_stream", events: [] },
       ]);
-      expect((await inner.readAll({ limit: 500 })).filter((event) => event.streamId.startsWith("identity."))).toEqual(
+      expect((await readCompleteEventHistory(inner)).filter((event) => event.streamId.startsWith("identity."))).toEqual(
         [],
       );
       expect((await postState(harness)).reservations).toEqual([]);
@@ -433,12 +481,12 @@ describeDb("registration atomicity and convergence", () => {
     expect((await consentFixture.policies.consentActivation.read(definition.policyKey)).activeVersion).toBe("v2");
     const harness = createHarness();
     const append = vi.spyOn(harness.eventStore, "appendToStreams");
-    const before = await harness.eventStore.readAll({ limit: 500 });
+    const before = await readCompleteEventHistory(harness.eventStore);
     const rejected = await register(harness, {});
     expect(rejected.status).toBe(400);
     expect(rejected.body.error).toMatchObject({ code: "registration_consent_expired", reason: "superseded" });
     expect(append).not.toHaveBeenCalled();
-    expect(await harness.eventStore.readAll({ limit: 500 })).toEqual(before);
+    expect(await readCompleteEventHistory(harness.eventStore)).toEqual(before);
   });
 
   it.each(positions)("converges on retry after a failure at %s, without a conflict", async (position) => {
@@ -625,7 +673,7 @@ describeDb("registration atomicity and convergence", () => {
     expect(state.users).toHaveLength(1);
   });
 
-  it("does not let a failing cross-context outcome fact fail a committed registration", async () => {
+  it("keeps registration atomic when outcome projection fails", async () => {
     const harness = createHarness();
     harness.fault.position = "outcome-fact";
 

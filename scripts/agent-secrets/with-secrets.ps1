@@ -17,6 +17,9 @@ key's test prefixes, so -Command never reaches bws run. Every failure prints
 one fixed classification (missing-token, denied, bws-failed, unparseable-list,
 unscrubbable-value, inventory-unavailable or tier-violation), never exception
 text, bws output or a value. CHASE_SETS_AGENT_SECRETS=deny refuses every mode.
+After a passing check, -Check also prints the token expiry the inventory
+records for -Account and warns on stderr within 21 days of it; the date alone
+never refuses.
 
 Only this script's own streams are scrubbed: a value the command writes to a
 file, a socket, or in a transformed form is not caught.
@@ -285,6 +288,39 @@ function Invoke-Bws {
   }
 }
 
+# bws v2.1.0 starts its --shell as `shell -c <command>`. A generated adapter
+# makes that nested PowerShell launch explicitly profile-free while retaining
+# the helper's own interpreter even when --no-inherit-env keeps only PATH.
+function New-ProfileFreeShellAdapter {
+  $directory = Join-Path ([IO.Path]::GetTempPath()) ('chase-sets-profile-free-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $directory -Force | Out-Null
+  try {
+    $interpreter = [Environment]::ProcessPath
+    if ($interpreter -notmatch '\.(?:exe|com)$') { $interpreter = (Get-Process -Id $PID).Path }
+    if ([string]::IsNullOrWhiteSpace($interpreter) -or -not [IO.Path]::IsPathFullyQualified($interpreter)) {
+      throw 'PowerShell interpreter path is unavailable'
+    }
+    if ($IsWindows) {
+      $templatePath = Join-Path $PSScriptRoot 'profile-free-shell.cmd'
+      $target = Join-Path $directory 'profile-free-shell.cmd'
+      $escaped = $interpreter.Replace('%', '%%')
+    } else {
+      $templatePath = Join-Path $PSScriptRoot 'profile-free-shell.sh'
+      $target = Join-Path $directory 'profile-free-shell.sh'
+      $escaped = $interpreter.Replace("'", "'\''")
+    }
+    $content = [IO.File]::ReadAllText($templatePath).Replace('__POWERSHELL_PATH__', $escaped)
+    [IO.File]::WriteAllText($target, $content, [Text.UTF8Encoding]::new($false))
+    if (-not $IsWindows) {
+      [IO.File]::SetUnixFileMode($target, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+    }
+    return [pscustomobject]@{ Path = $target; Directory = $directory }
+  } catch {
+    Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue
+    throw
+  }
+}
+
 # Values stay in this script's memory: -ListKeys prints only key names and
 # -Command only builds its scrub set from the values. Any shape other than an
 # array of objects with a string value and a string key free of control
@@ -376,6 +412,36 @@ function Assert-AgentTier($List, $Tier) {
   }
 }
 
+# Reads the account's agentTier.accounts tokenExpiresOn from a credential
+# inventory as { Date, Days }, Days counted in whole UTC calendar days from
+# -Today. The date can be stale, so this read never refuses: a missing file or
+# row, a null or malformed date, or any other shape returns $null.
+function Get-AgentTokenExpiry([string]$Path, [string]$Account, [DateTime]$Today = [DateTime]::UtcNow) {
+  $document = $null
+  try {
+    $document = [Text.Json.JsonDocument]::Parse([IO.File]::ReadAllText($Path), [Text.Json.JsonDocumentOptions]::new())
+    $accounts = $document.RootElement.GetProperty('agentTier').GetProperty('accounts')
+    if ($accounts.ValueKind -ne [Text.Json.JsonValueKind]::Array) { return $null }
+    foreach ($row in $accounts.EnumerateArray()) {
+      $name = [Text.Json.JsonElement]::new()
+      if ($row.ValueKind -ne [Text.Json.JsonValueKind]::Object -or -not $row.TryGetProperty('name', [ref]$name) -or
+        $name.ValueKind -ne [Text.Json.JsonValueKind]::String -or $name.GetString() -cne $Account) { continue }
+      $expires = $row.GetProperty('tokenExpiresOn')
+      if ($expires.ValueKind -ne [Text.Json.JsonValueKind]::String) { return $null }
+      $text = $expires.GetString()
+      $date = [DateTime]::MinValue
+      if ($text -notmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}\z' -or -not [DateTime]::TryParseExact($text, 'yyyy-MM-dd',
+          [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$date)) { return $null }
+      return [pscustomobject]@{ Date = $text; Days = ($date.Date - $Today.Date).Days }
+    }
+    return $null
+  } catch {
+    return $null
+  } finally {
+    if ($null -ne $document) { $document.Dispose() }
+  }
+}
+
 # Dot-sourcing defines the functions above for tests and runs nothing.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
@@ -387,9 +453,10 @@ if ($env:CHASE_SETS_AGENT_SECRETS -eq 'deny') {
 }
 
 # -ListKeys prints names only, so it stays available to inspect a violation.
+$inventoryPath = Join-Path $PSScriptRoot '..' '..' '.github' 'credential-inventory.json'
 $tier = $null
 if ($PSCmdlet.ParameterSetName -ne 'ListKeys') {
-  $tier = Read-AgentTier (Join-Path $PSScriptRoot '..' '..' '.github' 'credential-inventory.json')
+  $tier = Read-AgentTier $inventoryPath
   if ($null -eq $tier) {
     Stop-WithClassification 'inventory-unavailable' '.github/credential-inventory.json beside this checkout is missing, unparseable or has no valid agentTier; nothing was run'
   }
@@ -423,16 +490,31 @@ try {
           Stop-WithClassification 'unscrubbable-value' 'the token and every project value must be at least 8 printable ASCII characters; nothing was run'
         }
       }
-      $arguments = @('run', '--project-id', $projectId, '--shell', [Environment]::ProcessPath)
-      if ($NoInheritEnv) { $arguments += '--no-inherit-env' }
-      $arguments += @('--', $Command)
-      $result = Invoke-Bws -BwsPath $bws -Token $token -Arguments $arguments -Scrub $secrets
-      exit $result.ExitCode
+      $adapter = $null
+      try {
+        $adapter = New-ProfileFreeShellAdapter
+        $arguments = @('run', '--project-id', $projectId, '--shell', $adapter.Path)
+        if ($NoInheritEnv) { $arguments += '--no-inherit-env' }
+        $arguments += @('--', $Command)
+        $result = Invoke-Bws -BwsPath $bws -Token $token -Arguments $arguments -Scrub $secrets
+        exit $result.ExitCode
+      } finally {
+        if ($null -ne $adapter) { Remove-Item -LiteralPath $adapter.Directory -Recurse -Force -ErrorAction SilentlyContinue }
+      }
     }
     'Check' {
       $list = Get-ProjectSecretList -BwsPath $bws -ProjectId $projectId -Token $token
       Assert-AgentTier $list $tier
       [Console]::Out.WriteLine("OK: account '$Account' can read project $projectId ($($list.Names.Count) keys).")
+      $expiry = Get-AgentTokenExpiry -Path $inventoryPath -Account $Account
+      if ($null -eq $expiry) {
+        [Console]::Out.WriteLine("token expiry not recorded for account '$Account'")
+      } else {
+        [Console]::Out.WriteLine("token expires $($expiry.Date) ($($expiry.Days) days)")
+        if ($expiry.Days -le 21) {
+          [Console]::Error.WriteLine("with-secrets: warning: the token for account '$Account' expires $($expiry.Date) ($($expiry.Days) days); see Agent token renewal in docs/runbooks/credential-rotation.md")
+        }
+      }
     }
     'ListKeys' {
       foreach ($name in (Get-ProjectSecretList -BwsPath $bws -ProjectId $projectId -Token $token).Names) {

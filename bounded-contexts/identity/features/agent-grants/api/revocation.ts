@@ -8,6 +8,7 @@ import {
   type PgTransactionalPool,
   type PostgresEventStore,
 } from "@chase-sets/event-core-postgres";
+import type { RevocationActivationProof } from "./revocation-floor";
 import { createAgentGrantRevocationRelease } from "./revocation-release";
 
 export const REVOCATION_PHASES = [
@@ -412,6 +413,97 @@ export function createActiveAgentGrantFence(pool: PgTransactionalPool): AgentGra
       );
       return result.rows.length ? work(result.rows.map((row) => row.authorization_id)) : null;
     });
+}
+
+export type RevocationBacklogAge = Readonly<{
+  oldestAgeMs: number | null;
+  oldestSource: "admission" | "activation" | "unknown" | null;
+}>;
+export type AgentGrantRevocationStatus = Readonly<{
+  state: "activated" | "dormant";
+  proof: RevocationActivationProof | null;
+  activation: Readonly<{ eventId: string; streamVersion: number; recordedAt: string; proofDigest: string }> | null;
+  nonterminal: Readonly<{ count: number }> & RevocationBacklogAge;
+}>;
+
+/**
+ * Ages the lowest-position nonterminal operation from its admission, or from
+ * activation while recovery has not adopted it yet. Leases rewrite
+ * `next_attempt_at`, so that column never measures how long work has waited.
+ */
+export function revocationBacklogAge(
+  input: Readonly<{
+    now: Date;
+    oldest: Readonly<{ admission: "admitted"; recordedAt: string } | { admission: "absent" | "invalid" }> | null;
+    activatedAt: string | null;
+  }>,
+): RevocationBacklogAge {
+  if (!input.oldest) return { oldestAgeMs: null, oldestSource: null };
+  const [source, recordedAt] =
+    input.oldest.admission === "admitted"
+      ? (["admission", input.oldest.recordedAt] as const)
+      : input.oldest.admission === "absent" && input.activatedAt
+        ? (["activation", input.activatedAt] as const)
+        : (["unknown", null] as const);
+  const age = recordedAt === null ? Number.NaN : input.now.getTime() - Date.parse(recordedAt);
+  return Number.isFinite(age)
+    ? { oldestAgeMs: age, oldestSource: source }
+    : { oldestAgeMs: null, oldestSource: "unknown" };
+}
+
+export function readAgentGrantRevocationStatus(
+  pool: PgTransactionalPool,
+  eventStore: PostgresEventStore,
+  now: () => Date = () => new Date(),
+): Promise<AgentGrantRevocationStatus> {
+  const release = createAgentGrantRevocationRelease(pool, eventStore);
+  return withPgTransaction(pool, async (db) => {
+    // Status never leases, adopts or appends: one count, one row and at most two stream reads.
+    await db.query("SET TRANSACTION READ ONLY");
+    await db.query("SET LOCAL statement_timeout = '10s'");
+    const activation = await release.readActivation(db);
+    const counted = await db.query<{ count: string }>(
+      "SELECT count(*) AS count FROM identity_agent_grant_revocation_work WHERE completed = false",
+    );
+    const lowest = await db.query<{ account_id: string; grant_id: string }>(
+      `SELECT account_id, grant_id FROM identity_agent_grant_revocation_work
+       WHERE completed = false ORDER BY position LIMIT 1`,
+    );
+    const row = lowest.rows[0];
+    const [admission] = row
+      ? await eventStore.readStreamInTransaction(db, {
+          streamId: ownerStream(row.account_id, row.grant_id),
+          fromVersion: 1,
+          limit: 1,
+        })
+      : [];
+    return {
+      state: activation ? "activated" : "dormant",
+      proof: (activation?.payload.proof ?? null) as RevocationActivationProof | null,
+      activation: activation
+        ? {
+            eventId: activation.eventId,
+            streamVersion: activation.streamVersion,
+            recordedAt: activation.recordedAt,
+            proofDigest: String(activation.payload.proofDigest),
+          }
+        : null,
+      nonterminal: {
+        count: Number(counted.rows[0]?.count ?? 0),
+        ...revocationBacklogAge({
+          now: now(),
+          oldest: !row
+            ? null
+            : !admission
+              ? { admission: "absent" }
+              : admission.streamVersion === 1 && admission.eventType === "identity.agent-grant-revocation.admitted"
+                ? { admission: "admitted", recordedAt: admission.recordedAt }
+                : { admission: "invalid" },
+          activatedAt: activation?.recordedAt ?? null,
+        }),
+      },
+    };
+  });
 }
 
 export function newRevocationAttemptId(): string {

@@ -1,0 +1,657 @@
+{
+  "contextName": "payments",
+  "runners": [
+    {
+      "subscriptionName": "payments.account-risk-source-projection",
+      "handlerKind": "projection",
+      "projectionName": "payments-account-risk-source-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-account-risk-source-projection:identity:v1",
+      "handlers": {
+        "identity.account.badge-assigned": "<function>",
+        "identity.account.badge-removed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
+      "streamPrefixes": "<undefined>",
+      "order": 30
+    },
+    {
+      "subscriptionName": "payments.account-risk-source-projection",
+      "handlerKind": "projection",
+      "projectionName": "payments-account-risk-source-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-account-risk-source-projection:payments:v1",
+      "handlers": {
+        "payments.payment-fraud-warning-received": "<function>",
+        "payments.payment-fraud-review-opened": "<function>",
+        "payments.payment-fraud-review-closed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "payments.payment-fraud-warning-received",
+        "payments.payment-fraud-review-opened",
+        "payments.payment-fraud-review-closed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 31
+    },
+    {
+      "subscriptionName": "payments.dispute-evidence-submission",
+      "handlerKind": "reaction",
+      "projectionName": "payments-dispute-evidence-submission",
+      "sourceContextName": "payments",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-dispute-evidence-submission:payments:v1",
+      "handlers": {
+        "payments.payment-disputed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 1,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["payments.payment-disputed"],
+      "streamPrefixes": "<undefined>",
+      "order": 32
+    },
+    {
+      "subscriptionName": "payments.payments-fraud-alert-projection",
+      "handlerKind": "projection",
+      "projectionName": "payments-fraud-alert-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-fraud-alert-projection:payments:v1",
+      "handlers": {
+        "payments.payment-fraud-warning-received": "<function>",
+        "payments.payment-fraud-review-opened": "<function>",
+        "payments.payment-fraud-review-closed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "payments.payment-fraud-review-closed",
+        "payments.payment-fraud-review-opened",
+        "payments.payment-fraud-warning-received"
+      ],
+      "streamPrefixes": ["payments."],
+      "order": 2
+    },
+    {
+      "subscriptionName": "payments.fulfillment-dispute-evidence-source-projection",
+      "handlerKind": "projection",
+      "projectionName": "payments-fulfillment-dispute-evidence-source-projection",
+      "sourceContextName": "fulfillment",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-fulfillment-dispute-evidence-source-projection:fulfillment:v1",
+      "handlers": {
+        "fulfillment.shipment.created": "<function>",
+        "fulfillment.shipment.label-attached": "<function>",
+        "fulfillment.shipment.dispatched": "<function>",
+        "fulfillment.shipment.delivered": "<function>",
+        "fulfillment.shipment.cancelled": "<function>",
+        "fulfillment.shipment.returned": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.label-attached",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.delivered",
+        "fulfillment.shipment.cancelled",
+        "fulfillment.shipment.returned"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 11
+    },
+    {
+      "subscriptionName": "payments.order-cancellation-refund-effect",
+      "handlerKind": "projection",
+      "projectionName": "payments-order-cancellation-refund-effect",
+      "sourceContextName": "ordering",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-order-cancellation-refund-effect:ordering:v1",
+      "handlers": {
+        "ordering.order.cancelled": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["ordering.order.cancelled"],
+      "streamPrefixes": "<undefined>",
+      "order": 20
+    },
+    {
+      "subscriptionName": "payments.payment-capture-cancellation-refund-effect",
+      "handlerKind": "projection",
+      "projectionName": "payments-order-cancellation-refund-effect",
+      "sourceContextName": "payments",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-order-cancellation-refund-effect:payments:v1",
+      "handlers": {
+        "payments.payment-captured": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["payments.payment-captured"],
+      "streamPrefixes": "<undefined>",
+      "order": 21
+    },
+    {
+      "subscriptionName": "payments.order-input-projection",
+      "handlerKind": "projection",
+      "projectionName": "payments-order-input-projection",
+      "sourceContextName": "ordering",
+      "targetContextName": "payments",
+      "subscriptionVersion": 3,
+      "checkpointKey": "payments-order-input-projection:ordering:v3",
+      "handlers": {
+        "ordering.order.created": "<function>",
+        "ordering.order.pending-payment-recorded": "<function>",
+        "ordering.order.cancelled": "<function>",
+        "ordering.order.ready-for-fulfillment-recorded": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.pending-payment-recorded",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 10
+    },
+    {
+      "subscriptionName": "payments.payments-payment-projection",
+      "handlerKind": "projection",
+      "projectionName": "payments-payment-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-payment-projection:payments:v1",
+      "handlers": {
+        "payments.payment-created": "<function>",
+        "payments.payment-authorized": "<function>",
+        "payments.payment-captured": "<function>",
+        "payments.payment-failed": "<function>",
+        "payments.payment-cancelled": "<function>",
+        "payments.payment-refunded": "<function>",
+        "payments.payment-disputed": "<function>",
+        "payments.payment-liability-shift-recorded": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "payments.payment-authorized",
+        "payments.payment-cancelled",
+        "payments.payment-captured",
+        "payments.payment-created",
+        "payments.payment-disputed",
+        "payments.payment-failed",
+        "payments.payment-liability-shift-recorded",
+        "payments.payment-refunded"
+      ],
+      "streamPrefixes": ["payments."],
+      "order": 0
+    },
+    {
+      "subscriptionName": "payments.payments-payment-transactional-email-projection",
+      "handlerKind": "projection",
+      "projectionName": "payments-payment-transactional-email-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-payment-transactional-email-projection:payments:v1",
+      "handlers": {
+        "payments.payment-captured": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["payments.payment-captured"],
+      "streamPrefixes": ["payments."],
+      "order": 1
+    },
+    {
+      "subscriptionName": "payments.payments-refund-projection",
+      "handlerKind": "projection",
+      "projectionName": "payments-refund-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-refund-projection:payments:v1",
+      "handlers": {
+        "payments.refund-requested": "<function>",
+        "payments.refund-issued": "<function>",
+        "payments.refund-failed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["payments.refund-failed", "payments.refund-issued", "payments.refund-requested"],
+      "streamPrefixes": ["payments."],
+      "order": 3
+    },
+    {
+      "subscriptionName": "payments.payments-refund-transactional-email-projection",
+      "handlerKind": "projection",
+      "projectionName": "payments-refund-transactional-email-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-refund-transactional-email-projection:payments:v1",
+      "handlers": {
+        "payments.refund-issued": "<function>",
+        "payments.refund-failed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["payments.refund-failed", "payments.refund-issued"],
+      "streamPrefixes": ["payments."],
+      "order": 4
+    },
+    {
+      "subscriptionName": "payments.support-refund-effect",
+      "handlerKind": "projection",
+      "projectionName": "payments-support-refund-effect",
+      "sourceContextName": "fulfillment",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-support-refund-effect:fulfillment:v1",
+      "handlers": {
+        "fulfillment.return-shipment.requested.v2": "<function>",
+        "fulfillment.return-shipment.label-ready.v1": "<function>",
+        "fulfillment.return-shipment.label-voided.v1": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "fulfillment.return-shipment.requested.v2",
+        "fulfillment.return-shipment.label-ready.v1",
+        "fulfillment.return-shipment.label-voided.v1"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 71
+    },
+    {
+      "subscriptionName": "payments.support-refund-effect",
+      "handlerKind": "projection",
+      "projectionName": "payments-support-refund-effect",
+      "sourceContextName": "platform-operations",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-support-refund-effect:platform-operations:v1",
+      "handlers": {
+        "support.support-request.resolved": "<function>",
+        "support.support-request.return-delivered": "<function>",
+        "support.support-request.return-condition-disputed": "<function>",
+        "support.support-request.return-refund-released": "<function>",
+        "support.support-request.refund-released.v1": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "support.support-request.resolved",
+        "support.support-request.return-delivered",
+        "support.support-request.return-condition-disputed",
+        "support.support-request.return-refund-released",
+        "support.support-request.refund-released.v1"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 70
+    },
+    {
+      "subscriptionName": "payments.payments-wallet-funding-projection",
+      "handlerKind": "projection",
+      "projectionName": "payments-wallet-funding-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "payments-wallet-funding-projection:payments:v1",
+      "handlers": {
+        "payments.wallet-funding-quoted": "<function>",
+        "payments.wallet-funding-submission-claimed": "<function>",
+        "payments.wallet-funding-created": "<function>",
+        "payments.wallet-funding-authorized": "<function>",
+        "payments.wallet-funding-captured": "<function>",
+        "payments.wallet-funding-failed": "<function>",
+        "payments.wallet-funding-cancelled": "<function>",
+        "payments.wallet-funding-refund-operation-recorded": "<function>",
+        "payments.wallet-funding-refund-attention-recorded": "<function>",
+        "payments.wallet-funding-refunded": "<function>",
+        "payments.wallet-funding-dispute-recorded": "<function>",
+        "payments.wallet-funding-fraud-warning-recorded": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "payments.wallet-funding-authorized",
+        "payments.wallet-funding-cancelled",
+        "payments.wallet-funding-captured",
+        "payments.wallet-funding-created",
+        "payments.wallet-funding-dispute-recorded",
+        "payments.wallet-funding-failed",
+        "payments.wallet-funding-fraud-warning-recorded",
+        "payments.wallet-funding-quoted",
+        "payments.wallet-funding-refund-attention-recorded",
+        "payments.wallet-funding-refund-operation-recorded",
+        "payments.wallet-funding-refunded",
+        "payments.wallet-funding-submission-claimed"
+      ],
+      "streamPrefixes": ["payments."],
+      "order": 5
+    },
+    {
+      "subscriptionName": "payments.platform-policy-document-projection",
+      "handlerKind": "projection",
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "payments",
+      "subscriptionVersion": 1,
+      "checkpointKey": "platform-policy-document-projection:payments:v1",
+      "handlers": {
+        "platform-policy.document.created": "<function>",
+        "platform-policy.document.revised": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "streamPrefixes": ["platform-policy.document-"],
+      "order": 6
+    }
+  ],
+  "subscriptions": [
+    {
+      "subscriptionName": "payments.account-risk-source-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "identity",
+      "projectionName": "payments-account-risk-source-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "identity.account.badge-assigned": "<function>",
+        "identity.account.badge-removed": "<function>"
+      },
+      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 30
+    },
+    {
+      "subscriptionName": "payments.account-risk-source-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "payments",
+      "projectionName": "payments-account-risk-source-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "payments.payment-fraud-warning-received": "<function>",
+        "payments.payment-fraud-review-opened": "<function>",
+        "payments.payment-fraud-review-closed": "<function>"
+      },
+      "eventTypes": [
+        "payments.payment-fraud-warning-received",
+        "payments.payment-fraud-review-opened",
+        "payments.payment-fraud-review-closed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 31
+    },
+    {
+      "subscriptionName": "payments.dispute-evidence-submission",
+      "handlerKind": "reaction",
+      "sourceContextName": "payments",
+      "projectionName": "payments-dispute-evidence-submission",
+      "reactionName": "payments-dispute-evidence-submission",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "payments.payment-disputed": "<function>"
+      },
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure",
+      "eventTypes": ["payments.payment-disputed"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 32
+    },
+    {
+      "subscriptionName": "payments.fulfillment-dispute-evidence-source-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "fulfillment",
+      "projectionName": "payments-fulfillment-dispute-evidence-source-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "fulfillment.shipment.created": "<function>",
+        "fulfillment.shipment.label-attached": "<function>",
+        "fulfillment.shipment.dispatched": "<function>",
+        "fulfillment.shipment.delivered": "<function>",
+        "fulfillment.shipment.cancelled": "<function>",
+        "fulfillment.shipment.returned": "<function>"
+      },
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.label-attached",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.delivered",
+        "fulfillment.shipment.cancelled",
+        "fulfillment.shipment.returned"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 11
+    },
+    {
+      "subscriptionName": "payments.order-cancellation-refund-effect",
+      "handlerKind": "projection",
+      "sourceContextName": "ordering",
+      "projectionName": "payments-order-cancellation-refund-effect",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "ordering.order.cancelled": "<function>"
+      },
+      "eventTypes": ["ordering.order.cancelled"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 20
+    },
+    {
+      "subscriptionName": "payments.payment-capture-cancellation-refund-effect",
+      "handlerKind": "projection",
+      "sourceContextName": "payments",
+      "projectionName": "payments-order-cancellation-refund-effect",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "payments.payment-captured": "<function>"
+      },
+      "eventTypes": ["payments.payment-captured"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 21
+    },
+    {
+      "subscriptionName": "payments.order-input-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "ordering",
+      "projectionName": "payments-order-input-projection",
+      "subscriptionVersion": 3,
+      "handlers": {
+        "ordering.order.created": "<function>",
+        "ordering.order.pending-payment-recorded": "<function>",
+        "ordering.order.cancelled": "<function>",
+        "ordering.order.ready-for-fulfillment-recorded": "<function>"
+      },
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.pending-payment-recorded",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 10
+    },
+    {
+      "subscriptionName": "payments.support-refund-effect",
+      "handlerKind": "projection",
+      "sourceContextName": "fulfillment",
+      "projectionName": "payments-support-refund-effect",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "fulfillment.return-shipment.requested.v2": "<function>",
+        "fulfillment.return-shipment.label-ready.v1": "<function>",
+        "fulfillment.return-shipment.label-voided.v1": "<function>"
+      },
+      "eventTypes": [
+        "fulfillment.return-shipment.requested.v2",
+        "fulfillment.return-shipment.label-ready.v1",
+        "fulfillment.return-shipment.label-voided.v1"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 71
+    },
+    {
+      "subscriptionName": "payments.support-refund-effect",
+      "handlerKind": "projection",
+      "sourceContextName": "platform-operations",
+      "projectionName": "payments-support-refund-effect",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "support.support-request.resolved": "<function>",
+        "support.support-request.return-delivered": "<function>",
+        "support.support-request.return-condition-disputed": "<function>",
+        "support.support-request.return-refund-released": "<function>",
+        "support.support-request.refund-released.v1": "<function>"
+      },
+      "eventTypes": [
+        "support.support-request.resolved",
+        "support.support-request.return-delivered",
+        "support.support-request.return-condition-disputed",
+        "support.support-request.return-refund-released",
+        "support.support-request.refund-released.v1"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 70
+    }
+  ]
+}

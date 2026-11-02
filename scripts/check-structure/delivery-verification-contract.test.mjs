@@ -1,11 +1,65 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 const instruction = readFileSync(new URL("../../.agents/skills/delivery/SKILL.md", import.meta.url), "utf8");
 const readProse = (relativePath) =>
   readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8").replace(/\s+/g, " ");
+const verificationContractFiles = [
+  "AGENTS.md",
+  ".agents/skills/delivery/SKILL.md",
+  ".claude/skills/delivery/SKILL.md",
+  "docs/runbooks/digitalocean-platform-deployment.md",
+].map((relativePath) => ({ relativePath, text: readProse(relativePath) }));
+const scopedVerifierCommand = ["node", "./scripts/verify-static", "scoped.mjs"].join(" ");
 const planningSkill = readProse(".agents/skills/planning/SKILL.md");
 const backlogModel = readProse("docs/contributing/backlog-model.md");
+const codexDeliveryPrompt = parseYaml(
+  readFileSync(new URL("../../.agents/skills/delivery/agents/openai.yaml", import.meta.url), "utf8"),
+).interface;
+
+function assertCodexDeliveryPromptContract(value) {
+  expect(Object.keys(value)).toEqual(["display_name", "short_description", "default_prompt"]);
+  expect(value.display_name).toBe("Delivery");
+  expect(value.short_description).toBe("Deliver changes with bounded-context evidence");
+  expect(value.default_prompt).toContain(
+    "In lane mode (orchestrator dispatch) stop at a pushed draft PR plus a completion report — do not launch reviewers or mark your own PR ready; it may become ready only after a host-dispatched exact-head independent PASS with every selected REQUIRED hosted gate green; never enqueue or merge;",
+  );
+  expect(value.default_prompt).not.toContain("ready, non-draft");
+  expect(value.default_prompt).not.toContain("the host marks it ready");
+  expect(value.default_prompt).toContain(
+    "in solo mode land through the merge queue only after confirming no orchestrator lease is active.",
+  );
+}
+
+describe("Codex delivery default prompt contract", () => {
+  it("pins the ruled draft-review lane boundary without changing the solo clause", () => {
+    assertCodexDeliveryPromptContract(codexDeliveryPrompt);
+  });
+
+  it.each([
+    {
+      name: "restores the ready non-draft boundary",
+      mutate: (prompt) =>
+        prompt.replace(
+          "In lane mode (orchestrator dispatch) stop at a pushed draft PR plus a completion report — do not launch reviewers or mark your own PR ready; it may become ready only after a host-dispatched exact-head independent PASS with every selected REQUIRED hosted gate green; never enqueue or merge;",
+          "In lane mode (orchestrator dispatch) stop at a green, ready, non-draft PR plus a completion report — never enqueue or merge;",
+        ),
+    },
+    {
+      name: "names an actor for the draft-to-ready mutation",
+      mutate: (prompt) =>
+        prompt.replace(
+          "it may become ready only after a host-dispatched exact-head independent PASS",
+          "the host marks it ready only after a host-dispatched exact-head independent PASS",
+        ),
+    },
+  ])("rejects a lane-boundary mutant that $name", ({ mutate }) => {
+    const mutant = { ...codexDeliveryPrompt, default_prompt: mutate(codexDeliveryPrompt.default_prompt) };
+    expect(mutant.default_prompt).not.toBe(codexDeliveryPrompt.default_prompt);
+    expect(() => assertCodexDeliveryPromptContract(mutant)).toThrow();
+  });
+});
 
 function assertPremiseContract(text) {
   const premiseStart = text.indexOf("### Premise check (before the first edit)");
@@ -120,6 +174,10 @@ describe("delivery premise contract", () => {
 
 function assertVerificationContract(text) {
   expect(text).toMatch(
+    /^\*\*Lane mode \(default when dispatched\)\.\*\*[^\r\n]* Your scope ends at a \*\*pushed draft PR plus a completion report\*\*, with scoped checks green and the Quality Packet complete \(see \*\*Draft semantics\*\*\)\. The host dispatches independent exact-head review; do not launch reviewers, mark ready, enqueue, merge, verify deploys, or create\/remove worktrees — the orchestrator owns review dispatch, landing and the pipeline\.$/m,
+  );
+  expect(text).not.toContain("ready, non-draft");
+  expect(text).toMatch(
     /^- For every nonempty diff, the ordinary pre-PR gate is a dry-run plan: `pnpm run verify:ci-local -- --mode=pull-request --provenance=same-repository --dry-run`\.[^\r\n]* Retain the exact-head plan as PLAN_ONLY before push\.$/m,
   );
   expect(text).toMatch(
@@ -131,11 +189,17 @@ function assertVerificationContract(text) {
   expect(text).toMatch(
     /^- PLAN_ONLY records a plan, not an executed local or hosted PASS\. Do not execute the selected broad local battery just to publish a draft\.$/m,
   );
-  expect(text).toMatch(
-    /^- Run `pnpm run verify:static:scoped` before every push, plus named focused tests for changed script tooling\. Do not use local full `verify:static`, full `verify`, or the complete `test:scripts` battery as delivery gates; hosted CI owns those unchanged strict full gates on every PR\.$/m,
+  expect(text).toContain(
+    "The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check -- --changed`, named non-DB focused tests, and `scripts/check-structure/issue-reference-comments.test.mjs` when non-test source changed.",
+  );
+  expect(text).toContain(
+    "`pnpm run typecheck:changed` is a host-attributed diagnostic only: it runs only after host-wide heavy admission; a refusal exits 73 before reservation and is `NOT_EXECUTED`, while hosted exact-head `Typecheck` is authoritative.",
+  );
+  expect(text).toContain(
+    "Lanes run no `verify:*` gate (including `verify:static:scoped`), local DB test, workspace-wide or full battery, or other unadmitted heavy command; hosted CI owns full Static, Typecheck, Unit and DB Profile proof.",
   );
   expect(text).toMatch(
-    /^- For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof \(\[#4388 ruling\]\([^)\s]+\)\)\. While \[#8159\]\([^)\s]+\) is open, a full local `verify:test-db` is never a prerequisite for push, draft, ready or landing\.[^\r\n]* Hosted gates, timeouts, skips and reviews are unchanged\.$/m,
+    /^- For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof\. Hosted gates, timeouts, skips and reviews are unchanged\.$/m,
   );
   expect(text).toMatch(
     /^\*\*Draft semantics\.\*\* Open the PR as a draft once scoped checks and affected focused checks are green and the Quality Packet is complete; disclose the exact-head PLAN_ONLY evidence\.[^\r\n]*$/m,
@@ -146,11 +210,109 @@ function assertVerificationContract(text) {
   expect(text).toMatch(
     /^\*\*Draft semantics\.\*\*[^\r\n]* Missing, red, or skipped REQUIRED hosted gates block readiness; PLAN_ONLY never substitutes for them\.[^\r\n]*$/m,
   );
+  expect(text).toMatch(
+    /^\*\*Draft semantics\.\*\*[^\r\n]* If anything is unresolved, stay draft and say why in your report — draft vs\. ready is a deliberate signal; in lane mode, leave the PR draft and do not mark it ready yourself\. The draft may become ready only after a host-dispatched exact-head independent PASS with every selected REQUIRED hosted gate green, never over a blocker the lane reported\.$/m,
+  );
+  expect(text).not.toContain("never readies drafts on your behalf");
+  const reportStart = text.indexOf("## Completion Report (lane mode)");
+  const landingStart = text.indexOf("## Landing (solo mode only)");
+  expect(reportStart).toBeGreaterThan(-1);
+  expect(landingStart).toBeGreaterThan(reportStart);
+  const report = text.slice(reportStart, landingStart);
+  expect(report).toMatch(
+    /^1\. PR number and state — draft plus what remains before ready \(hosted gates, the host-dispatched review, or a named blocker\)\.$/m,
+  );
+}
+
+function assertScopedMirrorContract(text) {
+  expect(text).toContain(
+    "The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check -- --changed`, named non-DB focused tests, and `scripts/check-structure/issue-reference-comments.test.mjs` when non-test source changed.",
+  );
+  expect(text).toContain(
+    "`pnpm run typecheck:changed` is a host-attributed diagnostic only: it runs only after host-wide heavy admission; a refusal exits 73 before reservation and is `NOT_EXECUTED`, while hosted exact-head `Typecheck` is authoritative.",
+  );
+  expect(text).toContain("Prettier is `--write` on committed changed files.");
+  expect(text).toContain(
+    "Lanes run no `verify:*` gate (including `verify:static:scoped`), local DB test, workspace-wide or full battery, or other unadmitted heavy command",
+  );
+  expect(text).not.toContain("Keep `pnpm run verify`");
+  expect(text).not.toContain("Focused local `test:db`");
+  expect(text).not.toContain("A focused local `test:db`");
+  expect(text).not.toContain("Run pnpm run verify");
+  expect(text).not.toContain("Run pnpm run test:db");
+  expect(text).not.toContain("Run node ./scripts/verify-static");
+  const banStart = text.indexOf("Lanes run no `verify:*` gate");
+  const banEnd = text.indexOf("hosted CI owns", banStart);
+  expect(banStart).toBeGreaterThanOrEqual(0);
+  expect(banEnd).toBeGreaterThan(banStart);
+  for (const match of text.matchAll(/verify:static:scoped|verify-static-scoped/g)) {
+    expect(match.index).toBeGreaterThanOrEqual(banStart);
+    expect(match.index).toBeLessThan(banEnd);
+  }
 }
 
 describe("delivery verification contract", () => {
   it("separates exact-head dry-run planning and scoped-green drafts from hosted readiness", () => {
     assertVerificationContract(instruction);
+  });
+
+  it("pins the scoped contract in every instruction and runbook mirror", () => {
+    for (const { text } of verificationContractFiles) assertScopedMirrorContract(text);
+  });
+
+  it.each(
+    verificationContractFiles.flatMap(({ relativePath, text }) => [
+      [relativePath, "old verify sentence", `${text}\nKeep \`pnpm run verify\` as a local gate.\n`],
+      [relativePath, "scoped verifier command", `${text}\nRun pnpm verify:static:scoped before push.\n`],
+      [relativePath, "node scoped verifier command", `${text}\nRun ${scopedVerifierCommand} before push.\n`],
+      [relativePath, "local database command", `${text}\nRun pnpm run test:db before push.\n`],
+      [relativePath, "whole verify command", `${text}\nRun pnpm run verify before push.\n`],
+      [
+        relativePath,
+        "typecheck in ordinary set",
+        text.replace("named non-DB focused tests", "named non-DB focused tests, typecheck:changed"),
+      ],
+    ]),
+  )("rejects the $relativePath $1 mutant", (_relativePath, _name, mutant) => {
+    expect(() => assertScopedMirrorContract(mutant)).toThrow();
+  });
+
+  it.each([
+    {
+      name: "restores the ready, non-draft lane boundary",
+      from: /^\*\*Lane mode \(default when dispatched\)\.\*\*[^\r\n]*$/m,
+      to: "**Lane mode (default when dispatched).** Your prompt came from the milestone orchestrator with an issue and an assigned worktree. Your scope ends at a **green, ready, non-draft PR plus a completion report**. Do not enqueue, merge, verify deploys, or create/remove worktrees — the orchestrator owns landing and the pipeline.",
+    },
+    {
+      name: "restores the nobody-readies-drafts clause",
+      from: /If anything is unresolved, stay draft[^\r\n]*$/m,
+      to: "If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal, and the orchestrator never readies drafts on your behalf.",
+    },
+    {
+      name: "restores the ready lane completion state",
+      from: /^1\. PR number and state[^\r\n]*$/m,
+      to: "1. PR number and state — ready, or draft plus why.",
+    },
+    {
+      name: "lets a lane mark ready after PASS",
+      from: "leave the PR draft and do not mark it ready yourself",
+      to: "mark the PR ready yourself after PASS",
+    },
+    {
+      name: "names an actor for the draft-to-ready mutation",
+      from: "The draft may become ready only after",
+      to: "The orchestrator marks the draft ready only after",
+    },
+    {
+      name: "allows readiness over a reported blocker",
+      from: ", never over a blocker the lane reported",
+      to: "",
+    },
+  ])("rejects a boundary mutant that $name", ({ from, to }) => {
+    const mutant = instruction.replace(from, to);
+
+    expect(mutant).not.toBe(instruction);
+    expect(() => assertVerificationContract(mutant)).toThrow();
   });
 
   it("rejects making a full local verify:test-db a delivery prerequisite again", () => {
@@ -182,17 +344,17 @@ function assertDeliveryDecisionRouting(text) {
   );
   expect(text).not.toMatch(/batch all such questions into one message to Todd/);
   expect(text).toMatch(
-    /^ {2}- \*\*Decision routing\*\* [^\r\n]*: the host decides same-attempt, in-scope repairs itself [^\r\n]* and records each as `decision-resolved` with its reasoning\./m,
+    /^ {2}- \*\*Decision routing\*\*: the host decides same-attempt, in-scope repairs itself [^\r\n]* and records each as `decision-resolved` with its reasoning\./m,
   );
   expect(text).toMatch(
-    /^ {2}- \*\*Decision routing\*\*[^\r\n]* An independent decision lane is required only when the decision changes accepted scope or acceptance criteria, ownership or authority, or crosses lineages; its verdict is final, and the host records it and proceeds\./m,
+    /^ {2}- \*\*Decision routing\*\*: [^\r\n]* An independent decision lane is required only when the decision changes accepted scope or acceptance criteria, ownership or authority, or crosses lineages; its verdict is final, and the host records it and proceeds\./m,
   );
   expect(text).toMatch(
-    /^ {2}- \*\*Decision routing\*\*[^\r\n]* A decision lane may not return `TODD_RULING_NEEDED`: if it believes Todd must decide, that is a finding the host resolves with a second independent lane\. Independent code\/planning review and review-contract\/v2 are unchanged\.$/m,
+    /^ {2}- \*\*Decision routing\*\*: [^\r\n]* A decision lane may not return `TODD_RULING_NEEDED`: if it believes Todd must decide, that is a finding the host resolves with a second independent lane\. Independent code\/planning review and review-contract\/v2 are unchanged\.$/m,
   );
   expect(text).not.toMatch(/attempt\s+ceiling/i);
   expect(text).toMatch(
-    /^ {2}- \*\*Todd receives only two kinds of question\*\* [^\r\n]*: product priority or scope changes, and operator actions no lane can perform\. Package an operator action as one concrete, runnable step\. Never escalate another review pass, revision, replan, step-back verdict or proof route to Todd; the host routes those decisions\.$/m,
+    /^ {2}- \*\*Todd receives only two kinds of question\*\*: product priority or scope changes, and operator actions no lane can perform\. Package an operator action as one concrete, runnable step\. Never escalate another review pass, revision, replan, step-back verdict or proof route to Todd; the host routes those decisions\.$/m,
   );
 }
 
@@ -225,6 +387,24 @@ function assertProductCapacityFloor(text) {
 }
 
 describe("delivery decision routing contract", () => {
+  it("keeps citation-free labels in their original bold-label form", () => {
+    expect(instruction).toContain("  - **Decision routing**: the host decides");
+    expect(instruction).toContain(
+      "  - **Todd receives only two kinds of question**: product priority or scope changes",
+    );
+  });
+
+  it("deletes ruling history and the entire registered-prediction sentence, keeping standing rules", () => {
+    const pressureTest = readProse(".agents/skills/planning/references/pressure-test.md");
+    expect(instruction).not.toContain("prospective amendment");
+    expect(instruction).not.toContain("narrows the performer boundary of the earlier rulings, not their history");
+    expect(pressureTest).not.toContain("The registered prediction");
+    expect(pressureTest).not.toContain("median mandated-evidence lines per slice");
+    expect(pressureTest).toContain(
+      "12. **Evidence proportionality.** An AC that mandates a test architecture or artifact rather than an observable property, or an evidence artifact with no named ledger defect class justifying it, is a finding. 13. **Supersession completeness.**",
+    );
+  });
+
   it("routes solo and lane decisions to the host with a final independent verdict above the threshold", () => {
     assertDeliveryDecisionRouting(instruction);
     assertPlanningDecisionRouting(planningSkill);
@@ -359,10 +539,10 @@ const issueStandard = readProse(".agents/skills/planning/references/issue-standa
 
 function assertHostedAttemptProof(text) {
   expect(text).toMatch(
-    /^- Hosted CI is the proof for every product attempt, not only DB \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. The hosted jobs on the pushed head decide it, including E2E, DB Profile, unit, static and build\. Local E2E, local `verify:test-db` and other local full or harness runs are diagnostics only and never a prerequisite for push, draft, ready or landing\. A local-harness, environment or lock failure never parks, fails or classifies your candidate: push it to the draft PR and let hosted CI judge it\. When a brief names a local run as a gate or a stop condition, take the hosted substitution and disclose it in the PR body\.$/m,
+    /^- Hosted CI is the proof for every product attempt, not only DB\. The hosted jobs on the pushed head decide it, including E2E, DB Profile, unit, static and build\. Local E2E, local `verify:test-db` and other local full or harness runs are diagnostics only and never a prerequisite for push, draft, ready or landing\. A local-harness, environment or lock failure never parks, fails or classifies your candidate: push it to the draft PR and let hosted CI judge it\. When a brief names a local run as a gate or a stop condition, take the hosted substitution and disclose it in the PR body\.$/m,
   );
   expect(text).toMatch(
-    /^- An implementation attempt counts only when a pushed head receives a hosted CI verdict or an exact-head review verdict \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. Attempt counts are telemetry and step-back triggers, never a stop; no attempt count parks your issue \(\[#4388 ruling\]\([^)\s]+6022146271\)\)\. Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own tooling \(helper scripts, probes, config\) do not count\. Fix them and continue within the same attempt instead of stopping\.$/m,
+    /^- An implementation attempt counts only when a pushed head receives a hosted CI verdict or an exact-head review verdict\. Attempt counts are telemetry and step-back triggers, never a stop; no attempt count parks your issue\. Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own tooling \(helper scripts, probes, config\) do not count\. Fix them and continue within the same attempt instead of stopping\.$/m,
   );
   expect(text).toContain(
     "PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head.",
@@ -375,9 +555,7 @@ function assertHostedAttemptProof(text) {
 
 function assertIssueStandardVelocity(text) {
   expect(text).toContain("Hosted CI on the pushed head is the proof for every product attempt");
-  expect(text).toContain(
-    "without its output ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)); run it in parallel instead.",
-  );
+  expect(text).toContain("without its output; run it in parallel instead.");
   expect(text).toContain(
     "never make local E2E or another local full or harness run a gate, a prerequisite, or a PARK or stop condition.",
   );
@@ -446,7 +624,7 @@ describe("hosted attempt proof and floor backfill contract", () => {
     },
     {
       name: "deletes the DB Profile proof sentence",
-      from: "PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head. ",
+      from: "PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head.",
       to: "",
     },
     {
@@ -535,5 +713,15 @@ describe("delivery and planning skill mirrors", () => {
     const read = (root) => readFileSync(new URL(`../../${root}/skills/${skill}/SKILL.md`, import.meta.url));
 
     expect(read(".claude").equals(read(".agents"))).toBe(true);
+  });
+
+  it("pins the TCGplayer boundary invariant and removes operator-session custody wording", () => {
+    for (const root of [".agents", ".claude"]) {
+      const text = readProse(`${root}/skills/delivery/SKILL.md`);
+      expect(text).toContain(
+        "Chase Sets never contacts TCGplayer servers and never stores or uses TCGplayer auth cookies or credentials.",
+      );
+      expect(text).not.toContain("operator-session custody");
+    }
   });
 });

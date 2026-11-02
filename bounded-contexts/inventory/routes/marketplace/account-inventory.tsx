@@ -233,11 +233,17 @@ export const action = defineFormAction({
   }),
   intents: {
     "create-item": async ({ request, formData }) => {
+      const certificationNumber = formData.get("certificationNumber");
+      // A form cached before Inventory derived graded cards still posts one; forwarding it unread lets
+      // Inventory refuse it instead of this action guessing at its contents.
+      const staleGradedCard = formData.get("gradedCard");
       const result = (await createInventoryRequestApiClient(request, {
         mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
       }).createItem({
         catalogItemId: formData.get("catalogItemId"),
         selectedOptions: formData.get("selectedOptions"),
+        ...(typeof certificationNumber === "string" ? { certificationNumber: certificationNumber.trim() || null } : {}),
+        ...(typeof staleGradedCard === "string" && staleGradedCard ? { gradedCard: staleGradedCard } : {}),
         storageLocationId: formData.get("storageLocationId"),
         totalQuantity: Number(formData.get("totalQuantity") ?? 0),
         acquisitionCostAmount: String(formData.get("acquisitionCostAmount") ?? "").trim() || null,
@@ -336,7 +342,7 @@ export default function MarketplaceInventoryRoute() {
       return;
     }
     handledReceipt.current = receiptKey;
-    navigate(offlineSaleListDestination(offlineSaleAction, currentPath), {
+    void navigate(offlineSaleListDestination(offlineSaleAction, currentPath), {
       replace: true,
       state: { ...preservedLocationState.current, offlineSaleResult: offlineSaleAction.offlineSale },
     });
@@ -347,6 +353,7 @@ export default function MarketplaceInventoryRoute() {
   return (
     <InventoryMutationProvider
       authority={data.recoveryAuthority}
+      navigationPending={navigation.state !== "idle"}
       key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}
     >
       <InventoryItemListPage

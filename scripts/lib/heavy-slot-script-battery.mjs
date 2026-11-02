@@ -4,6 +4,7 @@ import { acquireHeavySlot, acquireVitestHeavySlot } from "./heavy-slot.mjs";
 
 export const heavySlotScriptBatteryGlobalSetupPath = fileURLToPath(import.meta.url);
 export const inheritedOwnerScriptTests = Object.freeze([
+  "scripts/build-connector-extension-handoff.test.mjs",
   "scripts/verify-ci-local.test.mjs",
   "scripts/managed-postgres-authority-guard.test.mjs",
   "scripts/managed-postgres-authority-sources.test.mjs",

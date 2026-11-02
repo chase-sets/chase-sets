@@ -783,7 +783,7 @@ describe("verify-ci-local", () => {
 
   it("executes the same scoped E2E batches on unlabeled PRs and merge groups without a heavy-lane override", () => {
     const scope = scopeFor([
-      "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
+      "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer/adapter.ts",
     ]);
     expect(scope.integrationRiskRequired).toBe(false);
     const input = { mode: "pull-request", provenance: "same-repository", labels: [] };
@@ -810,6 +810,7 @@ describe("verify-ci-local", () => {
     expect(records.filter(({ gate }) => gate.id === "e2e-tests").map(({ spec }) => spec)).toEqual(prCommands);
     expect(receipt.plan.gates.find(({ id }) => id === "e2e-tests").e2eBatches).toEqual([
       "marketplace_browse,catalog_admin_integrations",
+      "rendered_copy",
     ]);
   });
 

@@ -19,8 +19,14 @@ export type CatalogIntegrationControlPlaneOverview = Readonly<{
   generatedAt: string;
   readiness: CatalogIntegrationControlPlaneReadiness;
   unitActivity: CatalogIntegrationUnitActivitySummary;
+  activeJobs: CatalogIntegrationActiveJobsSnapshot;
   providerReadiness: CatalogIntegrationProviderReadinessSummary;
   auditLifecycle: CatalogIntegrationAuditLifecycleSummary;
+}>;
+
+export type CatalogIntegrationActiveJobsSnapshot = Readonly<{
+  items: readonly CatalogIntegrationRecentJobSummary[];
+  completeness: "complete" | "incomplete";
 }>;
 
 export type CatalogIntegrationUnitActivitySummary = Readonly<{
@@ -169,20 +175,38 @@ const dailyAuditLifecycleStatusMessage =
 export function buildCatalogIntegrationControlPlaneOverview(input: {
   readiness: CatalogIntegrationControlPlaneReadiness;
   profiles: readonly CatalogProviderProfileVersionReview[];
-  activeJobs: readonly SourceObservationIntegrationJob[];
+  activeJobs:
+    | readonly SourceObservationIntegrationJob[]
+    | Readonly<{
+        items: readonly SourceObservationIntegrationJob[];
+        completeness: "complete" | "incomplete";
+      }>;
+  recentJobs?: readonly SourceObservationIntegrationJob[];
   generatedAt?: string;
   audience?: CatalogIntegrationControlPlaneOverviewAudience;
   countSpend?: unknown;
 }): CatalogIntegrationControlPlaneOverview {
   const generatedAt = input.generatedAt ?? new Date().toISOString();
   const audience = input.audience ?? "full";
+  const activeSnapshot = !("items" in input.activeJobs)
+    ? {
+        items: input.activeJobs.filter((job) => job.status === "queued" || job.status === "running"),
+        completeness: "complete" as const,
+      }
+    : input.activeJobs;
+  const recentJobs = input.recentJobs ?? (!("items" in input.activeJobs) ? input.activeJobs : []);
+  const units = buildUnitActivity(input.readiness.units, recentJobs);
 
   return {
     generatedAt,
     readiness: input.readiness,
     unitActivity: {
       generatedAt,
-      units: buildUnitActivity(input.readiness.units, input.activeJobs),
+      units,
+    },
+    activeJobs: {
+      items: buildActiveJobSummaries(input.readiness.units, activeSnapshot.items),
+      completeness: activeSnapshot.completeness,
     },
     providerReadiness: {
       generatedAt,
@@ -205,7 +229,7 @@ export function buildCatalogIntegrationControlPlaneOverview(input: {
             projectionStatus: "partial",
             statusMessage:
               "Lifecycle audit is assembled from current profile and active job metadata until the append-only audit projection is available.",
-            entries: buildAuditLifecycleEntries(input.profiles, input.activeJobs, input.readiness.units, generatedAt),
+            entries: buildAuditLifecycleEntries(input.profiles, recentJobs, input.readiness.units, generatedAt),
           },
   };
 }
@@ -238,6 +262,20 @@ function buildUnitActivity(
       .slice(0, maxRecentJobsPerUnit)
       .map((job) => jobSummary(job, unit.providerKey, unit.unitKey)),
   }));
+}
+
+function buildActiveJobSummaries(
+  units: readonly CatalogIntegrationControlPlaneUnitReadiness[],
+  jobs: readonly SourceObservationIntegrationJob[],
+): readonly CatalogIntegrationRecentJobSummary[] {
+  const summaries: CatalogIntegrationRecentJobSummary[] = [];
+  for (const job of jobs) {
+    const providerKey = jobProviderKey(job) ?? "unknown";
+    const providerUnits = units.filter((unit) => unit.providerKey === providerKey);
+    const unit = providerUnits.find((candidate) => jobMatchesUnit(job, candidate, providerUnits));
+    summaries.push(jobSummary(job, unit?.providerKey ?? providerKey, unit?.unitKey ?? jobIntegrationUnitKey(job)));
+  }
+  return summaries.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 function jobMatchesUnit(

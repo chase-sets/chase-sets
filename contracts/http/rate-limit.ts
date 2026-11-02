@@ -13,16 +13,16 @@ export type InMemoryRateLimiter = ReturnType<typeof createInMemoryRateLimiter>;
 export type InMemoryRateLimiterOptions = Readonly<{
   windowMs: number;
   max: number;
-  disabled?: boolean;
+  disabled?: boolean | undefined;
   keyPrefix?: string;
-  maxBuckets?: number;
-  now?: () => number;
+  maxBuckets?: number | undefined;
+  now?: (() => number) | undefined;
 }>;
 
 export type RateLimitRule = Readonly<{
   windowMs: number;
   max: number;
-  disabled?: boolean;
+  disabled?: boolean | undefined;
 }>;
 
 type RateLimitEnv = Readonly<Record<string, string | undefined>>;

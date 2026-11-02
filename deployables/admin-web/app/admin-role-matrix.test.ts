@@ -9,7 +9,7 @@ const actors = new Map<RoleKey, Actor>();
 
 beforeAll(async () => {
   for (const roleKey of ROLE_KEYS) {
-    // Empty stored grants exercise AUTH_ROLE_PERMISSIONS through Auth's public resolver.
+    // Empty stored grants exercise ROLE_PERMISSIONS through Auth's public resolver.
     const actor = await resolveActorFromSessionId(
       {
         sessions: {

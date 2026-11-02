@@ -3,25 +3,28 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createReportedContentRuntime } from "./runtime";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE } from "./contracts";
+import { REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE, REPORTED_CONTENT_TARGET_TYPES } from "./contracts";
 
+// Every target starts queued: the action precondition read finds its row.
 function createDeps() {
   const appendToStream = vi.fn().mockResolvedValue([]);
   const eventStore = { appendToStream } as unknown as EventStore;
-  const db = { query: vi.fn().mockResolvedValue({ rows: [] }) } as unknown as PgQueryable;
+  const db = { query: vi.fn().mockResolvedValue({ rows: [{}] }) } as unknown as PgQueryable;
   return { eventStore, db, appendToStream };
 }
+
+const targetIdPrefix = { listing: "lst", review: "rev", "account-profile": "acc" } as const;
 
 const context = { tenantId: "tnt_1", audit: { performedByUserId: "usr_ops", forAccountId: "acc_ops" } } as never;
 
 describe("reported content runtime moderation actions (m108, #4269)", () => {
   it("action matrix appends the unchanged audit then a directive only for listing unlist", async () => {
-    for (const targetType of ["listing", "review"] as const) {
+    for (const targetType of REPORTED_CONTENT_TARGET_TYPES) {
       for (const action of REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE[targetType]) {
         const deps = createDeps();
         const params = {
           targetType,
-          targetId: createId(targetType === "listing" ? "lst" : "rev"),
+          targetId: createId(targetIdPrefix[targetType]),
           action,
           note: "Operator reason",
           operatorUserId: createId("usr"),
@@ -68,7 +71,7 @@ describe("reported content runtime moderation actions (m108, #4269)", () => {
           },
           context,
         ),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ code: "invalid-listing-removal-directive" });
       expect(deps.appendToStream).not.toHaveBeenCalled();
     }
   });
@@ -128,7 +131,7 @@ describe("reported content runtime moderation actions (m108, #4269)", () => {
         { targetType: "review", targetId: "rev_1", action: "withdraw-review", note: null, operatorUserId: "usr_ops" },
         context,
       ),
-    ).rejects.toThrow("requires a note");
+    ).rejects.toMatchObject({ code: "note-required" });
     expect(appendToStream).not.toHaveBeenCalled();
   });
 
@@ -147,7 +150,7 @@ describe("reported content runtime moderation actions (m108, #4269)", () => {
         },
         context,
       ),
-    ).rejects.toThrow("not valid for target type");
+    ).rejects.toMatchObject({ code: "action-not-allowed" });
     expect(appendToStream).not.toHaveBeenCalled();
   });
 
@@ -166,7 +169,7 @@ describe("reported content runtime moderation actions (m108, #4269)", () => {
         },
         context,
       ),
-    ).rejects.toThrow("not valid for target type");
+    ).rejects.toMatchObject({ code: "action-not-allowed" });
     expect(appendToStream).not.toHaveBeenCalled();
   });
 

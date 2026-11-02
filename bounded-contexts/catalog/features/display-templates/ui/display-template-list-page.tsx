@@ -96,7 +96,7 @@ export function DisplayTemplateListPage({ data, query }: CatalogListRouteData<Di
     });
     addToast(t("catalog.features.displayTemplates.ui.displayTemplateListPage.display.template.created"), "success");
     resetCreateForm();
-    revalidator.revalidate();
+    void revalidator.revalidate();
   }
 
   function resetCreateForm() {

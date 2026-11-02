@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./rendered-copy": "./rendered-copy.ts"
   },
   "types": "./index.ts",
   "dependencies": {

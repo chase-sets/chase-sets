@@ -56,6 +56,65 @@ function buildServices(overrides: Partial<AccountServices> = {}) {
   } as AccountServices;
 }
 
+function buildAppWithoutActor(services: AccountServices, missingActor: null | undefined) {
+  const app = new Hono<IdentityApiEnv>();
+  app.use("*", async (c, next) => {
+    if (missingActor === null) c.set("actor", null);
+    // Anonymous requests still carry a well-formed bootstrap context; authority must come from the actor.
+    c.set("context", {
+      tenantId: "tnt_identity" as never,
+      audit: {
+        performedByUserId: "usr_bootstrap" as never,
+        forAccountId: "acc_bootstrap" as never,
+      },
+      trace: {},
+    } as EventStoreContext);
+    await next();
+  });
+  app.route("/accounts", accountRoutes(services));
+  return app;
+}
+
+describe.each([null, undefined])("account API without an actor (%s)", (missingActor) => {
+  it("create account fails closed without an actor", async () => {
+    const services = buildServices();
+    const response = await buildAppWithoutActor(services, missingActor).request("/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId: "acc_1", name: "Test Account", accountType: "personal" }),
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "authentication_required" } });
+    expect(services.commandHandler).not.toHaveBeenCalled();
+    expect(services.getAccountForRead).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { method: "GET", path: "/accounts/acc_1", key: undefined },
+    { method: "PUT", path: "/accounts/acc_1", key: undefined },
+    { method: "PUT", path: "/accounts/acc_1", key: "c626f8c0-f697-4e78-82cf-ef162634f998" },
+    { method: "POST", path: "/accounts/acc_1/suspend", key: undefined },
+    { method: "POST", path: "/accounts/acc_1/reactivate", key: undefined },
+    { method: "POST", path: "/accounts/acc_1/close", key: undefined },
+  ])("manage account fails closed without an actor: $method $path ($key)", async ({ method, path, key }) => {
+    const services = buildServices();
+    const response = await buildAppWithoutActor(services, missingActor).request(path, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(key ? { "Idempotency-Key": key } : {}),
+      },
+      ...(method === "PUT" ? { body: JSON.stringify({ name: "Updated Account" }) } : {}),
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "authorization_forbidden" } });
+    expect(services.getAccountForRead).not.toHaveBeenCalled();
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+});
+
 describe("account API route", () => {
   it.each([
     ["suspend", "SuspendAccount", "/accounts/acc_1/suspend"],

@@ -1,5 +1,6 @@
 locals {
-  cluster_name = trimspace(var.cluster_name) == "" ? "${var.name_prefix}-${var.environment}-doks" : var.cluster_name
+  cluster_name    = trimspace(var.cluster_name) == "" ? "${var.name_prefix}-${var.environment}-doks" : var.cluster_name
+  maintenance_day = var.environment == "production" ? "wednesday" : "sunday"
 
   default_runtime_node_count = var.environment == "production" ? 2 : 1
   runtime_node_count         = var.runtime_node_pool_node_count == 0 ? local.default_runtime_node_count : var.runtime_node_pool_node_count

@@ -14,7 +14,11 @@ import { createCatalogProviderIntegrationProfileVersionStore } from "../../sourc
 import { createScrydexOnePieceProviderAdapter } from "../../source-observations/api/providers/scrydex/adapter";
 import { CountCaptureStopped } from "../../source-observations/api/providers/count-capture-transport";
 import { countCaptureUnitKeys } from "../domain/count-capture-plan";
-import { createCountCaptureStore, readCountCaptureEffects } from "../read-model/count-capture-store";
+import {
+  createCountCaptureStore,
+  readCountCaptureEffects,
+  type CountCaptureRun,
+} from "../read-model/count-capture-store";
 import { countAccountSlot, createCountStore } from "../read-model/count-store";
 import { captureActor, captureSession, freshCaptureAuthority } from "../tests/count-capture-session-fixture";
 import { captureAuthority } from "../tests/count-capture-session-fixture";
@@ -34,6 +38,12 @@ if (!base) throw new Error("TEST_DATABASE_URL is required for the count-capture 
 
 const scopeRecordId = "scope-synthetic-op01";
 const versionAt = "2026-10-13T07:00:00.000Z";
+const sealInput = { dispatchId: captureAuthority().dispatchId, runnerRunId: "300", runnerRunAttempt: 1 };
+const boundCollection = (collectedAt: string) => ({
+  ...captureAuthority().collection,
+  outcome: "bound" as const,
+  collectedAt,
+});
 const usage = (remainingCredits: number | null, observedAt: string) => ({
   providerKey: "scrydex",
   creditUnit: "credit",
@@ -91,11 +101,14 @@ describe("closed count capture on PostgreSQL", () => {
     }
     const before = f.fetch.mock.calls.length;
     f.clock.now = "2026-10-13T08:04:11.000Z";
-    const { receipt } = await f.lifecycle.freeze(captureSession(), {
-      runnerRunId: "300",
-      runnerRunAttempt: 1,
-      collection: { ...captureAuthority().collection, outcome: "bound", collectedAt: f.clock.now },
+    const sealed = await f.lifecycle.freeze(captureSession(), sealInput);
+    f.clock.now = "2026-10-13T08:04:11.750Z";
+    const { receipt } = await f.lifecycle.complete(captureSession(), {
+      runId: sealed.runId,
+      ...sealInput,
+      collection: boundCollection(f.clock.now),
     });
+    expect(receipt).toMatchObject({ frozenAt: "2026-10-13T08:04:11.000Z" });
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
     expect(receipt.classification.verdict).toBe("CONFORMING");
     expect("evidence" in receipt ? receipt.evidence : receipt).toMatchObject({
@@ -107,17 +120,112 @@ describe("closed count capture on PostgreSQL", () => {
     expect(f.fetch).toHaveBeenCalledTimes(before);
     expect(f.enqueue).not.toHaveBeenCalled();
     await expect(f.lifecycle.quoteReadback(captureSession())).rejects.toThrow(CountCaptureStopped);
-    await expect(f.lifecycle.freeze(captureSession(), { runnerRunId: "300", runnerRunAttempt: 1 })).rejects.toThrow(
-      CountCaptureStopped,
-    );
+    await expect(f.lifecycle.freeze(captureSession(), sealInput)).rejects.toThrow(CountCaptureStopped);
     expect(f.fetch).toHaveBeenCalledTimes(before);
   });
-  it("retains an INCOMPLETE stop receipt when local proof or collection is missing", async () => {
+  it("retains an INCOMPLETE stop receipt when local proof is missing", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
     await f.prepare();
-    const { receipt } = await f.lifecycle.freeze(captureSession(), { runnerRunId: "300", runnerRunAttempt: 1 });
+    const sealed = await f.lifecycle.freeze(captureSession(), sealInput);
+    const { receipt } = await f.lifecycle.complete(captureSession(), {
+      runId: sealed.runId,
+      ...sealInput,
+      collection: boundCollection(f.clock.now),
+    });
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
     expect(receipt.classification.verdict).toBe("INCOMPLETE");
+    expect(f.fetch).not.toHaveBeenCalled();
+  });
+
+  // The persisted history of one run, oldest first.
+  async function history(pool: PgTransactionalPool, runId: string) {
+    const rows = await pool.query<{ payload: unknown }>(
+      "SELECT payload FROM catalog_scope_sync_count_capture_history WHERE run_id = $1 ORDER BY position",
+      [runId],
+    );
+    return rows.rows.map((row) => row.payload as CountCaptureRun);
+  }
+
+  it("appends one seal and one exact-run completion, and nothing for any other completion", async () => {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    await f.prepare();
+    const open = await f.store.activeRun(countCaptureSessionOwner(captureSession(), "staging"));
+    const opened = await history(f.pool, open.runId);
+    // The superseded seal-and-assemble request refuses before anything is sealed.
+    await expect(
+      f.lifecycle.freeze(captureSession(), {
+        ...sealInput,
+        collection: boundCollection(f.clock.now),
+      } as typeof sealInput),
+    ).rejects.toThrow();
+    expect(await history(f.pool, open.runId)).toEqual(opened);
+    const sealed = await f.lifecycle.freeze(captureSession(), sealInput);
+    expect(sealed).toEqual({ runId: open.runId, frozenAt: f.clock.now });
+    const sealedHistory = await history(f.pool, open.runId);
+    expect(sealedHistory.slice(0, -1)).toEqual(opened);
+    expect(sealedHistory.at(-1)).toMatchObject({
+      status: "frozen",
+      frozenAt: sealed.frozenAt,
+      seal: { from: "open", runnerRunId: "300", runnerRunAttempt: 1 },
+      receipt: null,
+    });
+    const genuine = { runId: sealed.runId, ...sealInput, collection: boundCollection(f.clock.now) };
+    for (const attempt of [
+      () =>
+        f.lifecycle.complete(
+          captureSession({ actor: captureActor({ sessionId: "synthetic-other-session" }) }),
+          genuine,
+        ),
+      () => f.lifecycle.complete(captureSession(), { ...genuine, runId: "00000000-0000-4000-8000-0000000000ff" }),
+      () => f.lifecycle.complete(captureSession(), { ...genuine, dispatchId: "synthetic-other-dispatch" }),
+      () => f.lifecycle.complete(captureSession(), { ...genuine, runnerRunAttempt: 2 }),
+      () => f.lifecycle.complete(captureSession(), { ...genuine, collection: undefined } as never),
+    ])
+      await expect(attempt()).rejects.toThrow();
+    expect(await history(f.pool, open.runId)).toEqual(sealedHistory);
+    // Two concurrent completions of the same sealed run: the advisory lock admits one.
+    const raced = await Promise.allSettled([
+      f.lifecycle.complete(captureSession(), genuine),
+      f.lifecycle.complete(captureSession(), {
+        ...genuine,
+        collection: boundCollection("2026-10-13T08:04:30.000Z"),
+      }),
+    ]);
+    expect(raced.map((outcome) => outcome.status).sort()).toEqual(["fulfilled", "rejected"]);
+    const completed = await history(f.pool, open.runId);
+    expect(completed).toHaveLength(sealedHistory.length + 1);
+    expect(completed.slice(0, -1)).toEqual(sealedHistory);
+    expect(completed.at(-1)).toMatchObject({ status: "frozen", frozenAt: sealed.frozenAt });
+    const retained = completed.at(-1)!.receipt!;
+    expect("frozenAt" in retained ? retained.frozenAt : retained.evidence.frozenAt).toBe(sealed.frozenAt);
+    // A later duplicate cannot replace the receipt, move the boundary, reopen or send.
+    await expect(f.lifecycle.complete(captureSession(), genuine)).rejects.toThrow(CountCaptureStopped);
+    await expect(f.lifecycle.freeze(captureSession(), sealInput)).rejects.toThrow(CountCaptureStopped);
+    await expect(f.lifecycle.quoteReadback(captureSession())).rejects.toThrow(CountCaptureStopped);
+    expect(await history(f.pool, open.runId)).toEqual(completed);
+    expect(f.fetch).not.toHaveBeenCalled();
+  });
+
+  it("leaves an interrupted collection sealed and receipt-free once its run expires", async () => {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    await f.prepare();
+    const sealed = await f.lifecycle.freeze(captureSession(), sealInput);
+    const interrupted = await history(f.pool, sealed.runId);
+    f.clock.now = "2026-10-14T08:05:00.000Z";
+    for (const attempt of [
+      () =>
+        f.lifecycle.complete(captureSession(), {
+          runId: sealed.runId,
+          ...sealInput,
+          collection: boundCollection(f.clock.now),
+        }),
+      () => f.lifecycle.freeze(captureSession(), sealInput),
+      () => f.lifecycle.usage(captureSession()),
+      () => f.lifecycle.quoteReadback(captureSession()),
+    ])
+      await expect(attempt()).rejects.toThrow(CountCaptureStopped);
+    expect(await history(f.pool, sealed.runId)).toEqual(interrupted);
+    expect(interrupted.at(-1)).toMatchObject({ status: "frozen", receipt: null, frozenAt: sealed.frozenAt });
     expect(f.fetch).not.toHaveBeenCalled();
   });
 });

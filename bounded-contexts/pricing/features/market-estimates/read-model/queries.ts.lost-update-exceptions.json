@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-dd2aa4d400fed5f0",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts",
+      "kind": "DELETE",
+      "table": "pricing_market_estimate_closer_cursors",
+      "digest": "20a66f627a70377281c980ca4a4e7fcf29c3cf3e9e5fcfa8037ffbe9444e079f"
+    },
+    "classification": "key-only but safe",
+    "reason": "The closer resets its own singleton cursor by key; no prior row value decides the DELETE."
+  }
+]

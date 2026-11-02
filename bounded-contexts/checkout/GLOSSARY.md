@@ -14,6 +14,16 @@ Notes:
 - One Account owns a claimed Cart; a second Account cannot take it over.
 - Clearing or checking out a claimed Cart empties its lines and leaves the claim in place.
 
+## Checkout Command Attempt
+
+A **Checkout Command Attempt** is one deliberate Cart change, named by an attempt id the caller mints when it submits, that the owner applies at most once and answers with the same recorded result every time it is presented again.
+
+Notes:
+
+- The attempt is recorded in the same all-or-nothing write as the Cart changes it decides, so a recorded attempt and its Cart changes exist together or not at all.
+- A lost response is resolved by looking the attempt up, never by sending a new change; an attempt the owner has not observed stays ambiguous until the buyer explicitly sends the same attempt again.
+- Presenting an attempt id with a different request, owner, kind or target never replays another result.
+
 ## Sell List
 
 A **Sell List** is mutable saved seller intent for one or more Products before selected offers, Smart Match offers, or fallback listings become sale commitments.
@@ -50,6 +60,10 @@ Notes:
 - Checkout Reservations are not created when an item is added to the cart.
 - Checkout Reservations expire if the buyer abandons checkout before order creation.
 - Order creation converts Checkout Reservations to order holds without releasing and replacing the stock commitment.
+
+## Cancel Checkout
+
+**Cancel checkout** is the session owner's action, on the checkout page and the Checkout session API's `cancel` route, that releases every active Checkout Reservation of a session holding only reservations and records the session cancelled. A repeat answers already-cancelled and releases nothing. Once the session has created orders, started payment or placed purchase intent, Cancel checkout is refused: those holds are released only by cancelling the purchase in Ordering, or by Payments reporting the payment terminal.
 
 ## Source Intent
 

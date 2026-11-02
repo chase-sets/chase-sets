@@ -6,12 +6,13 @@ export {
   ensureAnonymousProductAlertOwnerId,
   readAnonymousProductAlertOwnerId,
 } from "./support/request-support/anonymous-product-alert";
-export type { GoogleShoppingPayloadInput } from "./features/google-shopping-operations/api/export-row";
+export type { GoogleShoppingPayloadInput } from "@chase-sets/google-shopping-export";
 export type {
   GoogleShoppingSyncMerchantClient,
-  GoogleShoppingSyncMode,
   GoogleShoppingSyncProviderResult,
+  GoogleShoppingSyncServices,
 } from "./features/google-shopping-operations/api/sync-job";
+export type { GoogleShoppingSyncMode } from "./features/google-shopping-operations/api/sync-job";
 export { createDiscoveryUcpHandlers } from "./support/ucp-support/catalog";
 export {
   discoveryRealtimeManifest,

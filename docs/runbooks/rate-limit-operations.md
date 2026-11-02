@@ -62,6 +62,7 @@ Staging keeps rate limits active so deploy smoke exercises the same limiter beha
 | `marketplace.offer.submit.ip` | 20 attempts / 1 hour |
 | `marketplace.offer.accept.account` | 100 attempts / 1 day |
 | `marketplace.offer.accept.ip` | 60 attempts / 1 hour |
+| `marketplace.review.authoring` | 30 Review, update, and Review Response attempts per account / 10 minutes |
 | `payments.payment.create.account` | 10 attempts / 10 minutes |
 | `payments.payment.create.ip` | 20 attempts / 10 minutes |
 | `payments.card-decline.fingerprint` | 5 declined card attempts / 1 hour |

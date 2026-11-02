@@ -84,7 +84,42 @@ export type AddToCartActionData = Readonly<{
   viewCartHref: string;
 }>;
 
-export type ItemDetailActionData = AddToCartActionData | Readonly<{ error: string }> | null;
+/**
+ * An add-to-cart whose request may have reached Checkout but whose outcome no
+ * response or owner lookup could confirm. The add stays disabled until the
+ * buyer explicitly resends the same attempt.
+ */
+export type AddToCartAmbiguousActionData = Readonly<{
+  status: "add-to-cart-ambiguous";
+  attemptId: string;
+}>;
+
+export type ItemDetailActionData =
+  | AddToCartActionData
+  | AddToCartAmbiguousActionData
+  | Readonly<{ error: string }>
+  | null;
+
+export function isAddToCartAmbiguousActionData(value: unknown): value is AddToCartAmbiguousActionData {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    (value as { status?: unknown }).status === "add-to-cart-ambiguous" &&
+    typeof (value as { attemptId?: unknown }).attemptId === "string",
+  );
+}
+
+/**
+ * Mints one Checkout cart attempt id (32 base64url characters) for one
+ * deliberate add, at submit -- never per render.
+ */
+export function mintCartAttemptId() {
+  const bytes = new Uint8Array(24);
+  globalThis.crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 
 export function isAddToCartActionData(value: unknown): value is AddToCartActionData {
   return Boolean(

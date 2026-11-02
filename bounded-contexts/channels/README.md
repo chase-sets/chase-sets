@@ -71,11 +71,14 @@ Chrome-only adapters. The Channels manifest builder closes the MV3 graph: one mo
 identity/storage/alarms, a pinned public key, and the configured platform host.
 There is no popup, HTML page, content script, provider host, or product message
 listener. Both storage areas use trusted access before reads or writes. Builds
-use `VITE_PLATFORM_API_URL`, then `PLATFORM_API_URL`, then `http://localhost:6182`;
-`VITE_CONNECTOR_CLIENT_ID` supplies an already registered Auth client ID. An
-unset ID remains empty and cannot authorize pairing; registration and deployed
-cookie topology are not implemented by this shell. Chromium coverage uses only
-a loopback fake, not provider traffic or a deployed-session claim.
+use explicit Vite modes: `connector-local` uses a loopback
+`VITE_PLATFORM_API_URL` (default `http://localhost:6182`), while
+`connector-staging` and `connector-production` bind the generated marketplace
+origins and require a registered `VITE_CONNECTOR_CLIENT_ID`. `PLATFORM_API_URL`
+is never a build source. An unset local ID remains empty and cannot authorize
+pairing; registration and deployed cookie topology are not implemented by this
+shell. Chromium coverage uses only a loopback fake, not provider traffic or a
+deployed-session claim.
 Outbound sync durably orders that state for provider execution, and
 production composition profiles remain empty. The TCGplayer CSV slice
 composes a claimed outbound reservation into one Staged Import Batch and ingests

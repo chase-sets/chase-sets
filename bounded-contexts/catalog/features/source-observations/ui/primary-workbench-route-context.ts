@@ -109,6 +109,37 @@ export function parseCatalogPrimaryWorkbenchRouteContext(url: string | URL): Cat
   return routeContextFromLocation(parsedUrl.searchParams, parsedUrl.pathname, true);
 }
 
+// Request intent the parsed context does not keep: whether the operator named a
+// structured scope or a language explicitly, and whether the request is a
+// source-option refresh. Route selection reads these to pick its fallbacks.
+export function requestHasStructuredImportScopeSelection(requestUrl: string | URL): boolean {
+  const searchParams = new URL(requestUrl, catalogPrimaryWorkbenchOrigin).searchParams;
+  const structuredScopeKeys = [
+    "productId",
+    "language",
+    "languageCode",
+    "productLineId",
+    "productLineName",
+    "seriesId",
+    "seriesName",
+    "expansionId",
+    "expansionName",
+    "setId",
+    "setName",
+  ];
+
+  return structuredScopeKeys.some((key) => Boolean(searchParams.get(key)?.trim()));
+}
+
+export function requestHasExplicitLanguageScopeSelection(requestUrl: string | URL): boolean {
+  const searchParams = new URL(requestUrl, catalogPrimaryWorkbenchOrigin).searchParams;
+  return Boolean(searchParams.get("language")?.trim() || searchParams.get("languageCode")?.trim());
+}
+
+export function requestHasSourceOptionIntent(requestUrl: string | URL): boolean {
+  return Boolean(new URL(requestUrl, catalogPrimaryWorkbenchOrigin).searchParams.get("sourceOptionAction")?.trim());
+}
+
 export function normalizeCatalogPrimaryWorkbenchSection(section: string | null | undefined): string {
   const trimmed = section?.trim();
   if (!trimmed || retiredRoutePattern.test(trimmed)) {

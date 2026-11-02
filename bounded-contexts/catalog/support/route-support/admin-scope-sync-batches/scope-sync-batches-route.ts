@@ -115,6 +115,7 @@ const captureFields: Readonly<Record<string, readonly string[]>> = {
     "planFingerprint",
   ],
   "capture-freeze": ["intent", "countCapture", "freeze"],
+  "capture-complete": ["intent", "countCapture", "complete"],
 };
 async function captureAction(api: ReturnType<typeof createCatalogRequestApiClient>, formData: FormData) {
   const headers = { "Cache-Control": "no-store" };
@@ -160,6 +161,16 @@ async function captureAction(api: ReturnType<typeof createCatalogRequestApiClien
       return Response.json(
         await api.freezeScopeSyncCountCapture(
           JSON.parse(freeze) as Parameters<typeof api.freezeScopeSyncCountCapture>[0],
+        ),
+        { headers },
+      );
+    }
+    if (intent === "capture-complete") {
+      const complete = formData.get("complete") as string;
+      if (complete.length > 16_384) throw new Error("capture-stopped");
+      return Response.json(
+        await api.completeScopeSyncCountCapture(
+          JSON.parse(complete) as Parameters<typeof api.completeScopeSyncCountCapture>[0],
         ),
         { headers },
       );

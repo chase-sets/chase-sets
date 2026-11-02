@@ -46,6 +46,10 @@ const baselineSchema = z
   })
   .passthrough();
 const acknowledgementSchema = z.object({}).passthrough();
+const sealSchema = z.object({ runId: z.uuid(), frozenAt: z.iso.datetime({ offset: true }) }).strict();
+// The runner's own clock may trail the server seal by at most one action deadline
+// (the staging script's 30 s); beyond it the boundary cannot be honored.
+export const countCaptureBoundaryWaitMs = 30_000;
 
 export type CountCaptureAction = (intent: string, fields: Readonly<Record<string, string>>) => Promise<unknown>;
 export type CountCaptureDeploymentCollection = (
@@ -60,6 +64,7 @@ export async function runCountCaptureJourney(
   action: CountCaptureAction,
   now = () => new Date().toISOString(),
   collectDeployment?: CountCaptureDeploymentCollection,
+  sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
 ) {
   let phase: CountLifecycleStopReceipt["phase"] = "baseline";
   const stop = (reason: CountLifecycleStopReceipt["reason"]): CountLifecycleStopReceipt =>
@@ -111,9 +116,32 @@ export async function runCountCaptureJourney(
     phase = "pre-confirm";
     acknowledgementSchema.parse(await action("pre-confirm-planner-read", { planFingerprint: preview.planFingerprint }));
     phase = "freeze";
-    const freezeCollection = await collectDeployment(baseline.authority.deployment, now());
-    const frozen = await action("capture-freeze", { collection: JSON.stringify(freezeCollection) });
-    const raw = (frozen as { receipt?: unknown })?.receipt ?? frozen;
+    // Seal first: the server fixes frozenAt and fences every later send. The one
+    // final collection starts only once this runner's clock has reached that
+    // boundary, so its inventory covers the deployment up to the seal.
+    const sealed = sealSchema.parse(await action("capture-freeze", { dispatchId: identity.dispatchId }));
+    const boundary = Date.parse(sealed.frozenAt);
+    let collectedAt = now();
+    let waited = 0;
+    while (Date.parse(collectedAt) < boundary) {
+      const lag = boundary - Date.parse(collectedAt);
+      if (waited + lag > countCaptureBoundaryWaitMs) return stop("deployment-unknown");
+      waited += lag;
+      await sleep(lag);
+      collectedAt = now();
+    }
+    let freezeCollection: CountCaptureAuthority["collection"];
+    try {
+      freezeCollection = await collectDeployment(baseline.authority.deployment, collectedAt);
+    } catch {
+      return stop("deployment-unknown");
+    }
+    const completed = await action("capture-complete", {
+      runId: sealed.runId,
+      dispatchId: identity.dispatchId,
+      collection: JSON.stringify(freezeCollection),
+    });
+    const raw = (completed as { receipt?: unknown })?.receipt ?? completed;
     const stopped = countLifecycleStopReceiptSchema.safeParse(raw);
     // Return the server envelope unchanged; schema defaults are validation-only
     // and must not rewrite a retained stop receipt on the runner path.
@@ -123,6 +151,7 @@ export async function runCountCaptureJourney(
       parsed.authority.runnerSha !== identity.sha ||
       parsed.authority.dispatchId !== identity.dispatchId ||
       parsed.selection.scopeRecordId !== identity.scopeRecordId ||
+      parsed.frozenAt !== sealed.frozenAt ||
       JSON.stringify(parsed.freezeCollection) !== JSON.stringify(freezeCollection) ||
       !validateCountLifecycleReceipt(parsed).valid
     )

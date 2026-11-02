@@ -1,0 +1,57 @@
+[
+  {
+    "id": "exception-045c2e3ca2b1d327",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_seller_account_reviews",
+      "digest": "657fde441fedebca3cbf6f60951b16ece7706466a6e2ca3eccddb29e96c0f58c"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts:154 directly synchronizes checkout_seller_account_reviews from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-393db7809cb64007",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_seller_account_reviews",
+      "digest": "fd7b14353a4d083a53d3ee92167f1fb880521b2d276c10f3710f8039a664fddc"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts:176 directly synchronizes checkout_seller_account_reviews from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-663dc707bff7c501",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_seller_account_reviews",
+      "digest": "7f059676f5ce91cc5a32eadb14f00e67c1fd5a885954ccef8c0e647df2468c88"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts:198 directly synchronizes checkout_seller_account_reviews from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-f253fcc61fb4b639",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_seller_account_reviews",
+      "digest": "b75c86f85c832df28b9a11ec03ef0581ee50381874716f31e90a46bb74a23cfd"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts:216 directly synchronizes checkout_seller_account_reviews from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-80d8bf300aadbadd",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_seller_account_reviews",
+      "digest": "bdf0d0486025ee2266041259e7d0363f21c4ac72fc9f823782836c0c5dc12481"
+    },
+    "classification": "key-only but safe",
+    "reason": "Hold direction is derived from the incoming review-hold payload; strict-per-stream subscription ordering preserves the review-hold aggregate sequence, covered by subscription-runner.test.ts."
+  }
+]

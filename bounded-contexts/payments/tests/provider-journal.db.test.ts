@@ -37,6 +37,11 @@ const accountId = "acc_SYNTHETIC_J" as AccountId;
 const paymentId = "pay_SYNTHETIC_J" as PaymentId;
 const origin = GOVERNED_RETURN_ORIGIN;
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
+const setupAttemptId = "5b7e0c39-6d0a-4f1e-9c43-2a8f1d6b0e57";
+const setupAttemptContext = {
+  tenantId: "tnt_SYNTHETIC" as never,
+  audit: { performedByUserId: "usr_SYNTHETIC" as never, forAccountId: accountId },
+};
 
 function customerRequest(owner = accountId): ReserveProviderWrite {
   return {
@@ -183,7 +188,7 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
         permissions: ["orders.manage"],
       },
       tool: null as never,
-      arguments: { accountId, returnUrl },
+      arguments: { accountId, returnUrl, idempotencyKey: setupAttemptId },
       request: new Request("https://api.test/mcp"),
       protocol: { protocolVersion: "2025-06-18", stateless: false, clientInfo: null, clientCapabilities: null },
     };
@@ -264,9 +269,12 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     for (const input of [{}, { returnUrlBase: origin, returnUrlPath: "/account/payment-methods?x=1" }]) {
-      await expect(services().payments.createSavedCheckoutSetupSession({ accountId, ...input })).rejects.toThrow(
-        "unsafe-material",
-      );
+      await expect(
+        services().payments.createSavedCheckoutSetupSession(
+          { accountId, attemptId: setupAttemptId, ...input },
+          setupAttemptContext,
+        ),
+      ).rejects.toThrow("unsafe-material");
     }
     expect(fetch).not.toHaveBeenCalled();
     expect(await journal.readWindow(windowId)).toEqual([]);

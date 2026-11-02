@@ -1,0 +1,42 @@
+2026-10-19T12:42:44.0732140Z From https://github.com/chase-sets/chase-sets
+2026-10-19T12:42:44.0732842Z  * branch                ***       -> FETCH_HEAD
+2026-10-19T12:42:44.0787700Z Activated immutable release 175d48ba08d9cc5de352b0505bb586eca4c1f902@sha256:4cd0cee29ad60ca0c0169b19f415be0bda08141320c33c8be8766cd05e643b61.
+2026-10-19T12:42:44.0818271Z ##[group]Run set -euo pipefail
+2026-10-19T12:43:51.2716050Z ##[endgroup]
+2026-10-19T12:43:53.9337170Z $ node ./scripts/platform-kubernetes-deployment.mjs -- deploy --image registry.digitalocean.com/chase-sets/chase-sets-platform:175d48ba08d9cc5de352b0505bb586eca4c1f902@sha256:4cd0cee29ad60ca0c0169b19f415be0bda08141320c33c8be8766cd05e643b61 --image-pull-secret chase-sets --runtime-env DEPLOYMENT_ENVIRONMENT=staging --runtime-env OBSERVABILITY_ENABLED=true --runtime-env CATALOG_PROVIDER_SEND_WINDOW_ENABLED=false --runtime-env CHASE_SETS_RUNTIME_PROFILE=public --runtime-env PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap --runtime-env ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=chasesets.com --runtime-env CHASE_SETS_PUBLIC_ORIGIN=https://www.staging.chasesets.com --runtime-env NOTIFICATION_EMAIL_PROVIDER=amazon-ses --runtime-env STRIPE_CONNECT_ACCOUNTS_API=v1 --runtime-env EASYPOST_MODE=test --runtime-env CATALOG_ASSET_PUBLIC_BASE_URL=https://assets.staging.chasesets.com --runtime-env CATALOG_ASSET_S3_BUCKET=chase-sets-staging-catalog-assets --runtime-env CATALOG_ASSET_S3_ENDPOINT=https://nyc3.digitaloceanspaces.com --runtime-env CATALOG_ASSET_S3_REGION=nyc3 --runtime-env CHASE_SETS_MARKETPLACE_ORIGIN=https://marketplace.staging.chasesets.com --runtime-env SES_AWS_REGION=us-east-2 --runtime-env SES_FROM_EMAIL=notifications@staging.chasesets.com --runtime-env SES_CONFIGURATION_SET_NAME=transactional-staging --namespace chase-sets-platform --release chase-sets-platform --rollouts-enabled false --managed-postgres-ca-sha256 e8483eafb9a0eb2c420611dc09f2e6b7eb355ee26d6bb17e70e67ff0e0a11c63 --timeout 15m
+2026-10-19T12:53:05.9477757Z Release "chase-sets-platform" has been upgraded. Happy Helming!
+2026-10-19T12:53:05.9478666Z NAME: chase-sets-platform
+2026-10-19T12:53:05.9479393Z LAST DEPLOYED: Mon Oct 19 12:43:54 2026
+2026-10-19T12:53:05.9480111Z NAMESPACE: chase-sets-platform
+2026-10-19T12:53:05.9480762Z STATUS: deployed
+2026-10-19T12:53:05.9481838Z REVISION: 1043
+2026-10-19T12:53:05.9482449Z TEST SUITE: None
+2026-10-19T12:53:06.3624268Z deployment "chase-sets-platform-chase-sets-platform-public-web" successfully rolled out
+2026-10-19T12:53:06.8052265Z deployment "chase-sets-platform-chase-sets-platform-marketplace" successfully rolled out
+2026-10-19T12:53:07.1763026Z deployment "chase-sets-platform-chase-sets-platform-admin-web" successfully rolled out
+2026-10-19T12:53:07.6576853Z deployment "chase-sets-platform-chase-sets-platform-platform-api" successfully rolled out
+2026-10-19T12:53:08.1665678Z deployment "chase-sets-platform-chase-sets-platform-platform-worker" successfully rolled out
+2026-10-19T12:53:08.1693907Z {
+2026-10-19T12:53:08.1694857Z   "schemaVersion": "platform-kubernetes-deployment/v1",
+2026-10-19T12:53:08.1695645Z   "action": "deploy",
+2026-10-19T12:53:08.1696201Z   "release": "chase-sets-platform",
+2026-10-19T12:53:08.1696733Z   "namespace": "chase-sets-platform",
+2026-10-19T12:53:08.1697820Z   "image": "registry.digitalocean.com/chase-sets/chase-sets-platform:175d48ba08d9cc5de352b0505bb586eca4c1f902@sha256:4cd0cee29ad60ca0c0169b19f415be0bda08141320c33c8be8766cd05e643b61",
+2026-10-19T12:53:08.1698787Z   "startedAt": null,
+2026-10-19T12:53:08.1699286Z   "completedAt": null,
+2026-10-19T12:53:08.1699824Z   "result": "success",
+2026-10-19T12:53:08.1700328Z   "workloads": {
+2026-10-19T12:53:08.1700853Z     "deployments": [
+2026-10-19T12:53:08.1701556Z       "chase-sets-platform-chase-sets-platform-public-web",
+2026-10-19T12:53:08.1702369Z       "chase-sets-platform-chase-sets-platform-marketplace",
+2026-10-19T12:53:08.1703168Z       "chase-sets-platform-chase-sets-platform-admin-web",
+2026-10-19T12:53:08.1703960Z       "chase-sets-platform-chase-sets-platform-platform-api",
+2026-10-19T12:53:08.1704725Z       "chase-sets-platform-chase-sets-platform-platform-worker"
+2026-10-19T12:53:08.1705509Z     ],
+2026-10-19T12:53:08.1706016Z     "rollouts": [],
+2026-10-19T12:53:08.1706544Z     "jobs": [
+2026-10-19T12:53:08.1707204Z       "chase-sets-platform-chase-sets-platform-platform-bootstrap"
+2026-10-19T12:53:08.1707880Z     ]
+2026-10-19T12:53:08.1708393Z   }
+2026-10-19T12:53:08.1708924Z }
+2026-10-19T12:53:08.1870832Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

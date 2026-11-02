@@ -45,6 +45,10 @@ export function recoverInventoryImportCreates(
         () => raw.createSavedListImportBatch(params, attempted),
       );
     },
+    enqueueCommitBatchJob: (params, context) =>
+      mutations.execute("import-commit", params.batchId, params.accountId, params, context, () =>
+        raw.enqueueCommitBatchJob(params, context),
+      ),
   };
 }
 

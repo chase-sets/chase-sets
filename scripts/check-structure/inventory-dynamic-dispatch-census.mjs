@@ -485,6 +485,9 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           if (mutant !== "laundering-unchecked") reject(node, "FAMILY_TYPE_ERASURE");
         }
       }
+      // A throw operand has no contextual type, yet every catch binding that receives it is any or unknown.
+      if (mutant !== "throw-erasure-off" && ts.isThrowStatement(node) && isFamily(typeOf(node.expression)))
+        reject(node.expression, "FAMILY_TYPE_ERASURE");
       if (ts.isElementAccessExpression(node)) {
         if (isFamily(typeOf(node.expression))) {
           if (!staticKey(node.argumentExpression)) reject(node, "FAMILY_DYNAMIC_KEY");

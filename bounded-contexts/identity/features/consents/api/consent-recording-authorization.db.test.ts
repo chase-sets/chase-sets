@@ -13,12 +13,13 @@ import {
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { EVENT_STORE_READ_PAGE_SIZE_MAX, ZERO_GLOBAL_POSITION, type StoredEvent } from "@chase-sets/event-core/storage";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   CONSENT_ACTIVATION_AUTHORITY_STREAM_PREFIX,
   ConsentActivationAuthorityError,
   consentActivationAuthorityStreamId,
+  decodeConsentActivationAuthoritySnapshot,
   readConsentActivationAuthority,
 } from "@chase-sets/platform-policy/consent-activation-authority";
 import { activeSnapshot } from "../../../tests/consent-activation-authority-fixtures";
@@ -169,7 +170,43 @@ async function projectStoredEvents(
   }
 }
 
-function mountedTermsApp() {
+async function readCompleteEventHistory(store: EventStore): Promise<readonly StoredEvent[]> {
+  const events: StoredEvent[] = [];
+  let afterGlobalPosition: StoredEvent["globalPosition"] | undefined;
+  while (true) {
+    const page = await store.readAll({
+      limit: EVENT_STORE_READ_PAGE_SIZE_MAX,
+      ...(afterGlobalPosition ? { afterGlobalPosition } : {}),
+    });
+    events.push(...page);
+    if (page.length < EVENT_STORE_READ_PAGE_SIZE_MAX) return events;
+    const lastEvent = page.at(-1);
+    if (!lastEvent) throw new Error("A full event-store page must have a final event.");
+    afterGlobalPosition = lastEvent.globalPosition;
+  }
+}
+
+type MalformedAuthorityKind = "lifecycle" | "stream" | "revision" | "history";
+
+function malformedAuthorityReader(kind: MalformedAuthorityKind): bundle.ConsentActivationAuthorityReader {
+  return {
+    read: async (policyKey) => {
+      const snapshot = await readConsentActivationAuthority(eventStore, policyKey);
+      if (kind === "history") {
+        throw new ConsentActivationAuthorityError("history_too_long", "synthetic authority history exceeded its bound");
+      }
+      const mutated =
+        kind === "lifecycle"
+          ? { ...snapshot, status: "inactive" }
+          : kind === "stream"
+            ? { ...snapshot, streamId: `${snapshot.streamId}-forged` }
+            : { ...snapshot, authorityVersion: -1 };
+      return decodeConsentActivationAuthoritySnapshot(policyKey, mutated as never);
+    },
+  };
+}
+
+function mountedTermsApp(consentActivationAuthority: bundle.ConsentActivationAuthorityReader = authority) {
   const app = new Hono<IdentityApiEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", {
@@ -193,7 +230,7 @@ function mountedTermsApp() {
     "/terms",
     termsOfServiceConsentRoutes({
       db: pools.identity,
-      policies: { consentActivation: authority },
+      policies: { consentActivation: consentActivationAuthority },
       consents: { recordTermsConsent },
       publication,
     }),
@@ -340,6 +377,31 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
     },
   );
 
+  it.each(["lifecycle", "stream", "revision", "history"] as const)(
+    "fails closed on %s authority corruption at the Terms route",
+    async (kind) => {
+      const before = await eventStore.readStream({ streamId: authorityStreamId });
+      const beforeEvents = await readCompleteEventHistory(eventStore);
+      const response = await mountedTermsApp(malformedAuthorityReader(kind)).app.request("/terms/accept", {
+        method: "POST",
+      });
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "terms_of_service_not_active",
+          message: "No Terms of Service version is currently active for acceptance.",
+        },
+      });
+      expect(appendToStreams).not.toHaveBeenCalled();
+      await expect(eventStore.readStream({ streamId: authorityStreamId })).resolves.toEqual(before);
+      const afterEvents = await readCompleteEventHistory(eventStore);
+      expect(afterEvents.filter((event) => event.streamId.startsWith("identity.consent-"))).toEqual(
+        beforeEvents.filter((event) => event.streamId.startsWith("identity.consent-")),
+      );
+    },
+  );
+
   it("publication-ineligible runtime admission observes zero authority reads, store reads and appends", async () => {
     vi.mocked(bundle.resolveConsentPolicyMemberWithProvenance).mockRestore();
     await expect(
@@ -387,7 +449,7 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
     expect(appendToStreams).toHaveBeenCalledTimes(1);
     await expect(eventStore.readStream({ streamId: authorityStreamId })).resolves.toHaveLength(2);
     expect(
-      (await eventStore.readAll()).filter((event) => event.eventType === "identity.consent.recorded"),
+      (await readCompleteEventHistory(eventStore)).filter((event) => event.eventType === "identity.consent.recorded"),
     ).toHaveLength(1);
   });
 
@@ -433,7 +495,9 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
           ([inputs]) => inputs.find((input) => input.streamId === authorityStreamId)?.events,
         ),
       ).toEqual([[], []]);
-      const events = (await eventStore.readAll()).filter((event) => event.eventType === "identity.consent.recorded");
+      const events = (await readCompleteEventHistory(eventStore)).filter(
+        (event) => event.eventType === "identity.consent.recorded",
+      );
       expect(events).toHaveLength(exhaust ? 0 : 1);
       expect(JSON.stringify(appendToStreams.mock.calls)).not.toContain("authorization-only");
     },

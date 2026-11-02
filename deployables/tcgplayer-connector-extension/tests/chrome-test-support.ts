@@ -37,6 +37,10 @@ export function retained(state: string, revision = 7) {
 }
 
 export function chromeFixture(initial: Record<string, unknown> = {}, initialSession: Record<string, unknown> = {}) {
+  // Real Chrome ignores listener results; this fixture registers the listener itself so tests can await its work.
+  vi.doMock("../src/adapters/chrome-listener", () => ({
+    chromeListener: (listener: (...args: never[]) => Promise<void>) => listener,
+  }));
   const calls: string[] = [];
   function area(name: string, initialRows: Record<string, unknown>) {
     let trusted = false;

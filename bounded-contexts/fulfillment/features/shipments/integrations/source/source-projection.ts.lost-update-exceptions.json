@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-6457e351077387ab",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_account_pages",
+      "digest": "fcc7e1aa4363d69b93dcbca9291096b7417825cd3d0c581004d6186935cf5770"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:52 directly synchronizes fulfillment_account_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-ba065c42250cf1cc",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_account_pages",
+      "digest": "a11e2d293465aecd799a7a1f164bdce2939a6d2c686c4103d104411603a4c33e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:61 directly synchronizes fulfillment_account_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-3e43981b43214c4e",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_account_pages",
+      "digest": "6aad7d535d42afe22816150d76f7ad4aa94ba106ba4d59c96e89d4a137c34dec"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:70 directly synchronizes fulfillment_account_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

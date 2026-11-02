@@ -1,0 +1,90 @@
+[
+  {
+    "id": "exception-268a1182c89b7e12",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_summaries",
+      "digest": "06d3ecfd7549c51df7d0c94f8b62e358c5f394157ab74c9e25e95973c204e77e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/projection.ts:22 directly synchronizes collections_saved_list_summaries from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-d037c3eefda132a2",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_summaries",
+      "digest": "9a826dba9070f5f7dbaf80ad2bc5e864592e19dfaf79200f5a56660cbd8c30d7"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/projection.ts:92 directly synchronizes collections_saved_list_summaries from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-6e38764f99fd8a90",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_summaries",
+      "digest": "8aeb494c91e0199cac3215f8185654d68d742f5e95b5cbd744a369ae6f5117af"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/projection.ts:106 directly synchronizes collections_saved_list_summaries from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-76ad3a4d616b31b3",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_summaries",
+      "digest": "7f79762d0555b0b3a3534d09f5b0fcdfb44328e41a541e1aa5e9cedd31bae4f3"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/projection.ts:120 directly synchronizes collections_saved_list_summaries from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0b0638d1412525d5",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_summaries",
+      "digest": "a4ba61acf905afca873b52e624e0b7e2236bad687f8c031bd011233aa5a6e4a6"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/projection.ts:133 directly synchronizes collections_saved_list_summaries from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-375a0c0f2dc05a6f",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_lines",
+      "digest": "e720fd333a484f00b7811a40bc58782686af1c0e32ab7d906961563fa12dd0c9"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/projection.ts:209 directly synchronizes collections_saved_list_lines from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-37fa255a8423992b",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/projection.ts",
+      "kind": "DELETE",
+      "table": "collections_saved_list_lines",
+      "digest": "4743e8021f003aa7adf612c477dee0a5cdb77b89d6bfa92dc8fc14cd1e2ce42b"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/collections/features/saved-lists/read-model/projection.ts:238 directly synchronizes collections_saved_list_lines from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-fd0e7b719c994564",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_lines",
+      "digest": "5df8eb61627e6162a0eea87c73eda65d494420d6082ba594d0659207922518aa"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/projection.ts:289 directly synchronizes collections_saved_list_lines from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

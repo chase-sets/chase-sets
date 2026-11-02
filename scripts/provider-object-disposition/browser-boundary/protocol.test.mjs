@@ -2,18 +2,328 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, it, vi } from "vitest";
+import { errors } from "@playwright/test";
 import {
   ADMISSION,
   TRANSITION,
   admissionProof,
   mediationFailure,
   mediationDiagnostic,
+  launchDiagnostic,
   nativeRefusal,
   observerDiagnostic,
   browserCapabilityProof,
   removalRefusal,
   removalWitness,
 } from "./protocol.mjs";
+
+const launchRefusalMessage = [
+  "browserType.launch: failed details are ignored",
+  "  - <launched> pid=42",
+  "  - [pid=42][err] provider-boundary-refused:source-identity",
+  "  - [pid=42] <process did exit: exitCode=78, signal=null>",
+].join("\n");
+const plainLaunchRefusalMessage = launchRefusalMessage
+  .split("\n")
+  .map((line, index) => (index === 0 ? line : line.slice(4)))
+  .join("\n");
+
+it("AC1 classifies one PID launch refusal and binds native refusal payloads", () => {
+  expect(launchDiagnostic({ message: launchRefusalMessage })).toEqual({
+    version: 1,
+    class: "exited",
+    window: "from-launch",
+    exitCode: 78,
+    exitSignal: null,
+    refusal: "source-identity",
+  });
+});
+
+it("AC1 accepts nested-sandbox output and maps unknown signals to other", () => {
+  const message = [
+    "<launched> pid=7",
+    `[pid=7][out] ${TRANSITION.trimEnd()}`,
+    "[pid=7][err] provider-boundary-refused:seed-reap",
+    "[pid=7][err] provider-boundary-refused:nested-sandbox",
+    "[pid=7] <process did exit: exitCode=78, signal=SIGCHLD>",
+  ].join("\n");
+  expect(launchDiagnostic({ message })).toMatchObject({
+    class: "exited",
+    window: "from-launch",
+    exitCode: 78,
+    exitSignal: "other",
+    refusal: "seed-reap",
+  });
+});
+
+it.each([
+  [
+    "same-PID conflicting exit",
+    `${launchRefusalMessage}\n[pid=42] <process did exit: exitCode=0, signal=null>`,
+    {
+      version: 1,
+      class: "unknown",
+      window: "from-launch",
+      exitCode: null,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+  [
+    "non-78 exit",
+    launchRefusalMessage.replace("exitCode=78", "exitCode=1"),
+    {
+      version: 1,
+      class: "exited",
+      window: "from-launch",
+      exitCode: 1,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+  [
+    "no exit",
+    launchRefusalMessage.replace(/\n  - \[pid=42\] <process did exit:.*$/, ""),
+    {
+      version: 1,
+      class: "unknown",
+      window: "from-launch",
+      exitCode: null,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+  [
+    "out-of-range exit",
+    launchRefusalMessage.replace("exitCode=78", "exitCode=256"),
+    {
+      version: 1,
+      class: "exited",
+      window: "from-launch",
+      exitCode: null,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+  [
+    "allowlisted signal",
+    launchRefusalMessage.replace("signal=null", "signal=SIGKILL"),
+    {
+      version: 1,
+      class: "exited",
+      window: "from-launch",
+      exitCode: 78,
+      exitSignal: "SIGKILL",
+      refusal: "source-identity",
+    },
+  ],
+  [
+    "unknown signal",
+    launchRefusalMessage.replace("signal=null", "signal=SIGCHLD"),
+    {
+      version: 1,
+      class: "exited",
+      window: "from-launch",
+      exitCode: 78,
+      exitSignal: "other",
+      refusal: "source-identity",
+    },
+  ],
+  [
+    "ANSI exit line",
+    launchRefusalMessage.replace(
+      "[pid=42] <process did exit: exitCode=78, signal=null>",
+      "\u001b[2m[pid=42] <process did exit: exitCode=78, signal=null>\u001b[22m",
+    ),
+    {
+      version: 1,
+      class: "unknown",
+      window: "from-launch",
+      exitCode: null,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+  [
+    "plain and call-log duplicates",
+    plainLaunchRefusalMessage
+      .split("\n")
+      .flatMap((line) => [line, `  - ${line}`])
+      .join("\n"),
+    {
+      version: 1,
+      class: "exited",
+      window: "from-launch",
+      exitCode: 78,
+      exitSignal: null,
+      refusal: "source-identity",
+    },
+  ],
+  [
+    "double call-log prefix",
+    plainLaunchRefusalMessage
+      .split("\n")
+      .map((line) => `  -   - ${line}`)
+      .join("\n"),
+    {
+      version: 1,
+      class: "unknown",
+      window: "partial",
+      exitCode: null,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+  [
+    "drifted exit format",
+    launchRefusalMessage.replace("exitCode=78, signal=null", "exitCode=78 signal=null"),
+    {
+      version: 1,
+      class: "unknown",
+      window: "from-launch",
+      exitCode: null,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+  [
+    "evicted launch line",
+    launchRefusalMessage.replace("  - <launched> pid=42\n", ""),
+    {
+      version: 1,
+      class: "exited",
+      window: "partial",
+      exitCode: 78,
+      exitSignal: null,
+      refusal: "source-identity",
+    },
+  ],
+  [
+    "spawn failure",
+    "Failed to launch: marker",
+    {
+      version: 1,
+      class: "spawn-failed",
+      window: "partial",
+      exitCode: null,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+  [
+    "prefixed spawn failure",
+    "browserType.launch: Failed to launch: marker\n<launched> pid=1",
+    {
+      version: 1,
+      class: "spawn-failed",
+      window: "from-launch",
+      exitCode: null,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+  [
+    "multiple PIDs",
+    "[pid=1] <process did exit: exitCode=78, signal=null>\n[pid=2] <process did exit: exitCode=78, signal=null>",
+    {
+      version: 1,
+      class: "unknown",
+      window: "partial",
+      exitCode: null,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+  [
+    "refusal without exit",
+    "[pid=1][err] provider-boundary-refused:source-identity",
+    {
+      version: 1,
+      class: "unknown",
+      window: "partial",
+      exitCode: null,
+      exitSignal: null,
+      refusal: null,
+    },
+  ],
+])("AC1 named launch state %#", (_name, message, expected) => {
+  expect(launchDiagnostic({ message })).toEqual(expected);
+});
+
+it("AC1 timeout uses the Playwright TimeoutError class", () => {
+  const error = new errors.TimeoutError("PRIVATE marker");
+  expect(launchDiagnostic(error, error instanceof errors.TimeoutError)).toEqual({
+    version: 1,
+    class: "timeout",
+    window: "partial",
+    exitCode: null,
+    exitSignal: null,
+    refusal: null,
+  });
+});
+
+it("AC2 M-unbound-refusal and M-raw fail executable named negatives", () => {
+  const non78 = launchDiagnostic({ message: launchRefusalMessage.replace("exitCode=78", "exitCode=1") });
+  expect(non78).toMatchObject({ class: "exited", exitCode: 1, refusal: null });
+
+  const noExit = launchDiagnostic({
+    message: launchRefusalMessage.replace(/\n  - \[pid=42\] <process did exit:.*$/, ""),
+  });
+  expect(noExit).toMatchObject({ class: "unknown", exitCode: null, refusal: null });
+
+  const marker = "SYNTHETIC_PRIVATE_MARKER";
+  const payload = launchDiagnostic({
+    message: [
+      "<launched> pid=42",
+      `[pid=42][out] ${marker}`,
+      `[pid=42][err] ${marker}`,
+      "[pid=42] <process did exit: exitCode=78, signal=null>",
+    ].join("\n"),
+  });
+  expect(payload).toMatchObject({ class: "exited", exitCode: 78, refusal: null });
+});
+
+it("AC3 drops markers and keeps the structured record bounded", () => {
+  const marker = "SYNTHETIC_PRIVATE_MARKER";
+  const failure = mediationFailure("sandboxed-chromium", {
+    message: `${marker}\n${launchRefusalMessage}\n${marker}`,
+    stack: marker,
+    code: 78,
+    stdout: marker,
+    stderr: marker,
+  });
+  expect(failure.message).not.toContain(marker);
+  expect(Buffer.byteLength(failure.message, "utf8")).toBeLessThanOrEqual(512);
+  expect(JSON.stringify(mediationDiagnostic(failure))).not.toContain(marker);
+  const payloadFailure = mediationFailure("sandboxed-chromium", {
+    message: [
+      "<launched> pid=42",
+      `[pid=42][out] ${marker}`,
+      `[pid=42][err] ${marker}`,
+      "[pid=42] <process did exit: exitCode=78, signal=null>",
+    ].join("\n"),
+  });
+  expect(mediationDiagnostic(payloadFailure).launch).toMatchObject({
+    class: "exited",
+    exitCode: 78,
+    refusal: null,
+  });
+  expect(payloadFailure.message).not.toContain(marker);
+  expect(JSON.stringify(mediationDiagnostic(payloadFailure))).not.toContain(marker);
+  expect(mediationDiagnostic(mediationFailure("installed-boundary", { message: marker })).launch).toBeUndefined();
+});
+
+it("AC3 preserves the byte-stable non-launch failure envelope", () => {
+  const failure = mediationFailure("installed-boundary", {
+    code: 78,
+    signal: null,
+    stdout: Buffer.alloc(0),
+    stderr: Buffer.from("provider-boundary-refused:source-identity\n"),
+  });
+  expect(failure.message).toBe(
+    'browser-mediation-unavailable: {"stage":"installed-boundary","status":78,"signal":null,"nativeStage":"source-identity","stdoutBytes":0,"stderrBytes":42,"redacted":true,"truncated":false,"complete":true,"userNamespaceRestriction":"unknown"}',
+  );
+});
 
 const dropped = {
   image: "chrome",

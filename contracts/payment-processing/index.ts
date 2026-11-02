@@ -231,7 +231,7 @@ export type ProcessorPaymentReconciliationResult = Readonly<{
   processorStatus: string;
   outcome: ProcessorPaymentReconciliationOutcome;
   occurredAt: string;
-  internalPaymentId?: ProcessorPaymentId | null;
+  internalPaymentId?: ProcessorPaymentId | null | undefined;
   failureCode?: string | null;
   failureMessage?: string | null;
   liabilityShiftOutcome?: ProcessorLiabilityShiftOutcome | null;
@@ -326,11 +326,11 @@ export type PaymentProcessorWebhookEvent = Readonly<{
   providerObjectReference?: string | null;
   refundId?: string | null;
   processorRefundReference?: string | null;
-  orderIds?: readonly OrderId[] | null;
+  orderIds?: readonly OrderId[] | null | undefined;
   amount?: string | null;
   refundedAmount?: string | null;
   currencyCode?: PaymentCurrencyCode | null;
-  internalPaymentId?: ProcessorPaymentId | null;
+  internalPaymentId?: ProcessorPaymentId | null | undefined;
   processorStatus: string;
   failureCode: string | null;
   failureMessage: string | null;

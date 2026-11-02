@@ -14,12 +14,15 @@ export const managedPostgresCaSecretName = "chase-sets-platform-runtime";
 export const managedPostgresCaSecretKey = "managed-postgres-ca.crt";
 export const managedPostgresCaFieldManager = "chase-sets-managed-postgres-ca";
 
-export function collectPlatformSecretKeys(values = buildPlatformHelmValues(), options = {}) {
+export function collectPlatformSecretKeys(values, options = {}) {
+  values ??= buildPlatformHelmValues({ deploymentEnvironment: options.deploymentEnvironment });
   const keys = new Set();
 
   for (const component of Object.values(values.components ?? {})) {
     for (const entry of component.env ?? []) {
-      if (entry.secret) {
+      // An optional key is installed by its own field manager (the staging evidence
+      // window), so the deploy neither supplies nor claims it.
+      if (entry.secret && !entry.optional) {
         keys.add(entry.secretKey ?? entry.name);
       }
     }
@@ -190,12 +193,12 @@ export function buildPlatformSecretManifest(options = {}) {
 }
 
 export function buildPlatformSecretBundle(options = {}) {
-  const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
-  const secretName = options.secretName ?? values.global?.existingSecretName;
-  const namespace = options.namespace;
   const env = options.env ?? process.env;
   const deploymentEnvironment =
     options.deploymentEnvironment ?? options.env?.DEPLOYMENT_ENVIRONMENT ?? process.env.DEPLOYMENT_ENVIRONMENT;
+  const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot, deploymentEnvironment });
+  const secretName = options.secretName ?? values.global?.existingSecretName;
+  const namespace = options.namespace;
   const observabilityEnabled = options.observabilityEnabled ?? env.OBSERVABILITY_ENABLED ?? true;
   const secretKeys =
     options.secretKeys ?? collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled });
@@ -578,8 +581,8 @@ async function applyManifest(options) {
 }
 
 export function summarizePlatformSecret(options = {}) {
-  const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
   const deploymentEnvironment = options.deploymentEnvironment ?? options.env?.DEPLOYMENT_ENVIRONMENT;
+  const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot, deploymentEnvironment });
   const observabilityEnabled = options.observabilityEnabled ?? options.env?.OBSERVABILITY_ENABLED ?? true;
   const secretKeys =
     options.secretKeys ?? collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled });

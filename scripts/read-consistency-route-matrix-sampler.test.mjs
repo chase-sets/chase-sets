@@ -1,7 +1,7 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_VERSION,
   assertRouteMatrixSamplerRedacted,
@@ -10,6 +10,11 @@ import {
 } from "./read-consistency-route-matrix-sampler.mjs";
 
 const checkedAt = "2026-07-06T10:00:00.000Z";
+const temporaryDirectories = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 describe("read consistency route matrix sampler", () => {
   it("parses route-matrix sampler options from flags and env", () => {
@@ -57,6 +62,7 @@ describe("read consistency route matrix sampler", () => {
 
   it("builds a support-safe sampler artifact with one route per route-matrix template", async () => {
     const dir = await mkdtemp(join(tmpdir(), "route-matrix-sampler-"));
+    temporaryDirectories.push(dir);
     const checkoutProbePath = join(dir, "checkout-probe.json");
     const accountCartProbePath = join(dir, "account-cart-probe.json");
     const outPath = join(dir, "sampler.json");
@@ -145,6 +151,7 @@ describe("read consistency route matrix sampler", () => {
 
   it("marks checkout as failed when the probe aborts without copying raw details", async () => {
     const dir = await mkdtemp(join(tmpdir(), "route-matrix-sampler-"));
+    temporaryDirectories.push(dir);
     const checkoutProbePath = join(dir, "checkout-probe.json");
     await writeFile(
       checkoutProbePath,
@@ -176,6 +183,7 @@ describe("read consistency route matrix sampler", () => {
 
   it("skips automatic samples during an active deploy window while preserving expected blockers", async () => {
     const dir = await mkdtemp(join(tmpdir(), "route-matrix-sampler-deploy-window-"));
+    temporaryDirectories.push(dir);
     const checkoutProbePath = join(dir, "checkout-probe.json");
     const accountCartProbePath = join(dir, "account-cart-probe.json");
     const deployWindowPath = join(dir, "deploy-window.json");
@@ -222,6 +230,7 @@ describe("read consistency route matrix sampler", () => {
 
   it("marks account cart as failed when the cart probe aborts without copying raw details", async () => {
     const dir = await mkdtemp(join(tmpdir(), "route-matrix-sampler-"));
+    temporaryDirectories.push(dir);
     const accountCartProbePath = join(dir, "account-cart-probe.json");
     await writeFile(
       accountCartProbePath,

@@ -1,6 +1,7 @@
 import type { MoneyAmount, SignedMoneyAmount } from "@chase-sets/primitives/money";
 import type { EconomicsForPricingGoal } from "../../../economics/domain/resolution";
 import type { CurvePoint } from "../../../market-estimates/domain/demand-curve/curve";
+import type { PortfolioPlan, PortfolioSolveInput } from "../portfolio/portfolio";
 import {
   decideAtPoint,
   netProceedsAtPrice,
@@ -35,6 +36,8 @@ export type GoalSolveInput = Readonly<{
   curve: GoalCurve;
   economics: EconomicsForPricingGoal | null;
   parameters: GoalParameters;
+  /** One copy at the listing's current price, in the curve currency; only a portfolio goal reads it. */
+  currentPriceAmount?: MoneyAmount | null;
 }>;
 
 export type GoalDecision = Readonly<{
@@ -58,7 +61,8 @@ export type GoalUnavailableReason =
   | "curve-empty"
   | `curve-feature-missing:${GoalCurveFeature}`
   | "economics-unavailable"
-  | "economics-currency-mismatch";
+  | "economics-currency-mismatch"
+  | "current-price-missing";
 
 export type GoalUnavailable = Readonly<{ kind: "unavailable"; reason: GoalUnavailableReason }>;
 
@@ -84,6 +88,13 @@ export type PricingGoalDefinition = Readonly<{
   requiresEconomics: boolean;
   solve(input: GoalSolveInput): GoalDecision | GoalUnavailable;
   explain(decision: GoalDecision): GoalExplanation;
+  /**
+   * Portfolio goals only: one Portfolio Plan across an explicit listing set,
+   * whose `solve` is then the plan of a one-listing portfolio. Callers resolve
+   * a plan once and apply it per listing; a goal without it decides each
+   * listing alone.
+   */
+  solvePortfolio?(input: PortfolioSolveInput): PortfolioPlan;
 }>;
 
 /** Fills defaults; an unknown key, or any value that is not a number within its inclusive bounds, is rejected. */
@@ -150,18 +161,11 @@ export function definePricingGoal<const Parameter extends string, const Requires
     requiredCurveFeatures,
     requiresEconomics,
     solve(input) {
-      const validation = validateParameters(parameterSchema, input.parameters);
-      if (validation.kind === "rejected") {
-        const detail = validation.rejections.map((rejection) => `${rejection.reason} ${rejection.parameter}`);
-        throw new Error(`Pricing Goal ${id}@${version} parameters were not validated: ${detail.join(", ")}.`);
-      }
-      const parameters = validation.parameters as Readonly<Record<Parameter, number>>;
-      const curve = toGoalCurveViews(input.curve.points);
-      if (curve === null) return unavailable("curve-empty");
-      const missing = requiredCurveFeatures.find(
-        (feature) => !curve.byPercentile.some((point) => point[feature] !== null),
-      );
-      if (missing !== undefined) return unavailable(`curve-feature-missing:${missing}`);
+      const parameters = requireValidParameters(`${id}@${version}`, parameterSchema, input.parameters) as Readonly<
+        Record<Parameter, number>
+      >;
+      const curve = goalCurveViews(input.curve.points, requiredCurveFeatures);
+      if ("kind" in curve) return curve;
       let economics: ResolvedEconomicsForPricingGoal | null = null;
       if (requiresEconomics) {
         const supplied = input.economics;
@@ -204,7 +208,30 @@ export function definePricingGoal<const Parameter extends string, const Requires
   };
 }
 
-function unavailable(reason: GoalUnavailableReason): GoalUnavailable {
+/** The filled parameters; a rejection throws, since callers validate first. */
+export function requireValidParameters(
+  goalVersion: string,
+  schema: GoalParameterSchema,
+  parameters: GoalParameters,
+): GoalParameters {
+  const validation = validateParameters(schema, parameters);
+  if (validation.kind === "valid") return validation.parameters;
+  const detail = validation.rejections.map((rejection) => `${rejection.reason} ${rejection.parameter}`);
+  throw new Error(`Pricing Goal ${goalVersion} parameters were not validated: ${detail.join(", ")}.`);
+}
+
+/** A curve's sorted views, or the first reason it cannot be decided on: `curve-empty`, then each required feature in declared order. */
+export function goalCurveViews(
+  points: readonly CurvePoint[],
+  requiredCurveFeatures: readonly GoalCurveFeature[],
+): GoalCurveViews | GoalUnavailable {
+  const curve = toGoalCurveViews(points);
+  if (curve === null) return unavailable("curve-empty");
+  const missing = requiredCurveFeatures.find((feature) => !curve.byPercentile.some((point) => point[feature] !== null));
+  return missing === undefined ? curve : unavailable(`curve-feature-missing:${missing}`);
+}
+
+export function unavailable(reason: GoalUnavailableReason): GoalUnavailable {
   return { kind: "unavailable", reason };
 }
 

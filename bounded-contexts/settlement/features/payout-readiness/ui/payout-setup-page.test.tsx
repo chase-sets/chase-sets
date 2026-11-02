@@ -4,7 +4,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SettlementPayoutReadinessRow } from "../read-model/queries";
+import type { SettlementPayoutReadinessRow } from "../../../client";
+import { withPayoutSetupDecision } from "../domain/setup-progress";
+import { payoutSetupMatrix } from "../tests/setup-decision.test-data";
 
 const { mockLoadConnectAndInitialize } = vi.hoisted(() => ({
   mockLoadConnectAndInitialize: vi.fn(),
@@ -23,7 +25,7 @@ import {
 import { StripeConnectNotificationBanner } from "./stripe-connect-notification-banner";
 
 function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
-  return {
+  return withPayoutSetupDecision({
     account_id: "acc_test" as never,
     status: "not-started",
     missing_requirements: [],
@@ -44,7 +46,7 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
     requirements_collector: "unknown",
     updated_at: null,
     ...overrides,
-  };
+  });
 }
 
 function renderPage(row: SettlementPayoutReadinessRow, options: { providerErrorMessage?: string | null } = {}) {
@@ -99,6 +101,44 @@ async function flushMutationObserver() {
 }
 
 describe("payout setup page", () => {
+  it.each(payoutSetupMatrix)(
+    "matrix-row-tests: preserves setup, support and locale copy for $name",
+    ({ projection, expected, title }) => {
+      const html = renderPage({ ...projection, ...expected });
+      if (title) {
+        expect(html).toContain(title);
+      } else {
+        for (const { title: recoveryTitle } of payoutSetupMatrix) {
+          if (recoveryTitle) expect(html).not.toContain(recoveryTitle);
+        }
+      }
+      expect(html.includes("Loading secure payout setup")).toBe(expected.provider_setup_available);
+      expect(html.includes('href="/account/support"')).toBe(expected.support_recommended && title !== null);
+      expect(html.includes("Manage details")).toBe(expected.provider_management_available);
+      expect(html).toContain("Refresh setup status");
+    },
+  );
+
+  it("mounts components and recommends support only from API fields or a local provider error", () => {
+    const row = {
+      ...readiness({ status: "restricted", missing_requirements: ["external_account"] }),
+      next_step: "provider_review" as const,
+      support_recommended: false,
+      provider_setup_available: false,
+      provider_management_available: false,
+    };
+    const html = renderPage(row);
+    expect(html).not.toContain("Loading secure payout setup");
+    expect(html).not.toContain('href="/account/support"');
+    expect(html).not.toContain("Manage details");
+    const rendered = document.createElement("div");
+    rendered.innerHTML = renderPage(row, { providerErrorMessage: "Provider session expired." });
+    expect(rendered.querySelectorAll('a[href="/account/support"]')).toHaveLength(2);
+    expect(renderPage({ ...row, status: "ready", provider_setup_available: true })).toContain(
+      "Loading secure payout setup",
+    );
+  });
+
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
 

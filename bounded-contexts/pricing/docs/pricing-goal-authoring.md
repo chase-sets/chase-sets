@@ -23,11 +23,19 @@ A goal is a `PricingGoalDefinition`
 | `requiresEconomics` | Whether the goal reads resolved Economics. A goal that does not require it never sees it. |
 | `solve` | Pure: the same curve, parameters and Economics always give the same Goal Decision or unavailable result. |
 | `explain` | Values only, keyed to the goal's own id and version; seller-facing copy belongs to the surface that renders it. |
+| `solvePortfolio` | Optional, portfolio goals only (#7710): one Portfolio Plan across an explicit listing set. A round resolves it once per policy and anchor and applies it per listing through every stage. |
 
 Write a goal with `definePricingGoal`. It validates parameters and answers
 `curve-empty`, `curve-feature-missing:<feature>`, `economics-unavailable` and
 `economics-currency-mismatch` before your `select` runs, so `select` only picks
 a curve point.
+
+A goal whose answer depends on the other listings, such as `hold-value` or
+`cash-target`, is written with `definePortfolioGoal`
+(`features/repricing-policies/domain/goals/portfolio-goal.ts`): its `resolve`
+picks one target horizon for a prepared portfolio, and its `solve` is the plan
+of a one-listing portfolio at the listing's `currentPriceAmount`. The Conformance
+Kit's portfolio property runs over every goal that declares `solvePortfolio`.
 
 ## Steps
 

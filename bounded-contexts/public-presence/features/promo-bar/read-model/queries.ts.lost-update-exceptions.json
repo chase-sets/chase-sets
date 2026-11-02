@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-45736dd775a2dda5",
+    "binding": {
+      "module": "bounded-contexts/public-presence/features/promo-bar/read-model/queries.ts",
+      "kind": "UPDATE",
+      "table": "public_presence_promo_bar_messages",
+      "digest": "fc27c1b4db403635338f500fc5a6fb437229598d6ac74bac600146fb1f5aa83c"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/public-presence/features/promo-bar/read-model/queries.ts:183 directly synchronizes public_presence_promo_bar_messages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-783b507389b6d105",
+    "binding": {
+      "module": "bounded-contexts/public-presence/features/promo-bar/read-model/queries.ts",
+      "kind": "UPDATE",
+      "table": "public_presence_promo_bar_messages",
+      "digest": "ae2e7b106f8d2a6113c0b6985c7827e4b4370cd187df364bc682a62eebec9442"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/public-presence/features/promo-bar/read-model/queries.ts:232 directly synchronizes public_presence_promo_bar_messages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-d68317626c4e3283",
+    "binding": {
+      "module": "bounded-contexts/public-presence/features/promo-bar/read-model/queries.ts",
+      "kind": "DELETE",
+      "table": "public_presence_promo_bar_messages",
+      "digest": "ce7dddba219efd4cd32a517f34b4b178c052b43ba15161e8d09d6fe778292b3d"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/public-presence/features/promo-bar/read-model/queries.ts:256 directly synchronizes public_presence_promo_bar_messages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

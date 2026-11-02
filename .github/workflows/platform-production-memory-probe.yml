@@ -1,0 +1,112 @@
+name: Platform Production Memory Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type capture production web memory to authorize the fixed read-only capture.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-production-memory-probe
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Admit trusted main capture
+        id: admit
+        env:
+          CAPTURE_CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] || [ "$GITHUB_REF" != refs/heads/main ] || [ "$GITHUB_REPOSITORY" != chase-sets/chase-sets ] || [ "$CAPTURE_CONFIRM" != 'capture production web memory' ]; then
+            echo 'capture-admission-refused' >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.16.0
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        with:
+          no_auth: "true"
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Configure production read context
+        id: context
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_IN_AUTOMATION: "true"
+          TF_INPUT: "false"
+        run: |
+          set -euo pipefail
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$DIGITALOCEAN_ACCESS_TOKEN" ]; then
+            echo 'context-credentials-unavailable' >&2
+            exit 1
+          fi
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/production.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true > /dev/null 2>&1 || { echo 'context-state-unavailable' >&2; exit 1; }
+          cluster_id="$(terraform output -raw cluster_id 2>/dev/null)" || { echo 'context-cluster-unavailable' >&2; exit 1; }
+          [[ "$cluster_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || { echo 'context-cluster-invalid' >&2; exit 1; }
+          kubeconfig="${RUNNER_TEMP}/production-memory-probe.kubeconfig"
+          if ! (umask 077 && doctl kubernetes cluster kubeconfig show "$cluster_id" --expiry-seconds 900 > "$kubeconfig" 2>/dev/null); then
+            echo 'context-kubeconfig-unavailable' >&2
+            exit 1
+          fi
+          chmod 600 "$kubeconfig"
+          echo "cluster_id=${cluster_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Capture production web memory
+        id: collect
+        if: ${{ !cancelled() && steps.admit.outcome == 'success' }}
+        env:
+          PROMETHEUS_QUERY_TOKEN: ${{ secrets.PROMETHEUS_QUERY_TOKEN }}
+          CAPTURE_CLUSTER_ID: ${{ steps.context.outputs.cluster_id }}
+          KUBECONFIG: ${{ runner.temp }}/production-memory-probe.kubeconfig
+        run: node scripts/production-memory-probe.mjs
+
+      - name: Remove temporary production context
+        if: always()
+        run: rm -f -- "${RUNNER_TEMP}/production-memory-probe.kubeconfig"
+
+      - name: Retain public-safe memory capture
+        if: ${{ always() && steps.admit.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-memory-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/production-memory-probe/capture.json
+          if-no-files-found: error
+          retention-days: 14

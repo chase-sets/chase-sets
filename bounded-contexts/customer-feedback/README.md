@@ -61,10 +61,10 @@ is documented in the [Customer Feedback Privacy runbook](../../docs/runbooks/cus
 
 ## Incoming Dependencies
 
-- None wired yet. Source contexts will publish Outcome Facts
-  (`CsatOutcomeFactV1`) that this context consumes to decide invitations; the
-  first publishers are the journey-coverage leaves (#5150/#5151/#5152). The
-  contract is defined here so those leaves emit exactly this shape.
+- `auth.session.started`, consumed by the `customer-feedback-csat-outcome-fact-projection`.
+- `identity.registration.completed` and `identity.onboarding.completed`, consumed by the
+  `customer-feedback-csat-outcome-fact-projection`.
+- `discovery.search-session.started`, consumed by the `customer-feedback-csat-outcome-fact-projection`.
 
 ## Outgoing Integration Events
 

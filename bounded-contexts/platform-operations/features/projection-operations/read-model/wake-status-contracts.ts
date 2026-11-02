@@ -162,6 +162,10 @@ export function normalizeWakeStatusSnapshot(value: unknown): WakeStatusSnapshot 
   };
 }
 
+export function deriveWakeAttentionItems(body: unknown): readonly AttentionItem[] {
+  return buildWakeAttentionItems(normalizeWakeStatusSnapshot(body));
+}
+
 export function buildWakeAttentionItems(snapshot: WakeStatusSnapshot | null): readonly AttentionItem[] {
   if (!snapshot) {
     return [];

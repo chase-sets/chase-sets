@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-5a5c2deaacdfffb4",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/scope-registry/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_scope_records",
+      "digest": "aa210dc48e51bdc53afa824e2e3adf586b511ecf90533ac246538741bc16f134"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/scope-registry/read-model/projection.ts:268 directly synchronizes catalog_scope_records from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

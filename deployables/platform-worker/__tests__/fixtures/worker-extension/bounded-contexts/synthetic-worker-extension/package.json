@@ -1,0 +1,8 @@
+{
+  "name": "@synthetic-worker-fixture/extension",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./module.ts"
+  }
+}

@@ -103,11 +103,11 @@ describe("classification behavior", () => {
     expect(classified(input({ state: "closed" }))).toBe(false);
   });
 
-  it("preserves native type precedence and the untyped Epic fallback", () => {
+  it("uses native Epic type as the only Epic signal", () => {
     expect(classified(input({ issueTypeName: "Epic" }))).toBe(false);
     expect(isEpic(input({ issueTypeName: "Epic" }))).toBe(true);
-    expect(classified(input({ issueTypeName: null, labels: [...FULL_LABELS, "kind:epic"] }))).toBe(false);
-    expect(isEpic(input({ issueTypeName: null, labels: [...FULL_LABELS, "kind:epic"] }))).toBe(true);
+    expect(classified(input({ issueTypeName: null, labels: [...FULL_LABELS, "kind:epic"] }))).toBe(true);
+    expect(isEpic(input({ issueTypeName: null, labels: [...FULL_LABELS, "kind:epic"] }))).toBe(false);
     expect(classified(input({ issueTypeName: "Slice", labels: [...FULL_LABELS, "kind:epic"] }))).toBe(true);
   });
 

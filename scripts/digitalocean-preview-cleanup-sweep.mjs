@@ -10,6 +10,8 @@ export const DIGITALOCEAN_PREVIEW_DNS_VERSION = "digitalocean-preview-dns/v1";
 export const DEFAULT_STATE_BUCKET = "chase-sets-terraform-state";
 export const DEFAULT_SPACES_ENDPOINT = "https://nyc3.digitaloceanspaces.com";
 export const DEFAULT_PREVIEW_STATE_PREFIX = "platform/previews/";
+export const DIGITALOCEAN_PREVIEW_STATE_RETIREMENT_VERSION = "digitalocean-preview-state-retirement/v1";
+export const PREVIEW_STATE_RETIREMENT_COMMAND_TIMEOUT_MS = 120 * 1000;
 export const PREVIEW_DATABASE_TERRAFORM_ADDRESS = "digitalocean_database_cluster.postgres";
 export const PREVIEW_DATABASE_DELETE_CONFIRMATION = "delete leaked preview database clusters";
 export const PLATFORM_PREVIEW_IDLE_DRAFTS_VERSION = "platform-preview-idle-drafts/v1";
@@ -38,6 +40,9 @@ export const PREVIEW_SHARED_DNS_FQDN = `*.${PREVIEW_DNS_ENVIRONMENT_LABEL}.${PRE
 export const DISCOVERY_BUDGET_MS = 8 * 60 * 1000;
 export const DISCOVERY_COMMAND_TIMEOUT_MS = 120 * 1000;
 export const DISCOVERY_PULL_REQUEST_TIMEOUT_MS = 15 * 1000;
+export const PREVIEW_CLEANUP_BATCH_SIZE = 32;
+export const PREVIEW_CLEANUP_LOOKUP_WORKERS = 8;
+const PREVIEW_CLEANUP_MAX_BATCHES = 256;
 
 export function commandOutput(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -387,12 +392,216 @@ export function cleanupMatrixForTargets(targets, options = {}) {
   };
 }
 
+export function cleanupBatchesForTargets(targets, batchSize = PREVIEW_CLEANUP_BATCH_SIZE) {
+  const size =
+    Number.isInteger(batchSize) && batchSize > 0
+      ? Math.min(PREVIEW_CLEANUP_BATCH_SIZE, batchSize)
+      : PREVIEW_CLEANUP_BATCH_SIZE;
+  const orderedTargets = [...targets].sort((left, right) => left.prNumber - right.prNumber);
+  const batches = [];
+  for (let offset = 0; offset < orderedTargets.length; offset += size) {
+    const batchTargets = orderedTargets.slice(offset, offset + size);
+    batches.push({
+      index: batches.length,
+      firstPrNumber: batchTargets[0].prNumber,
+      lastPrNumber: batchTargets.at(-1).prNumber,
+      targets: batchTargets,
+    });
+  }
+  return batches;
+}
+
+export function cleanupMatrixForBatches(batches, options = {}) {
+  return {
+    include: batches.map((batch) => ({
+      batch_index: batch.index,
+      batch_count: batches.length,
+      checkout_ref: options.checkoutRef,
+      image_sha: options.imageSha,
+    })),
+  };
+}
+
+export function previewStateKeyForPrNumber(prNumber, prefix = DEFAULT_PREVIEW_STATE_PREFIX) {
+  if (!Number.isSafeInteger(prNumber) || prNumber <= 0) {
+    throw new Error("Preview PR number must be a positive integer.");
+  }
+  return `${trimSlashes(prefix)}/pr-${prNumber}.tfstate`;
+}
+
+// Retire only the exact matrix-derived state key after the caller has proved
+// every cleanup operation for this PR succeeded. Terraform remains the
+// authority for emptiness; object size and state JSON are deliberately never
+// consulted. A missing, stale, unversioned, or non-empty state fails closed.
+export async function retirePreviewTerraformState(options = {}, dependencies = {}) {
+  const stateKey =
+    Number.isSafeInteger(options.prNumber) && options.prNumber > 0
+      ? previewStateKeyForPrNumber(options.prNumber, options.prefix)
+      : null;
+  const record = {
+    schemaVersion: DIGITALOCEAN_PREVIEW_STATE_RETIREMENT_VERSION,
+    checkedAt: options.checkedAt ?? new Date().toISOString(),
+    prNumber: options.prNumber ?? null,
+    bucket: options.bucket ?? DEFAULT_STATE_BUCKET,
+    endpointUrl: options.endpointUrl ?? DEFAULT_SPACES_ENDPOINT,
+    stateKey,
+    terraformDirectory: options.terraformDirectory ?? "infrastructure/digitalocean/platform",
+    cleanupSucceeded: options.cleanupSucceeded === true,
+    stateList: { status: "not-run", empty: null, resourceCount: null },
+    versioning: { status: "not-run" },
+    headBeforeStateList: { status: "not-run", versionId: null },
+    headBeforeDelete: { status: "not-run", versionId: null },
+    delete: { status: "not-run" },
+    outcome: "refused",
+    result: "failure",
+    errors: [],
+  };
+  const errors = validateRetireStateOptions(options);
+  if (errors.length > 0) {
+    record.errors.push(...errors);
+    return record;
+  }
+  if (!record.cleanupSucceeded) {
+    record.outcome = "skipped-cleanup-failure";
+    record.errors.push("Preview cleanup did not succeed for this target; state was left untouched.");
+    return record;
+  }
+
+  const timeoutMs =
+    normalizeTimeout(dependencies.commandTimeoutMs ?? options.commandTimeoutMs) ??
+    PREVIEW_STATE_RETIREMENT_COMMAND_TIMEOUT_MS;
+  const output = dependencies.commandOutput ?? commandOutput;
+  const json =
+    dependencies.commandJson ?? ((command, args) => commandJson(command, args, dependencies, { timeout: timeoutMs }));
+  const aws = (args) => output("aws", [...args, "--endpoint-url", record.endpointUrl], { timeout: timeoutMs });
+  const awsJson = (args) => json("aws", [...args, "--endpoint-url", record.endpointUrl]);
+  const terraform = (args) => output("terraform", args, { timeout: timeoutMs });
+  const backendArgs = [
+    "-chdir=" + record.terraformDirectory,
+    "init",
+    "-reconfigure",
+    `-backend-config=bucket=${record.bucket}`,
+    `-backend-config=key=${record.stateKey}`,
+    "-backend-config=region=us-east-1",
+    `-backend-config=endpoints={s3=\"${record.endpointUrl}\"}`,
+    "-backend-config=skip_credentials_validation=true",
+    "-backend-config=skip_metadata_api_check=true",
+    "-backend-config=skip_region_validation=true",
+    "-backend-config=skip_requesting_account_id=true",
+    "-backend-config=use_path_style=true",
+    "-backend-config=use_lockfile=true",
+  ];
+
+  let before;
+  try {
+    before = await awsJson(["s3api", "head-object", "--bucket", record.bucket, "--key", record.stateKey]);
+    record.headBeforeStateList = { status: "success", versionId: normalizeVersionId(before) };
+    if (!record.headBeforeStateList.versionId) {
+      throw new Error("head-object did not return a VersionId.");
+    }
+  } catch (error) {
+    record.headBeforeStateList = { status: "failed", versionId: null };
+    record.errors.push(`Initial state-object head failed; state was left untouched: ${describeError(error)}`);
+    return record;
+  }
+
+  try {
+    await terraform(backendArgs);
+  } catch (error) {
+    record.stateList = { status: "backend-init-failed", empty: null, resourceCount: null };
+    record.errors.push(`Terraform backend initialization failed; state was left untouched: ${describeError(error)}`);
+    return record;
+  }
+
+  try {
+    const listed = await terraform(["-chdir=" + record.terraformDirectory, "state", "list", "-no-color"]);
+    const resources = String(listed ?? "")
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    record.stateList = { status: "success", empty: resources.length === 0, resourceCount: resources.length };
+    if (resources.length > 0) {
+      record.errors.push("Terraform state list is non-empty; state was left untouched.");
+      return record;
+    }
+  } catch (error) {
+    record.stateList = { status: "failed", empty: null, resourceCount: null };
+    record.errors.push(`Terraform state list failed; state was left untouched: ${describeError(error)}`);
+    return record;
+  }
+
+  try {
+    const versioning = await awsJson(["s3api", "get-bucket-versioning", "--bucket", record.bucket]);
+    const status = String(versioning?.Status ?? versioning?.status ?? "");
+    record.versioning = { status: status || "absent" };
+    if (status !== "Enabled") {
+      record.errors.push("State bucket versioning was not Enabled; state was left untouched.");
+      return record;
+    }
+  } catch (error) {
+    record.versioning = { status: "failed" };
+    record.errors.push(`State bucket versioning probe failed; state was left untouched: ${describeError(error)}`);
+    return record;
+  }
+
+  try {
+    const after = await awsJson(["s3api", "head-object", "--bucket", record.bucket, "--key", record.stateKey]);
+    record.headBeforeDelete = { status: "success", versionId: normalizeVersionId(after) };
+    if (record.headBeforeDelete.versionId !== record.headBeforeStateList.versionId) {
+      record.errors.push("State object VersionId changed during retirement; state was left untouched.");
+      return record;
+    }
+  } catch (error) {
+    record.headBeforeDelete = { status: "failed", versionId: null };
+    record.errors.push(`Final state-object head failed; state was left untouched: ${describeError(error)}`);
+    return record;
+  }
+
+  try {
+    await aws(["s3api", "delete-object", "--bucket", record.bucket, "--key", record.stateKey]);
+    record.delete = { status: "success" };
+    record.outcome = "retired";
+    record.result = "success";
+  } catch (error) {
+    record.delete = { status: "failed" };
+    record.errors.push(`State-object delete failed; state may still be present: ${describeError(error)}`);
+  }
+  return record;
+}
+
 function normalizeTimeout(value) {
   if (value === undefined) {
     return undefined;
   }
   const timeoutMs = Number(value);
   return Number.isFinite(timeoutMs) && timeoutMs >= 1 ? Math.floor(timeoutMs) : undefined;
+}
+
+function normalizeVersionId(value) {
+  const versionId = value?.VersionId ?? value?.versionId ?? null;
+  return typeof versionId === "string" && versionId.trim() ? versionId.trim() : null;
+}
+
+function validateRetireStateOptions(options) {
+  const errors = [];
+  if (!Number.isSafeInteger(options.prNumber) || options.prNumber <= 0) {
+    errors.push("--pr-number must be a positive integer.");
+  }
+  if (!isNonEmptyString(options.bucket ?? DEFAULT_STATE_BUCKET)) errors.push("--bucket is required.");
+  if ((options.bucket ?? DEFAULT_STATE_BUCKET) !== DEFAULT_STATE_BUCKET) {
+    errors.push("Retirement bucket must be chase-sets-terraform-state.");
+  }
+  if (trimSlashes(options.prefix ?? DEFAULT_PREVIEW_STATE_PREFIX) !== trimSlashes(DEFAULT_PREVIEW_STATE_PREFIX)) {
+    errors.push("Retirement prefix must be platform/previews.");
+  }
+  if (!isNonEmptyString(options.endpointUrl ?? DEFAULT_SPACES_ENDPOINT)) errors.push("--endpoint-url is required.");
+  if (!isNonEmptyString(options.terraformDirectory ?? "infrastructure/digitalocean/platform")) {
+    errors.push("--terraform-directory is required.");
+  }
+  if (!Number.isFinite(Date.parse(options.checkedAt ?? new Date().toISOString()))) {
+    errors.push("--checked-at must be an ISO timestamp.");
+  }
+  return errors;
 }
 
 function createClock(dependencies) {
@@ -497,7 +706,10 @@ function normalizeNamespaceList(value) {
   if (Array.isArray(value)) {
     return value;
   }
-  return Array.isArray(value?.items) ? value.items : [];
+  if (Array.isArray(value?.items)) {
+    return value.items;
+  }
+  throw new Error("kubectl namespace listing returned no items array.");
 }
 
 function countPreviewDnsZoneRecords(records, zone) {
@@ -547,6 +759,9 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
     stateObjectBytes: emptyStateObjectBytes(),
     candidateCount: 0,
     closedTargetCount: 0,
+    batchSize: PREVIEW_CLEANUP_BATCH_SIZE,
+    batchCount: 0,
+    batches: [],
     phases,
     result: "failure",
     warnings: [],
@@ -589,6 +804,8 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
   };
   const budgetCut = () => {
     record.targets = [];
+    record.batchCount = 0;
+    record.batches = [];
     record.errors.push("budget-exhausted");
     return { record, matrix: { include: [] } };
   };
@@ -783,8 +1000,9 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
     if (namespacesResult.error) {
       throw namespacesResult.error;
     }
-    phases[3].count = normalizeNamespaceList(namespacesResult.value).length;
-    record.namespaceCandidates = selectPreviewNamespaceTargets(namespacesResult.value);
+    const namespaces = normalizeNamespaceList(namespacesResult.value);
+    phases[3].count = namespaces.length;
+    record.namespaceCandidates = selectPreviewNamespaceTargets(namespaces);
   } catch (error) {
     phases[3].count = null;
     phases[3].error = error.code === "DISCOVERY_BUDGET" ? "budget-exhausted" : describeError(error);
@@ -839,15 +1057,15 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
   }
   startPhase(phases[4]);
   const lookupStartedAt = now();
+  let nextCandidateIndex = 0;
   let lookupsStarted = 0;
-  for (const candidate of record.candidates) {
+  let budgetExhausted = false;
+  const lookupResults = new Array(record.candidates.length);
+  const lookupCandidate = async (candidate, index) => {
     const remaining = remainingBudget();
     if (remaining <= 0) {
-      phases[4].count = lookupsStarted;
-      phases[4].error = "budget-exhausted";
-      finishPhase(phases[4], lookupStartedAt);
-      markUnstarted("budget-exhausted");
-      return budgetCut();
+      budgetExhausted = true;
+      return;
     }
     const timeoutMs = Math.min(pullRequestTimeoutMs, remaining);
     const deadlineBound = remaining <= pullRequestTimeoutMs;
@@ -872,39 +1090,76 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
               `PR #${candidate.prNumber} lookup`,
             );
       const state = String(pullRequest.state ?? "unknown").toLowerCase();
-      const target = {
+      lookupResults[index] = {
         ...candidate,
         pullRequestState: state,
         merged: Boolean(pullRequest.merged),
         selected: state === "closed",
       };
-      if (target.selected) {
-        record.closedTargetCount += 1;
-        record.targets.push(target);
-      }
     } catch (error) {
       if (deadlineBound && isTimeoutError(error)) {
-        phases[4].count = lookupsStarted;
-        phases[4].error = "budget-exhausted";
-        finishPhase(phases[4], lookupStartedAt);
-        markUnstarted("budget-exhausted");
-        return budgetCut();
+        budgetExhausted = true;
+        return;
       }
       const detail =
         isTimeoutError(error) || error?.name === "AbortError"
           ? `timed out after ${timeoutMs}ms.`
           : describeError(error);
-      phases[4].error ??= detail;
-      record.errors.push(`PR #${candidate.prNumber} lookup failed: ${detail}`);
+      lookupResults[index] = { error: `PR #${candidate.prNumber} lookup failed: ${detail}` };
     }
-  }
+  };
+  const lookupWorker = async () => {
+    while (!budgetExhausted) {
+      const index = nextCandidateIndex;
+      if (index >= record.candidates.length) {
+        return;
+      }
+      nextCandidateIndex += 1;
+      await lookupCandidate(record.candidates[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: PREVIEW_CLEANUP_LOOKUP_WORKERS }, () => lookupWorker()));
   phases[4].count = lookupsStarted;
   finishPhase(phases[4], lookupStartedAt);
+  if (budgetExhausted) {
+    phases[4].error = "budget-exhausted";
+    markUnstarted("budget-exhausted");
+    return budgetCut();
+  }
 
-  record.result = record.errors.length > 0 ? "failure" : record.warnings.length > 0 ? "warning" : "success";
+  for (const result of lookupResults) {
+    if (!result) {
+      continue;
+    }
+    if (result.error) {
+      phases[4].error ??= result.error.replace(/^PR #[0-9]+ lookup failed: /, "");
+      record.errors.push(result.error);
+      continue;
+    }
+    if (result.selected) {
+      record.closedTargetCount += 1;
+      record.targets.push(result);
+    }
+  }
+  record.targets.sort((left, right) => left.prNumber - right.prNumber);
+  record.batches = cleanupBatchesForTargets(record.targets, record.batchSize);
+  record.batchCount = record.batches.length;
+  if (record.batches.length > PREVIEW_CLEANUP_MAX_BATCHES) {
+    record.result = "failure";
+    record.errors.push("matrix-limit-exceeded");
+    return { record, matrix: { include: [] } };
+  }
+  record.result =
+    record.errors.length > 0
+      ? "failure"
+      : record.warnings.length > 0
+        ? "warning"
+        : record.targets.length > 0
+          ? "success"
+          : "empty";
   return {
     record,
-    matrix: cleanupMatrixForTargets(record.targets, {
+    matrix: cleanupMatrixForBatches(record.batches, {
       checkoutRef: options.checkoutRef,
       imageSha: options.imageSha,
     }),
@@ -1759,6 +2014,24 @@ function parseImportDatabaseArgs(argv, env = process.env) {
   };
 }
 
+function parseRetireStateArgs(argv, env = process.env) {
+  const rawPrNumber = readOption(argv, "--pr-number", env.PREVIEW_PR_NUMBER ?? "");
+  return {
+    prNumber: /^\d+$/.test(rawPrNumber) ? Number.parseInt(rawPrNumber, 10) : Number.NaN,
+    bucket: DEFAULT_STATE_BUCKET,
+    endpointUrl: readOption(argv, "--endpoint-url", env.SPACES_ENDPOINT_URL ?? DEFAULT_SPACES_ENDPOINT),
+    prefix: DEFAULT_PREVIEW_STATE_PREFIX,
+    terraformDirectory: readOption(
+      argv,
+      "--terraform-directory",
+      env.PREVIEW_TERRAFORM_DIRECTORY ?? "infrastructure/digitalocean/platform",
+    ),
+    checkedAt: readOption(argv, "--checked-at", new Date().toISOString()),
+    cleanupSucceeded: readOption(argv, "--cleanup-succeeded", "false") === "true",
+    outPath: readOption(argv, "--out", env.PREVIEW_STATE_RETIREMENT_OUT),
+  };
+}
+
 function parseApplySharedDnsArgs(argv, env = process.env) {
   return {
     target: readOption(argv, "--target", env.DOKS_INGRESS_TARGET ?? ""),
@@ -1933,6 +2206,14 @@ async function main(argv = process.argv.slice(2)) {
   if (command === "import-database") {
     const options = parseImportDatabaseArgs(commandArgs);
     const record = await importPreviewDatabaseClusterIntoTerraformState(options);
+    await writeOptionalRecord(options.outPath, record);
+    console.log(JSON.stringify(record, null, 2));
+    return record.result === "failure" ? 1 : 0;
+  }
+
+  if (command === "retire-state") {
+    const options = parseRetireStateArgs(commandArgs);
+    const record = await retirePreviewTerraformState(options);
     await writeOptionalRecord(options.outPath, record);
     console.log(JSON.stringify(record, null, 2));
     return record.result === "failure" ? 1 : 0;

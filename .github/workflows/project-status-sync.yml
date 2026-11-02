@@ -31,7 +31,7 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
 
       # Recomputes every active derived state from native issue facts: an Epic
-      # (by native type, or the legacy kind:epic label on an untyped issue)
+      # (by native type only)
       # projects to Epic, a non-Epic carrying status:tracking-only projects to
       # Tracking, and everything else resolves to Blocked / Refined / Backlog
       # from dependencies, milestone, and labels. Closed issues reconcile to

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "exception-ba87984fed860f73",
+    "binding": {
+      "module": "bounded-contexts/identity/features/invitations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_invitations",
+      "digest": "de3b56f1a3a1dbaad31c7c433a3548e5f8dc7df48a4c0c0d7146463f944ee623"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/invitations/read-model/projection.ts:43 directly synchronizes identity_invitations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-eb625f158784f76f",
+    "binding": {
+      "module": "bounded-contexts/identity/features/invitations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_invitations",
+      "digest": "af8c8fb3389ae547df04967695b5c19ef02564a51b2eb9018183f92a279f0484"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/invitations/read-model/projection.ts:53 directly synchronizes identity_invitations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-90ec02cdccb2f4fb",
+    "binding": {
+      "module": "bounded-contexts/identity/features/invitations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_invitations",
+      "digest": "a0d9a29b21e619864522873e85598fae61e1b208a44ceb0f92b5542955b6e713"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/invitations/read-model/projection.ts:63 directly synchronizes identity_invitations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-7e81b0606b6aaf19",
+    "binding": {
+      "module": "bounded-contexts/identity/features/invitations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_invitations",
+      "digest": "df58537985ab3753f678530b674c135041f67041dbafbab794f3d08f5d922607"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/invitations/read-model/projection.ts:74 directly synchronizes identity_invitations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-be1f91cba68073d6",
+    "binding": {
+      "module": "bounded-contexts/identity/features/invitations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_invitations",
+      "digest": "d08fd44fcc947be2a9443eecfd267e60cdad4eba2cb753040b5589f1dfb6d20e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/invitations/read-model/projection.ts:84 directly synchronizes identity_invitations from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

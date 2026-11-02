@@ -151,8 +151,6 @@ export function createMarketplaceSeedRuntime(
   });
   const listingPhotoStorage = createMarketplaceSeedListingPhotoStorage();
   const pricingHostPorts: PricingHostPorts = {
-    tcgplayerMarketTransport: { kind: "not-mounted" },
-    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
     commercialTermsResolver,
     channelConnectionIdentityReader: {
       // This host has no Channels database. The unmistakably synthetic reader

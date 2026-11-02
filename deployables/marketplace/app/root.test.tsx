@@ -1,9 +1,10 @@
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockUseLoaderData, mockUseLocation } = vi.hoisted(() => ({
+const { mockUseLoaderData, mockUseLocation, mockUseRouteError } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseLocation: vi.fn(),
+  mockUseRouteError: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -18,6 +19,7 @@ vi.mock("react-router", async () => {
     ScrollRestoration: () => null,
     useLoaderData: mockUseLoaderData,
     useLocation: mockUseLocation,
+    useRouteError: mockUseRouteError,
   };
 });
 
@@ -25,8 +27,9 @@ import {
   action as itemDetailRailAnalyticsAction,
   loader as itemDetailRailAnalyticsLoader,
 } from "./routes/item-detail-rail-analytics";
+import { t } from "@chase-sets/localization";
 import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV } from "@chase-sets/platform-runtime/http";
-import { Layout, itemDetailRailAnalyticsBridgeScript, loader } from "./root";
+import { ErrorBoundary, Layout, itemDetailRailAnalyticsBridgeScript, loader } from "./root";
 
 function createLoaderArgs(url: string): Parameters<typeof loader>[0] {
   return {
@@ -400,5 +403,46 @@ describe("marketplace root layout", () => {
     expect(data.actor).toBeNull();
     expect(data.colorMode).toBe("system");
     expect(loaderHeaders(result).get("Set-Cookie")).toBeNull();
+  });
+});
+
+describe("marketplace root error boundary", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    ["a thrown Error", new Error("SYNTHETIC_ROOT_5623")],
+    ["a network TypeError", new TypeError("Failed to fetch")],
+    [
+      "a non-404 route error response",
+      { status: 502, statusText: "SYNTHETIC_STATUS_5623", internal: false, data: "SYNTHETIC_BODY_5623" },
+    ],
+    ["a thrown non-Error value", "SYNTHETIC_VALUE_5623"],
+  ])("renders localized copy and no technical text for %s", (_case, error) => {
+    mockUseRouteError.mockReturnValue(error);
+
+    const html = renderToString(<ErrorBoundary />);
+
+    expect(html).toContain("Marketplace error");
+    expect(html).toContain(t("marketplace.app.root.unknown.error"));
+    expect(html).not.toContain("SYNTHETIC_");
+    expect(html).not.toContain("Failed to fetch");
+  });
+
+  it("keeps the page-not-found copy for a 404 route error response", () => {
+    mockUseRouteError.mockReturnValue({
+      status: 404,
+      statusText: "SYNTHETIC_STATUS_404",
+      internal: true,
+      data: "SYNTHETIC_BODY_404",
+    });
+
+    const html = renderToString(<ErrorBoundary />);
+
+    expect(html).toContain("Page not found");
+    expect(html).toContain(t("marketplace.app.root.page.not.found.description"));
+    expect(html).not.toContain("Marketplace error");
+    expect(html).not.toContain("SYNTHETIC_");
   });
 });

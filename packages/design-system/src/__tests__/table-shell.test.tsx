@@ -46,6 +46,18 @@ describe("TableShell scaffolding", () => {
     expect(wrapper?.querySelector("table")?.className).toBe("min-w-full border-collapse text-left text-sm");
   });
 
+  it("focuses only the scroll shell for scroll mode", () => {
+    const { container, rerender } = render(<DataTable rows={baseRows} columns={baseColumns} mobileMode="scroll" />);
+
+    const focusable = container.querySelectorAll('[tabindex="0"]');
+    expect(focusable).toHaveLength(1);
+    expect(focusable[0]?.className).toContain("overflow-x-auto");
+    expect(focusable[0]?.querySelector("table")).not.toBeNull();
+
+    rerender(<DataTable rows={baseRows} columns={baseColumns} />);
+    expect(container.querySelectorAll('[tabindex="0"]')).toHaveLength(0);
+  });
+
   it("forwards DataTable captions to the table shell as a hidden accessible name", () => {
     const { container } = render(
       <DataTable rows={baseRows} columns={baseColumns} caption="Catalog profile versions" mobileMode="scroll" />,

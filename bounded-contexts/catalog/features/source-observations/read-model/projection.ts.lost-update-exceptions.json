@@ -1,0 +1,79 @@
+[
+  {
+    "id": "exception-656ed75dc59d7da9",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_source_observations",
+      "digest": "c5a62d9a235cae8d88abc9dc175cbe342c25b074528286ba86209e2cb2b5d219"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/projection.ts:98 directly synchronizes catalog_source_observations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-a6a3348ac91b9afb",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_source_observations",
+      "digest": "91cc1e46efb966864dfaff0686b600b50da29a36bf4a00bc48c8e4f012b551df"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/projection.ts:133 directly synchronizes catalog_source_observations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-e6ef0a2bc2a44e14",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_source_observations",
+      "digest": "de5751415ff0a329d8eca70127f8c32fe2bb8f268d4f6342d326393670550f55"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/projection.ts:166 directly synchronizes catalog_source_observations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-3ab710e210a60cf8",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_source_observations",
+      "digest": "f3d005f1421f8ca7d596b92f85ea7cce30441fe6e58d1ce136334991cb58f0b9"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/projection.ts:194 directly synchronizes catalog_source_observations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-9fadb6a93705638e",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_source_observations",
+      "digest": "c087b6c651b34e24dbafef1f4811c2eb98cf1847a514419c1cefd09780cbc805"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/projection.ts:218 directly synchronizes catalog_source_observations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-2c5279c30a5d5684",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_source_observations",
+      "digest": "9f7f64ef390b37d74e60ba4d242a812922b34eaed5f4a26d466bf824fa9cde95"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/projection.ts:233 directly synchronizes catalog_source_observations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-9a02f8fd3853a593",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_source_observation_payload_assemblies",
+      "digest": "e6db49c25e48098aab327b8e4c0e48142f9c224f39684db6aa1a6a1ecd338565"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/projection.ts:316 directly synchronizes catalog_source_observation_payload_assemblies from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

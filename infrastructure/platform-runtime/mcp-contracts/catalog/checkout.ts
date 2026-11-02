@@ -3,6 +3,7 @@ import {
   type McpServiceDescriptor,
   arrayProperty,
   booleanProperty,
+  guardrails,
   idempotencyKeyProperty,
   integerProperty,
   mutationInput,
@@ -190,6 +191,7 @@ export const checkoutService = {
         ["Use after confirming buyer intent and current product or listing state."],
       ),
       availability: "available",
+      guardrails: guardrails("sensitive", { idempotencyAuthority: "owner" }),
       outputSchema: checkoutCartLineReceiptOutputSchema,
     },
     {
@@ -238,6 +240,7 @@ export const checkoutService = {
         ["Use after reading the current cart line and confirming the buyer-requested change."],
       ),
       availability: "available",
+      guardrails: guardrails("sensitive", { idempotencyAuthority: "owner" }),
       outputSchema: checkoutCartLineReceiptOutputSchema,
     },
     {
@@ -262,6 +265,7 @@ export const checkoutService = {
         ["Use after confirming the buyer wants the line removed from the cart."],
       ),
       availability: "available",
+      guardrails: guardrails("sensitive", { idempotencyAuthority: "owner" }),
       outputSchema: checkoutCartLineReceiptOutputSchema,
     },
     {

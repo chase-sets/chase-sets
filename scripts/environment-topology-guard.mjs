@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 
 const registryPath = "scripts/environment-hosts.json";
 const schemaPath = "scripts/environment-hosts.schema.json";
@@ -560,6 +561,7 @@ function discoverTrackedFiles(root) {
       cwd: root,
       encoding: "buffer",
       stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     });
   } catch (error) {
     return {

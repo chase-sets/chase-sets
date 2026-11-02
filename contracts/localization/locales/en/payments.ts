@@ -7,6 +7,12 @@ export const paymentsEnglishTranslations = {
   "payments.features.payments.api.route.payment.not.found.2": "Payment not found.",
   "payments.features.payments.api.route.saved.payment.method.not.found": "Saved payment method not found.",
   "payments.features.payments.api.route.saved.payment.method.not.found.2": "Saved payment method not found.",
+  "payments.features.payments.api.route.saved.payment.method.account.changed":
+    "The signed-in account changed. Reload to manage this account's payment methods.",
+  "payments.features.payments.api.route.saved.payment.method.attempt.conflict":
+    "This request was already used for a different payment method change.",
+  "payments.features.payments.api.route.saved.payment.method.attempt.unconfirmed":
+    "This payment method change could not be confirmed yet.",
   "payments.features.payments.api.route.marketplace.checkout.fee.quote.stale":
     "Marketplace checkout fee quote is stale.",
   "payments.features.payments.api.route.request.failed": "Request failed.",
@@ -244,6 +250,20 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPaymentMethods.setup.pending.description":
     "Stripe has not confirmed a saved method yet.",
   "payments.routes.marketplace.accountPaymentMethods.updated": "Updated {date}",
+  "payments.routes.marketplace.accountPaymentMethods.attempt.submitting": "Saving your payment method change.",
+  "payments.routes.marketplace.accountPaymentMethods.attempt.succeeded": "Payment method change saved.",
+  "payments.routes.marketplace.accountPaymentMethods.attempt.refused":
+    "That payment method change was not made. Review it and try again.",
+  "payments.routes.marketplace.accountPaymentMethods.attempt.unconfirmed":
+    "We could not confirm that change yet. Check again before trying anything else.",
+  "payments.routes.marketplace.accountPaymentMethods.attempt.conflict":
+    "This page is out of date for that change. Reload to start again.",
+  "payments.routes.marketplace.accountPaymentMethods.attempt.account.changed":
+    "The signed-in account changed. Reload to manage this account's payment methods.",
+  "payments.routes.marketplace.accountPaymentMethods.attempt.reauth.required":
+    "Sign in again to manage payment methods.",
+  "payments.routes.marketplace.accountPaymentMethods.check.again": "Check again",
+  "payments.routes.marketplace.accountPaymentMethods.reload": "Reload",
   "payments.routes.marketplace.accountPayment.claim.token": "Claim token",
   "payments.routes.marketplace.accountPayment.claim.token.entry.is.not.available":
     "Claim token entry is not available here. Use the emailed link or request a new one.",

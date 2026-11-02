@@ -9,7 +9,10 @@ import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPaymentRuntime } from "../../features/payments/api/runtime";
-import { createPaymentWebhookRunner } from "../../features/payments/api/webhook-transaction";
+import {
+  createPaymentTransactionRunner,
+  createPaymentWebhookRunner,
+} from "../../features/payments/api/webhook-transaction";
 import { createCardDeclineStore } from "../../features/payments/api/card-decline-store";
 import { createRefundRuntime } from "../../features/refunds/api/runtime";
 import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
@@ -122,6 +125,7 @@ export function createPaymentsServices(
   const payments = createPaymentRuntime({
     cardDeclineStore: createCardDeclineStore(pool),
     runWebhookTransaction: createPaymentWebhookRunner(pool, eventStore),
+    runPaymentTransaction: createPaymentTransactionRunner(pool, eventStore),
     walletFunding,
     evidenceWindowCorrelation: options.evidenceWindowCorrelation,
     evidenceWindowProviderWrite: options.evidenceWindowProviderWrite,

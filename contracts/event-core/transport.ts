@@ -17,10 +17,10 @@ export type TransportEvent = Readonly<{
     forAccountId: AccountId;
   }>;
   trace: Readonly<{
-    traceId?: TraceId;
-    spanId?: SpanId;
-    parentSpanId?: SpanId;
-    traceState?: string;
+    traceId?: TraceId | undefined;
+    spanId?: SpanId | undefined;
+    parentSpanId?: SpanId | undefined;
+    traceState?: string | undefined;
   }>;
   timing: Readonly<{
     occurredAt: IsoUtcTimestamp;

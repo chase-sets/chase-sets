@@ -1,0 +1,24 @@
+[
+  {
+    "id": "exception-f862063fe7a1dfd7",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts",
+      "kind": "DELETE",
+      "table": "catalog_provider_profile_version_section_diagnostics",
+      "digest": "d40f5618f9423badbf7c54d3406b6bd7ed990f6580698bf2934238e74f917a47"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts:99 directly synchronizes catalog_provider_profile_version_section_diagnostics from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-e2cfdbe2de23c8af",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts",
+      "kind": "DELETE",
+      "table": "catalog_provider_profile_version_sections",
+      "digest": "cf42fdbf7b8494c7dadabb435dddeba14cdd901af49fb7a8767bef0db9b131dd"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts:104 directly synchronizes catalog_provider_profile_version_sections from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

@@ -581,8 +581,7 @@ export function isLocalEpic(value) {
   if (value.issueTypeName !== null && (typeof value.issueTypeName !== "string" || value.issueTypeName.trim() === "")) {
     throw new TypeError("isLocalEpic.issueTypeName must be a non-empty string or null");
   }
-  if (value.issueTypeName !== null) return value.issueTypeName === "Epic";
-  return value.labels.includes("kind:epic");
+  return value.issueTypeName === "Epic";
 }
 
 export function isLocalTrackingOnly(value) {

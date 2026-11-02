@@ -27,6 +27,7 @@ export type TcgplayerStagedImportReadbackMember = Readonly<{
   externalKey: string;
   basisTotalQuantity: number;
   basisPriceAmountMinor: number;
+  basisPendingAddToQuantity?: number;
   csvRow: Readonly<{ "Add to Quantity": string; "TCG Marketplace Price": string }>;
 }>;
 
@@ -273,7 +274,14 @@ function count(pre: TcgplayerStagedImportReadback, post: TcgplayerStagedImportRe
 }
 
 function decodeMember(value: unknown): TcgplayerStagedImportReadbackMember | null {
-  if (!isRecord(value) || !exactKeys(value, ["externalKey", "basisTotalQuantity", "basisPriceAmountMinor", "csvRow"]))
+  if (
+    !isRecord(value) ||
+    !exactKeys(
+      value,
+      ["externalKey", "basisTotalQuantity", "basisPriceAmountMinor", "csvRow"],
+      ["basisPendingAddToQuantity"],
+    )
+  )
     return null;
   const csv = isRecord(value.csvRow) ? value.csvRow : null;
   if (
@@ -301,16 +309,27 @@ function decodeMember(value: unknown): TcgplayerStagedImportReadbackMember | nul
   const externalKey = value.externalKey;
   const basisTotalQuantity = value.basisTotalQuantity;
   const basisPriceAmountMinor = value.basisPriceAmountMinor;
+  const hasPendingBasis = Object.hasOwn(value, "basisPendingAddToQuantity");
+  const basisPendingAddToQuantity = hasPendingBasis ? value.basisPendingAddToQuantity : undefined;
   if (
     typeof externalKey !== "string" ||
     typeof basisTotalQuantity !== "number" ||
     typeof basisPriceAmountMinor !== "number"
   )
     return null;
+  if (
+    hasPendingBasis &&
+    (typeof basisPendingAddToQuantity !== "number" ||
+      !Number.isSafeInteger(basisPendingAddToQuantity) ||
+      basisPendingAddToQuantity === 0 ||
+      addToQuantity !== String(-basisPendingAddToQuantity))
+  )
+    return null;
   return {
     externalKey,
     basisTotalQuantity,
     basisPriceAmountMinor,
+    ...(typeof basisPendingAddToQuantity === "number" ? { basisPendingAddToQuantity } : {}),
     csvRow: {
       "Add to Quantity": addToQuantity,
       "TCG Marketplace Price": marketplacePrice,
@@ -344,7 +363,8 @@ function minor(value: string): number | null {
 function basisMatches(row: TcgplayerStagedImportReadbackRow, member: TcgplayerStagedImportReadbackMember): boolean {
   return (
     row.sellerColumns["Total Quantity"] === String(member.basisTotalQuantity) &&
-    row.sellerColumns["Add to Quantity"] === "0" &&
+    row.sellerColumns["Add to Quantity"] ===
+      (member.basisPendingAddToQuantity === undefined ? "0" : String(member.basisPendingAddToQuantity)) &&
     minor(row.sellerColumns["TCG Marketplace Price"] ?? "") === member.basisPriceAmountMinor
   );
 }
@@ -383,7 +403,7 @@ function expectedMemberRow(
   const total = Number(expected["Total Quantity"]);
   if (!Number.isSafeInteger(delta) || !Number.isSafeInteger(total)) return {};
   expected["Total Quantity"] = String(total + delta);
-  expected["Add to Quantity"] = member.csvRow["Add to Quantity"];
+  expected["Add to Quantity"] = member.basisPendingAddToQuantity === undefined ? member.csvRow["Add to Quantity"] : "0";
   expected["TCG Marketplace Price"] = member.csvRow["TCG Marketplace Price"];
   return expected;
 }

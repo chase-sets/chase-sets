@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { loadConfigFromFile } from "vite";
 
-export async function loadConnectorBuildConfig(mode = "production") {
+export async function loadConnectorBuildConfig(mode = "connector-local") {
   const root = resolve(import.meta.dirname, "..");
   const loaded = await loadConfigFromFile(
     { command: "build", mode },

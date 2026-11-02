@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-a6cf573c9c5dfe03",
+    "binding": {
+      "module": "bounded-contexts/identity/features/memberships/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_memberships",
+      "digest": "5d5bf022396f7ff29a676f0695ca03f11cd98d7089f739bff5c6c479c52b86d5"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/memberships/read-model/projection.ts:79 directly synchronizes identity_memberships from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-358c90b3a44867bb",
+    "binding": {
+      "module": "bounded-contexts/identity/features/memberships/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_memberships",
+      "digest": "8313e7fc233b5fcbb543a2e7428d02b0bba115bf363328d243a1a7b2bfcdae20"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/memberships/read-model/projection.ts:107 directly synchronizes identity_memberships from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-f65c13d6f5d48cfd",
+    "binding": {
+      "module": "bounded-contexts/identity/features/memberships/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_memberships",
+      "digest": "65847629d53d2736c5c90906d9390876c92f2cb3eac5d324fb69144390e1ed5f"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/memberships/read-model/projection.ts:135 directly synchronizes identity_memberships from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

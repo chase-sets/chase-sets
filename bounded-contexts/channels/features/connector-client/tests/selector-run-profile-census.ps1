@@ -341,7 +341,7 @@ function Get-SelectorRunProfileCensus {
 function Start-SelectorRunOwned {
   param([string]$Driver, [hashtable]$Payload, $Native)
   $run = [ordered]@{ state = 'REFUSED'; code = 'RUN_START_REFUSED'; job = $null; limits = $null; driver = $null;
-    process = $null; stdin = $null; stdout = $null; reader = $null; pending = $null; held = [Collections.Generic.List[object]]::new() }
+    process = $null; stdin = $null; stdout = $null; stderr = $null; reader = $null; pending = $null; stderrReader = $null; stderrPending = $null; held = [Collections.Generic.List[object]]::new() }
   try {
     if ($null -eq $Native) { $Native = New-SelectorRunProfileNative }
     $run.job = & $Native.NewJob
@@ -350,7 +350,7 @@ function Start-SelectorRunOwned {
     if ($run.limits -cne '0x0/0x0') { return $run }
     $start = & $Native.StartDriver $run.job $Driver
     if ($start.Error -ne 0) { return $run }
-    $run.process = $start.Process; $run.stdin = $start.Stdin; $run.stdout = $start.Stdout
+    $run.process = $start.Process; $run.stdin = $start.Stdin; $run.stdout = $start.Stdout; $run.stderr = $start.Stderr
     $run.driver = @{ pid = [long]$start.Pid; created = $null }
     $valid = $false
     try {
@@ -455,7 +455,7 @@ function Invoke-SelectorRunProfileWitness {
       $run = Start-SelectorRunOwned -Driver (& $Native.WitnessDriver) -Payload @{ profile = "$Root\profile" } -Native $Native
       if ($run.state -ceq 'GRANTED') {
         try {
-          # Stderr shares the report pipe: skip unparseable lines (never echoed) until the event, EOF or the deadline.
+          # Protocol stdout is JSON-only; the owner drains the dedicated stderr pipe separately.
           $deadline = (& $Native.Now).AddMilliseconds($script:SelectorLaunchTimeoutMs)
           do {
             $remaining = [Math]::Max(0, [int]($deadline - (& $Native.Now)).TotalMilliseconds)
@@ -532,7 +532,7 @@ using System.Text;
 using Microsoft.Win32.SafeHandles;
 
 public sealed class SelectorRunDriver {
-  public int Error; public int Pid; public SafeProcessHandle Process; public SafeFileHandle Stdin, Stdout;
+  public int Error; public int Pid; public SafeProcessHandle Process; public SafeFileHandle Stdin, Stdout, Stderr;
 }
 public sealed class SelectorRunMember : IDisposable {
   public long Pid, Created; public bool InJob, Alive; public SafeProcessHandle Handle;
@@ -590,6 +590,7 @@ public static class SelectorRunProfileNative {
   [DllImport("kernel32.dll", SetLastError = true)] static extern bool CloseHandle(IntPtr handle);
   [DllImport("kernel32.dll", SetLastError = true)] static extern SafeProcessHandle OpenProcess(uint access, bool inherit, int pid);
   [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetProcessTimes(SafeProcessHandle process, out long creation, out long exit, out long kernel, out long user);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetExitCodeProcess(SafeProcessHandle process, out uint code);
   [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForSingleObject(SafeProcessHandle handle, uint milliseconds);
   [DllImport("kernel32.dll", SetLastError = true)] static extern bool WriteFile(SafeFileHandle handle, byte[] buffer, int count, out int written, IntPtr overlapped);
   [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -645,12 +646,13 @@ public static class SelectorRunProfileNative {
     SelectorRunDriver result = new SelectorRunDriver();
     SECURITY_ATTRIBUTES inherit = new SECURITY_ATTRIBUTES();
     inherit.nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)); inherit.bInheritHandle = 1;
-    IntPtr inRead = IntPtr.Zero, inWrite = IntPtr.Zero, outRead = IntPtr.Zero, outWrite = IntPtr.Zero;
-    IntPtr list = IntPtr.Zero, jobs = Marshal.AllocHGlobal(IntPtr.Size), handles = Marshal.AllocHGlobal(2 * IntPtr.Size);
+    IntPtr inRead = IntPtr.Zero, inWrite = IntPtr.Zero, outRead = IntPtr.Zero, outWrite = IntPtr.Zero, errRead = IntPtr.Zero, errWrite = IntPtr.Zero;
+    IntPtr list = IntPtr.Zero, jobs = Marshal.AllocHGlobal(IntPtr.Size), handles = Marshal.AllocHGlobal(3 * IntPtr.Size);
     bool initialized = false;
     try {
       if (!CreatePipe(out inRead, out inWrite, ref inherit, 0) || !CreatePipe(out outRead, out outWrite, ref inherit, 0) ||
-          !SetHandleInformation(inWrite, 1, 0) || !SetHandleInformation(outRead, 1, 0)) {
+          !CreatePipe(out errRead, out errWrite, ref inherit, 0) || !SetHandleInformation(inWrite, 1, 0) ||
+          !SetHandleInformation(outRead, 1, 0) || !SetHandleInformation(errRead, 1, 0)) {
         result.Error = Marshal.GetLastWin32Error(); return result;
       }
       IntPtr size = IntPtr.Zero;
@@ -659,15 +661,15 @@ public static class SelectorRunProfileNative {
       if (!InitializeProcThreadAttributeList(list, 2, 0, ref size)) { result.Error = Marshal.GetLastWin32Error(); return result; }
       initialized = true;
       Marshal.WriteIntPtr(jobs, 0, job);
-      Marshal.WriteIntPtr(handles, 0, inRead); Marshal.WriteIntPtr(handles, IntPtr.Size, outWrite);
+      Marshal.WriteIntPtr(handles, 0, inRead); Marshal.WriteIntPtr(handles, IntPtr.Size, outWrite); Marshal.WriteIntPtr(handles, 2 * IntPtr.Size, errWrite);
       if (!UpdateProcThreadAttribute(list, 0, JOB_LIST, jobs, (IntPtr)IntPtr.Size, IntPtr.Zero, IntPtr.Zero) ||
-          !UpdateProcThreadAttribute(list, 0, HANDLE_LIST, handles, (IntPtr)(2 * IntPtr.Size), IntPtr.Zero, IntPtr.Zero)) {
+          !UpdateProcThreadAttribute(list, 0, HANDLE_LIST, handles, (IntPtr)(3 * IntPtr.Size), IntPtr.Zero, IntPtr.Zero)) {
         result.Error = Marshal.GetLastWin32Error(); return result;
       }
       STARTUPINFOEX startup = new STARTUPINFOEX();
       startup.StartupInfo.cb = Marshal.SizeOf(typeof(STARTUPINFOEX)); startup.lpAttributeList = list;
       startup.StartupInfo.dwFlags = 0x100;
-      startup.StartupInfo.hStdInput = inRead; startup.StartupInfo.hStdOutput = outWrite; startup.StartupInfo.hStdError = outWrite;
+      startup.StartupInfo.hStdInput = inRead; startup.StartupInfo.hStdOutput = outWrite; startup.StartupInfo.hStdError = errWrite;
       PROCESS_INFORMATION information;
       // EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW.
       if (!CreateProcess(application, new StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, true, 0x00080000 | 0x08000000, IntPtr.Zero, null, ref startup, out information)) {
@@ -678,12 +680,13 @@ public static class SelectorRunProfileNative {
       result.Process = new SafeProcessHandle(information.hProcess, true);
       result.Stdin = new SafeFileHandle(inWrite, true); inWrite = IntPtr.Zero;
       result.Stdout = new SafeFileHandle(outRead, true); outRead = IntPtr.Zero;
+      result.Stderr = new SafeFileHandle(errRead, true); errRead = IntPtr.Zero;
       return result;
     } finally {
       if (initialized) DeleteProcThreadAttributeList(list);
       if (list != IntPtr.Zero) Marshal.FreeHGlobal(list);
       Marshal.FreeHGlobal(jobs); Marshal.FreeHGlobal(handles);
-      foreach (IntPtr end in new IntPtr[] { inRead, inWrite, outRead, outWrite }) if (end != IntPtr.Zero) CloseHandle(end);
+      foreach (IntPtr end in new IntPtr[] { inRead, inWrite, outRead, outWrite, errRead, errWrite }) if (end != IntPtr.Zero) CloseHandle(end);
     }
   }
   public static bool InJob(SafeProcessHandle process, IntPtr job) {
@@ -697,6 +700,7 @@ public static class SelectorRunProfileNative {
     return Microseconds(creation);
   }
   public static bool Exited(SafeProcessHandle process, int milliseconds) { return WaitForSingleObject(process, (uint)milliseconds) == 0; }
+  public static int ExitCode(SafeProcessHandle process) { uint code; if (!GetExitCodeProcess(process, out code)) throw new Win32Exception(); return unchecked((int)code); }
   public static bool WriteLine(SafeFileHandle handle, string line) {
     byte[] bytes = new UTF8Encoding(false).GetBytes(line + "\n"); int written;
     return WriteFile(handle, bytes, bytes.Length, out written, IntPtr.Zero) && written == bytes.Length;
@@ -835,6 +839,7 @@ function New-SelectorRunProfileNative {
     WriteLine = { param($Writer, $Line) [SelectorRunProfileNative]::WriteLine($Writer, $Line) }
     CloseWriter = { param($Writer) $Writer.Dispose() }
     WaitExit = { param($Process, $Ms) [SelectorRunProfileNative]::Exited($Process, $Ms) }
+    ExitCode = { param($Process) [SelectorRunProfileNative]::ExitCode($Process) }
     Sleep = { param($Ms) Start-Sleep -Milliseconds $Ms }
     JobActive = { param($Job) [int][SelectorRunProfileNative]::Active($Job) }
     WitnessDriver = { $driver }.GetNewClosure()
@@ -860,6 +865,8 @@ function New-SelectorRunProfileNative {
       param($Run, $Id)
       $member = [SelectorRunProfileNative]::Member($Id, $Run.job)
       if ($null -eq $member) { return @{ pid = [long]$Id; created = -1 } }
+      # Only a live process whose opened handle is in the run job is admitted; any other is refused unheld.
+      if (-not ($member.InJob -and $member.Alive)) { $member.Dispose(); return @{ pid = [long]$Id; created = -1 } }
       $Run.held.Add($member)
       return @{ pid = [long]$Id; created = $member.Created }
     }

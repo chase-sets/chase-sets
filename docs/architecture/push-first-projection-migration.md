@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (171)
+## Projection Groups (173)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -82,6 +82,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `customer-feedback:customer-feedback-case-attention-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-csat-analytics-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-csat-invitation-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
+| `customer-feedback:customer-feedback-csat-outcome-fact-projection` | Customer Feedback | auth, identity, discovery | push-eligible | 0/3 |
 | `customer-feedback:customer-feedback-feedback-case-opening` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-feedback-case-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-notification-delivery-recording` | Customer Feedback | notifications | push-eligible | 0/1 |
@@ -174,10 +175,12 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `payments:payments-wallet-funding-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `payments:platform-policy-document-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `platform-operations:experience-platform-feedback-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
+| `platform-operations:account-appeal-interest-projection` | Platform Operations | **identity**, **marketplace** | push-enabled | 2/2 |
+| `platform-operations:account-appeal-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:commercial-terms-effective-date-attention-projection` | Platform Operations | **commercial-terms** | push-enabled | 1/1 |
 | `platform-operations:platform-policy-document-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:public-doc-review-queue-projection` | Platform Operations | **commercial-terms**, **platform-operations** | push-enabled | 2/2 |
-| `platform-operations:reported-content-queue-projection` | Platform Operations | **marketplace**, **platform-operations** | push-enabled | 2/2 |
+| `platform-operations:reported-content-queue-projection` | Platform Operations | **identity**, **marketplace**, **platform-operations** | push-enabled | 3/3 |
 | `platform-operations:risk-alert-queue-projection` | Platform Operations | **identity**, **marketplace**, **payments**, **platform-operations** | push-enabled | 4/4 |
 | `platform-operations:seller-compliance-sales-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
 | `platform-operations:support-evidence-cleanup-locator-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
@@ -214,7 +217,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-support-hold-lifecycle-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 
-Totals: 128 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 130 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (85)
 

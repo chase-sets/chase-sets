@@ -993,7 +993,7 @@ describe("issue-7169-type-resolved-census-corpus", () => {
       unrelated: partition.callers.length - retained.length,
     });
     expect([partition.callers.length, retained.length, partition.callers.length - retained.length]).toEqual([
-      144, 134, 10,
+      147, 137, 10,
     ]);
     expect(built.diagnostics).toEqual(result.diagnostics);
     expect(built.scanned).toEqual(result.scanned);
@@ -1030,5 +1030,208 @@ export type InventoryServices = Existing & { syntheticNew: Existing["holds"] };`
         expect(listed.table).toContainEqual({ name: "syntheticNew", classification: "FAMILY" });
       },
     );
+  });
+});
+
+// One line per form. An optional family member may be undefined, so a value
+// passed to a family-typed parameter takes `!` and `satisfies` admits undefined.
+function throwOperandForms(expression, type, statement) {
+  return [
+    ["bare", `export function bare() { ${statement(expression)} }`],
+    ["parenthesized", `export function parenthesized() { ${statement(`(${expression})`)} }`],
+    ["non-null", `export function nonNull() { ${statement(`${expression}!`)} }`],
+    ["as", `export function asserted() { ${statement(`(${expression} as ${type})`)} }`],
+    ["satisfies", `export function satisfied() { ${statement(`${expression} satisfies ${type} | undefined`)} }`],
+    ["conditional", `export function conditional() { ${statement(`flag ? ${expression} : ${expression}`)} }`],
+    ["comma", `export function comma() { ${statement(`(String(method), ${expression})`)} }`],
+    ["parameter", `export function parameter(s: ${type}) { ${statement("s")} }`],
+    ["call", `declare function make(): ${type}; export function call() { ${statement("make()")} }`],
+    ["await", `export async function awaited(p: Promise<${type}>) { ${statement("await p")} }`],
+  ];
+}
+
+function throwReceiverForms(expression, type) {
+  return [
+    [
+      "catch-any",
+      `export function catchAny() { try { throw ${expression}; } catch (e: any) { e[method]({}, context); } }`,
+    ],
+    [
+      "catch-unknown",
+      `export function catchUnknown() { try { throw ${expression}; } catch (e: unknown) { consumeUnknown(e); } }`,
+    ],
+    [
+      "catch-implicit",
+      `export function catchImplicit() { try { throw ${expression}; } catch (e) { consumeUnknown(e); } }`,
+    ],
+    [
+      "separate-thrower",
+      `function fail(s: ${type}): never { throw s; } export function separate() { try { fail(${expression}!); } catch (e: any) { e[method]({}, context); } }`,
+    ],
+    [
+      "async-thrower",
+      `async function failAsync(s: ${type}) { throw s; } export function asyncCatch() { return failAsync(${expression}!).catch((e: any) => e[method]({}, context)); }`,
+    ],
+  ];
+}
+
+const throwErasureOff = "throw-erasure-off";
+const firstFormLine = prelude.split("\n").length + 1;
+const familyFormCases = (formsOf) =>
+  familyExpressions.map(([family, expression, type]) => {
+    const forms = formsOf(expression, type);
+    return { family, forms, source: forms.map(([, line]) => line).join("\n") };
+  });
+const throwCases = familyFormCases((expression, type) => [
+  ...throwOperandForms(expression, type, (operand) => `throw ${operand};`),
+  ...throwReceiverForms(expression, type),
+]);
+const declarationTwinCases = familyFormCases((expression, type) =>
+  throwOperandForms(expression, type, (operand) => `const e: any = ${operand}; return e;`),
+);
+const throwPrecisionControls = [
+  ["error", "export function route() { throw new Error(String(method)); }", "ADMITTED"],
+  ["rethrow", "export function route() { try { consumeUnknown(method); } catch (e) { throw e; } }", "ADMITTED"],
+  ["non-family", "export function route() { throw services.pool; }", "ADMITTED"],
+  [
+    "static-call-in-try",
+    "export function route() { try { services.holds.createHold(context, context); } catch (e) { consumeUnknown(e); } }",
+    "ADMITTED",
+  ],
+  ["object-container", "export function route(svc: H) { throw { svc }; }", "ADMITTED", "#9820 L16 recorded boundary"],
+  ["array-container", "export function route(svc: H) { throw [svc]; }", "ADMITTED", "#9820 L16 recorded boundary"],
+  ["object-container-twin", "export function route(svc: H) { const e: any = { svc }; return e; }", "ADMITTED"],
+  [
+    "array-container-twin",
+    "export function route(svc: H) { const e: any = [svc]; return e; }",
+    "FAMILY_TYPE_ERASURE",
+    "L5 element sink",
+  ],
+  ["error-cause", 'export function route(svc: H) { throw new Error("x", { cause: svc }); }', "FAMILY_TYPE_ERASURE"],
+  ["promise-reject", "export function route(svc: H) { return Promise.reject(svc); }", "FAMILY_TYPE_ERASURE"],
+].map(([id, source, verdict, note]) => ({ id, source, verdict, note }));
+
+const diagnosticsIn = (result, file) => result.diagnostics.filter((diagnostic) => diagnostic.file === file);
+
+function verdictIn(result, file) {
+  const reasons = [...new Set(diagnosticsIn(result, file).map(({ reason }) => reason))];
+  return reasons.length ? reasons.join("+") : "ADMITTED";
+}
+
+function expectOneErasurePerForm(diagnostics, { family, forms }, file) {
+  for (const [offset, [form]] of forms.entries()) {
+    const line = firstFormLine + offset;
+    expect(
+      diagnostics.filter((diagnostic) => diagnostic.line === line),
+      `${family}:${form}`,
+    ).toEqual([{ file, line, reason: "FAMILY_TYPE_ERASURE" }]);
+  }
+  expect(diagnostics, family).toHaveLength(forms.length);
+}
+
+describe("issue-7169-census-throw-erasure", () => {
+  it("rejects every derived family's thrown operand forms whatever catch receives them", async () => {
+    await matrix(throwCases, ({ root, roots, program, families, fixtures }) => {
+      expect(families.families.map(({ name }) => name).sort()).toEqual(familyExpressions.map(([name]) => name).sort());
+      const options = { repoRoot: root, roots, program, families };
+      const candidate = analyzeInventoryDynamicDispatch(options);
+      // The arm is the only census change, so its bypass reproduces the base verdicts.
+      const base = analyzeInventoryDynamicDispatch({ ...options, mutant: throwErasureOff });
+      for (const [index, file] of Object.keys(fixtures).entries()) {
+        const control = throwCases[index];
+        const source = program.getSourceFile(path.join(root, file));
+        expect(program.getSyntacticDiagnostics(source), control.family).toEqual([]);
+        expect(program.getSemanticDiagnostics(source), control.family).toEqual([]);
+        expect(diagnosticsIn(base, file), control.family).toEqual([]);
+        expectOneErasurePerForm(diagnosticsIn(candidate, file), control, file);
+      }
+      expect(candidate.diagnostics).toHaveLength(255);
+      expect(base.diagnostics).toEqual([]);
+      emit(
+        "throw-erasure-t1",
+        throwCases.map(({ family, forms }) => ({
+          family,
+          forms: forms.map(([form]) => form),
+          base: "ADMITTED",
+          candidate: "FAMILY_TYPE_ERASURE",
+        })),
+      );
+      emit("mutant-killed", {
+        mutant: throwErasureOff,
+        controls: candidate.diagnostics.length,
+        candidate: "PASS",
+        bypass: "FAIL",
+        governingInput: "ThrowStatement operand",
+        otherInputs: "unchanged",
+      });
+    });
+  });
+
+  it("keeps declaration twins rejected and precision, boundary and preservation controls at their base verdict", async () => {
+    const cases = [...declarationTwinCases, ...throwPrecisionControls];
+    await matrix(cases, ({ root, roots, program, families, fixtures }) => {
+      const options = { repoRoot: root, roots, program, families };
+      const candidate = analyzeInventoryDynamicDispatch(options);
+      const base = analyzeInventoryDynamicDispatch({ ...options, mutant: throwErasureOff });
+      const files = Object.keys(fixtures);
+      for (const [index, file] of files.entries()) {
+        const label = cases[index].family ?? cases[index].id;
+        const source = program.getSourceFile(path.join(root, file));
+        expect(program.getSyntacticDiagnostics(source), label).toEqual([]);
+        expect(program.getSemanticDiagnostics(source), label).toEqual([]);
+        expect(diagnosticsIn(base, file), label).toEqual(diagnosticsIn(candidate, file));
+      }
+      for (const [index, control] of declarationTwinCases.entries()) {
+        expectOneErasurePerForm(diagnosticsIn(candidate, files[index]), control, files[index]);
+      }
+      const verdicts = throwPrecisionControls.map(({ id, verdict, note }, offset) => {
+        const file = files[declarationTwinCases.length + offset];
+        const observed = { base: verdictIn(base, file), candidate: verdictIn(candidate, file) };
+        expect(observed, id).toEqual({ base: verdict, candidate: verdict });
+        return { id, ...observed, ...(note && { note }) };
+      });
+      emit("throw-erasure-t2-twins", {
+        families: declarationTwinCases.length,
+        forms: declarationTwinCases[0].forms.map(([form]) => form),
+        base: "FAMILY_TYPE_ERASURE",
+        candidate: "FAMILY_TYPE_ERASURE",
+      });
+      emit("throw-erasure-t2", verdicts);
+    });
+  });
+
+  it.each([
+    [
+      "S1 family matrix and restock",
+      () => [
+        ...familyExpressions.map(([family, expression, type]) => ({
+          family,
+          source: [...shapes(expression, type), ...p1(expression, type, "member")]
+            .map((form) => `{ ${form} }`)
+            .join("\n"),
+        })),
+        ...restockControls().map((source) => ({ source })),
+      ],
+    ],
+    [
+      "S1 repair, W8-W9, assignment closure and S3",
+      () => [
+        ...repairControls,
+        ...finiteAliasCleanControls,
+        ...assignmentClosureControls,
+        ...briefS3Controls,
+        ...briefS3CleanControls,
+      ],
+    ],
+  ])("keeps every %s verdict under the throw-erasure-off bypass", async (group, controls) => {
+    const cases = controls();
+    await matrix(cases, ({ root, roots, program, families }) => {
+      const options = { repoRoot: root, roots, program, families };
+      const candidate = analyzeInventoryDynamicDispatch(options);
+      const bypass = analyzeInventoryDynamicDispatch({ ...options, mutant: throwErasureOff });
+      expect(candidate.diagnostics.length).toBeGreaterThan(0);
+      expect(bypass.diagnostics).toEqual(candidate.diagnostics);
+      emit("throw-erasure-off-unchanged", { group, controls: cases.length, diagnostics: candidate.diagnostics.length });
+    });
   });
 });

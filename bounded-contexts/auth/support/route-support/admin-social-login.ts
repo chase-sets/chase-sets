@@ -1,5 +1,7 @@
+import { getSafeSameSitePath } from "../auth-support/same-site-path";
+
 export function isSafeInAppReturnTo(value: string | null): value is string {
-  return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
+  return value !== null && getSafeSameSitePath(value) === value;
 }
 
 export function getSafeAdminReturnTo(searchParams: URLSearchParams, fallback: string) {

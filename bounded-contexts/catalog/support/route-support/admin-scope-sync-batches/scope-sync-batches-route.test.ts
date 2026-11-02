@@ -36,6 +36,7 @@ const { api, createCatalogRequestApiClient } = vi.hoisted(() => {
     previewScopeSyncCountCapture: vi.fn(),
     preConfirmScopeSyncCountCapture: vi.fn(),
     freezeScopeSyncCountCapture: vi.fn(),
+    completeScopeSyncCountCapture: vi.fn(),
   };
   return { api, createCatalogRequestApiClient: vi.fn(() => api) };
 });
@@ -313,7 +314,7 @@ describe("count-capture intents", () => {
     expect(api.captureScopeSyncCountUsage).toHaveBeenCalledExactlyOnceWith();
   });
 
-  it("runs the marked Admin/client/API chain from quote through freeze and retains the same request's reads", async () => {
+  it("runs the marked Admin/client/API chain from quote through seal and completion and retains the same request's reads", async () => {
     const f = captureCountsFixture();
     await f.ready();
     const root = new Hono<{ Variables: { context: EventStoreContext; actor: ResolvedActor | null } }>();
@@ -348,14 +349,21 @@ describe("count-capture intents", () => {
     f.clock.now = captureNow;
     const preview = await call("preview", fields);
     await call("pre-confirm-planner-read", { ...fields, planFingerprint: preview.planFingerprint });
-    const frozen = await call("capture-freeze", {
-      freeze: JSON.stringify({
-        runnerRunId: "300",
-        runnerRunAttempt: 1,
+    const seal = { dispatchId: captureAuthority().dispatchId, runnerRunId: "300", runnerRunAttempt: 1 };
+    const sealed = await call("capture-freeze", { freeze: JSON.stringify(seal) });
+    expect(sealed).toEqual({ runId: f.run().runId, frozenAt: f.clock.now });
+    expect(f.run()).toMatchObject({ status: "frozen", receipt: null });
+    f.clock.now = "2026-10-13T08:04:12.500Z";
+    const frozen = await call("capture-complete", {
+      complete: JSON.stringify({
+        runId: sealed.runId,
+        ...seal,
         collection: { ...captureAuthority().collection, outcome: "bound", collectedAt: f.clock.now },
       }),
     });
     expect(frozen.receipt.classification.verdict).toBe("CONFORMING");
+    expect(frozen.receipt.frozenAt).toBe(sealed.frozenAt);
+    expect(f.run().receipt).toEqual(frozen.receipt);
     expect(f.run().reads.map((row) => [row.phase, row.requestId])).toEqual(
       frozen.receipt.consumption
         .filter((row: { kind: string }) => row.kind === "cards")

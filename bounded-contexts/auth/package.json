@@ -29,7 +29,6 @@
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
-    "@chase-sets/customer-feedback": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
@@ -43,6 +42,6 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@simplewebauthn/server": "^13.3.2",
-    "hono": "^4.12.12"
+    "hono": "^4.13.13"
   }
 }

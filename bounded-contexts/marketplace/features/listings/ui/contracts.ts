@@ -5,6 +5,7 @@ import type { EvidenceCoverageResult } from "../domain/evidence-coverage";
 import type { MarketplaceListingFeeLock } from "../domain/fee-lock";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 import type { ListingEvidenceReadinessCode } from "../domain/listing-evidence-readiness";
+import type { InventoryCapacityRecoveryBlock, ListingPauseReason } from "../domain/domain";
 
 export type MarketplaceListingPhotoAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
@@ -80,13 +81,13 @@ export interface MarketplaceListingListItem {
   price_amount: string;
   price_currency_code: string | null;
   listing_stream_version: number | null;
-  marketplace_sales_fee_unit_amount: string;
-  seller_net_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string | null;
+  seller_net_unit_amount: string | null;
   shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
-  fee_quote_fingerprint: string;
+  fee_quote_fingerprint: string | null;
   fee_locks: readonly MarketplaceListingFeeLock[];
   quantity_cap: number;
   max_units_per_order?: number | null;
@@ -95,6 +96,8 @@ export interface MarketplaceListingListItem {
   evidence_requirements: ListingEvidenceRequirementSnapshot | null;
   evidence: readonly MarketplaceListingPhoto[];
   status: string;
+  pause_reason?: ListingPauseReason | null;
+  inventory_capacity_recovery_block?: InventoryCapacityRecoveryBlock | null;
   created_at: string;
   updated_at: string;
 }
@@ -203,13 +206,13 @@ export interface MarketplaceListingFeeLockReportEntry {
   max_units_per_order?: number | null;
   max_units_per_day?: number | null;
   max_units_per_customer_account?: number | null;
-  marketplace_sales_fee_unit_amount: string;
-  seller_net_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string | null;
+  seller_net_unit_amount: string | null;
   shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
-  fee_quote_fingerprint: string;
+  fee_quote_fingerprint: string | null;
   fee_locks: readonly MarketplaceListingFeeLock[];
   created_at: string;
   updated_at: string;
@@ -246,6 +249,7 @@ export interface MarketplaceListingInventoryItemOption {
   total_quantity: number;
   available_quantity: number;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
 }
 
 export interface MarketplaceAnonymousListingDraftIntent {

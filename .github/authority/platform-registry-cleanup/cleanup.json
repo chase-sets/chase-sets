@@ -3,7 +3,14 @@
     {
       "file": ".github/workflows/platform-registry-cleanup.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Cleanup registry tags#7",
+      "stepAnchor": "name:Resolve registry identity#5",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-registry-cleanup.yml",
+      "jobId": "cleanup",
+      "stepAnchor": "name:Cleanup registry tags#8",
       "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
       "purpose": "digitalocean-ops"
     },

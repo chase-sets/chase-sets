@@ -76,7 +76,7 @@ describe("CatalogItemDetailPage", () => {
         retryable: true,
       },
     };
-    stubCatalogFetches({
+    const fetch = stubCatalogFetches({
       publicationResponses: [
         new Response(
           JSON.stringify({
@@ -104,16 +104,46 @@ describe("CatalogItemDetailPage", () => {
     render(<CatalogItemDetailPage id="cat_1" initialData={outdatedItem} />);
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
     const dialog = screen.getByRole("dialog", { name: "Publish Catalog Item" });
-    const requiredFields = within(dialog).getByLabelText("Required Field IDs (comma-separated)");
-    fireEvent.change(requiredFields, { target: { value: "fld_name" } });
+    expect(within(dialog).queryByLabelText("Required Field IDs (comma-separated)")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
 
     expect((await within(dialog).findByRole("alert")).textContent).toContain("Display identity is outdated");
-    expect((requiredFields as HTMLInputElement).value).toBe("fld_name");
+    const publishRequest = vi
+      .mocked(fetch)
+      .mock.calls.find(([request]) => String(request).includes("/items/cat_1/publish"));
+    expect(JSON.parse(String(publishRequest?.[1]?.body))).toEqual({});
     fireEvent.click(within(dialog).getByRole("button", { name: "Recheck display identity" }));
     await waitFor(() => expect(within(dialog).getByText("current-resolved")).toBeTruthy());
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Publish Catalog Item" })).toBeNull());
+  });
+
+  it("renders a publication-precondition refusal in the publish dialog", async () => {
+    const fetch = stubCatalogFetches({
+      publicationResponses: [
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "publication-precondition",
+              reason_code: "publication-precondition",
+              message: "Missing required field values: fld_name, fld_set.",
+              missingFieldIds: ["fld_name", "fld_set"],
+            },
+          }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        ),
+      ],
+    });
+
+    render(<CatalogItemDetailPage id="cat_1" initialData={catalogItem} />);
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const dialog = screen.getByRole("dialog", { name: "Publish Catalog Item" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
+
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "Missing required field values: fld_name, fld_set.",
+    );
+    expect(fetch).toHaveBeenCalled();
   });
 
   it("renders reference field values as flattened clickable detail rows", () => {

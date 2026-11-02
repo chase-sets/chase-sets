@@ -39,7 +39,6 @@ export function operatorSessionPublicRoutes(services: Services) {
     c.header("Cache-Control", "no-store");
     await next();
   });
-  app.put("/tcgplayer", (c) => services.execute("push", c.req.raw));
   app.delete("/grant", (c) => services.execute("unpair", c.req.raw));
   return app;
 }

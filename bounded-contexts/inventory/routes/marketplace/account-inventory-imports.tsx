@@ -10,7 +10,6 @@ import {
   type InventoryImportBatchDetail,
 } from "../../support/request-support/api-client";
 import { InventoryImportBatchPage } from "../../features/import-batches/ui/import-batch-page";
-import { resolveRowRedirectTarget } from "../../features/import-batches/ui/resolution-flow";
 import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { InventoryMutationProvider } from "../../support/request-support/mutation-form";
@@ -93,14 +92,18 @@ export const action = defineFormAction({
     "resolve-row": async ({ request, formData }) => {
       const batchId = String(formData.get("batchId") ?? "");
       const rowId = String(formData.get("rowId") ?? "");
-      const detail = await createInventoryRequestApiClient(request).resolveImportBatchRow(batchId, rowId, {
+      const detail = await createInventoryRequestApiClient(request, {
+        mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+      }).resolveImportBatchRow(batchId, rowId, {
         catalogItemId: String(formData.get("catalogItemId") ?? ""),
         selectedOptions: parseSelectedOptionsInput(String(formData.get("selectedOptions") ?? "")),
         storageLocationId: String(formData.get("storageLocationId") ?? ""),
+        expectedRowVersion: String(formData.get("expectedRowVersion") ?? ""),
+        expectedRowFingerprint: String(formData.get("expectedRowFingerprint") ?? ""),
       });
-      // Stay on the batch surface and auto-advance the drawer to the next
-      // unresolved row (or close it once the batch is clean).
-      return formActionRedirect(null, resolveRowRedirectTarget(batchId, detail));
+      const base = `/account/inventory/imports/${batchId}`;
+      const nextRowId = detail.next_needs_seller_row_id;
+      return formActionRedirect(null, nextRowId ? `${base}?resolveRowId=${encodeURIComponent(nextRowId)}` : base);
     },
   },
   onUnknownIntent: () => formActionRedirect(null, "/account/inventory/imports"),

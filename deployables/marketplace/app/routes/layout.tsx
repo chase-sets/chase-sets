@@ -5,6 +5,7 @@ import { AccountMenu, Banner, Button, Form, LinkButton, Stack, type ColorMode } 
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
+import { OfferMatchDeclineAttemptProvider } from "@chase-sets/marketplace/web";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { resolveLegacyNotificationCenterHref } from "@chase-sets/notifications/web";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceActiveKey, resolveMarketplaceNavItems } from "../host";
@@ -148,7 +149,9 @@ export default function MarketplaceLayoutRoute() {
             }
           />
         ) : null}
-        <Outlet />
+        <OfferMatchDeclineAttemptProvider sessionId={actor?.sessionId ?? null} accountId={actor?.accountId ?? null}>
+          <Outlet />
+        </OfferMatchDeclineAttemptProvider>
       </Stack>
     </DiscoveryShellLayout>
   );

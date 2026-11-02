@@ -200,6 +200,8 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.dynamic.filter.label": "{facet}: {value}",
   "discovery.features.search.ui.searchPage.english": "English",
   "discovery.features.search.ui.searchPage.error": "Error",
+  "discovery.features.search.ui.searchPage.results.error.description":
+    "Search results could not load. Try again in a moment.",
   "discovery.features.search.ui.searchPage.any.market.activity": "Any market activity",
   "discovery.features.search.ui.searchPage.facet.choices": "{facet} choices",
   "discovery.features.search.ui.searchPage.facet.option.search.empty": "No matching {facet} options",
@@ -319,6 +321,11 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.added.to.cart.description":
     "{itemTitle} is in your Buy Cart. You can keep browsing or review your Buy Cart when ready.",
   "discovery.routes.itemDetail.adding.to.cart": "Adding to buy cart",
+  "discovery.routes.itemDetail.add.to.cart.failed": "This item was not added to your Buy Cart. Nothing was changed.",
+  "discovery.routes.itemDetail.add.to.cart.ambiguous.title": "We couldn't confirm this add",
+  "discovery.routes.itemDetail.add.to.cart.ambiguous.description":
+    "It may or may not be in your Buy Cart. Check your cart, or send the same add again — it will not be added twice.",
+  "discovery.routes.itemDetail.add.to.cart.resend": "Send the same add again",
   "discovery.routes.itemDetail.add.to.cart.saves.buyer.intent":
     "Save this product in Buy Cart while listings are reviewed.",
   "discovery.routes.itemDetail.add.to.cart.action.description": "Save the selected product for Buy Cart review.",
@@ -343,6 +350,8 @@ export const discoveryEnglishTranslations = {
     "Get notified when matching supply appears at or below your target.",
   "discovery.routes.itemDetail.buy.card.description": "Choose a listing, product, or offer action.",
   "discovery.routes.itemDetail.buy.card.title": "Buy options",
+  "discovery.routes.itemDetail.buy.changed":
+    "Your selection changed after you chose Buy now. Check it and choose Buy now again.",
   "discovery.routes.itemDetail.buy.best.available.listing": "Buy best available listing",
   "discovery.routes.itemDetail.buy.best.match": "Buy best match",
   "discovery.routes.itemDetail.buy.now": "Buy this listing",
@@ -989,6 +998,13 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.bulk.error.description":
     "We could not add matching products to Buy Cart. Try again, or open a product to add it individually.",
   "discovery.features.search.ui.searchPage.bulk.error.title": "Could not add matching products",
+  "discovery.features.search.ui.searchPage.bulk.ambiguous.title": "We couldn't confirm this bulk add",
+  "discovery.features.search.ui.searchPage.bulk.ambiguous.description":
+    "These products may or may not be in your Buy Cart. Review your cart, or send the same add again — nothing will be added twice.",
+  "discovery.features.search.ui.searchPage.bulk.not.applied.title": "No products were added",
+  "discovery.features.search.ui.searchPage.bulk.not.applied.description": "Nothing was changed. Try the add again.",
+  "discovery.features.search.ui.searchPage.bulk.resend": "Send the same add again",
+  "discovery.features.search.ui.searchPage.bulk.failed.line": "{title}: {message}",
   "discovery.features.search.ui.searchPage.buy.intent": "Buy",
   "discovery.features.search.ui.searchPage.sell": "Add product to Sell List",
   "discovery.features.search.ui.searchPage.sell.intent": "Sell",

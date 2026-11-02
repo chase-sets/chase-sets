@@ -1,0 +1,14 @@
+{
+  "capturedAt": "2026-08-12T00:04:31Z",
+  "source": "https://github.com/chase-sets/chase-sets/issues/6727 (Captured readiness probes: unauthenticated, GET-only, no credentials supplied)",
+  "web": {
+    "url": "https://marketplace.staging.chasesets.com/health/ready",
+    "httpStatus": 200,
+    "body": "{\"ok\":true,\"service\":\"marketplace\",\"checkedAt\":\"2026-08-12T00:04:31.570Z\",\"origin\":\"http://marketplace.staging.chasesets.com\"}"
+  },
+  "backend": {
+    "url": "https://marketplace.staging.chasesets.com/api/health/ready",
+    "httpStatus": 200,
+    "body": "{\"status\":\"ok\",\"checks\":[{\"name\":\"control.database\",\"status\":\"ok\"}]}"
+  }
+}

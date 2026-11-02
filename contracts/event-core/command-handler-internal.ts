@@ -28,7 +28,7 @@ export function createCommandHandler<State, Command, Event extends DomainEvent>(
     });
     recordCommittedEvents(storedEvents, config.commitSourceContextName);
     const state = applyEvents(loaded.state, config.evolve, newEvents);
-    const version = storedEvents.length === 0 ? loaded.version : storedEvents[storedEvents.length - 1].streamVersion;
+    const version = storedEvents.at(-1)?.streamVersion ?? loaded.version;
 
     // Write-behind snapshot scheduling happens after commit, outside the
     // append critical path, and must never fail a command -- scheduleSnapshot

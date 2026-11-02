@@ -1,0 +1,14 @@
+{
+  "contextName": "synthetic-worker-extension",
+  "packageName": "@synthetic-worker-fixture/extension",
+  "runtimeDeployables": ["platform-worker"],
+  "workerRuntimeProfiles": ["landing", "proof", "public"],
+  "projectionGroups": [
+    {
+      "projectionName": "synthetic-extension-projection",
+      "sourceContextNames": ["synthetic-worker-extension"],
+      "ownedTables": [],
+      "sideEffectOnly": true
+    }
+  ]
+}

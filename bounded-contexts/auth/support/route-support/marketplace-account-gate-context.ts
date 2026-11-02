@@ -1,3 +1,4 @@
+import { EMAIL_VERIFICATION_RETURN_PARAMETER, type EmailVerificationPurpose } from "@chase-sets/auth-context";
 import { t } from "@chase-sets/localization";
 
 export type MarketplaceAccountGateContextMessage = Readonly<{
@@ -6,6 +7,7 @@ export type MarketplaceAccountGateContextMessage = Readonly<{
 }>;
 
 const MARKETPLACE_RETURN_ORIGIN = "https://marketplace.chasesets.local";
+const PURCHASE_DETAIL_PATH = /^\/account\/purchases\/[^/]+$/;
 
 export function marketplaceAccountGateContextMessage(returnTo: string): MarketplaceAccountGateContextMessage | null {
   let url: URL;
@@ -30,6 +32,16 @@ export function marketplaceAccountGateContextMessage(returnTo: string): Marketpl
     return {
       title: t("auth.routes.marketplace.accountGate.listing.draft.title"),
       description: t("auth.routes.marketplace.accountGate.listing.draft.description"),
+    };
+  }
+
+  if (
+    PURCHASE_DETAIL_PATH.test(url.pathname) &&
+    url.searchParams.get(EMAIL_VERIFICATION_RETURN_PARAMETER) === ("cancel-purchase" satisfies EmailVerificationPurpose)
+  ) {
+    return {
+      title: t("auth.routes.marketplace.accountGate.purchase.cancel.verify.title"),
+      description: t("auth.routes.marketplace.accountGate.purchase.cancel.verify.description"),
     };
   }
 

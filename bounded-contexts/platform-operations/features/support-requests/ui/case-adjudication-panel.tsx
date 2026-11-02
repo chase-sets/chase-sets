@@ -10,24 +10,9 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
-import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { SupportEvidence, SupportRequesterRole } from "../domain/common";
-import type { SupportRequestDetail } from "./contracts";
+import type { SupportOperationsRequestDetail } from "./contracts";
 import { formatSupportDateTime } from "./support-request-presentation";
-
-type AffectedLine = Readonly<{ amount: string; currencyCode: string }>;
-
-function affectedLines(request: SupportRequestDetail): readonly AffectedLine[] {
-  const raw = request.affected_line_items;
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  return raw
-    .map((line) => (line && typeof line === "object" ? (line as Record<string, unknown>) : null))
-    .filter((line): line is Record<string, unknown> => Boolean(line))
-    .filter((line) => typeof line.amount === "string" && typeof line.currencyCode === "string")
-    .map((line) => ({ amount: String(line.amount), currencyCode: String(line.currencyCode) }));
-}
 
 /**
  * The domain caps an adjudicated refund at the sum of the affected order
@@ -35,47 +20,12 @@ function affectedLines(request: SupportRequestDetail): readonly AffectedLine[] {
  * decision without hunting for the number or risking a rejection at the domain
  * boundary. Returns `null` when no affected-line snapshot is available.
  */
-export function adjudicationRefundCap(request: SupportRequestDetail): string | null {
-  const lines = affectedLines(request);
-  if (lines.length === 0) {
-    return null;
-  }
-  let totalCents = 0n;
-  for (const line of lines) {
-    const cents = tryMoneyToCents(line.amount);
-    if (cents === null) {
-      return null;
-    }
-    totalCents += cents;
-  }
-  return centsToMoneyAmount(totalCents);
-}
-
 /**
  * Prefill for the decision panel's refund field: the most recent offer's
  * refund amount when it exists and stays within the cap, otherwise the cap
  * itself. Keeps the operator on the offer history's number when the parties
  * were already close, without ever exceeding the domain ceiling.
  */
-export function adjudicationRefundPrefill(request: SupportRequestDetail): string | null {
-  const cap = adjudicationRefundCap(request);
-  const capCents = cap === null ? null : tryMoneyToCents(cap);
-
-  const offersByRecency = [...request.offers].sort((left, right) => right.offeredAt.localeCompare(left.offeredAt));
-  const latestOfferWithRefund =
-    request.pending_offer?.refundAmount != null
-      ? request.pending_offer.refundAmount
-      : (offersByRecency.find((offer) => offer.refundAmount != null)?.refundAmount ?? null);
-
-  if (latestOfferWithRefund != null) {
-    const offerCents = tryMoneyToCents(latestOfferWithRefund);
-    if (offerCents !== null && (capCents === null || offerCents <= capCents)) {
-      return centsToMoneyAmount(offerCents);
-    }
-  }
-  return cap;
-}
-
 function EvidenceAttachments({ attachments }: Readonly<{ attachments: readonly string[] }>) {
   if (attachments.length === 0) {
     return (
@@ -111,7 +61,7 @@ function PartyPosition({
   heading,
   emptyLabel,
 }: Readonly<{
-  request: SupportRequestDetail;
+  request: SupportOperationsRequestDetail;
   role: SupportRequesterRole;
   heading: string;
   emptyLabel: string;
@@ -167,7 +117,7 @@ function PartyPosition({
   );
 }
 
-function EscalationOrigin({ request }: Readonly<{ request: SupportRequestDetail }>) {
+function EscalationOrigin({ request }: Readonly<{ request: SupportOperationsRequestDetail }>) {
   return (
     <Stack gap={2}>
       <Text weight="semibold">
@@ -202,7 +152,7 @@ function EscalationOrigin({ request }: Readonly<{ request: SupportRequestDetail 
   );
 }
 
-function OfferHistory({ request }: Readonly<{ request: SupportRequestDetail }>) {
+function OfferHistory({ request }: Readonly<{ request: SupportOperationsRequestDetail }>) {
   return (
     <Stack gap={2}>
       <Text weight="semibold">
@@ -268,9 +218,9 @@ function OfferHistory({ request }: Readonly<{ request: SupportRequestDetail }>) 
  * Read-only adjudication comparison: both parties' positions side by side, the
  * escalation origin, and the offer history including declines. The binding
  * decision itself is issued through the drawer's decision panel, which draws
- * its prefilled, capped refund from {@link adjudicationRefundPrefill}.
+ * its prefilled, capped refund from the API's operator policy projection.
  */
-export function CaseAdjudicationPanel({ request }: Readonly<{ request: SupportRequestDetail }>) {
+export function CaseAdjudicationPanel({ request }: Readonly<{ request: SupportOperationsRequestDetail }>) {
   const hasAnyActivity =
     request.responses.length > 0 || request.evidence.length > 0 || request.offers.length > 0 || request.escalated_at;
 

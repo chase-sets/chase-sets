@@ -73,10 +73,12 @@ export function useItemDetailMarketHistory(
         );
 
         if (advanced) {
-          refresh();
+          void refresh();
         }
       },
-      onSyncRequired: () => refresh(),
+      onSyncRequired: () => {
+        void refresh();
+      },
     });
 
     return () => subscription.close();

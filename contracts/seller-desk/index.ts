@@ -34,6 +34,7 @@ export type SellerDeskSurfaceId =
   | "channel-connection"
   | "repricing-policies"
   | "repricing-policy"
+  | "pricing-health"
   | "resolution-drawer"
   | "activity-drawer";
 
@@ -48,6 +49,13 @@ export type SellerDeskSurface = Readonly<{
 }>;
 
 export const SELLER_DESK_SURFACES: readonly SellerDeskSurface[] = [
+  {
+    id: "pricing-health",
+    kind: "page",
+    routePath: "/account/desk/pricing-health",
+    title: "Pricing Health",
+    job: "Inspect one active policy's stored Pricing Health Verdict and disclosed platform-wide Forecast Grades.",
+  },
   {
     id: "seller-home",
     kind: "page",

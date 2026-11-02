@@ -21,7 +21,7 @@ import { buildPaymentProjectionHandlers } from "../read-model/projection";
 import { evolvePayment, initialPaymentState } from "../domain/domain";
 import { createCardDeclineStore } from "./card-decline-store";
 import { createPaymentRuntime } from "./runtime";
-import { createPaymentWebhookRunner } from "./webhook-transaction";
+import { createPaymentTransactionRunner, createPaymentWebhookRunner } from "./webhook-transaction";
 
 const at = "2026-10-04T00:00:00.000Z";
 const context = {
@@ -102,6 +102,7 @@ describe("durable card decline velocity (real Postgres)", () => {
       checkpointStore: createPostgresProjectionStore({ db: database }),
       cardDeclineStore: store(database),
       runWebhookTransaction: createPaymentWebhookRunner(database, eventStore),
+      runPaymentTransaction: createPaymentTransactionRunner(database, eventStore),
       processorGateway: gateway,
       webhookTelemetry: {
         record: (signal) => {

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "exception-b380c623de1f29c8",
+    "binding": {
+      "module": "bounded-contexts/identity/features/accounts/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_accounts",
+      "digest": "1f4d1eae919252d1ebe1f8ed7efdac4d622c9eda434f2474a8700f2607fda47b"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:37 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0edce210b1f39f0f",
+    "binding": {
+      "module": "bounded-contexts/identity/features/accounts/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_accounts",
+      "digest": "c4c95e5903d21f2ceca7281b998043f4d99b4915e8af676390775e503ec7a7bf"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:103 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-e1e3a0d01f4d5793",
+    "binding": {
+      "module": "bounded-contexts/identity/features/accounts/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_accounts",
+      "digest": "017ab12a6f70720f80f750a8f294c7c491e69b7e7926bab6b4346b7d223d917e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:160 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-c36464a55ade4c80",
+    "binding": {
+      "module": "bounded-contexts/identity/features/accounts/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_accounts",
+      "digest": "6cc0a69caa0fa26e731f5a6ce0ea70e0abd17987f6e6db7dfbda191e0a8d5915"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:177 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-b6f3cb7b6a827f25",
+    "binding": {
+      "module": "bounded-contexts/identity/features/accounts/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_accounts",
+      "digest": "3fc6d23a10a95e939b60fa3b37931e48c11eb7965251783036fdd7d32d7aacf5"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:192 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

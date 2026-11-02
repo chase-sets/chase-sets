@@ -6,6 +6,7 @@ import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
+import type { PaymentsPaymentDetail } from "../client";
 
 type PurchaseDetail = Readonly<{
   order_id: string;
@@ -44,42 +45,6 @@ type PurchaseDetail = Readonly<{
   total_quantity: number;
   lines: readonly unknown[];
   inventory_holds: readonly unknown[];
-}>;
-
-type PaymentsPaymentDetail = Readonly<{
-  payment_id: string;
-  buyer_account_id: string;
-  order_ids: readonly string[];
-  amount: string;
-  currency_code: string;
-  processor_name: string;
-  processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
-  processor_payment_reference: string;
-  processor_amount: string;
-  processor_client_secret: string | null;
-  processor_redirect_url: string | null;
-  processor_status: string;
-  status: string;
-  failure_code: string | null;
-  failure_message: string | null;
-  created_at: string;
-  updated_at: string;
-  captured_at: string | null;
-  failed_at: string | null;
-  cancelled_at: string | null;
-  processor_publishable_key: string | null;
-  provider_events: readonly {
-    provider_event_id: string;
-    provider_name: string;
-    event_kind: string;
-    provider_object_reference: string | null;
-    received_at: string;
-  }[];
-  marketplace_sales_fee_amount: string;
-  marketplace_checkout_fee_amount: string;
-  seller_net_amount: string;
-  balance_credit_amount: string;
-  seller_payout_amount: string;
 }>;
 
 // Deliberately not `Window & {Stripe?: ...}`: @stripe/stripe-js's ambient
@@ -157,6 +122,8 @@ vi.mock("react-router", async () => {
     Form: ({ children, ...props }: { children: ReactNode }) => React.createElement("form", props, children),
     useActionData: mockUseActionData,
     useLoaderData: mockUseLoaderData,
+    useNavigation: () => ({ state: "idle", formMethod: undefined, formAction: undefined }),
+    useFormAction: () => "/",
     useRevalidator: mockUseRevalidator,
   };
 });
@@ -251,9 +218,16 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
     provider_events: [],
     marketplace_sales_fee_amount: "1.00",
     marketplace_checkout_fee_amount: "0.50",
+    marketplace_checkout_fee_policy_version: null,
+    marketplace_checkout_fee_quote_fingerprint: null,
+    payment_method_category: null,
+    saved_checkout_instrument_id: null,
     seller_net_amount: "9.50",
     balance_credit_amount: "0.00",
     seller_payout_amount: "9.50",
+    seller_payouts: [],
+    source_context: null,
+    source_reference_id: null,
     ...overrides,
   };
 }

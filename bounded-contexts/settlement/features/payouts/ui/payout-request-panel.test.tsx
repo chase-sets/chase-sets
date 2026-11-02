@@ -2,7 +2,7 @@
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
+import type { PayoutAvailability } from "../read-model/payout-summary";
 import type { SettlementWalletRow } from "../../wallets/read-model/queries";
 import { payoutUnavailableReasonLabel } from "../domain/reason-codes";
 import { SettlementPayoutRequestPanel } from "./payout-request-panel";
@@ -21,26 +21,25 @@ const wallet: SettlementWalletRow = {
   updated_at: null,
 };
 
-const readiness: SettlementPayoutReadinessRow = {
-  account_id: "acct-1",
-  status: "ready",
-  missing_requirements: [],
-  advisory_requirements: [],
-  disabled_reason: null,
-  requirements_deadline: null,
-  provider_reference: null,
-  contact_email: null,
-  onboarding_status: "complete",
-  transfer_capability_status: "active",
-  payout_capability_status: "active",
-  payout_destination_status: "ready",
-  payout_destination_fingerprint: null,
-  payout_destination_changed_at: null,
-  payout_account_dashboard: "none",
-  losses_collector: "application",
-  fees_collector: "application",
-  requirements_collector: "application",
-  updated_at: "2026-10-12T12:00:00.000Z",
+const quickAmounts = {
+  currency_code: "usd",
+  minimum_amount: "7.25",
+  maximum_amount: "250.00",
+  full_available_amount: "0.00",
+} as const;
+
+const available: PayoutAvailability = {
+  can_request: true,
+  unavailable_reasons: [],
+  unavailable_reason_details: [],
+};
+
+const unavailable: PayoutAvailability = {
+  can_request: false,
+  unavailable_reasons: ["no-available-wallet-balance"],
+  unavailable_reason_details: [
+    { code: "no-available-wallet-balance", message: payoutUnavailableReasonLabel("no-available-wallet-balance") },
+  ],
 };
 
 describe("SettlementPayoutRequestPanel", () => {
@@ -53,8 +52,8 @@ describe("SettlementPayoutRequestPanel", () => {
     const html = renderToStaticMarkup(
       <SettlementPayoutRequestPanel
         wallet={{ ...wallet, available_balance_amount: amount }}
-        payoutReadiness={readiness}
-        canRequestPayouts
+        availability={amount === "0.01" ? available : unavailable}
+        quickAmounts={quickAmounts}
       />,
     );
     const rendered = document.createElement("div");
@@ -65,5 +64,37 @@ describe("SettlementPayoutRequestPanel", () => {
     expect(actions.length).toBeGreaterThan(0);
     expect(actions.every((button) => button.disabled)).toBe(!payable);
     expect(rendered.querySelector<HTMLInputElement>('input[name="amount"]')?.disabled).toBe(!payable);
+  });
+
+  it("uses API quick amounts for bounds and labels and disables an empty full-available shortcut", () => {
+    const html = renderToStaticMarkup(
+      <SettlementPayoutRequestPanel
+        wallet={{ ...wallet, available_balance_amount: "125.00" }}
+        availability={available}
+        quickAmounts={quickAmounts}
+      />,
+    );
+    const rendered = document.createElement("div");
+    rendered.innerHTML = html;
+
+    const amount = rendered.querySelector<HTMLInputElement>('input[name="amount"]');
+    expect(amount?.min).toBe("7.25");
+    expect(amount?.max).toBe("250");
+    expect(rendered.textContent).toContain("Minimum · $7.25");
+    expect(rendered.textContent).toContain("Full available · $0.00");
+    expect(rendered.querySelector<HTMLButtonElement>('button[value="minimum"]')?.disabled).toBe(false);
+    expect(rendered.querySelector<HTMLButtonElement>('button[value="available"]')?.disabled).toBe(true);
+  });
+
+  it("disables a negative full-available shortcut using signed money parsing", () => {
+    const rendered = renderToStaticMarkup(
+      <SettlementPayoutRequestPanel
+        wallet={{ ...wallet, available_balance_amount: "125.00" }}
+        availability={available}
+        quickAmounts={{ ...quickAmounts, full_available_amount: "-0.01" }}
+      />,
+    );
+    expect(rendered).toContain("Full available · -$0.01");
+    expect(rendered).toContain('disabled=""');
   });
 });

@@ -67,7 +67,7 @@ jobs:
       needs.select-promoted-release.outputs.eligible == 'true'
     needs: select-promoted-release
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 150
     environment: preview
     concurrency:
       group: ${{ inputs.dispatch_source == 'automatic' && 'platform-ephemeral-verification-automatic' || format('platform-ephemeral-verification-manual-{0}', github.run_id) }}
@@ -78,8 +78,8 @@ jobs:
       DEPLOYMENT_ENVIRONMENT: preview
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
-      VERIFICATION_SLUG: verify-${{ github.run_id }}-${{ github.run_attempt }}
-      PREVIEW_IDENTIFIER: verify-${{ github.run_id }}-${{ github.run_attempt }}
+      VERIFICATION_SLUG: gate-${{ github.run_id }}-${{ github.run_attempt }}
+      PREVIEW_IDENTIFIER: gate-${{ github.run_id }}-${{ github.run_attempt }}
       CHASE_SETS_HELM_RELEASE: csv-${{ github.run_id }}-${{ github.run_attempt }}
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-verify-${{ github.run_id }}-${{ github.run_attempt }}
       CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
@@ -333,9 +333,11 @@ jobs:
         id: runtime_secrets
         env:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
+          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ""
           EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
           EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
-          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON || '' }}
+          EBAY_APPLICATION_CLIENT_ID: ${{ secrets.EBAY_APPLICATION_CLIENT_ID || '' }}
+          EBAY_APPLICATION_CLIENT_SECRET: ${{ secrets.EBAY_APPLICATION_CLIENT_SECRET || '' }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
@@ -354,11 +356,21 @@ jobs:
           GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
           FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY || '' }}
+          SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
+          SES_AWS_ACCESS_KEY_ID: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
+          SES_AWS_SECRET_ACCESS_KEY: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
+          SES_SOURCE_ARN: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: |
           set -euo pipefail
           export CATALOG_ASSET_S3_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
           export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
           export OTEL_EXPORTER_OTLP_HEADERS=""
+          export SCRYDEX_API_KEY="${SCRYDEX_API_KEY:-}"
+          export SCRYDEX_TEAM_ID="${SCRYDEX_TEAM_ID:-}"
+          export SES_AWS_ACCESS_KEY_ID="${SES_AWS_ACCESS_KEY_ID:-}"
+          export SES_AWS_SECRET_ACCESS_KEY="${SES_AWS_SECRET_ACCESS_KEY:-}"
+          export SES_SOURCE_ARN="${SES_SOURCE_ARN:-}"
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 
       - name: Deploy verification Kubernetes release
@@ -462,6 +474,18 @@ jobs:
           EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
         run: node ./scripts/provider-webhook-lifecycle.mjs delete --base-url "$PLATFORM_API_BASE_URL"
 
+      - name: Hold for preview census
+        id: census_hold
+        if: success() && inputs.dispatch_source == 'manual'
+        timeout-minutes: 70
+        run: |
+          set -euo pipefail
+          hold_start="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          idle_end="$(date -u -d '+10 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+          hold_end="$(date -u -d '+65 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'hold_start=%s\nidle_end=%s\nhold_end=%s\n' "$hold_start" "$idle_end" "$hold_end"
+          sleep 3900
+
       - name: Delete verification Kubernetes namespace
         id: namespace_teardown
         if: always() && steps.namespace.outcome != 'skipped'
@@ -499,6 +523,7 @@ jobs:
           SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
           STRIPE_OUTCOME: ${{ steps.stripe.outcome }}
           PROVIDER_TEARDOWN_OUTCOME: ${{ steps.provider_teardown.outcome }}
+          CENSUS_HOLD_OUTCOME: ${{ steps.census_hold.outcome }}
           NAMESPACE_TEARDOWN_OUTCOME: ${{ steps.namespace_teardown.outcome }}
         run: |
           mkdir -p artifacts/ephemeral-verification
@@ -524,6 +549,7 @@ jobs:
             ["platform-smoke", process.env.SMOKE_OUTCOME],
             ["stripe-money-smoke", process.env.STRIPE_OUTCOME],
             ["provider-teardown", process.env.PROVIDER_TEARDOWN_OUTCOME],
+            ["census-hold", process.env.CENSUS_HOLD_OUTCOME],
             ["namespace-teardown", process.env.NAMESPACE_TEARDOWN_OUTCOME],
           ];
           const failedPhase = terminalPhases.find(([, outcome]) => ["failure", "cancelled"].includes(outcome));

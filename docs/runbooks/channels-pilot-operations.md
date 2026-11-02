@@ -1,10 +1,9 @@
 # Channels Pilot Operations
 
-This runbook covers the TCGplayer phase-1 manual-sync pilot only. It does not
-restate #7031 acceptance criteria, and it does not document connector,
-pairing, or order-absorption procedures — those remain owned by the
-connector-client slice and reconciliation's inbound-sale work
-(`bounded-contexts/channels/README.md`).
+This runbook covers the TCGplayer phase-1 manual-sync pilot and the supported
+seller connector build/load handoff. It does not restate #7031 acceptance
+criteria or document order-absorption procedures, which remain owned by
+reconciliation's inbound-sale work (`bounded-contexts/channels/README.md`).
 
 ## Scope
 
@@ -54,6 +53,56 @@ connection ids, and state names are not seller-identifying and may be logged.
 - Operator evidence: the `phase1WatchLog` record (#7728, #7729).
 
 ## TCGplayer Phase 1
+
+### Seller Connector Build And Load
+
+Register one public client per environment. The request is an ordinary `POST`
+to the environment origin (the register mount does not require a seller actor):
+
+```http
+POST <origin>/channel-connector/oauth/register
+Content-Type: application/json
+
+{"redirect_uri":"https://ebnhngdhefamkdjajldafonajgkadfhh.chromiumapp.org/ucp/oauth/callback","scope":"channel-connector:claim channel-connector:report channel-connector:ingest","token_endpoint_auth_method":"none"}
+```
+
+Keep only the returned public `cc_client_<uuid>` identifier. Verify the
+registration before building. The authorize route requires all six query
+parameters, including a 43-character base64url challenge and state; these
+literal PowerShell probes must not follow the callback redirect:
+
+```powershell
+$origin = 'https://marketplace.staging.chasesets.com'
+$redirect = 'https://ebnhngdhefamkdjajldafonajgkadfhh.chromiumapp.org/ucp/oauth/callback'
+$challenge = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+$state = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
+$registered = '<client-id>'
+$unregistered = 'cc_client_00000000-0000-4000-8000-000000000000'
+$authorize = "$origin/channel-connector/oauth/authorize?response_type=code&client_id={0}&redirect_uri={1}&code_challenge=$challenge&code_challenge_method=S256&state=$state"
+(Invoke-WebRequest -MaximumRedirection 0 -SkipHttpErrorCheck -Uri ($authorize -f $registered, $redirect)).StatusCode
+# Expected: 302, with Location containing error_description=authorization_refused.
+(Invoke-WebRequest -MaximumRedirection 0 -SkipHttpErrorCheck -Uri ($authorize -f $unregistered, $redirect)).StatusCode
+# Expected: 400.
+```
+
+Record the client id and the two status observations in the executing issue,
+never in a trace or connector receipt.
+
+Build a reproducible handoff from a clean worktree. Replace `<client-id>` with
+the registered public identifier:
+
+```powershell
+pnpm --filter @chase-sets/app-tcgplayer-connector-extension run build:handoff -- --target staging --client-id <client-id>
+```
+
+Inspect `artifacts/connector-extension/handoff.json`. It binds the source
+commit, target origin, public client id, pinned extension id, version, and
+every emitted-file digest, and records that both builds were identical. Load
+the retained unpacked directory at
+`artifacts/connector-extension/<target>/` in Chromium (`chrome://extensions` →
+**Load unpacked**), then reload that directory after a rebuild. Remove the unpacked
+extension when the session ends. This procedure never contacts TCGplayer; only
+the extension's separately governed browser flow can do so.
 
 ### Connect And Confirm Activation
 

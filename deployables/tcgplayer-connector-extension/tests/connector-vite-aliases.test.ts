@@ -1,16 +1,16 @@
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceSourceAliases } from "../../../scripts/workspace-source-aliases.mjs";
-import { connectorViteConfig } from "../vite.config";
+import { connectorViteConfig, type ConnectorBuildMode } from "../vite.config";
 import { platformOrigin } from "../__tests__/harness/origins";
 import { loadConnectorBuildConfig } from "../e2e/connector-build-config";
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe("connector Vite aliases", () => {
-  it.each(["production", "harness"])("preserves workspace alias array entries in %s mode", (mode) => {
+  it.each(["connector-local", "harness"])("preserves workspace alias array entries in %s mode", (mode) => {
     vi.stubEnv("VITE_PLATFORM_API_URL", platformOrigin);
-    const aliases = connectorViteConfig(mode).resolve?.alias;
+    const aliases = connectorViteConfig(mode as ConnectorBuildMode).resolve?.alias;
     const workspaceAliases = createWorkspaceSourceAliases();
     expect(Array.isArray(aliases)).toBe(true);
     expect(aliases).toEqual([
@@ -27,11 +27,14 @@ describe("connector Vite aliases", () => {
     ]);
     expect(workspaceAliases.length).toBeGreaterThan(0);
   });
-  it.each(["production", "harness"])("loads the canonical %s config outside Playwright collection", async (mode) => {
-    vi.stubEnv("VITE_PLATFORM_API_URL", platformOrigin);
-    const config = await loadConnectorBuildConfig(mode);
-    expect(config.resolve).toEqual(connectorViteConfig(mode).resolve);
-    expect(config.define?.["import.meta.env.VITE_PLATFORM_API_URL"]).toBe(JSON.stringify(platformOrigin));
-    expect(config.build?.outDir).toBe(mode === "harness" ? "dist-harness" : "dist");
-  });
+  it.each(["connector-local", "harness"])(
+    "loads the canonical %s config outside Playwright collection",
+    async (mode) => {
+      vi.stubEnv("VITE_PLATFORM_API_URL", platformOrigin);
+      const config = await loadConnectorBuildConfig(mode as ConnectorBuildMode);
+      expect(config.resolve).toEqual(connectorViteConfig(mode as ConnectorBuildMode).resolve);
+      expect(config.define?.["import.meta.env.VITE_PLATFORM_API_URL"]).toBe(JSON.stringify(platformOrigin));
+      expect(config.build?.outDir).toBe(mode === "harness" ? "dist-harness" : "dist");
+    },
+  );
 });
