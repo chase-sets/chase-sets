@@ -532,6 +532,11 @@ export function createRealtimeRoutes(
   const topicPolicyManifest = options.topicPolicyManifest ?? platformRealtimeTopicPolicyManifest;
 
   const handleEvents = async (c: Context, mode: RealtimeEndpointMode) => {
+    // node-server creates its abort controller lazily; capture before any await (issue #10524).
+    const signal = c.req.raw.signal;
+    if (signal.aborted) {
+      return c.body(null, 204);
+    }
     if (options.isDraining?.()) {
       return c.json(
         {
@@ -549,6 +554,9 @@ export function createRealtimeRoutes(
     const topics = normalizeRealtimeTopics(requestedTopics);
     const topicDiagnostic = inspectRealtimeTopicNormalization(requestedTopics);
     const actor = await options.resolveActor(c.req.raw);
+    if (signal.aborted) {
+      return c.body(null, 204);
+    }
 
     if (isRealtimeTopicNormalizationAdjusted(topicDiagnostic)) {
       options.observer?.topicNormalizationAdjusted?.({
@@ -585,6 +593,9 @@ export function createRealtimeRoutes(
         ...(await readRealtimeContextHeads(matchingStores)),
       };
     }
+    if (signal.aborted) {
+      return c.body(null, 204);
+    }
     const connectionKey = resolveRealtimeConnectionKey(c.req.raw, actor);
     let streamLease;
     try {
@@ -605,6 +616,10 @@ export function createRealtimeRoutes(
         503,
       );
     }
+    if (signal.aborted) {
+      await streamLease?.release();
+      return c.body(null, 204);
+    }
     if (!streamLease) {
       options.observer?.authorizationRejected?.({
         topics: authorizedTopics,
@@ -624,31 +639,37 @@ export function createRealtimeRoutes(
       let consecutiveFullBatches = 0;
       const retryMs = Math.max(1_000, routeConfig.pollIntervalMs);
       const abortStream = () => stream.abort();
-      c.req.raw.signal.addEventListener("abort", abortStream, { once: true });
-      options.observer?.connectionOpened?.({
-        connectionKey,
-        activeConnectionCount: streamLease.activeConnectionCount,
-        topics: authorizedTopics,
-        storeNames: matchingStores.map((store) => store.contextName),
-        actorAccountId: actor?.accountId ?? null,
-      });
-      await writeRealtimeHeartbeat(stream, {
-        cursor,
-        retryMs,
-        cursorSigningKeys: routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret,
-      });
-
+      let connectionOpened = false;
       try {
+        signal.addEventListener("abort", abortStream, { once: true });
+        if (signal.aborted) {
+          stream.abort();
+          return;
+        }
+        connectionOpened = true;
+        options.observer?.connectionOpened?.({
+          connectionKey,
+          activeConnectionCount: streamLease.activeConnectionCount,
+          topics: authorizedTopics,
+          storeNames: matchingStores.map((store) => store.contextName),
+          actorAccountId: actor?.accountId ?? null,
+        });
+        await writeRealtimeHeartbeat(stream, {
+          cursor,
+          retryMs,
+          cursorSigningKeys: routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret,
+        });
+
         while (!stream.aborted && !stream.closed) {
           let batch: Awaited<ReturnType<RealtimeReadHub["read"]>>;
           try {
             batch = await readHub.read(matchingStores, authorizedTopics, cursor, batchSize, {
               pruneExpired: false,
               includeTopicLag: true,
-              abortSignal: c.req.raw.signal,
+              abortSignal: signal,
             });
           } catch (error) {
-            if (stream.aborted || stream.closed || c.req.raw.signal.aborted) {
+            if (stream.aborted || stream.closed || signal.aborted) {
               throw error;
             }
 
@@ -760,13 +781,15 @@ export function createRealtimeRoutes(
         options.observer?.streamError?.({ connectionKey, error });
         throw error;
       } finally {
-        c.req.raw.signal.removeEventListener("abort", abortStream);
+        signal.removeEventListener("abort", abortStream);
         await streamLease.release();
-        options.observer?.connectionClosed?.({
-          connectionKey,
-          activeConnectionCount: streamLimiter.activeConnectionCount?.() ?? 0,
-          durationMs: performance.now() - openedAt,
-        });
+        if (connectionOpened) {
+          options.observer?.connectionClosed?.({
+            connectionKey,
+            activeConnectionCount: streamLimiter.activeConnectionCount?.() ?? 0,
+            durationMs: performance.now() - openedAt,
+          });
+        }
       }
     });
   };

@@ -3,12 +3,19 @@ import {
   authorizeRealtimeTopics,
   createRealtimeStatusSnapshot,
   createRealtimeRoutes,
+  createInMemoryRealtimeStreamLimiter,
   inspectRealtimeTopicNormalization,
   matchesRealtimeTopicPattern,
   parseRealtimeTopics,
   selectRealtimeStoresForTopics,
 } from "./realtime";
 import { decodeRealtimeCursor, encodeRealtimeCursor } from "./realtime-cursor";
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => { resolve = settle; });
+  return { promise, resolve };
+}
 
 const actor = {
   sessionId: "sess_1",
@@ -84,6 +91,91 @@ describe("realtime topic authorization", () => {
 });
 
 describe("realtime SSE routes", () => {
+  it.each(["resolveActor", "context-head read", "acquire"] as const)(
+    "releases the lease when aborted during %s before response headers",
+    async (pendingAwait) => {
+      const entered = deferred();
+      const resume = deferred();
+      const limiter = createInMemoryRealtimeStreamLimiter();
+      const opened: unknown[] = [];
+      const closed: unknown[] = [];
+      let acquisitions = 0;
+      const pause = async () => {
+        entered.resolve();
+        await resume.promise;
+      };
+      const app = createRealtimeRoutes({
+        stores: [{ contextName: "discovery", db: { query: async () => {
+          if (pendingAwait === "context-head read") await pause();
+          return { rows: [] };
+        } } }],
+        resolveActor: async () => {
+          if (pendingAwait === "resolveActor") await pause();
+          return actor;
+        },
+        streamLimiter: {
+          ...limiter,
+          acquire: async (request) => {
+            acquisitions += 1;
+            if (pendingAwait === "acquire") await pause();
+            return limiter.acquire(request);
+          },
+        },
+        observer: {
+          connectionOpened: (event) => opened.push(event),
+          connectionClosed: (event) => closed.push(event),
+        },
+      });
+      const abort = new AbortController();
+      const responsePromise = app.request("/public/events?topic=public%3Amarket", { signal: abort.signal });
+      await entered.promise;
+      abort.abort();
+      resume.resolve();
+      const response = await responsePromise;
+      try {
+        expect(limiter.activeConnectionCount?.()).toBe(0);
+        expect(acquisitions).toBe(pendingAwait === "acquire" ? 1 : 0);
+        expect(opened).toEqual([]);
+        expect(closed).toEqual([]);
+      } finally {
+        await response.body?.cancel();
+      }
+    },
+  );
+
+  it("releases the lease and pairs connection observers after the first heartbeat is cancelled", async () => {
+    const limiter = createInMemoryRealtimeStreamLimiter();
+    const opened: unknown[] = [];
+    const closed: unknown[] = [];
+    const app = createRealtimeRoutes({
+      stores: [{ contextName: "discovery", db: { query: async () => ({ rows: [] }) } }],
+      resolveActor: async () => actor,
+      streamLimiter: limiter,
+      observer: {
+        connectionOpened: (event) => opened.push(event),
+        connectionClosed: (event) => closed.push(event),
+      },
+    });
+    const abort = new AbortController();
+    const response = await app.request("/public/events?topic=public%3Amarket", { signal: abort.signal });
+    const reader = response.body!.getReader();
+    try {
+      const first = await reader.read();
+      expect(new TextDecoder().decode(first.value)).toContain("event: heartbeat");
+      expect(limiter.activeConnectionCount?.()).toBe(1);
+      expect(opened).toHaveLength(1);
+      expect(closed).toEqual([]);
+    } finally {
+      await reader.cancel();
+      abort.abort();
+    }
+    await expect.poll(() => limiter.activeConnectionCount?.()).toBe(0);
+    await expect.poll(() => closed).toEqual([
+      expect.objectContaining({ connectionKey: "account:account_1", activeConnectionCount: 0 }),
+    ]);
+    expect(opened).toEqual([expect.objectContaining({ connectionKey: "account:account_1" })]);
+  });
+
   it("rejects new streams while the process is draining", async () => {
     const app = createRealtimeRoutes({
       stores: [{ contextName: "discovery", db: { query: async () => ({ rows: [] }) } }],
