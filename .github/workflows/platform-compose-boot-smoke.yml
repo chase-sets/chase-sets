@@ -128,6 +128,16 @@ jobs:
             echo "**Tree under test:** \`target_sha\` (\`$TARGET_SHA\`). The trigger ref and \`github.sha\` are attribution only; they are not silently substituted for the tree under test."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Docker Hub stays unreachable for the rest of the job (#9230): setup,
+      # install, the host-network builder (which inherits the blocked hosts),
+      # the build, the stack and the smoke run only on digest-pinned public
+      # mirrors. The guard and its helper load from this immutable trusted main
+      # commit, never from target_sha, and run before the sole target checkout
+      # and any target code. Changing this pin also requires the exact-reference
+      # exception in scripts/check-github-actions-runtime.mjs and the literal in
+      # scripts/check-structure/exact-target-reusable-workflow.test.mjs.
+      - uses: chase-sets/chase-sets/.github/actions/block-docker-hub@9763ba0932d3904493e02ba6cb1df9d5133626d9
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ inputs.target_sha }}
@@ -160,11 +170,6 @@ jobs:
       # image build itself is the real failure.
       - name: Render compose boot+smoke environment
         run: node ./scripts/platform-compose-smoke.mjs render-env-all --out-dir artifacts/compose-smoke/env
-
-      # Docker Hub stays unreachable for the rest of the job (#9230): the host
-      # network builder inherits the blocked hosts, so the build, the stack and
-      # the smoke run only on digest-pinned public mirrors.
-      - uses: ./.github/actions/block-docker-hub
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         id: buildx
