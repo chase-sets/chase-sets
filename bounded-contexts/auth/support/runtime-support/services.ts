@@ -387,7 +387,6 @@ function toSessionRowFromState(
     status: state.status,
     expires_at: state.expiresAt,
     ...(timestamps.startedAt === null ? {} : { started_at: timestamps.startedAt }),
-    ...(typeof state.sessionGeneration === "number" ? { session_generation: state.sessionGeneration } : {}),
     updated_at: timestamps.updatedAt,
   };
 }

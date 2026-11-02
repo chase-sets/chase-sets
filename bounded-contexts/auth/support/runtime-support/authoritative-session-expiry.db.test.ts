@@ -261,7 +261,7 @@ describeDb("authoritative Auth Session actor resolution", () => {
         [sessionId],
       );
       expect(preFeatureRead.rows).toHaveLength(1);
-      await expect(services.sessions.getSession(sessionId)).resolves.toMatchObject({ session_generation: 0 });
+      await expect(readGenerationRow(sessionId)).resolves.toMatchObject({ generation: 0 });
       await expect(services.sessions.readUserSessionAuthority(USER_ID)).resolves.toEqual({
         userId: USER_ID,
         sessionGeneration: 0,
