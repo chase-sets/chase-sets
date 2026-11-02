@@ -1139,7 +1139,7 @@ describe("worker runner loop", () => {
           await failureGate.promise;
           throw new Error("synthetic holder failure");
         }
-        await holderTestAbort(context);
+        if (runs > 2) await holderTestAbort(context);
         return { processed: 1, lastGlobalPosition: "1" as never, state: "running" };
       },
     };
@@ -1165,7 +1165,7 @@ describe("worker runner loop", () => {
       await failureStarted;
       loop.nudge([runnerName]);
       failureGate.resolve();
-      await vi.waitFor(() => expect(runs).toBeGreaterThan(1), { timeout: 1_000 });
+      await vi.waitFor(() => expect(runs, `releaseCalls=${releaseCalls}`).toBe(3), { timeout: 1_000 });
       expect(releaseCalls).toBe(0);
     } finally {
       await loop.stop();
@@ -1227,7 +1227,7 @@ describe("worker runner loop", () => {
       kind: "projection-group",
       runOnce: async (context) => {
         runs += 1;
-        await holderTestAbort(context);
+        if (runs > 1) await holderTestAbort(context);
         return { processed: 1, lastGlobalPosition: "1" as never, state: "running" };
       },
     };
@@ -1263,7 +1263,8 @@ describe("worker runner loop", () => {
       await vi.waitFor(() => expect(acquireCalls).toBe(1));
       loop.nudge([runnerName]);
       resolveFirstAcquire();
-      await vi.waitFor(() => expect(runs).toBeGreaterThan(0), { timeout: 1_000 });
+      await vi.waitFor(() => expect(runs, `releaseCalls=${releaseCalls}`).toBe(2), { timeout: 1_000 });
+      expect(acquireCalls).toBe(2);
       expect(releaseCalls).toBe(0);
     } finally {
       await loop.stop();
