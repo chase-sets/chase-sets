@@ -8,6 +8,66 @@ import {
 const releaseCommit = "225e00cb6e3772770b3ae764c30b5d9e6d03aa42";
 
 describe("release health GitHub metadata", () => {
+  it("paged collection rejects truncation and exact-payload violations", async () => {
+    const execute = async (defect) => {
+      const calls = [];
+      const result = collectReleaseHealthGithubMetadata(
+        { repository: "chase-sets/chase-sets", releaseCommit },
+        {
+          fetchImpl: async (url) => {
+            calls.push(url);
+            const parsed = new URL(url);
+            if (!parsed.pathname.endsWith("/actions/runs")) return new Response("[]");
+            const page = Number(parsed.searchParams.get("page"));
+            const runs = page === 1 ? Array.from({ length: 100 }, (_, index) => ({ id: index + 1 })) : [{ id: 101 }];
+            const body = { total_count: 101, workflow_runs: runs };
+            const headers = {};
+            if (!defect && page === 1) {
+              const next = new URL(parsed);
+              next.searchParams.set("page", "2");
+              next.searchParams.sort();
+              headers.link = `<${next.href}>; rel="next"`;
+            }
+            if (defect === "short" && page === 1) body.workflow_runs = runs.slice(1);
+            if (defect === "duplicate" && page === 2) body.workflow_runs = [{ id: 1 }];
+            if (defect === "changed-total" && page === 2) body.total_count = 102;
+            if (defect === "provider-cap") body.total_count = 1000;
+            if (defect === "missing-total") delete body.total_count;
+            if (defect === "malformed-link" && page === 1) headers.link = "not-a-link";
+            if (["later", "shifted", "loop", "unsafe-link"].includes(defect) && page === 1) {
+              const next = new URL(parsed);
+              next.searchParams.set("page", defect === "loop" ? "1" : defect === "later" ? "3" : "2");
+              if (defect === "shifted") next.searchParams.set("per_page", "10");
+              if (defect === "unsafe-link") next.hostname = "example.invalid";
+              headers.link = `<${next.href}>; rel="next"`;
+            }
+            return new Response(JSON.stringify(body), { headers });
+          },
+        },
+      );
+      return { result, calls };
+    };
+    const control = await execute(null);
+    await expect(control.result).resolves.toMatchObject({ pullRequestNumber: null });
+    expect(control.calls.filter((url) => new URL(url).pathname.endsWith("/actions/runs"))).toHaveLength(2);
+    for (const defect of [
+      "short",
+      "duplicate",
+      "changed-total",
+      "provider-cap",
+      "missing-total",
+      "later",
+      "shifted",
+      "loop",
+      "unsafe-link",
+      "malformed-link",
+    ]) {
+      const negative = await execute(defect);
+      await expect(negative.result, defect).rejects.toThrow("collection_incomplete");
+      expect(negative.calls.every((url) => new URL(url).hostname === "api.github.com")).toBe(true);
+    }
+  });
+
   it("derives PR and merge queue timestamps from GitHub API records", () => {
     const metadata = buildReleaseHealthGithubMetadata({
       releaseCommit,
@@ -95,7 +155,7 @@ describe("release health GitHub metadata", () => {
         [{ event: "added_to_merge_queue", created_at: "2026-06-01T03:17:55Z" }],
       ],
       [
-        `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=10`,
+        `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=100`,
         { workflow_runs: [{ created_at: "2026-06-01T03:18:13Z" }] },
       ],
       [
@@ -108,15 +168,14 @@ describe("release health GitHub metadata", () => {
       { repository: "chase-sets/chase-sets", releaseCommit, token: "token" },
       {
         fetchImpl: async (url) => {
-          const path = new URL(url).pathname + new URL(url).search;
-          calls.push(path);
-          return { ok: true, json: async () => responses.get(path) };
+          calls.push(new URL(url).pathname + new URL(url).search);
+          return metadataFixtureResponse(url, responses);
         },
       },
     );
 
     expect(calls).toContain(
-      `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=10`,
+      `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=100&page=1`,
     );
     expect(metadata.queueMergeGroupStartedAt).toBe("2026-06-01T03:18:13Z");
     expect(metadata.queueBatchSize).toBe(2);
@@ -141,7 +200,7 @@ describe("release health GitHub metadata", () => {
         [{ event: "added_to_merge_queue", created_at: "2026-06-01T03:17:55Z" }],
       ],
       [
-        `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=10`,
+        `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=100`,
         { workflow_runs: [{ created_at: "2026-06-01T03:18:13Z" }] },
       ],
     ]);
@@ -150,11 +209,11 @@ describe("release health GitHub metadata", () => {
       { repository: "chase-sets/chase-sets", releaseCommit, token: "token" },
       {
         fetchImpl: async (url) => {
-          const path = new URL(url).pathname + new URL(url).search;
-          if (path.endsWith("/rules/branches/main?per_page=100")) {
+          const path = new URL(url).pathname;
+          if (path.endsWith("/rules/branches/main")) {
             return { ok: false, status: 404, json: async () => ({}) };
           }
-          return { ok: true, json: async () => responses.get(path) };
+          return metadataFixtureResponse(url, responses);
         },
       },
     );
@@ -196,3 +255,17 @@ describe("release health GitHub metadata", () => {
     ).toContain("queue_batch_size=2\n");
   });
 });
+
+function metadataFixtureResponse(url, responses) {
+  const parsed = new URL(url);
+  parsed.searchParams.delete("page");
+  if (/\/commits\/[^/]+\/pulls$/.test(parsed.pathname)) parsed.searchParams.delete("per_page");
+  let value = responses.get(parsed.pathname + parsed.search);
+  if (Array.isArray(value)) value = value.map((entry, index) => ({ id: index + 1, ...entry }));
+  else if (value?.workflow_runs)
+    value = {
+      total_count: value.workflow_runs.length,
+      workflow_runs: value.workflow_runs.map((run, index) => ({ id: index + 1, ...run })),
+    };
+  return new Response(JSON.stringify(value), { status: value === undefined ? 404 : 200 });
+}

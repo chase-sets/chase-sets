@@ -2,7 +2,7 @@ import { deflateRawSync } from "node:zlib";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   DELIVERY_HEALTH_VERSION,
   buildDeliveryHealth,
@@ -14,13 +14,531 @@ import {
   publishSliIssues,
   readDeliveryHealthPolicy,
   readEphemeralVerificationArchive,
+  readBoundedQualificationArchive,
+  readQualificationArchive,
   renderSliMarker,
   unzipJsonEntries,
   validateEphemeralVerificationRecord,
   runDeliveryHealthCommand,
 } from "./release-health-delivery-health.mjs";
+import {
+  buildMergeQualificationCandidate,
+  buildMergeQualificationDecision,
+  buildMergeQualificationEvent,
+  reconcileMergeQualificationProducerAttempt,
+} from "./merge-qualification.mjs";
+import { SUBCOMMANDS } from "./ops.mjs";
 
 let policy;
+
+const qualificationRepository = "chase-sets/chase-sets";
+const qualificationCheckedAt = "2026-07-21T12:00:00.000Z";
+function qualificationTransport({
+  attempts = [1],
+  omitted = false,
+  malformed = false,
+  disabled = false,
+  conclusion = "success",
+  advisoryId = 5000,
+  terminalState = "passed",
+  orphan = false,
+  lateAdvisory = false,
+} = {}) {
+  const ledger = [];
+  const policyContent = JSON.stringify({
+    schemaVersion: "merge-qualification-policy/v1",
+    enabled: !disabled,
+    owner: disabled ? null : "synthetic-owner",
+    ceiling: disabled ? null : { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
+    enabledAt: disabled ? null : "2026-07-20T00:00:00Z",
+    expiresAt: disabled ? null : "2026-08-10T00:00:00Z",
+  });
+  const run = (attempt) => ({
+    id: advisoryId,
+    run_attempt: attempt,
+    workflow_id: 77,
+    path: ".github/workflows/platform-merge-qualification.yml",
+    event: "workflow_dispatch",
+    status: "completed",
+    conclusion,
+    head_sha: "a".repeat(40),
+    repository: { full_name: qualificationRepository },
+    display_title: "Merge Qualification producer 4000-1",
+    created_at: lateAdvisory ? "2026-07-21T10:40:00.000Z" : "2026-07-21T10:00:00.000Z",
+    run_started_at: lateAdvisory ? "2026-07-21T10:40:00.000Z" : "2026-07-21T10:00:00.000Z",
+  });
+  const decision = buildMergeQualificationDecision({
+    repository: qualificationRepository,
+    workflowId: "77",
+    workflowPath: run(1).path,
+    runId: "5000",
+    runAttempt: "1",
+    parentWorkflowId: "11",
+    parentWorkflowPath: ".github/workflows/platform-pr.yml",
+    parentRunId: "4000",
+    parentRunAttempt: "1",
+    candidateSha: "b".repeat(40),
+    candidateTreeSha: "c".repeat(40),
+    builtImageDigest: `sha256:${"d".repeat(64)}`,
+    policyRevision: "a".repeat(40),
+    policyEnabled: true,
+    classifierClass: "isolated",
+    classifierReasonCodes: ["application_runtime"],
+    observedAt: run(1).run_started_at,
+  });
+  const cancelled = terminalState === "cancelled_evicted";
+  const built = buildMergeQualificationEvent({
+    ...decision.decision,
+    terminalState,
+    reasonCodes: [cancelled ? "candidate_evicted" : "gate_passed"],
+    builtImageDigest: cancelled ? null : decision.decision.builtImageDigest,
+    imageDigest: cancelled ? null : `sha256:${"d".repeat(64)}`,
+    gateCandidateSha: cancelled ? null : "b".repeat(40),
+    gateCandidateTreeSha: cancelled ? null : "c".repeat(40),
+    provisioned: !cancelled,
+    startedAt: run(1).run_started_at,
+    completedAt: lateAdvisory ? "2026-07-21T10:50:00.000Z" : "2026-07-21T10:10:00.000Z",
+    evidenceLinks: ["https://example.invalid/synthetic-qualification/5000/1"],
+    providerHeadroom: null,
+  });
+  const event = malformed ? { ...built.event, secretMarker: "PRIVATE_SECRET_MARKER" } : built.event;
+  const candidate = buildMergeQualificationCandidate({
+    repository: qualificationRepository,
+    workflowId: "11",
+    workflowPath: ".github/workflows/platform-pr.yml",
+    runId: "4000",
+    runAttempt: "1",
+    queueBaseSha: "e".repeat(40),
+    pullRequests: [{ number: 1, headSha: "f".repeat(40) }],
+    candidateSha: "b".repeat(40),
+    candidateTreeSha: "c".repeat(40),
+    builtImageDigest: `sha256:${"d".repeat(64)}`,
+    policyRevision: "a".repeat(40),
+    capturedAt: "2026-07-21T10:00:00.000Z",
+  });
+  const parent = {
+    id: 4000,
+    run_attempt: 1,
+    workflow_id: 11,
+    path: ".github/workflows/platform-pr.yml",
+    event: "merge_group",
+    status: "completed",
+    conclusion: "success",
+    head_sha: "b".repeat(40),
+    repository: { full_name: qualificationRepository },
+    created_at: "2026-07-21T10:00:00.000Z",
+    run_started_at: "2026-07-21T10:00:00.000Z",
+    updated_at: "2026-07-21T10:10:00.000Z",
+  };
+  const loss = reconcileMergeQualificationProducerAttempt({
+    producer: parent,
+    candidate: candidate.record,
+    policy: { enabled: true },
+    now: new Date(qualificationCheckedAt),
+  }).event;
+  const archives = new Map([
+    [503, buildZip([["event.json", JSON.stringify(loss), 8]])],
+    [500, buildZip([["candidate.json", JSON.stringify(candidate.record), 8]])],
+    [501, buildZip([["decision.json", JSON.stringify(decision.decision), 8]])],
+    [
+      502,
+      buildZip([
+        ["event.json", JSON.stringify(event), 8],
+        ["sibling.json", "x".repeat(1_000_000), 8],
+      ]),
+    ],
+  ]);
+  const artifact = (id, name, writer) => ({
+    id,
+    name,
+    expired: false,
+    workflow_run: { id: writer },
+    size_in_bytes: archives.get(id).length,
+  });
+  const decisionArtifact = artifact(501, "merge-qualification-decision-5000-1", 5000);
+  const candidateArtifact = artifact(500, "merge-qualification-candidate-4000-1", 4000);
+  const terminalArtifact = orphan
+    ? artifact(503, "merge-qualification-producer-terminal-4000-1", 9000)
+    : artifact(502, "merge-qualification-terminal-5000-1", 9000);
+  const terminalArtifacts = lateAdvisory
+    ? [terminalArtifact, artifact(503, "merge-qualification-producer-terminal-4000-1", 9000)]
+    : [terminalArtifact];
+  const fetchImpl = async (url, request = {}) => {
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace(`/repos/${qualificationRepository}`, "");
+    ledger.push({ path, search: parsed.search, method: request.method ?? "GET" });
+    let body;
+    if (path === "/graphql")
+      body = {
+        data: {
+          repository: {
+            pullRequests: {
+              totalCount: 0,
+              nodes: [],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+      };
+    else if (path.startsWith("/contents/"))
+      body = { encoding: "base64", content: Buffer.from(policyContent).toString("base64") };
+    else if (path.includes("/workflows/platform-merge-qualification.yml/runs"))
+      body = { total_count: orphan ? 0 : attempts.length, workflow_runs: orphan ? [] : attempts.map(run) };
+    else if (
+      (orphan || lateAdvisory) &&
+      path.includes("/workflows/platform-pr.yml/runs") &&
+      parsed.searchParams.has("created")
+    )
+      body = { total_count: 1, workflow_runs: [parent] };
+    else if (path.includes("/workflows/")) body = { total_count: 0, workflow_runs: [] };
+    else if (path === "/search/issues") body = { total_count: 0, items: [] };
+    else if (path === "/actions/artifacts") {
+      const artifacts = omitted
+        ? []
+        : terminalArtifacts.filter((item) => item.name === parsed.searchParams.get("name"));
+      body = { total_count: artifacts.length, artifacts };
+    } else if (path === "/actions/runs/4000/attempts/1") body = parent;
+    else if (path === "/actions/runs/5000/attempts/1") body = run(1);
+    else if (path === "/actions/runs/4000/attempts/1/jobs")
+      body = {
+        total_count: 1,
+        jobs: [
+          {
+            id: 600,
+            name: "Docker Image Build",
+            conclusion: "success",
+            steps: [{ name: "Push boot-smoked merge-group image", conclusion: "success" }],
+          },
+        ],
+      };
+    else if (path === "/commits")
+      body = [{ sha: "a".repeat(40), commit: { committer: { date: "2026-07-21T09:00:00Z" } } }];
+    else if (path === `/commits/${"a".repeat(40)}/pulls`)
+      body = [{ id: 700, base: { ref: "main" }, merged_at: "2026-07-21T09:30:00Z", merge_commit_sha: "a".repeat(40) }];
+    else if (path === "/actions/runs/4000/artifacts") body = { total_count: 1, artifacts: [candidateArtifact] };
+    else if (path === "/actions/runs/5000/artifacts") body = { total_count: 1, artifacts: [decisionArtifact] };
+    else if (path === "/actions/runs/9000/artifacts")
+      body = { total_count: terminalArtifacts.length, artifacts: terminalArtifacts };
+    else if (path === "/actions/runs/9000")
+      body = {
+        id: 9000,
+        repository: { full_name: qualificationRepository },
+        head_repository: { full_name: qualificationRepository },
+        head_branch: "main",
+        path: ".github/workflows/platform-merge-qualification-observer.yml",
+        event: "schedule",
+      };
+    else if (/\/actions\/artifacts\/\d+\/zip$/.test(path))
+      return new Response(archives.get(Number(path.split("/")[3])));
+    else throw new Error(`Unexpected synthetic request ${path}${parsed.search}`);
+    return new Response(JSON.stringify(body), { status: 200 });
+  };
+  return { fetchImpl, ledger, decision, built, archives, loss };
+}
+
+describe("canonical advisory collection", () => {
+  const collect = async (fixture) =>
+    collectDeliveryHealth(
+      {
+        repository: qualificationRepository,
+        checkedAt: qualificationCheckedAt,
+        publicationMode: "hourly",
+        updateIssues: false,
+        fetchImpl: fixture.fetchImpl,
+        sleep: async () => {},
+      },
+      { policy },
+    );
+
+  it("scheduled collection reaches render without replacing source", async () => {
+    const workflow = await readFile(
+      new URL("../.github/workflows/platform-delivery-health.yml", import.meta.url),
+      "utf8",
+    );
+    expect(workflow).toContain("pnpm run ops -- release-health:delivery-health");
+    expect(SUBCOMMANDS["release-health:delivery-health"].script).toBe("release-health-delivery-health.mjs");
+    const fixture = qualificationTransport();
+    expect(fixture.decision.errors).toEqual([]);
+    expect(fixture.built.errors).toEqual([]);
+    const directory = await mkdtemp(join(tmpdir(), "10968-impl-g1-command-"));
+    const out = join(directory, "health.json");
+    const markdownOut = join(directory, "health.md");
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(fixture.fetchImpl);
+    try {
+      expect(
+        await runDeliveryHealthCommand(
+          [
+            "--repository",
+            qualificationRepository,
+            "--checked-at",
+            qualificationCheckedAt,
+            "--out",
+            out,
+            "--markdown-out",
+            markdownOut,
+            "--github-summary",
+            join(directory, "summary.md"),
+            "--update-issues",
+            "false",
+          ],
+          {},
+          { policy },
+        ),
+      ).toBe(0);
+      const record = JSON.parse(await readFile(out, "utf8"));
+      expect(record.qualification).toMatchObject({
+        status: "complete",
+        attempts: [{ runId: "5000", runAttempt: "1", status: "terminal", terminalState: "passed" }],
+      });
+      expect(record.qualification.events).toEqual([fixture.built.event]);
+      const markdown = await readFile(markdownOut, "utf8");
+      expect(markdown).toContain("5000 / 1 | success | terminal | passed");
+      expect(markdown.indexOf("| rolling24h |")).toBeLessThan(markdown.indexOf("### Advisory qualification evidence"));
+      expect(fixture.ledger.filter((entry) => entry.path.endsWith("/zip")).map((entry) => entry.path)).toEqual([
+        "/actions/artifacts/501/zip",
+        "/actions/artifacts/500/zip",
+        "/actions/artifacts/502/zip",
+      ]);
+      expect(fixture.ledger.every((entry) => entry.method === "GET" || entry.path === "/graphql")).toBe(true);
+    } finally {
+      spy.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
+    const omitted = await collect(qualificationTransport({ omitted: true }));
+    expect(omitted.record.qualification.status).toBe("partial");
+    expect(omitted.record.qualification.events).toEqual([]);
+  });
+
+  it("latest attempt inventory preserves terminal conclusions and zero-event renders", async () => {
+    for (const attempts of [
+      [1, 2],
+      [2, 1],
+    ]) {
+      const fixture = qualificationTransport({ attempts });
+      const result = await collect(fixture);
+      expect(result.record.qualification.attempts).toEqual([
+        {
+          runId: "5000",
+          runAttempt: "2",
+          conclusion: "success",
+          status: "invalid",
+          terminalState: null,
+          classifierClass: null,
+          eligible: null,
+          identityAvailable: null,
+        },
+      ]);
+      expect(result.record.qualification.events).toEqual([]);
+      expect(result.record.qualification.reasons).toEqual(["qualification:5000/2:invalid"]);
+      expect(result.markdown).toContain("5000 / 2 | success | invalid | unknown");
+    }
+    for (const conclusion of [
+      "success",
+      "failure",
+      "neutral",
+      "cancelled",
+      "skipped",
+      "timed_out",
+      "action_required",
+      "stale",
+      "startup_failure",
+      "future_unknown",
+    ]) {
+      const result = await collect(qualificationTransport({ conclusion, omitted: true }));
+      expect(result.record.qualification.attempts).toMatchObject([
+        { conclusion: conclusion === "future_unknown" ? "unknown" : conclusion, status: "missing" },
+      ]);
+      expect(result.record.qualification.status).toBe("partial");
+      expect(result.record.qualification.events).toEqual([]);
+    }
+    for (const id of ["9007199254740993", "9007199254740992"]) {
+      const result = await collect(qualificationTransport({ advisoryId: id }));
+      expect(result.record.qualification).toMatchObject({
+        status: "partial",
+        attempts: [{ runId: id, status: "invalid" }],
+        events: [],
+      });
+      expect(result.markdown).toContain(`${id} / 1`);
+    }
+    const fixture = qualificationTransport({ terminalState: "cancelled_evicted", conclusion: "cancelled" });
+    expect(fixture.built.errors).toEqual([]);
+    const evicted = await collect(fixture);
+    expect(evicted.record.qualification.events).toMatchObject([
+      { terminalState: "cancelled_evicted", provisioned: false, identityAvailable: false },
+    ]);
+    expect(evicted.record.windows.rolling24h.releases.ephemeral.denominator).toBe(0);
+  });
+
+  it("gathers a synthetic dispatch-loss terminal through the canonical producer reader", async () => {
+    const fixture = qualificationTransport({ orphan: true });
+    expect(fixture.loss).toBeTruthy();
+    const result = await collect(fixture);
+    expect(result.record.qualification).toMatchObject({
+      status: "complete",
+      attempts: [
+        {
+          kind: "producer",
+          runId: "4000",
+          runAttempt: "1",
+          status: "terminal",
+          terminalState: "infrastructure_error",
+          eligible: true,
+        },
+      ],
+    });
+    expect(result.record.qualification.producerEvents).toEqual([fixture.loss]);
+    expect(fixture.ledger.some((entry) => entry.path === "/actions/artifacts/503/zip")).toBe(true);
+    expect(fixture.ledger.some((entry) => entry.path === "/commits")).toBe(true);
+  });
+
+  it("preserves a late-advisory cleanup conflict instead of accepting dispatch loss", async () => {
+    const fixture = qualificationTransport({ lateAdvisory: true });
+    expect(fixture.built.errors).toEqual([]);
+    const result = await collect(fixture);
+    expect(result.record.qualification).toMatchObject({
+      status: "partial",
+      attempts: [
+        { runId: "5000", runAttempt: "1", status: "terminal", terminalState: "passed" },
+        { kind: "producer", runId: "4000", runAttempt: "1", status: "conflict", terminalState: null },
+      ],
+      producerEvents: [],
+      reasons: ["qualification:4000/1:advisory_cleanup_complete"],
+    });
+    expect(fixture.ledger.some((entry) => entry.path === "/actions/runs/5000/attempts/1")).toBe(true);
+  });
+
+  it("does not demand a terminal for proven scope-skipped decisions", async () => {
+    for (const [classifierClass, reason] of [
+      ["not_applicable", "docs_or_test_only"],
+      ["persistent_required", "migration_schema"],
+    ]) {
+      const fixture = qualificationTransport({ omitted: true });
+      fixture.archives.set(
+        501,
+        buildZip([
+          [
+            "decision.json",
+            JSON.stringify({ ...fixture.decision.decision, classifierClass, classifierReasonCodes: [reason] }),
+            8,
+          ],
+        ]),
+      );
+      const result = await collect(fixture);
+      expect(result.record.qualification).toMatchObject({
+        status: "complete",
+        attempts: [{ status: "not-required", eligible: false, classifierClass }],
+        events: [],
+      });
+      expect(fixture.ledger.some((entry) => entry.path === "/actions/artifacts")).toBe(false);
+    }
+  });
+
+  it("paged collection rejects truncation and exact-payload violations", async () => {
+    const control = qualificationTransport();
+    const text = JSON.stringify(control.built.event);
+    control.archives.set(
+      502,
+      buildZip([
+        ["event.json", text + " ".repeat(64 * 1024 - Buffer.byteLength(text)), 8],
+        ["sibling.json", "x".repeat(11 * 1024 * 1024), 0],
+      ]),
+    );
+    expect(Buffer.byteLength(readQualificationArchive(control.archives.get(502)))).toBe(64 * 1024);
+    expect(() =>
+      readQualificationArchive(
+        buildZip([["event.json", text + " ".repeat(64 * 1024 + 1 - Buffer.byteLength(text)), 8]]),
+      ),
+    ).toThrow("exceeds its byte bound");
+    expect((await collect(control)).record.qualification.status).toBe("complete");
+    for (const entries of [
+      [["nested/event.json", text, 8]],
+      [["notes.json", "{}", 8]],
+      [["event.json", "{not-json", 8]],
+      [
+        ["event.json", text, 8],
+        ["event.json", text, 8],
+      ],
+      [["event.json", text + " ".repeat(64 * 1024 + 1 - Buffer.byteLength(text)), 8]],
+      [
+        ["event.json", text, 8],
+        ["../unsafe.json", "{}", 0],
+      ],
+      [["event.json", JSON.stringify({ ...control.built.event, schemaVersion: "merge-qualification-event/v999" }), 8]],
+    ]) {
+      const fixture = qualificationTransport();
+      fixture.archives.set(502, buildZip(entries));
+      const result = await collect(fixture);
+      expect(result.record.qualification.status).toBe("partial");
+      expect(result.record.qualification.events).toEqual([]);
+    }
+    await expect(
+      readBoundedQualificationArchive(
+        new Response("tiny", { headers: { "content-length": String(256 * 1024 * 1024 + 1) } }),
+      ),
+    ).rejects.toThrow("qualification_archive_size_invalid");
+    let cancelled = false;
+    await expect(
+      readBoundedQualificationArchive({
+        body: {
+          getReader: () => ({
+            read: async () => ({ done: false, value: { byteLength: 256 * 1024 * 1024 + 1 } }),
+            cancel: async () => {
+              cancelled = true;
+            },
+            releaseLock: () => {},
+          }),
+        },
+      }),
+    ).rejects.toThrow("qualification_archive_size_invalid");
+    expect(cancelled).toBe(true);
+  });
+
+  it("mixed windows preserve legacy alerts and isolate one malformed record", async () => {
+    const valid = await collect(qualificationTransport());
+    const invalid = await collect(qualificationTransport({ malformed: true }));
+    const source = representativeSource();
+    const health = (qualification) =>
+      buildDeliveryHealth({
+        checkedAt: "2026-07-18T12:00:00.000Z",
+        publicationMode: "hourly",
+        repository: qualificationRepository,
+        policy,
+        source: { ...source, qualification },
+        apiStatus: {},
+      });
+    const legacy = health(undefined);
+    const disabled = await collect(qualificationTransport({ disabled: true }));
+    expect(health(disabled.record.qualification).record.slis).toEqual(legacy.record.slis);
+    expect(health(valid.record.qualification).record.slis).toEqual(legacy.record.slis);
+    const malformed = health(invalid.record.qualification);
+    expect(malformed.record.completeness.reasons).toEqual(["qualification:5000/1:invalid"]);
+    expect(malformed.record.slis.every((sli) => sli.status === "insufficient-data")).toBe(true);
+    expect(JSON.stringify(invalid)).not.toContain("PRIVATE_SECRET_MARKER");
+    expect(health(valid.record.qualification).record.slis).toEqual(legacy.record.slis);
+  });
+
+  it("refuses recursively open workflow collection policy before requesting data", async () => {
+    for (const collection of [
+      { ...policy.collection, surprise: true },
+      { ...policy.collection, workflowSources: { ...policy.collection.workflowSources, surprise: "other.yml" } },
+      { ...policy.collection, maxPages: 21 },
+    ]) {
+      const fetchImpl = vi.fn();
+      await expect(
+        collectDeliveryHealth(
+          {
+            repository: qualificationRepository,
+            checkedAt: qualificationCheckedAt,
+            publicationMode: "hourly",
+            fetchImpl,
+          },
+          { policy: { ...policy, collection } },
+        ),
+      ).rejects.toThrow("Invalid delivery-health collection policy.");
+      expect(fetchImpl).not.toHaveBeenCalled();
+    }
+  });
+});
 
 beforeAll(async () => {
   policy = await readDeliveryHealthPolicy();
@@ -57,7 +575,7 @@ describe("first-attempt workflow success", () => {
         calls.push(request);
         if (request === "https://api.github.com/graphql")
           return {
-            data: { repository: { pullRequests: { pageInfo: { hasNextPage: false }, nodes: [] } } },
+            data: { repository: { pullRequests: { totalCount: 0, pageInfo: { hasNextPage: false }, nodes: [] } } },
           };
         if (request.includes("/attempts/1")) {
           if (unavailable) throw new Error("inaccessible");
@@ -66,7 +584,7 @@ describe("first-attempt workflow success", () => {
         if (request.includes("platform-pr.yml")) return { workflow_runs: runs };
         return { workflow_runs: [] };
       },
-      paginate: async () => [],
+      paginate: async (request) => (request.includes("platform-pr.yml") ? runs : []),
       markTruncated: () => {},
       status: () => ({
         truncated: truncated ? [`workflow:${policy.collection.workflowSources.platformPr}`] : [],
@@ -195,19 +713,26 @@ describe("first-attempt workflow success", () => {
             });
           const body =
             path === "/graphql"
-              ? { data: { repository: { pullRequests: { pageInfo: { hasNextPage: false }, nodes: [] } } } }
+              ? {
+                  data: {
+                    repository: { pullRequests: { totalCount: 0, pageInfo: { hasNextPage: false }, nodes: [] } },
+                  },
+                }
               : path.includes("platform-pr.yml")
                 ? {
+                    total_count: 10,
                     workflow_runs: Array.from({ length: 10 }, (_, index) =>
                       synthetic(1001 + index, { run_attempt: 2 }),
                     ),
                   }
                 : path.includes("/actions/workflows/")
-                  ? { workflow_runs: [] }
+                  ? { total_count: 0, workflow_runs: [] }
                   : path === "/search/issues"
                     ? {
+                        total_count: 1,
                         items: [
                           {
+                            id: 2001,
                             number: 2001,
                             state: "open",
                             body: renderSliMarker({
@@ -217,7 +742,14 @@ describe("first-attempt workflow success", () => {
                           },
                         ],
                       }
-                    : [];
+                    : path.includes("/jobs")
+                      ? { total_count: 0, jobs: [] }
+                      : path.includes("/contents/")
+                        ? {
+                            encoding: "base64",
+                            content: Buffer.from(JSON.stringify({ enabled: false })).toString("base64"),
+                          }
+                        : [];
           return new Response(JSON.stringify(body), { status: 200 });
         },
       };
@@ -381,7 +913,9 @@ describe("GitHub collection conventions", () => {
       },
       { maxPages: 1, retries: 0 },
     );
-    await client.paginate("/issues?per_page=100", (value) => value, { source: "fixture" });
+    await expect(client.paginate("/issues?per_page=100", (value) => value, { source: "fixture" })).rejects.toThrow(
+      "collection_incomplete",
+    );
     expect(client.status().truncated).toEqual(["fixture"]);
   });
 });
@@ -1174,7 +1708,7 @@ function collectorClient({ archive, withArtifact }) {
         return {
           data: {
             repository: {
-              pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+              pullRequests: { totalCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
             },
           },
         };
@@ -1185,6 +1719,7 @@ function collectorClient({ archive, withArtifact }) {
       return { workflow_runs: [] };
     },
     paginate: async (request) => {
+      if (String(request).includes("platform-ephemeral-verification.yml")) return [ephemeralRun];
       if (String(request).includes("/actions/runs/900/jobs")) return [ephemeralJob("success")];
       if (String(request).includes("/actions/runs/900/artifacts")) {
         return withArtifact
