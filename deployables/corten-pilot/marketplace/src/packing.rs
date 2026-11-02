@@ -181,8 +181,8 @@ pub(crate) async fn page(
     render(&req, &viewer, &config, &headers, &id, place.after_write.clone(), outcome, scan, line, StatusCode::OK, &chrome).await
 }
 
-/// What the API says came of `attempt`, for the page.
-async fn check(caller: &Api<'_>, id: &str, attempt: &str) -> Outcome {
+/// What the API says came of `attempt` on shipment `id`, for the page (the command center's too).
+pub(crate) async fn check(caller: &Api<'_>, id: &str, attempt: &str) -> Outcome {
     if !crate::recovery::valid_attempt(attempt) {
         return Outcome::Uncertain(attempt.to_owned());
     }
@@ -240,8 +240,8 @@ async fn render(
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
 
-/// What a write's failed call means.
-enum Failed {
+/// What a write's failed call means (the command center's too).
+pub(crate) enum Failed {
     /// The API applied this attempt before (the same form, sent again).
     AppliedBefore,
     /// Refused, with the API's words: nothing was applied.
@@ -255,7 +255,7 @@ enum Failed {
     Unknown(corten::Error),
 }
 
-async fn failed(caller: &Api<'_>, id: &str, attempt: &str, error: ApiError) -> Failed {
+pub(crate) async fn failed(caller: &Api<'_>, id: &str, attempt: &str, error: ApiError) -> Failed {
     if error.status() == Some(StatusCode::UNAUTHORIZED) {
         return Failed::SignIn;
     }

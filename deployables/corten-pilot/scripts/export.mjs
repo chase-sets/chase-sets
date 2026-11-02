@@ -1254,6 +1254,8 @@ const outputs = [
         ["fulfillment.routes.marketplace.accountSaleShipmentPacking.", "pack_route"],
         ["fulfillment.features.shipments.ui.packingSlipPage.", "slip"],
         ["fulfillment.routes.marketplace.accountSaleShipmentPackingSlips.", "slips_route"],
+        ["fulfillment.features.shipments.ui.commandCenter.", "center"],
+        ["fulfillment.routes.marketplace.accountSaleShipments.", "sales_route"],
       ]),
     ),
   ],

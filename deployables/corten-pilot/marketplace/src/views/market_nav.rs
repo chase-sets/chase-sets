@@ -23,9 +23,7 @@ corten::script::script!(pub mod badge = "nav_badge.js");
 /// The badge value the cart's entry reads.
 const CART_COUNT: &str = "checkout.cart-count";
 
-/// The nav entries the pilot serves, by the exact path marketplace's nav names. Not `Req::serves`:
-/// the pilot routes `/account/sales/shipments` only to send it on to marketplace's command center
-/// (chase-sets/chase-sets#10638), and a nav entry should not take that extra hop.
+/// The nav entries the pilot serves, by the exact path marketplace's nav names.
 const OWN: &[&str] = &[
     <url::Locations as Route>::PATH,
     <url::Restock as Route>::PATH,
@@ -36,6 +34,7 @@ const OWN: &[&str] = &[
     <url::Search as Route>::PATH,
     <url::Purchases as Route>::PATH,
     <url::Sales as Route>::PATH,
+    <url::SaleShipments as Route>::PATH,
     <url::Notifications as Route>::PATH,
     <url::Sessions as Route>::PATH,
     <url::SellerListings as Route>::PATH,
@@ -52,6 +51,9 @@ const OWN: &[&str] = &[
     <url::PaymentMethods as Route>::PATH,
     <url::SignIn as Route>::PATH,
     <url::Register as Route>::PATH,
+    <url::Agents as Route>::PATH,
+    <url::Channels as Route>::PATH,
+    <url::SupportList as Route>::PATH,
 ];
 
 /// The design system's glyphs the nav draws (`Icon`'s lucide markup, from scripts/export.mjs).

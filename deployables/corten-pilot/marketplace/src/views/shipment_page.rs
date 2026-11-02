@@ -163,7 +163,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
     let description = t.detail_order_with_counterpart(&display_reference(&s.order_id), counterpart).to_string();
     let back = match side {
         Side::Buyer => crate::app::url::Shipments.href(),
-        Side::Seller => on_marketplace("/account/sales/shipments"),
+        Side::Seller => crate::app::url::SaleShipments::default().href(),
     };
     let slip = crate::packing_slips::href(&s.shipment_id);
     let on_market = on_marketplace(&format!("/account/sales/shipments/{}", crate::api::segment(&s.shipment_id)));

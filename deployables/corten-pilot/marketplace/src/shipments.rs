@@ -1,16 +1,13 @@
 //! The account's shipments (Fulfillment's `account-shipments`, `account-shipment` and
 //! `account-sale-shipment`): the buyer's shipments, each one's page, and each shipment's page as
-//! its seller sees it. The seller's list is marketplace's command center, which marketplace builds
-//! from Fulfillment's rules in its own loader; the API does not serve it yet
-//! (chase-sets/chase-sets#10638), so `/account/sales/shipments` sends the seller there. A
-//! shipment's packing is the pilot's (`packing`); its other actions (labels, dispatch, delivery,
-//! returns, exceptions) are not ported: the seller's page links to marketplace's for them.
+//! its seller sees it. The seller's list is the command center (`command_center`), where a
+//! shipment's labels, dispatch, delivery, returns and exceptions are acted on; its packing is the
+//! packing page's (`packing`).
 //!
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /account/shipments` | the buyer's shipments (the first 100, as marketplace reads them) |
 //! | `GET /account/shipments/{id}` | a shipment the buyer is sent |
-//! | `GET /account/sales/shipments` | 303 to marketplace's command center |
 //! | `GET /account/sales/shipments/{id}` | a shipment the seller sends, with its postage diagnostics, read after the write whose receipt it carries |
 use corten::{
     axum::http::{HeaderMap, StatusCode},
@@ -91,14 +88,6 @@ pub(crate) async fn sale(
     let (id, after) = (route.id, route.after);
     let receipt = Receipt::from_param(after.after_write.as_deref());
     shipment(&req, &viewer, &config, &headers, Side::Seller, &id, receipt, &chrome).await
-}
-
-/// The seller's list is marketplace's command center (chase-sets/chase-sets#10638).
-pub(crate) async fn command_center(req: Req, Caller(Shipper(_)): Caller<Shipper>) -> HtmlResult {
-    match views::marketplace("/account/sales/shipments") {
-        Some(to) => req.redirect(&to),
-        None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
-    }
 }
 
 /// A shipment's page; after a write (`receipt`), read after it, and while the read is behind the

@@ -583,6 +583,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     // Before Ordering's, whose sales path is a prefix of the seller's shipments.
+    if let Some(answer) = command_center(session, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = packing(&method, uri.path(), &headers, &body) {
         return answer;
     }
@@ -2803,6 +2806,12 @@ async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidde
     assert_eq!(shell.matches("<nav").count(), 2, "the top bar's and the phone's: {shell}");
     assert!(shell.contains(r#"data-badge="checkout.cart-count""#), "the cart's badge: {shell}");
     assert!(!shell.contains("data-hide-empty"), "a member's cart entry is always shown: {shell}");
+    // Every entry is a page the pilot serves, so every one stays on the pilot.
+    assert!(!shell.contains(r#"href="http://localhost:7753/account"#), "no entry leaves for marketplace: {shell}");
+    let (_, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(!shell.contains(r#"href="http://localhost:7753/account"#), "no entry leaves for marketplace: {shell}");
+    assert!(shell.contains(r#"href="/account/sales/shipments""#), "Shipping's entry: {shell}");
     let (_, _, html) = pilot.send(get(CART_SCREEN, None)).await;
     let shell = html.split_once("<main>").unwrap().0;
     assert!(!shell.contains(r#"aria-label="Account menu""#) && !shell.contains("Sign Out"), "{shell}");
@@ -6253,7 +6262,7 @@ async fn a_sale_shows_the_sellers_money_holds_and_a_cancel_that_asks_first() {
     );
     assert!(html.contains(r#"href="/account/support/sup_01M5SPB8DCX26R20QVHASPF77D">SUP-HASPF77D</a>"#), "{html}");
     assert!(shown.contains("Refund outcome Refunded $5.00 Retained $52.32"), "{shown}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">View fulfillment</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments">View fulfillment</a>"#), "{html}");
 }
 
 #[tokio::test]
@@ -6535,7 +6544,7 @@ async fn a_sale_shipment_shows_the_postage_diagnostics_and_sends_its_actions_to_
         html.contains(r#"href="/account/sales/shipments/packing-slips?shipmentIds=shp_done&amp;format=letter" target="_blank""#),
         "{html}"
     );
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">Back</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments">Back</a>"#), "the command center: {html}");
     assert!(!shown.contains("Delivered at"), "the seller's facts have no delivery time, as marketplace's: {shown}");
     // The order's postage policy, then the diagnostics.
     assert!(shown.contains("Postage policy Committed requirements from the order package plan snapshot. Policy version default-postage-policy-v2 Parcel required Required Parcel reasons too-heavy-for-letter"), "{shown}");
@@ -6566,16 +6575,15 @@ async fn a_sale_shipment_shows_the_postage_diagnostics_and_sends_its_actions_to_
 }
 
 #[tokio::test]
-async fn an_unknown_shipment_is_not_found_a_failed_read_a_bad_gateway_and_the_command_center_is_marketplaces() {
+async fn an_unknown_shipment_is_not_found_a_failed_read_a_bad_gateway_and_the_command_center_is_the_pilots() {
     let pilot = Pilot::new().await;
     let (status, _, _) = pilot.send(get("/account/shipments/shp_gone", Some("shipper"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) = pilot.send(get("/account/sales/shipments/shp_down", Some("shipper"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    // The seller's list is marketplace's (chase-sets/chase-sets#10638), not a sale named "shipments".
-    let (status, headers, _) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers["location"], "http://localhost:7753/account/sales/shipments");
+    // The seller's list is the command center, not a sale named "shipments".
+    let (status, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
         order_calls(&pilot).iter().all(|c| c.path.starts_with(SELLER_SHIPMENTS)),
         "Ordering is not asked for a sale called shipments"
@@ -6583,12 +6591,12 @@ async fn an_unknown_shipment_is_not_found_a_failed_read_a_bad_gateway_and_the_co
 }
 
 #[tokio::test]
-async fn an_orders_view_fulfillment_opens_the_buyers_shipments_here_and_the_sellers_on_marketplace() {
+async fn an_orders_view_fulfillment_opens_the_buyers_shipments_and_the_sellers_command_center() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/account/purchases/ord_packed", Some("shopper"))).await;
     assert!(html.contains(r#"href="/account/shipments">View fulfillment</a>"#), "{html}");
     let (_, _, html) = pilot.send(get("/account/sales/ord_sold", Some("merchant"))).await;
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">View fulfillment</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments">View fulfillment</a>"#), "{html}");
 }
 
 /// Packing attempts the stand-in knows: one the API applied before (a repeat is refused, and
@@ -6666,6 +6674,217 @@ fn packing(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Opti
     }
 }
 
+/// The stand-in command center (`getSellerCommandCenter`): for `shipper`, an exception with its
+/// notes, a shipment ready to dispatch with its tracking, and one awaiting its package, in the
+/// API's bucket order with the empty bucket too; for `tracker`, nothing needs them. A read that
+/// waits for position 44 is still catching up. Its actions: `shp_rtd` dispatches; `shp_ex`'s
+/// cancel is refused with the API's words; any action sent as `APPLIED_BEFORE` was applied before.
+fn command_center(session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let rest = path.strip_prefix(SELLER_SHIPMENTS)?;
+    let item = |id: &str, status: &str, primary: Value, disclosed: Value| {
+        json!({
+            "shipmentId": id, "orderId": "ord_1", "displayReference": format!("SHP-{}", id.to_uppercase()),
+            "status": status, "labelStatus": "none", "trackingIdentifier": null, "carrierName": null,
+            "buyerDisplayName": "Collector Zero", "currentExceptionType": null, "currentExceptionNotes": null,
+            "lineCount": 2, "totalQuantity": 3, "bucket": "", "severity": "normal", "observedAt": "2026-11-02T10:00:00.000Z",
+            "conflicts": [], "plan": { "primary": primary, "disclosed": disclosed }, "attention": {},
+        })
+    };
+    if rest == "/command-center" && *method == Method::GET {
+        if waits_for(headers).as_deref() == Some("44") {
+            return Some(refusal(StatusCode::SERVICE_UNAVAILABLE, "projection_freshness_timeout", "Not caught up."));
+        }
+        if session != "shipper" {
+            let empty = ["exceptions", "ready-to-dispatch", "needs-label", "needs-packing"]
+                .map(|id| json!({ "id": id, "items": [], "count": 0 }));
+            return Some(
+                Json(json!({ "source": "fulfillment-ship-by", "buckets": empty, "queue": [], "totalNeedingAttention": 0 }))
+                    .into_response(),
+            );
+        }
+        let mut exception = item("shp_ex", "exception", Value::Null, json!(["cancel-shipment", "return", "brand-new-action"]));
+        exception["currentExceptionType"] = json!("carrier-delay");
+        exception["currentExceptionNotes"] = json!("Stuck at the hub.");
+        let mut ready = item("shp_rtd", "label-attached", json!("dispatch"), json!(["void-label", "raise-exception"]));
+        ready["trackingIdentifier"] = json!("9400TRACK");
+        let packing = item("shp_new", "awaiting-package", json!("start-packing"), json!([]));
+        let buckets = json!([
+            { "id": "exceptions", "items": [exception], "count": 1 },
+            { "id": "ready-to-dispatch", "items": [ready], "count": 1 },
+            { "id": "needs-label", "items": [], "count": 0 },
+            { "id": "needs-packing", "items": [packing], "count": 1 },
+        ]);
+        return Some(
+            Json(json!({ "source": "fulfillment-ship-by", "buckets": buckets, "queue": [], "totalNeedingAttention": 3 }))
+                .into_response(),
+        );
+    }
+    let rest = rest.strip_prefix('/')?;
+    let (id, command) = rest.split_once('/')?;
+    if !matches!(id, "shp_ex" | "shp_rtd" | "shp_new") {
+        return None;
+    }
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let _ = body;
+    Some(match (method.as_str(), id, command) {
+        ("GET", _, "mutation-recovery") => match attempt {
+            APPLIED_BEFORE => Json(json!({ "status": "succeeded" })).into_response(),
+            NO_RECORD => Json(json!({ "status": "confirming" })).into_response(),
+            CHECK_DOWN => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            _ => Json(json!({ "status": "failed-safe" })).into_response(),
+        },
+        ("POST", _, _) if attempt == APPLIED_BEFORE => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "This request was already processed.")
+        }
+        ("POST", _, _) if attempt == CHECK_DOWN => refusal(StatusCode::CONFLICT, "shipment_conflict", "The shipment changed."),
+        ("POST", "shp_rtd", "dispatch" | "label/void" | "exception") => written(StatusCode::OK, id),
+        ("POST", "shp_ex", "cancel") => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "A shipment with an open exception cannot be cancelled.")
+        }
+        ("POST", "shp_ex", "return") => written(StatusCode::OK, id),
+        _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    })
+}
+
+/// The command-center actions the pilot sent: their path, attempt and body.
+fn center_writes(pilot: &Pilot) -> Vec<(String, String, String)> {
+    shipment_calls(pilot)
+        .into_iter()
+        .filter(|c| c.method == Method::POST && !c.path.contains("/packing") && !c.path.ends_with("/pack"))
+        .map(|c| {
+            let attempt = c.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+            (c.path.trim_start_matches(SELLER_SHIPMENTS).to_owned(), attempt, c.body)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_command_center_draws_the_apis_buckets_in_order_each_shipments_next_action_and_the_rest_under_more() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Seller Fulfillment command center"), "{shown}");
+    let (ex, rtd, pack) = (
+        shown.find("Exceptions (1)").unwrap(),
+        shown.find("Ready to dispatch (1)").unwrap(),
+        shown.find("Needs packing (1)").unwrap(),
+    );
+    assert!(ex < rtd && rtd < pack, "the API's order: {shown}");
+    assert!(!shown.contains("Needs a label"), "an empty bucket is not drawn: {shown}");
+    assert!(shown.contains("Shipment SHP-SHP_EX Exception Collector Zero · 3 items across 2 lines"), "{shown}");
+    assert!(shown.contains("Carrier delay Stuck at the hub."), "the exception and its notes: {shown}");
+    assert!(shown.contains("Tracking 9400TRACK"), "a title is its tracking once it has one: {shown}");
+    // The next action: dispatch is a form, packing opens the packing page.
+    assert!(html.contains(r#"name="intent" value="dispatch">Mark dispatched</button>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments/shp_new/packing">Pack shipment</a>"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="shipment" value="shp_rtd">"#), "{html}");
+    assert!(html.contains(ATTEMPT_INPUT), "every form carries an attempt: {html}");
+    // The rest under More actions; one the pilot does not know is not drawn.
+    assert!(html.contains("<details"), "{html}");
+    // Each form's hidden note (the browser cannot keep the attempt) is in the text; not shown.
+    let visible = shown.replace("Shipment recovery storage is unavailable. No change was sent. ", "");
+    assert!(visible.contains("More actions Cancel shipment Record return Open shipment"), "{visible}");
+    assert!(!html.contains("brand-new-action"), "{html}");
+    assert!(html.contains(r#"<select"#) && html.contains(r#"name="exception_type""#), "raise exception's type: {html}");
+    assert!(html.contains(r#"<option value="carrier-delay" selected>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments/shp_rtd">Open shipment</a>"#), "{html}");
+    assert!(center_writes(&pilot).is_empty(), "drawing the page sends nothing");
+
+    let (status, _, html) = pilot.send(get("/account/sales/shipments", Some("tracker"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Nothing needs you right now"), "{}", text(&html));
+}
+
+#[tokio::test]
+async fn an_action_is_sent_with_its_attempt_and_the_command_center_reads_after_it() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("/account/sales/shipments?"), "{to}");
+    let place = query(to);
+    assert_eq!(place["done"], ATTEMPT, "the page settles the attempt");
+    assert_eq!(place["shipment"], "shp_rtd");
+    assert!(place["after_write"].contains("\"commitPosition\":\"42\""), "read after the write: {to}");
+    assert_eq!(center_writes(&pilot), [("/shp_rtd/dispatch".to_owned(), ATTEMPT.to_owned(), "{}".to_owned())]);
+
+    let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent=raise-exception&exception_type=lost-in-transit&notes=");
+    pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(center_writes(&pilot)[1].2, r#"{"exceptionType":"lost-in-transit","notes":null}"#);
+    let form = format!("attempt={ATTEMPT}&shipment=shp_ex&intent=return");
+    pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(center_writes(&pilot)[2], ("/shp_ex/return".to_owned(), ATTEMPT.to_owned(), r#"{"reason":null}"#.to_owned()));
+}
+
+#[tokio::test]
+async fn a_refused_action_says_why_and_one_applied_before_reads_as_applied() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&shipment=shp_ex&intent=cancel-shipment");
+    let (status, _, html) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let shown = text(&html);
+    assert!(
+        shown.contains("That action could not be completed A shipment with an open exception cannot be cancelled."),
+        "{shown}"
+    );
+    assert!(shown.contains("Exceptions (1)"), "the command center is drawn again: {shown}");
+    assert!(shipment_calls(&pilot).iter().any(|c| c.path.ends_with("/shp_ex/mutation-recovery")), "a refusal asks");
+
+    let form = format!("attempt={APPLIED_BEFORE}&shipment=shp_rtd&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(query(headers["location"].to_str().unwrap())["done"], APPLIED_BEFORE);
+}
+
+#[tokio::test]
+async fn an_action_the_api_cannot_confirm_turns_writes_off_until_the_page_checks_it() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={CHECK_DOWN}&shipment=shp_rtd&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    let place = query(&to);
+    assert_eq!((place["check"].as_str(), place["shipment"].as_str()), (CHECK_DOWN, "shp_rtd"));
+
+    let (status, _, html) = pilot.send(get(&to, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm your last shipment action"), "{}", text(&html));
+    assert!(html.contains("<fieldset") && html.contains(" disabled"), "writes are off: {html}");
+    assert!(html.contains("restoreAny"), "the page's script asks about other records: {html}");
+
+    let (_, _, html) =
+        pilot.send(get(&format!("/account/sales/shipments?check={APPLIED_BEFORE}&shipment=shp_rtd"), Some("shipper"))).await;
+    assert!(!text(&html).contains("could not confirm"), "a check the API settles: {}", text(&html));
+}
+
+#[tokio::test]
+async fn an_action_needs_fulfillment_manage_and_an_unknown_one_is_not_sent() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent=dispatch");
+    let (status, _, _) = pilot.send(post("/account/sales/shipments", "tracker", &form, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a write needs fulfillment.manage");
+    let (status, _, _) = pilot.send(get("/account/sales/shipments", Some("seller"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an account without fulfillment.view");
+    for intent in ["start-packing", "brand-new-action", ""] {
+        let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent={intent}");
+        let (status, _, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{intent}");
+    }
+    assert!(center_writes(&pilot).is_empty(), "nothing is sent");
+}
+
+#[tokio::test]
+async fn the_command_center_waits_for_a_write_it_cannot_read_yet() {
+    let pilot = Pilot::new().await;
+    let to = format!("/account/sales/shipments?after_write={}", receipt_at("44"));
+    let (status, _, html) = pilot.send(get(&to, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<meta http-equiv="refresh" content="2">"#), "the page reads itself again: {html}");
+    assert!(text(&html).contains("Fulfillment command center"), "{}", text(&html));
+}
+
 /// The packing writes the pilot sent: their path, attempt and body.
 fn packing_writes(pilot: &Pilot) -> Vec<(String, String, String)> {
     shipment_calls(pilot)
@@ -6739,7 +6958,7 @@ async fn the_packing_page_shows_the_lock_progress_lines_and_finish_only_once_eve
     assert!(html.contains("ui.copy_button.copy($t,&quot;product-reference-spl_2&quot;"), "{html}");
     assert!(html.contains(r#"<span id="ship-to" hidden>Collector Zero"#), "{html}");
     assert!(html.contains("ui.copy_button.copy($t,&quot;ship-to&quot;"), "{html}");
-    // The pilot's own address, which redirects to marketplace's command center.
+    // The command center.
     assert!(html.contains(r#"href="/account/sales/shipments">Back to shipments</a>"#), "{html}");
 
     let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_full/packing", Some("shipper"))).await;

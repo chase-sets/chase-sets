@@ -3810,6 +3810,135 @@ impl Packing for Caller<'_> {
     }
 }
 
+/// The seller's command center (Fulfillment's `GET account/sales/shipments/command-center`,
+/// `FulfillmentCommandCenter`): the shipments that need the seller now, in their buckets, each
+/// bucket ordered by the Seller Desk attention policy and each shipment with the action plan its
+/// stored state allows. The API decides all of it; the page draws it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommandCenter {
+    /// In the API's order (exceptions, ready to dispatch, needs a label, needs packing), empty
+    /// buckets too.
+    pub buckets: Vec<CommandCenterBucket>,
+    pub total_needing_attention: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommandCenterBucket {
+    /// `exceptions`, `ready-to-dispatch`, `needs-label` or `needs-packing`.
+    pub id: String,
+    pub items: Vec<CommandCenterItem>,
+    pub count: u64,
+}
+
+/// A shipment in the command center (`FulfillmentCommandCenterItem`), as far as the page draws it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommandCenterItem {
+    pub shipment_id: String,
+    pub display_reference: String,
+    pub status: String,
+    pub tracking_identifier: Option<String>,
+    pub buyer_display_name: Option<String>,
+    pub current_exception_type: Option<String>,
+    pub current_exception_notes: Option<String>,
+    pub line_count: u64,
+    pub total_quantity: u64,
+    pub plan: ActionPlan,
+}
+
+/// What a shipment's state allows (`ShipmentActionPlan`): the one next action, if any, and the
+/// others under More actions.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ActionPlan {
+    pub primary: Option<ShipmentAction>,
+    pub disclosed: Vec<ShipmentAction>,
+}
+
+/// A seller's shipment action (`ShipmentActionName`). An action the pilot does not know is kept
+/// as `Other`, drawn as nothing, so a new one in the API does not fail the page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShipmentAction {
+    StartPacking,
+    CompletePacking,
+    BuyLabel,
+    VoidLabel,
+    CancelShipment,
+    Dispatch,
+    RecordDelivery,
+    Return,
+    RaiseException,
+    #[serde(other)]
+    Other,
+}
+
+/// The seller's shipment actions beside packing (Fulfillment's `account/sales/shipments/{id}/..`),
+/// each sent as `attempt` (`Idempotency-Key`); what came of an attempt is `Packing::packing_attempt`.
+pub trait ShipmentCommands {
+    async fn command_center(&self) -> Result<CommandCenter, ApiError>;
+    /// `action` on the shipment, with the exception's or the return's fields. Packing's two are
+    /// the packing page's (`Packing`); `Other` is refused before it is sent.
+    async fn shipment_action(
+        &self,
+        id: &str,
+        action: ShipmentAction,
+        fields: &ActionFields,
+        attempt: &str,
+    ) -> Result<Option<Receipt>, ApiError>;
+}
+
+/// What an action sends beyond the shipment: Raise exception's type and notes. Empty notes are
+/// sent as `null` and an empty type as `other`, as marketplace's adapter sends them; its command
+/// center sends Record return without a reason, so the pilot does too.
+#[derive(Clone, Debug, Default)]
+pub struct ActionFields {
+    pub exception_type: String,
+    pub notes: String,
+}
+
+impl ShipmentCommands for Caller<'_> {
+    async fn command_center(&self) -> Result<CommandCenter, ApiError> {
+        self.read(&format!("{}/command-center", Side::Seller.shipments()), FULFILLMENT).await
+    }
+
+    async fn shipment_action(
+        &self,
+        id: &str,
+        action: ShipmentAction,
+        fields: &ActionFields,
+        attempt: &str,
+    ) -> Result<Option<Receipt>, ApiError> {
+        use serde_json::json;
+        let text = |value: &str| if value.trim().is_empty() { serde_json::Value::Null } else { json!(value.trim()) };
+        let (path, body) = match action {
+            // The label marketplace's command center buys (`runShipmentCommandCenterAction`).
+            ShipmentAction::BuyLabel => ("label/purchase", json!({ "serviceLevel": "USPS_GROUND_ADVANTAGE" })),
+            ShipmentAction::VoidLabel => ("label/void", json!({})),
+            ShipmentAction::CancelShipment => ("cancel", json!({})),
+            ShipmentAction::Dispatch => ("dispatch", json!({})),
+            ShipmentAction::RecordDelivery => ("deliver", json!({})),
+            ShipmentAction::Return => ("return", json!({ "reason": null })),
+            ShipmentAction::RaiseException => {
+                let kind = if fields.exception_type.trim().is_empty() { "other" } else { fields.exception_type.trim() };
+                ("exception", json!({ "exceptionType": kind, "notes": text(&fields.notes) }))
+            }
+            ShipmentAction::StartPacking | ShipmentAction::CompletePacking | ShipmentAction::Other => {
+                return Err(ApiError::Status {
+                    status: StatusCode::BAD_REQUEST,
+                    code: Some("unknown_action".into()),
+                    message: String::new(),
+                });
+            }
+        };
+        let path = format!("{}/{}/{path}", Side::Seller.shipments(), segment(id));
+        let req = self.request(Method::POST, &path, FULFILLMENT).header(IDEMPOTENCY_KEY, attempt).json(&body);
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+}
+
 /// A page of shipments (`ListResponse<FulfillmentShipmentListItem>`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
