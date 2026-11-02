@@ -1,0 +1,79 @@
+name: Marketplace Account Lifecycle Probe
+
+# Probe-only, never a required check. It classifies the development-target
+# Marketplace Account suite on hosted Ubuntu with CI=true: one clean run on a fresh
+# runner with no sandbox volume, then one retained run after `dev:down` kept that
+# volume, in the same job and compose project. It claims nothing about the CI-unset
+# lane-host path and never repairs, retries or filters the suite.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/marketplace-account-lifecycle-probe.yml
+      - scripts/marketplace-account-lifecycle-probe.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-account-lifecycle-probe-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Marketplace Account dev-target clean/retained probe (non-required)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      CI: "true"
+      CHASE_SETS_BROWSER_E2E_SYSTEM: development
+      PROBE_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PROBE_EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Resolve Playwright Chromium cache
+        id: playwright-chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(pnpm exec playwright --version | awk '{print $2}')"
+          test -n "$version"
+          browser_path="${RUNNER_TEMP}/playwright-chromium/${RUNNER_OS}/${RUNNER_ARCH}/${version}"
+          echo "browser-path=${browser_path}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "PLAYWRIGHT_BROWSERS_PATH=${browser_path}" >> "$GITHUB_ENV"
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: "${{ steps.playwright-chromium.outputs.browser-path }}"
+          key: "e2e-playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-chromium.outputs.version }}"
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 7
+        env:
+          GITHUB_JOB_ID: ${{ job.check_run_id }}
+          BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/playwright-chromium-install.mjs
+
+      - name: Run paired clean and retained controls
+        id: probe
+        run: node scripts/marketplace-account-lifecycle-probe.mjs --out-dir artifacts/marketplace-account-lifecycle-probe
+
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: marketplace-account-lifecycle-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/marketplace-account-lifecycle-probe
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
