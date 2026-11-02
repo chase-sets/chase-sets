@@ -65,12 +65,23 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
   );
   const request = client.json;
 
-  const pulls = await client.paginate(`/commits/${options.releaseCommit}/pulls?per_page=100`);
+  const pulls = await client.paginate(`/commits/${options.releaseCommit}/pulls?per_page=100`, (payload) => payload, {
+    identity: (entry) => entry?.id ?? entry?.node_id ?? entry?.number,
+  });
   const pull = Array.isArray(pulls) ? pulls[0] : null;
   const [pullDetails, reviews, timeline, runs, branchRules] = await Promise.all([
     pull?.number ? request(`/pulls/${pull.number}`) : null,
-    pull?.number ? client.paginate(`/pulls/${pull.number}/reviews?per_page=100`) : [],
-    pull?.number ? client.paginate(`/issues/${pull.number}/timeline?per_page=100`) : [],
+    pull?.number
+      ? client.paginate(`/pulls/${pull.number}/reviews?per_page=100`, (payload) => payload, {
+          identity: (entry) =>
+            entry?.id ?? entry?.node_id ?? [entry?.user?.id, entry?.submitted_at, entry?.state].join(":"),
+        })
+      : [],
+    pull?.number
+      ? client.paginate(`/issues/${pull.number}/timeline?per_page=100`, (payload) => payload, {
+          identity: timelineIdentity,
+        })
+      : [],
     client.paginate(
       `/actions/runs?head_sha=${encodeURIComponent(options.releaseCommit)}&event=merge_group&per_page=100`,
       (payload) => payload?.workflow_runs,
@@ -78,7 +89,7 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
     ),
     client
       .paginate(`/rules/branches/main?per_page=100`, (payload) => payload, {
-        identity: (rule) => rule.type,
+        identity: (rule) => rule?.id ?? rule?.node_id ?? rule.type,
       })
       .catch((error) => {
         if (error.message === "github-not-found") return [];
@@ -95,6 +106,16 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
     mergeGroupRuns: runs,
     branchRules,
   });
+}
+
+function timelineIdentity(event) {
+  return (
+    event?.id ??
+    event?.node_id ??
+    [event?.event, event?.created_at, event?.source?.issue?.number ?? event?.commit_id ?? event?.sha ?? "none"].join(
+      ":",
+    )
+  );
 }
 
 export function formatGithubOutput(metadata) {

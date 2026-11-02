@@ -1606,8 +1606,22 @@ export function createGitHubClient(options, collection = {}) {
   }
 
   async function json(path, requestOptions = {}) {
-    const response = await request(path, requestOptions);
-    return response.status === 204 ? null : response.json();
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      const response = await request(path, requestOptions);
+      if (response.status === 204) return null;
+      try {
+        return await response.json();
+      } catch (error) {
+        if (attempt === retries) {
+          const message = "github-response-invalid";
+          if (!requestOptions.advisory) status.errors.push(message);
+          throw new Error(message);
+        }
+        status.retryCount += 1;
+        await options.sleep(Math.min(4_000, 250 * 2 ** attempt));
+      }
+    }
+    throw new Error("github-response-invalid");
   }
 
   async function paginate(path, select = (payload) => payload, pagination = {}) {
@@ -1621,6 +1635,7 @@ export function createGitHubClient(options, collection = {}) {
     const perPage = Number(base.searchParams.get("per_page") ?? 100);
     if (!Number.isInteger(perPage) || perPage < 1 || perPage > 100) throw new Error("collection_page_invalid");
     const pageLimit = Math.min(pagination.maxPages ?? maxPages, 20);
+    const repositoryIds = new Set();
     let total;
     const refused = () => {
       status.truncated.push(pagination.source ?? path.split("?")[0]);
@@ -1674,7 +1689,13 @@ export function createGitHubClient(options, collection = {}) {
         expected.searchParams.set("page", String(linkedPage));
         target.searchParams.sort();
         expected.searchParams.sort();
-        if (target.href !== expected.href || (entries.length < perPage && linkedPage > page)) return refused();
+        if (
+          target.origin !== API_BASE_URL ||
+          !sameRepositoryPath(target.pathname, expected.pathname, repositoryIds) ||
+          target.search !== expected.search ||
+          (entries.length < perPage && linkedPage > page)
+        )
+          return refused();
         for (const relation of match[2].split(" ")) {
           if (!["next", "prev", "first", "last"].includes(relation)) return refused();
           if (relation === "next") {
@@ -1758,6 +1779,28 @@ function selectCollectedWindow(values, window, series) {
   return values.filter((value) => selected.has(value) || inBounds(value.updatedAt ?? runTimestamp(value), window));
 }
 
+function sameRepositoryPath(actualPath, expectedPath, repositoryIds) {
+  const actual = parseRepositoryPath(actualPath);
+  const expected = parseRepositoryPath(expectedPath);
+  if (!actual || !expected || actual.suffix !== expected.suffix) return false;
+  if (actual.kind === "id") {
+    repositoryIds.add(actual.value);
+    if (repositoryIds.size > 1) return false;
+    return true;
+  }
+  return expected.kind === "name" && actual.value === expected.value;
+}
+
+function parseRepositoryPath(pathname) {
+  const match = /^\/(repos\/([^/]+\/[^/]+)|repositories\/(\d+))(\/.*)?$/.exec(pathname);
+  if (!match) return null;
+  return {
+    kind: match[2] ? "name" : "id",
+    value: match[2] ?? match[3],
+    suffix: match[4] ?? "",
+  };
+}
+
 async function fetchPullRequests(client, repository, window, maxPages) {
   const pulls = await collectPartitionedHistory({
     end: window.end,
@@ -1773,17 +1816,18 @@ async function fetchPullRequests(client, repository, window, maxPages) {
       };
     },
   });
-  return selectCollectedWindow(pulls, window, [
+  const selected = selectCollectedWindow(pulls, window, [
     [pulls, (pull) => pull.createdAt],
     [pulls.filter((pull) => pull.mergedAt), (pull) => pull.mergedAt],
   ]);
+  return enrichPullRequestWindow(client, selected, maxPages);
 }
 
 async function fetchPullRequestPage(client, query, cursor) {
   const payload = await client.json(GRAPHQL_URL, {
     method: "POST",
     body: {
-      query: `query DeliveryHealthPulls($query:String!,$cursor:String){search(query:$query,type:ISSUE,first:100,after:$cursor){issueCount pageInfo{hasNextPage endCursor}nodes{... on PullRequest{number state isDraft createdAt updatedAt mergedAt additions deletions changedFiles timelineItems(first:1,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}}reviews(first:100){totalCount nodes{state}}files(first:100){totalCount nodes{path additions deletions}}}}}}`,
+      query: `query DeliveryHealthPulls($query:String!,$cursor:String){search(query:$query,type:ISSUE,first:100,after:$cursor){issueCount pageInfo{hasNextPage endCursor}nodes{... on PullRequest{number state isDraft createdAt updatedAt mergedAt}}}}`,
       variables: { query, cursor },
     },
   });
@@ -1827,12 +1871,12 @@ async function fetchPullRequestPartition(client, query, first, maxPages) {
         updatedAt: pull.updatedAt,
         mergedAt: pull.mergedAt,
         readyForReviewAt: pull.timelineItems?.nodes?.[0]?.createdAt ?? (!pull.isDraft ? pull.createdAt : null),
-        changedFiles: pull.changedFiles,
-        reviewCount: pull.reviews?.totalCount ?? 0,
+        changedFiles: pull.changedFiles ?? null,
+        reviewCount: pull.reviews ? pull.reviews.totalCount : null,
         approvedReviewCount: (pull.reviews?.nodes ?? []).filter((review) => review.state === "APPROVED").length,
-        files: pull.files?.nodes ?? [],
-        reviewsTruncated: (pull.reviews?.totalCount ?? 0) > 100,
-        filesTruncated: (pull.files?.totalCount ?? 0) > 100,
+        files: Array.isArray(pull.files?.nodes) ? pull.files.nodes : null,
+        reviewsTruncated: Number.isSafeInteger(pull.reviews?.totalCount) && pull.reviews.totalCount > 100,
+        filesTruncated: Number.isSafeInteger(pull.files?.totalCount) && pull.files.totalCount > 100,
         nestedDataTruncated:
           !Number.isSafeInteger(pull.reviews?.totalCount) ||
           pull.reviews.totalCount !== pull.reviews.nodes?.length ||
@@ -1856,6 +1900,30 @@ async function fetchPullRequestPartition(client, query, first, maxPages) {
     cursors.add(cursor);
   }
   throw new Error("pull_collection_incomplete");
+}
+
+async function enrichPullRequestWindow(client, pulls, maxPages) {
+  const missing = pulls.filter(
+    (pull) =>
+      !Number.isSafeInteger(pull.changedFiles) || !Array.isArray(pull.files) || !Number.isSafeInteger(pull.reviewCount),
+  );
+  await Promise.all(
+    missing.map(async (pull) => {
+      const detail = await client.json(`/pulls/${pull.number}`, { advisory: true });
+      if (!Number.isSafeInteger(pull.changedFiles) && Number.isSafeInteger(detail?.changed_files))
+        pull.changedFiles = detail.changed_files;
+      if (pull.files === null) pull.files = await fetchPullFiles(client, pull.number, maxPages);
+      if (!Number.isSafeInteger(pull.reviewCount)) {
+        const reviews = await fetchPullReviews(client, pull.number, maxPages);
+        pull.reviewCount = reviews.length;
+        pull.approvedReviewCount = reviews.filter((review) => review.state === "APPROVED").length;
+      }
+      pull.reviewsTruncated = false;
+      pull.filesTruncated = false;
+      pull.nestedDataTruncated = false;
+    }),
+  );
+  return pulls;
 }
 
 async function fetchWorkflowRuns(client, workflow, window, maxPages) {
@@ -1904,6 +1972,7 @@ async function fetchPullFiles(client, pullNumber, maxPages) {
   return client.paginate(`/pulls/${pullNumber}/files?per_page=100`, (payload) => payload, {
     source: `pull-files:${pullNumber}`,
     maxPages,
+    identity: (file) => file?.filename,
   });
 }
 

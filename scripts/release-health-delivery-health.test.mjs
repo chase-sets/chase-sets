@@ -1201,6 +1201,43 @@ describe("GitHub collection conventions", () => {
     expect(client.status()).toMatchObject({ truncated: [], rateLimitRemaining: 4321 });
   });
 
+  it("accepts provider repository-id Link paths while pinning one repository id", async () => {
+    const client = createGitHubClient(
+      {
+        repository: "chase-sets/chase-sets",
+        fetchImpl: async (url) => {
+          const parsed = new URL(url);
+          const page = Number(parsed.searchParams.get("page"));
+          const headers = {};
+          if (page === 1) {
+            const next = new URL(parsed);
+            next.pathname = "/repositories/1151866225/issues";
+            next.searchParams.set("page", "2");
+            headers.link = `<${next.href}>; rel="next"`;
+          }
+          return new Response(JSON.stringify({ total_count: 2, items: [{ id: page }] }), { headers });
+        },
+        sleep: async () => {},
+      },
+      { maxPages: 2, retries: 0 },
+    );
+    await expect(client.paginate("/issues?per_page=1", (payload) => payload.items)).resolves.toHaveLength(2);
+  });
+
+  it("retries an empty successful body inside the request budget", async () => {
+    let calls = 0;
+    const client = createGitHubClient(
+      {
+        repository: "chase-sets/chase-sets",
+        fetchImpl: async () => new Response(++calls === 1 ? "" : JSON.stringify({ ok: true })),
+        sleep: async () => {},
+      },
+      { retries: 1 },
+    );
+    await expect(client.json("/synthetic-empty-body")).resolves.toEqual({ ok: true });
+    expect(calls).toBe(2);
+  });
+
   it("makes max-page truncation visible", async () => {
     const client = createGitHubClient(
       {

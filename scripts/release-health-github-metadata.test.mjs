@@ -135,10 +135,41 @@ describe("release health GitHub metadata", () => {
     });
   });
 
+  it("accepts identity-less provider timeline events with a deterministic composite identity", async () => {
+    const responses = new Map([
+      [`/repos/chase-sets/chase-sets/commits/${releaseCommit}/pulls`, [{ id: 517, number: 517 }]],
+      [
+        "/repos/chase-sets/chase-sets/pulls/517",
+        {
+          number: 517,
+          created_at: "2026-06-01T03:16:21Z",
+          draft: false,
+          merged_at: "2026-06-01T03:18:45Z",
+          merge_commit_sha: releaseCommit,
+        },
+      ],
+      ["/repos/chase-sets/chase-sets/pulls/517/reviews?per_page=100", []],
+      [
+        "/repos/chase-sets/chase-sets/issues/517/timeline?per_page=100",
+        [{ event: "cross-referenced", created_at: "2026-06-01T03:17:55Z", source: { issue: { number: 517 } } }],
+      ],
+      [
+        `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=100`,
+        { workflow_runs: [] },
+      ],
+      ["/repos/chase-sets/chase-sets/rules/branches/main?per_page=100", []],
+    ]);
+    const metadata = await collectReleaseHealthGithubMetadata(
+      { repository: "chase-sets/chase-sets", releaseCommit },
+      { fetchImpl: async (url) => metadataFixtureResponse(url, responses) },
+    );
+    expect(metadata.pullRequestNumber).toBe(517);
+  });
+
   it("collects metadata through the GitHub REST API", async () => {
     const calls = [];
     const responses = new Map([
-      [`/repos/chase-sets/chase-sets/commits/${releaseCommit}/pulls`, [{ number: 517 }]],
+      [`/repos/chase-sets/chase-sets/commits/${releaseCommit}/pulls`, [{ id: 517, number: 517 }]],
       [
         "/repos/chase-sets/chase-sets/pulls/517",
         {
@@ -156,7 +187,7 @@ describe("release health GitHub metadata", () => {
       ],
       [
         `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=100`,
-        { workflow_runs: [{ created_at: "2026-06-01T03:18:13Z" }] },
+        { workflow_runs: [{ id: 518, created_at: "2026-06-01T03:18:13Z" }] },
       ],
       [
         "/repos/chase-sets/chase-sets/rules/branches/main?per_page=100",
@@ -183,7 +214,7 @@ describe("release health GitHub metadata", () => {
 
   it("keeps release timing metadata when branch rules are unavailable", async () => {
     const responses = new Map([
-      [`/repos/chase-sets/chase-sets/commits/${releaseCommit}/pulls`, [{ number: 517 }]],
+      [`/repos/chase-sets/chase-sets/commits/${releaseCommit}/pulls`, [{ id: 517, number: 517 }]],
       [
         "/repos/chase-sets/chase-sets/pulls/517",
         {
@@ -201,7 +232,7 @@ describe("release health GitHub metadata", () => {
       ],
       [
         `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=100`,
-        { workflow_runs: [{ created_at: "2026-06-01T03:18:13Z" }] },
+        { workflow_runs: [{ id: 518, created_at: "2026-06-01T03:18:13Z" }] },
       ],
     ]);
 
@@ -261,11 +292,6 @@ function metadataFixtureResponse(url, responses) {
   parsed.searchParams.delete("page");
   if (/\/commits\/[^/]+\/pulls$/.test(parsed.pathname)) parsed.searchParams.delete("per_page");
   let value = responses.get(parsed.pathname + parsed.search);
-  if (Array.isArray(value)) value = value.map((entry, index) => ({ id: index + 1, ...entry }));
-  else if (value?.workflow_runs)
-    value = {
-      total_count: value.workflow_runs.length,
-      workflow_runs: value.workflow_runs.map((run, index) => ({ id: index + 1, ...run })),
-    };
+  if (value?.workflow_runs) value = { total_count: value.workflow_runs.length, workflow_runs: value.workflow_runs };
   return new Response(JSON.stringify(value), { status: value === undefined ? 404 : 200 });
 }
