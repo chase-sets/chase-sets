@@ -1,0 +1,163 @@
+[
+  {
+    "family": "catalog",
+    "label": "Catalog",
+    "scopes": [
+      {
+        "scope": "catalog:read",
+        "label": "Read catalog",
+        "description": "Find catalog items, blueprints, and public product details."
+      }
+    ]
+  },
+  {
+    "family": "checkout",
+    "label": "Checkout",
+    "scopes": [
+      {
+        "scope": "dev.ucp.shopping.checkout:manage",
+        "label": "Manage checkout",
+        "description": "Read cart and checkout state, and update it after confirmation."
+      }
+    ]
+  },
+  {
+    "family": "orders",
+    "label": "Orders",
+    "scopes": [
+      {
+        "scope": "dev.ucp.shopping.order:read",
+        "label": "Read orders",
+        "description": "Read order and purchase history for the selected account."
+      }
+    ]
+  },
+  {
+    "family": "inventory",
+    "label": "Inventory",
+    "scopes": [
+      {
+        "scope": "inventory:read",
+        "label": "Read inventory",
+        "description": "Read inventory items and import batches."
+      },
+      {
+        "scope": "inventory:write",
+        "label": "Manage inventory",
+        "description": "Create imports and adjust inventory after confirmation."
+      }
+    ]
+  },
+  {
+    "family": "listings",
+    "label": "Listings",
+    "scopes": [
+      {
+        "scope": "listings:read",
+        "label": "Read listings",
+        "description": "Read your listings and listing reports."
+      },
+      {
+        "scope": "listings:write",
+        "label": "Manage your listings",
+        "description": "Create, publish, unpublish, and update your listings after confirmation."
+      }
+    ]
+  },
+  {
+    "family": "offers",
+    "label": "Offers",
+    "scopes": [
+      {
+        "scope": "offers:read",
+        "label": "Read offers",
+        "description": "Read buying and selling offers visible to the account."
+      },
+      {
+        "scope": "offers:write",
+        "label": "Manage offers",
+        "description": "Submit, counter, accept, or decline offers after confirmation."
+      }
+    ]
+  },
+  {
+    "family": "fulfillment",
+    "label": "Fulfillment",
+    "scopes": [
+      {
+        "scope": "fulfillment:read",
+        "label": "Read fulfillment",
+        "description": "Read shipments, labels, and tracking state."
+      },
+      {
+        "scope": "fulfillment:write",
+        "label": "Manage fulfillment",
+        "description": "Purchase or void labels after confirmation."
+      }
+    ]
+  },
+  {
+    "family": "payouts",
+    "label": "Payouts",
+    "scopes": [
+      {
+        "scope": "payouts:read",
+        "label": "Read payouts",
+        "description": "Read wallet, ledger, payout, and payout-readiness state."
+      },
+      {
+        "scope": "payouts:request",
+        "label": "Request payouts",
+        "description": "Request payouts and create hosted payout setup links after confirmation."
+      }
+    ]
+  },
+  {
+    "family": "account",
+    "label": "Account",
+    "scopes": [
+      {
+        "scope": "account:read",
+        "label": "Read account",
+        "description": "Read account profile, reputation, memberships, and account insights."
+      },
+      {
+        "scope": "account:manage",
+        "label": "Manage account",
+        "description": "Manage account profile, team access, and account security after confirmation."
+      }
+    ]
+  },
+  {
+    "family": "support",
+    "label": "Support",
+    "scopes": [
+      {
+        "scope": "support:read",
+        "label": "Read support",
+        "description": "Read support requests for the selected account."
+      },
+      {
+        "scope": "support:write",
+        "label": "Manage support",
+        "description": "Open and update support requests after confirmation."
+      }
+    ]
+  },
+  {
+    "family": "operations",
+    "label": "Platform operations",
+    "scopes": [
+      {
+        "scope": "operations:read",
+        "label": "Read platform operations",
+        "description": "Run read-only operator tools."
+      },
+      {
+        "scope": "operations:write",
+        "label": "Operate the platform",
+        "description": "Run every operator tool, including confirmed changes."
+      }
+    ]
+  }
+]

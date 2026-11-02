@@ -2,10 +2,12 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import { marketplaceAttemptBinding, marketplaceAttemptStream, completedMarketplaceAttemptSchema } from "./attempt";
 import { readMarketplaceRecoveryHistory } from "../domain/history";
 import {
+  isMarketplaceListingMutationKind,
   marketplaceMutationRecoveryResultSchema,
   type MarketplaceMutationRecoveryResult,
   type MarketplaceMutationKind,
 } from "../domain/contracts";
+import { createListingMutationLookup } from "../../listings/api/listing-attempt";
 import {
   offerAttemptResultSchema,
   offerAcceptanceResultSchema,
@@ -15,6 +17,8 @@ import { offerPolicyAttemptResultSchema } from "../../offer-policy/api/attempt-r
 import { withMarketplaceAttemptReceipt } from "./receipt";
 
 export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "readStream">) {
+  // Listing kinds have no attempt stream: their owner stream carries the attempt's stamped events.
+  const listingLookup = createListingMutationLookup(eventStore);
   return async (input: {
     attemptId: string;
     accountId: string;
@@ -22,6 +26,8 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
     target: MarketplaceMutationRecoveryResult["target"];
     requestHash: string;
   }): Promise<MarketplaceMutationRecoveryResult> => {
+    const { mutationKind } = input;
+    if (isMarketplaceListingMutationKind(mutationKind)) return listingLookup({ ...input, mutationKind });
     const binding = marketplaceAttemptBinding({
       attemptId: input.attemptId,
       accountId: input.accountId,
