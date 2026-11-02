@@ -24,7 +24,8 @@
 // operator secrets, live drills, and the soak evidence belong to the
 // enablement issue; this module ships with the policy disabled.
 
-import { appendFileSync, readFileSync, mkdtempSync, rmSync, statSync, readdirSync } from "node:fs";
+import { appendFileSync, readFileSync, mkdtempSync, rmSync, statSync, readdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -1215,17 +1216,13 @@ export function resolveMergeQualificationTerminalReplay({ decision, records } = 
   return { action: event ? "replay" : "missing", event, errors: [] };
 }
 
-export async function inventoryMergeQualificationAttempts({
-  repository,
-  requestJson,
-  readPolicyContent,
-  now = () => new Date(),
-} = {}) {
-  const refused = (code) => ({ attempts: [], errors: [code] });
+// One complete, created-filtered listing of advisory runs inside the 48-hour
+// window. The observer reads it once per delivery and shares it with the
+// producer join, so inventory pages are not paid twice.
+export async function listMergeQualificationAdvisoryRuns({ repository, requestJson, now = () => new Date() } = {}) {
+  const refused = (code) => ({ runs: null, errors: [code] });
   if (!isRepositoryIdentity(repository)) return refused("attempt_repository_invalid");
-  // Whole seconds: the created filter and run timestamps carry no fractions.
-  const windowStartMs =
-    Math.floor((now().getTime() - MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS * 3_600_000) / 1_000) * 1_000;
+  const windowStartMs = inventoryWindowStartMs(now);
   if (!Number.isFinite(windowStartMs)) return refused("attempt_window_invalid");
   const windowStart = new Date(windowStartMs).toISOString().replace(/\.000Z$/, "Z");
   const lastPage = RUN_SEARCH_RESULT_CEILING / 100;
@@ -1252,9 +1249,37 @@ export async function inventoryMergeQualificationAttempts({
         return refused("attempt_inventory_incomplete");
       }
     }
+    return { runs, errors: [] };
+  } catch {
+    return refused("attempt_authority_unavailable");
+  }
+}
+
+export async function inventoryMergeQualificationAttempts({
+  repository,
+  requestJson,
+  readPolicyContent,
+  advisoryRuns = null,
+  settledIndex = null,
+  now = () => new Date(),
+} = {}) {
+  const refused = (code) => ({ attempts: [], settled: 0, errors: [code] });
+  if (!isRepositoryIdentity(repository)) return refused("attempt_repository_invalid");
+  const windowStartMs = inventoryWindowStartMs(now);
+  if (!Number.isFinite(windowStartMs)) return refused("attempt_window_invalid");
+  const listing =
+    advisoryRuns === null
+      ? await listMergeQualificationAdvisoryRuns({ repository, requestJson, now })
+      : Array.isArray(advisoryRuns) && advisoryRuns.length < RUN_SEARCH_RESULT_CEILING
+        ? { runs: advisoryRuns, errors: [] }
+        : { runs: null, errors: ["attempt_inventory_incomplete"] };
+  if (listing.errors.length) return refused(listing.errors[0]);
+  // An absent or invalid index settles nothing: every attempt stays pending.
+  const settledAttempts = settledLookup(settledIndex, repository);
+  try {
     const latest = new Map();
     const identities = new Set();
-    for (const run of runs) {
+    for (const run of listing.runs) {
       const id = String(run?.id ?? "");
       const attempt = String(run?.run_attempt ?? "");
       if (
@@ -1277,13 +1302,15 @@ export async function inventoryMergeQualificationAttempts({
     }
     const attempts = [];
     const policies = new Map();
+    let settled = 0;
     for (const run of latest.values()) {
-      if (
-        run.status !== "completed" ||
-        run.event !== "workflow_dispatch" ||
-        !ADVISORY_RUN_TITLE.test(run.display_title ?? "")
-      )
+      const producer = ADVISORY_RUN_TITLE.exec(run.display_title ?? "");
+      if (run.status !== "completed" || run.event !== "workflow_dispatch" || !producer) continue;
+      const join = { runId: producer[1], runAttempt: producer[2] };
+      if (isSettledAttempt(settledAttempts, "advisory", String(run.id), String(run.run_attempt), join)) {
+        settled += 1;
         continue;
+      }
       if (!policies.has(run.head_sha)) policies.set(run.head_sha, await readPolicyContent(run.head_sha));
       const policy = evaluateMergeQualificationPolicy(policies.get(run.head_sha), {
         now: () => new Date(run.run_started_at),
@@ -1298,10 +1325,10 @@ export async function inventoryMergeQualificationAttempts({
         conclusion: run.conclusion,
       });
     }
-    // GitHub matrices cap at 256. Never silently drop a tail to fit the worker;
-    // an over-capacity window clears as the window advances.
+    // GitHub matrices cap at 256 pending legs. Never silently drop a tail to
+    // fit the worker; an over-capacity window clears as the window advances.
     if (attempts.length > 256) return refused("attempt_worker_capacity_exceeded");
-    return { attempts, errors: [] };
+    return { attempts, settled, errors: [] };
   } catch {
     return refused("attempt_authority_unavailable");
   }
@@ -1449,14 +1476,22 @@ export async function inventoryMergeQualificationProducerAttempts({
   readProducerImageEligibility,
   execFile = execFileSync,
   readPolicy = readOriginalQualificationPolicy,
+  advisoryRuns: sharedAdvisoryRuns = null,
+  settledIndex = null,
   now = () => new Date(),
 } = {}) {
-  const refused = (code) => ({ attempts: [], errors: [code] });
+  const refused = (code) => ({ attempts: [], settled: 0, errors: [code] });
   if (!isRepositoryIdentity(repository)) return refused("producer_repository_invalid");
-  const windowStartMs =
-    Math.floor((now().getTime() - MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS * 3_600_000) / 1_000) * 1_000;
+  const windowStartMs = inventoryWindowStartMs(now);
   if (!Number.isFinite(windowStartMs)) return refused("producer_window_invalid");
   const windowStart = new Date(windowStartMs).toISOString().replace(/\.000Z$/, "Z");
+  if (
+    sharedAdvisoryRuns !== null &&
+    (!Array.isArray(sharedAdvisoryRuns) || sharedAdvisoryRuns.length >= RUN_SEARCH_RESULT_CEILING)
+  )
+    return refused("advisory_inventory_incomplete");
+  // An absent or invalid index settles nothing: every producer stays pending.
+  const settledAttempts = settledLookup(settledIndex, repository);
   const landingCache = new Map();
   try {
     const [producerRuns, advisoryRuns] = await Promise.all([
@@ -1468,13 +1503,14 @@ export async function inventoryMergeQualificationProducerAttempts({
         kind: "producer",
         event: "merge_group",
       }),
-      inventoryWorkflowRuns({
-        repository,
-        workflowPath: "platform-merge-qualification.yml",
-        requestJson,
-        windowStart,
-        kind: "advisory",
-      }),
+      sharedAdvisoryRuns ??
+        inventoryWorkflowRuns({
+          repository,
+          workflowPath: "platform-merge-qualification.yml",
+          requestJson,
+          windowStart,
+          kind: "advisory",
+        }),
     ]);
     const seen = new Set();
     const producers = [];
@@ -1497,6 +1533,7 @@ export async function inventoryMergeQualificationProducerAttempts({
       advisoryByProducer.set(identity, run);
     }
     const attempts = [];
+    let settled = 0;
     const nowMs = now().getTime();
     for (const run of producers) {
       const identity = producerIdentity(run);
@@ -1507,6 +1544,15 @@ export async function inventoryMergeQualificationProducerAttempts({
         parseTimezoneInstantMs(advisoryRun.created_at) < completedMs + MERGE_QUALIFICATION_PRODUCER_TICK_MS
       )
         continue;
+      // A settled loss is suppressed before any candidate, policy or image read,
+      // but only while its recorded advisory join still matches this listing.
+      const advisoryJoin = advisoryRun
+        ? { runId: String(advisoryRun.id ?? ""), runAttempt: String(advisoryRun.run_attempt ?? "") }
+        : null;
+      if (isSettledAttempt(settledAttempts, "producer_loss", String(run.id), String(run.run_attempt), advisoryJoin)) {
+        settled += 1;
+        continue;
+      }
       const eligibleAfterTick = nowMs - parseTimezoneInstantMs(run.updated_at) >= MERGE_QUALIFICATION_PRODUCER_TICK_MS;
       if (!eligibleAfterTick) continue;
       let historical;
@@ -1583,7 +1629,7 @@ export async function inventoryMergeQualificationProducerAttempts({
         eligibleAfterTick,
       });
     }
-    return { attempts, errors: [] };
+    return { attempts, settled, errors: [] };
   } catch (error) {
     return refused(error instanceof Error ? error.message : "producer_authority_unavailable");
   }
@@ -2142,6 +2188,423 @@ export async function readMergeQualificationTerminalRecords({
   }
 }
 
+// The settled-attempt index is a closed, versioned observer projection that
+// only suppresses matrix legs for attempts whose durable evidence already
+// settled; it is never authority for a missing terminal. An advisory attempt
+// settles with its terminal and exact cleanup marker. A producer-loss attempt
+// settles on its terminal alone: no advisory run provisioned resources for it,
+// and a late-run conflict record likewise needs no marker.
+export const MERGE_QUALIFICATION_SETTLED_INDEX_SCHEMA_VERSION = "observer-settled-index/v1";
+export const MERGE_QUALIFICATION_SETTLED_INDEX_ARTIFACT = "merge-qualification-settled-index";
+export const MERGE_QUALIFICATION_SETTLED_ENTRY_ARTIFACT_PREFIX = "merge-qualification-settled-entry-";
+export const MERGE_QUALIFICATION_SETTLED_VARIANTS = Object.freeze(["advisory", "producer_loss"]);
+const OBSERVER_WORKFLOW_PATH = ".github/workflows/platform-merge-qualification-observer.yml";
+const ADVISORY_WORKFLOW_PATH = ".github/workflows/platform-merge-qualification.yml";
+const SETTLED_INDEX_FILE = "settled-index.json";
+// One entry per inventoried advisory or producer attempt; each inventory
+// refuses at the 1,000-result search ceiling.
+const SETTLED_INDEX_MAX_ENTRIES = 2 * RUN_SEARCH_RESULT_CEILING;
+const SETTLED_INDEX_MAX_BYTES = 2_000_000;
+// One delivery admits at most one advisory and one producer leg per matrix slot.
+const SETTLED_ENTRIES_PER_DELIVERY = 2 * 256;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+
+function inventoryWindowStartMs(now) {
+  // Whole seconds: the created filter and run timestamps carry no fractions.
+  return Math.floor((now().getTime() - MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS * 3_600_000) / 1_000) * 1_000;
+}
+
+function sha256Hex(bytes) {
+  return createHash("sha256").update(bytes, "utf8").digest("hex");
+}
+
+function settledKey(variant, runId, runAttempt) {
+  return `${variant}/${runId}/${runAttempt}`;
+}
+
+function isAttemptReference(value) {
+  return (
+    isClosedObject(value, ["runId", "runAttempt"]) &&
+    isBoundedSafeIntegerString(value.runId) &&
+    isBoundedSafeIntegerString(value.runAttempt)
+  );
+}
+
+function sameJoin(left, right) {
+  if (left === null || right === null) return left === right;
+  return left.runId === right.runId && left.runAttempt === right.runAttempt;
+}
+
+function canonicalSettledEntry(entry) {
+  return {
+    variant: entry.variant,
+    runId: entry.runId,
+    runAttempt: entry.runAttempt,
+    join: entry.join === null ? null : { runId: entry.join.runId, runAttempt: entry.join.runAttempt },
+    terminals: entry.terminals.map(({ terminalState, sha256 }) => ({ terminalState, sha256 })),
+    cleanupMarkerSha256: entry.cleanupMarkerSha256,
+    startedAt: entry.startedAt,
+  };
+}
+
+function compareSettledEntries(left, right) {
+  if (left.variant !== right.variant) return left.variant < right.variant ? -1 : 1;
+  for (const field of ["runId", "runAttempt"]) {
+    const difference = BigInt(left[field]) - BigInt(right[field]);
+    if (difference !== 0n) return difference < 0n ? -1 : 1;
+  }
+  return 0;
+}
+
+export function validateMergeQualificationSettledEntry(entry) {
+  const fields = ["variant", "runId", "runAttempt", "join", "terminals", "cleanupMarkerSha256", "startedAt"];
+  if (!isClosedObject(entry, fields)) return ["settled entry must be a closed object."];
+  const errors = [];
+  if (!MERGE_QUALIFICATION_SETTLED_VARIANTS.includes(entry.variant)) errors.push("settled entry variant is invalid.");
+  if (!isBoundedSafeIntegerString(entry.runId) || !isBoundedSafeIntegerString(entry.runAttempt))
+    errors.push("settled entry identity is invalid.");
+  if (entry.join !== null && !isAttemptReference(entry.join)) errors.push("settled entry join is invalid.");
+  if (!isIsoInstant(entry.startedAt)) errors.push("settled entry start is invalid.");
+  const terminals = Array.isArray(entry.terminals) ? entry.terminals : [];
+  if (
+    terminals.length < 1 ||
+    terminals.length > 2 ||
+    terminals.some(
+      (terminal) => !isClosedObject(terminal, ["terminalState", "sha256"]) || !SHA256_PATTERN.test(terminal.sha256),
+    )
+  )
+    errors.push("settled entry terminals are invalid.");
+  const states = terminals.map((terminal) => terminal?.terminalState);
+  if (entry.variant === "advisory") {
+    if (states.length !== 1 || !MERGE_QUALIFICATION_TERMINAL_STATES.includes(states[0]))
+      errors.push("advisory settlement needs exactly one advisory terminal.");
+    if (entry.join === null) errors.push("advisory settlement must retain its producer join.");
+    if (typeof entry.cleanupMarkerSha256 !== "string" || !SHA256_PATTERN.test(entry.cleanupMarkerSha256))
+      errors.push("advisory settlement requires its exact cleanup marker.");
+  } else if (entry.variant === "producer_loss") {
+    if (entry.cleanupMarkerSha256 !== null) errors.push("producer-loss settlement never carries a cleanup marker.");
+    const ordered = [...new Set(states)].sort();
+    if (
+      ordered.length !== states.length ||
+      ordered.join("\n") !== states.join("\n") ||
+      states.some((state) => !PRODUCER_TERMINAL_STATES.includes(state))
+    )
+      errors.push("producer-loss settlement terminals are invalid.");
+    // A loss alone settles only while no advisory run joins it; a late run
+    // reopens the attempt until its conflict record names that run.
+    if (states.includes("conflict") ? entry.join === null : entry.join !== null)
+      errors.push("producer-loss settlement join does not match its terminals.");
+  }
+  return errors;
+}
+
+export function validateMergeQualificationSettledIndex(index, { repository } = {}) {
+  const fields = ["schemaVersion", "repository", "writerRunId", "writerRunAttempt", "windowStart", "entries"];
+  if (!isClosedObject(index, fields)) return ["settled index must be a closed object."];
+  if (index.schemaVersion !== MERGE_QUALIFICATION_SETTLED_INDEX_SCHEMA_VERSION)
+    return ["unsupported settled index schema."];
+  const errors = [];
+  if (!isRepositoryIdentity(index.repository) || (repository !== undefined && index.repository !== repository))
+    errors.push("settled index repository is invalid.");
+  if (!isBoundedSafeIntegerString(index.writerRunId) || !isBoundedSafeIntegerString(index.writerRunAttempt))
+    errors.push("settled index writer is invalid.");
+  const windowStartMs = parseTimezoneInstantMs(index.windowStart);
+  if (windowStartMs === null) errors.push("settled index window is invalid.");
+  if (!Array.isArray(index.entries) || index.entries.length > SETTLED_INDEX_MAX_ENTRIES)
+    return [...errors, "settled index entries are invalid."];
+  let previous = null;
+  for (const entry of index.entries) {
+    if (validateMergeQualificationSettledEntry(entry).length) return [...errors, "settled index entry is invalid."];
+    // Canonical order makes the projection content-derived and its keys unique.
+    if (previous && compareSettledEntries(previous, entry) >= 0) return [...errors, "settled index keys repeat."];
+    if (windowStartMs !== null && parseTimezoneInstantMs(entry.startedAt) < windowStartMs)
+      return [...errors, "settled index retains an aged entry."];
+    previous = entry;
+  }
+  return errors;
+}
+
+function settledLookup(index, repository) {
+  if (!index || validateMergeQualificationSettledIndex(index, { repository }).length) return null;
+  return new Map(index.entries.map((entry) => [settledKey(entry.variant, entry.runId, entry.runAttempt), entry]));
+}
+
+// Settlement suppresses a leg only for the exact variant/run/attempt key with
+// the same producer join; anything else stays pending work.
+function isSettledAttempt(lookup, variant, runId, runAttempt, join) {
+  const entry = lookup?.get(settledKey(variant, runId, runAttempt));
+  return Boolean(entry) && sameJoin(entry.join, join);
+}
+
+function distinctTerminalPayloads(payloads) {
+  if (
+    !Array.isArray(payloads) ||
+    payloads.length > 16 ||
+    payloads.some((bytes) => typeof bytes !== "string" || Buffer.byteLength(bytes) > 65_536)
+  )
+    return null;
+  return [...new Set(payloads)];
+}
+
+function parseJsonOrNull(bytes) {
+  try {
+    return JSON.parse(bytes);
+  } catch {
+    return null;
+  }
+}
+
+// Derives one entry from durable terminal and marker bytes, never from
+// artifact names or presence. `settled: false` without errors is ordinary
+// unsettled work; errors are evidence that must fail the writing leg.
+export function deriveMergeQualificationSettledEntry({
+  variant,
+  repository,
+  terminals,
+  cleanupMarker = null,
+  advisoryJoin = null,
+} = {}) {
+  const invalid = (code) => ({ settled: false, entry: null, errors: [code] });
+  const unsettled = { settled: false, entry: null, errors: [] };
+  if (!MERGE_QUALIFICATION_SETTLED_VARIANTS.includes(variant)) return invalid("settlement_variant_invalid");
+  if (!isRepositoryIdentity(repository)) return invalid("settlement_repository_invalid");
+  if (advisoryJoin !== null && !isAttemptReference(advisoryJoin)) return invalid("settlement_join_invalid");
+  const payloads = distinctTerminalPayloads(terminals);
+  if (payloads === null) return invalid("settlement_terminal_invalid");
+  if (payloads.length === 0) return unsettled;
+  const settled = (entry) => {
+    const errors = validateMergeQualificationSettledEntry(entry);
+    return errors.length ? invalid("settlement_entry_invalid") : { settled: true, entry, errors: [] };
+  };
+
+  if (variant === "advisory") {
+    if (payloads.length !== 1) return invalid("settlement_terminal_conflict");
+    const event = parseJsonOrNull(payloads[0]);
+    if (
+      validateMergeQualificationEvent(event).length ||
+      event.repository !== repository ||
+      event.workflowPath !== ADVISORY_WORKFLOW_PATH ||
+      !isBoundedSafeIntegerString(event.runId) ||
+      !isBoundedSafeIntegerString(event.runAttempt) ||
+      !isBoundedSafeIntegerString(event.parentRunId) ||
+      !isBoundedSafeIntegerString(event.parentRunAttempt)
+    )
+      return invalid("settlement_terminal_invalid");
+    // A terminal without its exact cleanup marker remains unsettled.
+    if (cleanupMarker === null) return unsettled;
+    const marker = typeof cleanupMarker === "string" ? parseJsonOrNull(cleanupMarker) : null;
+    if (
+      !isClosedObject(marker, ["runId", "runAttempt", "cleanup"]) ||
+      marker.runId !== event.runId ||
+      marker.runAttempt !== event.runAttempt ||
+      marker.cleanup !== "complete"
+    )
+      return invalid("settlement_marker_invalid");
+    return settled({
+      variant,
+      runId: event.runId,
+      runAttempt: event.runAttempt,
+      join: { runId: event.parentRunId, runAttempt: event.parentRunAttempt },
+      terminals: [{ terminalState: event.terminalState, sha256: sha256Hex(payloads[0]) }],
+      cleanupMarkerSha256: sha256Hex(cleanupMarker),
+      startedAt: event.startedAt,
+    });
+  }
+
+  const records = payloads.map((bytes) => ({ bytes, record: parseJsonOrNull(bytes) }));
+  const [first] = records;
+  if (
+    records.some(
+      ({ record }) =>
+        validateMergeQualificationProducerTerminal(record).length > 0 ||
+        record.repository !== repository ||
+        [
+          "producerWorkflowId",
+          "producerRunId",
+          "producerRunAttempt",
+          "producerHeadSha",
+          "policyRevision",
+          "startedAt",
+        ].some((field) => record[field] !== first.record?.[field]),
+    )
+  )
+    return invalid("settlement_terminal_invalid");
+  const states = records.map(({ record }) => record.terminalState);
+  if (new Set(states).size !== states.length) return invalid("settlement_terminal_conflict");
+  const conflict = records.find(({ record }) => record.terminalState === "conflict")?.record ?? null;
+  let join = null;
+  if (conflict) {
+    join =
+      conflict.advisoryRunId === null || conflict.advisoryRunAttempt === null
+        ? null
+        : { runId: conflict.advisoryRunId, runAttempt: conflict.advisoryRunAttempt };
+    if (join === null || !sameJoin(join, advisoryJoin)) return invalid("settlement_join_conflict");
+  } else if (advisoryJoin !== null) {
+    // A loss whose advisory run arrived late awaits cleanup and its conflict record.
+    return unsettled;
+  }
+  return settled({
+    variant,
+    runId: first.record.producerRunId,
+    runAttempt: first.record.producerRunAttempt,
+    join,
+    terminals: records
+      .map(({ bytes, record }) => ({ terminalState: record.terminalState, sha256: sha256Hex(bytes) }))
+      .sort((left, right) => (left.terminalState < right.terminalState ? -1 : 1)),
+    cleanupMarkerSha256: null,
+    startedAt: first.record.startedAt,
+  });
+}
+
+// The only permitted change to a retained entry: a settled producer loss whose
+// late advisory run is now named by a conflict record that keeps the loss bytes.
+function refinesProducerLoss(existing, next) {
+  return (
+    existing.variant === "producer_loss" &&
+    next.variant === "producer_loss" &&
+    existing.join === null &&
+    next.join !== null &&
+    existing.startedAt === next.startedAt &&
+    existing.terminals.length === 1 &&
+    next.terminals.some(
+      (terminal) =>
+        terminal.terminalState === existing.terminals[0].terminalState &&
+        terminal.sha256 === existing.terminals[0].sha256,
+    )
+  );
+}
+
+// Monotonic: every prior entry inside the 48-hour window is retained unchanged
+// (or refined as above); entries that age out leave their attempt an explicit
+// unknown, never settled.
+export function writeMergeQualificationSettledIndex({
+  repository,
+  prior = null,
+  entries = [],
+  writerRunId,
+  writerRunAttempt,
+  now = () => new Date(),
+} = {}) {
+  const refused = (code) => ({ index: null, aged: 0, added: 0, errors: [code] });
+  if (!isRepositoryIdentity(repository)) return refused("settled_index_repository_invalid");
+  if (!isBoundedSafeIntegerString(writerRunId) || !isBoundedSafeIntegerString(writerRunAttempt))
+    return refused("settled_index_writer_invalid");
+  if (prior !== null && validateMergeQualificationSettledIndex(prior, { repository }).length)
+    return refused("settled_index_prior_invalid");
+  if (!Array.isArray(entries) || entries.length > SETTLED_ENTRIES_PER_DELIVERY)
+    return refused("settled_index_entries_invalid");
+  const windowStartMs = inventoryWindowStartMs(now);
+  if (!Number.isFinite(windowStartMs)) return refused("settled_index_window_invalid");
+  const merged = new Map();
+  let aged = 0;
+  for (const entry of prior?.entries ?? []) {
+    if (parseTimezoneInstantMs(entry.startedAt) < windowStartMs) {
+      aged += 1;
+      continue;
+    }
+    merged.set(settledKey(entry.variant, entry.runId, entry.runAttempt), canonicalSettledEntry(entry));
+  }
+  let added = 0;
+  for (const candidate of entries) {
+    if (validateMergeQualificationSettledEntry(candidate).length) return refused("settled_index_entry_invalid");
+    if (parseTimezoneInstantMs(candidate.startedAt) < windowStartMs) continue;
+    const entry = canonicalSettledEntry(candidate);
+    const key = settledKey(entry.variant, entry.runId, entry.runAttempt);
+    const existing = merged.get(key);
+    if (existing && JSON.stringify(existing) === JSON.stringify(entry)) continue;
+    if (existing && !refinesProducerLoss(existing, entry)) return refused("settled_index_not_monotonic");
+    merged.set(key, entry);
+    added += 1;
+  }
+  const index = {
+    schemaVersion: MERGE_QUALIFICATION_SETTLED_INDEX_SCHEMA_VERSION,
+    repository,
+    writerRunId,
+    writerRunAttempt,
+    windowStart: new Date(windowStartMs).toISOString().replace(/\.000Z$/, "Z"),
+    entries: [...merged.values()].sort(compareSettledEntries),
+  };
+  if (validateMergeQualificationSettledIndex(index, { repository }).length)
+    return refused("settled_index_capacity_exceeded");
+  return { index, aged, added, errors: [] };
+}
+
+// Exactly three REST calls per delivery: the latest successful default-branch
+// observer run, its named index artifact, and that artifact's download. A
+// stale index is safe because settlement is monotonic; missing, invalid or
+// incomplete evidence is an explicit unknown that leaves every attempt pending.
+export async function readMergeQualificationSettledIndex({
+  repository,
+  defaultBranch,
+  requestJson,
+  downloadArtifact,
+} = {}) {
+  const unknown = (code) => ({ state: "unknown", index: null, writer: null, errors: [code] });
+  if (!isRepositoryIdentity(repository)) return unknown("settled_index_repository_invalid");
+  if (typeof defaultBranch !== "string" || !/^[A-Za-z0-9._/-]{1,256}$/.test(defaultBranch))
+    return unknown("settled_index_branch_invalid");
+  const branch = defaultBranch.replace(/^refs\/heads\//u, "");
+  try {
+    const latest = await requestJson(
+      `repos/${repository}/actions/workflows/platform-merge-qualification-observer.yml/runs?branch=${encodeURIComponent(branch)}&status=success&per_page=1`,
+    );
+    if (
+      !Number.isSafeInteger(latest?.total_count) ||
+      latest.total_count < 0 ||
+      !Array.isArray(latest.workflow_runs) ||
+      latest.workflow_runs.length !== Math.min(1, latest.total_count)
+    )
+      return unknown("settled_index_lookup_incomplete");
+    if (latest.total_count === 0) return unknown("settled_index_missing");
+    const run = latest.workflow_runs[0];
+    const runId = String(run?.id ?? "");
+    const runAttempt = String(run?.run_attempt ?? "");
+    if (
+      !isBoundedSafeIntegerString(runId) ||
+      !isBoundedSafeIntegerString(runAttempt) ||
+      run?.repository?.full_name !== repository ||
+      run?.head_repository?.full_name !== repository ||
+      run?.head_branch !== branch ||
+      run?.path !== OBSERVER_WORKFLOW_PATH ||
+      !["schedule", "workflow_run"].includes(run?.event) ||
+      run?.status !== "completed" ||
+      run?.conclusion !== "success"
+    )
+      return unknown("settled_index_writer_invalid");
+    const listing = await requestJson(
+      `repos/${repository}/actions/runs/${runId}/artifacts?name=${MERGE_QUALIFICATION_SETTLED_INDEX_ARTIFACT}`,
+    );
+    if (
+      !Number.isSafeInteger(listing?.total_count) ||
+      !Array.isArray(listing.artifacts) ||
+      listing.artifacts.length !== listing.total_count
+    )
+      return unknown("settled_index_lookup_incomplete");
+    if (listing.total_count === 0) return unknown("settled_index_missing");
+    const [artifact] = listing.artifacts;
+    const artifactId = String(artifact?.id ?? "");
+    if (
+      listing.total_count !== 1 ||
+      !isBoundedSafeIntegerString(artifactId) ||
+      artifact?.name !== MERGE_QUALIFICATION_SETTLED_INDEX_ARTIFACT ||
+      artifact?.expired !== false ||
+      String(artifact?.workflow_run?.id ?? "") !== runId
+    )
+      return unknown("settled_index_artifact_invalid");
+    const bytes = await downloadArtifact({ artifactId });
+    if (typeof bytes !== "string" || Buffer.byteLength(bytes) > SETTLED_INDEX_MAX_BYTES)
+      return unknown("settled_index_payload_invalid");
+    const index = parseJsonOrNull(bytes);
+    if (validateMergeQualificationSettledIndex(index, { repository }).length)
+      return unknown("settled_index_payload_invalid");
+    if (index.writerRunId !== runId || index.writerRunAttempt !== runAttempt)
+      return unknown("settled_index_writer_invalid");
+    return { state: "valid", index, writer: { runId, runAttempt }, errors: [] };
+  } catch {
+    return unknown("settled_index_authority_unavailable");
+  }
+}
+
 export function resolveRunTerminalization({
   runEvent = "",
   runConclusion = "",
@@ -2678,34 +3141,100 @@ async function main(argv, env = process.env) {
     }
   }
 
-  if (command === "inventory") {
-    const result = await inventoryMergeQualificationAttempts({
-      repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
-      now,
-      requestJson: async (endpoint) =>
-        JSON.parse(
-          execFileSync("gh", ["api", endpoint], {
-            encoding: "utf8",
-            timeout: 30_000,
-            maxBuffer: 8_000_000,
-            stdio: ["ignore", "pipe", "pipe"],
-          }),
-        ),
-      readPolicyContent: async (revision) => readOriginalQualificationPolicy(revision),
+  if (command === "settled-index-read") {
+    const repository = readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY;
+    const gh = (args, encoding = "utf8") =>
+      execFileSync("gh", args, {
+        encoding,
+        timeout: 30_000,
+        maxBuffer: 8_000_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    const result = await readMergeQualificationSettledIndex({
+      repository,
+      defaultBranch: readOption(argv, "--default-branch") ?? env.GITHUB_REF_NAME ?? "main",
+      requestJson: async (endpoint) => JSON.parse(gh(["api", endpoint])),
+      downloadArtifact: async ({ artifactId }) => {
+        const directory = mkdtempSync(path.join(tmpdir(), "qualification-settled-index-"));
+        try {
+          const archive = path.join(directory, "settled-index.zip");
+          // gh follows the authenticated redirect without forwarding the token to the artifact host.
+          writeFileSync(archive, gh(["api", `repos/${repository}/actions/artifacts/${artifactId}/zip`], "buffer"));
+          const unzip = (args) =>
+            execFileSync("unzip", args, {
+              encoding: "utf8",
+              timeout: 30_000,
+              maxBuffer: SETTLED_INDEX_MAX_BYTES + 1,
+              stdio: ["ignore", "pipe", "pipe"],
+            });
+          if (unzip(["-Z1", archive]).trim() !== SETTLED_INDEX_FILE) throw new Error("settled_index_archive_invalid");
+          return unzip(["-p", archive, SETTLED_INDEX_FILE]);
+        } finally {
+          rmSync(directory, { recursive: true, force: true });
+        }
+      },
     });
+    const out = readOption(argv, "--out");
+    if (result.state === "valid" && out) {
+      await mkdir(path.dirname(out), { recursive: true });
+      await writeFile(out, `${JSON.stringify(result.index)}\n`);
+    }
+    appendOutputs(readOption(argv, "--github-output"), [
+      ["state", result.state],
+      ["reason", result.errors[0] ?? ""],
+      ["entries", String(result.index?.entries.length ?? 0)],
+    ]);
+    appendSummary(
+      readOption(argv, "--github-summary"),
+      result.state === "valid"
+        ? `Settled-attempt index from observer run ${result.writer.runId} attempt ${result.writer.runAttempt}: ${result.index.entries.length} settled attempts.`
+        : `Settled-attempt index unknown (${result.errors[0]}); every inventoried attempt stays pending work.`,
+    );
+    return 0;
+  }
+
+  if (command === "inventory") {
+    const repository = readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY;
+    const requestJson = async (endpoint) =>
+      JSON.parse(
+        execFileSync("gh", ["api", endpoint], {
+          encoding: "utf8",
+          timeout: 30_000,
+          maxBuffer: 8_000_000,
+          stdio: ["ignore", "pipe", "pipe"],
+        }),
+      );
+    const listing = await listMergeQualificationAdvisoryRuns({ repository, requestJson, now });
+    const result = listing.errors.length
+      ? { attempts: [], settled: 0, errors: listing.errors }
+      : await inventoryMergeQualificationAttempts({
+          repository,
+          now,
+          requestJson,
+          advisoryRuns: listing.runs,
+          settledIndex: readJsonFileOrNull(readOption(argv, "--settled-index")),
+          readPolicyContent: async (revision) => readOriginalQualificationPolicy(revision),
+        });
     if (result.errors.length) {
       console.error(result.errors.join("\n"));
       return 1;
     }
+    const advisoryRunsOut = readOption(argv, "--advisory-runs-out");
+    if (advisoryRunsOut) {
+      await mkdir(path.dirname(advisoryRunsOut), { recursive: true });
+      await writeFile(advisoryRunsOut, `${JSON.stringify(listing.runs)}\n`);
+    }
     appendOutputs(readOption(argv, "--github-output"), [
       ["matrix", JSON.stringify({ include: result.attempts })],
       ["pending", result.attempts.length ? "true" : "false"],
+      ["settled", String(result.settled)],
     ]);
-    if (!result.attempts.length)
-      appendSummary(
-        readOption(argv, "--github-summary"),
-        "No enabled completed advisory attempts require reconciliation.",
-      );
+    appendSummary(
+      readOption(argv, "--github-summary"),
+      result.attempts.length
+        ? `${result.attempts.length} advisory attempts pending; ${result.settled} settled attempts scheduled no leg.`
+        : `No enabled completed advisory attempts require reconciliation; ${result.settled} settled attempts scheduled no leg.`,
+    );
     return 0;
   }
 
@@ -2719,11 +3248,19 @@ async function main(argv, env = process.env) {
           stdio: ["ignore", "pipe", "pipe"],
         }),
       );
+    const advisoryRunsPath = readOption(argv, "--advisory-runs");
+    const advisoryRuns = advisoryRunsPath ? readJsonFileOrNull(advisoryRunsPath) : null;
+    if (advisoryRunsPath && !Array.isArray(advisoryRuns)) {
+      console.error("advisory_inventory_incomplete");
+      return 1;
+    }
     const result = await inventoryMergeQualificationProducerAttempts({
       repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
       defaultBranch: readOption(argv, "--default-branch") ?? env.GITHUB_REF_NAME ?? "main",
       now,
       requestJson,
+      advisoryRuns,
+      settledIndex: readJsonFileOrNull(readOption(argv, "--settled-index")),
       readProducerImageEligibility: ({ run, repository }) =>
         readMergeQualificationProducerImageEligibility({ repository, run, requestJson }),
     });
@@ -2734,12 +3271,86 @@ async function main(argv, env = process.env) {
     appendOutputs(readOption(argv, "--github-output"), [
       ["matrix", JSON.stringify({ include: result.attempts })],
       ["pending", result.attempts.length ? "true" : "false"],
+      ["settled", String(result.settled)],
     ]);
-    if (!result.attempts.length)
-      appendSummary(
-        readOption(argv, "--github-summary"),
-        "No completed producer attempts are missing advisory dispatch.",
-      );
+    appendSummary(
+      readOption(argv, "--github-summary"),
+      result.attempts.length
+        ? `${result.attempts.length} producer attempts pending; ${result.settled} settled producer losses scheduled no leg.`
+        : `No completed producer attempts are missing advisory dispatch; ${result.settled} settled producer losses scheduled no leg.`,
+    );
+    return 0;
+  }
+
+  if (command === "settled-entry") {
+    const repository = readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY;
+    const readBytes = (file) => {
+      try {
+        return statSync(file).size > 65_536 ? null : readFileSync(file, "utf8");
+      } catch {
+        return null;
+      }
+    };
+    const records = readJsonFileOrNull(readOption(argv, "--terminal-records"))?.records;
+    const eventPath = readOption(argv, "--event");
+    const markerPath = readOption(argv, "--cleanup-marker");
+    const terminals = Array.isArray(records) ? [...records] : null;
+    if (eventPath) terminals?.push(readBytes(eventPath));
+    const cleanupMarker = markerPath ? readBytes(markerPath) : null;
+    if (terminals === null || (markerPath && cleanupMarker === null)) {
+      console.error("settlement_evidence_unreadable");
+      return 1;
+    }
+    const advisoryRunPath = readOption(argv, "--advisory-run");
+    const advisoryRun = advisoryRunPath ? readJsonFileOrNull(advisoryRunPath) : null;
+    const result = deriveMergeQualificationSettledEntry({
+      variant: readOption(argv, "--variant"),
+      repository,
+      terminals,
+      cleanupMarker,
+      advisoryJoin: advisoryRun
+        ? { runId: String(advisoryRun.id ?? ""), runAttempt: String(advisoryRun.run_attempt ?? "") }
+        : null,
+    });
+    if (result.errors.length) {
+      console.error(result.errors.join("\n"));
+      return 1;
+    }
+    if (result.settled) await writeJsonRecord(readOption(argv, "--out"), result.entry);
+    appendOutputs(readOption(argv, "--github-output"), [["settled", result.settled ? "true" : "false"]]);
+    return 0;
+  }
+
+  if (command === "settled-index-write") {
+    const priorPath = readOption(argv, "--prior");
+    const prior = priorPath ? readJsonFileOrNull(priorPath) : null;
+    if (priorPath && prior === null) {
+      console.error("settled_index_prior_invalid");
+      return 1;
+    }
+    const loaded = readSettledEntryArtifacts(readOption(argv, "--entries-dir"));
+    const result = loaded.errors.length
+      ? { index: null, errors: loaded.errors }
+      : writeMergeQualificationSettledIndex({
+          repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
+          prior,
+          entries: loaded.entries,
+          writerRunId: readOption(argv, "--writer-run-id") ?? env.GITHUB_RUN_ID,
+          writerRunAttempt: readOption(argv, "--writer-run-attempt") ?? env.GITHUB_RUN_ATTEMPT,
+          now,
+        });
+    const bytes = result.index ? `${JSON.stringify(result.index)}\n` : "";
+    if (result.errors.length || Buffer.byteLength(bytes) > SETTLED_INDEX_MAX_BYTES) {
+      console.error(result.errors[0] ?? "settled_index_capacity_exceeded");
+      return 1;
+    }
+    const out = readOption(argv, "--out");
+    await mkdir(path.dirname(out), { recursive: true });
+    await writeFile(out, bytes);
+    appendSummary(
+      readOption(argv, "--github-summary"),
+      `Settled-attempt index: ${result.index.entries.length} entries (${result.added} added; ${result.aged} aged out of the ${MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS}-hour window and left explicit unknown).`,
+    );
     return 0;
   }
 
@@ -3453,9 +4064,45 @@ async function main(argv, env = process.env) {
   }
 
   console.error(
-    "usage: merge-qualification.mjs <policy|route|candidate-evidence|decision|recover-decision|cancelled-record|queue-disposition|observe|inventory|producer-inventory|producer-reconcile|prepare-cleanup|terminal-inventory|terminalize> [options]",
+    "usage: merge-qualification.mjs <policy|route|candidate-evidence|decision|recover-decision|cancelled-record|queue-disposition|observe|settled-index-read|inventory|producer-inventory|producer-reconcile|prepare-cleanup|terminal-inventory|terminalize|settled-entry|settled-index-write> [options]",
   );
   return 1;
+}
+
+// Each settlement entry arrives as one artifact holding one file, both named
+// for its exact variant/run/attempt key, downloaded with merge-multiple so the
+// layout is the same for zero, one or many artifacts. The file name must agree
+// with the content it carries.
+function readSettledEntryArtifacts(directory) {
+  const invalid = (code) => ({ entries: [], errors: [code] });
+  let files;
+  try {
+    files = readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return invalid("settled_entries_unreadable");
+  }
+  if (files.length > SETTLED_ENTRIES_PER_DELIVERY) return invalid("settled_entry_artifact_invalid");
+  const entries = [];
+  for (const candidate of files) {
+    const key = candidate.isFile()
+      ? new RegExp(
+          `^${MERGE_QUALIFICATION_SETTLED_ENTRY_ARTIFACT_PREFIX}(advisory|producer_loss)-([1-9][0-9]{0,15})-([1-9][0-9]{0,15})\\.json$`,
+          "u",
+        ).exec(candidate.name)
+      : null;
+    if (!key) return invalid("settled_entry_artifact_invalid");
+    const file = path.join(directory, candidate.name);
+    const entry = statSync(file).size > 65_536 ? null : parseJsonOrNull(readFileSync(file, "utf8"));
+    if (
+      validateMergeQualificationSettledEntry(entry).length ||
+      entry.variant !== key[1] ||
+      entry.runId !== key[2] ||
+      entry.runAttempt !== key[3]
+    )
+      return invalid("settled_entry_artifact_invalid");
+    entries.push(entry);
+  }
+  return { entries, errors: [] };
 }
 
 function readJsonFileOrNull(filePath) {
