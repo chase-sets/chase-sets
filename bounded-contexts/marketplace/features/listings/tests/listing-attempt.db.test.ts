@@ -170,6 +170,34 @@ describeDb("Listing attempts on PostgreSQL", () => {
       context,
       events: [{ eventType: "marketplace.listing.evidence-requirements-refreshed", payload: {} }],
     });
+    const conflict = await (async () => {
+      try {
+        await store.appendToStreams!([
+          {
+            streamId,
+            expectedVersion: loaded.length,
+            context,
+            events: [
+              {
+                eventType: "marketplace.listing.price-updated",
+                payload: { priceAmount: "11.00", priceCurrencyCode: "USD" },
+              },
+            ],
+          },
+          { streamId: guardStream, expectedVersion: 1, context, events: [] },
+        ]);
+        return null;
+      } catch (error) {
+        return error;
+      }
+    })();
+    expect(conflict).toMatchObject({ code: "concurrency_conflict" });
+    expect(String((conflict as Error).message)).toContain(streamId);
+    expect(String((conflict as Error).message)).toContain("expected version 1");
+    /*
+     * The Listing writer is current; only the guard's stale expected version
+     * should reject this atomic append.
+     */
     await expect(
       store.appendToStreams!([
         {
@@ -183,9 +211,9 @@ describeDb("Listing attempts on PostgreSQL", () => {
             },
           ],
         },
-        { streamId: guardStream, expectedVersion: 0, context, events: [] },
+        { streamId: guardStream, expectedVersion: 1, context, events: [] },
       ]),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
     expect((await store.readStream({ streamId })).at(-1)?.eventId).toBe(newer.at(-1)?.eventId);
     expect((await store.readStream({ streamId: guardStream })).length).toBe(1);
   });

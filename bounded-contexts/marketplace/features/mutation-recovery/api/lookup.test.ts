@@ -56,7 +56,44 @@ describe("Marketplace owner lookup", () => {
     await expect(lookup({ ...query, requestHash: "f".repeat(64) })).resolves.toMatchObject({
       ownerStatus: "not-observed",
     });
+    const appendToStreams = vi.spyOn(store.eventStore, "appendToStreams");
+    await expect(
+      lookup({
+        ...query,
+        target: { kind: "listing", id: "inv_wrong" },
+      }),
+    ).resolves.toMatchObject({ ownerStatus: "not-observed" });
+    expect(appendToStreams).not.toHaveBeenCalled();
     await expect(lookup({ ...query, accountId: "acc_other" })).resolves.toMatchObject({ ownerStatus: "not-observed" });
+
+    const createStore = createInMemoryEventStore().eventStore;
+    const createAttempt = listingAttempt({
+      idempotencyKey: "lookup_listing_create_01",
+      mutationKind: "listing.create",
+      accountId: "acc_seller",
+      targetId: "inv_one",
+      request: { inventoryItemId: "inv_one", priceAmount: "10.00", priceCurrencyCode: "USD" },
+    });
+    await createStore.appendToStream({
+      streamId: createAttempt.streamId,
+      expectedVersion: "any",
+      context,
+      events: stampListingAttemptEvents(createAttempt, [{ eventType: "marketplace.listing.created", payload: {} }]),
+    });
+    const createLookup = createListingMutationLookup(createStore);
+    const createQuery = {
+      attemptId: "lookup_listing_create_01",
+      accountId: "acc_seller",
+      mutationKind: "listing.create" as const,
+      target: { kind: "inventory-item" as const, id: "inv_one" },
+      requestHash: createAttempt.binding.canonicalRequestHash,
+    };
+    await expect(createLookup(createQuery)).resolves.toMatchObject({ ownerStatus: "committed" });
+    await expect(
+      createLookup({ ...createQuery, target: { kind: "inventory-item", id: "inv_wrong" } as const }),
+    ).resolves.toMatchObject({
+      ownerStatus: "not-observed",
+    });
 
     const incompleteStore = createInMemoryEventStore();
     await incompleteStore.eventStore.appendToStream({
@@ -71,6 +108,25 @@ describe("Marketplace owner lookup", () => {
       ownerStatus: "ambiguous",
       reason: "history-incomplete",
     });
+
+    for (const event of [
+      { eventType: "marketplace.listing.evidence-requirements-refreshed", payload: {} },
+      { eventType: "marketplace.listing.published", payload: {} },
+    ]) {
+      const historyStore = createInMemoryEventStore();
+      await historyStore.eventStore.appendToStream({
+        streamId: attempt.streamId,
+        expectedVersion: "any",
+        context,
+        events: stampListingAttemptEvents(attempt, [event]),
+      });
+      const before = (await historyStore.eventStore.readStream({ streamId: attempt.streamId })).length;
+      await expect(createListingMutationLookup(historyStore.eventStore)(query)).resolves.toMatchObject({
+        ownerStatus: "ambiguous",
+        reason: "history-incomplete",
+      });
+      expect((await historyStore.eventStore.readStream({ streamId: attempt.streamId })).length).toBe(before);
+    }
   });
   it("rejects poisoned evidence hashes and shallow nested evidence facts", () => {
     const snapshot = buildListingEvidenceSnapshot({ evidence: [], createdAt: "2026-01-01T00:00:00.000Z" });
