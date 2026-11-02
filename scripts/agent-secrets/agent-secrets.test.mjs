@@ -981,7 +981,10 @@ describe("with-secrets.ps1 agent tier guard", { timeout: helperLaunchTimeoutMs }
 
   it("admits the staging persona raw prefix through the real helper using only a synthetic project", () => {
     const value = `cs_stg_persona_${randomUUID()}`;
-    const seat = createSeat({ inventory: repositoryInventory, bws: { list: project({ CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET: value }) } });
+    const seat = createSeat({
+      inventory: repositoryInventory,
+      bws: { list: project({ CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET: value }) },
+    });
     const result = runSeat(seat, "with-secrets.ps1", ["-Check"]);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("(1 keys)");
@@ -1019,8 +1022,20 @@ describe("with-secrets.ps1 agent tier guard", { timeout: helperLaunchTimeoutMs }
 
   it.each([
     ["an unlisted key", "SCRYDEX_API_KEY", `sentinel-unlisted-${randomUUID()}`, "not an agent-tier key", []],
-    ["a staging persona value without its prefix", "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET", `synthetic-wrong-prefix-${randomUUID()}`, "value without a test prefix", []],
-    ["a CI-only staging verifier", "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256", "a".repeat(64), "not an agent-tier key", []],
+    [
+      "a staging persona value without its prefix",
+      "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET",
+      `synthetic-wrong-prefix-${randomUUID()}`,
+      "value without a test prefix",
+      [],
+    ],
+    [
+      "a CI-only staging verifier",
+      "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256",
+      "a".repeat(64),
+      "not an agent-tier key",
+      [],
+    ],
     [
       "an sk_live_ sentinel under STRIPE_SECRET_KEY",
       "STRIPE_SECRET_KEY",

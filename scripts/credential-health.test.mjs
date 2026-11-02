@@ -214,7 +214,9 @@ describe("credential health classifier (AC2)", () => {
     expect(rawEntry.optional).not.toBe(true);
     const inventory = inventoryOf([rawEntry]);
     const report = classify(inventory, metadataOf({}));
-    expect(report.groups).toEqual([expect.objectContaining({ name, level: "warning", reasons: ["missing-from-scope"] })]);
+    expect(report.groups).toEqual([
+      expect.objectContaining({ name, level: "warning", reasons: ["missing-from-scope"] }),
+    ]);
     expect(report.status).toBe("warning");
   });
 

@@ -97,25 +97,43 @@ async function readPersonaResponse(response: Response) {
 }
 
 function issuePersonaInFake(bearer: string, alias: string, resolver: PairingDrillResolver) {
-  const lookup = ((_hostname, options, callback) => options.all
-    ? callback(null, [{ address: resolver.address, family: 4 }])
-    : callback(null, resolver.address, 4)) as LookupFunction;
+  const lookup = ((_hostname, options, callback) =>
+    options.all
+      ? callback(null, [{ address: resolver.address, family: 4 }])
+      : callback(null, resolver.address, 4)) as LookupFunction;
   return new Promise<Response>((resolve, reject) => {
-    const request = httpsRequest(`${stagingOrigin}${stagingPersonaSignInPath}`, {
-      method: "POST", port: resolver.port, ca: resolver.certificatePem, lookup,
-      signal: AbortSignal.timeout(probeTimeoutMs),
-      headers: { accept: "application/json", "content-type": "application/json", authorization: `Bearer ${bearer}`, origin: stagingOrigin },
-    }, (response) => {
-      const chunks: Buffer[] = [];
-      let bytes = 0;
-      response.on("data", (chunk: Buffer) => {
-        bytes += chunk.length;
-        if (bytes > stagingPersonaResponseByteLimit) { request.destroy(new Error("body-too-large")); return; }
-        chunks.push(chunk);
-      });
-      response.on("end", () => resolve(new Response(new Uint8Array(Buffer.concat(chunks)), { status: response.statusCode ?? 500 })));
-      response.on("error", reject);
-    });
+    const request = httpsRequest(
+      `${stagingOrigin}${stagingPersonaSignInPath}`,
+      {
+        method: "POST",
+        port: resolver.port,
+        ca: resolver.certificatePem,
+        lookup,
+        signal: AbortSignal.timeout(probeTimeoutMs),
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          authorization: `Bearer ${bearer}`,
+          origin: stagingOrigin,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        response.on("data", (chunk: Buffer) => {
+          bytes += chunk.length;
+          if (bytes > stagingPersonaResponseByteLimit) {
+            request.destroy(new Error("body-too-large"));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.on("end", () =>
+          resolve(new Response(new Uint8Array(Buffer.concat(chunks)), { status: response.statusCode ?? 500 })),
+        );
+        response.on("error", reject);
+      },
+    );
     request.on("error", reject);
     request.end(JSON.stringify({ alias }));
   });
@@ -139,22 +157,32 @@ export function createStagingPersonaSignIn(resolver?: PairingDrillResolver) {
     };
     try {
       if (!bearer?.startsWith("cs_stg_persona_")) throw new Error("missing-bearer");
-      const response = resolver ? await issuePersonaInFake(bearer, personaAlias, resolver) : await fetch(`${stagingOrigin}${stagingPersonaSignInPath}`, {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-          authorization: `Bearer ${bearer}`,
-          origin: stagingOrigin,
-        },
-        body: JSON.stringify({ alias: personaAlias }),
-        redirect: "error",
-        signal: AbortSignal.timeout(probeTimeoutMs),
-      });
+      const response = resolver
+        ? await issuePersonaInFake(bearer, personaAlias, resolver)
+        : await fetch(`${stagingOrigin}${stagingPersonaSignInPath}`, {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              "content-type": "application/json",
+              authorization: `Bearer ${bearer}`,
+              origin: stagingOrigin,
+            },
+            body: JSON.stringify({ alias: personaAlias }),
+            redirect: "error",
+            signal: AbortSignal.timeout(probeTimeoutMs),
+          });
       record = { ...record, issuanceStatus: response.status };
       if (!response.ok) throw new Error("staging-persona-sign-in-refused");
       const body = await readPersonaResponse(response);
-      if (!body || typeof body !== "object" || Object.keys(body).sort().join() !== "alias,expiresAt,link" || body.alias !== personaAlias || typeof body.link !== "string" || typeof body.expiresAt !== "string") throw new Error("staging-persona-link-invalid");
+      if (
+        !body ||
+        typeof body !== "object" ||
+        Object.keys(body).sort().join() !== "alias,expiresAt,link" ||
+        body.alias !== personaAlias ||
+        typeof body.link !== "string" ||
+        typeof body.expiresAt !== "string"
+      )
+        throw new Error("staging-persona-link-invalid");
       const link = new URL(body.link);
       const token = link.searchParams.get("token");
       const expiry = Date.parse(body.expiresAt);
@@ -162,10 +190,16 @@ export function createStagingPersonaSignIn(resolver?: PairingDrillResolver) {
       if (
         link.origin !== stagingOrigin ||
         link.pathname !== stagingPersonaMagicLinkPath ||
-        link.username || link.password || link.hash ||
+        link.username ||
+        link.password ||
+        link.hash ||
         [...link.searchParams.keys()].join() !== "token" ||
-        !token || !/^[A-Za-z0-9_-]+$/.test(token) || token.length > maxPersonaTokenLength ||
-        !Number.isFinite(expiry) || expiry <= now || expiry > now + 10 * 60 * 1000 ||
+        !token ||
+        !/^[A-Za-z0-9_-]+$/.test(token) ||
+        token.length > maxPersonaTokenLength ||
+        !Number.isFinite(expiry) ||
+        expiry <= now ||
+        expiry > now + 10 * 60 * 1000 ||
         new Date(expiry).toISOString() !== body.expiresAt
       ) {
         throw new Error("staging-persona-link-origin-refused");

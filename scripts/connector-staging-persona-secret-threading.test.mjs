@@ -26,23 +26,46 @@ describe("connector staging persona verifier threading", () => {
     const jobs = parse(workflow).jobs;
     const stagingSteps = jobs["deploy-staging"].steps;
     expect(stagingSteps.find((step) => step.name === "Deploy staging Kubernetes release")).toBeDefined();
-    expect(JSON.stringify(stagingSteps.find((step) => step.name === "Deploy staging Kubernetes release"))).not.toContain(verifier);
+    expect(
+      JSON.stringify(stagingSteps.find((step) => step.name === "Deploy staging Kubernetes release")),
+    ).not.toContain(verifier);
     expect(workflow).toContain(`${verifier}: \${{ secrets.${verifier} || '' }}`);
-    for (const [job, value] of Object.entries(jobs)) if (job !== "deploy-staging") expect(JSON.stringify(value)).not.toContain(verifier);
-    const keyringBindings = stagingSteps.flatMap((step) => step.env?.CHANNELS_CREDENTIAL_KEYRING_JSON ? [step.env.CHANNELS_CREDENTIAL_KEYRING_JSON] : []);
+    for (const [job, value] of Object.entries(jobs))
+      if (job !== "deploy-staging") expect(JSON.stringify(value)).not.toContain(verifier);
+    const keyringBindings = stagingSteps.flatMap((step) =>
+      step.env?.CHANNELS_CREDENTIAL_KEYRING_JSON ? [step.env.CHANNELS_CREDENTIAL_KEYRING_JSON] : [],
+    );
     expect(keyringBindings.length).toBeGreaterThan(0);
     for (const value of keyringBindings) expect(value).not.toContain(verifier);
     for (const component of ["platform-worker", "platform-bootstrap"]) {
-      expect(JSON.stringify(buildPlatformHelmValues({ repoRoot: process.cwd(), deploymentEnvironment: "staging" }).components[component])).not.toContain(verifier);
+      expect(
+        JSON.stringify(
+          buildPlatformHelmValues({ repoRoot: process.cwd(), deploymentEnvironment: "staging" }).components[component],
+        ),
+      ).not.toContain(verifier);
     }
-    expect(JSON.stringify(buildPlatformHelmValues({ repoRoot: process.cwd(), deploymentEnvironment: "production" }))).not.toContain(verifier);
+    expect(
+      JSON.stringify(buildPlatformHelmValues({ repoRoot: process.cwd(), deploymentEnvironment: "production" })),
+    ).not.toContain(verifier);
     const raw = "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET";
     expect(workflow).not.toContain(raw);
     expect(JSON.stringify(values)).not.toContain(raw);
-    expect(inventory.secrets.find((entry) => entry.name === raw)).toEqual({ name: raw, scope: ["staging"], kind: "credential", rotation: "assisted", maxAgeDays: 365, providerExpiryDays: null, liveness: null, pairedWith: [], proofWorkflows: [] });
+    expect(inventory.secrets.find((entry) => entry.name === raw)).toEqual({
+      name: raw,
+      scope: ["staging"],
+      kind: "credential",
+      rotation: "assisted",
+      maxAgeDays: 365,
+      providerExpiryDays: null,
+      liveness: null,
+      pairedWith: [],
+      proofWorkflows: [],
+    });
     expect(inventory.agentTier.keys).toContainEqual({ name: raw, testPrefixes: ["cs_stg_persona_"] });
     expect(inventory.agentTier.keys.some((entry) => entry.name === verifier)).toBe(false);
-    const env = Object.fromEntries(collectPlatformSecretKeys(undefined, { deploymentEnvironment: "staging" }).map((key) => [key, ""]));
+    const env = Object.fromEntries(
+      collectPlatformSecretKeys(undefined, { deploymentEnvironment: "staging" }).map((key) => [key, ""]),
+    );
     const bundle = buildPlatformSecretBundle({ deploymentEnvironment: "staging", env, observabilityEnabled: false });
     expect(bundle.runtimeSecret.data[verifier]).toBe("");
   });
