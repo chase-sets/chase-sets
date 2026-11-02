@@ -387,7 +387,7 @@ export async function listSourceObservationsForCandidateMatching(
 ): Promise<readonly SourceObservationListRow[]> {
   const filter = buildSourceObservationFilter(params, {
     includeListFilters: true,
-    statuses: ["observed", "changed", "promoted"],
+    statuses: CATALOG_MERGE_CANDIDATE_MATCHING_STATUSES,
   });
   const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
   const result = await db.query<SourceObservationListRow>(
@@ -400,6 +400,8 @@ export async function listSourceObservationsForCandidateMatching(
 
   return result.rows;
 }
+
+export const CATALOG_MERGE_CANDIDATE_MATCHING_STATUSES = ["observed", "changed", "promoted"] as const;
 
 /**
  * Reads the current source rows for an already-membered candidate set. The
