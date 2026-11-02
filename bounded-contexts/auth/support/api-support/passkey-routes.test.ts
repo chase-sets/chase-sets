@@ -16,7 +16,7 @@ import {
   decodeCommitReceipt,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
-import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import { createAuthServicesFake } from "../auth-support/test-support";
 import type { AuthServices } from "../runtime-support/services";
 import { passkeyMatchesChallengeUser, registerPasskeyRoutes, resolvePasskeyRegistrationUserId } from "./passkey-routes";
@@ -99,7 +99,7 @@ function createServices() {
           accountId: "acc_new",
           roleKey: "owner",
           status: "active",
-          rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
+          rolePermissions: ROLE_PERMISSIONS.owner,
         },
       ]),
     },

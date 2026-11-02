@@ -18,7 +18,7 @@
       "statHygienePolicyRevisionId": "synthetic-stat-hygiene-policy-r1",
       "capturesPerPass": 5,
       "currency": "usd",
-      "authenticatedRequest": false,
+      "authenticatedRequest": true,
       "recordedSignalCount": 1,
       "unresolvedSignalCount": 0,
       "outcomeKind": "recorded",
@@ -41,6 +41,7 @@
       },
       "sales": {
         "status": "observed",
+        "httpStatusClass": "none",
         "requestedAt": "2026-09-01T15:00:00.000Z",
         "responseObservedAt": "2026-09-01T15:00:00.100Z",
         "rejectedRows": 0,
@@ -51,11 +52,11 @@
         "lastReportedTotal": 90,
         "firstResultCount": 25,
         "lastResultCount": 15,
-        "lastNextPage": "",
-        "httpStatusClass": "none"
+        "lastNextPage": ""
       },
       "listings": {
         "status": "observed",
+        "httpStatusClass": "none",
         "requestedAt": "2026-09-01T15:00:00.000Z",
         "responseObservedAt": "2026-09-01T15:00:00.200Z",
         "rejectedRows": 0,
@@ -63,18 +64,17 @@
         "pagesFetched": 1,
         "returnedCount": 4,
         "reportedTotal": 4,
-        "ownSellerExclusionApplied": false,
-        "httpStatusClass": "none"
+        "ownSellerExclusionApplied": false
       },
       "history": {
         "status": "observed",
+        "httpStatusClass": "none",
         "requestedAt": "2026-09-01T15:00:00.000Z",
         "responseObservedAt": "2026-09-01T15:00:00.300Z",
         "rejectedRows": 0,
         "coverage": "observed",
         "resultCount": 0,
-        "bucketCount": 0,
-        "httpStatusClass": "none"
+        "bucketCount": 0
       }
     },
     "sales": [

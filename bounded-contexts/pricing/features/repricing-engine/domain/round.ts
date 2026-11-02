@@ -1,11 +1,15 @@
 import { pricingGoalDefinitions, resolvePricingGoal, type RepricingRule } from "../../repricing-policies/domain/domain";
 import { validateParameters, type PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
+import type { PortfolioListing } from "../../repricing-policies/domain/portfolio/portfolio";
 import {
   evaluateRepricingListing,
   matchRepricingRule,
+  reachPortfolioAnchor,
   type RepricingListingEvaluation,
   type RepricingListingEvaluationInput,
   type RepricingMarketInputSnapshot,
+  type RepricingPortfolioAssignment,
+  type RepricingPortfolioReach,
 } from "./evaluate";
 import type { RepricingEvaluationSkipReason, RepricingPolicyListingTrace, ShadowGoalTrace } from "./fact";
 import type { RepricingEnginePolicyValue } from "./policy";
@@ -16,9 +20,66 @@ export function planRepricingRound(
   capturedAt: string,
   policy: RepricingEnginePolicyValue,
 ): readonly RepricingListingEvaluation[] {
-  return round.listings.map((listing) =>
-    evaluateRepricingListing(evaluationInput(listing), listingSnapshot(round, listing, capturedAt, policy)),
+  const entries = round.listings.map((listing) => ({
+    listing,
+    input: evaluationInput(listing),
+    snapshot: listingSnapshot(round, listing, capturedAt, policy),
+  }));
+  const portfolios = planRoundPortfolios(entries);
+  return entries.map(({ input, snapshot }) =>
+    evaluateRepricingListing(input, snapshot, undefined, portfolios.get(input.listingId)),
   );
+}
+
+/**
+ * One Portfolio Plan per policy and portfolio goal anchor in the round,
+ * resolved once over every listing whose chain reaches that anchor, then
+ * applied to each through its own stages. A plan never spans policies, so one
+ * seller's listings never move another's.
+ */
+function planRoundPortfolios(
+  entries: readonly Readonly<{
+    listing: RepricingRoundListing;
+    input: RepricingListingEvaluationInput;
+    snapshot: RepricingMarketInputSnapshot;
+  }>[],
+): ReadonlyMap<string, RepricingPortfolioAssignment> {
+  const groups = new Map<
+    string,
+    { reach: RepricingPortfolioReach; members: { listingId: string; reach: RepricingPortfolioReach }[] }
+  >();
+  for (const { listing, input, snapshot } of entries) {
+    const reach = reachPortfolioAnchor(input, snapshot);
+    if (reach === null) continue;
+    const parameters = Object.entries(reach.parameters).sort(([left], [right]) => (left < right ? -1 : 1));
+    const key = JSON.stringify([listing.policyId, reach.currencyCode, reach.goal.id, reach.goal.version, parameters]);
+    const group = groups.get(key) ?? { reach, members: [] };
+    group.members.push({ listingId: listing.listingId, reach });
+    groups.set(key, group);
+  }
+  const assignments = new Map<string, RepricingPortfolioAssignment>();
+  for (const { reach, members } of groups.values()) {
+    const plan = reach.goal.solvePortfolio!({
+      currencyCode: reach.currencyCode,
+      listings: members.map(
+        ({ listingId, reach: member }): PortfolioListing => ({
+          listingId,
+          currentPriceAmount: member.currentPriceAmount,
+          curve: member.curve,
+          constraint: member.constraint,
+        }),
+      ),
+      parameters: reach.parameters,
+    });
+    const results = new Map(plan.listings.map((result) => [result.listingId, result]));
+    for (const { listingId, reach: member } of members)
+      assignments.set(listingId, {
+        planId: plan.planId,
+        anchorIndex: member.anchorIndex,
+        result: results.get(listingId)!,
+      });
+  }
+  return assignments;
 }
 
 /** Live-only evidence, separate from the incumbent plan consumed by every money path. */
@@ -195,6 +256,7 @@ export function traceFromEvaluation(
     exhaustedAnchors: evaluation.exhaustedAnchors,
     clamps: evaluation.clamps,
     flags: evaluation.flags,
+    ...(evaluation.portfolioPlanId === undefined ? {} : { portfolioPlanId: evaluation.portfolioPlanId }),
     outcome,
     skipReason,
   };

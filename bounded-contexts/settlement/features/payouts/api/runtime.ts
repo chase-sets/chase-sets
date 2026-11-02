@@ -31,6 +31,7 @@ import type {
   SettlementProviderIdempotencyKeyRow,
   SettlementPayoutRow,
 } from "../read-model/queries";
+import type { SettlementPayoutSummary } from "../read-model/payout-summary";
 import type { WalletServices } from "../../wallets/api/runtime";
 import type { SettlementWalletRow } from "../../wallets/read-model/queries";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
@@ -168,7 +169,18 @@ export type PayoutServices = Readonly<{
   listPayouts: (
     params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
   ) => Promise<{ items: SettlementPayoutRow[]; total: number }>;
+  getPayoutSummary: (
+    params: Readonly<{ accountId: string; canRequestPayouts: boolean; evaluatedAt?: string }>,
+  ) => Promise<SettlementPayoutSummary>;
   getPayout: (payoutId: string, accountId: string) => Promise<SettlementPayoutRow | null>;
+  getPayoutQuickAmounts: (params: Readonly<{ accountId: AccountId }>) => Promise<
+    Readonly<{
+      currency_code: string;
+      minimum_amount: string;
+      maximum_amount: string;
+      full_available_amount: string;
+    }>
+  >;
   getPayoutMoneyTimeline: (params: Readonly<{ payoutId: string; accountId: string }>) => Promise<
     Readonly<{
       payout_id: string;
@@ -220,7 +232,11 @@ export type PayoutServices = Readonly<{
     }>
   >;
   previewPayoutRequest: (
-    params: Readonly<{ accountId: AccountId; amount: string }>,
+    params: Readonly<{
+      accountId: AccountId;
+      amount: string;
+      amountSelection?: "minimum" | "available" | null | "";
+    }>,
     context: EventStoreContext,
   ) => Promise<
     Readonly<{

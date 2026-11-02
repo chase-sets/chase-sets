@@ -94,6 +94,23 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
     return c.json(commandSnapshotResponse(dimensionId, result), 201);
   });
 
+  app.put("/:id/options/order", async (c) => {
+    const dimensionId = parseTypedIdBoundary(c.req.param("id"), "dim", "dimensionId");
+    const body = await c.req.json();
+    const context = c.get("context");
+
+    const result = await services.commandHandler({
+      streamId: `catalog.dimension-${dimensionId}`,
+      command: {
+        type: "ReorderOptions",
+        optionIds: parseTypedIdArrayBoundary(body.optionIds, "chc", "optionIds"),
+      },
+      context,
+    });
+
+    return c.json(commandSnapshotResponse(dimensionId, result));
+  });
+
   app.put("/:id/options/:optionId", async (c) => {
     const dimensionId = parseTypedIdBoundary(c.req.param("id"), "dim", "dimensionId");
     const body = await c.req.json();
@@ -107,23 +124,6 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
         code: body.code,
         label: coerceOptionLabel(body.label),
         numericValue: body.numericValue,
-      },
-      context,
-    });
-
-    return c.json(commandSnapshotResponse(dimensionId, result));
-  });
-
-  app.put("/:id/options/order", async (c) => {
-    const dimensionId = parseTypedIdBoundary(c.req.param("id"), "dim", "dimensionId");
-    const body = await c.req.json();
-    const context = c.get("context");
-
-    const result = await services.commandHandler({
-      streamId: `catalog.dimension-${dimensionId}`,
-      command: {
-        type: "ReorderOptions",
-        optionIds: parseTypedIdArrayBoundary(body.optionIds, "chc", "optionIds"),
       },
       context,
     });

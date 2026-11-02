@@ -5,7 +5,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { JsonObject } from "@chase-sets/primitives/json";
+import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
 import type { CatalogItemId, ReferenceRecordId } from "../../../../ids";
 import type { ReferenceDataServices } from "../../../reference-data/api/runtime";
@@ -44,7 +44,6 @@ import {
   normalizePromotionProductAssetSet,
   promotionReferenceFieldKey,
   requireCatalogItemPromotionObservation,
-  requireCatalogPromotionProfileVersion,
 } from "../source-observation-promotion-execution";
 import {
   resolvePromotionReferenceHierarchy,
@@ -60,6 +59,7 @@ import {
   catalogMergeCandidateStreamId,
   sourceObservationStreamId,
 } from "../source-observation-stream-identity";
+import { extractMergeCandidateFieldValue, mergeCandidateFieldValuesEqual } from "./catalog-merge-candidate-matcher";
 import {
   planCatalogMergeCandidatePromotionCommands,
   type CatalogMergeCandidatePromotionAssetPlan,
@@ -79,8 +79,24 @@ import {
   type PromotionTargetKey,
 } from "./promotion-target-identity";
 import type { CatalogProviderPromotionResolvedCatalogMapping } from "./provider-promotion-command-planner";
-import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
+import {
+  resolveCatalogProviderDuplicatePrevention,
+  type CatalogProviderDuplicatePreventionResult,
+} from "./provider-duplicate-prevention-resolver";
 import { promotionCurrentItem } from "./source-observation-target-exclusion";
+
+/**
+ * A duplicate-prevention review with no concrete Catalog Item is advisory
+ * bridge evidence, not an ambiguous target. Concrete candidates remain a
+ * fail-closed plan block; empty review-only evidence must not turn a sole
+ * item-producing member into a duplicate.
+ */
+export function shouldBlockDuplicatePrevention(result: CatalogProviderDuplicatePreventionResult): boolean {
+  return (
+    result.status === "blocked" ||
+    (result.status === "review-only" && (result.candidateCatalogItemIds?.length ?? 0) > 0)
+  );
+}
 
 export type CatalogMergeCandidateApplicationPorts = Readonly<{
   deps: CatalogRuntimeDeps;
@@ -135,12 +151,17 @@ type ApplicationUnit = Readonly<{
   context: EventStoreContext;
 }>;
 
-type ResolvedMember = Readonly<{
+/** An approved member whose own reviewed unit promotes Catalog Items, with its active promotion profile. */
+type ItemAuthor = Readonly<{
   revision: SourceObservationState;
   normalized: CatalogItemPromotableSourceObservationNormalized;
   version: CatalogProviderIntegrationProfileVersionRecord;
-  mapping: CatalogProviderPromotionResolvedCatalogMapping;
 }>;
+
+type ResolvedMember = ItemAuthor &
+  Readonly<{
+    mapping: CatalogProviderPromotionResolvedCatalogMapping;
+  }>;
 
 /**
  * Apply one approved (or ready-then-approved) candidate inside a version-1
@@ -149,6 +170,7 @@ type ResolvedMember = Readonly<{
  *
  * - applied: the initiating unit recovers its promoted result; any other unit skips.
  * - planned, not applied: resume the bound plan under the original target.
+ * - no item-producing member: skip as reference-only before any write.
  * - ready: preflight, approve at the checked version, then bind the plan.
  * - approved without a plan: this unit plans and becomes the initiator.
  */
@@ -178,8 +200,10 @@ export async function applyCatalogMergeCandidatePromotion(
     return unappliedOutcome(unit.candidateId, "skipped-not-eligible", `Catalog Merge Candidate is ${state.status}.`);
   }
 
+  const authors = await resolveItemAuthors(ports, state.snapshot);
+  if (authors.length === 0) return referenceOnlyOutcome(unit.candidateId);
   const approvalVersion = state.status === "promoted" ? loaded.approvalVersion! : loaded.version + 1;
-  const prepared = await prepareApplicationPlan(ports, unit, state.snapshot, approvalVersion);
+  const prepared = await prepareApplicationPlan(ports, unit, state.snapshot, authors, approvalVersion);
   let version = loaded.version;
   const now = new Date().toISOString();
   if (state.status === "ready") {
@@ -280,34 +304,176 @@ function checkpointCommand(checkpoint: ApplicationCheckpoint): CatalogMergeCandi
   };
 }
 
+/**
+ * The approved members that author the Catalog Item. A member is item-producing
+ * only when the unit it was reviewed under (its own provider, profile key and
+ * version in the membership tuple) promotes Catalog Items; every other member
+ * supplies membership, provenance and references only. Candidate-wide
+ * presence, another member's profile or an external reference never qualifies
+ * a member. Empty means the candidate is reference-only.
+ */
+async function resolveItemAuthors(
+  ports: CatalogMergeCandidateApplicationPorts,
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+): Promise<readonly ItemAuthor[]> {
+  const authors: ItemAuthor[] = [];
+  let referenceOnly = false;
+  for (const revision of await resolveApprovedMemberRevisions(ports.deps.eventStore, snapshot)) {
+    const normalized = promotableNormalized(revision);
+    if (!normalized) {
+      if (await isReferenceOnlyMember(ports.profileVersions, revision)) referenceOnly = true;
+      continue;
+    }
+    const version = await resolveMemberPromotionProfile(ports.profileVersions, revision, normalized);
+    if (!version) {
+      referenceOnly = true;
+      continue;
+    }
+    assertCatalogIntegrationProfileUnitAllowed(ports.rolloutControlPolicy, "promotion", version);
+    authors.push({ revision, normalized, version });
+  }
+  if (authors.length === 0 && !referenceOnly)
+    throw blocked("no-promotable-member", "no approved member has a Catalog Item promotion mapping");
+  return authors;
+}
+
+async function isReferenceOnlyMember(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  revision: SourceObservationState,
+): Promise<boolean> {
+  const versions = await profileVersions.listProfileVersions(revision.providerKey);
+  const reviewed = versions.filter(
+    (version) =>
+      sameKey(version.providerKey, revision.providerKey) &&
+      sameKey(version.profileKey, revision.sourceProfileKey) &&
+      version.profileVersion === revision.sourceProfileVersion,
+  );
+  return reviewed.length === 1 && !reviewed[0]!.profile.capabilities.includes("catalog-item-promotion");
+}
+
+/**
+ * The active promotion profile for the member's own reviewed unit, or null when
+ * that unit is registered without Catalog Item promotion. An item-producing
+ * unit whose profile is unregistered, inactive, ambiguous or maps another kind
+ * fails closed with its own code; nothing falls back to another unit.
+ */
+async function resolveMemberPromotionProfile(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  revision: SourceObservationState,
+  normalized: CatalogItemPromotableSourceObservationNormalized,
+): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
+  const unit = `${revision.providerKey}/${revision.sourceProfileKey}@${revision.sourceProfileVersion}`;
+  const versions = await profileVersions.listProfileVersions(revision.providerKey);
+  const reviewed = versions.filter(
+    (version) =>
+      sameKey(version.providerKey, revision.providerKey) &&
+      sameKey(version.profileKey, revision.sourceProfileKey) &&
+      version.profileVersion === revision.sourceProfileVersion,
+  );
+  if (reviewed.length === 0) throw blocked("promotion-profile-unavailable", `${unit} is not registered`);
+  if (reviewed.length > 1) throw blocked("promotion-profile-ambiguous", `${unit} is registered more than once`);
+  const own = reviewed[0]!;
+  if (own.profile.normalizedObservationMapping.kind !== normalized.kind)
+    throw blocked("promotion-profile-incompatible", `${unit} does not map '${normalized.kind}' observations`);
+  if (!own.profile.capabilities.includes("catalog-item-promotion")) return null;
+
+  const active = versions.filter(
+    (version) => isActivePromotionProfile(version) && catalogProviderProfileVersionsCompete(version, own),
+  );
+  const version = active[0];
+  if (!version) throw blocked("promotion-profile-inactive", `${unit} has no active Catalog Item promotion version`);
+  if (active.length > 1) throw blocked("promotion-profile-ambiguous", `${unit} has more than one active version`);
+  if (version.profile.normalizedObservationMapping.kind !== normalized.kind)
+    throw blocked(
+      "promotion-profile-incompatible",
+      `${unit} is promoted by ${version.profileKey}@${version.profileVersion}, which does not map '${normalized.kind}'`,
+    );
+  return version;
+}
+
+/** The Catalog Item facts a promotion maps, in plan order; only the name is required. */
+const promotionFacts = [
+  {
+    fieldPath: "catalogItem.name",
+    fieldIdKey: "cardName",
+    valueKind: "localized-text",
+    factKey: "name",
+    required: true,
+  },
+  {
+    fieldPath: "catalogItem.collectorNumber",
+    fieldIdKey: "cardNumber",
+    valueKind: "raw",
+    factKey: "collectorNumber",
+    required: false,
+  },
+  { fieldPath: "catalogItem.rarity", fieldIdKey: "rarity", valueKind: "raw", factKey: "rarity", required: false },
+  {
+    fieldPath: "catalogItem.releaseYear",
+    fieldIdKey: "releaseYear",
+    valueKind: "raw",
+    factKey: "releaseYear",
+    required: false,
+  },
+] as const;
+
+/**
+ * Keep only reviewed facts that an item-producing member (or an explicit
+ * reviewer correction) authored. Required facts fail closed; optional facts
+ * that exist only on reference members are omitted so they remain unset on the
+ * Item rather than becoming reference-to-profile fallbacks.
+ */
+export function snapshotWithAuthoredFacts(
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  authors: readonly ItemAuthor[],
+): CatalogMergeCandidateReviewSnapshot {
+  const facts = { ...snapshot.proposedCatalogItemFacts };
+  let fieldProvenance = [...snapshot.fieldProvenance];
+  for (const fact of promotionFacts) {
+    const approved = approvedFact(snapshot.proposedCatalogItemFacts, fact.factKey);
+    const carried = authors.some((author) => {
+      const extracted = extractMergeCandidateFieldValue(fact.factKey, author, snapshot.identity);
+      return (
+        extracted !== null &&
+        !extracted.fromFallback &&
+        (approved === null || mergeCandidateFieldValuesEqual(extracted.value, approved))
+      );
+    });
+    const manuallyCorrected = snapshot.fieldProvenance.some(
+      (entry) =>
+        entry.fieldPath === fact.fieldPath &&
+        entry.confidence === "manual" &&
+        mergeCandidateFieldValuesEqual(entry.value, approved),
+    );
+    if (carried || manuallyCorrected || (approved === null && !fact.required)) continue;
+    if (fact.required) {
+      throw blocked("promotion-facts-missing", `no item-producing member carries the approved ${fact.factKey}`);
+    }
+    delete facts[fact.factKey];
+    fieldProvenance = fieldProvenance.filter((entry) => entry.fieldPath !== fact.fieldPath);
+  }
+  return { ...snapshot, proposedCatalogItemFacts: facts, fieldProvenance };
+}
+
+function approvedFact(facts: JsonObject, factKey: string): JsonValue | null {
+  const value = facts[factKey];
+  if (typeof value === "string") return value.trim().length > 0 ? value : null;
+  return value ?? null;
+}
+
 async function prepareApplicationPlan(
   ports: CatalogMergeCandidateApplicationPorts,
   unit: ApplicationUnit,
   snapshot: CatalogMergeCandidateReviewSnapshot,
+  authors: readonly ItemAuthor[],
   approvalVersion: number,
 ): Promise<Readonly<{ plan: CatalogMergeCandidatePromotionPlan; session: PromotionTargetSession }>> {
   const { deps } = ports;
-  const members = await resolveApprovedMemberRevisions(deps.eventStore, snapshot);
+  const effectiveSnapshot = snapshotWithAuthoredFacts(snapshot, authors);
   const resolved: ResolvedMember[] = [];
-  for (const revision of members) {
-    const normalized = promotableNormalized(revision);
-    if (!normalized) continue;
-    let version: CatalogProviderIntegrationProfileVersionRecord;
-    try {
-      version = await requireCatalogPromotionProfileVersion(ports.profileVersions, revision.providerKey, normalized);
-    } catch (error) {
-      throw blocked("promotion-profile-unavailable", errorText(error));
-    }
-    assertCatalogIntegrationProfileUnitAllowed(ports.rolloutControlPolicy, "promotion", version);
-    resolved.push({
-      revision,
-      normalized,
-      version,
-      mapping: await loadCatalogItemPromotionProfile(deps, version.profile),
-    });
-  }
-  const primary = resolved[0];
-  if (!primary) throw blocked("no-promotable-member", "no approved member has a Catalog Item promotion mapping");
+  for (const author of authors)
+    resolved.push({ ...author, mapping: await loadCatalogItemPromotionProfile(deps, author.version.profile) });
+  const primary = resolved[0]!;
   if (
     resolved.some(
       (member) =>
@@ -348,15 +514,17 @@ async function prepareApplicationPlan(
       normalized: member.normalized,
       catalog: primary.mapping,
     });
-    if (duplicate.status === "blocked" || duplicate.status === "review-only")
-      throw blocked("ambiguous-duplicate-candidates", duplicate.candidateCatalogItemIds.join(", "));
+    if (shouldBlockDuplicatePrevention(duplicate)) {
+      const candidateCatalogItemIds = "candidateCatalogItemIds" in duplicate ? duplicate.candidateCatalogItemIds : [];
+      throw blocked("ambiguous-duplicate-candidates", candidateCatalogItemIds.join(", "));
+    }
     if (duplicate.status === "matched") reuseCandidates.add(duplicate.catalogItemId);
   }
 
   const pinned = uniqueProfiles(resolved.map((member) => member.version));
   const session = await acquireCandidateTarget(ports, {
     candidateId: unit.candidateId,
-    snapshot,
+    snapshot: effectiveSnapshot,
     boundTargetId: null,
     reuseCandidates: [...reuseCandidates],
     blueprintId: primary.mapping.blueprintId,
@@ -392,7 +560,7 @@ async function prepareApplicationPlan(
       candidateId: unit.candidateId,
       status: "promoted",
       snapshot: {
-        ...snapshot,
+        ...effectiveSnapshot,
         promotionIntent:
           mode === "create"
             ? "create-catalog-item"
@@ -734,23 +902,15 @@ function candidateCatalogMapping(
   const referenceFieldId =
     referenceField === "expansion" ? fieldIds.expansion : referenceField === "set" ? fieldIds.set : null;
   if (referenceField && !referenceFieldId) throw blocked("missing-reference-record-target", referenceField);
-  const fields: CatalogMergeCandidatePromotionFieldMapping[] = [
-    {
-      fieldPath: "catalogItem.name",
-      fieldId: fieldIds.cardName,
-      valueKind: "localized-text",
-      factKey: "name",
-      required: true,
-    },
-    {
-      fieldPath: "catalogItem.collectorNumber",
-      fieldId: fieldIds.cardNumber,
-      valueKind: "raw",
-      factKey: "collectorNumber",
-    },
-    { fieldPath: "catalogItem.rarity", fieldId: fieldIds.rarity, valueKind: "raw", factKey: "rarity" },
-    { fieldPath: "catalogItem.releaseYear", fieldId: fieldIds.releaseYear, valueKind: "raw", factKey: "releaseYear" },
-  ];
+  const fields: CatalogMergeCandidatePromotionFieldMapping[] = promotionFacts.map(
+    ({ fieldPath, fieldIdKey, valueKind, factKey, required }) => ({
+      fieldPath,
+      fieldId: fieldIds[fieldIdKey],
+      valueKind,
+      factKey,
+      ...(required ? { required } : {}),
+    }),
+  );
   if (referenceFieldId) {
     fields.push({
       fieldPath: referenceField === "expansion" ? "catalogItem.expansionName" : "catalogItem.setName",
@@ -831,23 +991,32 @@ export function requirePinnedProfileEligible(
   const version = matches[0];
   if (matches.length !== 1 || !version)
     throw refused("profile-missing", `${pinned.providerKey}@${pinned.profileVersion}`);
-  const promotes = (candidate: CatalogProviderIntegrationProfileVersionRecord) =>
-    candidate.profile.status === "active" && candidate.profile.capabilities.includes("catalog-item-promotion");
-  if (!promotes(version)) throw refused("profile-revoked", `${pinned.providerKey}@${pinned.profileVersion}`);
+  if (!promotesCatalogItems(version))
+    throw refused("profile-revoked", `${pinned.providerKey}@${pinned.profileVersion}`);
   if (version.active && version.lifecycle === "active") return version;
   const superseded =
     version.lifecycle === "deprecated" &&
     versions.some(
       (other) =>
         other !== version &&
-        other.active &&
-        other.lifecycle === "active" &&
-        promotes(other) &&
+        isActivePromotionProfile(other) &&
         other.profile.normalizedObservationMapping.kind === version.profile.normalizedObservationMapping.kind &&
         catalogProviderProfileVersionsCompete(other, version),
     );
   if (!superseded) throw refused("profile-revoked", `${pinned.providerKey}@${pinned.profileVersion}`);
   return version;
+}
+
+function promotesCatalogItems(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
+  return version.profile.status === "active" && version.profile.capabilities.includes("catalog-item-promotion");
+}
+
+function isActivePromotionProfile(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
+  return version.active && version.lifecycle === "active" && promotesCatalogItems(version);
+}
+
+function sameKey(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
 /** Revalidated under the canonical profile SHARE lock on the append client, so revocation cannot race the append. */
@@ -895,6 +1064,17 @@ function promotedOutcome(
     appliedMode: application.appliedMode,
     approvalVersion: application.approvalVersion,
     planFingerprint: application.planFingerprint,
+  };
+}
+
+function referenceOnlyOutcome(candidateId: string): CatalogMergeCandidateBulkUnitResult {
+  return {
+    ...unappliedOutcome(
+      candidateId,
+      "skipped-not-eligible",
+      "Catalog Merge Candidate has no item-producing member; its members supply provenance and references only.",
+    ),
+    disposition: "reference-only",
   };
 }
 

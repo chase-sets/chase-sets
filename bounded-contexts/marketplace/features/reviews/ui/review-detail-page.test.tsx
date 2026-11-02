@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { ReviewDetailPage } from "./review-detail-page";
 import type { ReviewDetail } from "./contracts";
+import { authoredTextRecoveryMessage } from "./authored-text-recovery";
 
 const review = {
   review_id: "rev_1",
@@ -410,5 +411,50 @@ describe("review detail page", () => {
       expect(markup).toContain("A reply already exists for this review.");
       expect(markup).toContain("My draft response.");
     });
+  });
+});
+
+describe("issue-5258-marketplace-ac4 Review Response standards and recovery", () => {
+  it("links the canonical community guidelines and support before posting a response", () => {
+    render(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        review={review}
+        viewerAccountId={review.subject_account_id}
+      />,
+    );
+
+    const submit = screen.getByRole("button", { name: "Post response" });
+    const guidelines = screen.getByRole("link", { name: "Community guidelines" });
+    const support = screen.getByRole("link", { name: "Contact support" });
+    expect(guidelines.getAttribute("href")).toBe("/help/buying/community-guidelines-and-enforcement");
+    expect(support.getAttribute("href")).toBe("/contact");
+    expect(guidelines.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(support.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps the response draft and links the field from an accessible summary on a closed rejection", () => {
+    const message = authoredTextRecoveryMessage("text_direction_override")!;
+    render(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        review={review}
+        viewerAccountId={review.subject_account_id}
+        replyErrorMessage={message}
+        replyRecovery={{ code: "text_direction_override", message, fieldLevel: true }}
+        defaultReplyFeedback="Thanks for the order"
+      />,
+    );
+
+    const summary = screen.getByRole("alert");
+    expect(summary.textContent).toContain("Your text was not posted");
+    const fieldLink = within(summary).getByRole("link", { name: `Your response: ${message}` });
+    const response = screen.getByRole("textbox", { name: "Your response" }) as HTMLTextAreaElement;
+    expect(fieldLink.getAttribute("href")).toBe(`#${response.id}`);
+    expect(response.value).toBe("Thanks for the order");
+    expect(response.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.keyDown(fieldLink, { key: "Enter" });
+    expect(document.activeElement).toBe(response);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 });

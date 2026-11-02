@@ -16,6 +16,12 @@ import type { AuthServices, RegistrationAdmissionHostConfig } from "../runtime-s
 import type { AuthIdentityInvitationRow } from "../auth-support/identity-projection";
 import { registerMagicLinkRoutes } from "./magic-link-routes";
 import type { AuthApiEnv } from "./support";
+import {
+  SAME_SITE_TEST_ORIGIN,
+  UNSAFE_AUTH_PATHS,
+  VALID_AUTH_PATHS,
+} from "../auth-support/same-site-path.test-support";
+import { buildAuthSessionTransactionalEmailProjectionHandlers } from "../../features/sessions/integrations/transactional-email/transactional-email-projector";
 
 const {
   mockConsumeMagicLinkToken,
@@ -102,6 +108,53 @@ afterEach(() => {
 });
 
 describe("magic link auth routes", () => {
+  it.each([...UNSAFE_AUTH_PATHS, ...VALID_AUTH_PATHS])(
+    "Auth same-site URL boundary: request-to-projector %j",
+    async (path) => {
+      vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
+      const index = [...UNSAFE_AUTH_PATHS, ...VALID_AUTH_PATHS].indexOf(path);
+      const services = createServices();
+      const append = vi.fn(async (_input: { events: readonly { payload: Record<string, unknown> }[] }) => ({
+        version: 1,
+      }));
+      const app = buildApp({ ...services, eventStore: { appendToStream: append } });
+      const response = await app.request(`${SAME_SITE_TEST_ORIGIN}/magic-link/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": `203.0.120.${index + 1}` },
+        body: JSON.stringify({ email: `boundary-${index}@example.test`, landingPath: path, returnTo: path }),
+      });
+      expect(response.status).toBe(200);
+      const data = append.mock.calls[0]![0].events[0]!.payload;
+      const valid = VALID_AUTH_PATHS.includes(path);
+      expect(data.landingPath).toBe(valid ? path : "/sign-in/magic");
+      expect(data.returnTo).toBe(valid ? path : null);
+      expect(data).not.toHaveProperty("token");
+      const outbox = {
+        enqueueNotification: vi.fn(async (_input: { message: { templateData: unknown } }) => undefined),
+      };
+      const delivery = {
+        getMagicLinkDeliveryToken: vi.fn(async () => "synthetic-boundary-token"),
+        clearMagicLinkDeliveryToken: vi.fn(async () => undefined),
+      };
+      const handlers = buildAuthSessionTransactionalEmailProjectionHandlers(outbox, delivery);
+      await handlers["auth.magic-link.requested"]!({
+        id: "evt_boundary",
+        type: "auth.magic-link.requested",
+        globalPosition: "1",
+        trace: { traceId: "boundary" },
+        timing: { occurredAt: "2026-10-28T00:00:00.000Z", recordedAt: "2026-10-28T00:00:01.000Z" },
+        data,
+      } as never);
+      const template = outbox.enqueueNotification.mock.calls[0]![0].message.templateData as { magicLink: string };
+      const url = new URL(template.magicLink);
+      expect(url.origin).toBe(SAME_SITE_TEST_ORIGIN);
+      expect(url.pathname).toBe(new URL(valid ? path : "/sign-in/magic", SAME_SITE_TEST_ORIGIN).pathname);
+      expect(url.searchParams.get("token")).toBe("synthetic-boundary-token");
+      expect(url.searchParams.get("returnTo")).toBe(valid ? path : null);
+      expect(delivery.clearMagicLinkDeliveryToken).toHaveBeenCalledWith(data.tokenId);
+    },
+  );
+
   let contractRequestId = 0;
   const consentRejections = [
     {

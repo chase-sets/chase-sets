@@ -525,14 +525,89 @@ describe("item detail commerce panel purchase workflows and offers", () => {
     ).toBeTruthy();
   });
 
+  it("takes the first eligible account offer in input order without re-sorting", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({ offer_demand_matches: [baseOffer, alternateOffer] })}
+        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
+        initialMarketIntent="sell"
+        renderCommerce={(context) => ({
+          buy: null,
+          sell: (
+            <input data-testid="selected-offer-id" readOnly value={context.selectedAccountOfferMatch?.offer_id ?? ""} />
+          ),
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard");
+    expect(screen.getByRole("button", { name: "Selected Ash Ketchum offer at $350.00" })).toBeTruthy();
+  });
+
+  it("skips ineligible leading account offers before taking the first eligible row", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({ offer_demand_matches: [alternateOffer] })}
+        accountOfferMatches={[
+          { ...baseAccountOfferMatch, offer_id: "offer_unfulfillable", can_fulfill: false },
+          { ...baseAccountOfferMatch, offer_id: "offer_unsubmitted", status: "cancelled" },
+          alternateAccountOfferMatch,
+        ]}
+        initialMarketIntent="sell"
+        renderCommerce={(context) => ({
+          buy: null,
+          sell: (
+            <>
+              <input data-testid="best-offer-id" readOnly value={context.bestAccountOfferMatch?.offer_id ?? ""} />
+              <input
+                data-testid="selected-offer-id"
+                readOnly
+                value={context.selectedAccountOfferMatch?.offer_id ?? ""}
+              />
+            </>
+          ),
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("best-offer-id")).toHaveProperty("value", "offer_charizard_alt");
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard_alt");
+  });
+
+  it.each([
+    { accountOfferMatches: [] },
+    {
+      accountOfferMatches: [
+        { ...baseAccountOfferMatch, can_fulfill: false },
+        { ...alternateAccountOfferMatch, status: "cancelled" },
+      ],
+    },
+  ])("keeps account offer selection null when no eligible row exists (%#)", ({ accountOfferMatches }) => {
+    render(
+      <ItemDetailPage
+        data={createItem({ offer_demand_matches: [] })}
+        accountOfferMatches={accountOfferMatches}
+        initialMarketIntent="sell"
+        renderCommerce={(context) => ({
+          buy: null,
+          sell: (
+            <input data-testid="selected-offer-id" readOnly value={context.selectedAccountOfferMatch?.offer_id ?? ""} />
+          ),
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "");
+  });
+
   it("uses explicit offer URL state instead of the implicit best offer default", () => {
     render(
       <ItemDetailPage
         data={createItem({
           market_listings: [baseListing],
-          offer_demand_matches: [baseOffer, alternateOffer],
+          offer_demand_matches: [alternateOffer, baseOffer],
         })}
-        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
+        accountOfferMatches={[alternateAccountOfferMatch, baseAccountOfferMatch]}
         initialMarketIntent="sell"
         initialSelectedOfferId="offer_charizard"
         renderCommerce={(context) => ({
@@ -566,9 +641,9 @@ describe("item detail commerce panel purchase workflows and offers", () => {
       <ItemDetailPage
         data={createItem({
           market_listings: [baseListing],
-          offer_demand_matches: [baseOffer, alternateOffer],
+          offer_demand_matches: [alternateOffer, baseOffer],
         })}
-        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
+        accountOfferMatches={[alternateAccountOfferMatch, baseAccountOfferMatch]}
         initialMarketIntent="sell"
         initialSelectedOfferId="offer_missing"
         renderCommerce={(context) => ({
@@ -605,9 +680,9 @@ describe("item detail commerce panel purchase workflows and offers", () => {
       <ItemDetailPage
         data={createItem({
           market_listings: [baseListing],
-          offer_demand_matches: [baseOffer, alternateOffer],
+          offer_demand_matches: [alternateOffer, baseOffer],
         })}
-        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
+        accountOfferMatches={[alternateAccountOfferMatch, baseAccountOfferMatch]}
         renderCommerce={(context) => ({
           buy: <div>Buy selected product</div>,
           offer: <div>Make an offer</div>,

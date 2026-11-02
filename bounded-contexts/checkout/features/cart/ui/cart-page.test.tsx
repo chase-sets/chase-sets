@@ -5,6 +5,17 @@ import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CheckoutCartPage } from "./cart-page";
 import type { CheckoutCartLine } from "./contracts";
+import { createCartReadinessRead } from "../domain/readiness";
+
+type TestCartPageProps = Omit<React.ComponentProps<typeof CheckoutCartPage>, "readiness"> & {
+  readiness?: React.ComponentProps<typeof CheckoutCartPage>["readiness"];
+};
+
+function TestCheckoutCartPage({ readiness, cartLines, ...props }: TestCartPageProps) {
+  return (
+    <CheckoutCartPage {...props} cartLines={cartLines} readiness={readiness ?? createCartReadinessRead(cartLines)} />
+  );
+}
 
 const productMeasureSnapshot = {
   catalogItemId: "cat_charizard",
@@ -131,13 +142,141 @@ describe("checkout cart page", () => {
     }));
   });
 
+  it("renders the cart read readiness fields instead of recomputing them", () => {
+    const apiRead = createCartReadinessRead([cartLine]);
+    const readiness = {
+      ...apiRead,
+      declined: { ...apiRead.declined, status: "needs-resolution" as const, unresolvedLineIds: ["a", "b", "c", "d"] },
+      estimatedSubtotal: { amount: "12.34", currency: "USD" },
+      blockedLineCount: 4,
+      savings: { amount: "9.99", currency: "USD" },
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} readiness={readiness} />);
+
+    expect(markup.match(/>\$12\.34<\/dd>/g)?.length).toBe(1);
+    expect(markup.match(/>\$12\.34<\/div>/g)?.length).toBe(1);
+    expect(markup).toContain("4 items need fulfillment");
+  });
+
+  it("uses each API line listing even when readiness is unresolved, grouped, or mixed-currency", () => {
+    const unavailableLine: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_unavailable",
+      product_id: "cat_unavailable::condition:raw",
+      availability_state: "unavailable",
+      seller_options: [],
+    };
+    const unresolvedMarkup = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine, unavailableLine]}
+        readiness={createCartReadinessRead([cartLine, unavailableLine])}
+      />,
+    );
+    expect(unresolvedMarkup).toContain("$778.00");
+    expect(unresolvedMarkup).toContain("Card Vault");
+
+    const firstSharedSeller: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_zzz",
+      product_id: "cat_zzz::condition:raw",
+      seller_options: cartLine.seller_options.map((option) => ({ ...option, listing_id: "lst_zzz" })),
+    };
+    const secondSharedSeller: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_aaa",
+      product_id: "cat_aaa::condition:raw",
+      quantity: 1,
+      seller_options: cartLine.seller_options.map((option) => ({
+        ...option,
+        listing_id: option.listing_id === "lst_card_vault" ? "lst_aaa" : "lst_bbb",
+        price_amount: option.listing_id === "lst_card_vault" ? "10.00" : "11.00",
+      })),
+    };
+    const groupedMarkup = renderToString(
+      <CheckoutCartPage
+        cartLines={[firstSharedSeller, secondSharedSeller]}
+        readiness={createCartReadinessRead([firstSharedSeller, secondSharedSeller])}
+      />,
+    );
+    expect(groupedMarkup).toContain("$778.00");
+    expect(groupedMarkup).toContain("$10.00");
+
+    const eurLine: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_eur",
+      product_id: "cat_eur::condition:raw",
+      quantity: 1,
+      seller_options: cartLine.seller_options.map((option) => ({
+        ...option,
+        listing_id: `eur_${option.listing_id}`,
+        price_currency_code: "EUR",
+      })),
+    };
+    const mixedMarkup = renderToString(
+      <CheckoutCartPage cartLines={[cartLine, eurLine]} readiness={createCartReadinessRead([cartLine, eurLine])} />,
+    );
+    expect(mixedMarkup).toContain("$778.00");
+    expect(mixedMarkup).toContain("€389.00");
+  });
+
+  it("defers the API total while a removal is pending instead of showing the pre-removal total", async () => {
+    const user = userEvent.setup();
+    const secondLine: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_2",
+      product_id: "cat_blastoise::condition:raw",
+      item_title: "Blastoise",
+      quantity: 1,
+    };
+    const apiRead = createCartReadinessRead([cartLine, secondLine]);
+    render(<CheckoutCartPage cartLines={[cartLine, secondLine]} readiness={apiRead} />);
+
+    expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
+    await user.click(screen.getAllByRole("button", { name: "Remove" })[1]!);
+
+    await waitFor(() => expect(screen.getAllByText("Priced at checkout").length).toBeGreaterThan(0));
+    expect(screen.queryByText("$1,167.00")).toBeNull();
+  });
+
+  it("does not recompute a missing API readiness response in the browser", () => {
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} readiness={null} />);
+
+    expect(markup).toContain("Priced at checkout");
+    expect(markup).not.toContain('action="/checkout/buy/readiness"');
+  });
+
+  it("keeps absent readiness in its neutral deferred state instead of presenting a blocked cart", () => {
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} readiness={null} />);
+
+    expect(markup).toContain("Priced at checkout");
+    expect(markup).toContain("Taxes and shipping are calculated at checkout.");
+    expect(markup).not.toContain("Some items need attention");
+    expect(markup).not.toContain("0 items need fulfillment");
+    expect(markup).not.toContain("Resolve item availability before payment starts.");
+  });
+
+  it("keeps the neutral state while a ready cart quantity change is pending", async () => {
+    const user = userEvent.setup();
+    render(<CheckoutCartPage cartLines={[cartLine]} readiness={createCartReadinessRead([cartLine])} />);
+
+    expect(screen.queryByText("Some items need attention")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
+
+    expect(screen.queryByText("Some items need attention")).toBeNull();
+    expect(screen.queryByText("0 items need fulfillment")).toBeNull();
+    expect(screen.queryByText("Resolve item availability before payment starts.")).toBeNull();
+    expect(screen.getAllByText("Taxes and shipping are calculated at checkout.").length).toBeGreaterThan(0);
+  });
+
   it("renders checkout error and pending fresh-write recovery as tinted furniture", () => {
-    render(<CheckoutCartPage cartLines={[cartLine]} errorMessage="Cart update failed." />);
+    render(<TestCheckoutCartPage cartLines={[cartLine]} errorMessage="Cart update failed." />);
     expectTintedSurface(screen.getByText("Cart update failed.").closest(".rounded-tokenLg"), "checkout error");
 
     cleanup();
     render(
-      <CheckoutCartPage
+      <TestCheckoutCartPage
         cartLines={[]}
         recoveryState={{
           kind: "pending-fresh-write",
@@ -154,7 +293,7 @@ describe("checkout cart page", () => {
   });
 
   it("renders a minimalist cart review with indicative pricing and a single deferred total", () => {
-    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     expect(markup).toContain("Your cart");
     expect(markup).toContain("Review quantities and remove anything you do not want before checkout.");
@@ -194,7 +333,7 @@ describe("checkout cart page", () => {
   });
 
   it("renders exactly one primary action on the checkout surface", () => {
-    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     const primaryStamps = markup.match(/data-primary-action-count="1"/g) ?? [];
     // The sticky CTA bar owns the single primary; per-line action stacks stamp 0.
@@ -203,7 +342,7 @@ describe("checkout cart page", () => {
   });
 
   it("uses the canonical quantity stepper instead of the old input + button cluster", () => {
-    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     // Base UI NumberField renders the editable value as a numeric spinbutton;
     // native spinner chevrons are suppressed globally in DS styles.
@@ -221,7 +360,7 @@ describe("checkout cart page", () => {
       updated_at: "2026-04-29T00:00:00.000Z",
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine, duplicateLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[cartLine, duplicateLine]} />);
 
     expect(markup).toContain('src="/fake-cdn/assets/charizard.png"');
     expect(markup).toContain("$1,945.00");
@@ -231,7 +370,7 @@ describe("checkout cart page", () => {
 
   it("updates quantity and estimated total optimistically before loader correction returns", async () => {
     const user = userEvent.setup();
-    render(<CheckoutCartPage cartLines={[cartLine]} />);
+    render(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Increase" }));
 
@@ -250,7 +389,7 @@ describe("checkout cart page", () => {
 
   it("coalesces rapid repeated quantity clicks for one line", async () => {
     const user = userEvent.setup();
-    render(<CheckoutCartPage cartLines={[cartLine]} />);
+    render(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Increase" }));
     await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
@@ -264,13 +403,13 @@ describe("checkout cart page", () => {
 
   it("reconciles optimistic quantity and estimated total to server loader truth", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+    const { rerender } = render(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Increase" }));
     await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
 
-    rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 4 }]} />);
+    rerender(<TestCheckoutCartPage cartLines={[{ ...cartLine, quantity: 4 }]} />);
 
     await waitFor(() => expect(quantitySpinbutton().value).toBe("4"));
     expect(screen.getAllByText("$1,556.00").length).toBeGreaterThan(0);
@@ -278,13 +417,13 @@ describe("checkout cart page", () => {
 
   it("submits another quantity change after the first write is corrected by loader truth", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+    const { rerender } = render(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Increase" }));
     await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
     expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
 
-    rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 3 }]} />);
+    rerender(<TestCheckoutCartPage cartLines={[{ ...cartLine, quantity: 3 }]} />);
     await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
 
     await user.click(screen.getByRole("button", { name: "Increase" }));
@@ -297,7 +436,7 @@ describe("checkout cart page", () => {
 
   it("keeps account cart quantity and estimated total optimistic when stale loader data returns first", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+    const { rerender } = render(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Increase" }));
 
@@ -309,7 +448,7 @@ describe("checkout cart page", () => {
       data: null,
       submit: mockFetcherSubmit,
     }));
-    rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 1 }]} />);
+    rerender(<TestCheckoutCartPage cartLines={[{ ...cartLine, quantity: 1 }]} />);
 
     expect(quantitySpinbutton().value).toBe("3");
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
@@ -320,7 +459,7 @@ describe("checkout cart page", () => {
       data: null,
       submit: mockFetcherSubmit,
     }));
-    rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 3 }]} />);
+    rerender(<TestCheckoutCartPage cartLines={[{ ...cartLine, quantity: 3 }]} />);
 
     await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
@@ -328,7 +467,7 @@ describe("checkout cart page", () => {
 
   it("rolls back visible quantity and estimated total when the route rejects the write", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+    const { rerender } = render(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Increase" }));
     await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
@@ -338,7 +477,7 @@ describe("checkout cart page", () => {
       data: { error: "Request failed." },
       submit: mockFetcherSubmit,
     }));
-    rerender(<CheckoutCartPage cartLines={[cartLine]} />);
+    rerender(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await waitFor(() => expect(quantitySpinbutton().value).toBe("2"));
     expect(screen.getByText("Checkout issue")).toBeTruthy();
@@ -354,7 +493,7 @@ describe("checkout cart page", () => {
       updated_at: "2026-04-29T00:00:00.000Z",
     };
 
-    render(<CheckoutCartPage cartLines={[cartLine, duplicateLine]} />);
+    render(<TestCheckoutCartPage cartLines={[cartLine, duplicateLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Decrease" }));
 
@@ -367,7 +506,7 @@ describe("checkout cart page", () => {
 
   it("removes a cart line optimistically and submits through the cart mutation controller", async () => {
     const user = userEvent.setup();
-    render(<CheckoutCartPage cartLines={[cartLine]} />);
+    render(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Remove" }));
 
@@ -386,7 +525,7 @@ describe("checkout cart page", () => {
 
   it("keeps an optimistically removed line hidden while stale loader data returns first", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+    const { rerender } = render(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(screen.getByText("Your buy cart is empty")).toBeTruthy());
@@ -396,7 +535,7 @@ describe("checkout cart page", () => {
       data: null,
       submit: mockFetcherSubmit,
     }));
-    rerender(<CheckoutCartPage cartLines={[cartLine]} />);
+    rerender(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     expect(screen.getByText("Your buy cart is empty")).toBeTruthy();
     expect(screen.queryByText("Charizard")).toBeNull();
@@ -406,7 +545,7 @@ describe("checkout cart page", () => {
       data: null,
       submit: mockFetcherSubmit,
     }));
-    rerender(<CheckoutCartPage cartLines={[cartLine]} />);
+    rerender(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     expect(screen.getByText("Your buy cart is empty")).toBeTruthy();
     expect(screen.queryByText("Charizard")).toBeNull();
@@ -414,7 +553,7 @@ describe("checkout cart page", () => {
 
   it("rolls back an optimistic remove when the route rejects the write", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+    const { rerender } = render(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(screen.getByText("Your buy cart is empty")).toBeTruthy());
@@ -424,7 +563,7 @@ describe("checkout cart page", () => {
       data: { error: "Request failed." },
       submit: mockFetcherSubmit,
     }));
-    rerender(<CheckoutCartPage cartLines={[cartLine]} />);
+    rerender(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     await waitFor(() => expect(screen.getByText("Charizard")).toBeTruthy());
     expect(screen.getByText("Checkout issue")).toBeTruthy();
@@ -437,7 +576,7 @@ describe("checkout cart page", () => {
       seller_preference_id: "lst_card_vault",
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[preferredLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[preferredLine]} />);
 
     expect(markup).toContain("Preferred listing");
     expect(markup).toContain(
@@ -455,7 +594,7 @@ describe("checkout cart page", () => {
       ...cartLine,
       seller_preference_id: "lst_card_vault",
     };
-    render(<CheckoutCartPage cartLines={[preferredLine]} />);
+    render(<TestCheckoutCartPage cartLines={[preferredLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Lock this listing" }));
 
@@ -478,7 +617,7 @@ describe("checkout cart page", () => {
       ...cartLine,
       seller_preference_id: "lst_card_vault",
     };
-    const { rerender } = render(<CheckoutCartPage cartLines={[preferredLine]} />);
+    const { rerender } = render(<TestCheckoutCartPage cartLines={[preferredLine]} />);
 
     await user.click(screen.getByRole("button", { name: "Lock this listing" }));
     await waitFor(() => expect(screen.getByText(/is locked for checkout unless availability changes/)).toBeTruthy());
@@ -488,7 +627,7 @@ describe("checkout cart page", () => {
       data: { error: "Request failed." },
       submit: mockFetcherSubmit,
     }));
-    rerender(<CheckoutCartPage cartLines={[preferredLine]} />);
+    rerender(<TestCheckoutCartPage cartLines={[preferredLine]} />);
 
     await waitFor(() => expect(screen.getByText("Preferred listing")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Lock this listing" })).toBeTruthy();
@@ -502,7 +641,7 @@ describe("checkout cart page", () => {
       locked_listing_id: "lst_hobby_shop",
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[lockedLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[lockedLine]} />);
 
     // Locked listing → exact line price (2 × $395.00), no "from" prefix on it.
     expect(markup).toContain("$790.00");
@@ -520,7 +659,7 @@ describe("checkout cart page", () => {
       })),
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[eurLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[eurLine]} />);
 
     expect(markup).toContain("€790.00");
     expect(markup).not.toContain("$790.00");
@@ -556,7 +695,7 @@ describe("checkout cart page", () => {
       ],
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[eurLine, secondEurLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[eurLine, secondEurLine]} />);
 
     expect(markup).toContain("€405.00");
     expect(markup).not.toContain("$405.00");
@@ -589,7 +728,7 @@ describe("checkout cart page", () => {
       ],
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[usdLine, eurLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[usdLine, eurLine]} />);
 
     expect(markup).toContain("$395.00");
     expect(markup).toContain("€10.00");
@@ -632,7 +771,7 @@ describe("checkout cart page", () => {
       ],
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[lockedSnapshotLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[lockedSnapshotLine]} />);
 
     expect(markup).toContain("Hobby Shop");
     expect(markup).toContain("$790.00");
@@ -648,7 +787,7 @@ describe("checkout cart page", () => {
       product_summary: " | ",
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[optionlessLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[optionlessLine]} />);
 
     expect(markup).toContain(">Standard</span>");
     expect(markup).not.toContain("No product options selected");
@@ -664,7 +803,7 @@ describe("checkout cart page", () => {
       seller_options: [],
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[unavailableLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[unavailableLine]} />);
 
     expect(markup).toContain("Some items need attention");
     expect(markup).toContain("1 item needs fulfillment, shipping measure, or availability resolved before checkout.");
@@ -701,7 +840,7 @@ describe("checkout cart page", () => {
       seller_options: [],
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[lockedMissingOption]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[lockedMissingOption]} />);
 
     expect(markup).toContain("Some items need attention");
     expect(markup).toContain("Waiting for supply");
@@ -724,7 +863,7 @@ describe("checkout cart page", () => {
       ],
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[missingMeasureLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[missingMeasureLine]} />);
 
     expect(markup).toContain("Some items need attention");
     expect(markup).toContain("Shipping measure missing");
@@ -771,7 +910,7 @@ describe("checkout cart page", () => {
       ],
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[expensiveLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[expensiveLine]} />);
 
     // The proposed lower-cost option (Card Vault) is named in the savings title.
     expect(markup).toContain("Save $12.00 by switching to Card Vault");
@@ -790,7 +929,7 @@ describe("checkout cart page", () => {
   it("shows the selected listing's seller rating on the cart line", () => {
     // The default optimize line resolves the lowest-cost option (Card Vault,
     // 4.90 from 12 reviews) as the seller it would check out.
-    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[cartLine]} />);
 
     expect(markup).toContain("Card Vault");
     // RatingSummary renders value.toFixed(1) and the review count in parentheses
@@ -823,7 +962,7 @@ describe("checkout cart page", () => {
       ],
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[newSellerLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[newSellerLine]} />);
 
     expect(markup).toContain("Hobby Shop");
     // Graceful empty state: no stars, the "No reviews yet" label instead.
@@ -869,7 +1008,7 @@ describe("checkout cart page", () => {
       ],
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[expensiveLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[expensiveLine]} />);
 
     // The savings notice names the proposed seller in its title.
     expect(markup).toContain("Save $12.00 by switching to Card Vault");
@@ -881,7 +1020,7 @@ describe("checkout cart page", () => {
   });
 
   it("shows a simple empty-cart recovery state", () => {
-    const markup = renderToString(<CheckoutCartPage cartLines={[]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[]} />);
 
     expect(markup).toContain("Your buy cart is empty");
     expect(markup).toContain("Browse the marketplace and add a product to start building a Buy Cart checkout.");
@@ -895,7 +1034,7 @@ describe("checkout cart page", () => {
 
   it("shows pending fresh-write recovery instead of the normal empty-cart state", () => {
     const markup = renderToString(
-      <CheckoutCartPage
+      <TestCheckoutCartPage
         cartLines={[]}
         recoveryState={{
           kind: "pending-fresh-write",
@@ -917,7 +1056,7 @@ describe("checkout cart page", () => {
 
   it("shows actionable empty-cart recovery for expired fresh-write handoffs", () => {
     const markup = renderToString(
-      <CheckoutCartPage
+      <TestCheckoutCartPage
         cartLines={[]}
         recoveryState={{
           kind: "missing-after-fresh-write",
@@ -942,7 +1081,7 @@ describe("checkout cart page", () => {
     // The public UI contract has no owner field to populate, so the only way an
     // owner key could reach the page is through some other value. Presenting a
     // recognizable marker everywhere a string is accepted proves none does.
-    const markup = renderToString(<CheckoutCartPage cartLines={[anonymousSourcedLine]} />);
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[anonymousSourcedLine]} />);
 
     expect(markup).toContain("Charizard");
     expect(markup).not.toContain("buyer_account_id");

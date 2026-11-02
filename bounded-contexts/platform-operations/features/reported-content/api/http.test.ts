@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv, ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { describe, expect, it, vi } from "vitest";
+import { REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE } from "./contracts";
 import { createReportedContentRoutes } from "./http";
 import type { ReportedContentServices } from "./runtime";
 
@@ -39,15 +40,9 @@ describe("reported-content HTTP authorization", () => {
       recordModerationAction: vi.fn<ReportedContentServices["recordModerationAction"]>().mockResolvedValue(recorded),
       projectors: [],
     } satisfies ReportedContentServices;
-    const actions = [
-      "dismiss",
-      "contact-seller",
-      "unlist",
-      "escalate-account-suspension",
-      "withdraw-review",
-      "redact-review-feedback",
-      "withdraw-review-reply",
-    ] as const;
+    const actions = Object.entries(REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE).flatMap(([targetType, targetActions]) =>
+      targetActions.map((action) => ({ targetType, action })),
+    );
     const reads = [
       { path: "/", call: services.listReportedContentQueue, status: 200 },
       { path: "/metrics", call: services.getReportedContentQueueMetrics, status: 200 },
@@ -75,9 +70,9 @@ describe("reported-content HTTP authorization", () => {
           expect(await response.json()).toMatchObject({ error: { code: "authorization_forbidden" } });
         }
       }
-      for (const action of actions) {
+      for (const { targetType, action } of actions) {
         const body = Object.freeze({ action, note: "Synthetic operator evidence" });
-        const target = `${action.includes("review") ? "review" : "listing"}/target_synthetic`;
+        const target = `${targetType}/target_synthetic`;
         const response = await app.request(`/${target}/actions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

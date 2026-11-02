@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { deriveLinkIntentOrigins, deriveOwnerLinkTypes } from "./generate-link-intents.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const inventoryPath = path.join(import.meta.dirname, "link-intent-action-producers.json");
@@ -155,7 +156,11 @@ function isProduction(file) {
 }
 
 export function deriveActionProducers({ repoRoot = root, extraSources = [] } = {}) {
-  const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
+  const tracked = execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(isProduction);
   const sources = tracked.map((file) => ({ path: file, source: readFileSync(path.join(repoRoot, file), "utf8") }));

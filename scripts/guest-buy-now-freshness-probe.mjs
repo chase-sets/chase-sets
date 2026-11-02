@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
@@ -1250,7 +1251,7 @@ async function observeBuyNowCheckout(options) {
   }
 }
 
-export function accountBuyNowActionFormForCandidate(candidate) {
+export function accountBuyNowActionFormForCandidate(candidate, entryAttemptKey) {
   const line = Array.isArray(candidate?.previewRequest?.lines) ? candidate.previewRequest.lines[0] : null;
   const listingId = normalizeString(line?.lockedListingId) ?? normalizeString(line?.listingId) ?? "";
   return {
@@ -1260,12 +1261,18 @@ export function accountBuyNowActionFormForCandidate(candidate) {
     productSummary: normalizeString(line?.productSummary) ?? "",
     quantity: String(normalizePositiveInteger(line?.quantity, 1)),
     lockedListingId: listingId,
+    entryAttemptKey,
   };
+}
+
+/** The fallback posts without loading the page, so it mints that page view's one entry key itself. */
+function mintEntryAttemptKey() {
+  return `chkentry_${randomUUID().replaceAll("-", "")}`;
 }
 
 export async function submitAccountBuyNowActionFallback(page, itemUrl, fixtureCandidate, timeoutMs) {
   const response = await page.request.post(itemUrl.toString(), {
-    form: accountBuyNowActionFormForCandidate(fixtureCandidate),
+    form: accountBuyNowActionFormForCandidate(fixtureCandidate, mintEntryAttemptKey()),
     maxRedirects: 0,
     timeout: normalizePositiveInteger(timeoutMs, DEFAULT_TIMEOUT_MS),
   });

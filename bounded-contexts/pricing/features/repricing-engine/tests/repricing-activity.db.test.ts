@@ -26,8 +26,6 @@ const describeDb = databaseBaseUrl ? describe : describe.skip;
 const now = "2026-09-16T12:00:00.000Z";
 const freeze = "2026-09-16T14:00:00.000Z";
 const syntheticPricingHostPorts = {
-  tcgplayerMarketTransport: { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies Parameters<typeof pricingModule.createServices>[1];

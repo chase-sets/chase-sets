@@ -2029,6 +2029,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "attemptId",
+          "requestHash",
           "accountId",
           "catalogItemId",
           "productId",
@@ -2041,6 +2043,14 @@
           "confirmationText"
         ],
         "properties": {
+          "attemptId": {
+            "type": "string",
+            "description": "Opaque Marketplace attempt id (22-128 base64url characters), retained across retries."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace command, excluding rail and actor identity."
+          },
           "accountId": {
             "type": "string",
             "description": "Authenticated buyer account scope."
@@ -2247,6 +2257,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "attemptId",
+          "requestHash",
           "accountId",
           "catalogItemId",
           "productId",
@@ -2260,6 +2272,14 @@
           "counteredOfferId"
         ],
         "properties": {
+          "attemptId": {
+            "type": "string",
+            "description": "Opaque Marketplace attempt id (22-128 base64url characters), retained across retries."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace command, excluding rail and actor identity."
+          },
           "accountId": {
             "type": "string",
             "description": "Authenticated buyer account scope."
@@ -2474,7 +2494,9 @@
           "offerId",
           "priceAmount",
           "priceCurrencyCode",
-          "confirmationText"
+          "confirmationText",
+          "attemptId",
+          "requestHash"
         ],
         "properties": {
           "accountId": {
@@ -2484,6 +2506,14 @@
           "offerId": {
             "type": "string",
             "description": "Submitted Offer identifier."
+          },
+          "attemptId": {
+            "type": "string",
+            "description": "Opaque Marketplace attempt identity retained across retries."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace command."
           },
           "priceAmount": {
             "type": "string",
@@ -3032,7 +3062,9 @@
           "listingId",
           "feeQuoteFingerprint",
           "idempotencyKey",
-          "confirmationText"
+          "confirmationText",
+          "attemptId",
+          "requestHash"
         ],
         "properties": {
           "accountId": {
@@ -3051,9 +3083,13 @@
             "type": "string",
             "description": "Current marketplace sales-fee quote fingerprint."
           },
-          "sourceActionKey": {
+          "attemptId": {
             "type": "string",
-            "description": "Optional source action key for semantic handoffs."
+            "description": "Marketplace attempt identity, consumed as sourceActionKey; never actor authority."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace acceptance command."
           },
           "reason": {
             "type": "string",
@@ -3152,7 +3188,9 @@
           "offerId",
           "reason",
           "idempotencyKey",
-          "confirmationText"
+          "confirmationText",
+          "attemptId",
+          "requestHash"
         ],
         "properties": {
           "accountId": {
@@ -3178,6 +3216,14 @@
           "dryRun": {
             "type": "boolean",
             "description": "Validate the action without committing it."
+          },
+          "attemptId": {
+            "type": "string",
+            "description": "Opaque Marketplace attempt identity retained across retries."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace decline command."
           }
         }
       },
@@ -6080,7 +6126,11 @@
           "accountId",
           "items",
           "total",
-          "count"
+          "count",
+          "completeness",
+          "next_payout",
+          "blocked_payouts",
+          "availability"
         ],
         "properties": {
           "accountId": {
@@ -6142,6 +6192,170 @@
           "count": {
             "type": "integer",
             "description": "Returned payout count."
+          },
+          "completeness": {
+            "type": "object",
+            "description": "Whether the payout summary is complete or capped.",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "total"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "description": "Summary completeness state."
+              },
+              "total": {
+                "type": "integer",
+                "description": "Total actionable payout count."
+              },
+              "cap": {
+                "type": "integer",
+                "description": "Summary hard cap when bounded."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Reason the summary is bounded."
+              }
+            }
+          },
+          "next_payout": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Next requested or in-transit payout.",
+            "additionalProperties": false,
+            "required": [
+              "payout_id",
+              "amount",
+              "requested_amount",
+              "fee_amount",
+              "currency_code",
+              "estimated_arrival_at"
+            ],
+            "properties": {
+              "payout_id": {
+                "type": "string",
+                "description": "Payout identifier."
+              },
+              "amount": {
+                "type": "string",
+                "description": "Net payout amount."
+              },
+              "requested_amount": {
+                "type": "string",
+                "description": "Requested payout amount."
+              },
+              "fee_amount": {
+                "type": "string",
+                "description": "Payout fee amount."
+              },
+              "currency_code": {
+                "type": "string",
+                "description": "Payout currency code."
+              },
+              "estimated_arrival_at": {
+                "type": "string",
+                "description": "Estimated arrival timestamp."
+              }
+            }
+          },
+          "blocked_payouts": {
+            "type": "array",
+            "description": "Payouts requiring retry or reconciliation.",
+            "items": {
+              "type": "object",
+              "description": "Blocked payout summary row.",
+              "additionalProperties": false,
+              "required": [
+                "payout_id",
+                "account_id",
+                "reference",
+                "block_reason",
+                "kind",
+                "next_action",
+                "observed_at"
+              ],
+              "properties": {
+                "payout_id": {
+                  "type": "string",
+                  "description": "Payout identifier."
+                },
+                "account_id": {
+                  "type": "string",
+                  "description": "Account that owns the payout."
+                },
+                "reference": {
+                  "type": "string",
+                  "description": "Human payout reference."
+                },
+                "block_reason": {
+                  "type": "string",
+                  "description": "Provider-neutral blocked reason."
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "Blocked payout kind."
+                },
+                "next_action": {
+                  "type": "string",
+                  "description": "Recommended next action."
+                },
+                "observed_at": {
+                  "type": "string",
+                  "description": "Timestamp the block was observed."
+                }
+              }
+            }
+          },
+          "availability": {
+            "type": "object",
+            "description": "Settlement payout availability.",
+            "additionalProperties": false,
+            "required": [
+              "can_request",
+              "unavailable_reasons",
+              "unavailable_reason_details"
+            ],
+            "properties": {
+              "can_request": {
+                "type": "boolean",
+                "description": "Whether the actor may request a payout."
+              },
+              "unavailable_reasons": {
+                "type": "array",
+                "description": "Availability reason codes.",
+                "items": {
+                  "type": "string",
+                  "description": "Reason code."
+                }
+              },
+              "unavailable_reason_details": {
+                "type": "array",
+                "description": "Availability reason details.",
+                "items": {
+                  "type": "object",
+                  "description": "Availability reason detail.",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "description": "Reason code."
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Human reason message."
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       },

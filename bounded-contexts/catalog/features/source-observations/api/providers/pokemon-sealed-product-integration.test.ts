@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { previewCatalogSyncProviderParticipation } from "./catalog-sync-scope-planner";
 import { catalogProviderIntegrationProfileVersions } from "../provider-integration-profiles";
 import {
@@ -8,13 +8,29 @@ import {
 import { ProviderAdapterRegistry } from "../provider-adapters/registry";
 
 describe("Pokemon sealed-product integration", () => {
-  it("offers the TCGplayer sealed unit as an eligible Pokemon expansion participant", async () => {
+  it.each([
+    {
+      name: "explicitly selected",
+      providerParticipation: {
+        selectedUnitKeys: [TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY],
+      },
+    },
+    { name: "default participation", providerParticipation: null },
+  ])("never enrols the server-unplannable TCGplayer sealed unit under $name", async ({ providerParticipation }) => {
     const profileVersion = catalogProviderIntegrationProfileVersions.find(
       (candidate) => candidate.providerKey === "tcgplayer" && candidate.profileKey === "pokemon-sealed-product-sku",
     );
     if (!profileVersion) {
       throw new Error("Missing the active TCGplayer Pokemon sealed-product profile.");
     }
+    expect(profileVersion).toMatchObject({
+      active: true,
+      profile: { capabilities: expect.arrayContaining(["source-observation-import", "catalog-item-promotion"]) },
+    });
+    const adapter = createTcgplayerProviderAdapter({ loadProfileVersions: async () => [profileVersion] });
+    const calls = (
+      ["planImport", "listOptions", "fetchPayloads", "getCredentialReadiness", "getTransportDiagnostics"] as const
+    ).map((method) => [method, vi.spyOn(adapter, method)] as const);
 
     const scopeRecordId = "scope_pokemon_scarlet_violet";
     const preview = await previewCatalogSyncProviderParticipation({
@@ -24,9 +40,7 @@ describe("Pokemon sealed-product integration", () => {
         productForm: "sealed-product",
         languageCode: "en",
         reference: { kind: "expansion", scopeRecordId },
-        providerParticipation: {
-          selectedUnitKeys: [TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY],
-        },
+        providerParticipation,
       },
       acceptedScopeMappings: [
         {
@@ -43,29 +57,14 @@ describe("Pokemon sealed-product integration", () => {
         },
       ],
       providerProfileVersions: [profileVersion],
-      providerAdapterRegistry: new ProviderAdapterRegistry([
-        createTcgplayerProviderAdapter({ loadProfileVersions: async () => [profileVersion] }),
-      ]),
+      providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+      includeOperationalGates: true,
     });
 
-    expect(preview.status).toBe("ready");
-    expect(preview.startAllowed).toBe(true);
-    expect(preview.units).toEqual([
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        unitKey: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        profileKey: "pokemon-sealed-product-sku",
-        role: "primary-source-observation",
-        eligibility: "eligible",
-        selected: true,
-        childExecutionScope: expect.objectContaining({
-          provider: "tcgplayer",
-          ingestionUnitKey: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-          productLineId: "3",
-          setName: "Scarlet & Violet",
-        }),
-        blockers: [],
-      }),
-    ]);
+    expect(preview.units).toEqual([]);
+    expect(preview.blockers).toEqual([]);
+    for (const [method, spy] of calls) {
+      expect(spy, method).not.toHaveBeenCalled();
+    }
   });
 });

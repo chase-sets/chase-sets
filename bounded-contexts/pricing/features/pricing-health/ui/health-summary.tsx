@@ -55,7 +55,12 @@ export function HealthSummary({
             value: money(summary.valueAtRisk[kind].valueAmount),
           });
         return (
-          <Card key={currency} data-testid={`pricing-health-${currency}`}>
+          <Card
+            key={currency}
+            elevation="tinted"
+            data-elevation-role="furniture"
+            data-testid={`pricing-health-${currency}`}
+          >
             <Card.Header>
               <Card.Title>{currency}</Card.Title>
               <Card.Description>{copy("currency.description")}</Card.Description>

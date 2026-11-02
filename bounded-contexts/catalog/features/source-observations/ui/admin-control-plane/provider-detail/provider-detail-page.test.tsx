@@ -265,10 +265,12 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
     jobs: readonly CatalogIntegrationRecentJobSummary[],
     providerKey = "tcgplayer",
     overviewOverrides: Parameters<typeof controlPlaneOverview>[0] = {},
+    routeQuery = "",
+    canManageCatalog = true,
   ) {
     const overview = controlPlaneOverview(overviewOverrides);
     return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl: `https://admin.example/catalog/providers/${providerKey}?providerKey=${providerKey}`,
+      requestUrl: `https://admin.example/catalog/providers/${providerKey}?providerKey=${providerKey}${routeQuery}`,
       scopes: { items: [sourceObservationScope({ provider_key: providerKey })], total: 1, count: 1 },
       profileReviews: {
         items: [profileReview({ providerKey, active: true, lifecycle: "active" })],
@@ -285,7 +287,7 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
           })),
         },
       },
-      canManageCatalog: true,
+      canManageCatalog,
     });
   }
 
@@ -298,7 +300,12 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
   // DataTable renders every row twice (phone card, then desktop table); both
   // disclosure triggers must report the same controlled state.
   function jobTriggers(jobId: string): HTMLElement[] {
-    const triggers = within(recentJobs()).getAllByRole("button", { name: new RegExp(`^${jobId}Import ${jobId}$`) });
+    const disclosures = within(recentJobs())
+      .getAllByRole("group")
+      .filter((group) => group.getAttribute("data-catalog-provider-job-disclosure") === jobId);
+    const triggers = disclosures.map((group) =>
+      within(group).getByRole("button", { name: new RegExp(`^${jobId}\\s*Import`, "i") }),
+    );
     expect(triggers).toHaveLength(2);
     return triggers;
   }
@@ -408,6 +415,105 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
     expect(section.querySelector("[aria-expanded]")).toBeNull();
     expect(section.querySelector("[data-catalog-provider-job-disclosure]")).toBeNull();
     expect(within(section).queryByText("Observed observations")).toBeNull();
+  });
+
+  it("marks a matching unit selection and opens a retained non-TCGplayer job requested by the route", () => {
+    const unitKey = "tcgdex:pokemon:card:import";
+    const job = integrationJobSummary({
+      jobId: "tcgdex-job",
+      providerKey: "tcgdex",
+      unitKey,
+      summary: "Import tcgdex-job",
+      operatorStatus: "completed",
+      phase: "completed",
+      result: jobResult(),
+    });
+    render(
+      <CatalogProviderDetailPage
+        readModel={providerJobsReadModel(
+          [job],
+          "tcgdex",
+          {},
+          `&unitKey=${encodeURIComponent(unitKey)}&jobId=tcgdex-job`,
+        )}
+      />,
+    );
+
+    expect(document.querySelector(`[data-provider-unit-selected="true"]`)).toBeTruthy();
+    const selectedDisclosures = document.querySelectorAll('[data-provider-job-selected="true"]');
+    expect(selectedDisclosures).toHaveLength(2);
+    expectJobOpen("tcgdex-job", true);
+  });
+
+  it("keeps an explicit missing selected job unavailable", () => {
+    render(<CatalogProviderDetailPage readModel={providerJobsReadModel([], "tcgdex", {}, "&jobId=missing-job")} />);
+    expect(screen.getAllByText(/Resolution unavailable/i).length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-provider-job-selected="true"]')).toBeNull();
+    expect(recentJobs().querySelector("form")).toBeNull();
+  });
+
+  it.each([
+    ["failed", "failed", ["job.retry"]],
+    ["stale", "failed", ["job.retry", "job.resume"]],
+    ["running", "processing", ["job.cancel"]],
+    ["completed", "completed", []],
+  ] as const)(
+    "reuses only the eligible lifecycle controls for the selected %s job",
+    (operatorStatus, phase, intents) => {
+      render(
+        <CatalogProviderDetailPage
+          readModel={providerJobsReadModel(
+            [
+              providerJob("job-a", { operatorStatus, phase }),
+              providerJob("foreign-job", { providerKey: "scryfall", operatorStatus: "failed", phase: "failed" }),
+            ],
+            "tcgplayer",
+            {},
+            `&unitKey=${encodeURIComponent(tcgplayerUnitKey)}&jobId=job-a`,
+          )}
+        />,
+      );
+      expectJobOpen("job-a", true);
+      expect(within(recentJobs()).queryByText("foreign-job")).toBeNull();
+      const panel = jobPanel(jobTriggers("job-a")[0]!);
+      const forms = [...panel.querySelectorAll<HTMLFormElement>("form[data-catalog-primary-workbench-command]")];
+      expect(forms.map((form) => form.dataset.catalogPrimaryWorkbenchCommand)).toEqual(intents);
+      for (const form of forms) {
+        const url = new URL(form.action, "https://admin.example");
+        expect(url.pathname).toBe("/catalog/providers/tcgplayer");
+        expect(url.searchParams.get("jobId")).toBe("job-a");
+        const data = new FormData(form);
+        expect(data.get("jobId")).toBe("job-a");
+        expect(data.get("providerKey")).toBe("tcgplayer");
+        expect(data.get("unitKey")).toBe(tcgplayerUnitKey);
+        expect(form.querySelector("button")?.disabled).toBe(false);
+      }
+    },
+  );
+
+  it("disables eligible job controls for view-only actors and leaves an unmatched unit unavailable", () => {
+    render(
+      <CatalogProviderDetailPage
+        readModel={providerJobsReadModel(
+          [providerJob("job-a", { operatorStatus: "stale", phase: "processing" })],
+          "tcgplayer",
+          {},
+          "&jobId=job-a",
+          false,
+        )}
+      />,
+    );
+    const forms = [...recentJobs().querySelectorAll<HTMLFormElement>("form")];
+    expect(forms).toHaveLength(6);
+    for (const form of forms) expect(form.querySelector("button")?.disabled).toBe(true);
+    cleanup();
+    render(
+      <CatalogProviderDetailPage
+        readModel={providerJobsReadModel([], "tcgdex", {}, "&unitKey=tcgdex:pokemon:deleted:import")}
+      />,
+    );
+    expect(screen.getByText(/Resolution unavailable/i)).toBeTruthy();
+    expect(document.querySelector('[data-provider-unit-selected="true"]')).toBeNull();
   });
 
   const unavailableFacts = {

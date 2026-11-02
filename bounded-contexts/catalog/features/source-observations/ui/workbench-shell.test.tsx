@@ -1390,7 +1390,7 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     const panel = container.querySelector("[data-catalog-source-options-status]");
     const initialRequestId = panel?.getAttribute("data-source-options-request-id");
 
-    router.revalidate();
+    await router.revalidate();
 
     await waitFor(() => {
       expect(loaderCalls).toBe(2);

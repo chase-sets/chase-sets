@@ -396,6 +396,108 @@ function containingCard(element: HTMLElement) {
 }
 
 describe("registration page", () => {
+  it("each auth form busies only itself", async () => {
+    const route = await renderAuthRoute(
+      { path: "/register", Component: MarketplaceRegisterRoute, loader },
+      "/register",
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "Phone Code" }));
+    fireEvent.change(inputNamed("displayName"), { target: { value: "Todd" } });
+    fireEvent.change(inputNamed("phone"), { target: { value: "+13125550100" } });
+    const send = screen.getByRole("button", { name: "Text me a code" });
+    const requestForm = send.closest("form")!;
+    const consumeForm = screen.getByLabelText("Phone Code").closest("form")!;
+    fireEvent.click(send);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    expect(requestForm.getAttribute("aria-busy")).toBe("true");
+    expect(consumeForm.getAttribute("aria-busy")).toBeNull();
+    expect(send.getAttribute("aria-busy")).toBe("true");
+    expect(consumeForm.querySelector("fieldset[disabled]")).toBeNull();
+    fireEvent.click(send);
+    fireEvent.submit(requestForm);
+    await route.settle(safeFailure("phone-code-request"));
+    expect(route.requests).toHaveBeenCalledOnce();
+    expect(requestForm.getAttribute("aria-busy")).toBeNull();
+  });
+
+  it("passkey re-entry submits complete form data", async () => {
+    createPasskeyCredentialMock.mockResolvedValue(successfulPasskey);
+    mockNativeRequestSubmit();
+    const route = await renderAuthRoute(
+      { path: "/register", Component: MarketplaceRegisterRoute, loader },
+      "/register",
+    );
+    const form = screen.getByRole("button", { name: "Create With Passkey" }).closest("form")!;
+    fireEvent.submit(form);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    expect(route.submittedFields[0]).toMatchObject({
+      intent: "passkey-register",
+      registrationMethod: "passkey",
+      registrationMethodsShown: "passkey,phone-code,magic-link,password",
+      challengeId: successfulPasskey.challengeId,
+    });
+    expect(form.getAttribute("aria-busy")).toBe("true");
+    expect(form.querySelector("fieldset[disabled]")).toBeNull();
+    await route.settle(safeFailure("passkey-register"));
+  });
+
+  it("re-enables after back-to-back failures and after an aborted submission", async () => {
+    const route = await renderAuthRoute(
+      { path: "/register", Component: MarketplaceRegisterRoute, loader },
+      "/register",
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    const form = screen.getByRole("button", { name: "Create account with password" }).closest("form")!;
+    for (const attempt of [1, 2]) {
+      fireEvent.submit(form);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(attempt));
+      await route.settle(safeFailure("password"));
+      expect(form.getAttribute("aria-busy")).toBeNull();
+    }
+    await act(async () => {
+      await route.router.navigate("/done");
+      await route.router.navigate("/register");
+    });
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
+  it("emits completed and no abandoned event after a completed registration", async () => {
+    const events: CustomEvent["detail"][] = [];
+    const listener = (event: Event) => events.push((event as CustomEvent).detail);
+    window.addEventListener("chase-sets:registration-method", listener);
+    try {
+      const route = await renderAuthRoute(
+        { path: "/register", Component: MarketplaceRegisterRoute, loader },
+        "/register",
+      );
+      fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+      const form = screen.getByRole("button", { name: "Create account with password" }).closest("form")!;
+      fireEvent.submit(form);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+      window.dispatchEvent(new Event("beforeunload"));
+      expect(events).toEqual(
+        expect.arrayContaining([expect.objectContaining({ method: "password", stage: "completed" })]),
+      );
+      expect(events.some((event) => event?.stage === "abandoned")).toBe(false);
+      await route.settle(redirect("/done"));
+    } finally {
+      window.removeEventListener("chase-sets:registration-method", listener);
+    }
+  });
+
+  it("emits abandoned on beforeunload when registration was never completed", async () => {
+    const events: CustomEvent["detail"][] = [];
+    const listener = (event: Event) => events.push((event as CustomEvent).detail);
+    window.addEventListener("chase-sets:registration-method", listener);
+    try {
+      await renderAuthRoute({ path: "/register", Component: MarketplaceRegisterRoute, loader }, "/register");
+      window.dispatchEvent(new Event("beforeunload"));
+      expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ stage: "abandoned" })]));
+    } finally {
+      window.removeEventListener("chase-sets:registration-method", listener);
+    }
+  });
+
   it("defaults to passkeys and presents them as recommended", () => {
     const events: unknown[] = [];
     window.addEventListener("chase-sets:registration-method", (event) => {

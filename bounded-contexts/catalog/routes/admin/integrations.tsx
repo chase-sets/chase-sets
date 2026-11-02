@@ -34,7 +34,7 @@ export default function IntegrationsRoute() {
 
   useEffect(() => {
     if (actionData && "feedback" in actionData && commandResultNeedsRoutableHandoff(actionData)) {
-      navigate(commandRedirectHref(actionData), { replace: true });
+      void navigate(commandRedirectHref(actionData), { replace: true });
     }
   }, [actionData, navigate]);
 

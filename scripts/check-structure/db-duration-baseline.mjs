@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 export const DB_DURATION_BASELINE_PATH = "scripts/db-duration-baseline-v1.json";
 export const DB_DURATION_BASELINE_VERSION = "db-duration-baseline/v1";
@@ -118,6 +119,7 @@ export function checkDbDurationBaseline({ repoRoot, read = readFileSync, git = e
     const tracked = git("git", ["ls-tree", "--name-only", "origin/main", "--", DB_DURATION_BASELINE_PATH], {
       cwd: repoRoot,
       encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     }).trim();
     const previous = tracked
       ? JSON.parse(

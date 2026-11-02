@@ -1,3 +1,4 @@
+import { serializeCookie } from "@chase-sets/http/cookies";
 import { createId } from "@chase-sets/primitives/typed-ids";
 
 export const MARKETPLACE_ANONYMOUS_LISTING_DRAFT_COOKIE_NAME = "chase_sets_anonymous_listing_drafts";
@@ -25,21 +26,6 @@ function parseCookieHeader(cookieHeader: string | null) {
   );
 }
 
-function isHttpsRequest(request?: Request) {
-  return request ? new URL(request.url).protocol === "https:" : false;
-}
-
-function serializeCookie(name: string, value: string, maxAgeSeconds: number, request?: Request) {
-  return [
-    `${name}=${encodeURIComponent(value)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    `Max-Age=${maxAgeSeconds}`,
-    ...(isHttpsRequest(request) ? ["Secure"] : []),
-  ].join("; ");
-}
-
 export function readAnonymousListingDraftOwnerId(request: Request) {
   const value =
     parseCookieHeader(request.headers.get("cookie")).get(MARKETPLACE_ANONYMOUS_LISTING_DRAFT_COOKIE_NAME) ?? null;
@@ -53,7 +39,10 @@ export function ensureAnonymousListingDraftOwnerId(request: Request) {
 export function appendAnonymousListingDraftCookie(headers: Headers, anonymousOwnerId: string, request?: Request) {
   headers.append(
     "Set-Cookie",
-    serializeCookie(MARKETPLACE_ANONYMOUS_LISTING_DRAFT_COOKIE_NAME, anonymousOwnerId, THIRTY_DAYS_SECONDS, request),
+    serializeCookie(MARKETPLACE_ANONYMOUS_LISTING_DRAFT_COOKIE_NAME, anonymousOwnerId, {
+      maxAgeSeconds: THIRTY_DAYS_SECONDS,
+      request,
+    }),
   );
 }
 
@@ -69,6 +58,9 @@ export function ensureAnonymousReportId(request: Request) {
 export function appendAnonymousReportCookie(headers: Headers, anonymousReportId: string, request?: Request) {
   headers.append(
     "Set-Cookie",
-    serializeCookie(MARKETPLACE_ANONYMOUS_REPORT_COOKIE_NAME, anonymousReportId, THIRTY_DAYS_SECONDS, request),
+    serializeCookie(MARKETPLACE_ANONYMOUS_REPORT_COOKIE_NAME, anonymousReportId, {
+      maxAgeSeconds: THIRTY_DAYS_SECONDS,
+      request,
+    }),
   );
 }

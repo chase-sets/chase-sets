@@ -7,7 +7,6 @@ import {
   type TcgdexObservationPayload,
   type TcgdexSeriesOption,
 } from "./tcgdex-client";
-import { type TcgplayerAutomationCatalogClient } from "./tcgplayer-automation-catalog-client";
 import {
   catalogProviderProfileVersionIngestionUnitKey,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -226,7 +225,6 @@ export async function listProviderIntegrationOptions(
     languageCode?: string | null;
     parentValue?: string | null;
   },
-  tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient,
   profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
   providerAdapterRegistry: ProviderAdapterRegistry = new ProviderAdapterRegistry([
     createReferenceCardsProviderAdapter(),
@@ -235,7 +233,6 @@ export async function listProviderIntegrationOptions(
     }),
     createTcgplayerProviderAdapter({
       loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
-      client: tcgplayerAutomationCatalogClient,
     }),
     createMtgjsonProviderAdapter(),
     createLorcanajsonProviderAdapter(),
@@ -333,7 +330,6 @@ export async function queryProviderIntegrationOptions(
   },
   db: PgQueryable | null,
   rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy | null,
-  tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient,
   profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
   providerAdapterRegistry: ProviderAdapterRegistry = new ProviderAdapterRegistry([
     createReferenceCardsProviderAdapter(),
@@ -342,7 +338,6 @@ export async function queryProviderIntegrationOptions(
     }),
     createTcgplayerProviderAdapter({
       loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
-      client: tcgplayerAutomationCatalogClient,
     }),
     createMtgjsonProviderAdapter(),
     createLorcanajsonProviderAdapter(),

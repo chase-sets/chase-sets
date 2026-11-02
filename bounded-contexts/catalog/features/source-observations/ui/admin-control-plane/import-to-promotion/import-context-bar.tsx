@@ -119,7 +119,7 @@ function useSingleUseCardForceRefreshIntent(
       const params = new URLSearchParams(window.location.search);
       params.delete(CATALOG_SOURCE_OPTION_ACTION_PARAM);
       params.delete(CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM);
-      submit(params, { ...importContextSubmitOptions, action: currentUrl.pathname });
+      void submit(params, { ...importContextSubmitOptions, action: currentUrl.pathname });
     });
 
     return () => {
@@ -289,7 +289,7 @@ function ProviderImportContextForm({
 // as a client navigation that revalidates the loader in place.
 function submitImportContext(event: FormEvent<HTMLFormElement>, submit: SubmitFunction): void {
   event.preventDefault();
-  submit(event.currentTarget, importContextSubmitOptions);
+  void submit(event.currentTarget, importContextSubmitOptions);
 }
 
 function submitProviderFilter(event: ChangeEvent<HTMLSelectElement>, submit: SubmitFunction): void {
@@ -347,7 +347,7 @@ function submitImportContextFilter(
   // A client GET navigation (not form.requestSubmit()): revalidates the loader in
   // place so the page stays mounted and the changed select keeps focus, instead of
   // a full-document reload that strands keyboard focus mid-navigation.
-  submit(form, importContextSubmitOptions);
+  void submit(form, importContextSubmitOptions);
   for (const field of disabledFields) {
     field.disabled = false;
   }
@@ -541,7 +541,7 @@ function submitSourceScopeFilter(
   // Client GET navigation (not form.requestSubmit()): a parent scope change
   // refreshes the streamed source-options slice in place without reloading the
   // page or stranding focus on the just-changed select.
-  submit(form, importContextSubmitOptions);
+  void submit(form, importContextSubmitOptions);
 }
 
 function hydrateParentScopeFields(
@@ -719,7 +719,7 @@ function SourceOptionRefreshButton({
 
 function submitSourceOptionRefresh(href: string, submit: SubmitFunction): void {
   const target = new URL(href, window.location.origin);
-  submit(target.searchParams, { ...importContextSubmitOptions, action: target.pathname });
+  void submit(target.searchParams, { ...importContextSubmitOptions, action: target.pathname });
 }
 
 // A compact sync/status panel for the synced provider option groups, rendered next

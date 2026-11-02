@@ -25,11 +25,17 @@ test.describe.serial("catalog admin scopes", () => {
 
     await expectAdminPageReady(page, { heading: "Scopes" });
 
+    const allScopesAliasDisclosure = page.getByRole("button", { name: /All[- ]scopes/i });
+    await expect(allScopesAliasDisclosure).toBeVisible();
+    await allScopesAliasDisclosure.click();
+    await expect(allScopesAliasDisclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator('[data-catalog-scope-home-review] [role="region"]')).toBeVisible();
+
     // Primary filters render inline; the extra product-domain and language
     // facets live behind the overflow panel like other catalog list surfaces.
     await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Status" })).toBeVisible();
-    await page.getByRole("button", { name: /More filters/ }).click();
+    await page.getByRole("button", { name: "More filters (2)", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "Product domain" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Language" })).toBeVisible();
     await page.getByRole("button", { name: "Close filters" }).click();
@@ -77,7 +83,7 @@ test.describe.serial("catalog admin scopes", () => {
 
     await captureResponsiveEvidence({ page, testInfo, claimId: "catalog-scope-cards-mobile" });
 
-    const scopeCards = page.locator("main div[role='list']");
+    const scopeCards = page.locator("main div[role='list']:not([data-catalog-scope-home-review] *)");
     await scopeCards.locator(":scope > [role='listitem']").first().getByRole("link", { name: "View" }).click();
 
     await expect(page.getByRole("heading", { name: "Coverage matrix" })).toBeVisible();
@@ -173,20 +179,25 @@ test.describe.serial("catalog admin scopes", () => {
     });
     const previewIds = await previewTable.locator("tbody tr td:nth-child(1)").allTextContents();
     expect(previewIds).toEqual(resolvedIds);
-    await expect(page.getByText("0 ready scopes, 4 blocked scopes, 10 provider units.", { exact: true })).toBeVisible();
+    // The server never plans TCGplayer units: Magic, Pokemon and One Piece keep
+    // only their required non-TCGplayer units, and the TCGplayer-only Yu-Gi-Oh
+    // scope selects none, so it is blocked rather than ready.
+    await expect(page.getByText("0 ready scopes, 4 blocked scopes, 4 provider units.", { exact: true })).toBeVisible();
+    await expect(page.getByText("tcgplayer units / requests", { exact: true })).toHaveCount(0);
     const planningBlockerAlerts = page
       .getByRole("alert")
       .filter({ has: page.getByText("scope-planning-blocked", { exact: true }) });
     await expect(
       planningBlockerAlerts.filter({
-        has: page.getByText("TCGplayer automation credential/session readiness is missing.", { exact: true }),
+        has: page.getByText("Catalog Scope Record has no selected provider units.", { exact: true }),
       }),
-    ).toHaveCount(4);
+    ).toHaveCount(1);
     await expect(
       planningBlockerAlerts.filter({
-        has: page.getByText("TCGplayer automation transport is not configured in this runtime.", { exact: true }),
+        has: page.getByText("tcgplayer does not expose import planning for this unit.", { exact: true }),
       }),
-    ).toHaveCount(4);
+    ).toHaveCount(0);
+    await expect(planningBlockerAlerts.filter({ hasText: /tcgplayer/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Confirm and enqueue", exact: true })).toHaveCount(0);
   });
 });

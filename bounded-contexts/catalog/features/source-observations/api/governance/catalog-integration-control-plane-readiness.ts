@@ -9,6 +9,7 @@ import type {
   SourceObservationMagicSetReferenceNormalized,
   SourceObservationNormalized,
   SourceObservationOnePieceSetReferenceNormalized,
+  SourceObservationYugiohSetReferenceNormalized,
 } from "../../domain/domain";
 import type { SourceObservationDetailRow } from "../../read-model/queries";
 import {
@@ -309,7 +310,8 @@ type CatalogIntegrationProfileVersionResolverDependencies = Readonly<{
     normalized:
       | SourceObservationMagicSetReferenceNormalized
       | SourceObservationLorcanaSetReferenceNormalized
-      | SourceObservationOnePieceSetReferenceNormalized,
+      | SourceObservationOnePieceSetReferenceNormalized
+      | SourceObservationYugiohSetReferenceNormalized,
     selector?: CatalogProviderProfileVersionSelector | null,
   ) => Promise<CatalogProviderIntegrationProfileVersionRecord>;
   requireOriginalSourceProfileMarker: (
@@ -440,7 +442,8 @@ export function createCatalogIntegrationProfileVersionResolvers(
     normalized:
       | SourceObservationMagicSetReferenceNormalized
       | SourceObservationLorcanaSetReferenceNormalized
-      | SourceObservationOnePieceSetReferenceNormalized,
+      | SourceObservationOnePieceSetReferenceNormalized
+      | SourceObservationYugiohSetReferenceNormalized,
     mode: SourceObservationReapplyProfileMode,
     snapshot: SourceObservationIntegrationProfileSnapshot | null,
   ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
@@ -511,7 +514,8 @@ export function createCatalogIntegrationProfileVersionResolvers(
     normalized:
       | SourceObservationMagicSetReferenceNormalized
       | SourceObservationLorcanaSetReferenceNormalized
-      | SourceObservationOnePieceSetReferenceNormalized,
+      | SourceObservationOnePieceSetReferenceNormalized
+      | SourceObservationYugiohSetReferenceNormalized,
   ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
     const version = await findCatalogProfileVersionFromSnapshot(profileVersions, snapshot);
     if (!version) {
@@ -560,7 +564,8 @@ export function createCatalogIntegrationProfileVersionResolvers(
     normalized:
       | SourceObservationMagicSetReferenceNormalized
       | SourceObservationLorcanaSetReferenceNormalized
-      | SourceObservationOnePieceSetReferenceNormalized,
+      | SourceObservationOnePieceSetReferenceNormalized
+      | SourceObservationYugiohSetReferenceNormalized,
   ): void {
     if (!version.profile.capabilities.includes("reference-data-promotion")) {
       throw new Error(`Provider '${version.providerKey}' does not support Reference Data promotion.`);

@@ -2,6 +2,7 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { repoRoot } from "./lib/repo.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { listTrackedLocaleModulePaths } from "./sync-workspace-metadata.mjs";
 
 const englishFilePaths = listTrackedLocaleModulePaths(repoRoot).filter(
@@ -22,6 +23,7 @@ const runtimeBehaviorModules = new Set([
 
 const files = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
   encoding: "utf8",
+  maxBuffer: GIT_LISTING_MAX_BUFFER,
 })
   .trim()
   .split(/\r?\n/)

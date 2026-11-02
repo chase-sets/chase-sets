@@ -86,6 +86,95 @@ describe("staging projection operations argument handling", () => {
 });
 
 describe("staging projection operations support-safe sanitization", () => {
+  it("preserves per-group freshness provenance and nested snapshot age with fail-closed parsing", () => {
+    const baseGroup = sampleSnapshot().projectionGroups[0];
+    const sanitized = sanitizeProjectionOperationsSnapshot({
+      ...sampleSnapshot(),
+      projectionStatusSource: "stale-snapshot",
+      projectionGroups: [
+        {
+          ...baseGroup,
+          projectionName: "catalog.fresh-projection",
+          projectionStatusSource: "fresh-snapshot",
+          snapshot: { ageMs: 42 },
+        },
+        {
+          ...baseGroup,
+          projectionName: "catalog.stale-projection",
+          projectionStatusSource: "stale-snapshot",
+          snapshot: { ageMs: 120000 },
+        },
+        {
+          ...baseGroup,
+          projectionName: "catalog.runtime-projection",
+          projectionStatusSource: "runtime-memory",
+          snapshot: undefined,
+          snapshotAgeMs: 9001,
+        },
+        {
+          ...baseGroup,
+          projectionName: "catalog.malformed-projection",
+          projectionStatusSource: "not-an-allowlisted-source",
+          snapshot: { ageMs: "42" },
+        },
+        {
+          ...baseGroup,
+          projectionName: "catalog.missing-source-projection",
+          snapshot: { ageMs: 0 },
+        },
+      ],
+    });
+
+    expect(sanitized.projectionGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          projectionKey: "catalog.catalog.fresh-projection",
+          projectionStatusSource: "fresh-snapshot",
+          snapshotAgeMs: 42,
+        }),
+        expect.objectContaining({
+          projectionKey: "catalog.catalog.stale-projection",
+          projectionStatusSource: "stale-snapshot",
+          snapshotAgeMs: 120000,
+        }),
+        expect.objectContaining({
+          projectionKey: "catalog.catalog.runtime-projection",
+          projectionStatusSource: "runtime-memory",
+          snapshotAgeMs: null,
+        }),
+        expect.objectContaining({
+          projectionKey: "catalog.catalog.malformed-projection",
+          projectionStatusSource: "unknown",
+          snapshotAgeMs: null,
+        }),
+        expect.objectContaining({
+          projectionKey: "catalog.catalog.missing-source-projection",
+          projectionStatusSource: "unknown",
+          snapshotAgeMs: 0,
+        }),
+      ]),
+    );
+  });
+
+  it("keeps attention reports and summary counts unchanged when freshness metadata is added", () => {
+    const baseline = sampleSnapshot();
+    const withFreshness = {
+      ...baseline,
+      projectionGroups: baseline.projectionGroups.map((group, index) => ({
+        ...group,
+        projectionStatusSource: index === 0 ? "stale-snapshot" : "fresh-snapshot",
+        snapshot: { ageMs: index === 0 ? 120000 : 42 },
+      })),
+    };
+    const baselineSanitized = sanitizeProjectionOperationsSnapshot(baseline);
+    const freshnessSanitized = sanitizeProjectionOperationsSnapshot(withFreshness);
+
+    expect(freshnessSanitized.summary).toEqual(baselineSanitized.summary);
+    expect(buildProjectionAttentionReport(freshnessSanitized)).toEqual(
+      buildProjectionAttentionReport(baselineSanitized),
+    );
+  });
+
   it("redacts credentials, tokens, emails, database URLs, and UUIDs from free text", () => {
     expect(
       redactSupportUnsafeText(

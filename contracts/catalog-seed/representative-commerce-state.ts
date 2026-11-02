@@ -174,7 +174,10 @@ export type RepresentativeMarketplaceServices = Readonly<{
   offers: Readonly<{
     submitOffer: (
       params: Readonly<{
-        offerId: OfferId;
+        offerId?: OfferId;
+        counteredOfferId?: OfferId;
+        attemptId: string;
+        requestHash?: string;
         buyerAccountId: AccountId;
         catalogItemId: string;
         productId: string;
@@ -195,9 +198,13 @@ export type RepresentativeMarketplaceServices = Readonly<{
     acceptOffer: (
       params: Readonly<{
         offerId: OfferId;
+        sourceActionKey: string;
+        requestHash?: string;
         sellerAccountId: AccountId;
         listingId: string;
-        feeQuoteFingerprint: string;
+        feeQuoteFingerprint?: string | null;
+        acceptanceBatchId?: string | null;
+        acceptanceBatchSize?: number | null;
       }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ offerId: string; version: number }>>;
@@ -916,6 +923,7 @@ export async function submitRepresentativeOffers(
     const submitted = await services.offers.submitOffer(
       {
         offerId,
+        attemptId: `representative_submit_${offerId}`,
         buyerAccountId: buyerAccountId as AccountId,
         catalogItemId: stock.catalogItemId,
         productId: product.productId,
@@ -928,7 +936,10 @@ export async function submitRepresentativeOffers(
         priceCurrencyCode: "USD",
         quantityRequested: index % 2 === 0 ? 1 : Math.min(3, Math.max(1, stock.totalQuantity)),
       },
-      representativeSeedContext,
+      {
+        ...representativeSeedContext,
+        audit: { ...representativeSeedContext.audit, forAccountId: buyerAccountId as AccountId },
+      },
     );
 
     results.push({
@@ -1026,11 +1037,15 @@ export async function acceptRepresentativeOffers(
       await services.offers.acceptOffer(
         {
           offerId,
+          sourceActionKey: `representative_accept_${offerId}`,
           sellerAccountId: stock.accountId as AccountId,
           listingId,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         },
-        representativeSeedContext,
+        {
+          ...representativeSeedContext,
+          audit: { ...representativeSeedContext.audit, forAccountId: stock.accountId as AccountId },
+        },
       );
       newlyAcceptedCount += 1;
       results.push({

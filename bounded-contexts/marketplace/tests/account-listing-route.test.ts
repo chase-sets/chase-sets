@@ -11,6 +11,7 @@ import {
 import { action as listingAction, loader as listingLoader } from "../routes/account-listing";
 import type { MarketplaceListingTermsPreview } from "@chase-sets/marketplace/server";
 import { configureMarketplacePostWriteTokenStoreForTests } from "../support/route-support/post-write-tokens";
+import { authoredTextRecoveryMessage } from "../features/reviews/ui/authored-text-recovery";
 
 function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -439,6 +440,48 @@ describe("marketplace listing detail route", () => {
     } as never);
 
     expect(result).toMatchObject({ evidenceReadiness: currentEvidenceReadiness });
+  });
+
+  it("issue-5258-marketplace-ac4 keeps a rejected image description as closed field recovery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/api/auth/session")) return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        if (url.includes("/listings/lst_1/photos/lpho_1/classify")) {
+          return Promise.resolve(jsonResponse({ error: { code: "text_unsafe_link", message: "server copy" } }, 400));
+        }
+        if (url.includes("/listings/lst_1")) {
+          return Promise.resolve(jsonResponse({ evidence_readiness: { requirements: { requiredSlots: [] } } }));
+        }
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+    const form = new URLSearchParams({
+      intent: "classify-photo",
+      photoId: "lpho_1",
+      slotId: "",
+      altText: " Front javascript:alert(1) ",
+    });
+
+    const result = await listingAction({
+      request: new Request("http://localhost/account/listings/lst_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { listingId: "lst_1" },
+      context: undefined,
+    } as never);
+
+    const message = authoredTextRecoveryMessage("text_unsafe_link");
+    expect(result).toMatchObject({
+      evidenceAltTextRecovery: {
+        photoId: "lpho_1",
+        altText: " Front javascript:alert(1) ",
+        recovery: { code: "text_unsafe_link", message, fieldLevel: true },
+      },
+    });
   });
 
   it("redirects without a post-write token when a no-op price update commits no new events", async () => {

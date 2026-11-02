@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import type { RiskAlertAction } from "./contracts";
+import { RiskAlertActionRejectedError, type RiskAlertAction } from "./contracts";
 import type { RiskAlertServices } from "./runtime";
 
 function requireActor(c: { get(key: "actor"): AuthenticatedApiEnv["Variables"]["actor"] }) {
@@ -96,6 +96,30 @@ export function createRiskAlertRoutes(services: RiskAlertServices) {
       );
       return c.json({ id: result.actionId, recordedAt: result.recordedAt });
     } catch (error) {
+      if (error instanceof RiskAlertActionRejectedError) {
+        if (error.code === "alert-not-found") {
+          return c.json(
+            {
+              error: {
+                code: "not_found",
+                reason: error.code,
+                message: t("experience.api.risk.alert.action.rejected"),
+              },
+            },
+            404,
+          );
+        }
+        return c.json(
+          {
+            error: {
+              code: "validation_failed",
+              reason: error.code,
+              message: t("experience.api.risk.alert.action.rejected"),
+            },
+          },
+          400,
+        );
+      }
       return c.json(
         { error: { code: "validation_failed", message: error instanceof Error ? error.message : String(error) } },
         400,

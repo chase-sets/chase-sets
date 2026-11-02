@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -208,7 +209,10 @@ const FUTURE_MANIFEST_NEEDLE = `${["chase-sets", "dispatch-brief-manifest", "v2"
 const OWNED_SCANNER_PATHS = Object.freeze(["scripts/issue-readiness.mjs", "scripts/issue-readiness.test.mjs"]);
 
 function trackedTreeEntries() {
-  const trackedPaths = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot })
+  const trackedPaths = execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .toString("utf8")
     .split("\0")
     .filter(Boolean);
@@ -447,7 +451,10 @@ function createHarness(scenario, { comments = [] } = {}) {
       body: scenarioBody(scenario),
       type: issueType,
       milestone: currentMilestone(),
-      comments: commentState.length,
+      comments:
+        scenario.commentsRestTotalByIssueRead?.[issueReads] ??
+        scenario.commentsRestTotalOverride ??
+        commentState.length,
       issue_dependencies_summary: {
         blocked_by: dependencies.filter((item) => item.state === "open").length,
         total_blocked_by: dependencies.length,
@@ -465,7 +472,8 @@ function createHarness(scenario, { comments = [] } = {}) {
             id: ISSUE_NODE_ID,
             number: ISSUE_NUMBER,
             state: "OPEN",
-            updatedAt: authorityUpdatedAt,
+            updatedAt:
+              issueReads >= 2 && scenario.finalGraphUpdatedAt ? scenario.finalGraphUpdatedAt : authorityUpdatedAt,
             issueType: issueType
               ? { id: issueType.node_id, name: issueType.name, isEnabled: issueType.is_enabled }
               : null,
@@ -479,7 +487,10 @@ function createHarness(scenario, { comments = [] } = {}) {
               pageInfo: { hasNextPage: dependencies.length > 1, endCursor: "cursor" },
             },
             comments: {
-              totalCount: commentState.length,
+              totalCount:
+                issueReads >= 2 && scenario.finalGraphCommentsTotalOverride !== undefined
+                  ? scenario.finalGraphCommentsTotalOverride
+                  : (scenario.commentsGraphTotalOverride ?? commentState.length),
               pageInfo: { hasNextPage: commentState.length > 1, endCursor: "cursor" },
             },
           },
@@ -1188,6 +1199,92 @@ describe("bounded complete GitHub authority collection", () => {
     expect(result.receipt.checkedRules.every((entry) => entry.status === "unknown")).toBe(true);
   });
 
+  it("reconciles a stale REST comment counter against the complete list and GraphQL total", async () => {
+    const comments = [botComment(101, "comment 101"), botComment(102, "comment 102"), botComment(103, "comment 103")];
+    const { result } = await runScenario({ ...fixtureScenario("ready"), commentsRestTotalOverride: 1 }, { comments });
+
+    expect(result.receipt.status).toBe("ready");
+    expect(result.receipt.coverage.comments).toEqual({
+      pages: 1,
+      collected: 3,
+      total: 3,
+      complete: true,
+      reasonCode: null,
+    });
+  });
+
+  it("ignores a stale REST counter transition when authoritative revisions remain stable", async () => {
+    const comments = [botComment(111, "comment 111"), botComment(112, "comment 112"), botComment(113, "comment 113")];
+    const { result } = await runScenario(
+      { ...fixtureScenario("ready"), commentsRestTotalByIssueRead: { 1: 1, 2: 3 } },
+      { comments },
+    );
+
+    expect(result.receipt.status).toBe("ready");
+    expect(result.receipt.reasonCodes).toEqual([]);
+    expect(result.receipt.coverage.comments).toEqual({
+      pages: 1,
+      collected: 3,
+      total: 3,
+      complete: true,
+      reasonCode: null,
+    });
+  });
+
+  it("returns unknown when the complete REST comment list differs from the GraphQL total", async () => {
+    const comments = [botComment(201, "comment 201"), botComment(202, "comment 202")];
+    const { result } = await runScenario(
+      { ...fixtureScenario("ready"), commentsRestTotalOverride: 1, commentsGraphTotalOverride: 3 },
+      { comments },
+    );
+
+    expect(result.receipt.status).toBe("unknown");
+    expect(result.receipt.reasonCodes).toContain("COMMENT_COUNT_MISMATCH");
+    expect(result.receipt.coverage.comments).toMatchObject({ collected: 2, total: 3, complete: false });
+    expect(result.receipt.checkedRules.every((entry) => entry.status === "unknown")).toBe(true);
+  });
+
+  it("returns unknown when GraphQL comment totals and issue revision move while REST count stays unchanged", async () => {
+    const comments = [botComment(301, "comment 301"), botComment(302, "comment 302")];
+    const { result } = await runScenario(
+      {
+        ...fixtureScenario("ready"),
+        finalUpdatedAt: "2026-07-29T19:03:27.000Z",
+        finalGraphUpdatedAt: "2026-07-29T19:03:27.000Z",
+        finalGraphCommentsTotalOverride: 3,
+      },
+      { comments },
+    );
+
+    expect(result.receipt.status).toBe("unknown");
+    expect(result.receipt.reasonCodes).toContain("ISSUE_REVISION_MOVED");
+    expect(result.receipt.coverage.issue).toEqual({
+      initialRead: true,
+      finalRead: true,
+      revisionStable: false,
+    });
+    expect(result.receipt.checkedRules.every((entry) => entry.status === "unknown")).toBe(true);
+  });
+
+  it("fails closed when a decisive comment exists just beyond the collection cap", async () => {
+    const comments = Array.from({ length: 10_001 }, (_, index) => botComment(400 + index, `comment ${index}`));
+    const { result } = await runScenario({ ...fixtureScenario("ready") }, { comments });
+
+    expect(result.receipt.status).toBe("unknown");
+    expect(result.receipt.reasonCodes).toContain("COLLECTION_BOUNDED");
+    expect(result.receipt.coverage.comments).toMatchObject({ collected: 10_000, total: 10_001, complete: false });
+    expect(result.receipt.checkedRules.every((entry) => entry.status === "unknown")).toBe(true);
+  });
+
+  it("rejects duplicate comment identities after complete collection", async () => {
+    const duplicate = botComment(501, "duplicate");
+    const { result } = await runScenario({ ...fixtureScenario("ready") }, { comments: [duplicate, { ...duplicate }] });
+
+    expect(result.receipt.status).toBe("unknown");
+    expect(result.receipt.reasonCodes).toContain("COMMENT_DUPLICATE");
+    expect(result.receipt.checkedRules.every((entry) => entry.status === "unknown")).toBe(true);
+  });
+
   it("binds the receipt across the final issue reread and returns unknown on mid-read mutation", async () => {
     const { result } = await runScenario(fixtureScenario("mid-read-mutation"));
 
@@ -1762,7 +1859,7 @@ function createIssueRevisionFake({ comments = [] } = {}) {
   const writes = [];
   const afterPostWriteRead = new Map();
   const pinnedPostWriteReads = new Map();
-  const hooks = { issuePayload: null, page: null, writeFailure: null, writeResponse: null };
+  const hooks = { issuePayload: null, graphPayload: null, page: null, writeFailure: null, writeResponse: null };
   let nextWrite = { at: WRITE_AT, lag: 0 };
   let issueReads = 0;
   let readsBeforeWrite = null;
@@ -1854,7 +1951,10 @@ function createIssueRevisionFake({ comments = [] } = {}) {
 
   async function client(url, init = {}) {
     const method = init.method ?? "GET";
-    if (url === "https://api.github.com/graphql") return response(graphPayload(visible()));
+    if (url === "https://api.github.com/graphql") {
+      const payload = graphPayload(visible());
+      return hooks.graphPayload?.(payload) ?? response(payload);
+    }
     if (url === `https://api.github.com/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`) {
       issueReads += 1;
       const payload = issuePayload(visible());
@@ -2293,7 +2393,20 @@ describe("historical comment publication convergence", () => {
       },
       "independent-total mismatch": {
         arrange(fake) {
-          fake.hooks.issuePayload = (payload) => response({ ...payload, comments: payload.comments + 1 });
+          fake.hooks.graphPayload = (payload) =>
+            response({
+              ...payload,
+              data: {
+                ...payload.data,
+                repository: {
+                  ...payload.data.repository,
+                  issue: {
+                    ...payload.data.repository.issue,
+                    comments: { ...payload.data.repository.issue.comments, totalCount: 2 },
+                  },
+                },
+              },
+            });
         },
       },
       "malformed provider output": {
@@ -2369,7 +2482,7 @@ describe("historical comment publication convergence", () => {
       "independent-total mismatch": {
         commentAction: "skipped-comment-authority-unknown",
         status: "unknown",
-        reasonCodes: ["INDEPENDENT_TOTAL_MISMATCH"],
+        reasonCodes: ["COMMENT_COUNT_MISMATCH"],
         boundRevision: PRE_WRITE_AT,
         consumer: "RECEIPT_UNKNOWN",
         comment: priorUntouched,

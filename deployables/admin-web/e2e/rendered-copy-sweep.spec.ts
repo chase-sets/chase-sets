@@ -25,12 +25,12 @@ const witnesses: Readonly<Record<string, SweepWitness>> = {
   },
   // Catalog support/authoring-support/seed.ts:173 seeds the TCGdex provider integration profile.
   "/catalog/integrations": { witness: { kind: "populated", selector: "table tbody tr", text: "TCGdex" } },
-  // Catalog features/reference-data/api/seed.ts:263 creates this expansion record.
+  // Catalog features/reference-data/api/seed.ts:281 creates this English expansion record.
   "/catalog/scopes/ref_seed_expansion_base_set": {
     witness: {
       kind: "populated",
       selector: 'role=region[name="Catalog scope sync"] >> dl',
-      text: "tcgdex / pokemon / ref_seed_series_base / Base Set",
+      text: "tcgdex / en / pokemon / ref_seed_series_base / Base Set",
     },
   },
   // Catalog source-observations/api/seeding/seed.ts:136-160 creates this observation from its base2-60 scenario fixture.
@@ -132,7 +132,7 @@ const expectRenderedCopyWitness = (page: Page, key: string, witness: RenderedCop
 test.describe("rendered-copy planted controls @admin-access", () => {
   const key = "/planted-copy-control";
   const catalogWitness = witnesses[catalogScopeKey]!.witness;
-  const catalogScope = (expanded: boolean, text = "tcgdex / pokemon / ref_seed_series_base / Base Set") =>
+  const catalogScope = (expanded: boolean, text = "tcgdex / en / pokemon / ref_seed_series_base / Base Set") =>
     `<main><h1>Scope Detail</h1><button data-catalog-import-workflow-stage="run-sync" aria-expanded="${expanded}" onclick="this.setAttribute('aria-expanded', 'true'); document.querySelector('#sync').hidden = false; this.dataset.clicks = String(Number(this.dataset.clicks || 0) + 1)">Run sync</button><section id="sync" aria-labelledby="sync-title" ${expanded ? "" : "hidden"}><h2 id="sync-title">Catalog scope sync</h2><dl><dt>Scope</dt><dd>${text}</dd></dl></section></main>`;
   test("Catalog collapsed Run sync opens before the same seeded scope witness", async ({ page }) => {
     await page.setContent(catalogScope(false));
@@ -148,7 +148,7 @@ test.describe("rendered-copy planted controls @admin-access", () => {
     await page.setContent(
       catalogScope(false, "A different scope").replace(
         "</main>",
-        "<dl><dt>Unrelated scope</dt><dd>tcgdex / pokemon / ref_seed_series_base / Base Set</dd></dl></main>",
+        "<dl><dt>Unrelated scope</dt><dd>tcgdex / en / pokemon / ref_seed_series_base / Base Set</dd></dl></main>",
       ),
     );
     await expect(expectRenderedCopyWitness(page, catalogScopeKey, catalogWitness)).rejects.toThrow(catalogScopeKey);

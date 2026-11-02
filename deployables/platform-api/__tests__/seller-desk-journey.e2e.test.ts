@@ -3,6 +3,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { describe, expect, it, vi } from "vitest";
 import { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { hashMarketplaceRequest, marketplaceOfferCanonicalRequest } from "@chase-sets/marketplace/server";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { buildPlatformApiApp } from "../src/app";
 
@@ -369,6 +370,15 @@ describe("Seller Desk full-journey acceptance gate @seller-desk-journey", () => 
       },
       payouts: {
         listPayouts: vi.fn(async () => ({ items: [payout], total: 1 })),
+        getPayoutSummary: vi.fn(async () => ({
+          items: [payout],
+          total: 1,
+          count: 1,
+          completeness: { kind: "complete", total: 1 },
+          next_payout: null,
+          blocked_payouts: [],
+          availability: { can_request: false, unavailable_reasons: [], unavailable_reason_details: [] },
+        })),
         getPayout: vi.fn(async () => payout),
         requestPayout: vi.fn(async () => {
           // Requesting the payout resolves the blocked-payout blocker, so the next
@@ -500,7 +510,14 @@ describe("Seller Desk full-journey acceptance gate @seller-desk-journey", () => 
               offerId: "off_1",
               listingId: "listing_1",
               feeQuoteFingerprint: "fee_quote_1",
-              sourceActionKey: "seller-desk:accept-offer-1",
+              attemptId: "seller_desk_accept_attempt_1",
+              requestHash: hashMarketplaceRequest(
+                marketplaceOfferCanonicalRequest("offer.accept", {
+                  offerId: "off_1",
+                  listingId: "listing_1",
+                  feeQuoteFingerprint: "fee_quote_1",
+                }),
+              ),
               idempotencyKey: "seller-desk-accept-offer-1",
               confirmationText: "Accept Offer.",
             },

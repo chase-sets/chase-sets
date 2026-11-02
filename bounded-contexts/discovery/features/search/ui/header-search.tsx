@@ -94,7 +94,7 @@ export function MarketplaceHeaderSearch() {
     const nextRecentSearches = addRecentSearch(recentSearches, normalizedQuery);
     setRecentSearches(nextRecentSearches);
     writeRecentSearches(nextRecentSearches);
-    navigate(`/search?q=${encodeURIComponent(normalizedQuery)}`);
+    void navigate(`/search?q=${encodeURIComponent(normalizedQuery)}`);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -134,7 +134,7 @@ export function MarketplaceHeaderSearch() {
 
     const suggestion = suggestions.find((candidate) => `suggestion:${candidate.catalogItemId}` === value);
     if (suggestion) {
-      navigate(`/items/${encodeURIComponent(suggestion.slug)}`);
+      void navigate(`/items/${encodeURIComponent(suggestion.slug)}`);
     }
   }
 

@@ -175,10 +175,10 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
   const navigation = useNavigation();
   const location = useLocation();
   const submit = useSubmit();
-  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(() => new URLSearchParams(location.search).get("edit") === "1");
   const [openedAtKey, setOpenedAtKey] = useState(location.key);
   useEffect(() => {
-    if (!actionData?.error) setEditorOpen(false);
+    if (!actionData?.error) setEditorOpen(new URLSearchParams(location.search).get("edit") === "1");
   }, [location.key]);
   const [, setSearchParams] = useSearchParams();
   useRepricingDeskCatchUp(data.recovery === "catching-up");
@@ -225,7 +225,9 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
       {editorOpen && data.policy.scope && data.policy.maxChangesPerDay !== null ? (
         <PolicyEditorDrawer
           policyId={policyId}
+          initialTier={new URLSearchParams(location.search).get("edit") === "1" ? "advanced" : undefined}
           initialBody={{
+            authoringIntent: data.policy.authoringIntent,
             name: data.policy.name ?? "",
             scope: data.policy.scope,
             rules: data.policy.rules,

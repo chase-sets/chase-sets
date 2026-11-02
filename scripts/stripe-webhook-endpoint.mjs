@@ -6,6 +6,7 @@ import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events
 import { PAYMENTS_PROVIDER_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 import { classifyStripeKeys } from "./stripe-key-mode.mjs";
 import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS, appendStripeEnabledEvents } from "./stripe-webhook-events.mjs";
+import { withGithubRepository } from "./lib/github-repository.mjs";
 
 export const STRIPE_WEBHOOK_ENDPOINT_PROBE_VERSION = "stripe-webhook-endpoint/v1";
 export const CREATE_PRODUCTION_STRIPE_PAYMENTS_WEBHOOK_CONFIRMATION = "create production payments webhook endpoint";
@@ -313,9 +314,13 @@ export function parseStripePaymentsWebhookEndpointArgs(argv, env = process.env) 
 function writeGithubEnvironmentSecret(signingSecret, environment, dependencies = {}) {
   const spawnImpl = dependencies.spawn ?? spawn;
   return new Promise((resolve, reject) => {
-    const child = spawnImpl("gh", ["secret", "set", "STRIPE_WEBHOOK_SECRET", "--env", environment], {
-      stdio: ["pipe", "inherit", "inherit"],
-    });
+    const child = spawnImpl(
+      "gh",
+      withGithubRepository(["secret", "set", "STRIPE_WEBHOOK_SECRET", "--env", environment]),
+      {
+        stdio: ["pipe", "inherit", "inherit"],
+      },
+    );
     child.on("error", reject);
     child.on("close", (code, signal) => {
       if (signal || code !== 0) {

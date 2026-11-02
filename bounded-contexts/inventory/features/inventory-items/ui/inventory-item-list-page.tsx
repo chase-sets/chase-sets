@@ -29,6 +29,7 @@ import {
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import {
   normalizeSelectedOptionsForSchema,
+  isDimensionActive,
   recordToSelectionEntries,
   toInventoryProductSelectionFields,
   validateSelectedOptions,
@@ -37,7 +38,7 @@ import type { InventoryStorageLocation } from "../../storage-locations/ui/contra
 import type { InventoryItemListItem } from "./contracts";
 import { inventoryListingHref } from "./listing-handoff";
 import { OfflineSaleForm, OfflineSaleResult } from "./offline-sale-form";
-import { InventoryMutationForm as Form } from "../../../support/request-support/mutation-form";
+import { InventoryMutationRouterForm as Form } from "../../../support/request-support/mutation-form";
 
 const CATALOG_ITEM_SUGGESTIONS_URL = "/api/marketplace/items/suggest";
 const CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
@@ -389,6 +390,18 @@ function hasCompleteSelectedOptions(item: InventoryCatalogItemSnapshot, selected
   }
 }
 
+/** Inventory names the Graded option identities; the page only checks whether the current choice is one of them. */
+function selectsGradedOption(item: InventoryCatalogItemSnapshot | null, selectedOptions: Record<string, string>) {
+  const dimensions = item?.product_schema?.dimensions ?? [];
+  return (item?.graded_selections ?? []).some(
+    (pair) =>
+      selectedOptions[pair.dimensionId] === pair.optionId &&
+      dimensions.some(
+        (dimension) => dimension.dimensionId === pair.dimensionId && isDimensionActive(dimension, selectedOptions),
+      ),
+  );
+}
+
 function displayItemLabel(item: InventoryItemListItem) {
   return item.item_title ?? item.catalog_catalog_item_id;
 }
@@ -457,6 +470,7 @@ export function InventoryItemListPage({
   offlineSaleAuthoritativeAvailableQuantity?: number;
 }) {
   const navigation = useNavigation();
+  const [certificationNumber, setCertificationNumber] = useState("");
   const pageSize = pagination?.limit ?? data.items.length;
   const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
   const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
@@ -509,6 +523,7 @@ export function InventoryItemListPage({
   const { catalogItem, selectedOptions } = picker;
   const catalogItemEntries = catalogItemPickerEntries(picker);
   const pickerStatusMessage = catalogItemPickerStatusMessage(picker.status);
+  const asksCertificationNumber = selectsGradedOption(catalogItem, selectedOptions);
   const canCreateItem = catalogItem !== null && hasCompleteSelectedOptions(catalogItem, selectedOptions);
   const productSelectionFields = toInventoryProductSelectionFields(
     catalogItem?.product_schema ?? null,
@@ -593,6 +608,14 @@ export function InventoryItemListPage({
                 />
                 <HiddenInput type="hidden" name="catalogItemId" value={catalogItem?.catalog_item_id ?? ""} />
                 <HiddenInput type="hidden" name="selectedOptions" value={serializedVersionSelection} />
+                {asksCertificationNumber ? (
+                  <TextInput
+                    label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.certification.number")}
+                    name="certificationNumber"
+                    value={certificationNumber}
+                    onChange={(event) => setCertificationNumber(event.target.value)}
+                  />
+                ) : null}
                 <NativeSelect
                   label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.storage.location")}
                   name="storageLocationId"

@@ -178,8 +178,8 @@ describe("the review scenario end to end", () => {
       [
         {
           id: "projection-poison-event",
-          load: async (context) =>
-            mapPoisonEventsToItems(
+          load: async (context) => ({
+            items: mapPoisonEventsToItems(
               [
                 {
                   projectionKey: "ordering.orders",
@@ -192,19 +192,23 @@ describe("the review scenario end to end", () => {
               ],
               context,
             ),
+            total: "unknown",
+          }),
         },
         {
           id: "projection-blocked-stream",
-          load: async (context) =>
-            mapBlockedStreamsToItems(
+          load: async (context) => ({
+            items: mapBlockedStreamsToItems(
               [{ projectionKey: "catalog.items", streamId: "s-1", deferredEventCount: 4 }],
               context,
             ),
+            total: "unknown",
+          }),
         },
         {
           id: "support-request-deadline",
-          load: async (context) =>
-            mapSupportRequestsToItems(
+          load: async (context) => ({
+            items: mapSupportRequestsToItems(
               [
                 {
                   support_request_id: "req-1",
@@ -217,6 +221,8 @@ describe("the review scenario end to end", () => {
               ],
               context,
             ),
+            total: 1,
+          }),
         },
       ],
       CONTEXT,

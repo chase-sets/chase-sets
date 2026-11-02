@@ -92,6 +92,8 @@ describe("hopeless-forecast hold stage", () => {
     { goalId: "fixed-percentile", parameters: { percentile: 65 }, economics: null },
     { goalId: "target-horizon", parameters: { horizonDays: 30 }, economics: null },
     { goalId: "profit-per-day", parameters: {}, economics: resolvedGoalEconomics(typicalFeeTerms, 0.01) },
+    { goalId: "hold-value", parameters: {}, economics: null },
+    { goalId: "cash-target", parameters: { amount: 100, days: 30 }, economics: null },
   ];
   const hopelessCurve = {
     ...parityCurve,

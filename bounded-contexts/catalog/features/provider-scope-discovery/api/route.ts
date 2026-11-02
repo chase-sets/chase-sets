@@ -4,6 +4,11 @@ import { t } from "@chase-sets/localization";
 import type { Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { ProviderScopeDiscoveryServices } from "./runtime";
+import type { ProviderScopeObservationRecord } from "./refresh-schedule-store";
+import type {
+  CanonicalScopeRecordProposalRecord,
+  CanonicalScopeRecordProposalReviewStatus,
+} from "./scope-record-proposal-store";
 
 // Provider scope refresh schedule surface: visible to catalog viewers,
 // pausable/resumable/runnable by catalog managers. The schedule itself is
@@ -79,12 +84,7 @@ export function providerScopeDiscoveryRoutes(services: ProviderScopeDiscoverySer
       return permissionError;
     }
 
-    const items = await services.listScopeObservations({
-      providerKey: c.req.query("providerKey"),
-      unitKey: c.req.query("unitKey"),
-      scopeKind: scopeKindQueryValue(c.req.query("scopeKind")),
-      limit: positiveIntegerQueryValue(c.req.query("limit")) ?? undefined,
-    });
+    const items = await services.listScopeObservations(scopeObservationListParams(c.req.query()));
     return c.json({ items, total: items.length, count: items.length });
   });
 
@@ -94,18 +94,40 @@ export function providerScopeDiscoveryRoutes(services: ProviderScopeDiscoverySer
       return permissionError;
     }
 
-    const items = await services.listCanonicalScopeRecordProposals({
-      reviewStatus: proposalReviewStatusQueryValue(c.req.query("reviewStatus")),
-      productDomain: productDomainQueryValue(c.req.query("productDomain")),
-      limit: positiveIntegerQueryValue(c.req.query("limit")) ?? undefined,
-    });
+    const items = await services.listCanonicalScopeRecordProposals(scopeRecordProposalListParams(c.req.query()));
     return c.json({ items, total: items.length, count: items.length });
   });
 
   return app;
 }
 
-function scopeKindQueryValue(value: string | undefined) {
+function stringQueryValue(record: Readonly<Record<string, unknown>>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : value === undefined || value === null ? undefined : String(value);
+}
+
+export function scopeObservationListParams(
+  record: Readonly<Record<string, unknown>>,
+): Parameters<NonNullable<ProviderScopeDiscoveryServices["listScopeObservations"]>>[0] {
+  return {
+    providerKey: stringQueryValue(record, "providerKey"),
+    unitKey: stringQueryValue(record, "unitKey"),
+    scopeKind: scopeKindQueryValue(stringQueryValue(record, "scopeKind")),
+    limit: positiveIntegerQueryValue(stringQueryValue(record, "limit")) ?? undefined,
+  };
+}
+
+export function scopeRecordProposalListParams(
+  record: Readonly<Record<string, unknown>>,
+): Parameters<NonNullable<ProviderScopeDiscoveryServices["listCanonicalScopeRecordProposals"]>>[0] {
+  return {
+    reviewStatus: proposalReviewStatusQueryValue(stringQueryValue(record, "reviewStatus")),
+    productDomain: productDomainQueryValue(stringQueryValue(record, "productDomain")),
+    limit: positiveIntegerQueryValue(stringQueryValue(record, "limit")) ?? undefined,
+  };
+}
+
+function scopeKindQueryValue(value: string | undefined): ProviderScopeObservationRecord["scopeKind"] | null {
   return value === "language" ||
     value === "product-line" ||
     value === "series" ||
@@ -115,11 +137,13 @@ function scopeKindQueryValue(value: string | undefined) {
     : null;
 }
 
-function proposalReviewStatusQueryValue(value: string | undefined) {
+function proposalReviewStatusQueryValue(value: string | undefined): CanonicalScopeRecordProposalReviewStatus | null {
   return value === "proposed" || value === "accepted" || value === "rejected" ? value : null;
 }
 
-function productDomainQueryValue(value: string | undefined) {
+function productDomainQueryValue(
+  value: string | undefined,
+): CanonicalScopeRecordProposalRecord["productDomain"] | null {
   return value === "pokemon" || value === "magic" || value === "yugioh" || value === "one-piece" || value === "lorcana"
     ? value
     : null;

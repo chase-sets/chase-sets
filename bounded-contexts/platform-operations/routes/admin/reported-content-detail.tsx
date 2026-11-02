@@ -1,7 +1,10 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import type { ReportedContentModerationAction } from "../../features/reported-content/api/contracts";
+import {
+  isReportedContentModerationAction,
+  type ReportedContentModerationAction,
+} from "../../features/reported-content/api/contracts";
 import { ReportedContentAdminDetailPage } from "../../features/reported-content/ui/admin-pages";
 import { createReportedContentRequestApiClient } from "../../support/request-support/reported-content-client";
 
@@ -19,12 +22,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 function normalizeAction(value: FormDataEntryValue | null): ReportedContentModerationAction {
-  if (
-    value === "dismiss" ||
-    value === "contact-seller" ||
-    value === "unlist" ||
-    value === "escalate-account-suspension"
-  ) {
+  if (isReportedContentModerationAction(value)) {
     return value;
   }
 

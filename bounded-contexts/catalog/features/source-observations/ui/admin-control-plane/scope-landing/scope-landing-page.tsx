@@ -1,4 +1,18 @@
-import { Badge, Inline, Select, StatusPill, Text, type BadgeTone, type DataColumn } from "@chase-sets/design-system";
+import {
+  Badge,
+  Inline,
+  OperationalStatusBanner,
+  ProgressiveDisclosure,
+  Select,
+  StatusPill,
+  Text,
+  Button,
+  HiddenInput,
+  WorkbenchForm,
+  Stack,
+  type BadgeTone,
+  type DataColumn,
+} from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import { useSearchParams } from "react-router";
 import { catalogScopeProductDomains } from "../../../../scope-registry/domain/contract";
@@ -13,6 +27,12 @@ import type {
   CatalogScopePromotionReadiness,
   CatalogScopeSyncFreshness,
 } from "./scope-landing-read-model";
+import type { CatalogDeferredAttentionQueueResult } from "../../../../attention-queue/api/contracts";
+import { CatalogAttentionQueuePanel } from "../../../../attention-queue/ui/attention-queue-panel";
+import type { CatalogAliasReviewReadModel } from "../../../../alias-equivalence/api/alias-review-admin-contracts";
+import { CatalogIntegrationAliasReviewWorkspace } from "../alias-review/alias-review-workspace";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
+import { CatalogCommandFeedbackBanner } from "../../workbench-shell";
 
 const ALL_VALUE = "__all__";
 
@@ -58,6 +78,13 @@ export type CatalogScopeLandingPageProps = Readonly<{
   productDomain: string;
   loading: boolean;
   error: string | null;
+  actionHref?: string;
+  canManage?: boolean;
+  attentionQueue?: CatalogDeferredAttentionQueueResult;
+  generalAliasReview?: CatalogAliasReviewReadModel | null;
+  generalAliasReviewFailed?: boolean;
+  commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  attentionItemKey?: string;
 }>;
 
 export function CatalogScopeLandingPage({
@@ -66,6 +93,13 @@ export function CatalogScopeLandingPage({
   productDomain,
   loading,
   error,
+  actionHref = "/catalog/scopes",
+  canManage = false,
+  attentionQueue,
+  generalAliasReview = null,
+  generalAliasReviewFailed = false,
+  commandFeedback = null,
+  attentionItemKey,
 }: CatalogScopeLandingPageProps) {
   const controls = useCatalogListQueryControls(query);
   const [, setSearchParams] = useSearchParams();
@@ -139,8 +173,52 @@ export function CatalogScopeLandingPage({
     },
   ];
 
+  const supplementary =
+    attentionQueue || generalAliasReview || generalAliasReviewFailed || commandFeedback ? (
+      <Stack element="section" data-catalog-scope-home-review="true">
+        {commandFeedback ? <CatalogCommandFeedbackBanner feedback={commandFeedback} /> : null}
+        {attentionItemKey && commandFeedback?.status === "success" ? (
+          <WorkbenchForm variant="button" method="post" action={actionHref}>
+            <HiddenInput name="_intent" value="restore-attention-item" />
+            <HiddenInput name="itemKey" value={attentionItemKey} />
+            <Button type="submit" size="sm" tone="secondary" disabled={!canManage}>
+              {t("catalog.features.attentionQueue.action.restore")}
+            </Button>
+          </WorkbenchForm>
+        ) : null}
+        {attentionQueue ? (
+          <AttentionQueueHomeSlot result={attentionQueue} actionHref={actionHref} canManage={canManage} />
+        ) : null}
+        {generalAliasReview ? (
+          <ProgressiveDisclosure
+            title={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.title")}
+            description={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.description")}
+            summary={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.summary", {
+              count: generalAliasReview.counts.needsReview,
+            })}
+            defaultOpen={false}
+            tone={generalAliasReview.counts.needsReview > 0 ? "warning" : "neutral"}
+          >
+            <CatalogIntegrationAliasReviewWorkspace
+              readModel={generalAliasReview}
+              actionHref={actionHref}
+              canManageAliases={canManage}
+            />
+          </ProgressiveDisclosure>
+        ) : generalAliasReviewFailed ? (
+          <OperationalStatusBanner
+            tone="warning"
+            role="status"
+            title={t("catalog.features.sourceObservations.ui.aliasReview.title")}
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable")}
+          />
+        ) : null}
+      </Stack>
+    ) : null;
+
   return (
     <EntityListPage<CatalogScopeLandingRow>
+      supplementary={supplementary}
       title={t("catalog.features.sourceObservations.ui.scopeLanding.title")}
       entityName={t("catalog.features.sourceObservations.ui.scopeLanding.entityName")}
       items={readModel.rows as CatalogScopeLandingRow[]}
@@ -177,12 +255,36 @@ export function CatalogScopeLandingPage({
             value={controls.language || ALL_VALUE}
             onValueChange={(value) => controls.setLanguage(value === ALL_VALUE ? "" : value)}
             items={[
-              { label: t("catalog.features.sourceObservations.ui.scopeLanding.filter.allLanguages"), value: ALL_VALUE },
+              {
+                label: t("catalog.features.sourceObservations.ui.scopeLanding.filter.allLanguages"),
+                value: ALL_VALUE,
+              },
               ...readModel.facets.languageEditions.map((value) => ({ label: value, value })),
             ]}
           />
         </>
       }
+    />
+  );
+}
+
+function AttentionQueueHomeSlot({
+  result,
+  actionHref,
+  canManage,
+}: Readonly<{
+  result: CatalogDeferredAttentionQueueResult;
+  actionHref: string;
+  canManage: boolean;
+}>) {
+  return result.status === "ready" ? (
+    <CatalogAttentionQueuePanel readModel={result.readModel} actionHref={actionHref} canManage={canManage} />
+  ) : (
+    <OperationalStatusBanner
+      tone="warning"
+      role="status"
+      title={t("catalog.features.attentionQueue.unavailable.title")}
+      description={t("catalog.features.attentionQueue.unavailable.description")}
     />
   );
 }

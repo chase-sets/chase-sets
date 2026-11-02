@@ -236,6 +236,7 @@ export type AgentOAuthConsent = Readonly<{
   accountId: string;
   accountName: string;
   scopes: readonly string[];
+  operatorGrantExpiresAt?: string | null;
   memberships: readonly { accountId: string; accountName: string }[];
   authorizePath: string;
 }>;

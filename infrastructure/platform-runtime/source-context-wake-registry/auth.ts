@@ -9,7 +9,10 @@ export const authWakeRegistryEntry = registryEntry({
   priorityLane: "bulk",
   expectedEventVolume: "low",
   wakeStoreLoadEstimate: "none",
-  affectedProjectionNames: ["auth:auth-session-projection"],
+  affectedProjectionNames: [
+    "auth:auth-session-projection",
+    "customer-feedback:customer-feedback-csat-outcome-fact-projection",
+  ],
   routeDependencyIds: [
     "auth.browser-registration-identity-freshness-carrier",
     "auth.current-session-fresh-read",

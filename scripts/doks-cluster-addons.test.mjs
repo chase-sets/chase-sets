@@ -147,6 +147,59 @@ describe("doks cluster addons planner", () => {
     );
   });
 
+  it("keeps staging and production ingress error logging discarded", () => {
+    const staging = planClusterAddons({ environment: "staging" }).find((step) =>
+      step.name.startsWith("install ingress-nginx"),
+    );
+    const production = planClusterAddons({ environment: "production" }).find((step) =>
+      step.name.startsWith("install ingress-nginx"),
+    );
+
+    expect(staging.command).not.toContain("controller.config.error-log-path=/dev/stderr");
+    expect(staging.command).not.toContain("controller.config.error-log-level=error");
+    expect(production.command).not.toContain("controller.config.error-log-path=/dev/stderr");
+    expect(production.command).not.toContain("controller.config.error-log-level=error");
+    expect(production.command).toEqual(
+      expect.arrayContaining([
+        "--set-string",
+        "controller.service.annotations.service\\.beta\\.kubernetes\\.io/do-loadbalancer-name=chase-sets-production-doks-ingress",
+      ]),
+    );
+  });
+
+  it("pins a query-free access format and discarded error log", () => {
+    const config = ingressNginxValuesDocument.controller.config;
+    const format = config["log-format-upstream"];
+    const tokens = [...format.matchAll(/\$[a-z_]+/g)].map(([token]) => token);
+    expect(tokens).toEqual(
+      expect.arrayContaining([
+        "$remote_addr",
+        "$remote_user",
+        "$time_local",
+        "$request_method",
+        "$uri",
+        "$server_protocol",
+        "$status",
+        "$body_bytes_sent",
+        "$http_user_agent",
+        "$request_length",
+        "$request_time",
+        "$proxy_upstream_name",
+        "$proxy_alternative_upstream_name",
+        "$upstream_addr",
+        "$upstream_response_length",
+        "$upstream_response_time",
+        "$upstream_status",
+        "$req_id",
+      ]),
+    );
+    expect(tokens).not.toContain("$request");
+    expect(format).not.toMatch(
+      /\$(?:request_uri|args|query_string|is_args|arg_[a-z_]+|http_referer|http_x_original_uri)\b/,
+    );
+    expect(config["error-log-path"]).toBe("/dev/null");
+  });
+
   it("captures ingress-nginx release drift before the staging policy upgrade", () => {
     const workflow = readFileSync(resolve(".github", "workflows", "platform-production.yml"), "utf8");
     const stepStart = workflow.indexOf("      - name: Apply staging ingress-nginx forwarded-header policy");

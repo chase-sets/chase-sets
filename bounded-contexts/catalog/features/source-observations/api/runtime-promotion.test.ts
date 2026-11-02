@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { SourceObservationYugiohSealedProductNormalized } from "../domain/domain";
+import { decideSourceObservation, evolveSourceObservation, initialSourceObservationState } from "../domain/domain";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   createSourceObservationRuntime,
   ensurePokemonReferenceHierarchy,
@@ -21,7 +24,10 @@ import {
   onePieceSetReferenceObservation,
   pokemonObservation,
 } from "./seeding/runtime-test-harness";
+import { requireCatalogProviderSourceObservation } from "./promotion/provider-source-observation-normalizer";
+import { ygojsonYugiohSetReferenceSourceObservationMappingContract } from "./providers/ygojson/executable-mapping-contract";
 import { syntheticCurrentCatalogItem } from "./seeding/synthetic-display-identity-queryable";
+import { buildCatalogScopeRegistryProjectionHandlers } from "../../scope-registry/read-model/projection";
 
 describe("source observation runtime: promotion and reapply", () => {
   it("resolves exactly one YGOJSON boxed Set Reference Record and blocks missing or ambiguous evidence", async () => {
@@ -121,14 +127,14 @@ describe("source observation runtime: promotion and reapply", () => {
       context,
     });
 
-    expect(expansionReferenceId).toBe("ref_tcgdex_expansion_sv8");
+    expect(expansionReferenceId).toBe("ref_tcgdex_expansion_ja_sv8");
     expect(harness.referenceRecordCreateCommands).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           typeKey: "expansion",
-          key: "sv8",
+          key: "ja-sv8",
           name: expect.objectContaining({ values: { en: "超電ブレイカー" } }),
-          attributes: expect.objectContaining({ "tcgdex-set-id": "SV8" }),
+          attributes: expect.objectContaining({ "tcgdex-set-id": "SV8", "language-editions": ["ja"] }),
         }),
       ]),
     );
@@ -702,6 +708,203 @@ describe("source observation runtime: promotion and reapply", () => {
         }),
       }),
     );
+  });
+
+  it("promotes YGOJSON Yu-Gi-Oh set-reference observations into Reference Records", async () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL("./__fixtures__/ygojson-yugioh-set-reference-data/beginners-edition-2.json", import.meta.url),
+        ),
+        "utf8",
+      ),
+    );
+    const normalized = requireCatalogProviderSourceObservation({
+      contract: ygojsonYugiohSetReferenceSourceObservationMappingContract,
+      payload: fixture,
+      observedAt: "2026-10-18T19:00:00.000Z",
+    }).normalized;
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "ygojson",
+      externalKey: "set:000f0093-1847-4db7-a315-5bd07f055c7a",
+      sourceProfileKey: "yugioh-set-reference-data",
+      sourceProfileVersion: "2026.10.25",
+      sourceMappingFingerprint: "fingerprint:ygojson:set:2026.10.25",
+      status: "observed",
+      promotedCatalogItemId: null,
+      referenceRecordRows: [
+        {
+          referenceRecordId: "ref_seed_yu_gi_oh_official_card_game",
+          typeKey: "product-line",
+          key: "yu-gi-oh-official-card-game",
+        },
+      ],
+      persistReferenceDataEvents: true,
+      normalized,
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({ observationId: "obs_changed", context });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: null,
+      referenceRecordId: "ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a",
+    });
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.reference-promoted",
+        payload: expect.objectContaining({
+          referenceRecordId: "ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a",
+          promotionProfileKey: "yugioh-set-reference-data",
+          promotionProfileVersion: "2026.10.25",
+        }),
+      }),
+    );
+
+    const projectedRows = new Map<string, Record<string, unknown>>();
+    const projectionQuery = async (sql: string, params: readonly unknown[] = []) => {
+      if (sql.includes("reference_record_id = ANY")) {
+        const ids = Array.isArray(params[0]) ? (params[0] as readonly string[]) : [];
+        return {
+          rows: ids
+            .map((id) => projectedRows.get(id))
+            .filter((row): row is Record<string, unknown> => row !== undefined),
+        };
+      }
+      if (/INSERT\s+INTO\s+catalog_scope_records/.test(sql)) {
+        projectedRows.set(String(params[4]), {
+          scope_record_id: params[0],
+          product_domain: params[1],
+          scope_kind: params[2],
+          reference_record_id: params[4],
+          parent_scope_record_id: params[8] ?? null,
+          product_line_scope_record_id: params[9] ?? null,
+          series_scope_record_id: params[10] ?? null,
+          lifecycle_status: params[16] ?? "draft",
+        });
+      } else if (/UPDATE\s+catalog_scope_records/.test(sql)) {
+        const row = projectedRows.get(String(params[0]));
+        if (row) row.lifecycle_status = params[1];
+      }
+      return { rows: [] };
+    };
+    const handlers = buildCatalogScopeRegistryProjectionHandlers({ query: projectionQuery });
+    for (const streamId of [
+      "catalog.reference-record-ref_seed_yu_gi_oh_official_card_game",
+      "catalog.reference-record-ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a",
+    ]) {
+      for (const event of await harness.deps.eventStore.readStream({ streamId })) {
+        const handler = handlers[event.eventType];
+        if (handler)
+          await handler({ streamId, data: event.payload, timing: { recordedAt: "2026-10-18T19:00:00.000Z" } } as never);
+      }
+    }
+    expect(projectedRows.get("ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a")).toMatchObject({
+      product_domain: "yugioh",
+      scope_kind: "set",
+      lifecycle_status: "active",
+      parent_scope_record_id: "ref_seed_yu_gi_oh_official_card_game",
+    });
+  });
+
+  it("reapplies YGOJSON set-reference observations after normalized-evidence chunk rehydration", async () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL("./__fixtures__/ygojson-yugioh-set-reference-data/beginners-edition-2.json", import.meta.url),
+        ),
+        "utf8",
+      ),
+    );
+    const observation = requireCatalogProviderSourceObservation({
+      contract: ygojsonYugiohSetReferenceSourceObservationMappingContract,
+      payload: fixture,
+      observedAt: "2026-10-18T19:00:00.000Z",
+    });
+    const events = decideSourceObservation(initialSourceObservationState, {
+      type: "RecordSourceObservation",
+      ...observation,
+    });
+    expect(events.some((event) => event.type === "catalog.source-observation.normalized-evidence-chunk-recorded")).toBe(
+      true,
+    );
+    const rehydrated = events.reduce(evolveSourceObservation, initialSourceObservationState);
+    expect(rehydrated.normalized).toEqual(observation.normalized);
+    expect(rehydrated.pendingNormalizedEvidenceChunks).toBeNull();
+    expect(rehydrated.pendingSourcePayloadChunks).toBeNull();
+
+    const harnessFor = (normalized: typeof observation.normalized) =>
+      createChangedObservationRefreshHarness({
+        providerKey: "ygojson",
+        externalKey: "set:000f0093-1847-4db7-a315-5bd07f055c7a",
+        sourceProfileKey: "yugioh-set-reference-data",
+        sourceProfileVersion: "2026.10.25",
+        sourceMappingFingerprint: "fingerprint:ygojson:set:2026.10.25",
+        status: "promoted",
+        promotedCatalogItemId: null,
+        promotedReferenceRecordId: "ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a",
+        referenceRecordRows: [
+          {
+            referenceRecordId: "ref_seed_yu_gi_oh_official_card_game",
+            typeKey: "product-line",
+            key: "yu-gi-oh-official-card-game",
+          },
+        ],
+        persistReferenceDataEvents: true,
+        normalized,
+      });
+    const inlineHarness = harnessFor(observation.normalized);
+    const rehydratedHarness = harnessFor(rehydrated.normalized!);
+    const inlineServices = createSourceObservationRuntime(
+      inlineHarness.deps,
+      inlineHarness.items,
+      inlineHarness.referenceData,
+    );
+    const rehydratedServices = createSourceObservationRuntime(
+      rehydratedHarness.deps,
+      rehydratedHarness.items,
+      rehydratedHarness.referenceData,
+    );
+    const inlineResult = await inlineServices.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+      reapplyProfileMode: "original-source-profile",
+    });
+    const rehydratedResult = await rehydratedServices.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+      reapplyProfileMode: "original-source-profile",
+    });
+
+    expect(rehydratedResult).toEqual(inlineResult);
+    expect(rehydratedResult).toMatchObject({ requested: 1, reapplied: 1, failed: 0, skipped: 0 });
+    expect(rehydratedHarness.referenceRecordCreateCommands).toEqual(inlineHarness.referenceRecordCreateCommands);
+    expect(rehydratedHarness.referenceRecordCreateCommands).toContainEqual(
+      expect.objectContaining({
+        referenceRecordId: "ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a",
+        relationships: expect.arrayContaining([
+          { referenceId: "ref_seed_yu_gi_oh_official_card_game", relationshipType: "part-of" },
+        ]),
+      }),
+    );
+    expect(rehydratedHarness.itemCommands).toEqual([]);
+    expect(rehydrated.normalized).toMatchObject({
+      localeEvidence: (observation.normalized as Record<string, unknown>).localeEvidence,
+      cardPrintEvidence: (observation.normalized as Record<string, unknown>).cardPrintEvidence,
+    });
+    const inlinePlan = inlineHarness.appendedSourceEvents.find(
+      (event) => event.eventType === "catalog.source-observation.reference-promotion-plan-recorded",
+    );
+    const rehydratedPlan = rehydratedHarness.appendedSourceEvents.find(
+      (event) => event.eventType === "catalog.source-observation.reference-promotion-plan-recorded",
+    );
+    expect(rehydratedPlan?.payload).toMatchObject({
+      referenceRecordId: "ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a",
+      promotionPlanFingerprint: inlinePlan?.payload.promotionPlanFingerprint,
+    });
+    expect(rehydratedPlan?.payload.promotionPlanFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
   it("promotes Scrydex One Piece set-reference observations into Reference Records", async () => {

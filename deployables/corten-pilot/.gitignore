@@ -1,0 +1,7 @@
+target/
+/.cargo/
+# Written by scripts/export.mjs before a build; they carry the brand foil's values (see GENERATED there).
+/platform/tokens/
+/public/favicon.svg
+/marketplace/favicon.svg
+/admin/favicon.svg
