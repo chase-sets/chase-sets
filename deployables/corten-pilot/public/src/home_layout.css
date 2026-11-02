@@ -1,0 +1,43 @@
+/* The public-presence shell (PublicPresencePageShell): the design system's wide container with the
+   page gutter (px-4, md:px-6), the skip link, and the page's own padding instead of style.css's
+   <main> defaults. The bottom bar on a phone never covers the footer (MobileStickyInset). */
+.shell {
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4) 0;
+}
+@media (min-width: 48rem) {
+  .shell {
+    padding: var(--space-4) var(--space-6) 0;
+  }
+}
+.main {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: var(--space-2) 0 var(--space-6);
+  min-width: 0;
+}
+@media (max-width: 47.99rem) {
+  .shell {
+    padding-bottom: 5.5rem;
+  }
+}
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: var(--space-4);
+  z-index: 50;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.skip:focus {
+  left: var(--space-4);
+}
