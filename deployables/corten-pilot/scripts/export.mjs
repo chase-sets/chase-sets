@@ -530,7 +530,7 @@ function tokens() {
     },
   };
   // The kit's card sizes sit beside its colors, flat: a `card` group in the base set would be
-  // replaced whole by the kit's `card` color (todd-skelton/corten#654).
+  // replaced whole by the kit's `card` color (https://github.com/todd-skelton/corten/issues/654).
   const kit = {
     ...Object.fromEntries(
       Object.entries(kitTheme).map(([name, token]) => [name, { $type: "color", $value: `{${token}}` }]),
