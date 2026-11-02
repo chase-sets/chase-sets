@@ -69,6 +69,23 @@ const context: EventStoreContext = {
   audit: { performedByUserId: "usr_synthetic_entry" as never, forAccountId: ACCOUNT as never },
 };
 
+/** A contact-less guest-buyer, as a followed guest entry presents it. */
+const GUEST_ACCOUNT = "acc_synthetic_entry_guest";
+const guestActor = {
+  sessionId: "guest:tok_synthetic_entry",
+  tenantId: "tnt_test",
+  userId: "usr_synthetic_entry_guest",
+  accountId: GUEST_ACCOUNT,
+  membershipId: "guest:tok_synthetic_entry",
+  roleKey: "guest-buyer",
+  permissions: ["guest-checkout.manage"],
+} as unknown as NonNullable<CheckoutApiEnv["Variables"]["actor"]>;
+
+const guestContext: EventStoreContext = {
+  tenantId: "tnt_test" as never,
+  audit: { performedByUserId: "usr_synthetic_entry_guest" as never, forAccountId: GUEST_ACCOUNT as never },
+};
+
 function requireDatabaseBaseUrl() {
   if (!databaseBaseUrl) throw new Error("TEST_DATABASE_URL is required for checkout entry attempt DB tests.");
   return databaseBaseUrl;
@@ -143,7 +160,10 @@ function readyPreview() {
 let appendBarrier: { size: number; arrived: Array<() => void> } | null = null;
 
 /** The real store, counting appends; nothing here changes what PostgreSQL stores. */
-function entryHarness(target: PgTransactionalPool) {
+function entryHarness(
+  target: PgTransactionalPool,
+  presenter: { actor: typeof actor; context: EventStoreContext } = { actor, context },
+) {
   const store = createPostgresEventStore({ pool: target });
   const calls = { appendToStream: 0, appendToStreams: 0 };
   const eventStore: EventStore = {
@@ -172,8 +192,8 @@ function entryHarness(target: PgTransactionalPool) {
   const sessions = createCheckoutSessionRuntime({ eventStore, checkpointStore: {} as never, db: target, cart });
   const app = new Hono<CheckoutApiEnv>();
   app.use("*", async (c, next) => {
-    c.set("actor", actor);
-    c.set("context", context as never);
+    c.set("actor", presenter.actor);
+    c.set("context", presenter.context as never);
     await next();
   });
   app.route("/account", createAccountCheckoutSessionRoutes(sessions));
@@ -188,7 +208,7 @@ function entryHarness(target: PgTransactionalPool) {
     return { status: response.status, body: (await response.json()) as Record<string, unknown> };
   };
   const apply = (sessionId: string, command: CheckoutSessionCommand) =>
-    sessions.commandHandler({ streamId: `checkout.session-${sessionId}`, command, context });
+    sessions.commandHandler({ streamId: `checkout.session-${sessionId}`, command, context: presenter.context });
   return { calls, enter, apply };
 }
 
@@ -198,9 +218,9 @@ async function sessionEventTypes(sessionId: string) {
   ).map((event) => event.eventType);
 }
 
-async function entryAttemptEventTypes(attemptId: string) {
+async function entryAttemptEventTypes(attemptId: string, ownerKey = ACCOUNT) {
   const fingerprint = checkoutCommandAttemptFingerprint({
-    ownerKey: ACCOUNT,
+    ownerKey,
     kind: "checkout-entry",
     target: "session",
     attemptId,
@@ -308,6 +328,26 @@ describeDb("checkout entry attempts against real PostgreSQL", () => {
     expect(mockPreviewBuyNowCheckoutSupplyThroughOrdering).toHaveBeenCalledTimes(previews);
     expect(await sessionEventTypes(String(opened.body.session_id))).toEqual(["checkout.session.started"]);
     expect(await entryAttemptEventTypes(key)).toEqual([CHECKOUT_COMMAND_ATTEMPT_COMPLETED]);
+  });
+
+  it("replays a guest-buyer's exact entry to its first Session with zero appends, on the guest's own attempt stream", async () => {
+    const guest = entryHarness(pool, { actor: guestActor, context: guestContext });
+    const key = entryKey();
+    const opened = await guest.enter(publicListingBuy(key));
+    const before = { ...guest.calls };
+    const previews = mockPreviewBuyNowCheckoutSupplyThroughOrdering.mock.calls.length;
+
+    // The exact retry after a lost response: the browser already holds the guest cookie.
+    const replayed = await guest.enter(publicListingBuy(key));
+
+    expect([opened.status, replayed.status]).toEqual([201, 201]);
+    expect(replayed.body.session_id).toBe(opened.body.session_id);
+    expect(before.appendToStreams).toBeGreaterThan(0);
+    expect(guest.calls).toEqual(before);
+    expect(mockPreviewBuyNowCheckoutSupplyThroughOrdering).toHaveBeenCalledTimes(previews);
+    expect(await sessionEventTypes(String(opened.body.session_id))).toEqual(["checkout.session.started"]);
+    expect(await entryAttemptEventTypes(key, GUEST_ACCOUNT)).toEqual([CHECKOUT_COMMAND_ATTEMPT_COMPLETED]);
+    expect(await entryAttemptEventTypes(key, ACCOUNT)).toEqual([]);
   });
 
   it("refuses a keyless or malformed non-cart entry with 400 and zero appends", async () => {

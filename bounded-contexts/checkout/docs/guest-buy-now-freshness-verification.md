@@ -1,11 +1,12 @@
 # Guest Buy Now Freshness Verification
 
-Signed-out Buy Now checkout is a critical read-after-write path. A shopper starts on a catalog item, chooses Buy Now, and expects the single POST to mint a guest identity and open checkout review before any payment or order exists.
+Signed-out Buy Now checkout is a critical read-after-write path. A shopper starts on a catalog item, chooses Buy Now, and expects that one submission to mint a guest identity and open checkout review before any payment or order exists.
 
 ## Contract
 
 - Discovery redirects signed-out Buy Now submissions to `/checkout/buy/readiness` with a method-preserving `307` and the Buy Now source preserved.
-- Checkout consumes that POST, starts guest checkout through Auth, writes the `chase_sets_guest_checkout` cookie on the document response, and redirects directly to `/checkout/buy/session/:sessionId` with an `afterWrite` receipt. The readiness route is a redirecting action hop, not a shopper form.
+- Checkout consumes that POST, starts guest checkout through Auth, and answers a plain method-preserving `307` to the same path plus `guestEntry=1`. That hop carries only the `chase_sets_guest_checkout` cookie and writes no Session.
+- The followed POST presents the guest cookie, opens the Session as that guest, and document-redirects to `/checkout/buy/session/:sessionId` with an `afterWrite` receipt. If that response is lost, the exact retry presents the same cookie and replays the first Session. A followed POST that presents no resolvable guest (cookie refused or expired) mints nothing and shows the guest-access-expired recovery. The readiness route is a redirecting action hop, not a shopper form: neither hop commits a readiness document.
 - Platform API freshness middleware must wait on the exact Checkout session dependency for `/api/marketplace/account/checkout-sessions/:sessionId`: `checkout.session-projection`, resolved from `checkout_session_pages`.
 - While the fresh receipt is valid, `404`, `projection_freshness_timeout`, and bounded gateway/service timeout responses are temporary preparing-checkout states, not permanent checkout-session-not-found recovery. Internal API freshness timeouts can remain 503 JSON, but customer-facing checkout recovery documents must avoid 5xx statuses because the deployment edge owns generic 5xx error pages.
 - Retrying or refreshing the same fresh URL must show the checkout session once `checkout_session_pages` catches up.
@@ -33,8 +34,8 @@ Use these state names for deterministic tests and synthetic canaries.
 
 The #1074 integration coverage asserts:
 
-- signed-out Buy Now single-POST guest entry and server-side guest identity creation;
-- guest cookie handoff on the document redirect;
+- signed-out Buy Now guest entry: server-side guest identity creation on the `307` hop, which carries the guest cookie and writes no Session;
+- Session creation on the followed POST as the guest it presents, then the document redirect to the Session;
 - `afterWrite` receipt preservation from the Checkout command response;
 - fresh `404` retry to eventual session readiness;
 - `projection_freshness_timeout` and bounded gateway/service timeout recovery as temporary preparing-checkout states;

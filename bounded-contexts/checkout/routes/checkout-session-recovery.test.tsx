@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider, type RouterNavigateOptions, type RouterState } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "@chase-sets/localization";
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../support/request-support/api-client";
+import * as checkoutRouteHarness from "../tests/support/checkout-route-test-harness";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -65,6 +65,11 @@ import CheckoutSessionRoute, { action as sessionAction, loader as sessionLoader 
 import CheckoutStartRoute, { action as startAction, loader as startLoader } from "./checkout-start";
 
 const mockGetCheckoutEntryAttempt = vi.fn();
+/** Every mock a test here can configure: the shared route harness's and this file's own. */
+const configurableMocks = [...Object.values(checkoutRouteHarness), mockGetCheckoutEntryAttempt].filter((value) =>
+  vi.isMockFunction(value),
+);
+const unstubbedFetch = globalThis.fetch;
 
 const shippingAddress = {
   shippingAddressId: "adr_home" as const,
@@ -239,29 +244,92 @@ function actionCallsFrom(command: string) {
   return posted.slice(posted.indexOf(`POST ${command}`));
 }
 
-async function settleRouter() {
-  await waitFor(() => {
-    expect(router?.state.initialized).toBe(true);
-    expect(router?.state.navigation.state).toBe("idle");
-    expect([...router!.state.fetchers.values()].every((fetcher) => fetcher.state === "idle")).toBe(true);
-  });
-}
+/** Navigations the native submit listener started, until `clickAndSettle` awaits them. */
+let nativeNavigations: Promise<void>[] = [];
 
+/** Stands in for the browser's native form POST, keeping the router's navigation promise. */
 function routeNativeSubmit(event: SubmitEvent) {
   if (event.defaultPrevented) return;
   event.preventDefault();
   const formData = new FormData(event.target as HTMLFormElement);
   const submitter = event.submitter as HTMLButtonElement | null;
   if (submitter?.name) formData.set(submitter.name, submitter.value);
-  void router!.navigate(router!.state.location.pathname + router!.state.location.search, {
-    formMethod: "post",
-    formData,
+  nativeNavigations.push(
+    router!.navigate(router!.state.location.pathname + router!.state.location.search, {
+      formMethod: "post",
+      formData,
+    }),
+  );
+}
+
+/** What the router still has in flight; empty means settled. */
+function routerWork(state: RouterState) {
+  return [
+    ...(state.initialized ? [] : ["initial load"]),
+    ...(state.navigation.state === "idle" ? [] : [`navigation ${state.navigation.state}`]),
+    ...(state.revalidation === "idle" ? [] : [`revalidation ${state.revalidation}`]),
+    ...[...state.fetchers]
+      .filter(([, fetcher]) => fetcher.state !== "idle")
+      .map(([key, fetcher]) => `fetcher ${key} ${fetcher.state}`),
+  ];
+}
+
+/** Resolves at the first router state with nothing in flight, observed through the router's own updates. */
+function routerSettled(current: ReturnType<typeof createMemoryRouter>) {
+  return new Promise<void>((resolve) => {
+    if (routerWork(current.state).length === 0) return resolve();
+    const unsubscribe = current.subscribe((state) => {
+      if (routerWork(state).length > 0) return;
+      unsubscribe();
+      resolve();
+    });
   });
+}
+
+/**
+ * Runs one navigation through the data router and returns at its completion
+ * boundary: the router's promise resolves only after the action, any redirect,
+ * the revalidating loaders and the final state update, and `act` then commits
+ * that update and its effects. No assertion after it waits on elapsed time.
+ */
+async function navigateAndCommit(to: string, options?: RouterNavigateOptions) {
+  await act(async () => {
+    await router!.navigate(to, options);
+  });
+  expect(routerWork(router!.state)).toEqual([]);
+}
+
+/**
+ * Clicks a control and returns at the same completion boundary. `fireEvent`
+ * commits the click's synchronous updates (the submitting state a Router
+ * Form's pending guard must see) in its own `act`; the async `act` begins on
+ * the same stack, so every later router update lands inside it. user-event is
+ * not used: it switches React's act environment off for its whole call, which
+ * let the final update commit after the router reported idle. A native post's
+ * navigation promise is awaited directly; a Router Form starts its navigation
+ * internally, so the router's own state must also show it settled.
+ */
+async function clickAndSettle(control: HTMLElement) {
+  fireEvent.click(control);
+  await act(async () => {
+    await Promise.all(nativeNavigations.splice(0));
+    await routerSettled(router!);
+  });
+  expect(routerWork(router!.state)).toEqual([]);
+}
+
+/** A submit dispatched now meets no test listener: nothing cancels it or starts a navigation. */
+function submitReachesNoListener() {
+  const form = document.createElement("form");
+  document.body.append(form);
+  const uncancelled = form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  form.remove();
+  return uncancelled && nativeNavigations.length === 0;
 }
 
 async function mount(initialEntry: string) {
   document.addEventListener("submit", routeNativeSubmit);
-  router = createMemoryRouter(
+  const created = createMemoryRouter(
     [
       {
         id: "checkout-start",
@@ -282,10 +350,12 @@ async function mount(initialEntry: string) {
     ],
     { initialEntries: [initialEntry] },
   );
-  await settleRouter();
-  const rendered = render(<RouterProvider router={router} />);
-  unmount = rendered.unmount;
-  await settleRouter();
+  router = created;
+  await act(async () => {
+    await routerSettled(created);
+  });
+  unmount = render(<RouterProvider router={created} />).unmount;
+  expect(routerWork(created.state)).toEqual([]);
 }
 
 /** A native or Base UI control refuses interaction by any of its disabled markers. */
@@ -335,6 +405,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Snapshot, tear down, then prove quiescence, so a failed proof cannot leak into the next test.
+  const finalState = router?.state;
+  const unawaitedNavigations = nativeNavigations.splice(0);
   unmount?.();
   router?.dispose();
   router = undefined;
@@ -343,6 +416,15 @@ afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   vi.unstubAllGlobals();
+
+  expect(finalState ? routerWork(finalState) : []).toEqual([]);
+  expect(unawaitedNavigations).toEqual([]);
+  expect(submitReachesNoListener()).toBe(true);
+  expect(globalThis.fetch).toBe(unstubbedFetch);
+  for (const mock of configurableMocks) {
+    expect(mock.getMockImplementation()).toBeUndefined();
+    expect(mock.mock.calls).toEqual([]);
+  }
 });
 
 describe("checkout start entry recovery through the data router", () => {
@@ -352,13 +434,12 @@ describe("checkout start entry recovery through the data router", () => {
     await mount(startPath);
     const key = loaderEntryKey();
 
-    await userEvent.click(continueButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(continueButtons()[0]!);
 
-    const heading = await screen.findByRole("heading", {
+    const heading = screen.getByRole("heading", {
       name: t("checkout.routes.checkoutStart.entry.ambiguous.title"),
     });
-    await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(document.activeElement).toBe(heading);
     expect(
       screen.getByText(t("checkout.routes.checkoutStart.entry.ambiguous.description")).closest("[aria-live]"),
     ).not.toBeNull();
@@ -377,8 +458,7 @@ describe("checkout start entry recovery through the data router", () => {
     });
     expect(continueButtons().every(isDisabled)).toBe(true);
 
-    await userEvent.click(continueButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(continueButtons()[0]!);
     expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
   });
 
@@ -398,8 +478,7 @@ describe("checkout start entry recovery through the data router", () => {
     });
     await mount(startPath);
 
-    await userEvent.click(continueButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(continueButtons()[0]!);
 
     expect(router!.state.location.pathname).toBe(sessionPath);
     expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
@@ -421,8 +500,7 @@ describe("checkout start entry recovery through the data router", () => {
     await mount(startPath);
     const key = loaderEntryKey();
 
-    await userEvent.click(continueButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(continueButtons()[0]!);
 
     expect(router!.state.location.pathname).toBe(sessionPath);
     expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
@@ -439,22 +517,17 @@ describe("checkout start entry recovery through the data router", () => {
     await mount(startPath);
     const firstKey = loaderEntryKey();
 
-    await userEvent.click(continueButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(continueButtons()[0]!);
 
-    expect(await screen.findByText(t("checkout.routes.checkoutRecovery.checkout.attempt.changed"))).toBeTruthy();
+    expect(screen.getByText(t("checkout.routes.checkoutRecovery.checkout.attempt.changed"))).toBeTruthy();
     expect(router!.state.actionData?.["checkout-start"]).toMatchObject({
       recovery: { kind: "attempt-changed", status: 409, recoveryKind: "action-required" },
     });
     expect(mockGetCheckoutEntryAttempt).not.toHaveBeenCalled();
 
-    await act(async () => {
-      await router!.navigate(startPath);
-    });
-    await settleRouter();
+    await navigateAndCommit(startPath);
     expect(loaderEntryKey()).not.toBe(firstKey);
-    await userEvent.click(continueButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(continueButtons()[0]!);
 
     expect(router!.state.location.pathname).toBe(sessionPath);
     expect(sentEntryKeys()).toEqual([firstKey, expect.not.stringMatching(firstKey)]);
@@ -468,10 +541,7 @@ describe("checkout start entry recovery through the data router", () => {
       const formData = new FormData();
       formData.set("source", "buy-now");
       if (entryAttemptKey) formData.set("entryAttemptKey", entryAttemptKey);
-      await act(async () => {
-        await router!.navigate(startPath, { formMethod: "post", formData });
-      });
-      await settleRouter();
+      await navigateAndCommit(startPath, { formMethod: "post", formData });
 
       expect(router!.state.actionData?.["checkout-start"]).toMatchObject({ recovery: { kind: "attempt-changed" } });
     }
@@ -484,13 +554,12 @@ describe("checkout session confirm recovery through the data router", () => {
     mockConfirmCheckoutSession.mockRejectedValue(new TypeError("fetch failed"));
     await mount(sessionPath);
 
-    await userEvent.click(payButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(payButtons()[0]!);
 
-    const heading = await screen.findByRole("heading", {
+    const heading = screen.getByRole("heading", {
       name: t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.title"),
     });
-    await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(document.activeElement).toBe(heading);
     expect(
       screen
         .getByText(t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.description"))
@@ -505,9 +574,12 @@ describe("checkout session confirm recovery through the data router", () => {
     expect(payButtons().length).toBeGreaterThan(0);
     expect(payButtons().every(isDisabled)).toBe(true);
 
-    await userEvent.click(payButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(payButtons()[0]!);
     expect(mockConfirmCheckoutSession).toHaveBeenCalledTimes(1);
+    expect(actionCallsFrom("confirmCheckoutSession")).toEqual([
+      "POST confirmCheckoutSession",
+      "POST getCheckoutSession",
+    ]);
   });
 
   it("stays ambiguous when the one Session read shows orders but neither payment nor Offer", async () => {
@@ -517,8 +589,7 @@ describe("checkout session confirm recovery through the data router", () => {
     });
     await mount(sessionPath);
 
-    await userEvent.click(payButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(payButtons()[0]!);
 
     expect(router!.state.actionData?.["checkout-session"]).toEqual({ confirmationState: "ambiguous" });
     expect(actionCallsFrom("confirmCheckoutSession")).toEqual([
@@ -536,8 +607,7 @@ describe("checkout session confirm recovery through the data router", () => {
     });
     await mount(sessionPath);
 
-    await userEvent.click(payButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(payButtons()[0]!);
 
     expect(router!.state.location.pathname).toBe(sessionPath);
     expect(router!.state.actionData).toBeNull();
@@ -559,10 +629,9 @@ describe("checkout session confirm recovery through the data router", () => {
     );
     await mount(sessionPath);
 
-    await userEvent.click(payButtons()[0]!);
-    await settleRouter();
+    await clickAndSettle(payButtons()[0]!);
 
-    expect(await screen.findByText(t("checkout.routes.checkoutSession.confirmation.changed"))).toBeTruthy();
+    expect(screen.getByText(t("checkout.routes.checkoutSession.confirmation.changed"))).toBeTruthy();
     expect(router!.state.actionData?.["checkout-session"]).toMatchObject({ confirmationState: "changed" });
     expect(actionCallsFrom("confirmCheckoutSession")).toEqual(["POST confirmCheckoutSession"]);
     expect(mockConfirmCheckoutSession).toHaveBeenCalledTimes(1);

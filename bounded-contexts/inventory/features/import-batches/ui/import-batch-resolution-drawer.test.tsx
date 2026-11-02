@@ -78,6 +78,7 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
     needs_seller: true,
     created_at: timestamp,
     updated_at: timestamp,
+    row_version: "2026-05-09T00:00:00.123456Z",
     ...overrides,
   };
 }
@@ -137,6 +138,12 @@ describe("import-batch resolution drawer", () => {
     // The resolution form posts the row-resolution intent for the deep-linked row.
     expect(document.querySelector('input[name="intent"][value="resolve-row"]')).not.toBeNull();
     expect(document.querySelector('input[name="rowId"][value="imr_1"]')).not.toBeNull();
+    // issue-7169-ac7: the form carries the exact row facts it rendered and a persisted attempt slot.
+    expect(
+      document.querySelector('input[name="expectedRowVersion"][value="2026-05-09T00:00:00.123456Z"]'),
+    ).not.toBeNull();
+    expect(document.querySelector('input[name="expectedRowFingerprint"][value="native-csv|2"]')).not.toBeNull();
+    expect(document.querySelector('input[name="inventoryMutationAttemptId"]')).not.toBeNull();
   });
 
   it("keeps the drawer closed for a stale deep link to an already-resolved row", () => {

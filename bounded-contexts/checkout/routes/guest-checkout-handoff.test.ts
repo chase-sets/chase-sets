@@ -100,6 +100,45 @@ vi.mock("@chase-sets/marketplace/server", () => ({
 import { action as checkoutStartAction } from "./checkout-start";
 import { action as checkoutSessionAction, loader as checkoutSessionLoader } from "./checkout-session";
 
+/** Auth resolves the guest-buyer only when the request presents the guest cookie. */
+function resolveGuestFromCookie() {
+  mockResolveActorFromAuthApi.mockImplementation(async ({ request }: { request: Request }) =>
+    (request.headers.get("cookie") ?? "").includes("chase_sets_guest_checkout=guest_token")
+      ? guestCheckoutActor()
+      : null,
+  );
+}
+
+/** One start POST as the browser sends it, presenting the cookies it holds. */
+async function postStart(url: string, body: URLSearchParams, cookie = "") {
+  return (await checkoutStartAction({
+    request: new Request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", ...(cookie ? { cookie } : {}) },
+      body: body.toString(),
+    }),
+    params: {},
+    context: undefined,
+  } as never)) as Response;
+}
+
+/**
+ * A signed-out start as the browser runs it: the first POST answers the guest
+ * entry `307` carrying only the guest cookie and writes no Session; the
+ * browser re-sends the same body to its Location, presenting that cookie.
+ */
+async function startGuestEntry(url: string, body: URLSearchParams, heldCookie = "") {
+  const hop = await postStart(url, body, heldCookie);
+  expect(hop.status).toBe(307);
+  expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  const hopCookies = hop.headers.getSetCookie().map((cookie) => cookie.split(";")[0] ?? "");
+  expect(hopCookies).toEqual(["chase_sets_guest_checkout=guest_token"]);
+  const location = new URL(hop.headers.get("Location") ?? "", url);
+  expect(location.searchParams.get("guestEntry")).toBe("1");
+  const response = await postStart(location.toString(), body, [heldCookie, ...hopCookies].filter(Boolean).join("; "));
+  return { hop, response };
+}
+
 describe("checkout web routes: guest checkout handoff", () => {
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
@@ -110,7 +149,7 @@ describe("checkout web routes: guest checkout handoff", () => {
   });
 
   it("proves guest cart checkout reaches payment without requiring a signed-in account", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    resolveGuestFromCookie();
     mockStartGuestCheckout.mockResolvedValue({
       accountId: "acc_guest",
       guestToken: "guest_token",
@@ -132,22 +171,16 @@ describe("checkout web routes: guest checkout handoff", () => {
     const form = new URLSearchParams();
     form.set("source", "cart");
 
-    const checkoutStartResponse = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
-    const guestCheckoutCookie = checkoutStartResponse.headers
+    const { hop, response: checkoutStartResponse } = await startGuestEntry(
+      "http://localhost/checkout/buy/readiness",
+      form,
+      "chase_sets_anonymous_cart=anon_cart_1",
+    );
+    const guestCheckoutCookie = hop.headers
       .getSetCookie()
       .find((cookie) => cookie.startsWith("chase_sets_guest_checkout="));
 
+    expect(checkoutStartResponse.headers.get("Location")).toBe("/checkout/buy/session/chk_guest");
     expect(checkoutStartResponse.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(guestCheckoutCookie).toContain("chase_sets_guest_checkout=guest_token");
     expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
@@ -341,7 +374,7 @@ describe("checkout web routes: guest checkout handoff", () => {
   });
 
   it("reuses a valid returning guest cookie without starting another guest identity", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValueOnce(null).mockResolvedValueOnce(guestCheckoutActor());
+    resolveGuestFromCookie();
     mockStartGuestCheckout.mockResolvedValue({
       accountId: "acc_guest",
       guestToken: "guest_token",
@@ -359,18 +392,11 @@ describe("checkout web routes: guest checkout handoff", () => {
       mergeGuestCartToAccount: mockMergeGuestCartToAccount,
     });
 
-    const first = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: new URLSearchParams({ source: "cart" }),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const { response: first } = await startGuestEntry(
+      "http://localhost/checkout/buy/readiness",
+      new URLSearchParams({ source: "cart" }),
+      "chase_sets_anonymous_cart=anon_cart_1",
+    );
 
     const second = (await checkoutStartAction({
       request: new Request(
@@ -393,8 +419,74 @@ describe("checkout web routes: guest checkout handoff", () => {
     expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
   });
 
+  it("hands a cart guest whose access no longer matches to a fresh guest through the entry hop", async () => {
+    mockResolveActorFromAuthApi.mockImplementation(async ({ request }: { request: Request }) => {
+      const cookie = request.headers.get("cookie") ?? "";
+      if (cookie.includes("chase_sets_guest_checkout=guest_token")) return guestCheckoutActor();
+      return cookie.includes("chase_sets_guest_checkout=stale_guest_token")
+        ? { ...guestCheckoutActor(), accountId: "acc_stale_guest" }
+        : null;
+    });
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({ startGuestCheckout: mockStartGuestCheckout });
+    mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
+    // Each Session write records the cookie its own request presented; the stale guest is refused.
+    const sessionWriters: string[] = [];
+    mockCreateCheckoutRequestApiClient.mockImplementation((request: Request) => ({
+      createCartReadiness: mockCreateCartReadiness,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+      createCheckoutSession: async (body: unknown) => {
+        const writer = request.headers.get("cookie") ?? "";
+        sessionWriters.push(writer);
+        await mockCreateCheckoutSession(body);
+        if (writer.includes("stale_guest_token")) {
+          throw new MockCheckoutApiError(403, { error: { code: "authorization_forbidden", message: "Forbidden." } });
+        }
+        return { session_id: "chk_guest_recovered_cart" };
+      },
+    }));
+    const form = new URLSearchParams({ source: "cart" });
+    const anonymousCart = "chase_sets_anonymous_cart=anon_cart_1";
+
+    const hop = await postStart(
+      "http://localhost/checkout/buy/readiness",
+      form,
+      `${anonymousCart}; chase_sets_guest_checkout=stale_guest_token`,
+    );
+
+    expect(hop.status).toBe(307);
+    expect(hop.headers.getSetCookie().map((cookie) => cookie.split(";")[0])).toEqual([
+      "chase_sets_guest_checkout=guest_token",
+    ]);
+    expect(mockCreateCheckoutSession).toHaveBeenCalledOnce();
+    expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
+
+    // The browser replaces the stale guest cookie and keeps the anonymous cart for the followed POST.
+    const response = await postStart(
+      new URL(hop.headers.get("Location") ?? "", "http://localhost").toString(),
+      form,
+      `${anonymousCart}; chase_sets_guest_checkout=guest_token`,
+    );
+
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_guest_recovered_cart");
+    expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
+    expect(response.headers.getSetCookie().map((cookie) => cookie.split(";")[0])).toEqual([
+      "chase_sets_anonymous_cart=",
+    ]);
+    expect(sessionWriters).toEqual([
+      `${anonymousCart}; chase_sets_guest_checkout=stale_guest_token`,
+      `${anonymousCart}; chase_sets_guest_checkout=guest_token`,
+    ]);
+    expect(mockMergeGuestCartToAccount).toHaveBeenCalledTimes(2);
+    expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
+  });
+
   it("fails closed to cart recovery when guest cart readiness is stale before checkout", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    resolveGuestFromCookie();
     mockStartGuestCheckout.mockResolvedValue({
       accountId: "acc_guest",
       guestToken: "guest_token",
@@ -423,18 +515,11 @@ describe("checkout web routes: guest checkout handoff", () => {
     const form = new URLSearchParams();
     form.set("source", "cart");
 
-    const result = await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
+    const { response: result } = await startGuestEntry(
+      "http://localhost/checkout/buy/readiness",
+      form,
+      "chase_sets_anonymous_cart=anon_cart_1",
+    );
 
     expect(result).toEqual({
       recovery: expect.objectContaining({
@@ -531,7 +616,7 @@ describe("checkout web routes: guest checkout handoff", () => {
   }
 
   it("keeps signed-out Buy Now guest checkout fresh during projection lag", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    resolveGuestFromCookie();
     mockStartGuestCheckout.mockResolvedValue({
       accountId: "acc_guest",
       guestToken: "guest_token",
@@ -569,18 +654,11 @@ describe("checkout web routes: guest checkout handoff", () => {
     form.set("quantity", "1");
     form.set("entryAttemptKey", "guest-handoff-projection-lag-20261031");
 
-    const checkoutStartResponse = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
-    const guestCheckoutCookie = checkoutStartResponse.headers
+    const { hop, response: checkoutStartResponse } = await startGuestEntry(
+      "http://localhost/checkout/buy/readiness",
+      form,
+    );
+    const guestCheckoutCookie = hop.headers
       .getSetCookie()
       .find((cookie) => cookie.startsWith("chase_sets_guest_checkout="));
     const checkoutLocation = checkoutStartResponse.headers.get("Location") ?? "";
@@ -610,14 +688,13 @@ describe("checkout web routes: guest checkout handoff", () => {
         itemTitle: "Test card",
       }),
     });
-    expect(mockCreateCheckoutRequestApiClient).toHaveBeenLastCalledWith(
-      expect.any(Request),
-      expect.objectContaining({
-        headers: {
-          cookie: "chase_sets_guest_checkout=guest_token",
-        },
-      }),
-    );
+    // The Session is written by a client whose request presents the guest cookie itself.
+    const [sessionWriteRequest, sessionWriteOptions] = mockCreateCheckoutRequestApiClient.mock.lastCall as [
+      Request,
+      unknown,
+    ];
+    expect(sessionWriteRequest.headers.get("cookie")).toBe("chase_sets_guest_checkout=guest_token");
+    expect(sessionWriteOptions).toEqual({ headers: undefined });
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
 
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
