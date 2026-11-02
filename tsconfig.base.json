@@ -738,6 +738,12 @@
       "@chase-sets/platform-runtime/agent-guardrails": [
         "./infrastructure/platform-runtime/agent-guardrails.ts"
       ],
+      "@chase-sets/platform-runtime/analytics-bridge": [
+        "./infrastructure/platform-runtime/analytics-bridge.ts"
+      ],
+      "@chase-sets/platform-runtime/analytics-recorder": [
+        "./infrastructure/platform-runtime/analytics-recorder.ts"
+      ],
       "@chase-sets/platform-runtime/api": [
         "./infrastructure/platform-runtime/api.ts"
       ],

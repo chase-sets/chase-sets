@@ -1108,12 +1108,12 @@
       "owner": "discovery",
       "risk": "informational",
       "strategy": "non-user-visible",
-      "surfaces": ["route-action:deployables/marketplace/app/routes/item-detail-rail-analytics.ts"],
+      "surfaces": ["route-action:bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx"],
       "exception": {
         "owner": "discovery",
         "reviewBy": "2026-09-30",
         "issue": "#1819",
-        "reason": "Discovery owns the item-detail rail analytics vocabulary and documents the marketplace deployable bridge as observability-only capture in bounded-contexts/discovery/docs/item-detail-rail-analytics.md. deployables/marketplace/app/root.test.tsx proves the route accepts only bounded analytics labels, rejects unsupported/private labels, returns 204, and no user-visible route read depends on the ping."
+        "reason": "Discovery owns the item-detail rail analytics vocabulary and route, documented as observability-only capture in bounded-contexts/discovery/docs/item-detail-rail-analytics.md. bounded-contexts/discovery/routes/item-detail-rail-analytics.test.ts proves the route accepts only bounded analytics labels, rejects unsupported/private labels, returns 204, and no user-visible route read depends on the ping."
       }
     },
     {
@@ -1275,6 +1275,23 @@
                 "values": ["sell", "buy"]
               }
             }
+          }
+        },
+        {
+          "routeId": "item-detail-rail-analytics",
+          "routePath": "analytics/item-detail-rail",
+          "fileExport": "./routes/item-detail-rail-analytics",
+          "routeType": "route",
+          "placement": "root",
+          "sourceContext": "discovery",
+          "delivery": "web-resource-only",
+          "authorization": { "kind": "public" },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Analytics ingestion is not a canonical document." },
+          "availability": { "web": true, "mobile": false },
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#10955",
+            "reason": "The route ingests browser bridge analytics rather than a portable page."
           }
         },
         {

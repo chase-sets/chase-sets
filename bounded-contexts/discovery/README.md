@@ -12,6 +12,7 @@ Discovery owns the browse, search, and detail experience for catalog items.
 - Filter state and facet presentation
 - Catalog item detail presentation models
 - Product Alerts created from product detail selection
+- Item-detail rail analytics ingestion and browser event vocabulary, documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md)
 - Add to List picker views projected from Collections facts
 - Search index rebuild and projection workflows
 
