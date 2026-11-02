@@ -12,6 +12,7 @@ import {
   mockCreateMarketplaceRequestApiClient,
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
+  mockConfirmCheckoutSession,
   mockGetCheckoutPaymentConfirmation,
   mockGetCheckoutStatus,
   mockGetCheckoutSession,
@@ -22,6 +23,9 @@ import {
   mockPreviewCheckoutStatus,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
+  mockSelectAuthenticityCheckOptIn,
+  mockSelectShippingAddress,
+  mockSelectShippingOption,
 } from "../tests/support/checkout-route-test-harness";
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -150,6 +154,43 @@ function stubValidatedZeroWallet() {
 }
 
 describe("checkout web routes: checkout session loader", () => {
+  it.each([
+    ["guest", null],
+    ["signed-in", { accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view", "payouts.view"] }],
+    ["saved-method", { accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view", "payouts.view"] }],
+  ])("navigation does not authorize checkout for %s", async (_actorKind, actor) => {
+    mockResolveActorFromAuthApi.mockResolvedValue(actor);
+    mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      listSavedCheckoutInstruments: vi.fn(async () => ({ items: [] })),
+    });
+
+    await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_wallet?resumePaymentStart=1"),
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
+    } as never);
+
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockSelectAuthenticityCheckOptIn).not.toHaveBeenCalled();
+  });
+
+  it("quote and forged flag are not authority in the loader", () => {
+    const source = readFileSync(new URL("./checkout-session.tsx", import.meta.url), "utf8");
+    expect(source).not.toContain("autoResumePaymentStart");
+    expect(source).not.toContain("!session.payment_id && paymentPreview !== null");
+  });
+
+  it("keeps production checkout closed", () => {
+    const runtimeValues = JSON.parse(
+      readFileSync(new URL("../../../infrastructure/helm/platform/runtime-values.json", import.meta.url), "utf8"),
+    ) as { productionEnvOverrides?: { CHASE_SETS_CHECKOUT_CLOSED?: string } };
+    expect(runtimeValues.productionEnvOverrides?.CHASE_SETS_CHECKOUT_CLOSED).toBe("true");
+  });
+
   it("AC6 expired handoff has localized notice and no payment entry or preview", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
@@ -169,7 +210,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.expiredCheckout).toBe(true);
     expect(result.paymentPreview).toBeNull();
     expect(result.preparedPayment).toBeNull();
-    expect(result.autoResumePaymentStart).toBe(false);
+    expect("autoResumePaymentStart" in result).toBe(false);
     expect(mockGetCheckoutPaymentConfirmation).not.toHaveBeenCalled();
     expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
     const source = readFileSync(new URL("./checkout-session.tsx", import.meta.url), "utf8");
@@ -217,7 +258,7 @@ describe("checkout web routes: checkout session loader", () => {
       expect(result.walletUnavailable).toBe(false);
       expect(result.paymentPreview?.wallet_credit.requested_amount).toBe(amount);
       expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toContain(`|${amount}|`);
-      expect(result.autoResumePaymentStart).toBe(true);
+      expect("autoResumePaymentStart" in result).toBe(false);
     },
   );
 
@@ -243,7 +284,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.walletUnavailable).toBe(false);
     expect(result.paymentPreview).not.toBeNull();
     expect(result.paymentPreview?.wallet_credit.requested_amount).toBe("0.00");
-    expect(result.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it.each([
@@ -278,7 +319,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.wallet).toBeNull();
     expect(result.walletUnavailable).toBe(true);
     expect(result.paymentPreview).toBeNull();
-    expect(result.autoResumePaymentStart).toBe(false);
+    expect("autoResumePaymentStart" in result).toBe(false);
     expect(JSON.stringify(result)).not.toContain("secret-wallet-marker");
   });
 
@@ -407,7 +448,7 @@ describe("checkout web routes: checkout session loader", () => {
     const recovered = await loadSignedInWalletCheckout();
     expect(recovered.walletUnavailable).toBe(false);
     expect(recovered.paymentPreview?.wallet_credit.requested_amount).toBe("7.00");
-    expect(recovered.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in recovered).toBe(false);
   });
 
   it("still loads an already-created Payment confirmation during a wallet outage", async () => {
@@ -436,7 +477,7 @@ describe("checkout web routes: checkout session loader", () => {
     } as never);
     expect(result.walletUnavailable).toBe(true);
     expect(result.preparedPayment).toEqual({ payment_id: "pay_existing", status: "pending-confirmation" });
-    expect(result.autoResumePaymentStart).toBe(false);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it("keeps checkout visible when checkout totals are temporarily unavailable", async () => {
@@ -908,7 +949,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(result.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it("arms signed-in payment-start resume from stored order freshness after compact recovery token is gone", async () => {
@@ -1023,7 +1064,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(result.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it("keeps signed-in tokenless payment-start resume in recovery while stored order freshness catches up", async () => {
@@ -1119,7 +1160,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(result.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it("keeps post-order payment-start refresh in recovery while Payments order input catches up", async () => {
@@ -1212,7 +1253,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(result.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it("keeps post-order payment-start recovery safe when the compact post-write token expires", async () => {

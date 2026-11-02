@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -32,6 +33,7 @@ function callerSourceFiles() {
   return execFileSync("git", ["ls-files", ".github/workflows/*.yml", "scripts/*.mjs"], {
     cwd: repoRoot,
     encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   })
     .split(/\r?\n/)
     .filter((filePath) => filePath && !filePath.endsWith(".test.mjs"));

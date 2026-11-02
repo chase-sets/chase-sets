@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { readFreshWriteToken } from "@chase-sets/http/responses";
 import { jsonResponse, requestUrl } from "./test-support/http";
+import { authoredTextRecoveryMessage } from "../features/reviews/ui/authored-text-recovery";
 
 const { mockUseLoaderData, mockUseActionData, mockUseNavigation, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
@@ -178,5 +179,89 @@ describe("marketplace account purchase review route", () => {
     );
 
     expect(screen.getByText("Submit account review")).toBeTruthy();
+  });
+
+  describe("issue-5258-marketplace-ac4 submission recovery", () => {
+    function stubSubmissionRejection(status: number, error: Record<string, unknown>) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: string | URL | Request, init?: RequestInit) => {
+          const url = requestUrl(input);
+          if (url.includes("/api/marketplace/reviews/opportunities/orders/ord_1")) {
+            return Promise.resolve(jsonResponse(opportunity));
+          }
+          if (url.includes("/api/marketplace/reviews") && (init?.method ?? "GET").toUpperCase() === "POST") {
+            return Promise.resolve(jsonResponse({ error }, status));
+          }
+          return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+        }),
+      );
+    }
+
+    async function submit(feedback: string) {
+      const form = new FormData();
+      form.set("rating", "2");
+      form.set("feedback", feedback);
+      return action({
+        request: new Request("http://localhost/account/purchases/ord_1/review", { method: "POST", body: form }),
+        params: { purchaseId: "ord_1" },
+        context: undefined,
+      } as never);
+    }
+
+    it("returns closed Feedback recovery and keeps the draft when the API rejects the text", async () => {
+      stubSubmissionRejection(400, { code: "text_control_character", message: "server copy" });
+      const message = authoredTextRecoveryMessage("text_control_character");
+
+      await expect(submit("Bad \u0007 text")).resolves.toEqual({
+        error: message,
+        values: { rating: 2, feedback: "Bad \u0007 text" },
+        recovery: { code: "text_control_character", message, fieldLevel: true },
+      });
+    });
+
+    it("keeps the draft and names no field when Review authoring is rate limited", async () => {
+      stubSubmissionRejection(429, { code: "rate_limited", message: "Too many requests.", retryAfterSeconds: 60 });
+      const message = authoredTextRecoveryMessage("rate_limited");
+
+      await expect(submit("Fine text")).resolves.toEqual({
+        error: message,
+        values: { rating: 2, feedback: "Fine text" },
+        recovery: { code: "rate_limited", message, fieldLevel: false },
+      });
+    });
+
+    it("shows the API message for any other rejection instead of an object string", async () => {
+      stubSubmissionRejection(400, {
+        code: "validation_failed",
+        message: "This transaction's review window has closed.",
+      });
+
+      await expect(submit("Late")).resolves.toEqual({
+        error: "This transaction's review window has closed.",
+        values: { rating: 2, feedback: "Late" },
+      });
+    });
+
+    it("renders the closed recovery with the kept draft", () => {
+      const message = authoredTextRecoveryMessage("text_unsafe_link")!;
+      mockUseLoaderData.mockReturnValue({ opportunity: { ...opportunity, submission_state: "allowed" } });
+      mockUseActionData.mockReturnValue({
+        error: message,
+        values: { rating: 2, feedback: "See javascript:alert(1)" },
+        recovery: { code: "text_unsafe_link", message, fieldLevel: true },
+      });
+
+      render(
+        <ChaseRoot>
+          <MarketplaceAccountPurchaseReviewRoute />
+        </ChaseRoot>,
+      );
+
+      expect(screen.getByRole("alert").textContent).toContain(message);
+      expect((screen.getByRole("textbox", { name: "Feedback" }) as HTMLTextAreaElement).value).toBe(
+        "See javascript:alert(1)",
+      );
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { t } from "@chase-sets/localization";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
@@ -30,6 +31,7 @@ import {
 import {
   decideSupportRequest,
   evolveSupportRequest,
+  expectedOfferResolution,
   initialSupportRequestState,
   type OpenSupportRequestCommand,
   type SupportRequestCommand,
@@ -74,6 +76,7 @@ type Deps = Readonly<{
     body: ReturnType<typeof payload>,
     accountId: string,
     id: SupportRequestId,
+    context: EventStoreContext,
   ) => Promise<OpenSupportRequestCommand>;
   isReflected: (facts: readonly StoredEvent[]) => Promise<boolean>;
   authorizeEvidence?: (targetId: string, actor: ResolvedActor | null) => Promise<unknown>;
@@ -104,6 +107,7 @@ type NormalizedPayload = Readonly<{
   summary: string;
   occurredAt: string | null;
   attachments: readonly string[];
+  intakePhotoReferences: readonly string[];
   attachmentOperationId?: string;
   responseType: SupportResponseType;
   offerResolutionType: SupportResolutionType | null;
@@ -113,7 +117,8 @@ type NormalizedPayload = Readonly<{
   reason: string;
 }>;
 function payload(canonical: string): NormalizedPayload {
-  return JSON.parse(canonical).payload;
+  const value = JSON.parse(canonical).payload as Partial<NormalizedPayload>;
+  return { ...value, intakePhotoReferences: value.intakePhotoReferences ?? [] } as NormalizedPayload;
 }
 export function participantOpenSupportRequestId(
   tenantId: string,
@@ -342,9 +347,11 @@ export function createParticipantRuntime(deps: Deps) {
     canonical: string,
     context: EventStoreContext,
   ) {
-    if (input.actionKind !== "submit-evidence") return;
+    if (input.actionKind !== "submit-evidence" && input.actionKind !== "open-support-request") return;
     const entry = loaded.receipts.find(({ receipt }) => sameOwner(receipt, input, id))!;
-    const fact = entry.facts.find((event) => event.eventType === "support.support-request.evidence-submitted")!;
+    const fact = entry.facts.find((event) => event.eventType === "support.support-request.evidence-submitted");
+    if (!fact && input.actionKind === "open-support-request") return;
+    if (!fact) throw new ParticipantAttemptError(503, "history-invalid");
     const event = createPassthroughDomainEventCodec<SupportRequestEvent>().decode(fact);
     if (event.type !== "support.support-request.evidence-submitted")
       throw new ParticipantAttemptError(503, "history-invalid");
@@ -406,7 +413,7 @@ export function createParticipantRuntime(deps: Deps) {
       let command: SupportRequestCommand;
       switch (input.actionKind) {
         case "open-support-request":
-          command = await deps.prepareOpen(b, accountId, id as SupportRequestId);
+          command = await deps.prepareOpen(b, accountId, id as SupportRequestId, context);
           break;
         case "submit-evidence":
           command = {
@@ -434,7 +441,7 @@ export function createParticipantRuntime(deps: Deps) {
             offerId: ["accept-return", "offer-partial-refund", "offer-replacement"].includes(b.responseType)
               ? createId("sof")
               : null,
-            offerResolutionType: b.offerResolutionType,
+            offerResolutionType: b.offerResolutionType ?? expectedOfferResolution(b.responseType),
             refundAmount: b.refundAmount,
             affectedLineIds: b.affectedLineIds,
             refundCurrencyCode: b.refundCurrencyCode,
@@ -486,12 +493,38 @@ export function createParticipantRuntime(deps: Deps) {
           };
           break;
       }
-      const evidenceFence =
-        command.type === "SubmitSupportEvidence"
+      const openFacts = command.type === "OpenSupportRequest" ? await decideSupportRequest(loaded.state, command) : [];
+      const openedState = openFacts.reduce(evolveSupportRequest, loaded.state);
+      const intakeEvidence: SubmitSupportEvidenceCommand | undefined =
+        command.type === "OpenSupportRequest" && b.intakePhotoReferences.length
+          ? {
+              type: "SubmitSupportEvidence",
+              evidenceId: createId("sev"),
+              submittedByAccountId: accountId,
+              submittedByRole: command.openedByRole,
+              evidenceType: "photo",
+              summary: t("support.routes.marketplace.accountSupport.photos.summary"),
+              occurredAt: null,
+              submittedAt: command.openedAt,
+              attachments: b.intakePhotoReferences,
+              attachmentOperationId: b.attachmentOperationId,
+            }
+          : undefined;
+      const evidenceFence = intakeEvidence
+        ? await deps.prepareEvidence(intakeEvidence, openedState, loaded.version, context)
+        : command.type === "SubmitSupportEvidence"
           ? await deps.prepareEvidence(command, loaded.state, loaded.version, context)
           : undefined;
-      if (evidenceFence) command = evidenceFence.command;
-      const facts = await decideSupportRequest(loaded.state, command, evidenceFence?.authority);
+      if (evidenceFence && !intakeEvidence) command = evidenceFence.command;
+      const facts =
+        command.type === "OpenSupportRequest"
+          ? [
+              ...openFacts,
+              ...(evidenceFence
+                ? await decideSupportRequest(openedState, evidenceFence.command, evidenceFence.authority)
+                : []),
+            ]
+          : await decideSupportRequest(loaded.state, command, evidenceFence?.authority);
       if (!facts.length) throw new ParticipantAttemptError(409, "participant-command-not-recorded");
       const codec = createPassthroughDomainEventCodec<SupportRequestEvent>();
       const encoded = facts.map(codec.encode);

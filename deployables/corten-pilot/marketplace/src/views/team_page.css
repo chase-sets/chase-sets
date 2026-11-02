@@ -1,0 +1,179 @@
+/* Mobile first: one column, each control the full width and at least 2.75rem tall; from 48rem the
+   invite form's fields sit side by side and each row's controls sit beside its words. */
+.header {
+  display: grid;
+  gap: var(--space-4);
+  margin-block-end: var(--space-5);
+}
+.heading {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 48rem;
+  min-width: 0;
+}
+.title {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.form {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.invite {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.label {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.field select,
+.field input,
+.invite button,
+.controls button,
+.buttons button {
+  min-height: 2.75rem;
+}
+.primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+.secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-danger-contrast);
+}
+.status:empty {
+  display: none;
+}
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  margin-block-end: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--color-info-soft);
+}
+.banner p {
+  margin: 0;
+}
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.banner[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.rows {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.row {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.words {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.controls {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.controls > form {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.role-form {
+  display: grid;
+  gap: var(--space-2);
+}
+.dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-overlay);
+}
+.dialog[open] {
+  display: grid;
+  gap: var(--space-3);
+}
+.dialog::backdrop {
+  background: var(--color-overlay);
+}
+.dialog-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+@media (min-width: 48rem) {
+  .invite {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+    align-items: end;
+  }
+  .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: flex-end;
+  }
+  .role-form {
+    grid-template-columns: minmax(10rem, auto) auto;
+    align-items: end;
+  }
+}

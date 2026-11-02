@@ -1,6 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
-import { IDENTITY_BOOTSTRAP_ACCOUNT_ID, IDENTITY_BOOTSTRAP_USER_ID } from "../../memberships/read-model/constants";
+import { IDENTITY_BOOTSTRAP_ACCOUNT_ID, IDENTITY_BOOTSTRAP_USER_ID } from "../../../support/runtime-support/common";
 import type { ConsentCommand, ConsentState, RecordConsentCommand } from "./domain";
 
 export type ConsentRecordingAuthorizationErrorCode =

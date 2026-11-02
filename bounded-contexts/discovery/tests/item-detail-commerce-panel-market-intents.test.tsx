@@ -413,7 +413,7 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(screen.getByTestId("selected-product-id")).toHaveProperty("value", "");
   });
 
-  it("orders listings by lowest price and selects the cheapest listing by default", () => {
+  it("preserves API listing order and selects the first listing by default", () => {
     const cheaperListing: DiscoveryMarketListing = {
       ...alternateListing,
       listing_id: "listing_charizard_cheapest",
@@ -451,17 +451,17 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(
       screen
         .getByRole("button", {
-          name: "Selected Best Price Cards listing at $300.00",
+          name: "Selected Chase Sets listing at $399.99",
         })
         .getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_cheapest");
-    expect(screen.getByTestId("best-listing-id")).toHaveProperty("value", "listing_charizard_cheapest");
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", baseListing.listing_id);
+    expect(screen.getByTestId("best-listing-id")).toHaveProperty("value", baseListing.listing_id);
     expect(
       screen.getAllByRole("button", { name: /listing at \$/ }).map((button) => button.getAttribute("aria-label")),
     ).toEqual([
-      "Selected Best Price Cards listing at $300.00",
-      "Select Chase Sets listing at $399.99",
+      "Selected Chase Sets listing at $399.99",
+      "Select Best Price Cards listing at $300.00",
       "Select Card Vault listing at $410.00",
     ]);
   });

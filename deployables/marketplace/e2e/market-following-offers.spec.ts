@@ -1,4 +1,5 @@
 import { expect, test, type APIResponse, type BrowserContext } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -116,6 +117,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     }) => {
       const submitted = await page.request.post("/api/marketplace/account/offers/submitted", {
         data: {
+          attemptId: crypto.randomUUID(),
           ...offer,
           shippingDestinationSnapshot: {
             name: "Synthetic Buyer",
@@ -310,13 +312,19 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       let created = false;
       try {
         const creation = await page.request.post(commandUrl, {
-          data: { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: crypto.randomUUID() },
+          data: {
+            type: "CreateBuyerOfferPolicy",
+            attemptId: crypto.randomUUID(),
+            expectedVersion: 0,
+            operationId: crypto.randomUUID(),
+          },
         });
         expect(creation.ok()).toBe(true);
         created = true;
         const preview = await page.request.post(commandUrl, {
           data: {
             type: "PreviewBuyerOfferPolicy",
+            attemptId: crypto.randomUUID(),
             expectedVersion: 1,
             operationId: crypto.randomUUID(),
             terms: {
@@ -347,6 +355,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
         const authorized = await page.request.post(commandUrl, {
           data: {
             type: "AuthorizeBuyerOfferPolicy",
+            attemptId: crypto.randomUUID(),
             expectedVersion: reviewed.version,
             previewId: reviewed.preview.previewId,
             consent: true,
@@ -365,6 +374,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
         try {
           const listing = await seller.request.post("/api/marketplace/account/listings", {
             data: {
+              idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
               inventoryItemId: inventorySeedIds.items.surgingSparksBoosterBox,
               priceAmount: fixture.amount,
               priceCurrencyCode: "USD",
@@ -376,7 +386,10 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           const draft = await listing.json();
           listingId = draft.id;
           const published = await seller.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
-            data: { feeQuoteFingerprint: draft.feeQuoteFingerprint },
+            data: {
+              idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
+              feeQuoteFingerprint: draft.feeQuoteFingerprint,
+            },
           });
           expect(published.ok(), "publish the test-owned two-unit Listing through its normal gates").toBe(true);
           rememberWrite(published);
@@ -430,7 +443,11 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
             );
             expect(quote.ok()).toBe(true);
             const acceptance = await seller.request.post(`/api/marketplace/account/offers/matches/${offerId}/accept`, {
-              data: { listingId: match.listing_id, feeQuoteFingerprint: (await quote.json()).fee_quote_fingerprint },
+              data: {
+                sourceActionKey: crypto.randomUUID(),
+                listingId: match.listing_id,
+                feeQuoteFingerprint: (await quote.json()).fee_quote_fingerprint,
+              },
             });
             expect(acceptance.status()).toBe(201);
             rememberWrite(acceptance);
@@ -465,7 +482,9 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
         } finally {
           try {
             if (listingId) {
-              const withdrawn = await seller.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`);
+              const withdrawn = await seller.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`, {
+                data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
+              });
               expect(withdrawn.ok(), "withdraw only the test-owned Listing").toBe(true);
             }
           } finally {
@@ -495,7 +514,12 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           expect(response.ok()).toBe(true);
           const current = await response.json();
           const stopped = await page.request.post(commandUrl, {
-            data: { type: "StopBuyerOfferPolicy", expectedVersion: current.version, operationId: crypto.randomUUID() },
+            data: {
+              type: "StopBuyerOfferPolicy",
+              attemptId: crypto.randomUUID(),
+              expectedVersion: current.version,
+              operationId: crypto.randomUUID(),
+            },
           });
           expect(stopped.ok()).toBe(true);
         }
@@ -514,6 +538,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
             const stopped = await page.request.post(`/api/marketplace/account/offer-policies/${policyId}/commands`, {
               data: {
                 type: "StopBuyerOfferPolicy",
+                attemptId: crypto.randomUUID(),
                 expectedVersion: current.version,
                 operationId: crypto.randomUUID(),
               },

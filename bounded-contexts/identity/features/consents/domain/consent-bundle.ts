@@ -5,7 +5,7 @@ import {
 } from "@chase-sets/platform-policy/consent-activation-authority";
 import type { ConsentActivationAuthorityRuntime } from "@chase-sets/platform-policy/runtime";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
-import { IDENTITY_BOOTSTRAP_ACCOUNT_ID, IDENTITY_BOOTSTRAP_USER_ID } from "../../memberships/read-model/constants";
+import { IDENTITY_BOOTSTRAP_ACCOUNT_ID, IDENTITY_BOOTSTRAP_USER_ID } from "../../../support/runtime-support/common";
 import {
   publicPolicyHrefsByKey,
   publicPolicyPublicationRecords,

@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  catalogProviderIntegrationProfileVersions,
-  catalogProviderProfileVersionIngestionUnitKey,
-} from "../../source-observations/api/provider-integration-profiles";
-import {
-  catalogScopeProductDomainContracts,
-  normalizeCatalogScopeProductDomain,
-} from "../../scope-registry/domain/contract";
+import { catalogProviderIntegrationProfileVersions } from "../../source-observations/api/provider-integration-profiles";
 import { listProviderScopeDiscoveryTargets } from "./discovery-targets";
 import { classifyProviderScopeDiscoveryTarget } from "./scope-observation-matcher";
 
@@ -23,7 +16,7 @@ describe("provider scope discovery targets", () => {
     expect(tcgdexTargets.every((target) => target.productDomain === "pokemon")).toBe(true);
   });
 
-  it("derives all nine active TCGplayer set-name cascades from normalized product-domain contracts", () => {
+  it("does not emit TCGplayer runtime option queries after server-side transport retirement", () => {
     const activeVersions = catalogProviderIntegrationProfileVersions.filter(
       (version) => version.providerKey === "tcgplayer" && version.active && version.lifecycle === "active",
     );
@@ -31,27 +24,8 @@ describe("provider scope discovery targets", () => {
     const setNameTargets = tcgplayerTargets.filter((target) => target.queryKind === "set-names");
 
     expect(activeVersions).toHaveLength(9);
-    expect(setNameTargets).toHaveLength(activeVersions.length);
-    for (const version of activeVersions) {
-      const unitKey = catalogProviderProfileVersionIngestionUnitKey(version);
-      const productDomain = normalizeCatalogScopeProductDomain(version.ingestionUnitIdentity?.productDomain);
-      expect(productDomain).not.toBeNull();
-      expect(setNameTargets.find((target) => target.ingestionUnitKey === unitKey)).toMatchObject({
-        productDomain,
-        providerScope: "set-name",
-        parentScope: "product-line/category",
-        parentRequired: true,
-        scopeKind: catalogScopeProductDomainContracts[productDomain!].leafReferenceTypeKey,
-      });
-    }
-
-    expect(setNameTargets.filter((target) => target.productDomain === "pokemon")).toHaveLength(2);
-    expect(setNameTargets.filter((target) => target.productDomain === "magic")).toHaveLength(2);
-    expect(setNameTargets.filter((target) => target.productDomain === "yugioh")).toHaveLength(1);
-    expect(setNameTargets.filter((target) => target.productDomain === "one-piece")).toHaveLength(2);
-    expect(setNameTargets.filter((target) => target.productDomain === "lorcana")).toHaveLength(2);
-    expect(setNameTargets.filter((target) => target.scopeKind === "expansion")).toHaveLength(2);
-    expect(setNameTargets.filter((target) => target.scopeKind === "set")).toHaveLength(7);
+    expect(setNameTargets).toHaveLength(0);
+    expect(tcgplayerTargets).toHaveLength(0);
   });
 
   it("never emits card, product, or SKU level queries", () => {

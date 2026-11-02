@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, test } from "vitest";
 import { configDefaults } from "vitest/config";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   boundedContextTestInclude,
   defineBoundedContextTestConfig,
@@ -13,6 +14,7 @@ import {
 import { defineScriptsTestConfig } from "../vitest.scripts.config.mjs";
 import { heavySlotVitestGlobalSetupPath } from "./lib/heavy-slot.mjs";
 import { heavySlotScriptBatteryGlobalSetupPath } from "./lib/heavy-slot-script-battery.mjs";
+import { scriptBatteryTempCensusGlobalSetupPath } from "./lib/script-battery-temp-census.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 
 const originalLaneMode = process.env.CHASE_SETS_LANE_MODE;
@@ -45,7 +47,7 @@ test("keeps the default and hosted workspace profile byte-semantically strict", 
 test("keeps the default and hosted scripts profile byte-semantically strict", () => {
   for (const env of [{}, { CI: "true" }, { CHASE_SETS_LANE_MODE: "0", CI: "true" }]) {
     assert.deepEqual(defineScriptsTestConfig(env).test, {
-      globalSetup: [heavySlotScriptBatteryGlobalSetupPath],
+      globalSetup: [heavySlotScriptBatteryGlobalSetupPath, scriptBatteryTempCensusGlobalSetupPath],
       setupFiles: ["./scripts/lib/tracked-checkout-write-guard.mjs"],
       include: ["scripts/**/*.test.mjs"],
     });
@@ -71,7 +73,7 @@ test("applies the lane profile once to every shared-config consumer and the scri
   assert.deepEqual(defineBoundedContextTestConfig().test.include, boundedContextTestInclude);
   assert.deepEqual(defineScriptsTestConfig({ CHASE_SETS_LANE_MODE: "1" }).test, {
     ...laneProfile,
-    globalSetup: [heavySlotScriptBatteryGlobalSetupPath],
+    globalSetup: [heavySlotScriptBatteryGlobalSetupPath, scriptBatteryTempCensusGlobalSetupPath],
     setupFiles: ["./scripts/lib/tracked-checkout-write-guard.mjs"],
     include: ["scripts/**/*.test.mjs"],
   });
@@ -88,10 +90,11 @@ test("preserves explicit workspace overrides in lane mode", () => {
   assert.equal(config.test.maxWorkers, 1);
 });
 
-test("keeps the exact 68+1 tracked Vitest config topology on the shared lane resolver", () => {
+test("keeps the exact 70+1 tracked Vitest config topology on the shared lane resolver", () => {
   const trackedConfigs = execFileSync("git", ["ls-files", "--", "*vitest*.config.*"], {
     cwd: repoRoot,
     encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   })
     .split(/\r?\n/)
     .filter(Boolean)
@@ -99,8 +102,8 @@ test("keeps the exact 68+1 tracked Vitest config topology on the shared lane res
   const scriptsConfig = "vitest.scripts.config.mjs";
   const workspaceConfigs = trackedConfigs.filter((configPath) => configPath !== scriptsConfig);
 
-  assert.equal(trackedConfigs.length, 69);
-  assert.equal(workspaceConfigs.length, 68);
+  assert.equal(trackedConfigs.length, 71);
+  assert.equal(workspaceConfigs.length, 70);
   assert.ok(workspaceConfigs.includes("contracts/order-groups/vitest.config.ts"));
   assert.ok(workspaceConfigs.includes("contracts/tcgplayer-market-observations/vitest.config.ts"));
   assert.deepEqual(

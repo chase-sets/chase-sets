@@ -830,12 +830,14 @@ const citationFencePaths = {
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTerms]: "87965e016a67474e187a17a6f1698f332d964314453ff0946926906388057de9",
-  // Includes #7422 revocation, #9499 Inventory recovery storage, the #9106 Search Interpretation marker in
-  // stored search restoration, and #9721 byte-identical citation relocations; only C1-C7 digits remain normalized.
-  [citationFencePaths.privacyPolicy]: "458b04e7594d16a9ffcbc0eacf38bb0d0db92a99f9701d0739824d2819ed6fc0",
+  // Includes #7422 revocation, #9499 Inventory recovery storage, #10610 truthful search failure citations, the #9106 Search Interpretation marker in
+  // stored search restoration, #9721 byte-identical citation relocations, and the #9034 rollout, notice-email,
+  // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.
+  [citationFencePaths.privacyPolicy]: "f7b4ee5417971f9be4ea90aeec0f6c27c005757c4c2b24f6ab6f91eb2d0ac11e",
   [citationFencePaths.authenticityTest]: "373914b5510020641186b833c170ccd3e9ed072d541573ade9306e1216124873",
-  // #10066 repin after the causal scoped-step surface edit.
-  [citationFencePaths.staticSurfaces]: "25e7deb769dcca7a4e48d0235cdd6cad07dfbb378386cc8b046e39271e238f1a",
+  // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
+  // evidence-citation update and #9878 TCGplayer guard surface.
+  [citationFencePaths.staticSurfaces]: "b978ae0a019e9ce9d9cbd07caa92098cbe1d9252061ecf4b3168e576738e9511",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {
@@ -2011,8 +2013,8 @@ describe("occurrence-scoped citation byte fence", () => {
       {
         name: "openQuestions edited",
         file: citationFencePaths.privacyPolicy,
-        before: "Launch jurisdiction scope is undecided",
-        after: "Launch region scope is undecided",
+        before: "Initial rollout jurisdictions are ratified",
+        after: "Initial rollout regions are ratified",
       },
       {
         name: "revocation storage disclosure edited",

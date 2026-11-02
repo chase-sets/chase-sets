@@ -1,0 +1,8 @@
+{
+  "name": "registry probe error remains unknown",
+  "input": {
+    "phase": "build-image",
+    "diagnostics": [{ "rootCauseCode": "unknown", "active": false, "reason": "provider-error" }]
+  },
+  "expected": { "rootCauseCode": "unknown" }
+}

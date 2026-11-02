@@ -103,6 +103,12 @@ async function fixture(resolveRateLimitRule?: RateLimitRuleResolver, source?: Bu
     },
   });
   const { eventStore } = createInMemoryEventStore();
+  const {
+    publicationScope: _publicationScope,
+    nativeVisibility: _nativeVisibility,
+    nativeFeeState: _nativeFeeState,
+    ...historicalListingState
+  } = initialMarketplaceListingState;
   const context = { tenantId: actor.tenantId, audit: { performedByUserId: actor.userId, forAccountId: owner } };
   await eventStore.appendToStream({
     streamId: `marketplace.listing-${listingId}`,
@@ -112,7 +118,7 @@ async function fixture(resolveRateLimitRule?: RateLimitRuleResolver, source?: Bu
       {
         eventType: "marketplace.listing.created",
         payload: {
-          ...initialMarketplaceListingState,
+          ...historicalListingState,
           listingId,
           accountId: owner,
           evidence: [photo],

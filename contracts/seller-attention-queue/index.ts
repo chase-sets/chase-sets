@@ -85,6 +85,15 @@ export type SellerAttentionItem = Readonly<{
 
 const SELLER_HOME_SURFACE_ID: SellerDeskSurfaceId = "seller-home";
 
+// The canonical Seller Desk entity pages are not registered yet. Until those
+// destinations land, these sources bridge to the existing owner routes while
+// keeping the blueprint surface id stable for callers and analytics.
+const TEMPORARY_OWNER_ROUTE_FALLBACKS: Readonly<Partial<Record<SellerAttentionSourceId, string>>> = {
+  "listing-action": "/account/listings/:id",
+  "fulfillment-ship-by": "/account/sales/shipments/:id",
+  "dispute-response": "/account/sales/:id",
+};
+
 function sourceDescriptor(sourceId: SellerAttentionSourceId): SellerAttentionSourceDescriptor {
   const descriptor = SELLER_ATTENTION_SOURCES.find((source) => source.id === sourceId);
   if (descriptor === undefined) {
@@ -106,8 +115,9 @@ export function resolveSellerAttentionDeepLink(
     throw new Error(`Unknown target surface for source ${sourceId}: ${descriptor.target}`);
   }
 
-  if (surface.routePath !== null) {
-    const href = surface.routePath.replace(/:[A-Za-z][A-Za-z0-9]*/, encodeURIComponent(entityId));
+  const routePath = TEMPORARY_OWNER_ROUTE_FALLBACKS[sourceId] ?? surface.routePath;
+  if (routePath !== null) {
+    const href = routePath.replace(/:[A-Za-z][A-Za-z0-9]*/, encodeURIComponent(entityId));
     return { surface: surface.id, href };
   }
 

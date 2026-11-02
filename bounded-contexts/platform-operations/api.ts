@@ -9,6 +9,7 @@ import { createCommercialTermsAttentionRoutes } from "./features/commercial-term
 import { createRateLimitPolicyRoutes } from "./features/rate-limit-policy/api/rate-limit-policy-route";
 import { createSupportDeadlinePolicyRoutes } from "./features/support-requests/api/deadline-policy-route";
 import { createSupportReferenceLookupRoutes } from "./features/support-reference-lookup/api/route";
+import { createOperationsAttentionRoutes } from "./features/operations-attention-queue/api/route";
 import type { PlatformOperationsServices } from "./support/runtime-support/services";
 
 export type PlatformOperationsApiEnv = AuthenticatedApiEnv;
@@ -23,6 +24,7 @@ export function buildPlatformOperationsApi(services: PlatformOperationsServices)
   app.route("/public-doc-reviews", createPublicDocReviewRoutes(services.publicDocReviews));
   app.route("/commercial-terms-attention", createCommercialTermsAttentionRoutes(services.commercialTermsAttention));
   app.route("/support-reference-lookup", createSupportReferenceLookupRoutes(services.supportReferenceLookup));
+  app.route("/operations-attention", createOperationsAttentionRoutes(services));
   app.route("/insights/ops", createOpsDashboardRoutes(services.opsDashboard));
   app.route("/insights/offer-economics", createOfferEconomicsRoutes(services.offerEconomics));
 

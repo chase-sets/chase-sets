@@ -11,19 +11,18 @@ import {
 export function buildPaymentsApi(services: PaymentServices | PaymentsServices) {
   const app = new Hono<PaymentsApiEnv>();
   const paymentServices = "payments" in services ? services.payments : services;
+  // Wallet funding mounts first only when its services exist, so it stays out of the chained client schema.
   if ("walletFunding" in services) app.route("/account", createWalletFundingRoutes(services.walletFunding));
 
-  app.route(
-    "/",
-    createPaymentProviderModeRoutes(
-      "providerModeObservation" in services ? services.providerModeObservation : undefined,
-    ),
-  );
-
-  app.route(
-    "/account",
-    createAccountPaymentRoutes(paymentServices, "publicConfig" in services ? services.publicConfig : undefined),
-  );
-
-  return app;
+  return app
+    .route(
+      "/",
+      createPaymentProviderModeRoutes(
+        "providerModeObservation" in services ? services.providerModeObservation : undefined,
+      ),
+    )
+    .route(
+      "/account",
+      createAccountPaymentRoutes(paymentServices, "publicConfig" in services ? services.publicConfig : undefined),
+    );
 }

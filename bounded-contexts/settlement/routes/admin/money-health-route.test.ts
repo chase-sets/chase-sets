@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { AUTH_ROLE_PERMISSIONS } from "../../../auth/support/auth-support/constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import type { SettlementApiEnv } from "../../api";
 import { createPayoutRoutes } from "../../features/payouts/api/route";
 import type { PayoutServices } from "../../features/payouts/api/runtime";
@@ -69,7 +69,7 @@ describe("settlement admin money health route", () => {
             accountId: "acc_a",
             membershipId: "mem_test",
             roleKey,
-            permissions: AUTH_ROLE_PERMISSIONS[roleKey],
+            permissions: ROLE_PERMISSIONS[roleKey],
           });
           await next();
         });

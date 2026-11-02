@@ -1,4 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
+import { lookup as lookupDns } from "node:dns/promises";
+import type { LookupAddress } from "node:dns";
+import type { IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { BlockList, isIP } from "node:net";
 import type {
   AgentGrantRevocations,
   LinkedPlatformAuthorizationRow,
@@ -15,6 +20,7 @@ import {
   isAgentOAuthScope,
   normalizeAgentOAuthScopes,
   resolveAgentOAuthScopedPermissions,
+  resolveRecentAuthenticationStatus,
   type AgentOAuthScope,
 } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -113,6 +119,9 @@ export type UcpOAuthRoutesOptions = Readonly<{
   agentGrantRevocations?: AgentGrantRevocations;
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
   fetchClientIdMetadata?: (url: string) => Promise<unknown>;
+  /** Test-only seams for the production pinned HTTPS transport. Never wire these in a deployable. */
+  lookupClientIdMetadata?: (hostname: string) => Promise<readonly LookupAddress[]>;
+  requestClientIdMetadata?: CimdRequest;
   // Per-grant spending mandates (agent consent state). Surfaced in introspection and the
   // connected-agents listing, and configured through the mandate endpoint.
   agentGrantConsent?: AgentGrantConsentDirectory;
@@ -124,9 +133,12 @@ export type UcpOAuthRoutesOptions = Readonly<{
   agentWebhookOutbox?: AgentWebhookOutbox;
 }>;
 
-const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
+export const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
+export const CIMD_FETCH_DEADLINE_MS = 5_000;
+export const CIMD_RESPONSE_MAX_BYTES = 32_768;
 const MAX_CLIENT_NAME_LENGTH = 120;
 const MAX_REDIRECT_URIS = 10;
+const OPERATOR_GRANT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 function createAgentGrantRevocationContext(accountId: AccountId): EventStoreContext {
   return {
@@ -146,6 +158,39 @@ const UCP_OAUTH_DEFAULT_SCOPES = [
 // Advertised lists only: registration and authorize also recognize the unadvertised operator scopes.
 export const UCP_OAUTH_SUPPORTED_SCOPES = AGENT_OAUTH_COMMERCE_SCOPES;
 export const UCP_OAUTH_SCOPE_FAMILIES = AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES;
+
+type CimdRequest = (...args: Parameters<typeof httpsRequest>) => ReturnType<typeof httpsRequest>;
+
+const cimdSpecialUse = new BlockList();
+for (const [address, prefix] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
+] as const) {
+  cimdSpecialUse.addSubnet(address, prefix, "ipv4");
+}
+for (const [address, prefix] of [
+  ["::", 128],
+  ["::1", 128],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["ff00::", 8],
+] as const) {
+  cimdSpecialUse.addSubnet(address, prefix, "ipv6");
+}
+const cimdGlobalV6 = new BlockList();
+cimdGlobalV6.addSubnet("2000::", 3, "ipv6");
 
 type AuthorizationCodeRow = Readonly<{
   code_id: string;
@@ -218,8 +263,10 @@ async function resolveConsentClient(options: UcpOAuthRoutesOptions, consent: Con
   return client?.responseTypes.includes("code") &&
     client.grantTypes.includes("authorization_code") &&
     client.redirectUris.includes(consent.redirect_uri) &&
-    isScopeSubset(consent.scopes, client.scopes) &&
-    !consent.scopes.some(isAgentOAuthOperatorScope)
+    isScopeSubset(
+      consent.scopes.filter((scope) => !isAgentOAuthOperatorScope(scope)),
+      client.scopes,
+    )
     ? client
     : null;
 }
@@ -375,12 +422,6 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!scopes) {
       return c.json({ error: "invalid_scope", error_description: "Requested scopes are not supported." }, 400);
     }
-    // No operator grant may exist until operator sign-in adds its own consent gate and capped lifetime, so the
-    // whole request is refused for every role before any client lookup, sign-in or consent page.
-    if (scopes.some(isAgentOAuthOperatorScope)) {
-      return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
-    }
-
     if (
       responseType !== "code" ||
       !clientId ||
@@ -417,11 +458,20 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
         400,
       );
     }
-    if (!isScopeSubset(scopes, client.scopes)) {
+    if (
+      !isScopeSubset(
+        scopes.filter((scope) => !isAgentOAuthOperatorScope(scope)),
+        client.scopes,
+      )
+    ) {
       return c.json(
         { error: "invalid_scope", error_description: "Requested scopes exceed the registered client metadata." },
         400,
       );
+    }
+
+    if (scopesContainOperatorScope(scopes) && !options.auth?.identity?.operatorAuthority) {
+      return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
     }
 
     const actor = await options.resolveActor(c.req.raw);
@@ -429,6 +479,15 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     c.header("Referrer-Policy", "no-referrer");
     if (!isInteractiveSessionActor(actor)) {
       return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, 302);
+    }
+    if (scopesContainOperatorScope(scopes)) {
+      const authority = await resolveOperatorAuthority(options, actor);
+      if (!authority.granted) {
+        return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
+      }
+      if (!resolveRecentAuthenticationStatus(actor, { maxAgeMinutes: 10 }).recentlyAuthenticated) {
+        return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, 302);
+      }
     }
 
     const token = options.auth.auth.issueOpaqueToken("ucp_consent");
@@ -463,6 +522,14 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!consent) return c.json({ error: "invalid_request" }, 400);
     const client = await resolveConsentClient(options, consent);
     if (!client) return c.json({ error: "invalid_request" }, 400);
+    if (scopesContainOperatorScope(consent.scopes)) {
+      if (!options.auth?.identity?.operatorAuthority) return c.json({ error: "invalid_scope" }, 400);
+      const authority = await resolveOperatorAuthority(options, actor);
+      if (!authority.granted) return c.json({ error: "invalid_scope" }, 400);
+      if (!resolveRecentAuthenticationStatus(actor, { maxAgeMinutes: 10 }).recentlyAuthenticated) {
+        return c.json({ error: "login_required" }, 401);
+      }
+    }
     const memberships = await options.auth.db.query<{ accountId: string; accountName: string }>(
       `SELECT accounts.account_id AS "accountId", accounts.display_name AS "accountName"
        FROM auth_identity_user_memberships AS memberships
@@ -481,6 +548,9 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
           memberships.rows.find((membership) => membership.accountId === actor.accountId)?.accountName ??
           actor.accountId,
         scopes: consent.scopes,
+        operatorGrantExpiresAt: scopesContainOperatorScope(consent.scopes)
+          ? new Date(Date.now() + OPERATOR_GRANT_TTL_MS).toISOString()
+          : null,
         memberships: memberships.rows,
         authorizePath: consentAuthorizePath(consent),
       },
@@ -505,6 +575,16 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!consent) return c.json({ error: "invalid_request" }, 400);
     const client = await resolveConsentClient(options, consent);
     if (!client) return c.json({ error: "invalid_request" }, 400);
+    if (scopesContainOperatorScope(consent.scopes)) {
+      if (!options.auth?.identity?.operatorAuthority) return c.json({ error: "invalid_scope" }, 400);
+      const authority = await resolveOperatorAuthority(options, actor);
+      if (!authority.granted) {
+        return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
+      }
+      if (!resolveRecentAuthenticationStatus(actor, { maxAgeMinutes: 10 }).recentlyAuthenticated) {
+        return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: consentAuthorizePath(consent) })}`, 302);
+      }
+    }
     const consumed = await options.auth.db.query<ConsentRequestRow>(
       `UPDATE identity_ucp_oauth_consent_requests SET consumed_at = now()
        WHERE token_hash = $1 AND session_id = $2 AND user_id = $3 AND account_id = $4
@@ -603,24 +683,29 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     const tokenLifetimes = authSecurityLifetimesOf(options.auth);
     const accessTokenExpiresAt = new Date(now.getTime() + tokenLifetimes.ucpAccessTokenTtlMs).toISOString();
     const refreshTokenExpiresAt = new Date(now.getTime() + tokenLifetimes.ucpRefreshTokenTtlMs).toISOString();
-    await options.linkedPlatformAuthorizations.grant({
+    const scopes = normalizeScopes(codeRow.scopes);
+    const absoluteExpiresAt = scopesContainOperatorScope(scopes)
+      ? new Date(now.getTime() + OPERATOR_GRANT_TTL_MS).toISOString()
+      : null;
+    const authorization = await options.linkedPlatformAuthorizations.grant({
       authorizationId: createId("lpa"),
       platformProfileUrl: codeRow.platform_profile_url,
       clientId: codeRow.client_id,
       userId: codeRow.user_id,
       accountId: codeRow.account_id,
-      scopes: normalizeScopes(codeRow.scopes),
+      scopes,
       accessTokenHash: options.auth.auth.hashSecret(accessToken),
       refreshTokenHash: options.auth.auth.hashSecret(refreshToken),
       accessTokenExpiresAt,
       refreshTokenExpiresAt,
+      absoluteExpiresAt,
       grantedAt: now.toISOString(),
     });
 
     return c.json({
       access_token: accessToken,
       token_type: "Bearer",
-      expires_in: Math.floor(tokenLifetimes.ucpAccessTokenTtlMs / 1000),
+      expires_in: expiresInSeconds(authorization.access_token_expires_at, now),
       refresh_token: refreshToken,
       scope: normalizeScopes(codeRow.scopes).join(" "),
     });
@@ -1262,7 +1347,7 @@ async function refreshAccessToken(c: Context, options: UcpOAuthRoutesOptions, bo
   return c.json({
     access_token: accessToken,
     token_type: "Bearer",
-    expires_in: Math.floor(tokenLifetimes.ucpAccessTokenTtlMs / 1000),
+    expires_in: expiresInSeconds(authorization.access_token_expires_at, now),
     refresh_token: newRefreshToken,
     scope: scopes.join(" "),
   });
@@ -1315,6 +1400,25 @@ async function readFormOrJson(request: Request) {
 
 function normalizeScopes(value: unknown): readonly string[] {
   return normalizeAgentOAuthScopes(value);
+}
+
+function scopesContainOperatorScope(scopes: readonly string[]) {
+  return scopes.some(isAgentOAuthOperatorScope);
+}
+
+async function resolveOperatorAuthority(options: UcpOAuthRoutesOptions, actor: ResolvedActor) {
+  const operatorAuthority = options.auth?.identity?.operatorAuthority;
+  if (!operatorAuthority) return { granted: false } as const;
+  try {
+    const decision = await operatorAuthority(actor);
+    return { granted: decision.kind === "granted" } as const;
+  } catch {
+    return { granted: false } as const;
+  }
+}
+
+function expiresInSeconds(expiresAt: string, now: Date) {
+  return Math.max(0, Math.floor((Date.parse(expiresAt) - now.getTime()) / 1_000));
 }
 
 function parseClientRegistrationMetadata(
@@ -1410,7 +1514,7 @@ async function resolveOAuthClientMetadata(options: UcpOAuthRoutesOptions, client
   if (registered) {
     return registered;
   }
-  if (!isTrustedHttpUrl(clientId)) {
+  if (!isClientIdMetadataUrl(clientId, Boolean(options.fetchClientIdMetadata))) {
     return null;
   }
   return readClientIdMetadataDocument(options, clientId);
@@ -1446,16 +1550,11 @@ async function readClientIdMetadataDocument(
   options: UcpOAuthRoutesOptions,
   clientId: string,
 ): Promise<OAuthClientMetadata | null> {
-  const fetchMetadata =
-    options.fetchClientIdMetadata ??
-    (async (url: string) => {
-      const response = await fetch(url, { headers: { Accept: "application/json" }, redirect: "error" });
-      if (!response.ok) {
-        return null;
-      }
-      return response.json();
-    });
-  const body = readObject(await fetchMetadata(clientId).catch(() => null));
+  const body = readObject(
+    options.fetchClientIdMetadata
+      ? await readInjectedClientIdMetadata(options.fetchClientIdMetadata, clientId)
+      : await fetchPinnedClientIdMetadata(clientId, options),
+  );
   if (!body) {
     return null;
   }
@@ -1468,6 +1567,189 @@ async function readClientIdMetadataDocument(
     return null;
   }
   return { ...parsed.metadata, clientId };
+}
+
+function isClientIdMetadataUrl(value: string, allowInjectedLoopback: boolean) {
+  if (Buffer.byteLength(value, "utf8") > MAX_CLIENT_METADATA_URL_LENGTH) return false;
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" &&
+      !(allowInjectedLoopback && url.protocol === "http:" && isLocalHost(url.hostname))
+    ) {
+      return false;
+    }
+    return allowInjectedLoopback || !isLocalHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function cimdPublicAddress(address: LookupAddress) {
+  const hostname = address.address.replace(/^\[|\]$/g, "");
+  if (address.family === 4) return isIP(hostname) === 4 && !cimdSpecialUse.check(hostname, "ipv4");
+  return (
+    address.family === 6 &&
+    isIP(hostname) === 6 &&
+    !hostname.toLowerCase().startsWith("::ffff:") &&
+    cimdGlobalV6.check(hostname, "ipv6") &&
+    !cimdSpecialUse.check(hostname, "ipv6")
+  );
+}
+
+async function readInjectedClientIdMetadata(fetchMetadata: (url: string) => Promise<unknown>, clientId: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      fetchMetadata(clientId),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), CIMD_FETCH_DEADLINE_MS);
+      }),
+    ]);
+    if (result === null) return null;
+    try {
+      if (Buffer.byteLength(JSON.stringify(result), "utf8") > CIMD_RESPONSE_MAX_BYTES) return null;
+    } catch {
+      return null;
+    }
+    return result;
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function fetchPinnedClientIdMetadata(clientId: string, options: UcpOAuthRoutesOptions) {
+  let url: URL;
+  try {
+    url = new URL(clientId);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || Buffer.byteLength(clientId, "utf8") > MAX_CLIENT_METADATA_URL_LENGTH) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CIMD_FETCH_DEADLINE_MS);
+  try {
+    const hostname = url.hostname.replace(/^\[|\]$/g, "");
+    const family = isIP(hostname);
+    let addresses: readonly LookupAddress[];
+    if (family) {
+      addresses = [{ address: hostname, family }];
+    } else {
+      const lookup = (options.lookupClientIdMetadata ?? ((host) => lookupDns(host, { all: true })))(hostname);
+      addresses = await Promise.race([lookup, abortWithEmptyAddresses(controller.signal)]);
+    }
+    if (
+      controller.signal.aborted ||
+      addresses.length === 0 ||
+      addresses.some((address) => !cimdPublicAddress(address))
+    ) {
+      return null;
+    }
+    const address = addresses[0]!;
+    const request = await Promise.race([
+      requestPinnedClientIdMetadata(url, address, controller.signal, options.requestClientIdMetadata ?? httpsRequest),
+      abortWithNullRequest(controller.signal),
+    ]);
+    if (!request) return null;
+    try {
+      if (request.statusCode === undefined || request.statusCode < 200 || request.statusCode >= 300) {
+        request.response.destroy();
+        return null;
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of request.response) {
+        if (controller.signal.aborted) return null;
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        size += bytes.byteLength;
+        if (size > CIMD_RESPONSE_MAX_BYTES) {
+          request.response.destroy();
+          return null;
+        }
+        chunks.push(bytes);
+      }
+      if (controller.signal.aborted) return null;
+      try {
+        return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        return null;
+      }
+    } finally {
+      request.cleanup();
+    }
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function abortWithEmptyAddresses(signal: AbortSignal) {
+  return new Promise<readonly LookupAddress[]>((resolve) => {
+    if (signal.aborted) {
+      resolve([]);
+      return;
+    }
+    signal.addEventListener("abort", () => resolve([]), { once: true });
+  });
+}
+
+function abortWithNullRequest(signal: AbortSignal) {
+  return new Promise<null>((resolve) => {
+    if (signal.aborted) {
+      resolve(null);
+      return;
+    }
+    signal.addEventListener("abort", () => resolve(null), { once: true });
+  });
+}
+
+async function requestPinnedClientIdMetadata(
+  url: URL,
+  address: LookupAddress,
+  signal: AbortSignal,
+  request: CimdRequest,
+) {
+  return new Promise<{
+    response: IncomingMessage;
+    statusCode?: number;
+    cleanup: () => void;
+  }>((resolve, reject) => {
+    let response: IncomingMessage | undefined;
+    const hostname = url.hostname.replace(/^\[|\]$/g, "");
+    const client = request(
+      url,
+      {
+        signal,
+        agent: false,
+        family: address.family,
+        servername: isIP(hostname) ? undefined : hostname,
+        headers: { Accept: "application/json", Host: url.host },
+        lookup: (_hostname, lookupOptions, callback) => {
+          if (lookupOptions.all) callback(null, [address]);
+          else callback(null, address.address, address.family);
+        },
+      },
+      (incoming) => {
+        response = incoming;
+        resolve({
+          response: incoming,
+          statusCode: incoming.statusCode,
+          cleanup: () => signal.removeEventListener("abort", abort),
+        });
+      },
+    );
+    const abort = () => {
+      client.destroy();
+      response?.destroy?.();
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    client.on("error", reject);
+    client.end();
+  });
 }
 
 function normalizeRequestedScopes(value: unknown): readonly string[] | null {

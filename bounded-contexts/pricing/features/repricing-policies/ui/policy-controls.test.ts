@@ -24,7 +24,7 @@ describe("policy union coverage and preset round trips", () => {
       expect(label.length).toBeGreaterThan(0);
     }
   });
-  it("pins all four preset body bytes, normalized bytes and dry-run hashes", () => {
+  it("pins all four semantic preset body bytes, normalized bytes and dry-run hashes", () => {
     const fingerprints = Object.keys(repricingPresets).map((preset) => {
       const body = compileRepricingPreset({
         preset: preset as RepricingPreset,
@@ -35,13 +35,17 @@ describe("policy union coverage and preset round trips", () => {
         knob: repricingPresets[preset as RepricingPreset].defaultValue,
       });
       const validated = validateRepricingDryRunBody(body, "acc_synthetic");
+      const { authoringIntent, ...compiledBody } = body;
+      const { authoringIntent: validatedIntent, ...validatedBody } = validated;
+      expect(authoringIntent).toBeDefined();
+      expect(validatedIntent).toEqual(authoringIntent);
       const opened = openRepricingPreset(body);
       for (const rule of validated.rules) expect(rule.directive).not.toHaveProperty("guardrails");
       expect(opened.body).toEqual(body);
       return {
         preset,
-        bytes: createHash("sha256").update(JSON.stringify(body)).digest("hex"),
-        normalized: createHash("sha256").update(JSON.stringify(validated)).digest("hex"),
+        bytes: createHash("sha256").update(JSON.stringify(compiledBody)).digest("hex"),
+        normalized: createHash("sha256").update(JSON.stringify(validatedBody)).digest("hex"),
         hash: hashRepricingDryRunBody(validated),
       };
     });
@@ -166,6 +170,7 @@ describe("policy union coverage and preset round trips", () => {
         scope: { kind: "all-listings" },
       });
       expect(validateRepricingDryRunBody(body, "acc_synthetic")).toEqual({
+        authoringIntent: body.authoringIntent,
         scope: body.scope,
         excludedListingIds: [],
         rules: body.rules,
@@ -214,9 +219,11 @@ describe("policy union coverage and preset round trips", () => {
         });
       } else expect(body.rules).toEqual([{ conditions: [], directive: body.rules[0]!.directive }]);
       const opened = openRepricingPreset(body);
-      expect(opened.tier).toBe(preset === "slow-stock" ? "advanced" : "structured");
+      expect(opened.tier).toBe("preset");
       expect(opened.body).toEqual(body);
-      expect(openRepricingPreset({ ...body, name: "Seller edit", maxChangesPerDay: 17 }).body).toEqual({
+      const custom = openRepricingPreset({ ...body, name: "Seller edit", maxChangesPerDay: 17 });
+      expect(custom.tier).toBe(preset === "slow-stock" ? "advanced" : "structured");
+      expect(custom.body).toEqual({
         ...body,
         name: "Seller edit",
         maxChangesPerDay: 17,

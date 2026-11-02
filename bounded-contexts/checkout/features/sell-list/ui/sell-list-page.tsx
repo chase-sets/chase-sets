@@ -6,6 +6,8 @@ import {
   CheckoutLayout,
   Form,
   Inline,
+  Inset,
+  KeyValueList,
   LinkButton,
   MarketplaceEmptyState,
   MarketplaceNotice,
@@ -213,6 +215,37 @@ export function CheckoutSellListPage({
                 </Text>
                 <Text tone="secondary">{recoveryState.message}</Text>
               </Stack>
+              <Badge tone="neutral">{t("checkout.features.sellList.ui.sellListPage.unavailable")}</Badge>
+              {sellListLines.length > 0 ? (
+                <Stack gap={3}>
+                  {sellListLines.map((line) => (
+                    <Inset key={line.line_id} element="article" padding={3}>
+                      <Stack gap={2}>
+                        <Text weight="semibold" wrap="anywhere">
+                          {line.item_title}
+                        </Text>
+                        {line.item_subtitle ? (
+                          <Text size="sm" tone="secondary" wrap="anywhere">
+                            {line.item_subtitle}
+                          </Text>
+                        ) : null}
+                        {line.product_summary ? (
+                          <Text size="sm" tone="secondary" wrap="anywhere">
+                            {line.product_summary}
+                          </Text>
+                        ) : null}
+                        <KeyValueList
+                          density="compact"
+                          variant="plain"
+                          items={[
+                            { key: t("checkout.features.sellList.ui.sellListPage.quantity"), value: line.quantity },
+                          ]}
+                        />
+                      </Stack>
+                    </Inset>
+                  ))}
+                </Stack>
+              ) : null}
               <LinkButton href={recoveryState.refreshHref} tone="secondary">
                 {t("checkout.features.sellList.ui.sellListPage.refresh.sell.list")}
               </LinkButton>

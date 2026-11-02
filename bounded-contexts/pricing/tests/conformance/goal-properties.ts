@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, vi } from "vitest";
+import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import { evaluateRepricingListing } from "../../features/repricing-engine/domain/evaluate";
 import { evaluateShadowGoals } from "../../features/repricing-engine/domain/round";
 import {
@@ -19,6 +20,7 @@ import {
   type GoalUnavailable,
   type PricingGoalDefinition,
 } from "../../features/repricing-policies/domain/goals/registry";
+import type { PortfolioListing } from "../../features/repricing-policies/domain/portfolio/portfolio";
 import {
   resolvedGoalEconomics,
   unavailableGoalEconomics,
@@ -37,6 +39,9 @@ export const fixtureCurves = (
 
 /** Resolved Economics for every goal that requires it: the parity fee terms at a 1% Daily Return Hurdle. */
 export const fixtureEconomics = resolvedGoalEconomics(typicalFeeTerms, 0.01);
+
+/** The fixture listing's current price, as the engine passes it; only a portfolio goal reads it. */
+export const fixtureCurrentPriceAmount = normalizeMoneyAmount(goalListing().currentPriceAmount);
 
 export type GoalResult = GoalDecision | GoalUnavailable;
 
@@ -68,7 +73,28 @@ export function solveOnFixture(
     parameters: overrides.parameters ?? defaultParameters(goal),
     economics:
       overrides.economics !== undefined ? overrides.economics : goal.requiresEconomics ? fixtureEconomics : null,
+    currentPriceAmount: fixtureCurrentPriceAmount,
   });
+}
+
+/**
+ * A portfolio over the shared fixture curves: the observed curve at the
+ * fixture price and rescaled, the truncated-supply curve no goal can model,
+ * and an observed listing with no current price.
+ */
+function fixturePortfolio(): readonly PortfolioListing[] {
+  const observed = fixtureCurves.observed!;
+  const scaled = { ...observed, points: scaleCurve(observed, 1.5).points };
+  return [
+    { listingId: "lst_conformance_a", currentPriceAmount: fixtureCurrentPriceAmount, curve: observed },
+    { listingId: "lst_conformance_b", currentPriceAmount: normalizeMoneyAmount("14.00"), curve: scaled },
+    {
+      listingId: "lst_conformance_c",
+      currentPriceAmount: normalizeMoneyAmount("12.00"),
+      curve: fixtureCurves["truncated-supply"]!,
+    },
+    { listingId: "lst_conformance_d", currentPriceAmount: null, curve: observed },
+  ];
 }
 
 function declarationOf(declarations: GoalDeclarations, goal: PricingGoalDefinition): GoalDeclaration {
@@ -151,6 +177,7 @@ export function goalConformanceProperties(
             curve: structuredClone(curve),
             parameters: defaultParameters(goal),
             economics: goal.requiresEconomics ? structuredClone(fixtureEconomics) : null,
+            currentPriceAmount: fixtureCurrentPriceAmount,
           });
           const first = goal.solve(input);
           expect(goal.solve(input)).toEqual(first);
@@ -284,6 +311,40 @@ export function goalConformanceProperties(
         } finally {
           vi.restoreAllMocks();
         }
+      },
+    },
+    {
+      name: "solves a portfolio as one reproducible plan where it declares one",
+      check: (goal) => {
+        if (!goal.solvePortfolio) return;
+        const listings = deepFreeze(structuredClone(fixturePortfolio()));
+        const input = { currencyCode: "USD", listings, parameters: defaultParameters(goal) };
+        const plan = goal.solvePortfolio(input);
+        expect(goal.solvePortfolio({ ...input, listings: [...listings].reverse() }), "order-free").toEqual(plan);
+        expect(plan).toMatchObject({ goalId: goal.id, goalVersion: goal.version, parameters: input.parameters });
+        expect(plan.listings.map(({ listingId }) => listingId)).toEqual(listings.map(({ listingId }) => listingId));
+        expect(plan.listings.slice(2), "held, never guessed").toEqual([
+          {
+            listingId: "lst_conformance_c",
+            planPriceAmount: "12.00",
+            decision: null,
+            heldReason: expect.stringMatching(/^curve-/),
+          },
+          {
+            listingId: "lst_conformance_d",
+            planPriceAmount: null,
+            decision: null,
+            heldReason: "current-price-missing",
+          },
+        ]);
+        for (const { decision } of plan.listings) if (decision) expectExplained(goal, decision);
+        const [single] = goal.solvePortfolio({ ...input, listings: [listings[0]!] }).listings;
+        expect(solveOnFixture(goal, listings[0]!.curve!), "one listing is a one-listing portfolio").toEqual(
+          single!.decision,
+        );
+        expect(() => goal.solvePortfolio!({ ...input, listings: [...listings, listings[0]!] })).toThrow(
+          "A portfolio lists each listing once; repeated: lst_conformance_a.",
+        );
       },
     },
     goldenDecisionProperty(declarations),

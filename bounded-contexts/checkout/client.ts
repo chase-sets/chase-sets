@@ -3,7 +3,7 @@ import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { MutationResult } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
-import type { CheckoutCartLine } from "./features/cart/api/contracts";
+import type { CheckoutCartLine, CheckoutCartRead } from "./features/cart/api/contracts";
 import type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
 import type {
   CheckoutSellListCompositeReview,
@@ -30,11 +30,13 @@ import {
   type CheckoutCartAttemptKind,
   type CheckoutCommandAttemptResult,
 } from "./features/command-attempts/api/contracts";
+import type { CheckoutEntryAttemptQuery } from "./features/command-attempts/api/entry-attempt-contracts";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
 export type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
+export type { CheckoutCartRead } from "./features/cart/api/contracts";
 export type {
   SellListConfirmationSummary,
   SellListReadinessDecisionInput,
@@ -408,10 +410,10 @@ export function createCheckoutApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async getCart(): Promise<{ items: readonly CheckoutCartLine[]; count: number }> {
+    async getCart(): Promise<CheckoutCartRead> {
       return parseJsonResponse(await client.account.cart.$get({ header: headers }));
     },
-    async getGuestCart(anonymousCartId: string | null): Promise<{ items: readonly CheckoutCartLine[]; count: number }> {
+    async getGuestCart(anonymousCartId: string | null): Promise<CheckoutCartRead> {
       return parseJsonResponse(
         await client.guest.cart.$get({
           header: mergeHeaders(headers, anonymousCartId ? { "x-checkout-anonymous-cart-id": anonymousCartId } : {}),
@@ -492,6 +494,18 @@ export function createCheckoutApiClient({
     },
     /** The owner lookup for one attempt; the answer is re-validated against the closed result schema. */
     async getCartCommandAttempt(query: CheckoutCartCommandAttemptQuery): Promise<CheckoutCommandAttemptResult> {
+      return parseCommandAttemptLookup(
+        await parseJsonResponse<{ attempt: unknown }>(
+          await client.account["command-attempts"][":attemptId"].$get({
+            param: { attemptId: query.attemptId },
+            query: { kind: query.kind, target: query.target, requestHash: query.requestHash },
+            header: headers,
+          }),
+        ),
+      );
+    },
+    /** The owner lookup for one Session entry attempt of the presenting Account (guest-buyer included). */
+    async getCheckoutEntryAttempt(query: CheckoutEntryAttemptQuery): Promise<CheckoutCommandAttemptResult> {
       return parseCommandAttemptLookup(
         await parseJsonResponse<{ attempt: unknown }>(
           await client.account["command-attempts"][":attemptId"].$get({
@@ -846,6 +860,21 @@ export function createCheckoutApiClient({
         await client.account["checkout-sessions"][":sessionId"]["optimization-goal"].$post({
           param: { sessionId },
           json: body,
+          header: headers,
+        }),
+      );
+    },
+    async cancelCheckoutSession(sessionId: string): Promise<
+      CheckoutMutationResult<{
+        session_id: string;
+        status: "cancelled" | "already-cancelled";
+        cancelled_at: string | null;
+        released_reservation_ids: readonly string[];
+      }>
+    > {
+      return parseJsonResponse(
+        await client.account["checkout-sessions"][":sessionId"].cancel.$post({
+          param: { sessionId },
           header: headers,
         }),
       );

@@ -1,9 +1,11 @@
 import { t } from "@chase-sets/localization";
 import {
+  Button,
   CheckoutFlowShell,
   CheckoutNoticeStack,
   CheckoutStateNotice,
   Form,
+  LinkButton,
   Page,
   PageHeader,
   PageStepper,
@@ -16,6 +18,7 @@ import {
   CheckoutStickyAction,
   type CheckoutCommitButtonProps,
 } from "./checkout-commit-actions";
+import { CheckoutAttemptResultNotice } from "./checkout-attempt-result-notice";
 import { CheckoutContactSection } from "./checkout-contact-section";
 import { CheckoutDeliverySection } from "./checkout-delivery-section";
 import { CheckoutFormLevelHiddenFields } from "./checkout-hidden-fields";
@@ -57,6 +60,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
     commitIntent: model.commitIntent,
     commitIcon: model.commitIcon,
     isSubmitting: model.isSubmitting,
+    confirmationAmbiguous: props.confirmationAmbiguous ?? false,
     submittingCtaLabel: model.submittingCtaLabel,
     primaryCtaLabel: model.primaryCtaLabel,
   };
@@ -88,9 +92,32 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
         />
       ) : null}
 
+      {props.confirmationAmbiguous ? (
+        <CheckoutAttemptResultNotice
+          id="checkout-confirmation-result"
+          title={t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.title")}
+          description={t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.description")}
+          action={
+            <LinkButton
+              href={`/checkout/buy/session/${model.session.session_id}`}
+              leadingIcon="refreshCcw"
+              tone="secondary"
+            >
+              {t("checkout.features.sessions.ui.checkoutPage.confirmation.ambiguous.refresh")}
+            </LinkButton>
+          }
+        />
+      ) : null}
+
       <CheckoutNoticeStack candidates={model.noticeCandidates} />
 
-      {props.expiredCheckout ? null : model.preparedPaymentEntry ? (
+      {model.checkoutCancelled ? (
+        <CheckoutStateNotice
+          tone="success"
+          title={t("checkout.features.sessions.ui.checkoutPage.checkout.cancelled")}
+          description={t("checkout.features.sessions.ui.checkoutPage.checkout.cancelled.description")}
+        />
+      ) : props.expiredCheckout ? null : model.preparedPaymentEntry ? (
         model.preparedPaymentEntry
       ) : model.session.payment_id ? (
         <CheckoutConfirmationSection
@@ -190,6 +217,27 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
               onFieldChange={model.markReviewStale}
             />
 
+            {model.canCancelCheckout ? (
+              <CheckoutStateNotice
+                tone="neutral"
+                title={t("checkout.features.sessions.ui.checkoutPage.cancel.checkout.title")}
+                description={t("checkout.features.sessions.ui.checkoutPage.cancel.checkout.description")}
+                action={
+                  <Button
+                    type="submit"
+                    formNoValidate
+                    name="intent"
+                    value="cancel-checkout"
+                    tone="secondary"
+                    size="sm"
+                    disabled={model.isSubmitting}
+                  >
+                    {t("checkout.features.sessions.ui.checkoutPage.cancel.checkout")}
+                  </Button>
+                }
+              />
+            ) : null}
+
             <CheckoutInFormCommitRow {...commitButtonProps} />
 
             <CheckoutPolicyLinks
@@ -204,7 +252,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
   );
 
   const stickyAction =
-    props.expiredCheckout || model.preparedPaymentEntry ? null : (
+    model.checkoutCancelled || props.expiredCheckout || model.preparedPaymentEntry ? null : (
       <CheckoutStickyAction
         totalsTotalLabel={model.totalsTotalLabel}
         hasPayment={model.hasPayment}

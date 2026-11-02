@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   contextManifestContributesToApiHost,
   listBoundedContextManifests,
@@ -154,6 +155,7 @@ export function listTrackedLocaleModulePaths(rootDir, options = {}) {
     output = execGit("git", ["ls-files", "--", localizationRoot], {
       cwd: rootDir,
       encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     });
   } catch (error) {
     throw new Error(`Failed to discover tracked localization modules with git ls-files: ${gitErrorMessage(error)}`);

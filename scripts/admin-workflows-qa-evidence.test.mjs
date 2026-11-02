@@ -1,7 +1,7 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_AUTH_SHELL_RBAC_REQUIRED_COVERAGE,
@@ -18,10 +18,16 @@ import {
 } from "./admin-workflows-qa-evidence.mjs";
 
 const checkedAt = "2026-06-30T17:30:00.000Z";
+const temporaryDirectories = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 describe("admin workflows QA evidence", () => {
   it("passes support-safe public evidence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3027.md");
     await writeFile(
       evidenceFile,
@@ -73,6 +79,7 @@ describe("admin workflows QA evidence", () => {
 
   it("passes complete cross-cutting responsive and state evidence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3027.md");
     await writeFile(
       evidenceFile,
@@ -115,6 +122,7 @@ describe("admin workflows QA evidence", () => {
 
   it("accepts structured automation evidence for cross-cutting coverage", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3027.json");
     await writeFile(
       evidenceFile,
@@ -174,6 +182,7 @@ describe("admin workflows QA evidence", () => {
 
   it("passes complete support-safe actor matrix evidence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3016.md");
     await writeFile(
       evidenceFile,
@@ -216,6 +225,7 @@ describe("admin workflows QA evidence", () => {
 
   it("accepts structured actor matrix evidence from automation packets", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3016.json");
     await writeFile(
       evidenceFile,
@@ -245,6 +255,7 @@ describe("admin workflows QA evidence", () => {
 
   it("fails actor matrix evidence when aliases or sign-in hosts are missing", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3016.md");
     await writeFile(
       evidenceFile,
@@ -285,6 +296,7 @@ describe("admin workflows QA evidence", () => {
 
   it("rejects the retired platform-feedback partial actor instead of restoring ordinary-role access", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3016.md");
     await writeFile(
       evidenceFile,
@@ -310,6 +322,7 @@ describe("admin workflows QA evidence", () => {
 
   it("fails strict cross-cutting evidence when responsive or state coverage is missing", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3027.md");
     await writeFile(
       evidenceFile,
@@ -354,6 +367,7 @@ describe("admin workflows QA evidence", () => {
 
   it("passes complete catalog modeling coverage evidence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3021.md");
     await writeFile(
       evidenceFile,
@@ -392,6 +406,7 @@ describe("admin workflows QA evidence", () => {
 
   it("accepts structured catalog modeling coverage packets", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3021.json");
     await writeFile(
       evidenceFile,
@@ -425,6 +440,7 @@ describe("admin workflows QA evidence", () => {
 
   it("fails catalog modeling evidence when checklist coverage is incomplete", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3021.md");
     await writeFile(
       evidenceFile,
@@ -461,6 +477,7 @@ describe("admin workflows QA evidence", () => {
 
   it("passes complete projection operations coverage evidence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3026.md");
     await writeFile(
       evidenceFile,
@@ -501,6 +518,7 @@ describe("admin workflows QA evidence", () => {
 
   it("accepts structured projection operations coverage packets", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3026.json");
     await writeFile(
       evidenceFile,
@@ -536,6 +554,7 @@ describe("admin workflows QA evidence", () => {
 
   it("fails projection operations evidence when destructive coverage is incomplete", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3026.md");
     await writeFile(
       evidenceFile,
@@ -572,6 +591,7 @@ describe("admin workflows QA evidence", () => {
 
   it("passes complete Access coverage evidence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3020.md");
     await writeFile(
       evidenceFile,
@@ -610,6 +630,7 @@ describe("admin workflows QA evidence", () => {
 
   it("accepts structured Access coverage packets", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3020.json");
     await writeFile(
       evidenceFile,
@@ -643,6 +664,7 @@ describe("admin workflows QA evidence", () => {
 
   it("fails Access evidence when lifecycle coverage is incomplete", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3020.md");
     await writeFile(
       evidenceFile,
@@ -689,6 +711,7 @@ describe("admin workflows QA evidence", () => {
 
   it("produces a scaffold that passes the redaction scan and only fails on TODO placeholders", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3020-scaffold.md");
     await writeFile(evidenceFile, buildAdminWorkflowsQaAccessEvidenceScaffold());
 
@@ -716,6 +739,7 @@ describe("admin workflows QA evidence", () => {
 
   it("passes complete catalog integrations coverage evidence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3022.md");
     await writeFile(
       evidenceFile,
@@ -756,6 +780,7 @@ describe("admin workflows QA evidence", () => {
 
   it("accepts structured catalog integrations coverage packets", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3022.json");
     await writeFile(
       evidenceFile,
@@ -791,6 +816,7 @@ describe("admin workflows QA evidence", () => {
 
   it("fails catalog integrations evidence when provider workflow coverage is incomplete", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3022.md");
     await writeFile(
       evidenceFile,
@@ -828,6 +854,7 @@ describe("admin workflows QA evidence", () => {
 
   it("passes complete auth shell RBAC coverage evidence", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3019.md");
     await writeFile(
       evidenceFile,
@@ -866,6 +893,7 @@ describe("admin workflows QA evidence", () => {
 
   it("accepts structured auth shell RBAC coverage packets", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3019.json");
     await writeFile(
       evidenceFile,
@@ -899,6 +927,7 @@ describe("admin workflows QA evidence", () => {
 
   it("fails auth shell RBAC evidence when sign-in method or RBAC role coverage is incomplete", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "issue-3019.md");
     await writeFile(
       evidenceFile,
@@ -936,6 +965,7 @@ describe("admin workflows QA evidence", () => {
 
   it("finds sensitive evidence categories without returning raw matched values", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "unsafe.md");
     await writeFile(
       evidenceFile,
@@ -981,6 +1011,7 @@ describe("admin workflows QA evidence", () => {
 
   it("writes a support-safe report", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    temporaryDirectories.push(directory);
     const evidenceFile = join(directory, "safe.json");
     const outFile = join(directory, "report.json");
     await writeFile(

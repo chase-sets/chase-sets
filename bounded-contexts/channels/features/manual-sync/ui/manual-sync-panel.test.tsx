@@ -1,11 +1,42 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { createMemoryRouter, RouterProvider } from "react-router";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider, type ActionFunctionArgs } from "react-router";
+import { describe, expect, it, vi } from "vitest";
 import type { ChannelSyncRun, ChannelSyncRunState } from "../../tcgplayer-csv/domain/contracts";
 import { resolveManualSyncActions, type ManualSyncPanel } from "../domain/contracts";
 import { ManualSyncPanelView } from "./manual-sync-panel";
 
 describe("channels-manual-sync-design-system", () => {
+  it("manual sync busies only the submitted form and suppresses a second submit", async () => {
+    let release!: () => void;
+    const pending = new Promise<null>((resolve) => {
+      release = () => resolve(null);
+    });
+    const action = vi.fn(async (_args: ActionFunctionArgs) => pending);
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          action,
+          Component: () => <ManualSyncPanelView panel={{ ...panel(null), actions: ["compose"] }} />,
+        },
+      ],
+      { initialEntries: ["/"] },
+    );
+    render(<RouterProvider router={router} />);
+    const button = screen.getByRole("button", { name: "Compose Staged batch" });
+    fireEvent.submit(button.closest("form")!);
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(button.closest("form")?.getAttribute("aria-busy")).toBe("true");
+    expect(button.matches(":disabled")).toBe(false);
+    fireEvent.submit(button.closest("form")!);
+    expect(action).toHaveBeenCalledTimes(1);
+    release();
+    await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+    router.dispose();
+  });
+
   it("replaces the dark banner with live coverage without clearing clamp recovery", () => {
     const current = panel("composed");
     const markup = markupOf({

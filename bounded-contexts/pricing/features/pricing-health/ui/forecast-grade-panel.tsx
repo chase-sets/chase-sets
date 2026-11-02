@@ -9,7 +9,11 @@ export function ForecastGradePanel({ grades }: Readonly<{ grades: readonly Prici
         <Badge>{copy("grades.empty")}</Badge>
       ) : (
         grades.map((row) => (
-          <Card key={JSON.stringify([row.goalId, row.goalVersion, row.forecastKind, row.horizonDays, row.model])}>
+          <Card
+            key={JSON.stringify([row.goalId, row.goalVersion, row.forecastKind, row.horizonDays, row.model])}
+            elevation="tinted"
+            data-elevation-role="furniture"
+          >
             <Card.Header>
               <Card.Title>
                 {copy("grades.identity", {

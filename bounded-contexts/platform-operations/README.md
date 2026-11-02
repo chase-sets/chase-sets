@@ -41,7 +41,7 @@ Platform Operations terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Incoming Dependencies
 
 - Marketplace for report, listing, and review facts that feed the reported-content moderation queue and insights dashboards.
-- Identity for account-creation facts that feed insights dashboards and risk alerts.
+- Identity for account-creation facts that feed insights dashboards and risk alerts, and for Account Profile Report facts that feed the reported-content moderation queue.
 - Payments for payment and dispute facts that feed insights dashboards and risk alerts.
 - Ordering for order lifecycle facts that feed insights dashboards and guide support-request flows.
 - Fulfillment for shipment lifecycle facts that feed insights dashboards and guide support-request flows.

@@ -100,12 +100,18 @@ describeDb("option-bearing Offer policy Preview on Postgres", () => {
     });
     await runtime.execute(
       "bop_one",
-      { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+      {
+        attemptId: String("create").padEnd(22, "_"),
+        type: "CreateBuyerOfferPolicy",
+        expectedVersion: 0,
+        operationId: "create",
+      },
       context,
     );
     const preview = await runtime.execute(
       "bop_one",
       {
+        attemptId: String("preview").padEnd(22, "_"),
         type: "PreviewBuyerOfferPolicy",
         expectedVersion: 1,
         operationId: "preview",

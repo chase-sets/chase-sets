@@ -31,6 +31,12 @@ Context-owned read-model indexes can stay in additive boot schema SQL unless pro
 
 The write-hot `event_store_streams` and `event_projection_checkpoints` tables use fillfactor 90 through the ledgered `20260710_event_store_write_hot_fillfactor` migration. The migration leads with a five-second `lock_timeout` because changing a table storage parameter requires an `ACCESS EXCLUSIVE` lock. It changes storage policy for future writes only: deployment deliberately does not run `VACUUM FULL` or `pg_repack`, avoiding a table rewrite and its additional lock, disk, and operational risk. Normal updates will gradually realize the reserved page space. If production evidence requires rollback, apply a new ledgered migration with the same lock timeout and `ALTER TABLE ... RESET (fillfactor)` for both tables; existing pages still are not rewritten automatically.
 
+## Control-Plane Migrations
+
+The platform control database records its one-time changes in the same `bounded_context_schema_migrations` ledger. `bootstrapPlatformControlPlane` applies its additive boot SQL, then each `platformControlPlaneSchemaMigrations` entry as one simple-protocol query: an advisory transaction lock, the ledger check, the statements and the ledger row commit together or not at all, so concurrent fleet boots apply each migration once.
+
+`20261020_evidence_window_journal_principal_write_refusal` installs a statement-level trigger that refuses `INSERT`, `UPDATE`, `DELETE` and `TRUNCATE` on `evidence_window` for any login named like the staging evidence window's run-named journal principal. That principal holds a column `UPDATE` grant only because `FOR SHARE` requires one; the trigger keeps the grant non-effective. Runtime access is unchanged. Rolling back means dropping the trigger and function and deleting the ledger row; do so only after every journal principal is revoked.
+
 ## Adding A Migration
 
 Add a migration only for cross-cutting or shared runtime schema work. Bounded-context-owned table changes should usually remain with that context's schema unless the change is a one-time data backfill, a large-table concurrent index, or another operation that must not run every boot.

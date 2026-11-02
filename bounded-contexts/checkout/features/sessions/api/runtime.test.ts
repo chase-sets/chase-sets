@@ -1,4 +1,5 @@
 import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../../cart/domain/domain";
+import { readFileSync } from "node:fs";
 import {
   evolveCheckoutSession,
   initialCheckoutSessionState,
@@ -9,6 +10,7 @@ import type { CheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
   AppendToStreamInput,
@@ -24,7 +26,10 @@ import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart
 import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
-import { createCheckoutSessionRuntime, OrderCartCleanupError } from "./runtime";
+import { createCheckoutSessionRuntime, OrderCartCleanupError, type CheckoutSessionServices } from "./runtime";
+import { createCheckoutSessionEntryServices } from "./session-entry";
+import { createCheckoutSessionReadServices } from "./session-read";
+import { createCheckoutSessionCleanupService } from "./session-cleanup";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -475,7 +480,7 @@ describe("checkout session runtime", () => {
     expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
   });
 
-  it("replaces half-confirmed Buy Now entry sessions that never reached payment", async () => {
+  it("replays a half-confirmed Buy Now entry as its first Session without a second start (#9994)", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSessionRuntime({
       eventStore,
@@ -519,18 +524,15 @@ describe("checkout session runtime", () => {
       context,
     );
 
-    const replacement = await services.createBuyNow(buyNowInput, context);
+    const eventCount = allEvents.length;
 
-    expect(replacement.sessionId).toMatch(/^chk_/);
-    expect(replacement.sessionId).not.toBe(first.sessionId);
-    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(2);
-    expect(
-      allEvents.filter(
-        (event) =>
-          event.streamId === `checkout.session-${replacement.sessionId}` &&
-          event.eventType === "checkout.session.started",
-      ),
-    ).toHaveLength(1);
+    // The same key derives the same Session: a retry returns what that entry
+    // committed; a new deliberate Buy Now carries a new key and a new id.
+    const replayed = await services.createBuyNow(buyNowInput, context);
+
+    expect(replayed.sessionId).toBe(first.sessionId);
+    expect(allEvents).toHaveLength(eventCount);
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
   });
 
   it("rejects unavailable shipping options before mutating the session", async () => {
@@ -1945,8 +1947,8 @@ describe("checkout session runtime", () => {
     expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
-  it("blocks unsupported delivery regions before order creation", async () => {
-    const { eventStore } = createInMemoryEventStore();
+  it("rejects unsupported delivery regions at the address write", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
     const cart = createCartServices([readyCartLine]);
     const services = createCheckoutSessionRuntime({
       eventStore,
@@ -1964,47 +1966,28 @@ describe("checkout session runtime", () => {
       },
       context,
     );
-    await services.setShippingAddress(
-      {
-        sessionId: created.sessionId,
-        accountId: "acc_buyer" as never,
-        shippingAddress: {
-          ...serviceableShippingAddress,
-          state: "PR",
-          postalCode: "00901",
-        },
-      },
-      context,
-    );
-
     await expect(
-      services.assertReadyForOrderCreation({
-        sessionId: created.sessionId,
-        accountId: "acc_buyer" as never,
-      }),
-    ).rejects.toMatchObject({
-      code: "shipping_address_unsupported",
-      message: "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
-    } satisfies Partial<CheckoutDomainError>);
-
-    await expect(
-      services.recordOrdersCreated(
+      services.setShippingAddress(
         {
           sessionId: created.sessionId,
           accountId: "acc_buyer" as never,
-          orderIds: ["ord_1"],
-          fulfilledLineKeys: ["cli_1"],
+          shippingAddress: {
+            ...serviceableShippingAddress,
+            state: "PR",
+            postalCode: "00901",
+          },
         },
         context,
       ),
     ).rejects.toMatchObject({
       code: "shipping_address_unsupported",
+      message: "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
     } satisfies Partial<CheckoutDomainError>);
-    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(0);
   });
 
-  it("blocks unsupported delivery countries before order creation", async () => {
-    const { eventStore } = createInMemoryEventStore();
+  it("rejects unsupported delivery countries at the address write", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSessionRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
@@ -2021,27 +2004,151 @@ describe("checkout session runtime", () => {
       },
       context,
     );
-    await services.setShippingAddress(
-      {
-        sessionId: created.sessionId,
-        accountId: "acc_buyer" as never,
-        shippingAddress: {
-          ...serviceableShippingAddress,
-          country: "CA",
+    await expect(
+      services.setShippingAddress(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingAddress: {
+            ...serviceableShippingAddress,
+            country: "CA",
+          },
         },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "shipping_address_unsupported",
+      message: "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    } satisfies Partial<CheckoutDomainError>);
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(0);
+  });
+
+  it("checks the accepted suggested address at the write boundary", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices([readyCartLine]) as never,
+      addressVerificationProvider: {
+        providerName: "verification-test",
+        providerMode: "test",
+        verifyAddress: vi.fn<NonNullable<PostageLabelProvider["verifyAddress"]>>(async () => ({
+          providerName: "verification-test",
+          providerMode: "test",
+          status: "corrected",
+          checkedAt: "2026-10-25T00:00:00.000Z",
+          address: {
+            name: serviceableShippingAddress.name,
+            street1: serviceableShippingAddress.line1,
+            street2: serviceableShippingAddress.line2,
+            city: serviceableShippingAddress.city,
+            state: serviceableShippingAddress.state,
+            postalCode: serviceableShippingAddress.postalCode,
+            country: serviceableShippingAddress.country,
+          },
+          suggestedAddress: {
+            name: serviceableShippingAddress.name,
+            street1: "PO Box 100",
+            street2: null,
+            city: serviceableShippingAddress.city,
+            state: serviceableShippingAddress.state,
+            postalCode: serviceableShippingAddress.postalCode,
+            country: serviceableShippingAddress.country,
+          },
+          messages: [],
+        })),
+        purchaseUspsLabel: vi.fn(),
+        voidLabel: vi.fn(),
+      } satisfies PostageLabelProvider,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_address_accepted_suggested" as never,
       },
       context,
     );
 
     await expect(
-      services.assertReadyForOrderCreation({
-        sessionId: created.sessionId,
+      services.setShippingAddress(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingAddress: serviceableShippingAddress,
+          addressVerificationDecision: "accept-suggested",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "shipping_address_restricted" } satisfies Partial<CheckoutDomainError>);
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(0);
+  });
+
+  it("checks the kept original address at the write boundary", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices([readyCartLine]) as never,
+      addressVerificationProvider: {
+        providerName: "verification-test",
+        providerMode: "test",
+        verifyAddress: vi.fn<NonNullable<PostageLabelProvider["verifyAddress"]>>(async () => ({
+          providerName: "verification-test",
+          providerMode: "test",
+          status: "corrected",
+          checkedAt: "2026-10-25T00:00:00.000Z",
+          address: {
+            name: serviceableShippingAddress.name,
+            street1: "PO Box 100",
+            street2: null,
+            city: serviceableShippingAddress.city,
+            state: serviceableShippingAddress.state,
+            postalCode: serviceableShippingAddress.postalCode,
+            country: serviceableShippingAddress.country,
+          },
+          suggestedAddress: {
+            name: serviceableShippingAddress.name,
+            street1: serviceableShippingAddress.line1,
+            street2: serviceableShippingAddress.line2,
+            city: serviceableShippingAddress.city,
+            state: serviceableShippingAddress.state,
+            postalCode: serviceableShippingAddress.postalCode,
+            country: serviceableShippingAddress.country,
+          },
+          messages: [],
+        })),
+        purchaseUspsLabel: vi.fn(),
+        voidLabel: vi.fn(),
+      } satisfies PostageLabelProvider,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
         accountId: "acc_buyer" as never,
-      }),
-    ).rejects.toMatchObject({
-      code: "shipping_address_unsupported",
-      message: "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
-    } satisfies Partial<CheckoutDomainError>);
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_address_kept_original" as never,
+      },
+      context,
+    );
+
+    await expect(
+      services.setShippingAddress(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingAddress: { ...serviceableShippingAddress, line1: "PO Box 100" },
+          addressVerificationDecision: "keep-original",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "shipping_address_restricted" } satisfies Partial<CheckoutDomainError>);
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(0);
   });
 
   it("blocks incomplete delivery addresses before order creation", async () => {
@@ -2083,8 +2190,102 @@ describe("checkout session runtime", () => {
     expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
-  it("blocks PO box delivery addresses before order creation", async () => {
-    const { eventStore } = createInMemoryEventStore();
+  it.each([
+    ["required", { ...serviceableShippingAddress, postalCode: "" }, "shipping_address_required"],
+    ["region", { ...serviceableShippingAddress, state: "PR" }, "shipping_address_unsupported"],
+    ["country", { ...serviceableShippingAddress, country: "CA" }, "shipping_address_unsupported"],
+    ["restricted", { ...serviceableShippingAddress, line1: "PO Box 100" }, "shipping_address_restricted"],
+  ] as const)("appends zero events for rejected %s addresses", async (_name, shippingAddress, code) => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const { sessionId } = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+      },
+      context,
+    );
+    const before = [...allEvents];
+    const error = await services
+      .setShippingAddress({ sessionId, accountId: "acc_buyer" as never, shippingAddress }, context)
+      .then(
+        () => null,
+        (failure: unknown) => failure,
+      );
+    expect(allEvents).toEqual(before);
+    expect(error).toMatchObject({ code });
+  });
+
+  it("retains the order-creation defense for legacy pre-guard addresses", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const cart = createCartServices();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: cart as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_legacy_address_guard" as never,
+      },
+      context,
+    );
+    await eventStore.appendToStream({
+      streamId: `checkout.session-${created.sessionId}`,
+      expectedVersion: 1,
+      context,
+      events: [
+        {
+          eventType: "checkout.session.shipping-address-set",
+          payload: {
+            sessionId: created.sessionId,
+            shippingAddress: { ...serviceableShippingAddress, line1: "PO Box 100" },
+            selectedAt: "2026-06-09T00:01:00.000Z",
+          },
+        },
+      ],
+    });
+
+    await expect(
+      services.assertReadyForOrderCreation({
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+      }),
+    ).rejects.toMatchObject({
+      code: "shipping_address_restricted",
+      message:
+        "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+    } satisfies Partial<CheckoutDomainError>);
+    const before = [...allEvents];
+    await expect(
+      services.recordOrdersCreated(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1"],
+          fulfilledLineKeys: ["cli_1"],
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "shipping_address_restricted" });
+    expect(allEvents).toEqual(before);
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
+  });
+
+  it("rejects PO box delivery addresses at the address write", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
     const cart = createCartServices([readyCartLine]);
     const services = createCheckoutSessionRuntime({
       eventStore,
@@ -2102,30 +2303,218 @@ describe("checkout session runtime", () => {
       },
       context,
     );
-    await services.setShippingAddress(
-      {
-        sessionId: created.sessionId,
-        accountId: "acc_buyer" as never,
-        shippingAddress: {
-          ...serviceableShippingAddress,
-          line1: "PO Box 100",
-        },
-      },
-      context,
-    );
-
     await expect(
-      services.assertReadyForOrderCreation({
-        sessionId: created.sessionId,
-        accountId: "acc_buyer" as never,
-      }),
+      services.setShippingAddress(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingAddress: {
+            ...serviceableShippingAddress,
+            line1: "PO Box 100",
+          },
+        },
+        context,
+      ),
     ).rejects.toMatchObject({
       code: "shipping_address_restricted",
       message:
         "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
     } satisfies Partial<CheckoutDomainError>);
 
-    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-address-set")).toHaveLength(0);
+  });
+});
+
+describe("Checkout session entry and read relocation parity", () => {
+  it("complete Checkout session behavior ownership", () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const cart = createCartServices() as never;
+    const eventStore = {} as never;
+    const commandHandler = vi.fn() as never;
+    const repository = { load: vi.fn() } as never;
+    const entry = createCheckoutSessionEntryServices({ eventStore, db, cart, commandHandler });
+    const read = createCheckoutSessionReadServices({
+      db,
+      cart,
+      loadSessionStateForBuyer: vi.fn(),
+      loadSessionStateForBuyerOrNull: vi.fn(),
+    });
+    const cleanup = createCheckoutSessionCleanupService({
+      eventStore,
+      cart,
+      repository,
+      loadSessionStateForBuyer: vi.fn(),
+      applySessionCommandForBuyer: vi.fn(),
+      stateToCheckoutSessionRow: vi.fn(),
+    });
+    const { eventStore: realEventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore: realEventStore,
+      checkpointStore: createCheckpointStore(),
+      db,
+      cart,
+    });
+    const owners = [entry, read, cleanup].map((owner) => Object.keys(owner));
+    const ownedKeys = owners.flat();
+    expect(owners).toEqual([
+      ["resolveEntryAttempt", "createFromCart", "createBuyNow", "createOfferIntent"],
+      ["assertReadyForOrderCreation", "getSession", "getLastRecordedQuote"],
+      ["resumeOrderCartCleanup", "recordOrdersCreated"],
+    ]);
+    expect(new Set(ownedKeys).size).toBe(ownedKeys.length);
+    const directKeys = Object.keys(services).filter((key) => !ownedKeys.includes(key));
+    expect(directKeys.sort()).toEqual(
+      [
+        "cancelSession",
+        "commandHandler",
+        "getConfirmationBinding",
+        "getPaymentConfirmation",
+        "getPaymentSummary",
+        "listSavedPaymentInstruments",
+        "lookupEntryAttempt",
+        "projectors",
+        "readSessionForCancellation",
+        "recordCheckoutReservations",
+        "recordFulfillmentPreview",
+        "recordOfferSubmitted",
+        "recordPaymentStarted",
+        "selectAuthenticityCheckOptIn",
+        "selectOptimizationGoal",
+        "selectShippingOption",
+        "setShippingAddress",
+        "verifyShippingAddress",
+      ].sort(),
+    );
+    expect(new Set([...ownedKeys, ...directKeys])).toEqual(new Set(Object.keys(services)));
+    expect(Object.keys(services).length).toBe(ownedKeys.length + directKeys.length);
+
+    const source = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
+    const runtimeSource = source("runtime.ts");
+    const readSource = source("session-read.ts");
+    expect(runtimeSource.match(/repository\.load\(`checkout\.session-/g)).toHaveLength(2);
+    expect(readSource).not.toMatch(/repository\.load\(`checkout\.session-/);
+    expect(readSource).toContain("unresolvedFulfillmentError");
+  });
+
+  it("preserves public entry and aggregate-read behavior", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+      },
+      context,
+    );
+    await expect(services.getSession(created.sessionId, "acc_buyer")).resolves.toMatchObject({
+      session_id: created.sessionId,
+      source_type: "cart",
+    });
+  });
+
+  it("refuses an entry whose atomic append loses to the same key with another payload, leaving nothing behind", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createBuyNowReadinessDb(),
+      cart: createCartServices() as never,
+    });
+    const buyNowInput = {
+      accountId: "acc_buyer" as never,
+      listingId: "lst_1",
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+      fulfillmentMode: "locked-listing" as const,
+      lockedListingId: "lst_1",
+      shippingOption: "standard",
+      fulfillmentPreviewRevision: "buy_now_supply_ready",
+    };
+    const attemptId = "chkentry_runtime_synthetic_0001";
+    const first = await services.createBuyNow(
+      {
+        ...buyNowInput,
+        sessionIdOverride: "chk_synthetic_entry_first" as never,
+        entryAttempt: { attemptId, requestHash: "a".repeat(64) },
+      },
+      context,
+    );
+    const eventCount = allEvents.length;
+
+    // A contender that read no attempt before the winner appended reaches the
+    // atomic append with a changed payload under its own derived Session id.
+    await expect(
+      services.createBuyNow(
+        {
+          ...buyNowInput,
+          quantity: 2,
+          sessionIdOverride: "chk_synthetic_entry_second" as never,
+          entryAttempt: { attemptId, requestHash: "b".repeat(64) },
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "checkout_attempt_conflict" });
+
+    expect(first.sessionId).toBe("chk_synthetic_entry_first");
+    expect(allEvents).toHaveLength(eventCount);
+    expect(allEvents.some((event) => event.streamId === "checkout.session-chk_synthetic_entry_second")).toBe(false);
+  });
+
+  it("real CheckoutSessionServices consumers compile", () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services: CheckoutSessionServices = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    expect(services.commandHandler).toBeDefined();
+    expect(services.getSession).toBeTypeOf("function");
+  });
+});
+
+describe("Checkout retained cleanup relocation parity", () => {
+  it("keeps the retained cleanup entrypoint idempotent for non-cart sessions", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createBuyNowReadinessDb(),
+      cart: createCartServices() as never,
+    });
+    const created = await services.createOfferIntent(
+      {
+        accountId: "acc_buyer" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        offerPriceAmount: "20.00",
+        offerPriceCurrencyCode: "USD",
+        quantity: 1,
+      },
+      context,
+    );
+    const resumed = await services.resumeOrderCartCleanup(
+      { sessionId: created.sessionId, accountId: "acc_buyer" as never },
+      context,
+    );
+    expect(resumed.session.session_id).toBe(created.sessionId);
+    expect(resumed.session.source_type).toBe("offer-intent");
   });
 });
 

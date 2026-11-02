@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -34,7 +35,11 @@ export function deriveLinkIntentOrigins(root) {
 }
 
 export function deriveOwnerLinkTypes(root) {
-  const paths = execFileSync("git", ["ls-files", "bounded-contexts/*/context.json"], { cwd: root, encoding: "utf8" })
+  const paths = execFileSync("git", ["ls-files", "bounded-contexts/*/context.json"], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .trim()
     .split(/\r?\n/);
   return paths.flatMap((manifestPath) => {

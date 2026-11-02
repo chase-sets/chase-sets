@@ -20,6 +20,32 @@ import type {
 const generatedAt = "2026-06-25T12:00:00.000Z";
 
 describe("Catalog integration control-plane overview", () => {
+  it("keeps terminal history separate from the authoritative active snapshot", () => {
+    const terminal = integrationJobFixture({ jobId: "job_terminal", status: "completed", operatorStatus: "completed" });
+    const active = integrationJobFixture({
+      jobId: "job_active",
+      status: "running",
+      operatorStatus: "running",
+      progress: { phase: "processing", completed: 0, total: 1, currentName: "OP16", status: null },
+      completedAt: null,
+    });
+    const overview = buildCatalogIntegrationControlPlaneOverview({
+      generatedAt,
+      readiness: readinessFixture(),
+      profiles: [],
+      activeJobs: { items: [active], completeness: "complete" },
+      recentJobs: [terminal],
+    });
+
+    expect(overview.activeJobs).toMatchObject({ completeness: "complete", items: [{ jobId: "job_active" }] });
+    expect(overview.activeJobs.items).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ jobId: "job_terminal" })]),
+    );
+    expect(overview.unitActivity.units[0]?.recentJobs).toEqual(
+      expect.arrayContaining([expect.objectContaining({ jobId: "job_terminal" })]),
+    );
+  });
+
   it("AC6 projects separate count spend without inventing a balance", () => {
     const spend = {
       debitId: "synthetic-debit",
@@ -278,6 +304,9 @@ describe("Catalog provider usage budget read model", () => {
   });
 
   it("projects partial, never-observed, failed, exhausted, and unsupported usage explicitly", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(t0);
+
     const partial = scrydexUsageProvider({ body: { data: { ...syntheticUsageData, credits_remaining: undefined } } });
     expect(await scrydexBudget(partial.registry)).toMatchObject({
       freshness: "fresh",
@@ -345,6 +374,9 @@ describe("Catalog provider usage budget read model", () => {
   });
 
   it("keeps credentials, account fields, and provider URLs out of the composed read model", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(t0);
+
     const provider = scrydexUsageProvider({
       body: {
         data: { ...syntheticUsageData, account_id: "synthetic-account-8427" },

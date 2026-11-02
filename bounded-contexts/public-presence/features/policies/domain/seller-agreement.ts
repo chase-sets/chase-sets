@@ -3,7 +3,7 @@ import {
   type PublicPolicyArtifact,
   type PublicPolicyPublicationReadiness,
 } from "./policy-artifact";
-
+import { unratifiedArbitrationDraftingDifferences } from "./arbitration-drafting-differences";
 export const requiredSellerAgreementSubjectIds = [
   "seller-eligibility-and-verification",
   "listing-obligations",
@@ -97,8 +97,8 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.ts:478-588 (photo requirements for top raw conditions and graded listings; seller-trust price gating)",
           "bounded-contexts/marketplace/features/listings/domain/listing-evidence-readiness.test.ts (publication blocked until evidence/seller-trust requirements are satisfied)",
-          'bounded-contexts/marketplace/features/listings/api/runtime.ts:817,1414,1644 (assert(supply, "Inventory item not found.") — a listing requires an existing catalog-linked inventory row)',
-          "bounded-contexts/marketplace/features/listings/api/runtime.ts:1296-1310 (catalog_catalog_item_id persisted per listing)",
+          'bounded-contexts/marketplace/features/listings/api/runtime.ts:818,1420,1651 (assert(supply, "Inventory item not found.") — a listing requires an existing catalog-linked inventory row)',
+          "bounded-contexts/marketplace/features/listings/api/runtime.ts:1302-1316 (catalog_catalog_item_id persisted per listing)",
           "bounded-contexts/public-presence/features/help/domain/articles/condition-and-photo-standards.en.md",
         ],
         openQuestions: [],
@@ -106,7 +106,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           {
             assertion:
               "Listings can only be created against an existing catalog entry; there is no free-text or off-catalog listing path.",
-            evidenceRef: "bounded-contexts/marketplace/features/listings/api/runtime.ts:817,1414,1644,1296-1310",
+            evidenceRef: "bounded-contexts/marketplace/features/listings/api/runtime.ts:818,1420,1651,1302-1316",
           },
           {
             assertion:
@@ -349,11 +349,13 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "State #5681's ratified dispute-resolution mechanics (informal-notice precondition, AAA Consumer Arbitration Rules, fee allocation, class-action/jury waiver, mass-filing batch protocol, opt-out window) uniformly with the other legal-corpus documents, per the decision's own instruction to apply it identically everywhere.",
+          "State #5681's ratified dispute-resolution mechanics (informal-notice precondition, AAA Consumer Arbitration Rules, fee allocation, class-action/jury waiver, mass-filing batch protocol, opt-out window); preserve unresolved drafting differences for counsel.",
         decisionRefs: [5681],
         productTruthRefs: [],
         openQuestions: [
           "Counsel validates the AAA administrator choice, fee allocation, and mass-filing protocol per #5681's recommendation.",
+          "The $10,000 amount is the claim threshold for platform-paid fees; counsel must resolve the remaining fee-condition wording difference recorded below.",
+          ...unratifiedArbitrationDraftingDifferences,
         ],
         assumptions: [
           {

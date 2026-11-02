@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { blueprintRoutes } from "../features/blueprints/api/route";
 import type { BlueprintServices } from "../features/blueprints/api/runtime";
 import { categoryRoutes } from "../features/categories/api/route";
@@ -39,6 +40,7 @@ function buildApp(mount: (app: Hono<CatalogAuthoringEnv>) => void) {
     c.set("context", context);
     await next();
   });
+  app.onError(errorHandler);
   mount(app);
   return app;
 }
@@ -330,6 +332,75 @@ describe("catalog admin model mutation consistency", () => {
         options: [{ id: "chc_foil", status: "deprecated" }],
       },
     });
+  });
+
+  it("routes dimension option reorder and revise commands without shadowing", async () => {
+    const commandHandler = vi.fn(async () =>
+      commandResult({
+        id: "dim_finish",
+        key: "finish",
+        name: englishName,
+        description: englishName,
+        valueKind: "unordered",
+        status: "active",
+        options: [],
+      }),
+    );
+    const app = buildApp((app) =>
+      app.route(
+        "/dimensions",
+        dimensionRoutes(
+          {
+            commandHandler,
+            listDimensions: async () => ({ items: [], total: 0 }),
+            getDimension: async () => null,
+            bulkLifecycle: createBulkLifecycle(),
+            projectors: [],
+          } as unknown as DimensionServices,
+          createJobServices(),
+        ),
+      ),
+    );
+
+    const reorderResponse = await app.fetch(
+      jsonRequest("/dimensions/dim_finish/options/order", { optionIds: ["chc_blue", "chc_red"] }, "PUT"),
+    );
+    const reviseResponse = await app.fetch(
+      jsonRequest(
+        "/dimensions/dim_finish/options/chc_blue",
+        { code: "blue", label: englishName, numericValue: null },
+        "PUT",
+      ),
+    );
+    const invalidResponse = await app.fetch(
+      jsonRequest(
+        "/dimensions/dim_finish/options/not-an-option",
+        { code: "blue", label: englishName, numericValue: null },
+        "PUT",
+      ),
+    );
+
+    expect(reorderResponse.status).toBe(200);
+    expect(reviseResponse.status).toBe(200);
+    expect(invalidResponse.status).toBe(400);
+    await expect(invalidResponse.json()).resolves.toMatchObject({ error: { code: "validation_failed" } });
+    expect(commandHandler).toHaveBeenCalledTimes(2);
+    expect(commandHandler).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        streamId: "catalog.dimension-dim_finish",
+        command: { type: "ReorderOptions", optionIds: ["chc_blue", "chc_red"] },
+        context,
+      }),
+    );
+    expect(commandHandler).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        streamId: "catalog.dimension-dim_finish",
+        command: expect.objectContaining({ type: "ReviseOption", optionId: "chc_blue" }),
+        context,
+      }),
+    );
   });
 
   it("returns Display Template lifecycle snapshots", async () => {

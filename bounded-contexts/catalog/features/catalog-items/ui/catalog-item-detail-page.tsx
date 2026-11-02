@@ -375,8 +375,6 @@ export function CatalogItemDetailPage({
 
   // Publish dialog
   const [showPublish, setShowPublish] = useState(false);
-  const [publishBlueprintActive, setPublishBlueprintActive] = useState(true);
-  const [publishRequiredFieldIds, setPublishRequiredFieldIds] = useState("");
   const [publishBusy, setPublishBusy] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [recheckedPublication, setRecheckedPublication] = useState<DisplayIdentityPublicationReadiness | null>(null);
@@ -480,14 +478,10 @@ export function CatalogItemDetailPage({
   }
 
   async function handlePublish() {
-    const requiredIds = publishRequiredFieldIds
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
     setPublishBusy(true);
     setPublishError(null);
     try {
-      await publishCatalogItem(id, publishBlueprintActive, requiredIds);
+      await publishCatalogItem(id);
       addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.catalog.item.published"), "success");
       setShowPublish(false);
       setRecheckedPublication(null);
@@ -1523,11 +1517,6 @@ export function CatalogItemDetailPage({
               {publishError}
             </Text>
           ) : null}
-          <TextInput
-            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.required.field.ids.comma.separated")}
-            value={publishRequiredFieldIds}
-            onChange={(e) => setPublishRequiredFieldIds(e.target.value)}
-          />
         </Stack>
       </Dialog>
 

@@ -27,7 +27,7 @@ function staticSource(
   id: OperationsAttentionSource["id"],
   items: readonly OperationsAttentionItem[],
 ): OperationsAttentionSource {
-  return { id, load: async () => items };
+  return { id, load: async () => ({ items, total: items.length }) };
 }
 
 describe("buildOperationsAttentionItem", () => {
@@ -134,7 +134,7 @@ describe("aggregateOperationsAttentionQueue", () => {
     const bad: OperationsAttentionSource = {
       id: "platform-feedback-unreviewed",
       // An item wearing the wrong source identity must not poison the queue.
-      load: async () => [poisonItem()],
+      load: async () => ({ items: [poisonItem()], total: 1 }),
     };
 
     const queue = await aggregateOperationsAttentionQueue([bad], CONTEXT);

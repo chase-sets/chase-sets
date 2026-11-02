@@ -586,7 +586,6 @@ describe("checkout web routes: signed-in buy checkout", () => {
     expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
     expect(recoveredReview).toEqual(
       expect.objectContaining({
-        autoResumePaymentStart: true,
         isSignedInBuyer: true,
         paymentPreview: expect.objectContaining({
           marketplace_checkout_fee: expect.objectContaining({

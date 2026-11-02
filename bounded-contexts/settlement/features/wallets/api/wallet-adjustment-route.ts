@@ -21,13 +21,16 @@ import {
   WalletAdjustmentLimitExceededError,
   type WalletAdjustmentServices,
 } from "./wallet-adjustment-runtime";
-import { normalizeWalletAdjustmentReasonCode, type WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
+import {
+  normalizeWalletAdjustmentReasonCode,
+  WalletAdjustmentRefusal,
+  type WalletAdjustmentReasonCode,
+} from "../domain/wallet-adjustment";
 import {
   compareMoney,
   normalizeCurrencyCode,
   normalizeLedgerEntryDirection,
   normalizeMoneyAmount,
-  SettlementDomainError,
   type CurrencyCode,
   type LedgerEntryDirection,
 } from "../../../support/runtime-support/common";
@@ -36,7 +39,7 @@ import {
  * Purpose-specific wallet-adjustment permissions ratified by ADR 0020, distinct
  * from `payouts.*`: an ordinary account operator with payout authority can never
  * reach the platform adjustment surface. Granted to platform-admin only (see
- * `ROLE_PERMISSIONS`/`AUTH_ROLE_PERMISSIONS`, contract-tested there). Posting
+ * `ROLE_PERMISSIONS` in `@chase-sets/auth-context`, contract-tested there). Posting
  * (`create`), approval, and reversal additionally require the acting session
  * to be recently authenticated -- see `requireRecentAuthentication` below.
  */
@@ -395,7 +398,7 @@ function handleWriteError(c: { json: (body: unknown, status: number) => Response
       400,
     );
   }
-  if (error instanceof StaleWalletBalanceError) {
+  if (error instanceof StaleWalletBalanceError || error instanceof WalletAdjustmentRefusal) {
     return c.json(apiErrorResponse("conflict", error.message, [{ code: error.code, message: error.message }]), 409);
   }
   if (error instanceof WalletAdjustmentHaltedError) {
@@ -412,9 +415,6 @@ function handleWriteError(c: { json: (body: unknown, status: number) => Response
       },
       429,
     );
-  }
-  if (error instanceof SettlementDomainError) {
-    return c.json(conflictResponse(error.message), 409);
   }
   if (error instanceof Error) {
     return c.json(conflictResponse(error.message), 409);

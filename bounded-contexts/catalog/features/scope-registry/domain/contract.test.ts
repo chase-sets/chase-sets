@@ -14,11 +14,17 @@ describe("Catalog scope record contract", () => {
       productLineReferenceRecordKey: "pokemon-trading-card-game",
       seriesReferenceTypeKey: "series",
       leafReferenceTypeKey: "expansion",
+      selectLeavesByLanguageEdition: true,
     });
     expect(catalogScopeProductDomainContracts.magic.leafReferenceTypeKey).toBe("set");
     expect(catalogScopeProductDomainContracts.yugioh.leafReferenceTypeKey).toBe("set");
     expect(catalogScopeProductDomainContracts["one-piece"].leafReferenceTypeKey).toBe("set");
     expect(catalogScopeProductDomainContracts.lorcana.leafReferenceTypeKey).toBe("set");
+    expect(
+      Object.values(catalogScopeProductDomainContracts)
+        .filter((contract) => contract.selectLeavesByLanguageEdition)
+        .map((contract) => contract.productDomain),
+    ).toEqual(["pokemon"]);
 
     for (const contract of Object.values(catalogScopeProductDomainContracts)) {
       expect(contract.requiredLeafAttributeKeys).toEqual(["release-date", "official-set-code", "language-editions"]);

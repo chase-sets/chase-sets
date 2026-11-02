@@ -1,5 +1,7 @@
+import { SCHEMA_MIGRATIONS_TABLE } from "@chase-sets/bounded-context-runtime";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createInternalId } from "@chase-sets/primitives/typed-ids";
+import { EVIDENCE_WINDOW_JOURNAL_PRINCIPAL_PATTERN } from "./evidence-window-journal-principal";
 import { platformPostWriteTokenStoreSchemaSql } from "./post-write-token-store";
 import { platformUcpRuntimeSchemaSql } from "./ucp";
 import { platformWorkSignalStoreSchemaSql } from "./work-signal-store";
@@ -605,8 +607,76 @@ type ProjectionWakeRelayCursorRow = Readonly<{
   updated_at: Date | string;
 }>;
 
+export type PlatformControlPlaneSchemaMigration = Readonly<{
+  migrationId: string;
+  description: string;
+  statements: readonly string[];
+}>;
+
+// One-time control-database changes, recorded once in the schema migration ledger and
+// never repeated as boot SQL. Rejected for the journal principal's write refusal: a
+// row-level-security UPDATE policy, because `FOR SHARE` also evaluates UPDATE policies and
+// would refuse the journal's own lock; and a NOLOGIN group-membership check, because
+// creating the group needs CREATEROLE at every fleet boot.
+export const platformControlPlaneSchemaMigrations: readonly PlatformControlPlaneSchemaMigration[] = [
+  {
+    migrationId: "20261020_evidence_window_journal_principal_write_refusal",
+    description: "Refuse evidence_window writes by run-named staging evidence-window journal principals.",
+    statements: [
+      `CREATE OR REPLACE FUNCTION evidence_window_refuse_journal_principal_write() RETURNS trigger
+LANGUAGE plpgsql AS $function$
+BEGIN
+  IF current_user ~ '${EVIDENCE_WINDOW_JOURNAL_PRINCIPAL_PATTERN}' THEN
+    RAISE EXCEPTION 'evidence-window-journal-principal-write-refused' USING ERRCODE = '42501';
+  END IF;
+  RETURN NULL;
+END
+$function$`,
+      "DROP TRIGGER IF EXISTS evidence_window_refuse_journal_principal_write ON evidence_window",
+      `CREATE TRIGGER evidence_window_refuse_journal_principal_write
+  BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON evidence_window
+  FOR EACH STATEMENT EXECUTE FUNCTION evidence_window_refuse_journal_principal_write()`,
+    ],
+  },
+];
+
+const PLATFORM_CONTROL_SCHEMA_MIGRATION_LOCK = "platform-control-schema-migrations";
+
+// One simple-protocol query per migration runs as one implicit transaction, so the
+// ledger row commits only with every statement, and the advisory lock serializes
+// concurrent fleet boots.
+export function platformControlPlaneSchemaMigrationSql(migration: PlatformControlPlaneSchemaMigration): string {
+  if (!/^\d{8}_[a-z0-9_]+$/.test(migration.migrationId)) {
+    throw new Error(`Control-plane migration id '${migration.migrationId}' is invalid.`);
+  }
+  const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
+  const statements = migration.statements.map((statement) => {
+    if (statement.includes("$statement$"))
+      throw new Error(`Control-plane migration ${migration.migrationId} is unquotable.`);
+    return `    EXECUTE $statement$${statement}$statement$;`;
+  });
+  return `SELECT pg_advisory_xact_lock(hashtextextended(${literal(PLATFORM_CONTROL_SCHEMA_MIGRATION_LOCK)}, 0));
+CREATE TABLE IF NOT EXISTS ${SCHEMA_MIGRATIONS_TABLE} (
+  migration_id text PRIMARY KEY,
+  description text NOT NULL,
+  applied_at timestamptz NOT NULL DEFAULT now()
+);
+DO $migration$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM ${SCHEMA_MIGRATIONS_TABLE} WHERE migration_id = ${literal(migration.migrationId)}) THEN
+${statements.join("\n")}
+    INSERT INTO ${SCHEMA_MIGRATIONS_TABLE} (migration_id, description, applied_at)
+    VALUES (${literal(migration.migrationId)}, ${literal(migration.description)}, now());
+  END IF;
+END
+$migration$;`;
+}
+
 export async function bootstrapPlatformControlPlane(db: PgQueryable): Promise<void> {
   await db.query(platformControlPlaneSchemaSql);
+  for (const migration of platformControlPlaneSchemaMigrations) {
+    await db.query(platformControlPlaneSchemaMigrationSql(migration));
+  }
   await reapStaleProjectionOperations(db);
 }
 

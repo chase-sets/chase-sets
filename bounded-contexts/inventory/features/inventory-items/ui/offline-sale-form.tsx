@@ -13,7 +13,6 @@ import {
   Textarea,
 } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
-import { useNavigation } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import {
   inventoryOfflineSaleChannels,
@@ -132,28 +131,12 @@ export function OfflineSaleForm({
   verificationState?: "fresh" | "pending" | "unverified";
   errorMessage?: string | null;
 }) {
-  const navigation = useNavigation();
   const [idempotencyKey, setIdempotencyKey] = useState(initialIdempotencyKey);
   const [collisionMode, setCollisionMode] = useState<"protect-orders" | "honor-offline">("protect-orders");
   const [quantity, setQuantity] = useState<number | null>(null);
   const [salePriceAmount, setSalePriceAmount] = useState<string | null>(null);
   const [channel, setChannel] = useState("");
   const [note, setNote] = useState("");
-  const [submissionStarted, setSubmissionStarted] = useState(false);
-  const submissionStartedRef = useRef(false);
-  const submittingItemId =
-    navigation.state === "submitting" && navigation.formData?.get("intent") === "record-offline-sale"
-      ? String(navigation.formData.get("itemId") ?? "")
-      : null;
-  const isSubmitting = submissionStarted || (submittingItemId !== null && (!itemId || submittingItemId === itemId));
-
-  useEffect(() => {
-    if (navigation.state === "idle") {
-      submissionStartedRef.current = false;
-      setSubmissionStarted(false);
-    }
-  }, [navigation.state]);
-
   useEffect(() => {
     if (confirmedResult ?? result) {
       setIdempotencyKey(initialIdempotencyKey);
@@ -166,20 +149,7 @@ export function OfflineSaleForm({
   }, [confirmedResult, initialIdempotencyKey, result]);
 
   return (
-    <RouterForm
-      spacing="none"
-      method="post"
-      submitting={isSubmitting}
-      onSubmit={(event) => {
-        if (submissionStartedRef.current) {
-          event.preventDefault();
-          return;
-        }
-
-        submissionStartedRef.current = true;
-        setSubmissionStarted(true);
-      }}
-    >
+    <RouterForm spacing="none" method="post">
       <Stack gap={3}>
         <HiddenInput type="hidden" name="intent" value="record-offline-sale" />
         <HiddenInput type="hidden" name="idempotencyKey" value={idempotencyKey} />
@@ -250,9 +220,7 @@ export function OfflineSaleForm({
         ) : (
           <HiddenInput type="hidden" name="collisionMode" value="protect-orders" />
         )}
-        <Button type="submit" disabled={isSubmitting}>
-          {t("inventory.features.inventoryItems.ui.offlineSaleForm.submit")}
-        </Button>
+        <Button type="submit">{t("inventory.features.inventoryItems.ui.offlineSaleForm.submit")}</Button>
         <OfflineSaleResult
           result={result}
           authoritativeAvailableQuantity={authoritativeAvailableQuantity}

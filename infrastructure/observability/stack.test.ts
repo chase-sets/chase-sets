@@ -335,6 +335,19 @@ describe("observability stack contracts", () => {
     expect(readme).toContain("platform Helm release");
   });
 
+  it("drops every URL attribute in both statement sets", () => {
+    const config = readRepoFile("infrastructure/helm/platform/templates/observability-config.yaml");
+    const blocks = [
+      config.slice(config.indexOf("        trace_statements:"), config.indexOf("        log_statements:")),
+      config.slice(config.indexOf("        log_statements:"), config.indexOf("      batch:")),
+    ];
+    for (const block of blocks) {
+      for (const attribute of ["http.target", "http.url", "url.full", "url.query"]) {
+        expect(block).toContain(`delete_key(attributes, \"${attribute}\")`);
+      }
+    }
+  });
+
   it("provisions Grafana datasources, dashboard, and alert rules", () => {
     expect(readStackFile("grafana/provisioning/datasources/datasources.yml")).toContain("Prometheus");
     expect(readStackFile("grafana/provisioning/datasources/datasources.yml")).toContain("Loki");

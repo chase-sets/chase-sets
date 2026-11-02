@@ -1,5 +1,16 @@
 import { createHash } from "node:crypto";
 import type { DiscoveryImageFallback, DiscoveryProductAssetSet } from "../../../support/client-support/contracts";
+import type {
+  GoogleShoppingPayloadInput,
+  GoogleShoppingProductDetail,
+  GoogleShoppingShippingPolicyPayload,
+} from "@chase-sets/google-shopping-export";
+
+export type {
+  GoogleShoppingPayloadInput,
+  GoogleShoppingProductDetail,
+  GoogleShoppingShippingPolicyPayload,
+} from "@chase-sets/google-shopping-export";
 
 export type GoogleShoppingEligibilityStatus = "eligible" | "excluded";
 export type GoogleShoppingImageEligibilityStatus = "eligible" | "excluded";
@@ -46,31 +57,6 @@ export type GoogleShoppingFeedRowInput = Readonly<{
   productMeasureReady?: boolean | null;
 }>;
 
-export type GoogleShoppingPayloadInput = Readonly<{
-  offerId: string;
-  title: string;
-  description: string;
-  link: string;
-  imageLink: string;
-  priceAmount: string;
-  currencyCode: string;
-  availability: "in stock" | "out of stock";
-  condition: string;
-  externalSellerId: string;
-  targetCountry: string;
-  contentLanguage: string;
-  feedLabel: string;
-  brand?: string;
-  gtin?: string;
-  mpn?: string;
-  identifierExists?: boolean;
-  productType?: string;
-  googleProductCategory?: string;
-  productDetails?: readonly GoogleShoppingProductDetail[];
-  shipping?: GoogleShoppingShippingPolicyPayload;
-  returnPolicyLabel?: string;
-}>;
-
 export type GoogleShoppingSelectedOption = Readonly<{
   dimensionId: string;
   dimensionName?: string | null;
@@ -78,12 +64,6 @@ export type GoogleShoppingSelectedOption = Readonly<{
   optionCode?: string | null;
   optionLabel?: string | null;
   numericValue?: number | null;
-}>;
-
-export type GoogleShoppingProductDetail = Readonly<{
-  sectionName: string;
-  attributeName: string;
-  attributeValue: string;
 }>;
 
 export type GoogleShoppingImageCandidate = Readonly<{
@@ -150,15 +130,6 @@ export type GoogleShoppingReturnsPolicyInput = Readonly<{
   ready: boolean;
   policyUrl: string | null;
   policyLabel?: string | null;
-}>;
-
-export type GoogleShoppingShippingPolicyPayload = Readonly<{
-  country: string;
-  service?: string;
-  price?: Readonly<{
-    amount: string;
-    currencyCode: string;
-  }>;
 }>;
 
 export type GoogleShoppingProductAttributes = Readonly<{

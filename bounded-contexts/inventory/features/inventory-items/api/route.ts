@@ -152,7 +152,9 @@ export function inventoryItemRoutes(
         accountId: actor.accountId as AccountId,
         catalogItemId: String(body.catalogItemId ?? ""),
         selectedOptions: body.selectedOptions,
-        gradedCard: typeof body.gradedCard === "object" && body.gradedCard !== null ? body.gradedCard : null,
+        ...(body.certificationNumber === undefined
+          ? {}
+          : { certificationNumber: typeof body.certificationNumber === "string" ? body.certificationNumber : null }),
         storageLocationId: String(body.storageLocationId ?? ""),
         totalQuantity: Number(body.totalQuantity ?? 0),
         acquisitionCostAmount:

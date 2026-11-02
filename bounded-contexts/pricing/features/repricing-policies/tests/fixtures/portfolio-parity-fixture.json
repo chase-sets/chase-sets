@@ -1,0 +1,89 @@
+{
+  "provenance": "Synthetic, not live: eight listings derived from goal-parity-curve.json by rescaling its prices and sell times, recorded through the pinned app by generate-portfolio-oracle.ts.",
+  "currencyCode": "USD",
+  "listings": [
+    {
+      "listingId": "lst_portfolio_01",
+      "sku": 1,
+      "curve": "observed",
+      "priceScale": 1,
+      "timeScale": 1,
+      "currentPriceAmount": "10.00"
+    },
+    {
+      "listingId": "lst_portfolio_02",
+      "sku": 2,
+      "curve": "observed",
+      "priceScale": 2.5,
+      "timeScale": 0.6,
+      "currentPriceAmount": "18.00"
+    },
+    {
+      "listingId": "lst_portfolio_03",
+      "sku": 3,
+      "curve": "observed",
+      "priceScale": 0.5,
+      "timeScale": 1.8,
+      "currentPriceAmount": "4.50"
+    },
+    {
+      "listingId": "lst_portfolio_04",
+      "sku": 4,
+      "curve": "observed",
+      "priceScale": 4,
+      "timeScale": 1.2,
+      "currentPriceAmount": "45.00",
+      "qualifyingSaleCount": 2
+    },
+    {
+      "listingId": "lst_portfolio_05",
+      "sku": 5,
+      "curve": "observed",
+      "priceScale": 1.5,
+      "timeScale": 0.8,
+      "currentPriceAmount": "16.00",
+      "historyCapped": true
+    },
+    {
+      "listingId": "lst_portfolio_06",
+      "sku": 6,
+      "curve": "observed",
+      "priceScale": 0.8,
+      "timeScale": 2.5,
+      "currentPriceAmount": "7.00",
+      "floorAmount": "8.00"
+    },
+    {
+      "listingId": "lst_portfolio_07",
+      "sku": 7,
+      "curve": "truncated-supply",
+      "priceScale": 1,
+      "timeScale": 1,
+      "currentPriceAmount": "12.00"
+    },
+    {
+      "listingId": "lst_portfolio_08",
+      "sku": 8,
+      "curve": "observed",
+      "priceScale": 1.2,
+      "timeScale": 1,
+      "currentPriceAmount": null
+    }
+  ],
+  "scenarios": {
+    "matched": { "currentPriceScale": 1 },
+    "boundary-high": { "currentPriceScale": 4 },
+    "boundary-low": { "currentPriceScale": 0.1 },
+    "infeasible": { "currentPriceScale": 1, "listingIds": ["lst_portfolio_07", "lst_portfolio_08"] },
+    "one-listing": { "currentPriceScale": 1, "listingIds": ["lst_portfolio_01"] }
+  },
+  "capitalCycle": {
+    "economics": {
+      "costBasisShareOfMarket": 0.55,
+      "costBasisDiscountPerUnit": 0.25,
+      "relativeOverhead": 0.1325,
+      "staticOverheadPerUnit": 0.5,
+      "turnaroundDays": 5
+    }
+  }
+}

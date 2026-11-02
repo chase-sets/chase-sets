@@ -739,7 +739,15 @@ export function createForwardedAuthHeaders(
   const authorization = request.headers.get("authorization");
   const freshWrite = readFreshWriteToken(request, options.nowMs, options.maxAgeMs);
   const publicOrigin = new URL(resolvePublicRequestOrigin(request, options));
+  const clientAddress = resolveClientAddress(request, options);
 
+  // Caller-provided address headers cannot override the trusted request boundary.
+  headers.delete("x-forwarded-for");
+  headers.delete("cf-connecting-ip");
+  headers.delete("x-real-ip");
+  if (clientAddress) {
+    headers.set("x-forwarded-for", clientAddress);
+  }
   if (cookie && !headers.has("cookie")) {
     headers.set("cookie", cookie);
   }

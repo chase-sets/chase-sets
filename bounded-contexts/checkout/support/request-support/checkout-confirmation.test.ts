@@ -169,6 +169,33 @@ describe("checkout confirmation request support", () => {
     });
   });
 
+  it("replays a stale release under the same Inventory mutation attempt so a repeat cannot release twice", async () => {
+    const reservation = {
+      holdId: "hld_1",
+      sellerAccountId: "acc_seller",
+      inventoryItemId: "inv_1",
+      lineKey: "cli_1",
+      quantity: 1,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      extensionCount: 0,
+      status: "active" as const,
+    };
+    mockReleaseCheckoutReservation.mockResolvedValue({ ...reservation, status: "released" });
+    const session = checkoutSessionForReservationTests({
+      session_id: "chk_repeat",
+      checkout_reservations: [reservation],
+    });
+
+    await releaseCheckoutInventoryReservations(new Request("https://checkout.test"), session);
+    await releaseCheckoutInventoryReservations(new Request("https://checkout.test"), session);
+
+    const attemptIds = mockCreateInventoryRequestApiClient.mock.calls.map(
+      (call) => (call[1] as { mutationAttemptId: string }).mutationAttemptId,
+    );
+    expect(attemptIds).toHaveLength(2);
+    expect(new Set(attemptIds).size).toBe(1);
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();

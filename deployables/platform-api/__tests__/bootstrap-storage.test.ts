@@ -13,6 +13,13 @@ import {
   openPlatformSupportEvidenceCanonicalizer,
 } from "../src/bootstrap-storage";
 
+const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
+
+vi.mock("@chase-sets/observability", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@chase-sets/observability")>();
+  return { ...actual, getObservabilityRuntime: () => ({ logger: { warn } }) };
+});
+
 vi.mock("@chase-sets/platform-operations/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@chase-sets/platform-operations/server")>();
   return { ...actual, openSupportEvidenceCanonicalizer: vi.fn(actual.openSupportEvidenceCanonicalizer) };
@@ -21,10 +28,43 @@ vi.mock("@chase-sets/platform-operations/server", async (importOriginal) => {
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
+  warn.mockClear();
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("platform bootstrap storage ports", () => {
+  it.each([
+    [true, "fingerprint-without-goldens", true],
+    [true, "golden-mismatch", true],
+    [true, "certified", false],
+    [false, "uncertified-development", false],
+  ] as const)("productionLike=%s status=%s warns=%s", async (productionLike, status, shouldWarn) => {
+    const fingerprint = {
+      profile: "support-evidence-raster/v1",
+      sharp: "synthetic",
+      libvips: "synthetic",
+      platform: "synthetic",
+      arch: "synthetic",
+      libc: "synthetic",
+    };
+    vi.mocked(openSupportEvidenceCanonicalizer).mockResolvedValueOnce({
+      status,
+      fingerprint,
+      canonicalize: vi.fn(async () => ({ kind: "rejected" as const, code: "canonicalizer-unavailable" as const })),
+    });
+
+    await openPlatformSupportEvidenceCanonicalizer(productionLike);
+
+    expect(openSupportEvidenceCanonicalizer).toHaveBeenLastCalledWith({ productionLike });
+    expect(warn).toHaveBeenCalledTimes(shouldWarn ? 1 : 0);
+    if (shouldWarn) {
+      expect(warn).toHaveBeenCalledWith("Support evidence canonicalizer is unavailable.", {
+        status,
+        fingerprint,
+      });
+    }
+  });
+
   it("uses the configured local catalog asset route without altering listing storage", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "platform-bootstrap-storage-"));
     temporaryRoots.push(root);

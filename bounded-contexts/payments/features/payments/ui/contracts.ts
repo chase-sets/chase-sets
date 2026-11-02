@@ -1,92 +1,111 @@
-export interface PaymentsPaymentDetail {
-  payment_id: string;
-  buyer_account_id: string;
-  order_ids: readonly string[];
-  amount: string;
-  balance_credit_amount: string;
-  processor_amount: string;
-  marketplace_sales_fee_amount: string;
-  marketplace_checkout_fee_amount: string;
-  marketplace_checkout_fee_policy_version: string | null;
-  marketplace_checkout_fee_quote_fingerprint: string | null;
-  payment_method_category: string | null;
-  saved_checkout_instrument_id: string | null;
-  seller_net_amount: string;
-  seller_payout_amount: string;
-  seller_payouts: readonly {
-    orderId: string;
-    sellerAccountId: string;
-    sellerItemNetAmount: string;
-    shippingAllowanceAmount: string;
-    sellerShippingPayoutAmount: string;
-    sellerPayoutAmount: string;
-  }[];
-  currency_code: string;
-  processor_name: string;
-  processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
-  processor_payment_reference: string;
-  processor_client_secret: string | null;
-  processor_redirect_url: string | null;
-  processor_status: string;
-  source_context: string | null;
-  source_reference_id: string | null;
-  status: string;
-  failure_code: string | null;
-  failure_message: string | null;
-  created_at: string;
-  updated_at: string;
-  captured_at: string | null;
-  failed_at: string | null;
-  cancelled_at: string | null;
-  processor_publishable_key: string | null;
-  provider_events: readonly PaymentsProviderEvent[];
-}
+import { z } from "zod";
 
-export interface PaymentsCheckoutStatus {
-  order_ids: readonly string[];
-  currency_code: string;
-  amount: string;
-  marketplace_checkout_fee: {
-    payment_method_category: "card" | "bank-account" | "platform-credit";
-    external_basis_amount: string;
-    marketplace_checkout_fee_amount: string;
-    marketplace_checkout_fee_reduction_amount: string;
-    total_amount: string;
-    processor_amount: string;
-    policy_version: string;
-    quote_fingerprint: string;
-    quoted_at: string;
-  };
-  payment_method_quotes: readonly {
-    payment_method_category: "card" | "bank-account" | "platform-credit";
-    external_basis_amount: string;
-    marketplace_checkout_fee_amount: string;
-    marketplace_checkout_fee_reduction_amount: string;
-    total_amount: string;
-    processor_amount: string;
-    policy_version: string;
-    quote_fingerprint: string;
-    quoted_at: string;
-  }[];
-  wallet_credit: {
-    requested_amount: string;
-    applied_amount: string;
-    external_amount: string;
-  };
-  can_start_payment: boolean;
-  unavailable_reasons: readonly string[];
-  unavailable_reason_details: readonly {
-    code: string;
-    message: string;
-  }[];
-}
+// Decoded money responses. Objects stay loose so a field added by a newer Payments API still decodes during a
+// rolling deploy; every field listed here is required in the shape it has always had.
 
-export interface PaymentsCheckoutRecoveryOptions {
-  recovery_reference_id: string;
-  can_recover: boolean;
-  recommended_action: "start-payment" | "use-existing-payment" | "unavailable";
-  checkout_status: PaymentsCheckoutStatus;
-}
+const paymentsProviderEventSchema = z.looseObject({
+  provider_event_id: z.string(),
+  provider_name: z.string(),
+  event_kind: z.string(),
+  provider_object_reference: z.string().nullable(),
+  received_at: z.string(),
+});
+
+export const paymentsPaymentDetailSchema = z.looseObject({
+  payment_id: z.string(),
+  buyer_account_id: z.string(),
+  order_ids: z.array(z.string()).readonly(),
+  amount: z.string(),
+  balance_credit_amount: z.string(),
+  processor_amount: z.string(),
+  marketplace_sales_fee_amount: z.string(),
+  marketplace_checkout_fee_amount: z.string(),
+  marketplace_checkout_fee_policy_version: z.string().nullable(),
+  marketplace_checkout_fee_quote_fingerprint: z.string().nullable(),
+  payment_method_category: z.string().nullable(),
+  saved_checkout_instrument_id: z.string().nullable(),
+  seller_net_amount: z.string(),
+  seller_payout_amount: z.string(),
+  seller_payouts: z
+    .array(
+      z.looseObject({
+        orderId: z.string(),
+        sellerAccountId: z.string(),
+        sellerItemNetAmount: z.string(),
+        shippingAllowanceAmount: z.string(),
+        sellerShippingPayoutAmount: z.string(),
+        sellerPayoutAmount: z.string(),
+      }),
+    )
+    .readonly(),
+  currency_code: z.string(),
+  processor_name: z.string(),
+  processor_payment_kind: z.enum(["checkout-session", "payment-intent", "balance-credit"]),
+  processor_payment_reference: z.string(),
+  processor_client_secret: z.string().nullable(),
+  processor_redirect_url: z.string().nullable(),
+  processor_status: z.string(),
+  source_context: z.string().nullable(),
+  source_reference_id: z.string().nullable(),
+  status: z.string(),
+  failure_code: z.string().nullable(),
+  failure_message: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  captured_at: z.string().nullable(),
+  failed_at: z.string().nullable(),
+  cancelled_at: z.string().nullable(),
+  processor_publishable_key: z.string().nullable(),
+  provider_events: z.array(paymentsProviderEventSchema).readonly(),
+});
+
+export type PaymentsPaymentDetail = z.infer<typeof paymentsPaymentDetailSchema>;
+
+const paymentsCheckoutFeeQuoteSchema = z.looseObject({
+  payment_method_category: z.enum(["card", "bank-account", "platform-credit"]),
+  external_basis_amount: z.string(),
+  marketplace_checkout_fee_amount: z.string(),
+  marketplace_checkout_fee_reduction_amount: z.string(),
+  total_amount: z.string(),
+  processor_amount: z.string(),
+  policy_version: z.string(),
+  quote_fingerprint: z.string(),
+  quoted_at: z.string(),
+});
+
+export const paymentsCheckoutStatusSchema = z.looseObject({
+  order_ids: z.array(z.string()).readonly(),
+  currency_code: z.string(),
+  amount: z.string(),
+  marketplace_checkout_fee: paymentsCheckoutFeeQuoteSchema,
+  payment_method_quotes: z.array(paymentsCheckoutFeeQuoteSchema).readonly(),
+  wallet_credit: z.looseObject({
+    requested_amount: z.string(),
+    applied_amount: z.string(),
+    external_amount: z.string(),
+  }),
+  can_start_payment: z.boolean(),
+  unavailable_reasons: z.array(z.string()).readonly(),
+  unavailable_reason_details: z
+    .array(
+      z.looseObject({
+        code: z.string(),
+        message: z.string(),
+      }),
+    )
+    .readonly(),
+});
+
+export type PaymentsCheckoutStatus = z.infer<typeof paymentsCheckoutStatusSchema>;
+
+export const paymentsCheckoutRecoveryOptionsSchema = z.looseObject({
+  recovery_reference_id: z.string(),
+  can_recover: z.boolean(),
+  recommended_action: z.enum(["start-payment", "use-existing-payment", "unavailable"]),
+  checkout_status: paymentsCheckoutStatusSchema,
+});
+
+export type PaymentsCheckoutRecoveryOptions = z.infer<typeof paymentsCheckoutRecoveryOptionsSchema>;
 
 export interface PaymentsAccountOrderInput {
   order_id: string;
@@ -152,10 +171,4 @@ export interface PaymentsMarketplaceCheckoutFeePolicy {
   };
 }
 
-export interface PaymentsProviderEvent {
-  provider_event_id: string;
-  provider_name: string;
-  event_kind: string;
-  provider_object_reference: string | null;
-  received_at: string;
-}
+export type PaymentsProviderEvent = z.infer<typeof paymentsProviderEventSchema>;

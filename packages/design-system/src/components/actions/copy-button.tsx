@@ -48,13 +48,16 @@ export function CopyButton({
   );
 
   const handleClick = useCallback(() => {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-      }
-      timerRef.current = setTimeout(() => setCopied(false), 2000);
-    });
+    navigator.clipboard
+      .writeText(value)
+      .then(() => {
+        setCopied(true);
+        if (timerRef.current !== null) {
+          clearTimeout(timerRef.current);
+        }
+        timerRef.current = setTimeout(() => setCopied(false), 2000);
+      })
+      .catch((error: unknown) => reportError(error));
   }, [value]);
 
   return (

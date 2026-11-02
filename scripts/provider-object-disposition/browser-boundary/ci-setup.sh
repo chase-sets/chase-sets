@@ -11,7 +11,7 @@ printf 'Runner image: %s / %s\n' "$ImageOS" "$ImageVersion"
 uname -srvm
 if test "$#" = 0; then
   mark install-chromium
-  pnpm exec playwright install --with-deps chromium
+  pnpm exec playwright install chromium
   mark install-native-dependencies
   sudo apt-get update
   sudo apt-get install --yes gcc libc6-dev libssl-dev pax-utils apparmor

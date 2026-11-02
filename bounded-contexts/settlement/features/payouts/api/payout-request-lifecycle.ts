@@ -17,9 +17,11 @@ import {
 import { moneyStatusDetails } from "@chase-sets/http/money-status";
 import {
   assertPayoutAmountWithinPolicy,
+  capPayoutAmountToPolicy,
   payoutFeeAmount,
   payoutAmountPolicy,
   quotePayoutFee,
+  resolvePayoutAmountSelection,
   settlementPayoutBoundsPolicy,
   settlementPayoutFeePolicy,
   SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE,
@@ -35,11 +37,13 @@ import {
   getAccountPayoutRiskSummary,
   listSettlementProviderIdempotencyKeys,
   listPayouts,
+  listPayoutSummaryRows,
   recordSettlementProviderIdempotencyKey,
   recordSettlementProviderOperationFailed,
   recordSettlementProviderOperationPending,
   recordSettlementProviderOperationSucceeded,
 } from "../read-model/queries";
+import { buildPayoutAvailability, buildPayoutSummary } from "../read-model/payout-summary";
 import { getAccountActiveSpendHoldAmount, getAccountActiveSupportHoldAmount } from "../../wallets/read-model/queries";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
 import { decidePayout, evolvePayout, payoutMonthStreamId, planPayoutMonthRequest } from "../domain/domain";
@@ -161,6 +165,31 @@ async function resolvePayoutBoundsPolicy(
   return resolved.value;
 }
 
+async function loadPayoutQuickAmountContext(
+  deps: Pick<PayoutRuntimeDeps, "db" | "wallets" | "policies">,
+  accountId: AccountId,
+) {
+  const wallet = await deps.wallets.getWallet(accountId);
+  const [activeSupportHoldAmount, activeSpendHoldAmount, payoutBoundsPolicy] = await Promise.all([
+    getAccountActiveSupportHoldAmount(deps.db, accountId),
+    getAccountActiveSpendHoldAmount(deps.db, accountId),
+    resolvePayoutBoundsPolicy(deps),
+  ]);
+  const currencyCode = normalizeCurrencyCode(wallet.currency_code);
+  const payoutAvailableBalanceAmount = calculateCanonicalMoneyOrThrow(
+    "Payout available balance must be a valid signed decimal.",
+    () => subtractMoney(subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount), activeSpendHoldAmount),
+  );
+  return {
+    currencyCode,
+    payoutAvailableBalanceAmount,
+    payoutBoundsPolicy,
+    activeSupportHoldAmount,
+    activeSpendHoldAmount,
+    wallet,
+  };
+}
+
 type ResolvedPayoutFeePolicy = Readonly<{
   value: SettlementPayoutFeePolicyValue;
   version: string;
@@ -215,7 +244,9 @@ export function createPayoutRequestLifecycle(
 ): Pick<
   PayoutServices,
   | "listPayouts"
+  | "getPayoutSummary"
   | "getPayout"
+  | "getPayoutQuickAmounts"
   | "getPayoutMoneyTimeline"
   | "previewPayoutRequest"
   | "requestPayout"
@@ -395,7 +426,33 @@ export function createPayoutRequestLifecycle(
 
   return {
     listPayouts: (params) => listPayouts(deps.db, params),
+    async getPayoutSummary({ accountId, canRequestPayouts, evaluatedAt = new Date().toISOString() }) {
+      const [rows, wallet, readiness] = await Promise.all([
+        listPayoutSummaryRows(deps.db, accountId),
+        deps.wallets.getWallet(accountId),
+        deps.payoutReadiness.getPayoutReadiness(accountId),
+      ]);
+      return buildPayoutSummary({
+        items: rows.items,
+        total: rows.total,
+        completeness: rows.completeness,
+        evaluatedAt,
+        availability: buildPayoutAvailability({ wallet, readiness, canRequestPayouts }),
+      });
+    },
     getPayout: (payoutId, accountId) => getPayout(deps.db, payoutId, accountId),
+    async getPayoutQuickAmounts({ accountId }) {
+      const { currencyCode, payoutAvailableBalanceAmount, payoutBoundsPolicy } = await loadPayoutQuickAmountContext(
+        deps,
+        accountId,
+      );
+      return {
+        currency_code: currencyCode,
+        minimum_amount: payoutBoundsPolicy.minimumAmount,
+        maximum_amount: payoutBoundsPolicy.maximumAmount,
+        full_available_amount: capPayoutAmountToPolicy(payoutAvailableBalanceAmount, payoutBoundsPolicy),
+      };
+    },
     async getPayoutMoneyTimeline(params) {
       const payout = await requireExistingPayout(deps.db, params.payoutId, params.accountId);
       const amounts = payoutAmounts(payout);
@@ -496,29 +553,33 @@ export function createPayoutRequestLifecycle(
     },
     async previewPayoutRequest(params, context) {
       const evaluatedAt = new Date().toISOString();
-      const wallet = await deps.wallets.getWallet(params.accountId);
       let readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
-      const currencyCode = normalizeCurrencyCode(wallet.currency_code);
-      const amount = normalizeMoneyAmount(params.amount, {
-        fieldName: "Payout amount",
-      });
-      const [
-        riskSummary,
-        platformBalance,
-        activeSupportHoldAmount,
-        activeSpendHoldAmount,
-        payoutBoundsPolicy,
-        payoutFeePolicy,
-        payoutMonth,
-      ] = await Promise.all([
+      const payoutQuickAmountContext = await loadPayoutQuickAmountContext(deps, params.accountId);
+      const [riskSummary, platformBalance, payoutFeePolicy, payoutMonth] = await Promise.all([
         getAccountPayoutRiskSummary(deps.db, params.accountId),
-        deps.moneyMovementGateway.retrievePlatformBalance({ currencyCode }),
-        getAccountActiveSupportHoldAmount(deps.db, params.accountId),
-        getAccountActiveSpendHoldAmount(deps.db, params.accountId),
-        resolvePayoutBoundsPolicy(deps),
+        deps.moneyMovementGateway.retrievePlatformBalance({ currencyCode: payoutQuickAmountContext.currencyCode }),
         resolvePayoutFeePolicy(deps, evaluatedAt),
         payoutMonthRepository.load(payoutMonthStreamId(params.accountId, evaluatedAt)),
       ]);
+      const {
+        currencyCode,
+        payoutAvailableBalanceAmount,
+        payoutBoundsPolicy,
+        activeSupportHoldAmount,
+        activeSpendHoldAmount,
+        wallet,
+      } = payoutQuickAmountContext;
+      const amount = normalizeMoneyAmount(
+        resolvePayoutAmountSelection(
+          {
+            amount: params.amount,
+            shortcut: params.amountSelection,
+            availableAmount: payoutAvailableBalanceAmount,
+          },
+          payoutBoundsPolicy,
+        ),
+        { fieldName: "Payout amount" },
+      );
       const baselineActivePayoutIds = payoutMonth.state.initialized
         ? []
         : await activePayoutBaselineIds(params.accountId, evaluatedAt);
@@ -543,11 +604,6 @@ export function createPayoutRequestLifecycle(
       // Buyer-spend holds reserve balance the account applied at checkout but
       // that has not yet debited at capture; it must not be payable meanwhile,
       // or the same funds could be both withdrawn and spent.
-      const payoutAvailableBalanceAmount = calculateCanonicalMoneyOrThrow(
-        "Payout available balance must be a valid signed decimal.",
-        () =>
-          subtractMoney(subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount), activeSpendHoldAmount),
-      );
 
       if (payoutReadinessStalenessIsOnlySetupBlocker(readiness)) {
         try {

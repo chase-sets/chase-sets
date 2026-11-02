@@ -22,6 +22,7 @@ export type CatalogIntegrationsCommandResult = Readonly<{
   section: string;
   // Optional section scoping for command feedback (profile section saves).
   commandSection?: string;
+  attentionItemKey?: string;
 }>;
 
 // The post-command navigation a redirect-owning surface performs. The UI decides

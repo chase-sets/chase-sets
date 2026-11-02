@@ -29,22 +29,21 @@ import type {
   PlatformRemedyProposalInput,
   PlatformRemedyProposalPreview,
   SupportOperationsQueueFilters,
-  SupportRequestDetail,
-  SupportRequestListItem,
+  SupportOperationsRequestDetailResponse,
+  SupportOperationsRequestListItem,
 } from "./contracts";
 import { EntityDetailDrawer } from "./support-request-detail-drawer";
 import {
-  nextSupportDeadline,
   SupportDeadlineCountdown,
   SupportOrderMarketplaceLinks,
   supportChecklistSummary,
 } from "./support-request-presentation";
 
 type SupportOperationsPageProps = Readonly<{
-  queue: Readonly<{ items: readonly SupportRequestListItem[]; total: number; count: number }>;
+  queue: Readonly<{ items: readonly SupportOperationsRequestListItem[]; total: number; count: number }>;
   filters?: SupportOperationsQueueFilters;
   pagination?: Readonly<{ limit: number; offset: number }>;
-  selectedRequest?: SupportRequestDetail | null;
+  selectedRequest?: SupportOperationsRequestDetailResponse | null;
   queueNow?: string;
   unavailableMessage?: string | null;
   drawerUnavailableMessage?: string | null;
@@ -191,7 +190,7 @@ function SupportOperationsQueue({
   searchParams,
   status,
 }: Readonly<{
-  requests: readonly SupportRequestListItem[];
+  requests: readonly SupportOperationsRequestListItem[];
   now: string;
   marketplaceOrigin?: string | null;
   searchParams: URLSearchParams;
@@ -261,7 +260,7 @@ function SupportOperationsQueue({
         {
           key: "deadline",
           header: t("support.features.supportRequests.ui.supportOperationsPage.next.deadline"),
-          cell: (request) => <SupportDeadlineCountdown dueAt={nextSupportDeadline(request)} now={now} />,
+          cell: (request) => <SupportDeadlineCountdown dueAt={request.operatorPolicy.deadlineAt} now={now} />,
         },
         {
           key: "checklist",
@@ -326,7 +325,7 @@ export function SupportOperationsPage({
     next.delete("requestId");
     next.delete("action");
     next.delete("actionError");
-    navigate(`/support/requests?${next.toString()}`);
+    void navigate(`/support/requests?${next.toString()}`);
   }
 
   return (

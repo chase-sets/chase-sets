@@ -1,8 +1,13 @@
 import { t } from "@chase-sets/localization";
+import { createConfiguredInMemoryRateLimiter, rateLimitExceededJsonResponse } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import type { ReputationApiEnv } from "./http";
 import type { ReviewServices } from "./runtime";
 import { ReputationDomainError } from "../domain/common";
+import { AuthoredTextRejectedError } from "../domain/authored-text-safeguard";
+import { authoredTextRecoveryMessage } from "../ui/authored-text-recovery";
+
+const REVIEW_AUTHORING_RATE_LIMIT_SURFACE = "marketplace.review.authoring";
 
 function readRoleFilter(value: string | undefined): "seller" | "buyer" | undefined {
   return value === "seller" || value === "buyer" ? value : undefined;
@@ -52,10 +57,16 @@ function requireReviewAccess(
 }
 
 function errorMessage(error: unknown) {
+  if (error instanceof AuthoredTextRejectedError) {
+    return authoredTextRecoveryMessage(error.code) ?? error.message;
+  }
   return error instanceof Error ? error.message : t("reputation.features.reviews.api.route.request.failed");
 }
 
 function errorCode(error: unknown) {
+  if (error instanceof AuthoredTextRejectedError) {
+    return error.code;
+  }
   return error instanceof ReputationDomainError ? error.code : "validation_failed";
 }
 
@@ -89,6 +100,17 @@ export function createPublicReputationRoutes(services: ReviewServices) {
 
 export function createAccountReviewRoutes(services: ReviewServices) {
   const app = new Hono<ReputationApiEnv>();
+  // One bucket per authenticated account across Review submission, update, and
+  // Response, so retrying rejected text cannot flood the domain. Built with the
+  // route set (once per API process) so test apps never share buckets.
+  const authoringRateLimiter = createConfiguredInMemoryRateLimiter(REVIEW_AUTHORING_RATE_LIMIT_SURFACE, {
+    max: 30,
+    windowMs: 10 * 60 * 1000,
+  });
+  function rateLimitedAuthoring(accountId: string) {
+    const decision = authoringRateLimiter.check(`account:${accountId}`);
+    return decision.limited ? rateLimitExceededJsonResponse(REVIEW_AUTHORING_RATE_LIMIT_SURFACE, decision) : null;
+  }
 
   app.get("/written", async (c) => {
     const access = requireReviewAccess(c, "reputation.view");
@@ -192,6 +214,11 @@ export function createAccountReviewRoutes(services: ReviewServices) {
       );
     }
 
+    const rateLimited = rateLimitedAuthoring(access.actor.accountId);
+    if (rateLimited) {
+      return rateLimited;
+    }
+
     const body = await c.req.json();
 
     try {
@@ -228,6 +255,11 @@ export function createAccountReviewRoutes(services: ReviewServices) {
         },
         401,
       );
+    }
+
+    const rateLimited = rateLimitedAuthoring(access.actor.accountId);
+    if (rateLimited) {
+      return rateLimited;
     }
 
     const body = await c.req.json();
@@ -301,6 +333,11 @@ export function createAccountReviewRoutes(services: ReviewServices) {
         },
         401,
       );
+    }
+
+    const rateLimited = rateLimitedAuthoring(access.actor.accountId);
+    if (rateLimited) {
+      return rateLimited;
     }
 
     const body = await c.req.json().catch(() => ({}));

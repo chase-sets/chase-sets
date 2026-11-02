@@ -98,6 +98,10 @@ const canonicalEntries = [
   ...entries("canonical", "control", "Orchestrator scheduling constraint for a drained PR flush window.", [
     "dispatch:flush-window",
   ]),
+  ...entries("canonical", "control", "Platform handoff: the platform loop holds this issue.", ["dispatch:platform"]),
+  ...entries("canonical", "control", "Platform handoff: return requested; wait for the holder to remove this label.", [
+    "dispatch:platform-return",
+  ]),
 ];
 
 const frozenEntries = [

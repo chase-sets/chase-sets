@@ -55,13 +55,29 @@ describe("ingest-receipt-action-data", () => {
     vi.stubGlobal("fetch", api.fetch);
     renderRoute();
     const submit = await screen.findByRole("button", { name: "Ingest Live export" });
+    const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).not.toBeNull();
+    const file = new NodeFile(["header\nrow"], "live.csv", { type: "text/csv" });
+    const files = {
+      0: file,
+      length: 1,
+      item(index: number) {
+        return index === 0 ? file : null;
+      },
+    } as unknown as FileList;
+    fireEvent.change(fileInput!, {
+      target: { files },
+    });
+    await waitFor(() => expect(submit.matches(":disabled")).toBe(false));
     submitExport(submit);
 
     await waitFor(() => {
       const pending = screen.getByRole("button", { name: "Ingest Live export" });
       expect(pending.closest("form")?.getAttribute("aria-busy")).toBe("true");
-      expect(pending.closest("fieldset")?.disabled).toBe(true);
+      expect(pending.matches(":disabled")).toBe(false);
     });
+    submitExport(submit);
+    expect(api.posts()).toEqual(["/api/channels/connections/connection-a/manual-sync/ingest?surface=live"]);
     expect(screen.queryByTestId("manual-sync-ingest-receipt")).toBeNull();
     expect(api.panelReads()).toBe(1);
     respond(

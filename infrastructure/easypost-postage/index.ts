@@ -101,6 +101,29 @@ function providerCapabilityError(
   });
 }
 
+function providerInsuranceMatches(requestedAmount: string, providerAmount: unknown) {
+  if (typeof providerAmount !== "string") return false;
+  const requested = /^\d+(?:\.\d+)?$/.test(requestedAmount) ? Number(requestedAmount) : Number.NaN;
+  const match = /^(\d+)\.(\d+)$/.exec(providerAmount);
+  if (!Number.isFinite(requested) || !match || match[2].length < 2) return false;
+  const fraction = match[2];
+  return Number(`${match[1]}.${fraction.slice(0, 2)}`) === requested && /^0*$/.test(fraction.slice(2));
+}
+
+function validateProviderInsurance(
+  requestedAmount: string | null | undefined,
+  providerAmount: unknown,
+  providerMode: PostageProviderMode,
+) {
+  if (requestedAmount && !providerInsuranceMatches(requestedAmount, providerAmount)) {
+    throw providerCapabilityError(
+      "insurance",
+      "EasyPost did not confirm the requested insurance amount.",
+      providerMode,
+    );
+  }
+}
+
 type EasyPostRate = Readonly<{
   id: string;
   carrier: string;
@@ -112,6 +135,7 @@ type EasyPostRate = Readonly<{
 type EasyPostShipment = Readonly<{
   id: string;
   mode: PostageProviderMode;
+  insurance?: string | null;
   reference?: string | null;
   rates?: readonly EasyPostRate[];
   selected_rate?: EasyPostRate | null;
@@ -345,7 +369,6 @@ export function createEasyPostPostageLabelProvider(
               label_format: "PDF",
               ...(request.labelSize ? { label_size: request.labelSize } : {}),
               ...(request.deliveryConfirmation === "signature" ? { delivery_confirmation: "SIGNATURE" } : {}),
-              ...(request.insuranceAmount ? { insurance: request.insuranceAmount } : {}),
             },
           },
         }),
@@ -366,9 +389,13 @@ export function createEasyPostPostageLabelProvider(
 
       const purchased = await easyPostRequest<EasyPostShipment>(`/shipments/${shipment.id}/buy`, {
         method: "POST",
-        body: JSON.stringify({ rate: { id: selectedRate.id } }),
+        body: JSON.stringify({
+          rate: { id: selectedRate.id },
+          ...(request.insuranceAmount ? { insurance: request.insuranceAmount } : {}),
+        }),
       });
 
+      validateProviderInsurance(request.insuranceAmount, purchased.insurance, providerMode);
       return mapPurchasedShipment(purchased, selectedRate, providerMode);
     },
     async recoverPurchasedUspsLabel(request) {
@@ -386,6 +413,7 @@ export function createEasyPostPostageLabelProvider(
       if (!shipment.postage_label || !shipment.tracking_code) {
         return null;
       }
+      validateProviderInsurance(request.insuranceAmount, shipment.insurance, providerMode);
       return mapPurchasedShipment(shipment, shipment.selected_rate ?? null, providerMode);
     },
     async voidLabel(request) {

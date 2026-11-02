@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 export const RELEVANCE_FIXTURE_MODEL = "deterministic-relevance-v1";
 export const RELEVANCE_FIXTURE_DIMENSIONS = 1_024;
@@ -78,44 +79,126 @@ export function deterministicSparseEmbedding(text) {
 
 export function expandSparseEmbedding(components, dimensions = RELEVANCE_FIXTURE_DIMENSIONS) {
   const vector = Array.from({ length: dimensions }, () => 0);
+  const seen = new Set();
   for (const component of components) {
     if (!Array.isArray(component) || component.length !== 2)
       throw new Error("Embedding component must be [index, value].");
     const [index, value] = component;
-    if (!Number.isInteger(index) || index < 0 || index >= dimensions || !Number.isFinite(value)) {
+    if (!Number.isInteger(index) || index < 0 || index >= dimensions || !Number.isFinite(value) || seen.has(index)) {
       throw new Error("Embedding component is outside the declared dimensions.");
     }
     vector[index] = value;
+    seen.add(index);
   }
   return vector;
 }
 
-export async function buildRelevanceEmbeddingFixture({ catalogItems, goldenQueries, buildDocument }) {
+export function embeddingInputKey(model, inputType, text) {
+  return createHash("sha256")
+    .update(JSON.stringify([model, inputType, text]))
+    .digest("hex");
+}
+
+export function parseRelevanceEmbeddingOptions(argv) {
+  const options = { provider: "deterministic", out: null };
+  for (const argument of argv) {
+    if (argument.startsWith("--provider=")) options.provider = argument.slice(11);
+    else if (argument.startsWith("--out=")) options.out = argument.slice(6).trim();
+    else throw new Error(`Unknown argument '${argument}'.`);
+  }
+  if (!["deterministic", "voyage"].includes(options.provider)) throw new Error("Unknown embedding provider.");
+  if (options.provider === "voyage" && !options.out) throw new Error("Voyage snapshots require --out=<ignored-file>.");
+  return options;
+}
+
+export function createRelevanceFixtureProvider(providerName, env, createProvider) {
+  if (providerName === "deterministic") return undefined;
+  if (!env.VOYAGE_API_KEY?.trim()) throw new Error("VOYAGE_API_KEY is required for Voyage snapshot generation.");
+  return createProvider({ apiKey: env.VOYAGE_API_KEY });
+}
+
+export function resolveRelevanceSnapshotOutput(root, out, isIgnored) {
+  const output = path.resolve(root, out);
+  const relative = path.relative(root, output);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    throw new Error("Snapshot output must be inside the repository.");
+  if (!isIgnored(output)) throw new Error("Snapshot output must be ignored.");
+  return output;
+}
+
+export async function buildRelevanceEmbeddingFixture({
+  catalogItems,
+  goldenQueries,
+  buildDocument,
+  normalizeQuery,
+  provider,
+}) {
+  if (!normalizeQuery) throw new Error("Production normalizeQueryForEmbedding is required.");
+  const model = provider?.model ?? RELEVANCE_FIXTURE_MODEL;
+  if (provider && provider.dimensions !== 1024) throw new Error("Real snapshots require 1024 dimensions.");
   const documents = {};
+  const documentProvenance = {};
+  const documentInputs = [];
   for (const item of catalogItems) {
     const document = buildDocument({
       title: item.title,
       subtitle: item.subtitle,
       description: item.description,
       categoryNames: item.categories,
-      keyFieldValues: item.tags,
+      keyFieldValues: item.naturalKey
+        ? [
+            `${item.naturalKey.cardNumber} ${item.naturalKey.setCode} ${item.naturalKey.setCode} set code ${item.naturalKey.setCode}`,
+          ]
+        : [],
       resolvedAliases: {
         [item.languageCode]: item.aliases.map((aliasText) => ({ aliasText })),
       },
     });
-    documents[item.catalogItemId] = deterministicSparseEmbedding(document.text);
+    documentProvenance[item.catalogItemId] = {
+      text: document.text,
+      hash: document.hash,
+      key: embeddingInputKey(model, "document", document.text),
+    };
+    documentInputs.push(document.text);
   }
+  const documentVectors = provider
+    ? (await provider.embed(documentInputs, "document")).vectors.map(normalizedSparseEmbedding)
+    : documentInputs.map(deterministicSparseEmbedding);
+  if (documentVectors.length !== catalogItems.length) throw new Error("Document vector count mismatch.");
+  catalogItems.forEach((item, index) => {
+    documents[item.catalogItemId] = documentVectors[index];
+  });
+  const queryInputs = [
+    ...new Set(goldenQueries.flatMap((query) => [query.query, ...(query.effectiveQueries ?? [])]).map(normalizeQuery)),
+  ];
+  const queryVectors = provider
+    ? (await provider.embed(queryInputs, "query")).vectors.map(normalizedSparseEmbedding)
+    : queryInputs.map(deterministicSparseEmbedding);
+  if (queryVectors.length !== queryInputs.length) throw new Error("Query vector count mismatch.");
   const queries = Object.fromEntries(
-    goldenQueries.map((goldenQuery) => [goldenQuery.id, deterministicSparseEmbedding(goldenQuery.query)]),
+    queryInputs.map((text, index) => [embeddingInputKey(model, "query", text), queryVectors[index]]),
   );
   return {
-    version: 1,
-    model: RELEVANCE_FIXTURE_MODEL,
+    version: 2,
+    source: provider ? "voyage" : "deterministic",
+    model,
     dimensions: RELEVANCE_FIXTURE_DIMENSIONS,
     sourceHash: fixtureSourceHash(catalogItems, goldenQueries),
     documents,
     queries,
+    documentProvenance,
+    queryProvenance: Object.fromEntries(
+      queryInputs.map((text) => [embeddingInputKey(model, "query", text), { text, inputType: "query", model }]),
+    ),
   };
+}
+
+function normalizedSparseEmbedding(vector) {
+  if (vector.length !== 1024 || vector.some((value) => !Number.isFinite(value)))
+    throw new Error("Invalid 1024D provider vector.");
+  const magnitude = Math.hypot(...vector);
+  if (!magnitude) throw new Error("Provider returned a zero vector.");
+  return vector.flatMap((value, index) => (value === 0 ? [] : [[index, value / magnitude]]));
 }
 
 export function fixtureSourceHash(catalogItems, goldenQueries) {
@@ -123,6 +206,7 @@ export function fixtureSourceHash(catalogItems, goldenQueries) {
 }
 
 async function main() {
+  const options = parseRelevanceEmbeddingOptions(process.argv.slice(2));
   const root = fileURLToPath(new URL("../", import.meta.url));
   const fixtureDirectory = path.join(root, "bounded-contexts/discovery/tests/fixtures/search-relevance");
   const [catalogItems, goldenQueries] = await Promise.all([
@@ -133,12 +217,36 @@ async function main() {
   register("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
   const { buildDiscoveryEmbeddingDocument } =
     await import("../bounded-contexts/discovery/features/search/domain/embedding-document.ts");
+  const { normalizeQueryForEmbedding } =
+    await import("../bounded-contexts/discovery/features/search/domain/query-embedding-cache.ts");
+  const { validateGoldenQuery } =
+    await import("../bounded-contexts/discovery/features/search/domain/relevance-evaluation.ts");
+  if (goldenQueries.length < 50 || goldenQueries.length > 100)
+    throw new Error("Golden query fixture must contain 50-100 cases.");
+  goldenQueries.forEach(validateGoldenQuery);
+  let provider;
+  const outputPath = path.resolve(root, options.out ?? path.join(fixtureDirectory, "fixture-embeddings.json"));
+  if (options.provider === "voyage") {
+    resolveRelevanceSnapshotOutput(root, outputPath, (output) => {
+      try {
+        execFileSync("git", ["check-ignore", "--quiet", "--", output], { cwd: root, timeout: 30_000, stdio: "pipe" });
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    const { createVoyageEmbeddingProvider } =
+      await import("../bounded-contexts/discovery/features/search/integrations/voyage-embedding-provider.ts");
+    provider = createRelevanceFixtureProvider("voyage", process.env, createVoyageEmbeddingProvider);
+  }
   const fixture = await buildRelevanceEmbeddingFixture({
     catalogItems,
     goldenQueries,
     buildDocument: buildDiscoveryEmbeddingDocument,
+    normalizeQuery: normalizeQueryForEmbedding,
+    provider,
   });
-  const outputPath = path.join(fixtureDirectory, "fixture-embeddings.json");
+  await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
   process.stdout.write(
     `Wrote ${path.relative(root, outputPath)} (${Object.keys(fixture.documents).length} documents, ${Object.keys(fixture.queries).length} queries).\n`,
