@@ -678,13 +678,14 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       }
       requestedLeaseYields.delete(heldLease.runner.name);
       retainedProjectionLeases.delete(heldLease);
-      void releaseHeldRunnerLease(heldLease, false, "idle")
-        .then(() => {
-          projectionWakeHandoffBlockedUntil.set(heldLease.runner.name, Date.now() + options.leaseTtlMs);
-        })
-        .catch((error: unknown) => {
-          options.onError?.(error, heldLease.runner);
-        });
+      const blockedUntil = Date.now() + options.leaseTtlMs;
+      projectionWakeHandoffBlockedUntil.set(heldLease.runner.name, blockedUntil);
+      void releaseHeldRunnerLease(heldLease, false, "idle").catch((error: unknown) => {
+        if (projectionWakeHandoffBlockedUntil.get(heldLease.runner.name) === blockedUntil) {
+          projectionWakeHandoffBlockedUntil.delete(heldLease.runner.name);
+        }
+        options.onError?.(error, heldLease.runner);
+      });
     }
   };
 
@@ -875,18 +876,21 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
               (requestedLeaseYields.has(runner.name) && acquiredLease.lastPassSucceeded))
           ) {
             const handoffRequested = requestedLeaseYields.has(runner.name);
+            // A hot wake can finish before the release promise resolves.
+            // Register first so its terminal signal cannot be overwritten.
+            const blockedUntil = Date.now() + options.leaseTtlMs;
+            if (handoffRequested) {
+              projectionWakeHandoffBlockedUntil.set(runner.name, blockedUntil);
+            }
             // Release without an immediate reschedule: the group runner has no
             // work of its own, so let the normal poll tick re-run it while the
             // freed lease stays available for queued wakes and operations.
-            void releaseHeldRunnerLease(acquiredLease, false, "idle")
-              .then(() => {
-                if (handoffRequested) {
-                  projectionWakeHandoffBlockedUntil.set(runner.name, Date.now() + options.leaseTtlMs);
-                }
-              })
-              .catch((error: unknown) => {
-                options.onError?.(error, runner);
-              });
+            void releaseHeldRunnerLease(acquiredLease, false, "idle").catch((error: unknown) => {
+              if (handoffRequested && projectionWakeHandoffBlockedUntil.get(runner.name) === blockedUntil) {
+                projectionWakeHandoffBlockedUntil.delete(runner.name);
+              }
+              options.onError?.(error, runner);
+            });
             requestedLeaseYields.delete(runner.name);
           } else if (acquiredLease && runner.kind === "projection-group" && (completedResult?.processed ?? 0) > 0) {
             retainedProjectionLeases.add(acquiredLease);
@@ -1079,7 +1083,11 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         const heldLease = [...heldRunnerLeases.values()].find(
           (candidate) => candidate.runner.name === runnerName && candidate.leaseActive,
         );
-        if (!heldLease && !activeRunnerNames.has(runnerName)) {
+        if (
+          (!heldLease && !activeRunnerNames.has(runnerName)) ||
+          (heldLease && heldLease.activeRunCount === 0 && !heldLease.lastPassSucceeded)
+        ) {
+          requestedLeaseYields.delete(runnerName);
           continue;
         }
         requestedLeaseYields.add(runnerName);
