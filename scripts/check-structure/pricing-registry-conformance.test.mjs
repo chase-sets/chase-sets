@@ -96,6 +96,57 @@ describe("pricing registry conformance guard", () => {
     ]);
   });
 
+  it("accepts a named local suite object for a discovered registry run", async () => {
+    const namedSuiteRun = run.replace(
+      'describeConformance({ registry: createTargetStyles, entries: () => [targetStyles.resolve("flat")] });',
+      'const suite = { registry: createTargetStyles, entries: () => [targetStyles.resolve("flat")] };\n  describeConformance(suite);',
+    );
+    const result = await validateFixture({
+      [plantedPath]: planted,
+      [constructionPath]: construction,
+      [kitPath]: kit,
+      [runPath]: namedSuiteRun,
+    });
+
+    expect(result.violations).toEqual([]);
+    expect(result.runs).toEqual([{ file: runPath, registry: `${plantedPath}#createTargetStyles` }]);
+  });
+
+  it("rejects a reassignable named suite object", async () => {
+    const namedSuiteRun = run.replace(
+      'describeConformance({ registry: createTargetStyles, entries: () => [targetStyles.resolve("flat")] });',
+      'let suite = { registry: createTargetStyles, entries: () => [targetStyles.resolve("flat")] };\n  describeConformance(suite);',
+    );
+    const result = await validateFixture({
+      [plantedPath]: planted,
+      [constructionPath]: construction,
+      [kitPath]: kit,
+      [runPath]: namedSuiteRun,
+    });
+    expect(result.violations).toEqual([
+      `${runPath}:9: describeConformance registry '<missing>' does not resolve to a discovered Pricing registry.`,
+      `${plantedPath}:3: Pricing registry 'createTargetStyles' has no Conformance Kit run; call describeConformance({ registry: createTargetStyles, ... }) from a Pricing test (see ${guide}).`,
+    ]);
+  });
+
+  it("rejects an imported named suite object", async () => {
+    const namedSuiteRun = run.replace(
+      'describeConformance({ registry: createTargetStyles, entries: () => [targetStyles.resolve("flat")] });',
+      'import { suite } from "./suite";\n  describeConformance(suite);',
+    );
+    const result = await validateFixture({
+      [plantedPath]: planted,
+      [constructionPath]: construction,
+      [kitPath]: kit,
+      [runPath]: namedSuiteRun,
+      [`${path.posix.dirname(runPath)}/suite.ts`]: `export const suite = {};`,
+    });
+    expect(result.violations).toEqual([
+      `${runPath}:9: describeConformance registry '<missing>' does not resolve to a discovered Pricing registry.`,
+      `${plantedPath}:3: Pricing registry 'createTargetStyles' has no Conformance Kit run; call describeConformance({ registry: createTargetStyles, ... }) from a Pricing test (see ${guide}).`,
+    ]);
+  });
+
   it("rejects a construction site that no run of its registry executes, so its entries are never covered", async () => {
     const runWithoutConstruction = run.replace(/^.*styles-runtime.*$/m, "");
     const result = await validateFixture({
@@ -558,10 +609,20 @@ describe("pricing registry conformance guard", () => {
     expect(result.violations).toEqual([]);
     expect(result.registries.map(({ id }) => id)).toEqual(
       expect.arrayContaining([
+        "bounded-contexts/pricing/features/forecast-ledger/domain/forecast-kinds.ts#createForecastKindRegistry",
         "bounded-contexts/pricing/features/economics/domain/provider-registry.ts#createEconomicsProviderRegistry",
         "bounded-contexts/pricing/features/market-estimates/domain/demand-curve/curve-builder-registry.ts#createCurveBuilderRegistry",
         "bounded-contexts/pricing/features/repricing-policies/domain/goals/registry.ts#createPricingGoalRegistry",
         "bounded-contexts/pricing/features/repricing-policies/domain/guardrails/registry.ts#createGuardrailRegistry",
+      ]),
+    );
+    expect(result.runs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          registry:
+            "bounded-contexts/pricing/features/forecast-ledger/domain/forecast-kinds.ts#createForecastKindRegistry",
+          binds: { file: "bounded-contexts/pricing/features/forecast-ledger/domain/forecast-kinds.ts", line: 130 },
+        }),
       ]),
     );
   });
