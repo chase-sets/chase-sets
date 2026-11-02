@@ -1,5 +1,4 @@
 import { formatBpsPercent, formatDate, formatMoney, t } from "@chase-sets/localization";
-import { useState } from "react";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
   HiddenInput,
@@ -23,6 +22,7 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { OfferMatchListItem } from "./contracts";
+import { useOfferMatchDeclineAttemptIds } from "./offer-match-decline-attempt-provider";
 import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
 import { formatPriceGap } from "./price-gap";
 
@@ -54,15 +54,7 @@ export function MarketplaceOfferMatchListPage({
   data: { items: readonly OfferMatchListItem[] };
   errorMessage?: string | null;
 }) {
-  const [declineAttemptIds] = useState(() => new Map<string, string>());
-  const attemptIdFor = (offerId: string) => {
-    const existingAttemptId = declineAttemptIds.get(offerId);
-    if (existingAttemptId) return existingAttemptId;
-
-    const attemptId = crypto.randomUUID();
-    declineAttemptIds.set(offerId, attemptId);
-    return attemptId;
-  };
+  const declineAttemptIdFor = useOfferMatchDeclineAttemptIds();
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
   const atOrAboveAskCount = data.items.filter((item) => item.offer_to_listing_price_bps >= 10000).length;
   const bestMatchPercentage = data.items.length
@@ -267,7 +259,7 @@ export function MarketplaceOfferMatchListPage({
                   <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
                     {t("marketplace.features.offers.ui.offerMatchListPage.open")}
                   </LinkButton>
-                  <DeclineOfferMatchForm key={row.offer_id} offer={row} attemptId={attemptIdFor(row.offer_id)} />
+                  <DeclineOfferMatchForm key={row.offer_id} offer={row} attemptId={declineAttemptIdFor(row)} />
                 </Stack>
               ),
             },

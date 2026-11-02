@@ -6,7 +6,7 @@ import type {
   PgTransactionalPool,
   PostgresEventStore,
 } from "@chase-sets/event-core-postgres";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { ZERO_GLOBAL_POSITION, type EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import { inventoryDraftListingMessageSchema } from "@chase-sets/inventory-draft-listing";
 import type { InventoryCatalogItemServices } from "../../inventory-items/integrations/catalog/runtime";
@@ -14,7 +14,8 @@ import type {
   InventoryProductSchema,
   InventorySelectedOptionEntry,
 } from "../../inventory-items/integrations/catalog/versioning";
-import type { InventoryItemServices } from "../../inventory-items/api/runtime";
+import { createInventoryItemRuntime, type InventoryItemServices } from "../../inventory-items/api/runtime";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import {
   createInventoryImportBatchRuntime,
   createInventoryImportRowValidator,
@@ -591,19 +592,20 @@ function runtime(
   adjustments: Array<Parameters<InventoryItemServices["adjustItem"]>[0]> = [],
   creations: Array<Parameters<InventoryItemServices["createItem"]>[0]> = [],
   catalogItems: InventoryCatalogItemServices = catalogServices(),
+  items: InventoryItemServices = itemServices(
+    (params) => {
+      creations.push(params);
+      itemIds.push(params.itemIdOverride ?? ("inv_generated" as InventoryItemId));
+    },
+    (params) => adjustments.push(params),
+  ),
   staleHostPorts: object = {},
 ) {
   const services = createInventoryImportBatchRuntime({
     ...staleHostPorts,
     db,
     catalogItems,
-    items: itemServices(
-      (params) => {
-        creations.push(params);
-        itemIds.push(params.itemIdOverride ?? ("inv_generated" as InventoryItemId));
-      },
-      (params) => adjustments.push(params),
-    ),
+    items,
   });
   const validateRow = createInventoryImportRowValidator({ db, catalogItems });
   return {
@@ -1940,7 +1942,7 @@ describe("inventory import batch runtime", () => {
   it("issue-10918 commits through the durable outbox only, never a direct draft creator", async () => {
     const db = dbWithLocations();
     const directCreator = vi.fn();
-    const services = runtime(db, [], [], [], catalogServices(), { draftListingCreator: directCreator });
+    const services = runtime(db, [], [], [], catalogServices(), undefined, { draftListingCreator: directCreator });
     const batch = await services.createBatch(
       {
         accountId: "acc_1" as AccountId,
@@ -2383,6 +2385,147 @@ describe("inventory import batch runtime", () => {
       commitJobsHeld: false,
       handoffs: { complete: true, since: "2026-04-30T00:00:00.000Z" },
     });
+  });
+});
+
+describe("commit derives graded card details", () => {
+  const whenGraded = [{ dimensionId: "dim_form", optionIds: ["opt_graded"] }];
+  const gradedSchema = (gradeRequired: boolean) =>
+    ({
+      canonicalDimensionOrder: [
+        { dimensionId: "dim_form", dimensionName: "Form" },
+        { dimensionId: "dim_company", dimensionName: "Grading Company" },
+        { dimensionId: "dim_grade", dimensionName: "Grade" },
+      ],
+      dimensions: [
+        {
+          dimensionId: "dim_form",
+          dimensionName: "Form",
+          required: true,
+          appliesWhen: [],
+          allowedOptions: [
+            { optionId: "opt_raw", code: "raw", label: "Raw" },
+            { optionId: "opt_graded", code: "graded", label: "Graded" },
+          ],
+        },
+        {
+          dimensionId: "dim_company",
+          dimensionName: "Grading Company",
+          required: true,
+          appliesWhen: whenGraded,
+          allowedOptions: [{ optionId: "opt_psa", code: "psa", label: "PSA" }],
+        },
+        {
+          dimensionId: "dim_grade",
+          dimensionName: "Grade",
+          required: gradeRequired,
+          appliesWhen: whenGraded,
+          allowedOptions: [{ optionId: "opt_ten", code: "ten", label: "10" }],
+        },
+      ],
+    }) satisfies InventoryProductSchema;
+  const schemas: Record<string, InventoryProductSchema> = {
+    cat_graded_required: gradedSchema(true),
+    cat_graded_optional: gradedSchema(false),
+  };
+  const graded = { "option:dim_form": "opt_graded", "option:dim_company": "opt_psa", "option:dim_grade": "opt_ten" };
+
+  function setup() {
+    const db = dbWithLocations();
+    const catalog = catalogServices();
+    const catalogItems: InventoryCatalogItemServices = {
+      ...catalog,
+      getCatalogItem: async (itemId) => {
+        const item = await catalog.getCatalogItem(itemId);
+        return item && itemId in schemas ? { ...item, product_schema: schemas[itemId]! } : item;
+      },
+    };
+    const { eventStore, streams } = createInMemoryEventStore();
+    // The real create runtime, not a createItem stub: derivation and refusals run on the emitted events.
+    const items = createInventoryItemRuntime(
+      {
+        eventStore,
+        db,
+        checkpointStore: {
+          loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
+          saveCheckpoint: async () => undefined,
+        },
+      },
+      catalogItems,
+      { listStorageLocations: vi.fn() } as never,
+    );
+    const createItem = vi.spyOn(items, "createItem");
+    const services = runtime(db, [], [], [], catalogItems, items);
+    async function batchOf(catalogItemId: string, options: Record<string, string>) {
+      return services.createBatch(
+        {
+          accountId: "acc_1" as AccountId,
+          sourceKey: "native-csv",
+          defaultStorageLocationId: "loc_active",
+          parsedRows: [{ rowNumber: 1, values: { catalogItemId, totalQuantity: "2", ...options } }],
+        },
+        context,
+      );
+    }
+    return { services, eventStore, streams, createItem, batchOf };
+  }
+
+  it("commits a graded row with the card derived from its options and a null certification number", async () => {
+    const { services, eventStore, createItem, batchOf } = setup();
+    const batch = await batchOf("cat_graded_required", graded);
+    expect(batch.rows[0]).toMatchObject({ status: "accepted" });
+    await services.commitBatch({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context);
+
+    expect(createItem).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ certificationNumber: null }),
+      expect.anything(),
+    );
+    expect(createItem.mock.calls[0]![0]).not.toHaveProperty("gradedCard");
+    const itemId = batch.rows[0]!.row_id.replace(/^imr_/, "inv_");
+    const events = await eventStore.readStream({ streamId: `inventory.item-${itemId}` });
+    expect(events.map((event) => event.eventType)).toEqual(["inventory.item.created"]);
+    expect(events[0]!.payload).toMatchObject({
+      selectedOptions: [
+        { dimensionId: "dim_form", optionId: "opt_graded" },
+        { dimensionId: "dim_company", optionId: "opt_psa" },
+        { dimensionId: "dim_grade", optionId: "opt_ten" },
+      ],
+      gradedCard: {
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: null,
+        population: null,
+        conditionDescriptors: [],
+      },
+    });
+  });
+
+  it("commits a raw row from the same schema without a card", async () => {
+    const { services, eventStore, batchOf } = setup();
+    const batch = await batchOf("cat_graded_required", { "option:dim_form": "opt_raw" });
+    await services.commitBatch({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context);
+    const itemId = batch.rows[0]!.row_id.replace(/^imr_/, "inv_");
+    const events = await eventStore.readStream({ streamId: `inventory.item-${itemId}` });
+    expect(events[0]!.payload).toMatchObject({ gradedCard: null });
+  });
+
+  it("refuses an optional grade left out with the missing-details text and writes no item", async () => {
+    const { services, streams, batchOf } = setup();
+    const { "option:dim_grade": _grade, ...withoutGrade } = graded;
+    const batch = await batchOf("cat_graded_optional", withoutGrade);
+    expect(batch.rows[0]).toMatchObject({ status: "accepted" });
+    await expect(
+      services.commitBatch({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context),
+    ).rejects.toThrow("Choose a grading company and grade before creating a Graded inventory item.");
+    expect([...streams.keys()].filter((streamId) => streamId.startsWith("inventory.item-"))).toEqual([]);
+  });
+
+  it("keeps the schema validation error for a required grade left out", async () => {
+    const { batchOf } = setup();
+    const { "option:dim_grade": _grade, ...withoutGrade } = graded;
+    const batch = await batchOf("cat_graded_required", withoutGrade);
+    expect(batch.rows[0]).toMatchObject({ status: "rejected" });
+    expect(batch.rows[0]!.validation_errors).toContain("Selected options must include Grade.");
   });
 });
 
