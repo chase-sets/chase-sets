@@ -8,6 +8,18 @@ export const marketplaceEnglishTranslations = {
   "marketplace.recovery.failedSafe": "The action was not sent. Review your inputs before trying again.",
   "marketplace.recovery.ambiguous":
     "We could not confirm the result. This action is disabled to avoid duplicating your work.",
+  "marketplace.listingRecovery.submitting": "Sending your Listing change...",
+  "marketplace.listingRecovery.confirming": "Confirming your first result. Do not submit this change again.",
+  "marketplace.listingRecovery.succeeded": "Your Listing change is confirmed.",
+  "marketplace.listingRecovery.failedSafe": "The change was not sent. Review your inputs before trying again.",
+  "marketplace.listingRecovery.ambiguous":
+    "We could not confirm the result. Changes are disabled to avoid duplicating your work.",
+  "marketplace.listingRecovery.partial":
+    "{succeeded} of {total} Listings changed. Retry sends only the Listings whose result is unknown.",
+  "marketplace.listingRecovery.retryUnknown": "Retry unknown Listings",
+  "marketplace.listingRecovery.attemptInvalid": "This change is missing its attempt identity. Reload and try again.",
+  "marketplace.listingRecovery.attemptConflict":
+    "This change was already sent with different details. Reload to see the first result.",
   "marketplace.features.listings.capacityRecovery.title": "Paused for inventory capacity",
   "marketplace.features.listings.capacityRecovery.waiting":
     "This system pause protects held stock. The Listing will resume when enough inventory is available and publication checks pass.",
@@ -555,6 +567,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.bulk.action.results": "{succeeded} succeeded, {failed} failed",
   "marketplace.features.listings.ui.listingListPage.bulk.action.succeeded": "Succeeded",
   "marketplace.features.listings.ui.listingListPage.bulk.action.failed": "Failed",
+  "marketplace.features.listings.ui.listingListPage.bulk.action.conflict": "Changed elsewhere",
+  "marketplace.features.listings.ui.listingListPage.bulk.action.unknown": "Unconfirmed",
   "marketplace.features.listings.ui.listingCreatePage.seller": "Seller",
   "marketplace.features.listings.ui.listingCreatePage.create.listing": "Create Listing",
   "marketplace.features.listings.ui.listingCreatePage.back.to.listings": "Back to listings",

@@ -1,3 +1,4 @@
+import { sendListingCommandsWithFreshAttempts } from "../tests/listing-attempt-test-support";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
@@ -12,7 +13,7 @@ function buildApp(
     services: MarketplaceListingServices;
   }>,
 ) {
-  const app = new Hono<MarketplaceApiEnv>();
+  const app = sendListingCommandsWithFreshAttempts(new Hono<MarketplaceApiEnv>());
 
   app.use("*", async (c, next) => {
     c.set("actor", options.actor);
@@ -1086,6 +1087,7 @@ describe("marketplace listing routes", () => {
         accountId: "acc_seller",
         listingId: "lst_1",
         feeQuoteFingerprint: null,
+        idempotencyKey: expect.stringMatching(/^test_attempt_/),
       },
       expect.objectContaining({
         audit: expect.objectContaining({
@@ -1261,12 +1263,19 @@ describe("marketplace listing routes", () => {
       {
         accountId: "acc_seller",
         updates: [
-          { listingId: "lst_1", priceAmount: "21.00", priceCurrencyCode: "USD", feeQuoteFingerprint: null },
+          {
+            listingId: "lst_1",
+            priceAmount: "21.00",
+            priceCurrencyCode: "USD",
+            feeQuoteFingerprint: null,
+            idempotencyKey: expect.stringMatching(/^test_attempt_/),
+          },
           {
             listingId: "lst_2",
             priceAmount: "22.00",
             priceCurrencyCode: "EUR",
             feeQuoteFingerprint: "some-fingerprint",
+            idempotencyKey: expect.stringMatching(/^test_attempt_/),
           },
         ],
       },
@@ -1390,6 +1399,7 @@ describe("marketplace listing routes", () => {
         reasonCategory: "audit",
         availableAgainOn: "2026-06-01",
         availableAgainAt: null,
+        idempotencyKey: expect.stringMatching(/^test_attempt_/),
       },
       expect.objectContaining({
         audit: expect.objectContaining({
@@ -1434,6 +1444,7 @@ describe("marketplace listing routes", () => {
         reasonCategory: "travel",
         availableAgainOn: "2026-07-20",
         availableAgainAt: "2026-07-20T05:00:00.000Z",
+        idempotencyKey: expect.stringMatching(/^test_attempt_/),
       },
       expect.objectContaining({
         audit: expect.objectContaining({
@@ -1479,7 +1490,7 @@ describe("marketplace listing routes", () => {
       maxOpenOrders: 5,
     });
     expect(services.setSellerOrderCapacity).toHaveBeenCalledWith(
-      { accountId: "acc_seller", maxOpenOrders: 5 },
+      { accountId: "acc_seller", maxOpenOrders: 5, idempotencyKey: expect.stringMatching(/^test_attempt_/) },
       expect.objectContaining({
         audit: expect.objectContaining({
           forAccountId: "acc_seller",
@@ -1522,7 +1533,7 @@ describe("marketplace listing routes", () => {
       maxOpenOrders: null,
     });
     expect(services.clearSellerOrderCapacity).toHaveBeenCalledWith(
-      { accountId: "acc_seller" },
+      { accountId: "acc_seller", idempotencyKey: expect.stringMatching(/^test_attempt_/) },
       expect.objectContaining({
         audit: expect.objectContaining({
           forAccountId: "acc_seller",
@@ -1597,6 +1608,7 @@ describe("marketplace listing routes", () => {
         reasonCategory: "travel",
         startsAt: "2026-07-20T05:00:00.000Z",
         endsAt: "2026-07-27T05:00:00.000Z",
+        idempotencyKey: expect.stringMatching(/^test_attempt_/),
       },
       expect.objectContaining({
         audit: expect.objectContaining({
@@ -1664,7 +1676,7 @@ describe("marketplace listing routes", () => {
       version: 2,
     });
     expect(services.cancelScheduledAwayWindow).toHaveBeenCalledWith(
-      { accountId: "acc_seller" },
+      { accountId: "acc_seller", idempotencyKey: expect.stringMatching(/^test_attempt_/) },
       expect.objectContaining({
         audit: expect.objectContaining({
           forAccountId: "acc_seller",
