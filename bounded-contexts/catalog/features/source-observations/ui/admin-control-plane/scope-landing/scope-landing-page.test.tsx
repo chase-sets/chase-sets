@@ -22,7 +22,6 @@ import type {
   CatalogItemAliasRow,
   CatalogReferenceRecordAliasRow,
 } from "../../../../alias-equivalence/read-model/queries";
-
 afterEach(cleanup);
 
 const GENERATED_AT = "2026-07-13T12:00:00.000Z";
@@ -190,7 +189,9 @@ function acceptedReferenceAlias(
   };
 }
 
-function generalAliasReview(): CatalogAliasReviewReadModel {
+function generalAliasReview(
+  statuses: Readonly<Record<string, CatalogAliasCandidateRow["review_status"]>> = {},
+): CatalogAliasReviewReadModel {
   return buildCatalogAliasReviewReadModel({
     generatedAt: GENERATED_AT,
     filter: {
@@ -203,7 +204,7 @@ function generalAliasReview(): CatalogAliasReviewReadModel {
       targetId: null,
     },
     candidateRows: [
-      aliasCandidate(),
+      aliasCandidate({ review_status: statuses["alias-pending"] ?? "pending" }),
       aliasCandidate({
         alias_hash: "alias-reference",
         target_kind: "reference-record",
@@ -211,10 +212,10 @@ function generalAliasReview(): CatalogAliasReviewReadModel {
         target_key: "expansion",
         alias_text: "Base Set JP",
         alias_type: "set-equivalent",
-        review_status: "auto-accepted",
+        review_status: statuses["alias-reference"] ?? "auto-accepted",
       }),
     ],
-    catalogItemAliasRows: [acceptedItemAlias()],
+    catalogItemAliasRows: [acceptedItemAlias({ review_status: statuses["alias-accepted-item"] ?? "accepted" })],
     referenceRecordAliasRows: [acceptedReferenceAlias()],
   });
 }
@@ -274,18 +275,22 @@ describe("CatalogScopeLandingPage", () => {
     expect(review.closest("main") ?? review.parentElement).toBeTruthy();
   });
 
-  it("mounts the on-demand all-scopes alias disclosure with item/reference targets and every command form", async () => {
+  it("mounts general alias review for a single-language scope with item/reference and accepted/auto-accepted targets", async () => {
     const user = userEvent.setup();
     renderLanding({
-      scopes: { items: [scope()], total: 1, count: 1 },
+      scopes: { items: [scope({ languageEditions: ["en"] })], total: 1, count: 1 },
       generalAliasReview: generalAliasReview(),
       canManage: true,
     });
 
     const disclosure = screen.getByRole("button", { name: /All-scopes alias review/i });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
     await user.click(disclosure);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getAllByText("フシギダネ").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Base Set JP").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("accepted").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("auto-accepted").length).toBeGreaterThan(0);
     const commands = [...document.querySelectorAll("[data-alias-review-command]")].map((node) =>
       node.getAttribute("data-alias-review-command"),
     );

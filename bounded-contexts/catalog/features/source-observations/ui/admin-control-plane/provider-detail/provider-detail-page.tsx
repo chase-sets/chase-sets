@@ -39,6 +39,8 @@ import {
   commandSuccessTitle,
 } from "../../primary-workbench-command-feedback";
 import { actionTone, stateLabel } from "../import-to-promotion/workbench-formatting";
+import { CatalogIntegrationCommandActionProvider } from "../import-to-promotion/command-action-context";
+import { ImportJobLifecycleActions } from "../import-jobs/import-job-lifecycle-actions";
 import { ProfileBlockerList } from "../profiles/profile-blocker-list";
 import { ProfileAuthoringHiddenInputs } from "../profiles/profile-hidden-inputs";
 import { ProfileOverviewEvidence } from "../profiles/profile-overview-evidence";
@@ -361,7 +363,12 @@ function ProviderRecentJobs({
             data-catalog-provider-job-disclosure={job.jobId}
             data-provider-job-selected={job.jobId === selectedJobId ? "true" : undefined}
           >
-            <ProviderJobOutcome job={job} />
+            <WorkbenchStack>
+              <ProviderJobOutcome job={job} />
+              <CatalogIntegrationCommandActionProvider actionPath={catalogProviderDetailHref(providerKey)}>
+                <ImportJobLifecycleActions readModel={readModel} job={job} />
+              </CatalogIntegrationCommandActionProvider>
+            </WorkbenchStack>
           </ProgressiveDisclosure>
         ) : (
           <WorkbenchDataCell title={job.jobId} description={job.summary} />

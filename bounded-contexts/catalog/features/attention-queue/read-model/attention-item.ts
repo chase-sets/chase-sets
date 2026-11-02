@@ -54,7 +54,7 @@ export type CatalogAttentionResolution = Readonly<{
   // Localization key for the primary affordance label.
   labelKey: string;
   fields: Readonly<Record<string, string>>;
-  /** Entity home opened by the drawer. Missing means the source target is unavailable. */
+  /** Entity home opened by the drawer; inline commands do not need a navigation href. */
   href?: string;
   /** Explicitly distinguishes a missing/deleted target from a resolvable one. */
   unavailable?: boolean;

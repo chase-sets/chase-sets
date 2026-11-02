@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LoaderFunctionArgs } from "react-router";
 import { ApiError as CatalogApiError } from "../../shell-support/api/client";
+import { catalogAttentionQueueReadModelFixture } from "../../../features/attention-queue/api/attention-queue-test-fixtures";
+import { buildCatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
 
 const { mockCreateCatalogRequestApiClient } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),
@@ -14,6 +16,16 @@ vi.mock("../../request-support/api-client", async () => {
 });
 
 const { loader } = await import("./scope-landing-loader");
+
+const aliasFilter = {
+  providerKey: null,
+  sourceProfileVersion: null,
+  aliasType: null,
+  reviewStatuses: [],
+  observationId: null,
+  targetKind: null,
+  targetId: null,
+};
 
 function scopeRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -94,10 +106,42 @@ describe("Catalog scope-landing route loader", () => {
   });
 
   it("reads the queue and general aliases once without changing scope pagination", async () => {
-    const listCatalogScopeRecords = vi.fn().mockResolvedValue({ items: [scopeRow()], total: 1, count: 1 });
-    const getCatalogAttentionQueueReadModel = vi.fn().mockResolvedValue({ malformed: true });
-    const getCatalogAliasReviewReadModel = vi.fn().mockResolvedValue({ malformed: true });
+    const rows = [
+      scopeRow(),
+      scopeRow({ scopeRecordId: "scope-2", name: "Base Set" }),
+      scopeRow({ scopeRecordId: "scope-3", name: "Jungle" }),
+    ];
+    const listCatalogScopeRecords = vi.fn().mockResolvedValue({ items: rows, total: 103, count: 3 });
+    const queue = catalogAttentionQueueReadModelFixture();
+    const aliases = buildCatalogAliasReviewReadModel({
+      generatedAt: "2026-07-09T12:00:00.000Z",
+      filter: aliasFilter,
+      candidateRows: [],
+      catalogItemAliasRows: [],
+      referenceRecordAliasRows: [],
+    });
+    const getCatalogAttentionQueueReadModel = vi.fn().mockResolvedValue(queue);
+    const getCatalogAliasReviewReadModel = vi.fn().mockResolvedValue(aliases);
+    const unusedDaily = Object.fromEntries(
+      [
+        "listSourceObservationIntegrationScopes",
+        "listSourceObservationProviderProfiles",
+        "getCatalogIntegrationControlPlaneOverview",
+        "listSourceObservations",
+        "listCatalogMergeCandidates",
+        "getSourceObservationProviderProfileAuthoringModel",
+        "listSourceObservationIntegrationOptions",
+        "getSourceObservationProviderProfileLifecycleImpact",
+        "getCatalogSyncScopeState",
+      ].map((name) => [
+        name,
+        vi.fn(() => {
+          throw new Error(`Unused daily API read: ${name}`);
+        }),
+      ]),
+    );
     mockCreateCatalogRequestApiClient.mockReturnValue({
+      ...unusedDaily,
       listCatalogScopeRecords,
       getCatalogAttentionQueueReadModel,
       getCatalogAliasReviewReadModel,
@@ -108,10 +152,46 @@ describe("Catalog scope-landing route loader", () => {
     expect(listCatalogScopeRecords).toHaveBeenCalledOnce();
     expect(getCatalogAttentionQueueReadModel).toHaveBeenCalledOnce();
     expect(getCatalogAliasReviewReadModel).toHaveBeenCalledOnce();
-    expect(routeData.readModel.rows).toHaveLength(1);
-    expect(routeData.attentionQueue.status).toBe("unavailable");
-    expect(routeData.generalAliasReview).toBeNull();
-    expect(routeData.generalAliasReviewFailed).toBe(true);
+    expect(routeData.readModel.rows).toHaveLength(3);
+    expect(routeData.attentionQueue).toEqual({ status: "ready", readModel: queue });
+    expect(routeData.generalAliasReview).toEqual(aliases);
+    expect(routeData.generalAliasReviewFailed).toBe(false);
+    expect(getCatalogAliasReviewReadModel).toHaveBeenCalledWith("limit=200");
+    const query = new URLSearchParams(listCatalogScopeRecords.mock.calls[0]?.[0]);
+    expect(query.get("limit")).toBe("50");
+    expect(query.get("offset")).toBe("50");
+    for (const spy of Object.values(unusedDaily)) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("keeps multiple paginated scopes and valid aliases when the queue transport fails", async () => {
+    const rows = [scopeRow(), scopeRow({ scopeRecordId: "scope-2", name: "Base Set" })];
+    const listCatalogScopeRecords = vi.fn().mockResolvedValue({ items: rows, total: 102, count: 2 });
+    const getCatalogAttentionQueueReadModel = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    const aliases = buildCatalogAliasReviewReadModel({
+      generatedAt: "2026-07-09T12:00:00.000Z",
+      filter: aliasFilter,
+      candidateRows: [],
+      catalogItemAliasRows: [],
+      referenceRecordAliasRows: [],
+    });
+    const getCatalogAliasReviewReadModel = vi.fn().mockResolvedValue(aliases);
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listCatalogScopeRecords,
+      getCatalogAttentionQueueReadModel,
+      getCatalogAliasReviewReadModel,
+    });
+    const data = await runLoader("https://admin.example/catalog/scopes?page=2");
+    expect(data.error).toBeNull();
+    expect(data.readModel.rows).toHaveLength(2);
+    expect(data.attentionQueue.status).toBe("unavailable");
+    expect(data.generalAliasReview).toEqual(aliases);
+    expect(data.generalAliasReviewFailed).toBe(false);
+    expect(listCatalogScopeRecords).toHaveBeenCalledOnce();
+    expect(getCatalogAttentionQueueReadModel).toHaveBeenCalledOnce();
+    expect(getCatalogAliasReviewReadModel).toHaveBeenCalledOnce();
+    const query = new URLSearchParams(listCatalogScopeRecords.mock.calls[0]?.[0]);
+    expect(query.get("limit")).toBe("50");
+    expect(query.get("offset")).toBe("50");
   });
 
   it("keeps scopes when the supplementary alias read fails", async () => {

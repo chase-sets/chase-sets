@@ -243,6 +243,90 @@ describe("CatalogAttentionQueuePanel", () => {
 
     const aliasTriggers = screen.getAllByRole("button", { name: "Accept" });
     await user.click(aliasTriggers[aliasTriggers.length - 1]!);
-    expect(document.querySelector('[data-attention-destination="unavailable"]')).toBeTruthy();
+    expect(document.querySelector('[data-attention-destination="unavailable"]')).toBeNull();
+    for (const [key, value] of Object.entries({ targetKind: "catalog-item", targetId: "i1", targetKey: "i1" })) {
+      expect(screen.getByText(key).nextElementSibling?.textContent).toBe(value);
+    }
   });
+
+  it("mounts the generated conflict with no scope identity as unavailable instead of inventing a destination", async () => {
+    const user = userEvent.setup();
+    const sources = oneOfEachKindSources();
+    const readModel = assembleCatalogAttentionQueue(
+      { ...sources, mergeCandidates: sources.mergeCandidates.map((row) => ({ ...row, scope_record_id: undefined })) },
+      { generatedAt: GENERATED_AT, dismissedItemKeys: new Set() },
+    );
+    render(<CatalogAttentionQueuePanel readModel={readModel} actionHref="/catalog/scopes" />);
+    await user.click(screen.getAllByRole("button", { name: "Resolve conflict" }).at(-1)!);
+    expect(screen.getByText(/Resolution unavailable/i)).toBeTruthy();
+    expect(document.querySelector('[data-attention-destination="true"]')).toBeNull();
+  });
+
+  it.each([
+    ["unmapped-scope", "Review mapping"],
+    ["provider-health", "Review health"],
+    ["import-job", "Review job"],
+    ["stale-scope-sync", "Review scope"],
+  ] as const)("mounts %s with absent destination identity as unavailable", async (kind, label) => {
+    const user = userEvent.setup();
+    const sources = oneOfEachKindSources();
+    const readModel = assembleCatalogAttentionQueue(
+      {
+        ...sources,
+        proposedScopeMappings:
+          kind === "unmapped-scope"
+            ? sources.proposedScopeMappings.map((row) => ({ ...row, scope_record_id: "" }))
+            : sources.proposedScopeMappings,
+        unitReadiness:
+          kind === "provider-health"
+            ? sources.unitReadiness.map((row) => ({ ...row, providerKey: "" }))
+            : sources.unitReadiness,
+        unitActivity:
+          kind === "import-job"
+            ? sources.unitActivity.map((unit) => ({
+                ...unit,
+                recentJobs: unit.recentJobs.map((job) => ({ ...job, providerKey: "" })),
+              }))
+            : sources.unitActivity,
+        staleScopeRecords:
+          kind === "stale-scope-sync"
+            ? sources.staleScopeRecords.map((row) => ({ ...row, scope_record_id: "" }))
+            : sources.staleScopeRecords,
+      },
+      { generatedAt: GENERATED_AT, dismissedItemKeys: new Set() },
+    );
+    expect(readModel.items.find((item) => item.kind === kind)?.resolution.unavailable).toBe(true);
+    render(<CatalogAttentionQueuePanel readModel={readModel} actionHref="/catalog/scopes" />);
+    await user.click(screen.getAllByRole("button", { name: label }).at(-1)!);
+    expect(screen.getByText(/Resolution unavailable/i)).toBeTruthy();
+    expect(document.querySelector('[data-attention-destination="true"]')).toBeNull();
+  });
+
+  it.each(["catalog-item", "reference-record"] as const)(
+    "disables resolution for an alias with an absent %s target identity",
+    async (targetKind) => {
+      const user = userEvent.setup();
+      const sources = oneOfEachKindSources();
+      const readModel = assembleCatalogAttentionQueue(
+        {
+          ...sources,
+          pendingAliasCandidates: sources.pendingAliasCandidates.map((row) => ({
+            ...row,
+            target_kind: targetKind,
+            target_id: null,
+          })),
+        },
+        { generatedAt: GENERATED_AT, dismissedItemKeys: new Set() },
+      );
+      render(<CatalogAttentionQueuePanel readModel={readModel} actionHref="/catalog/scopes" />);
+      const forms = document.querySelectorAll<HTMLFormElement>("[data-attention-resolution]");
+      expect(forms.length).toBeGreaterThan(0);
+      for (const form of forms) expect(form.querySelector("button")?.disabled).toBe(true);
+      await user.click(
+        screen.getAllByRole("button", { name: "Accept" }).find((button) => !button.hasAttribute("disabled"))!,
+      );
+      expect(screen.getByText(/Resolution unavailable/i)).toBeTruthy();
+      expect(document.querySelector('[data-attention-destination="true"]')).toBeNull();
+    },
+  );
 });

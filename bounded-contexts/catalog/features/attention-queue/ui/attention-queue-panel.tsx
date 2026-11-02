@@ -93,7 +93,7 @@ export function CatalogAttentionQueuePanel({
                 resolution={row.resolution}
                 actionHref={actionHref}
                 tone="primary"
-                disabled={!canManage}
+                disabled={!canManage || row.resolution.unavailable === true}
               />
             ) : null}
             {row.secondaryResolutions.map((resolution) => (
@@ -102,7 +102,7 @@ export function CatalogAttentionQueuePanel({
                 resolution={resolution}
                 actionHref={actionHref}
                 tone="secondary"
-                disabled={!canManage}
+                disabled={!canManage || resolution.unavailable === true}
               />
             ))}
             <AttentionItemDrawer item={row} actionHref={actionHref} canManage={canManage} />
@@ -241,11 +241,11 @@ function AttentionItemDrawer({
           <LinkButton href={item.resolution.href} size="sm" tone="secondary" data-attention-destination="true">
             {t("catalog.features.attentionQueue.action.openDestination")}
           </LinkButton>
-        ) : (
+        ) : item.resolution.unavailable || item.resolution.mode === "drawer" ? (
           <WorkbenchText size="sm" tone="secondary" data-attention-destination="unavailable">
             {t("catalog.features.attentionQueue.resolution.unavailable")}
           </WorkbenchText>
-        )}
+        ) : null}
 
         <WorkbenchForm variant="inline" method="post" action={actionHref} data-attention-park="dismiss">
           <HiddenInput name="_intent" value={CATALOG_ATTENTION_DISMISS_INTENT} />
