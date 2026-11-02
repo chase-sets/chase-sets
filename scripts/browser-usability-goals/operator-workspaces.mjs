@@ -380,11 +380,11 @@ export default {
       checks: ["case-lookup", "resolution-details", "open-queue", "no-case-changed"],
       oracle: {
         "case-lookup":
-          "The task-context reference resolves to sup_seed_resolved_partial_refund in the support reference lookup read model.",
+          "The task-context reference resolves to sup_01JZ6DKR7S7Z4AZ5N5G6K7M8N9 in the support reference lookup read model.",
         "resolution-details":
           "Compare against the platform-operations seed (seededSupportRequestInventory: product-damaged, resolved, $5.00 partial refund, carrier responsibility) and the support request read model.",
         "open-queue":
-          "Compare against the support operations queue read model: the seed leaves sup_seed_active_product_not_received and sup_seed_self_service_product_damaged open; deadlines come from the read model at run time.",
+          "Compare against the support operations queue read model: the seed leaves sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9 and sup_01JZ6DKQ7S7Z4AZ5N5F6K7M8N9 open; deadlines come from the read model at run time.",
         "no-case-changed":
           "Support request audit read model shows no new note, response, escalation, or status change during the run window.",
       },

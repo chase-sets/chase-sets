@@ -44,6 +44,7 @@ describe("SupportReferenceLookupPage", () => {
     expect(screen.getByLabelText("Reference")).toBeTruthy();
     expect(screen.getByText("No record found")).toBeTruthy();
     expect(screen.getByText(/ORD-MISSING/)).toBeTruthy();
+    expect(screen.getAllByText(/order, shipment, payout, support-case, or checkout reference/)).toHaveLength(2);
   });
 
   it("renders an error banner instead of a result section when the lookup failed", () => {
