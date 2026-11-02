@@ -1,3 +1,4 @@
+import { emailVerificationSignInHref, permissionAwaitsEmailVerification } from "@chase-sets/auth-context";
 import { t } from "@chase-sets/localization";
 import { isCanonicalMoneyAmount } from "@chase-sets/primitives/money";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
@@ -18,6 +19,7 @@ import {
   appendFreshWriteTokenFromSources,
   loadFreshlyWrittenResource,
   readApiErrorCode,
+  readApiErrorMessage,
   readFreshWriteToken,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
@@ -380,6 +382,15 @@ function shouldRefreshPaymentStart(error: unknown) {
   }
 
   return readApiErrorCode(error.body) === "payment_start_pending";
+}
+
+function isPaymentStartRefused(error: unknown): error is CheckoutApiError {
+  if (!(error instanceof CheckoutApiError) || error.status !== 403) {
+    return false;
+  }
+
+  const code = readApiErrorCode(error.body);
+  return code === "email_verification_required" || code === "authorization_forbidden";
 }
 
 function isConfirmationChanged(error: unknown) {
@@ -845,6 +856,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     preparedPayment,
     paymentElementDefaultValues,
     expiredCheckout,
+    // Auth withholds payment until the buyer verifies their email; confirm would refuse (#10785).
+    paymentVerifyEmailHref:
+      session.source_type !== "offer-intent" &&
+      Array.isArray(actor?.permissions) &&
+      permissionAwaitsEmailVerification(actor, "orders.manage")
+        ? emailVerificationSignInHref(`/checkout/buy/session/${encodeURIComponent(session.session_id)}`, "pay-checkout")
+        : null,
   };
 }
 
@@ -1075,6 +1093,15 @@ async function handleAction(intent: string, { request, params, formData }: FormA
           );
         }
 
+        if (isPaymentStartRefused(error)) {
+          return {
+            error: readApiErrorMessage(
+              error.body,
+              t("checkout.features.sessions.api.route.payment.authority.required"),
+            ),
+          };
+        }
+
         if (isConfirmationChanged(error)) {
           return {
             confirmationState: "changed" as const,
@@ -1178,6 +1205,7 @@ export default function CheckoutSessionRoute() {
       canManageShippingAddresses={data.canManageShippingAddresses}
       canSavePaymentMethods={data.canSavePaymentMethods}
       isSignedInBuyer={data.isSignedInBuyer}
+      paymentVerifyEmailHref={data.paymentVerifyEmailHref}
       errorMessage={
         (actionData && "error" in actionData ? actionData.error : null) ??
         (data.expiredCheckout ? CHECKOUT_HANDOFF_EXPIRED_MESSAGE : data.previewError) ??

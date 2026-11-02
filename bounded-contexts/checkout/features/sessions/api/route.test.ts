@@ -2616,6 +2616,95 @@ describe("checkout session routes", () => {
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
+  // #10785: Payments starts a payment only for orders.manage or guest-checkout.manage, so confirm
+  // refuses before it reserves stock or creates orders the buyer could not pay for.
+  it.each([
+    ["an owner whose email is unverified", "owner", "email_verification_required", "Verify your email before you pay."],
+    ["a role without order management", "viewer", "authorization_forbidden", "This account cannot pay for purchases."],
+  ])("refuses Pay now for %s before any reservation or order", async (_label, roleKey, code, message) => {
+    const services = createServices({ getSession: vi.fn(async () => createSession()) });
+    const app = buildApp(services, createBuyerActor({ roleKey, permissions: ["orders.view"] }));
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: { code, message: expect.stringContaining(message) },
+    });
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutInventoryReservations).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
+  it("answers a repeat Pay now on orders the buyer cannot pay for with the reason, not a 400", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ order_ids: ["ord_1"] })),
+      resumeOrderCartCleanup: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ order_ids: ["ord_1"] }),
+      })),
+    });
+    const app = buildApp(services, createBuyerActor({ roleKey: "owner", permissions: ["orders.view"] }));
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "email_verification_required" } });
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
+  it("still lets a guest buyer pay", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+      writeResult: orderingWriteResult,
+    });
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
+      recordOrdersCreated: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ buyer_account_id: "acc_guest", order_ids: ["ord_1"] }),
+      })),
+    });
+    const app = buildApp(services, createGuestBuyerActor());
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).not.toBe(403);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+  });
+
   it("asks checkout review to retry when Payments has not observed newly created orders", async () => {
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
       orderIds: ["ord_1"],
