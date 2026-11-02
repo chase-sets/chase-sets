@@ -21,6 +21,11 @@ import {
   type CatalogAttentionDismissalEvent,
 } from "../features/attention-queue/domain/dismissal";
 import { CatalogScopeLandingPage } from "../features/source-observations/ui/admin-control-plane/scope-landing/scope-landing-page";
+import {
+  buildCatalogAliasReviewReadModel,
+  type CatalogAliasReviewReadModel,
+} from "../features/alias-equivalence/api/alias-review-admin-contracts";
+import type { CatalogAliasCandidateRow } from "../features/alias-equivalence/read-model/queries";
 
 const { mockCreateCatalogRequestApiClient, mockResolveActorFromAuthApi } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),
@@ -64,6 +69,47 @@ const context: EventStoreContext = {
   tenantId: "tnt_test" as TenantId,
   audit: { performedByUserId: "usr_reviewer" as UserId, forAccountId: "acc_test" as AccountId },
 };
+
+const aliasFixture: CatalogAliasCandidateRow = {
+  alias_hash: "alias-accepted",
+  target_kind: "catalog-item",
+  target_id: "item-1",
+  target_key: "name",
+  alias_text: "Bulbasaur",
+  normalized_alias_text: "bulbasaur",
+  alias_language_code: "en",
+  source_language_code: "en",
+  alias_type: "official-equivalent",
+  confidence: "high",
+  review_status: "accepted",
+  provider_key: "tcgdex",
+  observation_id: "obs-1",
+  source_category: "provider-same-id-localized-endpoint",
+  source_profile_key: "pokemon-tcg",
+  source_profile_version: "v1",
+  mapping_fingerprint: "fp",
+  evidence: {},
+  first_observed_at: "2026-07-13T12:00:00.000Z",
+  updated_at: "2026-07-13T12:00:00.000Z",
+};
+
+function aliasReadModel(status: CatalogAliasCandidateRow["review_status"]): CatalogAliasReviewReadModel {
+  return buildCatalogAliasReviewReadModel({
+    generatedAt: "2026-07-13T12:00:00.000Z",
+    filter: {
+      providerKey: null,
+      sourceProfileVersion: null,
+      aliasType: null,
+      reviewStatuses: [],
+      observationId: null,
+      targetKind: null,
+      targetId: null,
+    },
+    candidateRows: [{ ...aliasFixture, review_status: status }],
+    catalogItemAliasRows: [],
+    referenceRecordAliasRows: [],
+  });
+}
 
 function statefulQueueApi(canManage = true, failCommand = false) {
   let state = initialCatalogAttentionDismissalState;
@@ -253,5 +299,36 @@ describe("Catalog scope-landing route action", () => {
       aliasHashes: ["alias-1", "alias-2"],
       ...(intent === "alias.reject" ? { reason: "not equivalent" } : {}),
     });
+  });
+
+  it("revokes an accepted alias through the home action and observes the revoked row after loader reload", async () => {
+    let status: CatalogAliasCandidateRow["review_status"] = "accepted";
+    const dispatch = vi.fn().mockImplementation(async () => {
+      status = "revoked";
+      return { status: "recorded" };
+    });
+    const scopes = { items: [], total: 0, count: 0 };
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listCatalogScopeRecords: vi.fn().mockResolvedValue(scopes),
+      getCatalogAttentionQueueReadModel: vi.fn().mockResolvedValue(catalogAttentionQueueReadModelFixture([])),
+      getCatalogAliasReviewReadModel: vi.fn().mockImplementation(async () => aliasReadModel(status)),
+      dispatchCatalogAliasReviewCommand: dispatch,
+    });
+
+    const before = await loader(loaderArgs(new Request("https://admin.example/catalog/scopes")));
+    expect(before.generalAliasReview?.candidates[0]?.reviewStatus).toBe("accepted");
+    const result = await action(
+      routeArgs(
+        request("alias.revoke", {
+          aliasHashes: "alias-accepted",
+          reason: "reviewed",
+        }),
+      ),
+    );
+    expect(result.feedback).toMatchObject({ status: "success", intent: "alias.revoke", result: "job-queued" });
+    expect(dispatch).toHaveBeenCalledWith({ intent: "revoke", aliasHashes: ["alias-accepted"], reason: "reviewed" });
+
+    const after = await loader(loaderArgs(new Request("https://admin.example/catalog/scopes")));
+    expect(after.generalAliasReview?.candidates[0]?.reviewStatus).toBe("revoked");
   });
 });
