@@ -310,9 +310,14 @@ describe("verify:static surface-map and selector contracts", () => {
       ...VERIFY_STATIC_GUARD_TEST_SURFACES,
       [brandGuard]: { ...VERIFY_STATIC_GUARD_TEST_SURFACES[brandGuard], include: [{ kind: "synthetic-invalid-rule" }] },
     };
-    expect(
-      selectVerifyStaticGuardTests({ changedFiles: ["docs/synthetic-brand-caller.md"], surfaces: invalid }),
-    ).toContain(brandGuard);
+    let selection;
+    expect(() => {
+      selection = selectVerifyStaticGuardTests({
+        changedFiles: ["docs/synthetic-brand-caller.md"],
+        surfaces: invalid,
+      });
+    }).toThrow("Unknown verify:static surface-rule kind: synthetic-invalid-rule");
+    expect(selection).toBeUndefined();
     const documentationExemptionMutant = (changedFiles) =>
       changedFiles.every((file) => file.endsWith(".md")) ? [] : selectVerifyStaticGuardTests({ changedFiles });
     expect(() =>
