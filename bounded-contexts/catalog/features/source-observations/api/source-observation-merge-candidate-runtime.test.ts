@@ -170,7 +170,7 @@ describe("source observation merge candidate reconciliation regressions", () => 
           : {
               ...first,
               normalized: normalizedObservation({
-                ...first.normalized,
+                ...pokemonFacts(first),
                 ...(mode === "excluded" ? { setId: "unmapped", setName: "Unmapped" } : { cardNumber: "99" }),
               }),
             };
@@ -191,7 +191,7 @@ describe("source observation merge candidate reconciliation regressions", () => 
       const a = {
         ...observationRow("obs_z_unit_a", "a"),
         normalized: normalizedObservation({
-          ...observationRow("unused", "unused").normalized,
+          ...pokemonFacts(observationRow("unused", "unused")),
           cardNumber: "54",
           externalCatalogItemReferences: references,
         }),
@@ -350,7 +350,7 @@ describe("source observation merge candidate reconciliation regressions", () => 
     const a = observationRow("obs_scope_a", "a");
     const b = {
       ...observationRow("obs_scope_b", "b"),
-      normalized: normalizedObservation({ ...a.normalized, setId: "other", setName: "Other" }),
+      normalized: normalizedObservation({ ...pokemonFacts(a), setId: "other", setName: "Other" }),
     };
     const mappings = [
       acceptedScopeMapping(),
