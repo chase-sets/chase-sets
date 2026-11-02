@@ -574,7 +574,7 @@ describe("operator authority reads aggregate", () => {
     })),
   };
 
-  async function resolveOperatorBearer(aggregateRoleKey: "platform-admin" | "owner") {
+  async function resolveOperatorBearer(aggregateRoleKey: "platform-admin" | "owner", aggregateStatus = "active") {
     const services = createServices({
       // The projection is stale: it still says platform-admin after the aggregate changed.
       membership: {
@@ -582,7 +582,9 @@ describe("operator authority reads aggregate", () => {
         user_id: "usr_op",
         account_id: "acc_op",
         role_key: "platform-admin",
-        role_permissions: [...ROLE_PERMISSIONS["platform-admin"]],
+        role_permissions: ROLE_PERMISSIONS["platform-admin"].filter(
+          (key) => key !== "customer-feedback.privacy.export-sensitive-feedback",
+        ),
         status: "active",
         updated_at: new Date().toISOString(),
       },
@@ -592,7 +594,7 @@ describe("operator authority reads aggregate", () => {
       userId: "usr_op",
       accountId: "acc_op",
       roleKey: aggregateRoleKey,
-      status: "active",
+      status: aggregateStatus,
     }));
     const operatorAuthority = createIdentityOperatorAuthority({ getMembershipState } as never);
     const actor = await resolveActorFromRequest(
@@ -642,8 +644,23 @@ describe("operator authority reads aggregate", () => {
     const admitted = await callOfferEconomics(actor, operatorAuthority);
     expect(admitted.handler).toHaveBeenCalledTimes(1);
     expect(admitted.handler.mock.calls[0]![0]).toMatchObject({
-      actor: { permissions: expect.arrayContaining(["insights-dashboards.view"]), roleKey: "platform-admin" },
+      actor: {
+        permissions: expect.arrayContaining([
+          "insights-dashboards.view",
+          "customer-feedback.privacy.export-sensitive-feedback",
+        ]),
+        roleKey: "platform-admin",
+      },
     });
+    expect(actor.permissions).not.toContain("customer-feedback.privacy.export-sensitive-feedback");
+  });
+
+  it("denies a revoked aggregate over a still-active old projection on real MCP requests", async () => {
+    const { actor, operatorAuthority, getMembershipState } = await resolveOperatorBearer("platform-admin", "revoked");
+    const refused = await callOfferEconomics(actor, operatorAuthority);
+    expect(refused.text).toContain("This MCP capability is not available to the authenticated actor.");
+    expect(refused.handler).not.toHaveBeenCalled();
+    expect(getMembershipState).toHaveBeenCalledWith("mem_op");
   });
 
   it("carries the host-supplied operator authority on Auth's identity port", () => {
