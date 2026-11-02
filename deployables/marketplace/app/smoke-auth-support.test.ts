@@ -78,7 +78,11 @@ function json(value: unknown, status = 201) {
 function fakePage() {
   const cookies: { name: string; value: string }[] = [];
   const calls: string[] = [];
+  const navigations: string[] = [];
   const page = {
+    goto: vi.fn(async (url: string) => {
+      navigations.push(url);
+    }),
     request: {
       get: vi.fn(async (url: string) => {
         calls.push(url);
@@ -96,7 +100,7 @@ function fakePage() {
       cookies: async () => cookies,
     }),
   };
-  return { page: page as unknown as Page, calls, cookies, transport: page.request };
+  return { page: page as unknown as Page, calls, cookies, navigations, transport: page.request };
 }
 async function nativeServer(
   route: (request: IncomingMessage, response: ServerResponse) => void | Promise<void>,
@@ -379,6 +383,7 @@ describe("auth-bounded-response", () => {
     consumeSyntheticRegistrationResponse(response, signal);
   it("accepts complete Auth shape, including optional started_at, and schema-sized largest strings/permissions with live headroom", async () => {
     await expect(consume(json(started()))).resolves.toEqual({
+      kind: "registered",
       sessionToken: token,
       bytes: Buffer.byteLength(JSON.stringify(started())),
     });
@@ -398,7 +403,7 @@ describe("auth-bounded-response", () => {
       session[key] = largest;
     const bytes = Buffer.byteLength(JSON.stringify(value));
     expect(registrationResponseBodyLimitBytes).toBeGreaterThanOrEqual(Math.ceil(bytes * 1.25));
-    await expect(consume(json(value))).resolves.toEqual({ sessionToken: token, bytes });
+    await expect(consume(json(value))).resolves.toEqual({ kind: "registered", sessionToken: token, bytes });
     delete session.started_at;
     await expect(consume(json(value))).resolves.toHaveProperty("sessionToken", token);
   });
@@ -674,6 +679,265 @@ describe("auth-retained-state", () => {
     );
     expect(realControl).toContain('"display_name_already_taken"');
   });
+  it("resumes a retry after a successful registration and an unrelated journey failure, with one registration and no Sell List call", async () => {
+    const server = existingAccountAuthServer();
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const journeys: number[] = [];
+    async function attempt(origin: string, retry: number) {
+      // Playwright gives each attempt a fresh browser context; the identity ignores retry.
+      const browser = fakePage();
+      const sessionToken = await registerSyntheticAccount(browser.page, origin, identity({ retry }));
+      journeys.push(retry);
+      if (retry === 0) throw new Error("unrelated journey failure");
+      return { browser, sessionToken };
+    }
+    await nativeServer(server.route, async (origin) => {
+      await expect(attempt(origin, 0)).rejects.toThrow("unrelated journey failure");
+      const retried = await attempt(origin, 1);
+      expect(retried.sessionToken).toBe(resumedToken);
+      expect(retried.browser.cookies).toEqual([
+        expect.objectContaining({ name: "chase_sets_session", value: resumedToken }),
+      ]);
+      expect(retried.browser.transport.post).not.toHaveBeenCalled();
+      expect(retried.browser.navigations).toEqual([]);
+    });
+    expect(journeys).toEqual([0, 1]);
+    expect(server.registered).toEqual([identity().email]);
+    expect(server.paths).toEqual(["/api/auth/register", "/api/auth/register", "/api/auth/password-sign-in"]);
+    const output = log.mock.calls.map(([line]) => String(line));
+    expect(output[1]).toBe("synthetic registration status=409 code=email_already_taken resumed=password-sign-in");
+    for (const marker of [token, resumedToken, identity().email, identity().password, identity().displayName.slice(4)])
+      for (const line of output) expect(line).not.toContain(marker);
+  });
+});
+
+const resumedToken = `session_${"b".repeat(36)}`;
+const existingAccountConflict = {
+  error: { code: "email_already_taken", message: "A user already exists for that email." },
+};
+/** Password sign-in's `session-started`: the registration shape without its top-level accountId. */
+function signedIn(): Record<string, unknown> {
+  const value: Record<string, unknown> = { ...started(), sessionToken: resumedToken };
+  delete value.accountId;
+  return value;
+}
+/** Registers each normalized email once; signs an existing one in only with its own password. */
+function existingAccountAuthServer(signIn?: (response: ServerResponse) => void) {
+  const passwords = new Map<string, unknown>();
+  const paths: string[] = [];
+  const registered: string[] = [];
+  async function route(request: IncomingMessage, response: ServerResponse) {
+    paths.push(request.url ?? "");
+    const body = await requestBody(request);
+    const email = String(body.email).trim().toLowerCase();
+    if (request.url === "/api/auth/register") {
+      if (passwords.has(email)) return writeJson(response, existingAccountConflict, 409);
+      passwords.set(email, body.password);
+      registered.push(email);
+      return writeJson(response, started());
+    }
+    if (request.url !== "/api/auth/password-sign-in") return writeJson(response, { error: "not found" }, 404);
+    if (signIn) return signIn(response);
+    if (!passwords.has(email) || passwords.get(email) !== body.password)
+      return writeJson(response, { error: "Invalid email or password." }, 401);
+    writeJson(response, signedIn(), 200);
+  }
+  return { paths, registered, route };
+}
+
+describe("auth-fail-closed", () => {
+  it.each([
+    ["a display-name conflict", 409, { error: { code: "display_name_already_taken" } }, "display_name_already_taken"],
+    [
+      "a mutation conflict",
+      409,
+      { error: { code: "identity_mutation_conflict", message: "x" } },
+      "identity_mutation_conflict",
+    ],
+    [
+      "an uncoded existing-email string",
+      409,
+      { error: "A user already exists for that email." },
+      "unclassified-refusal",
+    ],
+    ["the existing-email code on 403", 403, existingAccountConflict, "email_already_taken"],
+    [
+      "the existing-email code without a message",
+      409,
+      { error: { code: "email_already_taken" } },
+      "email_already_taken",
+    ],
+    [
+      "the existing-email code with an extra error field",
+      409,
+      { error: { ...existingAccountConflict.error, accountId: "acc_other" } },
+      "email_already_taken",
+    ],
+    [
+      "the existing-email code with an extra body field",
+      409,
+      { ...existingAccountConflict, sessionToken: token },
+      "email_already_taken",
+    ],
+  ] as const)("never resumes after %s: no sign-in, cookie or second registration", async (_, status, body, code) => {
+    const browser = fakePage();
+    const paths: string[] = [];
+    await nativeServer(
+      (request, response) => {
+        paths.push(request.url ?? "");
+        writeJson(response, body, status);
+      },
+      async (origin) => {
+        await expect(
+          registerSyntheticAccount(browser.page, origin, identity(), { freshReadRoute: "/account/security" }),
+        ).rejects.toThrow(`(status=${status}, code=${code})`);
+      },
+    );
+    expect(paths).toEqual(["/api/auth/register"]);
+    expect(browser.cookies).toEqual([]);
+    expect(browser.navigations).toEqual([]);
+    expect(browser.transport.post).not.toHaveBeenCalled();
+  });
+
+  const malformed: readonly (readonly [string, (value: Record<string, unknown>) => void])[] = [
+    ["registration-shaped body", (value) => void (value.accountId = "acc_unit")],
+    ["account-selection discriminant", (value) => void (value.type = "account-selection-required")],
+    ["invalid token", (value) => void (value.sessionToken = "session_secret-marker")],
+    ["missing session", (value) => void delete value.session],
+    ["session user mismatch", (value) => void ((value.session as Record<string, unknown>).user_id = "usr_other")],
+    [
+      "session Account outside membership",
+      (value) => void ((value.memberships as Record<string, unknown>[])[0]!.accountId = "acc_other"),
+    ],
+    [
+      "second available Account",
+      (value) => void ((value.session as Record<string, unknown>).available_account_ids = ["acc_unit", "acc_other"]),
+    ],
+    [
+      "second membership",
+      (value) => void (value.memberships = [...(value.memberships as unknown[]), ...(value.memberships as unknown[])]),
+    ],
+    [
+      "non-password session",
+      (value) => void ((value.session as Record<string, unknown>).authentication_method = "magic-link"),
+    ],
+    ["revoked session", (value) => void ((value.session as Record<string, unknown>).status = "revoked")],
+    [
+      "other echoed email",
+      (value) => void ((value.session as Record<string, unknown>).user_primary_email = "other@chasesets.test"),
+    ],
+    [
+      "other echoed display name",
+      (value) => void ((value.session as Record<string, unknown>).user_display_name = "Someone Else"),
+    ],
+    ["empty permissions", (value) => void ((value.memberships as Record<string, unknown>[])[0]!.rolePermissions = [])],
+  ];
+  const refusals: readonly (readonly [string, (response: ServerResponse) => void, string])[] = [
+    [
+      "wrong password",
+      (response) => writeJson(response, { error: "Invalid email or password." }, 401),
+      "resume status=401",
+    ],
+    [
+      "rate limit",
+      (response) =>
+        writeJson(response, { error: { code: "rate_limited", surface: "auth.sign-in.identifier-failures" } }, 429),
+      "resume status=429",
+    ],
+    [
+      "server failure",
+      (response) => writeJson(response, { error: { code: "internal_error" } }, 500),
+      "resume status=500",
+    ],
+    [
+      "non-JSON success",
+      (response) => {
+        response.writeHead(200, { "content-type": "text/html" });
+        response.end("<html>body-secret-marker</html>");
+      },
+      "unexpected-content-type",
+    ],
+    [
+      "oversized success",
+      (response) => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(`"${"x".repeat(registrationResponseBodyLimitBytes)}"`);
+      },
+      "response-too-large",
+    ],
+    ...malformed.map(
+      ([name, mutate]) =>
+        [
+          name,
+          (response: ServerResponse) => {
+            const value = signedIn();
+            mutate(value);
+            writeJson(response, value, 200);
+          },
+          "invalid-resume-response",
+        ] as const,
+    ),
+  ];
+  it.each(refusals)(
+    "fails closed on a resumed %s answer: no cookie, alternate path, cleanup or second registration",
+    async (_, signIn, classification) => {
+      const server = existingAccountAuthServer(signIn);
+      const browser = fakePage();
+      vi.spyOn(console, "log").mockImplementation(() => undefined);
+      await nativeServer(server.route, async (origin) => {
+        await registerSyntheticAccount(fakePage().page, origin, identity());
+        const failure = registerSyntheticAccount(browser.page, origin, identity(), {
+          freshReadRoute: "/account/security",
+        });
+        await expect(failure).rejects.toThrow(`synthetic registration failed (${classification})`);
+        await expect(failure).rejects.not.toThrow(/secret-marker|E2e!/);
+      });
+      expect(server.registered).toEqual([identity().email]);
+      expect(server.paths).toEqual(["/api/auth/register", "/api/auth/register", "/api/auth/password-sign-in"]);
+      expect(browser.cookies).toEqual([]);
+      expect(browser.navigations).toEqual([]);
+      expect(browser.transport.post).not.toHaveBeenCalled();
+    },
+  );
+  it("keeps the registration deadline over the resumed sign-in body", async () => {
+    const browser = fakePage();
+    const cancel = vi.fn();
+    const answers = [
+      () => json(existingAccountConflict, 409),
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(stream) {
+              stream.enqueue(Buffer.from('{"type":'));
+            },
+            cancel,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    ];
+    const requested: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: URL) => {
+        requested.push(input.pathname);
+        return answers[requested.length - 1]!();
+      }),
+    );
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const failure = expect(
+        registerSyntheticAccount(browser.page, "https://unit.invalid", identity()),
+      ).rejects.toThrow("synthetic registration failed (timeout)");
+      await vi.waitFor(() => expect(requested).toHaveLength(2));
+      await vi.advanceTimersByTimeAsync(15_000);
+      await failure;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(requested).toEqual(["/api/auth/register", "/api/auth/password-sign-in"]);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(browser.cookies).toEqual([]);
+  });
 });
 
 const censusRoots = ["deployables/marketplace/e2e", "deployables/marketplace/app", "deployables/marketplace/src"];
@@ -895,7 +1159,14 @@ function discoverAuthCallers(files: ReadonlyMap<string, string>, roots = censusR
   }
   if (
     JSON.stringify(direct.sort()) !==
-    JSON.stringify(["/api/auth/password-sign-in", "/api/auth/register", "/api/auth/registration-consent"].sort())
+    JSON.stringify(
+      [
+        "/api/auth/password-sign-in",
+        "/api/auth/password-sign-in",
+        "/api/auth/register",
+        "/api/auth/registration-consent",
+      ].sort(),
+    )
   )
     throw new Error("auth census: incomplete direct auth/consent graph");
   if (receiptedSessionReads !== 1) throw new Error("auth census: expected one receipted session read");
@@ -1019,7 +1290,62 @@ describe("auth-caller-census", () => {
     variant.delete(path);
     expect(() => discoverAuthCallers(variant)).toThrow("omitted tracked source");
   });
+  it("resumes every current freshReadRoute caller's route without a fabricated afterWrite receipt", async () => {
+    const callers = freshReadRouteCallers(sources);
+    expect(Object.fromEntries(callers.counts)).toEqual(expectedFreshReadRouteCallers);
+    for (const file of Object.keys(expectedFreshReadRouteCallers)) {
+      const path = `deployables/marketplace/e2e/${file}`;
+      const omitted = new Map(sources);
+      omitted.set(path, sources.get(path)!.replace("freshReadRoute:", "omittedReadRoute:"));
+      expect(Object.fromEntries(freshReadRouteCallers(omitted).counts)).not.toEqual(expectedFreshReadRouteCallers);
+    }
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    for (const route of [...callers.routes].sort()) {
+      const server = existingAccountAuthServer();
+      const resumed = fakePage();
+      await nativeServer(server.route, async (origin) => {
+        // Without a receipt, the registration branch still refuses to guess a fresh read.
+        await expect(
+          registerSyntheticAccount(fakePage().page, origin, identity(), { freshReadRoute: route }),
+        ).rejects.toThrow("registration must supply the canonical fresh-read receipt");
+        await registerSyntheticAccount(resumed.page, origin, identity(), { freshReadRoute: route });
+        expect(resumed.navigations).toEqual([`${origin}${route}`]);
+      });
+      expect(new URL(resumed.navigations[0]!).searchParams.has("afterWrite")).toBe(false);
+      expect(resumed.cookies).toHaveLength(1);
+      expect(server.paths).toEqual(["/api/auth/register", "/api/auth/register", "/api/auth/password-sign-in"]);
+    }
+  });
 });
+
+const expectedFreshReadRouteCallers = {
+  "account-form-pending.spec.ts": 1,
+  "account-management-interruption.spec.ts": 2,
+  "agent-grant-revocation-real-route.spec.ts": 2,
+};
+/** Every `freshReadRoute:` option outside the helper and this test, by file, with its route literal. */
+function freshReadRouteCallers(files: ReadonlyMap<string, string>) {
+  const counts = new Map<string, number>();
+  const routes = new Set<"/account" | "/account/security">();
+  for (const [file, text] of files) {
+    if (file === helper || file === unit) continue;
+    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node) => {
+      if (ts.isPropertyAssignment(node) && node.name.getText(source) === "freshReadRoute") {
+        if (!ts.isStringLiteral(node.initializer)) throw new Error(`freshReadRoute census: non-literal route ${file}`);
+        const route = node.initializer.text;
+        if (route !== "/account" && route !== "/account/security")
+          throw new Error(`freshReadRoute census: unknown route ${file}`);
+        routes.add(route);
+        const name = file.replace("deployables/marketplace/e2e/", "");
+        counts.set(name, (counts.get(name) ?? 0) + 1);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return { counts, routes };
+}
 
 class GateSkip extends Error {}
 async function executeConfiguredSpec(file: string, env: Record<string, string>) {

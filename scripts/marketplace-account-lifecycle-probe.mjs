@@ -4,6 +4,13 @@
 // volume (retained). Each run's evidence is copied to its own directory before the
 // next step, joined to the checked-out head, and classified by its first causal
 // edge. The probe never repairs, retries, filters or re-times the suite.
+//
+// Two modes, chosen by the checked-out head. At the pinned baseline head the probe
+// is the immutable pre-edit classification (base product tree plus probe paths
+// only). At any other head it is the final repaired-head proof: the baseline must be
+// an ancestor, the pull request may change only the probe paths and the bound repair
+// footprint, and both runs must pass. Repaired evidence never reports a baseline
+// decision, and baseline evidence is never re-earned by a repaired head.
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -35,6 +42,29 @@ export const probeOwnedPaths = Object.freeze([
   ".github/workflows/marketplace-account-lifecycle-probe.yml",
   "scripts/marketplace-account-lifecycle-probe.mjs",
   "scripts/marketplace-account-lifecycle-probe.test.mjs",
+]);
+// The pre-edit classification this probe already produced (head 1 of the draft).
+// Its hosted evidence is the AC1 record; a repaired head joins to it, never redoes it.
+export const probeBaseline = Object.freeze({
+  head: "be20aeed5f3108b1106676572c80bd7f823ae194",
+  runId: "41403552667",
+  jobId: "125140419898",
+  artifactId: "13123187369",
+  artifactSha256: "803f3aa0d5024ca129475f9a574d2e96e393c8ada4b8e6f3ffb3d4992f873093",
+  decision: "CONTROL_FAILED",
+});
+// Product behavior a repaired head may change; one of these must change.
+export const probeRepairPaths = Object.freeze([
+  "bounded-contexts/auth/support/api-support/register-routes.ts",
+  "bounded-contexts/auth/support/route-support/auth-action-errors.ts",
+  "deployables/marketplace/e2e/support/auth.ts",
+]);
+// Their owner-local tests and the workflow's release-scope registration.
+export const probeRepairSupportPaths = Object.freeze([
+  "bounded-contexts/auth/support/api-support/register-routes.test.ts",
+  "bounded-contexts/auth/support/route-support/auth-action-errors.test.ts",
+  "deployables/marketplace/app/smoke-auth-support.test.ts",
+  "scripts/release-qualification-scope.mjs",
 ]);
 export const probeRuns = Object.freeze([
   Object.freeze({ index: 1, mode: "clean", directory: "run-1-clean" }),
@@ -100,6 +130,30 @@ export function canonicalDigest(value) {
 /** Paths a product-tree join forbids: anything the head changed beyond the probe. */
 export function changedPathsOutsideProbe(changedPaths) {
   return changedPaths.filter((changedPath) => !probeOwnedPaths.includes(changedPath));
+}
+
+/** The pinned baseline head classifies the base product tree; every other head is a repaired-head proof. */
+export function probeModeFor(head) {
+  return head === probeBaseline.head ? "baseline" : "repaired";
+}
+
+/**
+ * Joins a repaired head to the immutable baseline: the baseline is an ancestor, the
+ * pull request's own change set stays inside the probe paths and the bound repair
+ * footprint, and it changes at least one repair path. Any miss is an invalid control.
+ */
+export function evaluateRepairedHead({ head, baselineIsAncestor, changedPaths }) {
+  const reasons = [];
+  if (head === probeBaseline.head) reasons.push("repaired-head proof ran at the baseline head");
+  if (!baselineIsAncestor)
+    reasons.push(`baseline head ${probeBaseline.head} is not an ancestor of the checked-out head`);
+  const allowed = new Set([...probeOwnedPaths, ...probeRepairPaths, ...probeRepairSupportPaths]);
+  const outside = changedPaths.filter((changedPath) => !allowed.has(changedPath));
+  if (outside.length > 0) reasons.push(`product tree changed beyond the bound repair footprint: ${outside.join(", ")}`);
+  if (!changedPaths.some((changedPath) => probeRepairPaths.includes(changedPath))) {
+    reasons.push("repaired head changes no repair path");
+  }
+  return { proven: reasons.length === 0, reasons };
 }
 
 function flattenSpecs(suite) {
@@ -351,8 +405,12 @@ export function classifyRun({
   return { verdict: "pass", firstCausalEdge: null, firstChildExit, edges: evaluated };
 }
 
-/** Applies the issue's first-match stop conditions to the paired controls. */
-export function decideProbe({ invalidReasons, runs }) {
+/**
+ * Applies the issue's first-match stop conditions to the paired controls. A
+ * repaired head has no second repair: any failing run is that head's verdict.
+ */
+export function decideProbe({ mode, invalidReasons, runs }) {
+  if (mode !== "baseline" && mode !== "repaired") throw new Error(`Unknown probe mode: ${mode}`);
   const invalidRuns = runs.filter((run) => run.classification.verdict === "invalid");
   if (invalidReasons.length > 0 || invalidRuns.length > 0 || runs.length !== probeRuns.length) {
     return {
@@ -364,14 +422,28 @@ export function decideProbe({ invalidReasons, runs }) {
       ],
     };
   }
+  const failures = runs
+    .filter((run) => run.classification.verdict === "fail")
+    .map((run) => `run ${run.index} (${run.mode}) failed at ${run.classification.firstCausalEdge}`);
+  if (mode === "repaired") {
+    return failures.length > 0
+      ? {
+          decision: "REPAIRED_FAIL",
+          next: "The repaired head did not pass both runs: return this verdict to host; no further repair, filter or completion claim.",
+          reasons: failures,
+        }
+      : {
+          decision: "REPAIRED_PASS",
+          next: "The repaired head passed the unchanged suite on both the clean and the retained run.",
+          reasons: [],
+        };
+  }
   const failed = runs.find((run) => run.classification.verdict === "fail");
   if (failed) {
     return {
       decision: "CONTROL_FAILED",
       next: `Repair only the first causal edge '${failed.classification.firstCausalEdge}' of run ${failed.index} (${failed.mode}) and prove the unchanged suite on hosted CI.`,
-      reasons: runs
-        .filter((run) => run.classification.verdict === "fail")
-        .map((run) => `run ${run.index} (${run.mode}) failed at ${run.classification.firstCausalEdge}`),
+      reasons: failures,
     };
   }
   return {
@@ -382,7 +454,7 @@ export function decideProbe({ invalidReasons, runs }) {
 }
 
 export function probeExitCode(decision) {
-  return { BOTH_PASS: 0, CONTROL_FAILED: 2, INVALID_CONTROL: 3 }[decision] ?? 3;
+  return { BOTH_PASS: 0, REPAIRED_PASS: 0, CONTROL_FAILED: 2, REPAIRED_FAIL: 2, INVALID_CONTROL: 3 }[decision] ?? 3;
 }
 
 function parseArgs(argv) {
@@ -740,9 +812,24 @@ async function main(outDir) {
   const invalidReasons = [];
 
   const jobStart = captureIdentity(sandbox, "job-start", sourceHeadSha);
-  const executedBase = git("rev-parse", "HEAD^");
-  const changedPaths = git("diff", "--name-only", "HEAD^", "HEAD").split(/\r?\n/).filter(Boolean);
+  const mode = probeModeFor(jobStart.git.head);
+  const eventBaseSha = process.env.PROBE_EVENT_BASE_SHA ?? "";
+  // Baseline: the probe commit over the base product tree. Repaired: the pull
+  // request's own change set, measured from its merge base with the event base.
+  const executedBase =
+    mode === "baseline" ? git("rev-parse", "HEAD^") : eventBaseSha ? git("merge-base", eventBaseSha, "HEAD") : null;
+  const changedPaths = executedBase
+    ? git("diff", "--name-only", executedBase, "HEAD").split(/\r?\n/).filter(Boolean)
+    : [];
   const outsideProbe = changedPathsOutsideProbe(changedPaths);
+  const repairedHead =
+    mode === "repaired"
+      ? evaluateRepairedHead({
+          head: jobStart.git.head,
+          baselineIsAncestor: capture("git", ["merge-base", "--is-ancestor", probeBaseline.head, "HEAD"]).status === 0,
+          changedPaths,
+        })
+      : null;
   const job = {
     workflowRef: process.env.GITHUB_WORKFLOW_REF ?? null,
     runId: process.env.GITHUB_RUN_ID ?? null,
@@ -764,19 +851,24 @@ async function main(outDir) {
   };
   writeJson(path.join(outDir, "job-start.json"), {
     ...jobStart,
+    mode,
+    baseline: probeBaseline,
     job,
     runner,
     executedBase,
-    executedBaseTree: git("rev-parse", "HEAD^^{tree}"),
+    executedBaseTree: executedBase ? git("rev-parse", `${executedBase}^{tree}`) : null,
     changedPaths,
+    repairedHead,
   });
   log(
-    `head=${jobStart.git.head} tree=${jobStart.git.tree} executedBase=${executedBase} project=${sandbox.composeProjectName}`,
+    `mode=${mode} head=${jobStart.git.head} tree=${jobStart.git.tree} executedBase=${executedBase} project=${sandbox.composeProjectName}`,
   );
 
   if (!jobStart.git.headMatchesSource) invalidReasons.push("checked-out head is not the pull request head");
-  if (outsideProbe.length > 0)
+  if (!executedBase) invalidReasons.push("repaired-head proof has no pull request base to measure its change set");
+  if (mode === "baseline" && outsideProbe.length > 0)
     invalidReasons.push(`product tree changed beyond probe paths: ${outsideProbe.join(", ")}`);
+  if (repairedHead) invalidReasons.push(...repairedHead.reasons);
   if (jobStart.git.trackedChanges.length > 0) invalidReasons.push("tracked checkout was dirty at job start");
   if (process.env.CI !== "true" || process.env.CHASE_SETS_BROWSER_E2E_SYSTEM !== "development") {
     invalidReasons.push("job is not in CI=true development-target mode");
@@ -879,7 +971,7 @@ async function main(outDir) {
   writeJson(path.join(outDir, "cleanup-receipt.json"), cleanup);
   log(`cleanup devDown=${cleanup.devDownExitCode} ownedStateRemoved=${cleanup.ownedStateRemoved}`);
 
-  const decision = decideProbe({ invalidReasons, runs });
+  const decision = decideProbe({ mode, invalidReasons, runs });
   log(`decision=${decision.decision} next=${decision.next}`);
   for (const reason of decision.reasons) log(`reason: ${reason}`);
 
@@ -888,6 +980,9 @@ async function main(outDir) {
     schemaVersion: probeSchemaVersion,
     kind: "marketplace-account-lifecycle-probe",
     claim: "hosted CI=true development-target path only; the CI-unset lane-host path is not claimed",
+    mode,
+    baseline: probeBaseline,
+    repairedHead,
     suite: {
       id: probeSuiteId,
       grep: probeSuiteGrep,

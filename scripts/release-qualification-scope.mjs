@@ -281,6 +281,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "ci-image-mirrors.yml": "release",
     "issue-form-labels.yml": "ci",
     "issue-readiness.yml": "ci",
+    "marketplace-account-lifecycle-probe.yml": "ci",
     "marketplace-easypost-refund-event-replay.yml": "release",
     "marketplace-provider-proof-status.yml": "ci",
     "platform-catalog-assets-apply.yml": "release",

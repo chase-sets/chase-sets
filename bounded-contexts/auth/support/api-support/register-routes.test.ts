@@ -77,7 +77,7 @@ function createServices() {
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
-      getUserByEmail: vi.fn(async () => null),
+      getUserByEmail: vi.fn(async (_email: string): Promise<{ user_id: string } | null> => null),
       findPendingInvitationByEmail: vi.fn(async (_email: string): Promise<AuthIdentityInvitationRow | null> => null),
     },
     registrationAdmission,
@@ -187,6 +187,115 @@ describe("registration auth routes", () => {
     });
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual(body);
+  });
+
+  // The existing-email discriminator is the only conflict this route owns. Every
+  // row runs the real /register handler; only the server-normalized email match
+  // may answer email_already_taken, and the screening order before it is unchanged.
+  describe("existing-email conflict matrix", () => {
+    const existingEmail = "existing.user@chasesets.test";
+    const existingAccountCode = "email_already_taken";
+
+    function servicesWithExistingAccount(mode: RegistrationAdmissionHostConfig["mode"] = "open") {
+      const services = createServices();
+      services.registrationAdmission = { ...services.registrationAdmission, mode };
+      services.identity.getUserByEmail.mockImplementation(async (email: string) =>
+        email === existingEmail ? { user_id: "usr_existing" } : null,
+      );
+      return services;
+    }
+
+    function identityRefusal(status: number, body: unknown) {
+      const createPersonalIdentity = vi.fn(async () => {
+        throw identityError(status, body);
+      });
+      mockCreateIdentityAuthRequestClient.mockReturnValue({
+        createPersonalIdentity,
+        enablePasswordCredential: vi.fn(),
+      });
+      return createPersonalIdentity;
+    }
+
+    async function register(services: ReturnType<typeof createServices>, clientAddress: string, email: string) {
+      const response = await buildApp(services).request("/register", {
+        method: "POST",
+        headers: registrationRequestHeaders(clientAddress),
+        body: JSON.stringify({ email, password: "existing-password", displayName: "Existing User" }),
+      });
+      return { status: response.status, body: (await response.json()) as { error?: unknown } };
+    }
+
+    it("answers email_already_taken only for the server-normalized existing email, before any Identity effect", async () => {
+      const services = servicesWithExistingAccount();
+      const createPersonalIdentity = identityRefusal(409, { error: { code: "display_name_already_taken" } });
+
+      const result = await register(services, "198.51.100.10", "  Existing.User@ChaseSets.TEST ");
+
+      expect(result).toEqual({
+        status: 409,
+        body: { error: { code: existingAccountCode, message: "A user already exists for that email." } },
+      });
+      expect(services.identity.getUserByEmail).toHaveBeenCalledWith(existingEmail);
+      expect(createPersonalIdentity).not.toHaveBeenCalled();
+      expect(services.auth.hashPassword).not.toHaveBeenCalled();
+      expect(services.db.query).not.toHaveBeenCalled();
+      expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [21, 409, { error: { code: "display_name_already_taken", message: "Display name is already taken." } }],
+      [22, 409, { error: { code: "registration_operation_consent_disagreement", message: "Consent disagreement." } }],
+      [23, 409, { error: { code: "registration_operation_participant_disagreement", message: "Disagreement." } }],
+      [24, 409, { error: { code: "conflict", message: "Conflict." } }],
+      [25, 409, { error: { code: "unknown_conflict", message: "Conflict." } }],
+      [26, 409, "unstructured identity mutation conflict"],
+      [27, 400, { error: consentRejections[0] }],
+      [28, 400, { error: consentRejections[2] }],
+    ] as const)("keeps a distinct refusal for a new email (row %i: %i %j)", async (row, status, identityBody) => {
+      const services = servicesWithExistingAccount();
+      const createPersonalIdentity = identityRefusal(status, identityBody);
+
+      const result = await register(services, `198.51.100.${row}`, "New.User@ChaseSets.test");
+
+      expect(services.identity.getUserByEmail).toHaveBeenCalledWith("new.user@chasesets.test");
+      expect(createPersonalIdentity).toHaveBeenCalledOnce();
+      expect(result.status).toBe(status);
+      const code = (result.body.error as { code?: unknown } | undefined)?.code;
+      expect(code).toBe(
+        typeof identityBody === "string" ? "identity_mutation_conflict" : (identityBody.error as { code: string }).code,
+      );
+      expect(code).not.toBe(existingAccountCode);
+      expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+    });
+
+    it("screens admission and disposable domains before the existing-email lookup, so neither enumerates", async () => {
+      const invitationOnly = servicesWithExistingAccount("invitation");
+      const admission = await register(invitationOnly, "198.51.100.230", existingEmail);
+      expect(admission.status).toBe(403);
+      expect(admission.body).toMatchObject({ error: { code: "registration_admission_required" } });
+      expect(invitationOnly.identity.getUserByEmail).not.toHaveBeenCalled();
+
+      const disposable = servicesWithExistingAccount();
+      disposable.identity.getUserByEmail.mockImplementation(async () => ({ user_id: "usr_existing" }));
+      const domain = await register(disposable, "198.51.100.231", "existing.user@mailinator.com");
+      expect(domain.status).toBe(403);
+      expect(domain.body).toMatchObject({ error: { code: "disposable_email_domain" } });
+      expect(disposable.identity.getUserByEmail).not.toHaveBeenCalled();
+    });
+
+    it("rate limits before the existing-email lookup", async () => {
+      const services = servicesWithExistingAccount();
+      for (let attempt = 0; attempt < 3; attempt++) {
+        expect((await register(services, "198.51.100.232", existingEmail)).status).toBe(409);
+      }
+      services.identity.getUserByEmail.mockClear();
+
+      const limited = await register(services, "198.51.100.232", existingEmail);
+
+      expect(limited.status).toBe(429);
+      expect(limited.body).toMatchObject({ error: { code: "rate_limited", surface: "auth.register.ip" } });
+      expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+    });
   });
 
   it.each([

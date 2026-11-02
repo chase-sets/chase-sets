@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { identitySeedIds } from "../contracts/identity-seed/ids.ts";
@@ -10,13 +10,18 @@ import {
   classifyRun,
   decideProbe,
   evaluateCleanPrecondition,
+  evaluateRepairedHead,
   evaluateRetainedPrecondition,
   evaluateSeedReceipt,
   listedTests,
   postgresVolumeName,
+  probeBaseline,
   probeCiBranchMarker,
   probeExitCode,
+  probeModeFor,
   probeOwnedPaths,
+  probeRepairPaths,
+  probeRepairSupportPaths,
   probeRuns,
   probeSuiteGrep,
   probeSuiteId,
@@ -26,6 +31,7 @@ import {
   summarizePerTest,
   withRetainedPrecondition,
 } from "./marketplace-account-lifecycle-probe.mjs";
+import { releaseQualificationScopeRegistry } from "./release-qualification-scope.mjs";
 
 const workflowPath = ".github/workflows/marketplace-account-lifecycle-probe.yml";
 
@@ -177,7 +183,7 @@ describe("marketplace account lifecycle probe pins", () => {
     expect(job["runs-on"]).toBe("ubuntu-24.04");
     expect(job.env).toMatchObject({ CI: "true", CHASE_SETS_BROWSER_E2E_SYSTEM: "development" });
     const checkout = job.steps[0];
-    expect(checkout.with).toMatchObject({ "fetch-depth": 2, "persist-credentials": false });
+    expect(checkout.with).toMatchObject({ "fetch-depth": 0, "persist-credentials": false });
     const probe = job.steps.find((step) => step.id === "probe");
     expect(probe.run).toBe(
       "node scripts/marketplace-account-lifecycle-probe.mjs --out-dir artifacts/marketplace-account-lifecycle-probe",
@@ -189,6 +195,7 @@ describe("marketplace account lifecycle probe pins", () => {
       "if-no-files-found": "error",
     });
     expect(job.steps.some((step) => /dev:bootstrap|dev:db:refresh|down -v/.test(step.run ?? ""))).toBe(false);
+    expect(releaseQualificationScopeRegistry.workflows["marketplace-account-lifecycle-probe.yml"]).toBe("ci");
   });
 
   it("names the compose postgres volume the clean and retained joins inspect", () => {
@@ -203,6 +210,54 @@ describe("marketplace account lifecycle probe joins", () => {
   it("rejects any head change outside the probe paths", () => {
     expect(changedPathsOutsideProbe([...probeOwnedPaths])).toEqual([]);
     expect(changedPathsOutsideProbe([...probeOwnedPaths, "playwright.config.ts"])).toEqual(["playwright.config.ts"]);
+  });
+
+  it("pins the immutable baseline classification and chooses the mode by the checked-out head alone", () => {
+    expect(probeBaseline).toEqual({
+      head: "be20aeed5f3108b1106676572c80bd7f823ae194",
+      runId: "41403552667",
+      jobId: "125140419898",
+      artifactId: "13123187369",
+      artifactSha256: "803f3aa0d5024ca129475f9a574d2e96e393c8ada4b8e6f3ffb3d4992f873093",
+      decision: "CONTROL_FAILED",
+    });
+    expect(Object.isFrozen(probeBaseline)).toBe(true);
+    expect(probeModeFor(probeBaseline.head)).toBe("baseline");
+    expect(probeModeFor("0".repeat(40))).toBe("repaired");
+    expect(probeModeFor(probeBaseline.head.toUpperCase())).toBe("repaired");
+  });
+
+  it("joins a repaired head to the baseline and to the bound repair footprint only", () => {
+    const repairHead = "1".repeat(40);
+    const footprint = [...probeOwnedPaths, ...probeRepairPaths, ...probeRepairSupportPaths];
+    for (const repairPath of [...probeRepairPaths, ...probeRepairSupportPaths])
+      expect(existsSync(repairPath)).toBe(true);
+    expect(evaluateRepairedHead({ head: repairHead, baselineIsAncestor: true, changedPaths: footprint })).toEqual({
+      proven: true,
+      reasons: [],
+    });
+    expect(
+      evaluateRepairedHead({ head: repairHead, baselineIsAncestor: true, changedPaths: [probeRepairPaths[2]] }).proven,
+    ).toBe(true);
+    const outsidePath = "deployables/marketplace/playwright.config.ts";
+    const refusals = [
+      [{ head: probeBaseline.head, baselineIsAncestor: true, changedPaths: footprint }, "ran at the baseline head"],
+      [{ head: repairHead, baselineIsAncestor: false, changedPaths: footprint }, "is not an ancestor"],
+      [
+        { head: repairHead, baselineIsAncestor: true, changedPaths: [...footprint, outsidePath] },
+        `beyond the bound repair footprint: ${outsidePath}`,
+      ],
+      [
+        { head: repairHead, baselineIsAncestor: true, changedPaths: [...probeOwnedPaths, ...probeRepairSupportPaths] },
+        "changes no repair path",
+      ],
+      [{ head: repairHead, baselineIsAncestor: true, changedPaths: [] }, "changes no repair path"],
+    ];
+    for (const [input, reason] of refusals) {
+      const result = evaluateRepairedHead(input);
+      expect(result.proven).toBe(false);
+      expect(result.reasons.join("; ")).toContain(reason);
+    }
   });
 
   it("summarizes per-test outcomes, the last result end and sign-in 401 failures", () => {
@@ -411,20 +466,49 @@ describe("marketplace account lifecycle probe classification", () => {
       mode: probeRuns[index - 1].mode,
       classification: { verdict, firstCausalEdge },
     });
-    expect(decideProbe({ invalidReasons: [], runs: [run(1, "pass"), run(2, "pass")] }).decision).toBe("BOTH_PASS");
-    expect(decideProbe({ invalidReasons: [], runs: [run(1, "fail", "seed"), run(2, "pass")] })).toMatchObject({
+    const baseline = (input) => decideProbe({ mode: "baseline", ...input });
+    expect(baseline({ invalidReasons: [], runs: [run(1, "pass"), run(2, "pass")] }).decision).toBe("BOTH_PASS");
+    expect(baseline({ invalidReasons: [], runs: [run(1, "fail", "seed"), run(2, "pass")] })).toMatchObject({
       decision: "CONTROL_FAILED",
       reasons: ["run 1 (clean) failed at seed"],
     });
     expect(
-      decideProbe({ invalidReasons: [], runs: [run(1, "fail", "seed"), run(2, "invalid", "retained-precondition")] })
+      baseline({ invalidReasons: [], runs: [run(1, "fail", "seed"), run(2, "invalid", "retained-precondition")] })
         .decision,
     ).toBe("INVALID_CONTROL");
-    expect(decideProbe({ invalidReasons: ["pre-seeded"], runs: [] }).decision).toBe("INVALID_CONTROL");
-    expect(decideProbe({ invalidReasons: [], runs: [run(1, "pass")] }).decision).toBe("INVALID_CONTROL");
+    expect(baseline({ invalidReasons: ["pre-seeded"], runs: [] }).decision).toBe("INVALID_CONTROL");
+    expect(baseline({ invalidReasons: [], runs: [run(1, "pass")] }).decision).toBe("INVALID_CONTROL");
     expect([probeExitCode("BOTH_PASS"), probeExitCode("CONTROL_FAILED"), probeExitCode("INVALID_CONTROL")]).toEqual([
       0, 2, 3,
     ]);
+  });
+
+  it("gives a repaired head only its own verdict: pass on both runs, otherwise fail or invalid, never a baseline decision", () => {
+    const run = (index, verdict, firstCausalEdge = null) => ({
+      index,
+      mode: probeRuns[index - 1].mode,
+      classification: { verdict, firstCausalEdge },
+    });
+    const repaired = (input) => decideProbe({ mode: "repaired", ...input });
+    expect(repaired({ invalidReasons: [], runs: [run(1, "pass"), run(2, "pass")] }).decision).toBe("REPAIRED_PASS");
+    expect(repaired({ invalidReasons: [], runs: [run(1, "pass"), run(2, "fail", "suite")] })).toMatchObject({
+      decision: "REPAIRED_FAIL",
+      reasons: ["run 2 (retained) failed at suite"],
+    });
+    expect(
+      repaired({ invalidReasons: [], runs: [run(1, "fail", "sign-in"), run(2, "fail", "suite")] }).reasons,
+    ).toEqual(["run 1 (clean) failed at sign-in", "run 2 (retained) failed at suite"]);
+    expect(repaired({ invalidReasons: ["wrong head"], runs: [run(1, "pass"), run(2, "pass")] }).decision).toBe(
+      "INVALID_CONTROL",
+    );
+    expect(repaired({ invalidReasons: [], runs: [run(1, "pass")] }).decision).toBe("INVALID_CONTROL");
+    for (const runs of [
+      [run(1, "pass"), run(2, "pass")],
+      [run(1, "fail", "seed"), run(2, "pass")],
+    ])
+      expect(["BOTH_PASS", "CONTROL_FAILED"]).not.toContain(repaired({ invalidReasons: [], runs }).decision);
+    expect(() => decideProbe({ invalidReasons: [], runs: [] })).toThrow("Unknown probe mode");
+    expect([probeExitCode("REPAIRED_PASS"), probeExitCode("REPAIRED_FAIL")]).toEqual([0, 2]);
   });
 
   it("detects the CI-only projection-wake branch by the launcher's own log line", () => {
