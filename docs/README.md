@@ -198,6 +198,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 ## ADRs
 
+- [DB-other Headroom Decision](./decisions/10766-db-other-headroom.md): measured coverage-preserving headroom decision and successor handoff.
+
 - [ADR 0001: Platform API Observability](./adr/0001-platform-api-observability.md)
 - [ADR 0002: Adopt UCP For Agent Commerce](./adr/0002-adopt-ucp-for-agent-commerce.md)
 - [ADR 0003: Environment Bootstrap And Scenario Data](./adr/0003-environment-bootstrap-and-scenario-data.md)

@@ -21,8 +21,12 @@ import {
   summarizeSelectedOptions,
   type InventorySelectedOptionEntry,
 } from "../integrations/catalog/versioning";
+import {
+  classifyInventoryGradedSelection,
+  type InventoryGradedClassification,
+} from "../integrations/catalog/graded-selection";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
-import { InventoryDomainError } from "../../../support/runtime-support/common";
+import { InventoryDomainError, normalizeOptionalText } from "../../../support/runtime-support/common";
 import {
   claimInventoryAdjustmentIdempotency,
   completeInventoryAdjustmentIdempotency,
@@ -57,6 +61,40 @@ import type { InventoryEnsuredListingStock } from "./contracts";
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 const LISTING_STOCK_LOCATION_DESCRIPTION = "Auto-managed stock backing standard marketplace listings.";
 
+/**
+ * A Graded item's card comes from its selected Grading Company and Grade; the caller adds only the
+ * certification number. Omitting that member marks a client that predates derivation, so it is refused
+ * rather than stored without the certification number it may have collected.
+ */
+function createItemGradedCard(
+  graded: InventoryGradedClassification,
+  certificationNumber: string | null | undefined,
+): GradedCardDetails | null {
+  const certification = normalizeOptionalText(certificationNumber);
+  if (graded.kind === "raw") {
+    if (certification) {
+      throw new InventoryDomainError("Graded card details are only allowed for graded inventory items.");
+    }
+    return null;
+  }
+
+  if (graded.kind === "unsupported" || certificationNumber === undefined) {
+    throw new InventoryDomainError("Graded inventory items require graded card details.");
+  }
+
+  if (!graded.gradingCompany || !graded.grade) {
+    throw new InventoryDomainError("Choose a grading company and grade before creating a Graded inventory item.");
+  }
+
+  return {
+    gradingCompany: graded.gradingCompany,
+    grade: graded.grade,
+    certificationNumber: certification,
+    population: null,
+    conditionDescriptors: [],
+  };
+}
+
 function createListingStockInventoryItemId(
   input: Readonly<{
     accountId: string;
@@ -79,7 +117,8 @@ export type InventoryItemServices = Readonly<{
       accountId: AccountId;
       catalogItemId: string;
       selectedOptions: readonly InventorySelectedOptionEntry[];
-      gradedCard?: GradedCardDetails | null;
+      /** Required on a Graded product (null when unknown); the card itself is derived from the selected options. */
+      certificationNumber?: string | null;
       storageLocationId: string;
       totalQuantity: number;
       acquisitionCostAmount?: string | null;
@@ -211,16 +250,10 @@ export function createInventoryItemRuntime(
         productSchema: catalogItem.product_schema,
         selection: parseSelectedOptionsInput(params.selectedOptions),
       });
-      const productSummary = summarizeSelectedOptions(catalogItem.product_schema, catalogVersion.selection);
-      const isGradedCard = productSummary.includes("Form: Graded");
-
-      if (isGradedCard && !params.gradedCard) {
-        throw new InventoryDomainError("Graded inventory items require graded card details.");
-      }
-
-      if (!isGradedCard && params.gradedCard) {
-        throw new InventoryDomainError("Graded card details are only allowed for graded inventory items.");
-      }
+      const gradedCard = createItemGradedCard(
+        classifyInventoryGradedSelection(catalogItem.product_schema, catalogVersion.selection),
+        params.certificationNumber,
+      );
 
       const itemId = params.itemIdOverride ?? (createId("inv") as InventoryItemId);
       const streamId = `inventory.item-${itemId}`;
@@ -246,7 +279,7 @@ export function createInventoryItemRuntime(
           catalogItemId: params.catalogItemId as CatalogItemId,
           productId: catalogVersion.productId,
           selectedOptions: catalogVersion.selection,
-          gradedCard: params.gradedCard ?? null,
+          gradedCard,
           storageLocationId: params.storageLocationId,
           totalQuantity: params.totalQuantity,
           acquisitionCostAmount: params.acquisitionCostAmount ?? null,

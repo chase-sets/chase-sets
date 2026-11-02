@@ -1,0 +1,19 @@
+{
+  "queue.back.to.inventory": "Back to inventory",
+  "queue.damage.note": "Damage note",
+  "queue.description": "Review returned items and choose whether stock should come back on hand.",
+  "queue.empty": "No returned stock needs a decision.",
+  "queue.pending": "Pending decisions",
+  "queue.quantity": "{count} returned",
+  "queue.restock": "Restock",
+  "queue.seller": "Seller",
+  "queue.source.cancelled.after.dispatch": "Cancelled after dispatch",
+  "queue.source.shipment.returned": "Shipment returned",
+  "queue.title": "Restock Decisions",
+  "queue.view.ledger": "View ledger",
+  "queue.view.order": "View order {orderId}",
+  "queue.write.off": "Write off",
+  "route.description": "Choose whether returned stock is restocked or written off.",
+  "route.title": "Restock Decisions | Marketplace",
+  "unverified": "The update could not be verified. Reload this page and try again."
+}
