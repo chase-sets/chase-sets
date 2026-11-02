@@ -7272,8 +7272,9 @@ async fn a_new_or_rotated_key_shows_its_secret_once_in_the_writes_own_answer() {
     assert!(text(&html).contains("API key secret created"), "{}", text(&html));
     assert!(html.contains(&format!(r#"<code id="secret">{STAND_IN_SECRET}</code>"#)), "{html}");
     assert!(
-        html.contains(r#"<button data-scope="ui-copy-button" type="button" class="security-page__button security-page__primary" hidden"#)
-            && html.contains("ui.copy_button.copy($t,&quot;secret&quot;,@said,&quot;Copied&quot;)"),
+        html.contains(
+            r#"<button data-scope="ui-copy-button" type="button" class="security-page__button security-page__primary" hidden"#
+        ) && html.contains("ui.copy_button.copy($t,&quot;secret&quot;,@said,&quot;Copied&quot;)"),
         "Copy is corten-ui's, shown by its script, and copies the secret by its id: {html}"
     );
     assert!(!html.contains("data-corten-read-again"), "never reads itself again while it shows a secret");
