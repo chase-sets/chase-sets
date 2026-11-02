@@ -641,8 +641,11 @@ const projectionWakePushDispatcher =
               projectionName: payload.projectionName,
             });
             if (envelope.kind === "projection.checkpoint-ready") {
-              pendingHotProjectionWakeKeys.delete(runnerName);
-              projectionRunnerLoop?.completeProjectionWakeLeaseHandoff(runnerName);
+              // A readiness signal can come from the scheduled projection
+              // runner, not the hot wake that requested the handoff. Keep the
+              // productive holder fenced until that wake reports a terminal
+              // lifecycle outcome; the lease-TTL fallback covers another
+              // worker observing the terminal signal.
               return;
             }
             if (payload.priorityLane === "hot") {
