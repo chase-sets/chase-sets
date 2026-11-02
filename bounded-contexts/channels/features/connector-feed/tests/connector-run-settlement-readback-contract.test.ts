@@ -93,11 +93,14 @@ describe("connector-run-settlement-readback-contract", () => {
     const connect = vi.fn(async () => {
       throw new Error("decoder-reached-db");
     });
-    const runtime = createOutboundSyncRuntime({
-      db: { query, connect },
-      recordOutcome: async () => "applied",
-      readAdditionalOutboundHold: async () => ({ held: false, sources: [] }),
-    });
+    const runtime = createOutboundSyncRuntime(
+      {
+        db: { query, connect },
+        recordOutcome: async () => "applied",
+        readAdditionalOutboundHold: async () => ({ held: false, sources: [] }),
+      },
+      { assertDelistDirective: () => undefined },
+    );
     for (const verdict of valid) {
       const settlement = readbackSettlement();
       Object.assign(settlement, { stagedReadback: verdict });
