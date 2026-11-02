@@ -1,0 +1,362 @@
+/* Mobile first: one column, two from 80rem. Every control is at least --control-height tall
+   (a box's label is its 44 px target), and nothing is wider than the screen. */
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-block-end: var(--space-5);
+}
+.heading {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 48rem;
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.part-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-block: var(--space-6);
+}
+.stack {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+}
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  margin-block-end: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--color-info-soft);
+}
+.banner p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.banner[data-tone="success"] {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.banner[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.outcome {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-inline-start: var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.card > p {
+  margin: 0;
+}
+/* The status filter: the choices wrap on a phone. */
+.filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+.choice {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+.choice[aria-current] {
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-primary);
+}
+.bulk {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.offers {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.offer {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.offer:has(.pick) {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.offer:has(.pick) > .lines,
+.offer:has(.pick) > .row {
+  grid-column: 2;
+}
+.offer:has(.pick :checked) {
+  border-color: var(--color-primary);
+}
+.pick {
+  display: grid;
+  place-items: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  margin: calc(-1 * var(--space-2)) 0 0 calc(-1 * var(--space-2));
+  cursor: pointer;
+}
+.pick input {
+  width: 1.375rem;
+  height: 1.375rem;
+  margin: 0;
+}
+.main {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.main p {
+  margin: 0;
+}
+.badges,
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  margin: 0;
+}
+.badge,
+.tag {
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.tag {
+  font-weight: 400;
+}
+.badge[data-tone="accent"] {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+.badge[data-tone="warning"] {
+  background: var(--color-warning-soft);
+}
+.lines {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  min-width: 0;
+}
+.lines > div {
+  display: grid;
+  gap: var(--space-1);
+  grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
+}
+.lines dt {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+.lines dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.who {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: 0 -0.25rem 1rem rgb(0 0 0 / 0.08);
+}
+.bar output:empty {
+  display: none;
+}
+/* With the script, the bar shows once an offer is checked; without it, it is always there, so it
+   stays at the end of the list instead of sticking over the rows above it. */
+.bulk[data-picked="0"] .bar {
+  display: none;
+}
+.bulk:not([data-picked]) .bar {
+  position: static;
+  box-shadow: none;
+}
+.dialog {
+  width: min(32rem, calc(100vw - 2 * var(--space-4)));
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.dialog[open] {
+  display: grid;
+  gap: var(--space-3);
+}
+.dialog::backdrop {
+  background: var(--color-overlay);
+}
+.dialog .row {
+  justify-content: flex-end;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+}
+.secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+@media (min-width: 48rem) {
+  .bar {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+  .bar > .row {
+    justify-content: flex-end;
+  }
+}
+@media (min-width: 80rem) {
+  .offers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* An offer's page: the card and the price lines one above the other, side by side from 64rem;
+   the price lines' total set apart; where the offer is as two steps, the current one marked. */
+.overview {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.total {
+  padding-block-start: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+.steps {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-inline-start: 0.25rem solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.step p {
+  margin: 0;
+}
+.step[data-state="current"] {
+  border-inline-start-color: var(--color-primary);
+}
+.step[data-state="complete"] {
+  border-inline-start-color: var(--color-success);
+}
+.step[data-state="upcoming"] {
+  opacity: 0.75;
+}
+@media (min-width: 64rem) {
+  .overview {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}

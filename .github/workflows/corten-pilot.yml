@@ -1,0 +1,93 @@
+name: Corten Pilot
+
+# The Corten pilot (deployables/corten-pilot) is a Cargo workspace of standalone Rust apps that are
+# not deployed and are not part of the platform gates. This check is advisory: it is not a required
+# status check (main requires only "PR Required"), the delivery loop waits only on required checks,
+# and it does not run in the merge queue, so it never blocks a merge.
+#
+# It runs on every pull request and every push to main, except changes to documentation alone, so
+# drift between main and the pilot shows up on the PR that causes it rather than days later. The
+# pilot's export reads the React apps' text, nav and tokens through their TypeScript imports, which
+# reach most of the workspace, so a path list would miss causes. A failure caused by a change
+# elsewhere is noted on that PR and fixed by the pilot's owner (deployables/corten-pilot/AGENTS.md).
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  push:
+    branches: ["main", "pilot/corten"]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  schedule:
+    - cron: "17 11 * * *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: corten-pilot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check the Corten pilot
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: deployables/corten-pilot
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          # scripts/export.mjs imports admin-web's and marketplace's TypeScript sources through tsx.
+          install: "true"
+
+      # Also writes the two uncommitted outputs that carry the brand foil (tokens.json, favicon.svg).
+      # From the repository root with the full path: scripts/managed-postgres-authority-guard.mjs resolves
+      # a step's script from the root and does not read the job's working-directory default.
+      - name: The exported text, tokens, nav and defaults match the React apps' sources
+        working-directory: ${{ github.workspace }}
+        run: node --import tsx deployables/corten-pilot/scripts/export.mjs --check
+
+      # corten check type-checks each app's scripts with tsc from the PATH, and passes without it,
+      # so the repo's TypeScript is put on the PATH and required here.
+      - name: TypeScript on the PATH for corten check
+        run: |
+          set -euo pipefail
+          test -x "$GITHUB_WORKSPACE/node_modules/.bin/tsc"
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/corten
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            deployables/corten-pilot/target
+          # v2: v1 cached the binary without cargo's install records, so a cache hit made
+          # `cargo install` refuse ("binary `corten` already exists").
+          key: corten-pilot-v2-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
+
+      - name: Rust toolchain and the Corten CLI at the pinned revision
+        run: |
+          set -euo pipefail
+          rustup component add clippy rustfmt
+          rev="$(sed -n 's/^corten = { git = "[^"]*", rev = "\([0-9a-f]*\)".*/\1/p' Cargo.toml)"
+          test -n "$rev"
+          # Skipped when the cached binary was built from the same revision (cargo's install records
+          # are cached with it).
+          cargo install --locked --git https://github.com/todd-skelton/corten --rev "$rev" corten-cli
+
+      - name: corten check (cargo fmt, corten fmt, clippy -D warnings, the scripts' types, tests)
+        run: |
+          set -euo pipefail
+          corten check 2>&1 | tee corten-check.log
+          ! grep -q "were not type-checked" corten-check.log

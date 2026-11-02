@@ -80,6 +80,8 @@ const expectedInventory = [
   ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts#readStream#1", null],
   // The owner-checking lookup reader forwards the complete history request unchanged.
   ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts#readStream#1", null],
+  // Listing-attempt owner lookup forwards the complete history request unchanged.
+  ["bounded-contexts/marketplace/features/listings/api/listing-attempt.ts#readStream#1", null],
   // Synthetic policy discovery rejects streams that reach this bounded lifecycle cap.
   ["bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts#readStream#1", "10"],
   // The existing corpus includes slice-local .test-support.ts history assertions.
