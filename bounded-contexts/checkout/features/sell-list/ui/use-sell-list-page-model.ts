@@ -51,9 +51,15 @@ export function useSellListPageModel({
     (sum, line) => sum + moneyNumber(line.offer_price_amount) * line.quantity,
     0,
   );
+  const hasUnquotedOffers =
+    selectedOfferLines.some((line) => !offerReviewsByLineId.get(line.line_id)?.terms) ||
+    productLines.some((line) => {
+      const review = productOfferReviewsByLineId.get(line.line_id);
+      return !review?.offers.length;
+    });
   const selectedOfferSellerNet = selectedOfferLines.reduce((sum, line) => {
     const review = offerReviewsByLineId.get(line.line_id);
-    return sum + moneyNumber(review?.terms?.seller_net_unit_amount ?? line.offer_price_amount) * line.quantity;
+    return sum + moneyNumber(review?.terms?.seller_net_unit_amount) * line.quantity;
   }, 0);
   const smartMatchSellerNet = productLines.reduce((sum, line) => {
     const review = productOfferReviewsByLineId.get(line.line_id);
@@ -74,7 +80,7 @@ export function useSellListPageModel({
     const fallbackQuantity = line.fallback_mode === "create-listing" ? Math.max(0, line.quantity - matchedQuantity) : 0;
     return sum + moneyNumber(line.minimum_listing_price_amount) * fallbackQuantity;
   }, 0);
-  const estimatedSalesFees =
+  const quotedSalesFees =
     selectedOfferLines.reduce((sum, line) => {
       const review = offerReviewsByLineId.get(line.line_id);
       return sum + moneyNumber(review?.terms?.marketplace_sales_fee_unit_amount) * line.quantity;
@@ -90,7 +96,8 @@ export function useSellListPageModel({
         )
       );
     }, 0);
-  const expectedSellerPayout = selectedOfferSellerNet + smartMatchSellerNet;
+  const estimatedSalesFees = hasUnquotedOffers ? null : quotedSalesFees;
+  const expectedSellerPayout = hasUnquotedOffers ? null : selectedOfferSellerNet + smartMatchSellerNet;
   const lineReadiness = sellListLines.map((line) =>
     line.line_type === "selected-offer"
       ? selectedOfferReadiness(offerReviewsByLineId.get(line.line_id))
