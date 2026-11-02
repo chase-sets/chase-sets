@@ -466,7 +466,7 @@ jobs:
       - name: Resolve Playwright Chromium version
         id: staging-playwright-chromium
         if: steps.advisory_preflight.outcome == 'success' && steps.scenario_seed.outcome == 'success' && steps.await_scenario_seed.outcome == 'success'
-        timeout-minutes: 3
+        timeout-minutes: 2
         run: |
           set -euo pipefail
           version="$(pnpm exec playwright --version | awk '{print $2}')"

@@ -234,7 +234,7 @@ export async function installPlaywrightChromium({
     } catch {
       return fail("cleanup-refusal");
     }
-    // Refused authority, a refused start and cancellation are terminal; other finished attempts get one retry.
+    // Refused authority, a refused start and cancellation are terminal under either policy.
     if (["authority-refusal", "start-refusal", "cancelled"].includes(reason) || installerAttempt === maxAttempts)
       return fail(reason);
     if (!retryFits(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS)) return fail("timeout");

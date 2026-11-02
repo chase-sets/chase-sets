@@ -6046,6 +6046,7 @@ describe("DigitalOcean platform configuration", () => {
     for (const step of later) expect(step["timeout-minutes"], step.name).toBeGreaterThan(0);
     const install = later.find((step) => step.name === "Install Playwright Chromium for staging critical flows");
     const consumer = later.find((step) => step.id === "marketplace_e2e");
+    expect(later.find((step) => step.id === "staging-playwright-chromium")["timeout-minutes"]).toBe(2);
     expect(install["timeout-minutes"]).toBe(11);
     expect(consumer["timeout-minutes"]).toBe(10);
     expect(605 + consumer["timeout-minutes"] * 60 + 55).toBeLessThanOrEqual(job["timeout-minutes"] * 60);

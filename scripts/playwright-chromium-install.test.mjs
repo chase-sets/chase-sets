@@ -469,6 +469,18 @@ describe("Playwright Chromium installer primitive", () => {
       }
     }
     expect(rows).toHaveLength(10);
+    const advisory = workflows.advisory.jobs["staging-advisory-evidence"];
+    const preflightAt = advisory.steps.findIndex((step) => step.id === "advisory_preflight");
+    const admissionMinutes = Number(
+      advisory.steps[preflightAt].run.match(/const deadline = startedAt \+ (\d+) \* 60 \* 1000/)?.[1],
+    );
+    const later = advisory.steps.slice(preflightAt + 1);
+    expect(later.find((step) => step.id === "staging-playwright-chromium")["timeout-minutes"]).toBe(2);
+    for (const step of later) expect(step["timeout-minutes"], step.name).toBeGreaterThan(0);
+    expect(admissionMinutes).toBe(37);
+    expect(admissionMinutes + later.reduce((total, step) => total + step["timeout-minutes"], 0)).toBeLessThanOrEqual(
+      90,
+    );
   });
 
   it.each(["relative/cache", "~/cache", path.parse(process.cwd()).root])(
