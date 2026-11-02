@@ -53,6 +53,7 @@ const { upstream, verifyRegistration } = vi.hoisted(() => ({
     acceptInvitationForUser: vi.fn(),
     claimGuestAccount: vi.fn(),
     linkSocialLogin: vi.fn(async () => ({ ok: true })),
+    resolveSocialLoginSubject: vi.fn(async () => ({ status: "unclaimed" })),
   },
   verifyRegistration: vi.fn(),
 }));

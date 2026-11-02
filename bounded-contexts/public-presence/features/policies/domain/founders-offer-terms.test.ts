@@ -340,7 +340,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Beta access starts",
     [
       [
-        "bounded-contexts/identity/api.ts:869-881",
+        "bounded-contexts/identity/api.ts:875-887",
         /if \(params.foundersBetaAccessStartedAt\)/,
         /foundersWindowEndsAt.setUTCDate\(foundersWindowEndsAt.getUTCDate\(\) \+ 60\)/,
         /type: "OpenFoundersWindow"/,

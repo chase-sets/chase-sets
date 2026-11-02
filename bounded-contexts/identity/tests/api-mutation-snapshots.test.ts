@@ -115,7 +115,6 @@ function createServices(
         const status = input.command.type === "SuspendUser" ? "suspended" : "active";
         return commandResult(21, status);
       }),
-      getUserBySocialLogin: vi.fn(async () => null),
       listUsers: vi.fn(async () => ({ items: [], total: 0 })),
       getUser: vi.fn(async (userId: string) =>
         userId.startsWith("usr_")
@@ -418,16 +417,10 @@ describe("Identity API mutation snapshots", () => {
       "/internal/auth/users/usr_1/sms-code",
       "/internal/auth/users/usr_1/password-credential",
       "/internal/auth/users/usr_1/passkey-credential",
-      "/internal/auth/users/usr_1/social-login-link",
     ]) {
       const credential = await requestJson(app, path, {
         method: "POST",
-        body: JSON.stringify({
-          credentialId: "crd_1",
-          providerName: "google",
-          providerSubject: "google-subject",
-          email: "owner@example.com",
-        }),
+        body: JSON.stringify({ credentialId: "crd_1" }),
       });
       expect(credential.response.status).toBe(200);
       expect(credential.body).toEqual(

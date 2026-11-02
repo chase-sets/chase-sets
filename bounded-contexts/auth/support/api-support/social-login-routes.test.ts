@@ -18,6 +18,7 @@ import type { AuthServices } from "../runtime-support/services";
 import { registerSocialLoginRoutes } from "./social-login-routes";
 import { socialLoginErrorMessage } from "../route-support/social-login-errors";
 import type { AuthApiEnv } from "./support";
+import type { SocialLoginSubjectResolution } from "@chase-sets/identity/server";
 import {
   SAME_SITE_TEST_ORIGIN,
   UNSAFE_AUTH_PATHS,
@@ -29,6 +30,7 @@ const { mockCreateIdentityAuthRequestClient, mockIdentityMutations } = vi.hoiste
   mockIdentityMutations: {
     createPersonalIdentity: vi.fn(),
     linkSocialLogin: vi.fn(),
+    resolveSocialLoginSubject: vi.fn(),
     verifyEmailContactMethod: vi.fn(),
   },
 }));
@@ -80,7 +82,7 @@ function createServices(
     providerName?: "google" | "facebook";
     providerFails?: boolean;
     existingUser?: { user_id: string; status: string } | null;
-    socialLoginUser?: { user_id: string; status: string } | null;
+    ownership?: SocialLoginSubjectResolution;
     memberships?: readonly {
       membershipId: string;
       accountId: string;
@@ -139,6 +141,7 @@ function createServices(
     }),
   };
 
+  mockIdentityMutations.resolveSocialLoginSubject.mockResolvedValue(options.ownership ?? { status: "unclaimed" });
   return createAuthServicesFake({
     db,
     session: {
@@ -150,7 +153,6 @@ function createServices(
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
-      getUserBySocialLogin: vi.fn(async () => options.socialLoginUser ?? null),
       getUserByEmail: vi.fn(async () => options.existingUser ?? null),
       findPendingInvitationByEmail: vi.fn(async () => null),
       getUser: vi.fn(async (userId: string) => ({
@@ -200,6 +202,7 @@ useMockReset(
   mockCreateIdentityAuthRequestClient,
   mockIdentityMutations.createPersonalIdentity,
   mockIdentityMutations.linkSocialLogin,
+  mockIdentityMutations.resolveSocialLoginSubject,
   mockIdentityMutations.verifyEmailContactMethod,
 );
 
@@ -474,7 +477,7 @@ describe("social login routes", () => {
     const services = createServices({
       existingUser: null,
       providerName: "facebook",
-      socialLoginUser: { user_id: "usr_existing", status: "active" },
+      ownership: { status: "owned", userId: "usr_existing" },
       profile: {
         email: "buyer@example.com",
         emailVerified: false,
@@ -526,7 +529,7 @@ describe("social login routes", () => {
     const services = createServices({
       existingUser: null,
       providerName: "facebook",
-      socialLoginUser: { user_id: "usr_link_owner", status: "active" },
+      ownership: { status: "owned", userId: "usr_link_owner" },
       profile: {
         email: "buyer@example.com",
         emailVerified: false,
@@ -541,6 +544,116 @@ describe("social login routes", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/sign-in?socialLoginError=");
+    expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it.each(["sign-in", "registration"] as const)(
+    "signs a claimed subject into its owner on %s from Identity Resolve alone, with no Auth link projection",
+    async (journey) => {
+      const services = createServices({
+        existingUser: { user_id: "usr_email_candidate", status: "active" },
+        ownership: { status: "owned", userId: "usr_claim_owner" },
+      });
+      mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+      const app = buildApp(services);
+
+      await app.request(`/social/google/start?journey=${journey}&returnTo=/account`);
+      const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe("/account");
+      expect(mockIdentityMutations.resolveSocialLoginSubject).toHaveBeenCalledWith({
+        providerName: "google",
+        providerSubject: "google-subject",
+      });
+      expect(services.identity.getUser).toHaveBeenCalledWith("usr_claim_owner");
+      expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+      expect(services.sessions.commandHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ command: expect.objectContaining({ userId: "usr_claim_owner" }) }),
+      );
+      expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+      expect(mockIdentityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+      expect(vi.mocked(services.db.query).mock.calls.map(([sql]) => String(sql))).not.toEqual(
+        expect.arrayContaining([expect.stringContaining("social_login_links")]),
+      );
+    },
+  );
+
+  it("refuses another owner's claimed subject on the link journey with provider_already_linked", async () => {
+    const services = createServices({ existingUser: null, ownership: { status: "owned", userId: "usr_claim_owner" } });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services, createAccountUserTestActor({ userId: "usr_authenticated" }));
+
+    await app.request("/social/google/start?journey=link&returnTo=/account");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.headers.get("Location")).toBe("/sign-in?socialLoginError=provider_already_linked");
+    expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["sign-in", "/sign-in", null],
+    ["registration", "/register", null],
+    ["link", "/sign-in", "usr_authenticated"],
+    ["admin", "/access/sign-in", null],
+  ] as const)(
+    "refuses a repair-required subject on %s without creating, linking or signing in",
+    async (journey, fallback, actorUserId) => {
+      const services = createServices({
+        existingUser: { user_id: "usr_email_candidate", status: "active" },
+        ownership: { status: "repair-required" },
+        profile: { email: "buyer@chasesets.com", emailVerified: true, hostedDomain: "chasesets.com" },
+      });
+      mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+      const app = buildApp(services, actorUserId ? createAccountUserTestActor({ userId: actorUserId }) : null);
+
+      await app.request(`/social/google/start?journey=${journey}&returnTo=/account`);
+      const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+      expect(response.headers.get("Location")).toBe(`${fallback}?socialLoginError=provider_link_repair_required`);
+      expect(socialLoginErrorMessage("provider_link_repair_required")).toBe(
+        "This social login needs review before it can be used. Use another sign-in method or contact support.",
+      );
+      expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+      expect(mockIdentityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+      expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+      expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+    },
+  );
+
+  it("maps Identity's link-time repair-required refusal to provider_link_repair_required", async () => {
+    const services = createServices({ existingUser: { user_id: "usr_existing", status: "active" } });
+    mockIdentityMutations.linkSocialLogin.mockRejectedValue(
+      Object.assign(new Error("synthetic refusal"), {
+        status: 409,
+        body: { error: { code: "social_login_repair_required" } },
+      }),
+    );
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.headers.get("Location")).toBe("/sign-in?socialLoginError=provider_link_repair_required");
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when Identity Resolve is unavailable", async () => {
+    const services = createServices({ existingUser: { user_id: "usr_existing", status: "active" } });
+    mockIdentityMutations.resolveSocialLoginSubject.mockRejectedValue(
+      Object.assign(new Error("synthetic outage"), { status: 503 }),
+    );
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.headers.get("Location")).toBe("/sign-in?socialLoginError=provider_failed");
+    expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
     expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
     expect(services.sessions.commandHandler).not.toHaveBeenCalled();
   });

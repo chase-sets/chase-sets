@@ -12,6 +12,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { type AccountId, type UserId, type TenantId } from "@chase-sets/primitives/typed-ids";
 import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
+import { reportSocialLoginLinkConflict } from "@chase-sets/identity/server";
 import { AUTH_BOOTSTRAP_ACCOUNT_ID, AUTH_BOOTSTRAP_TENANT_ID, AUTH_BOOTSTRAP_USER_ID } from "./constants";
 
 export const authIdentityProjectionSchemaSql = `
@@ -776,19 +777,35 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
         ],
         updatedAt: { value: event.timing.recordedAt },
       });
-      await upsertRow(db, {
-        table: "auth_identity_user_social_login_links",
-        insertColumns: ["provider_name", "provider_subject", "user_id", "email", "linked_at", "updated_at"],
-        conflictColumns: ["provider_name", "provider_subject"],
-        values: {
-          provider_name: link.providerName,
-          provider_subject: link.providerSubject,
-          user_id: userId,
-          email: normalizeAuthEmail(link.email),
-          linked_at: link.linkedAt,
-          updated_at: event.timing.recordedAt,
-        },
-      });
+      // A view, never an authority: Identity's ownership claim decides; a second User keeps the first row.
+      const kept = await db.query<{ user_id: string }>(
+        `INSERT INTO auth_identity_user_social_login_links
+           (provider_name, provider_subject, user_id, email, linked_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (provider_name, provider_subject) DO UPDATE
+         SET email = EXCLUDED.email, linked_at = EXCLUDED.linked_at, updated_at = EXCLUDED.updated_at
+         WHERE auth_identity_user_social_login_links.user_id = EXCLUDED.user_id
+         RETURNING user_id`,
+        [
+          link.providerName,
+          link.providerSubject,
+          userId,
+          normalizeAuthEmail(link.email),
+          link.linkedAt,
+          event.timing.recordedAt,
+        ],
+      );
+      if (kept.rows.length === 0) {
+        const owner = await db.query<{ user_id: string }>(
+          `SELECT user_id FROM auth_identity_user_social_login_links WHERE provider_name = $1 AND provider_subject = $2`,
+          [link.providerName, link.providerSubject],
+        );
+        reportSocialLoginLinkConflict({
+          providerName: link.providerName,
+          providerSubject: link.providerSubject,
+          userIds: [...owner.rows.map((row) => row.user_id), userId],
+        });
+      }
     },
     "identity.user.suspended": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
@@ -1154,21 +1171,6 @@ export async function getAuthIdentityUserByPhone(db: PgQueryable, phone: string)
      INNER JOIN auth_identity_users AS users ON users.user_id = phones.user_id
      WHERE phones.phone = $1`,
     [normalizeAuthPhoneNumber(phone)],
-  );
-  return result.rows[0] ?? null;
-}
-
-export async function getAuthIdentityUserBySocialLogin(
-  db: PgQueryable,
-  params: Readonly<{ providerName: string; providerSubject: string }>,
-) {
-  const result = await db.query<AuthIdentityUserRow>(
-    `SELECT users.*
-     FROM auth_identity_user_social_login_links AS links
-     INNER JOIN auth_identity_users AS users ON users.user_id = links.user_id
-     WHERE links.provider_name = $1
-       AND links.provider_subject = $2`,
-    [params.providerName, params.providerSubject],
   );
   return result.rows[0] ?? null;
 }
