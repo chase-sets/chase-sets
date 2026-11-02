@@ -41,13 +41,13 @@ authority, not a new five-run predicate or a hosted pass for this Probe.
 
 | role | run / job | exact head | source summary | wall `elapsedMs` | `marketplace-seed-testing` | `catalog` | `channels` |
 |---|---:|---|---|---:|---:|---:|---:|
-| base | 40855476569 / 123386179586 | `4fa5addf2187d672159806ab76f7a630bcc1228c` | [host log](../../../.orchestrator/logs/10766-impl-g1.hosted-40855476569-123386179586.log):38522 | 1,083,932 | 760,805 | 670,067 | 386,096 |
-| base | 41260724592 / 124713769634 | `4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f` | [host log](../../../.orchestrator/logs/10766-impl-g1.hosted-41260724592-124713769634.log):38875 | 1,530,928 | 1,088,145 | 974,420 | 514,591 |
-| base | 41273034278 / 124749753264 | `f06a6b4e054167e8e4539d162c19e970157f4566` | [host log](../../../.orchestrator/logs/10766-impl-g1.hosted-41273034278-124749753264.log):38955 | 1,641,204 | 1,195,364 | 1,045,536 | 544,296 |
-| base | 41286534242 / 124789100638 | `6b06a1f70969eb2126f354e2dec09a3d37da12ba` | [host log](../../../.orchestrator/logs/10766-impl-g1.hosted-41286534242-124789100638.log):38657 | 1,544,154 | 1,119,013 | 986,920 | 505,889 |
-| base | 41296486752 / 124818841702 | `aa67b85273c8443f25b771e850255a8a9c5e42f9` | [host log](../../../.orchestrator/logs/10766-impl-g1.hosted-41296486752-124818841702.log):38553 | 1,561,107 | 1,120,775 | 997,339 | 522,896 |
-| head-1 | 41307863860 / 124852647831 | `4df44ae91ed01ee3a6d554d2717b9c0604d2f2c3` | [host log](../../../.orchestrator/logs/10766-impl-g1.hosted-dbother-124852647831.log):39183 | 1,539,276 | 1,023,516 | 913,289 | 678,274 |
-| exact head | 41314707020 / 124873067274 | `0b7fc3aea54cf7fb00e0701052004115d331f402` | [host log](../../../.orchestrator/logs/10937-review-r1.hosted-dbother-124873067274.log):38794 | 1,119,510 | 709,677 | 630,319 | 521,454 |
+| base | 40855476569 / 123386179586 | `4fa5addf2187d672159806ab76f7a630bcc1228c` | hosted run 40855476569 / job 123386179586 (log line 38522; https://github.com/chase-sets/chase-sets/actions/runs/40855476569/job/123386179586) | 1,083,932 | 760,805 | 670,067 | 386,096 |
+| base | 41260724592 / 124713769634 | `4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f` | hosted run 41260724592 / job 124713769634 (log line 38875; https://github.com/chase-sets/chase-sets/actions/runs/41260724592/job/124713769634) | 1,530,928 | 1,088,145 | 974,420 | 514,591 |
+| base | 41273034278 / 124749753264 | `f06a6b4e054167e8e4539d162c19e970157f4566` | hosted run 41273034278 / job 124749753264 (log line 38955; https://github.com/chase-sets/chase-sets/actions/runs/41273034278/job/124749753264) | 1,641,204 | 1,195,364 | 1,045,536 | 544,296 |
+| base | 41286534242 / 124789100638 | `6b06a1f70969eb2126f354e2dec09a3d37da12ba` | hosted run 41286534242 / job 124789100638 (log line 38657; https://github.com/chase-sets/chase-sets/actions/runs/41286534242/job/124789100638) | 1,544,154 | 1,119,013 | 986,920 | 505,889 |
+| base | 41296486752 / 124818841702 | `aa67b85273c8443f25b771e850255a8a9c5e42f9` | hosted run 41296486752 / job 124818841702 (log line 38553; https://github.com/chase-sets/chase-sets/actions/runs/41296486752/job/124818841702) | 1,561,107 | 1,120,775 | 997,339 | 522,896 |
+| head-1 | 41307863860 / 124852647831 | `4df44ae91ed01ee3a6d554d2717b9c0604d2f2c3` | hosted run 41307863860 / job 124852647831 (log line 39183; https://github.com/chase-sets/chase-sets/actions/runs/41307863860/job/124852647831) | 1,539,276 | 1,023,516 | 913,289 | 678,274 |
+| exact head | 41314707020 / 124873067274 | `0b7fc3aea54cf7fb00e0701052004115d331f402` | hosted run 41314707020 / job 124873067274 (log line 38794; https://github.com/chase-sets/chase-sets/actions/runs/41314707020/job/124873067274) | 1,119,510 | 709,677 | 630,319 | 521,454 |
 
 The required F1 values are present: exact-head workspaces
 `709677/630319/521454`, exact-head wall `1119510`, head-1 wall `1539276`,
