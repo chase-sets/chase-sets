@@ -381,14 +381,17 @@ const colors = {
   "secondary-foreground": "secondary-foreground",
   success: "success",
   "success-soft": "success-soft",
+  "success-contrast": "success-contrast",
   warning: "warning",
   "warning-soft": "warning-soft",
+  "warning-contrast": "warning-contrast",
   danger: "danger",
   "danger-soft": "danger-soft",
   "danger-hover": "danger-hover",
   "danger-contrast": "danger-contrast",
   info: "info",
   "info-soft": "info-soft",
+  "info-contrast": "info-contrast",
   overlay: "overlay",
   // The brand foil (BrandFoilText, the logo): public-web's home page title.
   "logo-start": "chase-logo-start",
@@ -449,7 +452,7 @@ const dtcgGroup = (group, values, typed) => ({
 // system's when the page chose none.
 // The UI kit's theme (Corten's shadcn names, platform/src/ui), each a reference to the design
 // system's token, so the dark theme's changes reach the kit's components with no second set of
-// values. The status tones are the pilot's additions to the kit's names.
+// values.
 const kitTheme = {
   background: "color.background",
   foreground: "color.text",
@@ -467,14 +470,12 @@ const kitTheme = {
   "accent-foreground": "color.text",
   destructive: "color.danger",
   "destructive-foreground": "color.danger-contrast",
-  "destructive-soft": "color.danger-soft",
   success: "color.success",
-  "success-soft": "color.success-soft",
+  "success-foreground": "color.success-contrast",
   warning: "color.warning",
-  "warning-soft": "color.warning-soft",
+  "warning-foreground": "color.warning-contrast",
   info: "color.info",
-  "info-soft": "color.info-soft",
-  "primary-soft": "color.primary-soft",
+  "info-foreground": "color.info-contrast",
   border: "color.border",
   input: "color.input",
   ring: "color.ring",
@@ -501,7 +502,17 @@ function tokens() {
     radius: { md: value("radius"), lg: value("radius-lg"), xl: value("radius-xl"), full: value("radius-full") },
     shadow: scale(shadows),
     font: { display: value("display-font"), body: value("body-font"), mono: value("mono-font") },
-    control: { height: value("control-md-height"), px: value("control-md-px"), py: value("control-md-py") },
+    // The kit's control sizes are the design system's: every button and field a 44 px touch target
+    // (`--control-height` and its `-sm`), a large one 3rem, and a field's inline padding its small one's.
+    control: {
+      height: value("control-md-height"),
+      "height-sm": value("control-sm-height"),
+      "height-lg": value("control-lg-height"),
+      padding: value("control-sm-px"),
+      "font-size": value("font-size-sm"),
+      px: value("control-md-px"),
+      py: value("control-md-py"),
+    },
   };
   const dark = { color: scale(colors, "dark-"), shadow: scale(shadows, "dark-") };
   const groups = Object.fromEntries(
@@ -518,9 +529,15 @@ function tokens() {
       },
     },
   };
-  const kit = Object.fromEntries(
-    Object.entries(kitTheme).map(([name, token]) => [name, { $type: "color", $value: `{${token}}` }]),
-  );
+  // The kit's card sizes sit beside its colors, flat: a `card` group in the base set would be
+  // replaced whole by the kit's `card` color (todd-skelton/corten#654).
+  const kit = {
+    ...Object.fromEntries(
+      Object.entries(kitTheme).map(([name, token]) => [name, { $type: "color", $value: `{${token}}` }]),
+    ),
+    "card-padding": { $type: "dimension", $value: "{space.6}" },
+    "card-heading-font-size": { $type: "dimension", $value: dtcgDimension(value("font-size-base")) },
+  };
   return {
     base,
     kit,
