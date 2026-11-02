@@ -140,7 +140,7 @@ pub fn AgentsPage<'a>(t: AgentsMsg, screen: &'a ListScreen) -> impl Render {
             <p class={Label} id="connector-label">{t.list_connect_url_label()}</p>
             <pre class={Code} aria-labelledby="connector-label"><code id={McpUrlId}>{url}</code></pre>
             <div class={Links}>
-                <CopyButton text={McpUrlId} label={t.list_connect_copy()} copied={t.list_connect_copied()} />
+                <CopyButton text={McpUrlId} label={t.list_connect_copy()} copied={t.list_connect_copied()} class={()} />
                 <a
                     class={(Button, Secondary)}
                     href="https://ucp.dev/latest/specification/overview"
@@ -483,6 +483,7 @@ fn WebhookForm<'a>(t: AgentsMsg, p: Pilot, screen: &'a GrantScreen) -> impl Rend
                         text={SigningSecretId}
                         label={t.detail_webhook_secret_copy()}
                         copied={t.detail_webhook_secret_copied()}
+                        class={()}
                     />
                 </div>
             }

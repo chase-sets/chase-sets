@@ -61,9 +61,6 @@
   font-size: 0.875rem;
   font-weight: 600;
 }
-.copy-primary {
-  display: contents;
-}
 .row button,
 .links button,
 .links a,
@@ -92,8 +89,7 @@
   text-align: center;
   text-decoration: none;
 }
-.primary,
-.copy-primary > button {
+.primary {
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: var(--color-primary-foreground);
