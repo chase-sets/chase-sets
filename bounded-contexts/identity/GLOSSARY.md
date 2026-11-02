@@ -172,6 +172,7 @@ captured global position, retaining restart checkpoints. A second complete
 through-position reconciliation must match every source revision to exactly one
 Set fact before the Set can authorize completeness. Incomplete, capped, poisoned,
 or mismatched history is blocked-unknown. The cutover does not issue deletion commands.
+Membership facts written without the dual-write after the captured position are replayed before the through-position reconciliation, and authority stays blocked-unknown until they are.
 
 ### User Preferences
 

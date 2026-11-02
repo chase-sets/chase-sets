@@ -98,6 +98,7 @@ a captured global position; a second complete source-to-Set reconciliation admit
 authority. Retrying an unchanged verified cutover adds no facts. Invalid or incomplete
 history remains blocked-unknown. This supplies Membership completeness, not deletion
 commands or deletion fences.
+Membership facts written without the dual-write after the captured position are replayed before the through-position reconciliation, and authority stays blocked-unknown until they are.
 
 Closing an Account does not revoke or demote its Memberships. They remain as auditable Identity facts; after closure,
 authorized operators may explicitly revoke or change them without the owner-retention invariant blocking teardown.

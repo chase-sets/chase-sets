@@ -179,7 +179,7 @@ function grant(index: number, userId = "usr_set_boundary"): AppendToStreamInput 
     ).toHaveLength(4);
   });
 
-  it("blocks the bypass mutant when only a post-checkpoint source fact changes", async () => {
+  it("replays a raw grant after the importing checkpoint before admitting authority", async () => {
     const store = createPostgresEventStore({ pool });
     await store.appendToStream(grant(0));
     let mutated = false;
@@ -195,15 +195,63 @@ function grant(index: number, userId = "usr_set_boundary"): AppendToStreamInput 
       },
     };
     const runtime = createMembershipSetRuntime(pool, bypass);
-    await expect(runtime.reconcile(context)).rejects.toThrow("source-to-Set census mismatch");
-    expect(await runtime.authority("usr_set_boundary", context.tenantId)).toMatchObject({ status: "blocked-unknown" });
-    const repair = await planMembershipSetAppends(
-      membershipHistoryReader(pool, store.readStream.bind(store)),
-      [{ ...grant(1), expectedVersion: 1, events: [] }],
-      { reconcile: true },
-    );
-    await store.appendToStreams!(repair);
     await expect(runtime.reconcile(context)).resolves.toMatchObject({ status: "authoritative" });
+    expect(await runtime.authority("usr_set_boundary", context.tenantId)).toMatchObject({
+      status: "authoritative",
+      memberships: [
+        { membershipId: "mbr_set_0", sourceRevision: 1 },
+        { membershipId: "mbr_set_1", sourceRevision: 1 },
+      ],
+    });
+  });
+
+  it("blocks authority for a raw grant after verification until replay reconciles it", async () => {
+    const store = createPostgresEventStore({ pool });
+    await store.appendToStream(grant(0));
+    const runtime = createMembershipSetRuntime(pool, store);
+    await runtime.reconcile(context);
+    await store.appendToStream(grant(1));
+    expect(await runtime.authority("usr_set_boundary", context.tenantId)).toMatchObject({
+      status: "blocked-unknown",
+      reason: "unreconciled-source-facts",
+    });
+    await expect(runtime.reconcile(context)).resolves.toMatchObject({ status: "authoritative" });
+    expect(await runtime.authority("usr_set_boundary", context.tenantId)).toMatchObject({
+      status: "authoritative",
+      memberships: [
+        { membershipId: "mbr_set_0", sourceRevision: 1 },
+        { membershipId: "mbr_set_1", sourceRevision: 1 },
+      ],
+    });
+  });
+
+  it("rejects a contradictory raw Set role fact after verification and keeps authority blocked", async () => {
+    const store = createPostgresEventStore({ pool });
+    await store.appendToStream(grant(0));
+    const runtime = createMembershipSetRuntime(pool, store);
+    await runtime.reconcile(context);
+    const expanded = await planMembershipSetAppends(membershipHistoryReader(pool, store.readStream.bind(store)), [
+      {
+        ...grant(0),
+        expectedVersion: 1,
+        events: [{ eventType: "identity.membership.role-changed", payload: { roleKey: "owner" } }],
+      },
+    ]);
+    await store.appendToStreams!(
+      expanded.map((input) =>
+        input.streamId.startsWith("identity.user-membership-set-")
+          ? {
+              ...input,
+              events: input.events.map((event) => ({
+                ...event,
+                payload: { ...event.payload, roleKey: "manager" },
+              })),
+            }
+          : input,
+      ),
+    );
+    await expect(runtime.reconcile(context)).rejects.toThrow("source-to-Set mismatch");
+    expect(await runtime.authority("usr_set_boundary", context.tenantId)).toMatchObject({ status: "blocked-unknown" });
   });
 
   it("blocks truncated and poisoned histories rather than accepting a current-looking Set", async () => {

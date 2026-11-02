@@ -213,8 +213,13 @@ export function createMembershipSetRuntime(pool: PgTransactionalPool, store: Eve
           sourceRevisions: 0,
         };
     }
-    if (retained.phase === "importing") {
-      await scan(pool, store, retained.afterPosition, retained.firstThrough, false, async (events, cursor) => {
+    async function replay(
+      after: GlobalPosition,
+      through: GlobalPosition,
+      advance?: (cursor: GlobalPosition) => Promise<void>,
+    ) {
+      let appended = 0;
+      await scan(pool, store, after, through, false, async (events, cursor) => {
         const inputs: AppendToStreamInput[] = [];
         for (const streamId of new Set(events.map((event) => event.streamId))) {
           const sourceVersion = await reader.readVersion(streamId);
@@ -226,9 +231,21 @@ export function createMembershipSetRuntime(pool: PgTransactionalPool, store: Eve
         }
         const expanded = await planMembershipSetAppends(reader, inputs, { reconcile: true });
         await store.appendToStreams!(expanded);
-        await save({ ...retained, afterPosition: cursor });
+        appended += expanded.length - inputs.length;
+        await advance?.(cursor);
       });
+      return appended;
     }
+    if (retained.phase === "importing")
+      await replay(retained.afterPosition, retained.firstThrough, (cursor) =>
+        save({ ...retained, afterPosition: cursor }),
+      );
+    const horizon = retained.phase === "verified" ? retained.verifiedThrough! : retained.firstThrough;
+    const replayed = await replay(horizon, await readGapSafeEventStoreHead(pool));
+    if (replayed)
+      console.warn(
+        `[identity] Membership Set cutover replayed ${replayed} Set append(s) for Membership facts written without the dual-write.`,
+      );
     const through = await readGapSafeEventStoreHead(pool);
     const partition = await reconcileThroughPosition(pool, store, through);
     await save({ ...checkpoint!, phase: "verified", verifiedThrough: through });
@@ -240,6 +257,10 @@ export function createMembershipSetRuntime(pool: PgTransactionalPool, store: Eve
       const { checkpoint } = await loadCheckpoint();
       if (checkpoint?.phase !== "verified")
         return { status: "blocked-unknown" as const, reason: "cutover-not-verified" };
+      const head = await readGapSafeEventStoreHead(pool);
+      const sourceFacts = await expectedCount(pool, checkpoint.verifiedThrough!, head, false);
+      if (sourceFacts * 2n > (await expectedCount(pool, checkpoint.verifiedThrough!, head, true)))
+        return { status: "blocked-unknown" as const, reason: "unreconciled-source-facts" };
       const set = await readUserMembershipSet(reader, userId, tenantId);
       for (const membership of set.memberships) {
         const streamId = `${MEMBERSHIP_SOURCE_PREFIX}${membership.membershipId}`;

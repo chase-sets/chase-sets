@@ -54,7 +54,7 @@ const allowedOwners = new Map([
   ["append", transaction],
   ["submit", `${identity}features/account-management/api/runtime.ts`],
   ["save", cutover],
-  ["reconcile", cutover],
+  ["replay", cutover],
 ]);
 const readOnlyFactories = new Set([
   `${identity}features/consents/api/terms-acceptance-resolver.ts`,
@@ -69,9 +69,25 @@ function property(node) {
   return null;
 }
 
+const ESCAPE_SEQUENCE = /\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|([0-7]{1,3})|(\r\n|[\s\S]))/g;
+const LINE_TERMINATOR = /^(?:\r\n|[\n\r\u2028\u2029])$/;
+
+// Cooks every escape (over-approximating strings, identifiers and regex text) so an escaped writer name still reaches the AST.
+function cookEscapes(source) {
+  return source.replace(ESCAPE_SEQUENCE, (_sequence, braced, unicode, hex, octal, other) => {
+    const code = braced ?? unicode ?? hex;
+    if (code !== undefined) {
+      const point = Number.parseInt(code, 16);
+      return point <= 0x10ffff ? String.fromCodePoint(point) : "";
+    }
+    if (octal !== undefined) return String.fromCharCode(Number.parseInt(octal, 8) & 0xff);
+    return LINE_TERMINATOR.test(other) ? "" : other;
+  });
+}
+
 function hasWriterSurface(source) {
-  // Escaped identifiers and properties must reach the AST even without a literal name match.
-  return source.includes("\\") || [...writerSurfaceNames].some((name) => source.includes(name));
+  const cooked = source.includes("\\") ? cookEscapes(source) : source;
+  return [...writerSurfaceNames].some((name) => source.includes(name) || cooked.includes(name));
 }
 
 export function scanMembershipSetWriters(sources, expectedFiles) {
@@ -186,6 +202,7 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
           .join(node.arguments.length ? partialString(node.arguments[0]) : ",");
       return "";
     }
+    const ownerMembership = new Map();
     visit(ast, (node) => {
       if (!ts.isCallExpression(node)) return;
       const called = name(node.expression);
@@ -218,7 +235,9 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
       const ownerName =
         owner.name?.getText(ast) ??
         (owner.parent && ts.isVariableDeclaration(owner.parent) ? owner.parent.name.getText(ast) : "anonymous");
-      if (readOnlyFactories.has(file) && membership(owner))
+      if (!ownerMembership.has(owner)) ownerMembership.set(owner, membership(owner));
+      const hasMembership = ownerMembership.get(owner);
+      if (readOnlyFactories.has(file) && hasMembership)
         violations.push(`${file}: non-Membership EventStore factory gained a Membership append`);
       if (
         (file === composition && called.startsWith("append")) ||
@@ -228,7 +247,7 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
       )
         violations.push(`${file}: raw append bypasses Membership Set planner`);
       if (
-        !membership(owner) &&
+        !hasMembership &&
         !(file === `${identity}features/account-management/api/runtime.ts` && called === "append")
       )
         return;
@@ -289,7 +308,8 @@ export function validateMembershipSetWriters({ repoRoot }) {
       !/\.(?:test|spec|tmp|d)\.[cm]?[jt]sx?$/.test(file) &&
       !/(?:^|\/)(?:tests|__tests__|fixtures|e2e|build|dist|coverage)(?:\/|$)/.test(file),
   );
-  const excluded = files.filter((file) => !production.includes(file));
+  const productionFiles = new Set(production);
+  const excluded = files.filter((file) => !productionFiles.has(file));
   const included = production.filter((file) => !/(?:test-support|test-fixture)\.[cm]?[jt]sx?$/.test(file));
   const sources = new Map(included.map((file) => [file, readFileSync(path.join(repoRoot, file), "utf8")]));
   const census = scanMembershipSetWriters(sources, included);
