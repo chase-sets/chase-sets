@@ -1,0 +1,43 @@
+/* TimeSeriesChart: the plot as wide as its box and as tall as its 640:220 box makes it; below
+   480 px wide it scrolls in its box rather than squeezing. */
+.chart-box {
+  margin: 0;
+  min-width: 0;
+}
+.chart-scroll {
+  overflow-x: auto;
+}
+.chart-scroll svg {
+  display: block;
+  width: 100%;
+  min-width: 30rem;
+  height: auto;
+}
+.chart-line {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.chart-band {
+  fill: var(--color-primary-soft);
+  stroke: none;
+}
+.chart-mark {
+  fill: var(--color-primary);
+  stroke: var(--color-background);
+  stroke-width: 1.5;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
