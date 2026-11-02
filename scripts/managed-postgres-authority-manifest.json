@@ -7481,6 +7481,13 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
       "stepAnchor": "name:Apply staging Kubernetes runtime secrets#33",
+      "secretName": "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#33",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },

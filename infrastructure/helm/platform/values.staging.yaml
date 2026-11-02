@@ -435,6 +435,9 @@ components:
       - name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON"
         secret: true
         secretKey: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON"
+      - name: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256"
+        secret: true
+        secretKey: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256"
   platform-worker:
     # Keep one warm worker for health and deploy continuity; KEDA adds up to four pods when eligible wake intents accumulate.
     # The cap preserves the staging database connection budget while covering representative wake and import bursts.

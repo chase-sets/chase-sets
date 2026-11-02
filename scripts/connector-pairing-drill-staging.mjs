@@ -4,6 +4,7 @@
 import { resolve } from "node:path";
 import { PairingDrillRefusal } from "../deployables/tcgplayer-connector-extension/e2e/pairing-drill.ts";
 import {
+  createStagingPersonaSignIn,
   runStagingDrill,
   stagingReceiptComment,
 } from "../deployables/tcgplayer-connector-extension/e2e/pairing-drill-staging.ts";
@@ -16,6 +17,7 @@ try {
   acquireHeavySlot("playwright");
   const { receipt } = await runStagingDrill(process.argv.slice(2), {
     resolveDeployBinding: (request) => readConnectorDrillDeployBinding(request),
+    signIn: createStagingPersonaSignIn(),
     dist: resolve(root, "artifacts/connector-extension/staging"),
     outputDir: resolve(root, "artifacts/connector-pairing-drill", new Date().toISOString().replace(/[:.]/g, "-")),
   });
