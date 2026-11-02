@@ -340,7 +340,17 @@ describe("platform api config", () => {
     process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 = "not-a-digest";
     expect(() => loadConfig()).toThrow("must be a lowercase SHA-256 digest");
 
+    process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 = "";
+    expect(loadConfig().stagingPersonaMagicLinkVerifierSha256).toBeUndefined();
+
     delete process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256;
+    delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+    delete process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
+    process.env.NODE_ENV = "production";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
     process.env.DEPLOYMENT_ENVIRONMENT = "production";
     process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
     expect(loadConfig().stagingPersonaMagicLinkVerifierSha256).toBeUndefined();

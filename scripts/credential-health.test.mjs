@@ -207,6 +207,17 @@ describe("credential health classifier (AC2)", () => {
     ]);
   });
 
+  it("retains the Bitwarden-only staging persona missing-from-scope warning", () => {
+    const raw = JSON.parse(readFileSync(".github/credential-inventory.json", "utf8"));
+    const name = "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET";
+    const rawEntry = raw.secrets.find((secret) => secret.name === name);
+    expect(rawEntry.optional).not.toBe(true);
+    const inventory = inventoryOf([rawEntry]);
+    const report = classify(inventory, metadataOf({}));
+    expect(report.groups).toEqual([expect.objectContaining({ name, level: "warning", reasons: ["missing-from-scope"] })]);
+    expect(report.status).toBe("warning");
+  });
+
   it("warns on a live name that is not in the inventory for that scope", () => {
     const inventory = inventoryOf([entry("STRIPE_KEY")]);
     const report = classify(

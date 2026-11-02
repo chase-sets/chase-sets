@@ -32,10 +32,6 @@ Add, rename or remove the entry in the same pull request that adds, renames or r
 
 ## Agent Tier
 
-### Connector staging persona verifier
-
-`CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET` is a Todd-only Bitwarden value used once by the staging connector drill. It is never a GitHub secret, workflow input, command argument, log value, receipt field or persisted application value. The operator derives its lowercase SHA-256 digest locally and stores only `CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256` in the staging runtime secret set. The verifier is dedicated to the Auth staging persona route and must not be placed in `CHANNELS_CREDENTIAL_KEYRING_JSON`, production, preview or any other environment. Rotate both values together; absence or malformed verifier fails closed and does not mount the route.
-
 The top-level `agentTier` holds `project`, the Bitwarden project name, and `keys`, sorted by name. Each key has `name`, an existing inventory entry, and `testPrefixes`, the prefixes its agent value must start with; the list is empty when the provider has no test-key shape. `node ./scripts/credential-inventory.mjs tiers` prints the names in each tier, never a value.
 
 Membership rules, enforced by `scripts/credential-inventory.test.mjs` in `test:scripts` and settled by the [#10031 decision](https://github.com/chase-sets/chase-sets/issues/10031):
@@ -51,6 +47,16 @@ Membership rules, enforced by `scripts/credential-inventory.test.mjs` in `test:s
 Voyage and Scrydex keys stay CI/deploy-only: they bill real usage, so lanes that need them dispatch the CI workflows that hold them. Admitting a name is a pull request that adds it to `agentTier` and passes these rules; the value then goes into the Bitwarden project.
 
 `scripts/agent-secrets/with-secrets.ps1` enforces the tier at run time. For `-Command` and `-Check` it first reads `agentTier` from `.github/credential-inventory.json` in the checkout it sits in, before it reads the token. If that file is missing, unparseable or has no valid `agentTier`, it refuses with `inventory-unavailable`. It then lists the project, keeping values in memory, and refuses with `tier-violation` while the project holds a key that `agentTier.keys` does not list, or a value that starts with none of its key's `testPrefixes`. The refusal names each offending key and never prints its value, and `-Command` never reaches `bws run`, with or without `-NoInheritEnv`. `-ListKeys` skips the guard, so the names stay inspectable. To clear a violation, delete the key from the project or replace its value with a test credential. A value added between the list and the run is not checked. After a passing check, `-Check` prints `token expires <date> (<n> days)` from the account's `tokenExpiresOn`, or `token expiry not recorded for account '<name>'`, and warns on stderr within 21 days of the date or past it. It never refuses on the date alone, because the date can be stale; a dead token surfaces as `bws-failed` on first use.
+
+### Connector Staging Persona Sign-In
+
+`CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET` is an agent-tier, Bitwarden-only staging bearer in `chase-sets-agent-dev`, with prefix `cs_stg_persona_`. It is non-optional in the existing staging inventory with no proof workflow. Its intentional absence from GitHub produces `warning: missing-from-scope`; do not suppress that warning, add a dummy workflow reference or upload the raw value to GitHub. Only its lowercase SHA-256 digest, `CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256`, belongs in GitHub's staging environment and the staging runtime Secret. Neither value belongs in `CHANNELS_CREDENTIAL_KEYRING_JSON`, production, preview, worker or bootstrap configuration.
+
+Before population or rotation, the host must refresh **every active helper reader** to a revision whose inventory admits the raw name and prefix, or retire that reader. Record each reader's checkout, revision and admission status; one updated checkout is not sufficient. Existing helpers refuse the entire project when they encounter an unadmitted name. Do not populate until all readers are accounted for.
+
+After that rollout, Todd's signed-in Bitwarden session creates a cryptographically random prefixed value in the named project and derives the digest privately in memory. Protected-enter **only the digest** as the staging GitHub secret. Never put the raw value in argv, files, transcripts or GitHub. Record names and UTC time only. Rotate in the same order: readers first, raw value, verifier. Agents then own the helper check, completed immutable staging activation/runtime-secret-apply evidence, non-minting refusal probes and the drill.
+
+Run the staging drill through `scripts/agent-secrets/with-secrets.ps1 -Command`. The command captures the bearer once and removes it from the environment before admission, deploy reads and Chromium launch. Node issues the short-lived, hash-only, single-use link; the browser makes a token-less, no-redirect landing probe immediately before use. Bearer, link and token stay out of argv, post-read environment, logs, traces, receipts and artifacts; cookies remain context-only. An empty verifier leaves the route unmounted (404); malformed or non-staging nonempty verifier refuses boot. Staging proof never authorizes provider login or TCGplayer traffic.
 
 ## Daily Credential Health Check
 

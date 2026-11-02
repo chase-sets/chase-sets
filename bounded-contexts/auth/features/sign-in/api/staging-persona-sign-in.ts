@@ -1,7 +1,9 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { representativePersonaIds } from "@chase-sets/catalog-seed/ids";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../sessions/domain/auth-flow";
 import { createAuthRateLimitPair } from "./rate-limits";
 import { insertMagicLinkToken } from "../../../support/auth-support/store";
@@ -17,21 +19,19 @@ export type StagingPersonaAlias = "card-vault" | "sealed-stockroom";
 
 type StagingPersona = Readonly<{
   alias: StagingPersonaAlias;
-  accountId: string;
-  userId: string;
+  accountId: AccountId;
+  userId: UserId;
 }>;
 
 /** Auth owns this allowlist; the IDs are the Identity-owned representative seed boundary. */
 export const STAGING_PERSONAS: readonly StagingPersona[] = [
   {
     alias: "card-vault",
-    accountId: "acc_repr_card_vault_account",
-    userId: "usr_repr_card_vault_user",
+    ...representativePersonaIds["card-vault"],
   },
   {
     alias: "sealed-stockroom",
-    accountId: "acc_repr_sealed_stockroom_account",
-    userId: "usr_repr_sealed_stockroom_user",
+    ...representativePersonaIds["sealed-stockroom"],
   },
 ] as const;
 

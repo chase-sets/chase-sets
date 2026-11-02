@@ -1,4 +1,9 @@
-import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, TypedUlid, UserId } from "@chase-sets/primitives/typed-ids";
+
+export const representativePersonaIds = {
+  "card-vault": { accountId: "acc_repr_card_vault_account" as AccountId, userId: "usr_repr_card_vault_user" as UserId },
+  "sealed-stockroom": { accountId: "acc_repr_sealed_stockroom_account" as AccountId, userId: "usr_repr_sealed_stockroom_user" as UserId },
+} as const;
 
 export type SeedCatalogItemId = TypedUlid<"cat">;
 export type SeedDimensionId = TypedUlid<"dim">;
