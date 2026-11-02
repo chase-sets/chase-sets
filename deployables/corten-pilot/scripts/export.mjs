@@ -148,7 +148,7 @@
 // - marketplace/email-verification.json: each role's permissions Auth withholds until the member's email
 //   is verified (contracts/auth-context's ROLE_PERMISSIONS within EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS),
 //   which permissionAwaitsEmailVerification reads to offer Verify your email in place of an action. A
-//   workaround until Auth says what it withheld (chase-sets/chase-sets#10987).
+//   workaround until Auth says what it withheld (https://github.com/chase-sets/chase-sets/issues/10987).
 // - marketplace/locales/listing-new.en.json: Create listing's English catalog
 // - marketplace/locales/seller-listing.en.json: the seller's listing page's English catalog
 //   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
@@ -534,7 +534,7 @@ function tokens() {
     },
   };
   // The kit's card sizes sit beside its colors, flat: a `card` group in the base set would be
-  // replaced whole by the kit's `card` color (todd-skelton/corten#654).
+  // replaced whole by the kit's `card` color (https://github.com/todd-skelton/corten/issues/654).
   const kit = {
     ...Object.fromEntries(
       Object.entries(kitTheme).map(([name, token]) => [name, { $type: "color", $value: `{${token}}` }]),
