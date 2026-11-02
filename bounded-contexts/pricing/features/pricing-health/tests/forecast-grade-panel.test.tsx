@@ -29,6 +29,10 @@ describe("Forecast Grade disclosure", () => {
     expect(html).not.toContain("29");
   });
 
+  it("does not disguise a corrupt JSON-null grade as an undisclosed cohort (F5)", () => {
+    expect(() => discloseForecastGrade({ ...stored, grade: null as never }, 30)).toThrow();
+  });
+
   it("sends exactly the four disclosed values at 30 and labels the platform cohort", () => {
     const grade = discloseForecastGrade({ ...stored, grade: { ...stored.grade, count: 30 } }, 30);
     expect(grade).toEqual({

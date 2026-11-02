@@ -15,7 +15,6 @@ import {
 import type { WaitlistGame, WaitlistInventorySize } from "../domain/common";
 import { WAITLIST_GAMES, WAITLIST_INVENTORY_SIZES } from "../domain/common";
 import type { CampaignAnalyticsSnapshot } from "../api/contracts";
-import { WAVE_ONE_ADMISSION_BAR } from "../read-model/campaign-admission-bar-policy";
 
 function progressPercent(count: number, goal: number) {
   return goal > 0 ? Math.min(100, (count / goal) * 100) : 100;
@@ -74,19 +73,19 @@ export function CampaignAnalyticsPage({
           </Badge>
           <TaskProgress
             label={t("publicPresence.admin.campaignAnalytics.admissionBar.totalSignups")}
-            value={progressPercent(admissionBar.totalSignups, WAVE_ONE_ADMISSION_BAR.minTotalSignups)}
+            value={progressPercent(admissionBar.totalSignups, admissionBar.goals.minTotalSignups)}
             valueLabel={t("publicPresence.admin.campaignAnalytics.admissionBar.progressValue", {
               count: admissionBar.totalSignups,
-              goal: WAVE_ONE_ADMISSION_BAR.minTotalSignups,
+              goal: admissionBar.goals.minTotalSignups,
             })}
             tone={admissionBar.totalSignupsMet ? "success" : "accent"}
           />
           <TaskProgress
             label={t("publicPresence.admin.campaignAnalytics.admissionBar.qualifiedSellers")}
-            value={progressPercent(admissionBar.qualifiedSellerCount, WAVE_ONE_ADMISSION_BAR.minQualifiedSellers)}
+            value={progressPercent(admissionBar.qualifiedSellerCount, admissionBar.goals.minQualifiedSellers)}
             valueLabel={t("publicPresence.admin.campaignAnalytics.admissionBar.progressValue", {
               count: admissionBar.qualifiedSellerCount,
-              goal: WAVE_ONE_ADMISSION_BAR.minQualifiedSellers,
+              goal: admissionBar.goals.minQualifiedSellers,
             })}
             tone={admissionBar.qualifiedSellersMet ? "success" : "accent"}
           />

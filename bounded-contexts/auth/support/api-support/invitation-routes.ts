@@ -20,7 +20,7 @@ import {
 } from "../../features/invitation-acceptance/api/journey";
 import { InvitationAttemptError } from "../../features/invitation-acceptance/domain/attempt";
 import { invitationAttemptRollout } from "../../features/invitation-acceptance/api/rollout";
-import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import {
   consumeChallenge,
   getPasswordCredentialByUserId,
@@ -28,6 +28,7 @@ import {
   upsertPasswordCredential,
 } from "../auth-support/store";
 import { verifyPasskeyRegistration } from "../auth-support/webauthn";
+import { getSafeSameSitePath } from "../auth-support/same-site-path";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import {
   createIdentityMutations,
@@ -64,8 +65,7 @@ function identityMutationStatus(error: unknown) {
 }
 
 function safeLandingPath(value: unknown, fallback: string) {
-  const path = typeof value === "string" ? value.trim() : "";
-  return path.startsWith("/") && !path.startsWith("//") ? path : fallback;
+  return getSafeSameSitePath(value, { trim: true }) ?? fallback;
 }
 
 function invitationTokenExpiresAt(invitationExpiresAt: string, magicLinkTtlMs: number) {
@@ -80,10 +80,12 @@ function buildInvitationAcceptanceLink(
     landingPath: unknown;
   }>,
 ) {
-  const url = new URL(
-    safeLandingPath(input.landingPath, `/invite/${encodeURIComponent(input.invitationId)}`),
-    resolvePublicRequestOrigin(request),
-  );
+  const origin = resolvePublicRequestOrigin(request);
+  const fallback = `/invite/${encodeURIComponent(input.invitationId)}`;
+  let url = new URL(safeLandingPath(input.landingPath, fallback), origin);
+  if (url.origin !== origin) {
+    url = new URL(fallback, origin);
+  }
   url.searchParams.set("invitationId", input.invitationId);
   url.searchParams.set("token", input.token);
   return url.toString();
@@ -453,10 +455,9 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
           accountId: invitation.accountId,
           roleKey: invitation.roleKey,
           status: "active",
-          rolePermissions: AUTH_ROLE_PERMISSIONS[invitation.roleKey as keyof typeof AUTH_ROLE_PERMISSIONS] ?? [],
+          rolePermissions: ROLE_PERMISSIONS[invitation.roleKey as keyof typeof ROLE_PERMISSIONS] ?? [],
         },
       ],
-      publishAuthenticationOutcome: true,
     });
 
     return jsonWithMutationReceipts(

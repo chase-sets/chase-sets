@@ -160,6 +160,19 @@ function renderMethodsPage(theme?: Parameters<typeof ChaseRoot>[0]["theme"]) {
   };
 }
 
+function waitForRouterIdleAfterSubmitting(router: ReturnType<typeof createMemoryRouter>) {
+  return new Promise<void>((resolve) => {
+    let sawSubmitting = router.state.navigation.state === "submitting";
+    const unsubscribe = router.subscribe(({ navigation }) => {
+      if (navigation.state === "submitting") sawSubmitting = true;
+      if (sawSubmitting && navigation.state === "idle") {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
+
 async function methodCard(label: string) {
   return (await screen.findByText(label)).closest<HTMLElement>(".min-w-0.max-w-full.rounded-tokenLg")!;
 }
@@ -480,15 +493,19 @@ describe("issue-10014 AC6 methods-page attempt states on the real data router", 
   });
 
   it("keeps one id across repeated Check again after a lost response, and never echoes raw error text", async () => {
+    let releaseSecondResponse!: (response: Response) => void;
+    const secondResponse = new Promise<Response>((resolve) => {
+      releaseSecondResponse = resolve;
+    });
     const replies: Reply[] = [
       () => Promise.reject(new TypeError("SYNTHETIC_PRIVATE_TRANSPORT_DETAIL")),
-      jsonResponse({ error: { code: "attempt_unconfirmed", message: "SYNTHETIC_PRIVATE_SERVER_DETAIL" } }, 503),
+      secondResponse,
       jsonResponse({ ...cardMethod, readiness: "removed", removed_at: "2026-04-03T00:00:00.000Z" }),
     ];
     const api = stubPaymentsApi({
       reply: (call) => (call.path === "/payment-methods/sci_card/remove" ? replies.shift() : undefined),
     });
-    renderMethodsPage();
+    const { router } = renderMethodsPage();
     const card = await methodCard("Visa ending in 4242");
     const loadedId = formAttemptId(within(card).getByRole("button", { name: "Remove" }));
 
@@ -499,9 +516,22 @@ describe("issue-10014 AC6 methods-page attempt states on the real data router", 
     );
     expect(formAttemptId(checkAgain)).toBe(loadedId);
 
+    const secondSubmissionIdle = waitForRouterIdleAfterSubmitting(router);
     fireEvent.click(checkAgain);
     await waitFor(() => expect(api.commands("/payment-methods/sci_card/remove")).toHaveLength(2));
-    fireEvent.click(await within(card).findByRole("button", { name: "Check again" }));
+
+    const pendingCheckAgain = within(card).getByRole("button", { name: "Check again" });
+    expect(pendingCheckAgain.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(pendingCheckAgain);
+    expect(api.commands("/payment-methods/sci_card/remove")).toHaveLength(2);
+
+    releaseSecondResponse(
+      jsonResponse({ error: { code: "attempt_unconfirmed", message: "SYNTHETIC_PRIVATE_SERVER_DETAIL" } }, 503),
+    );
+    await secondSubmissionIdle;
+    const settledCheckAgain = await within(card).findByRole("button", { name: "Check again" });
+    await waitFor(() => expect(settledCheckAgain.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(settledCheckAgain);
     await waitFor(() => expect(api.commands("/payment-methods/sci_card/remove")).toHaveLength(3));
 
     await waitFor(() =>

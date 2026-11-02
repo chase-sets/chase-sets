@@ -214,6 +214,36 @@ describe("deployment root-cause taxonomy", () => {
     expect(body).not.toContain("fixture-secret");
   });
 
+  it("classifies only explicit active-GC gate evidence, not a bare unauthorized message", () => {
+    expect(
+      classifyDeploymentRootCause({
+        phase: "build-image",
+        message: "unauthorized:",
+        diagnostics: [{ rootCauseCode: "registry-gc-read-only", active: true, status: "deleting unreferenced blobs" }],
+      }),
+    ).toMatchObject({ rootCauseCode: "registry-gc-read-only", affectedComponent: "digitalocean-container-registry" });
+    expect(classifyDeploymentRootCause({ phase: "build-image", message: "unauthorized:" })).toMatchObject({
+      rootCauseCode: "unknown",
+    });
+  });
+
+  it("carries a build-image registry refusal through classify-run", () => {
+    expect(
+      classifyPlatformDeployRun({
+        resolveReleaseResult: "success",
+        buildImageResult: "failure",
+        buildRootCauseCode: "registry-gc-read-only",
+        deployStagingResult: "skipped",
+        deployProductionResult: "skipped",
+        recordStagingHealthResult: "success",
+      }),
+    ).toMatchObject({
+      action: "create-or-update",
+      reason: "registry-gc-read-only",
+      rootCauseCode: "registry-gc-read-only",
+    });
+  });
+
   it("redacts tokens, connection strings, cookies, authorization headers, JSON secrets, and private keys", () => {
     const redacted = redactDeployDiagnosticText(
       [

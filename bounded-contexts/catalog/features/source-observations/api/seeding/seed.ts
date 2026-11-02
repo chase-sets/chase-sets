@@ -336,6 +336,7 @@ function sourceObservationEvent(row: StoredSourceObservationEvent): SourceObserv
     case "catalog.source-observation.changed":
     case "catalog.source-observation.refreshed":
     case "catalog.source-observation.source-payload-chunk-recorded":
+    case "catalog.source-observation.normalized-evidence-chunk-recorded":
     case "catalog.source-observation.promoted":
     case "catalog.source-observation.reference-promoted":
     case "catalog.source-observation.promotion-plan-recorded":
@@ -350,10 +351,7 @@ function sourceObservationEvent(row: StoredSourceObservationEvent): SourceObserv
 
 function expectedStateAfter(command: SourceObservationCommand, state: SourceObservationState): SourceObservationState {
   const events = decideSourceObservation(state, command);
-  if (events.length !== 1) {
-    throw new Error("Catalog browser Source Observation fixture must remain within one bounded record event.");
-  }
-  return evolveSourceObservation(state, events[0]);
+  return events.reduce(evolveSourceObservation, state);
 }
 
 /**
@@ -394,10 +392,10 @@ function refreshedSeedState(
   }
 
   const [event] = events;
-  if (events.length !== 1 || event?.type !== "catalog.source-observation.refreshed") {
+  if (event?.type !== "catalog.source-observation.refreshed") {
     return null;
   }
-  return evolveSourceObservation(state, event);
+  return events.reduce(evolveSourceObservation, state);
 }
 
 function requireSeedState(label: string, actual: SourceObservationState, expected: SourceObservationState): void {

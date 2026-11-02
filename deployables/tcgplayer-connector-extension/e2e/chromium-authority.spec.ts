@@ -126,7 +126,7 @@ async function counters(worker: Worker) {
         });
       }
       const identity = chrome.identity.launchWebAuthFlow.bind(chrome.identity);
-      chrome.identity.launchWebAuthFlow = ((...args: Parameters<typeof identity>) => {
+      chrome.identity.launchWebAuthFlow = ((...args: unknown[]) => {
         counts.identity++;
         return Reflect.apply(identity, chrome.identity, args);
       }) as typeof identity;

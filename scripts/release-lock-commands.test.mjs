@@ -1,29 +1,95 @@
 import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import {
   RELEASE_LOCK_COMMANDS_VERSION,
   buildReleaseLockCommands,
+  evaluateReleaseLockClearReadback,
   parseReleaseLockCommandsArgs,
 } from "./release-lock-commands.mjs";
 
+const exitRoute = JSON.stringify({
+  kind: "host-revert",
+  reference: "https://github.com/chase-sets/chase-sets/issues/10391",
+});
+const futureDeadline = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
 describe("release lock GitHub Environment commands", () => {
+  it("CLI refuses invalid authority with no commands and prints five ordered commands for valid offline authority", () => {
+    const run = (extra) =>
+      spawnSync(
+        process.execPath,
+        ["scripts/release-lock-commands.mjs", "--action", "lock", "--reason", "hold", ...extra],
+        {
+          encoding: "utf8",
+          timeout: 10_000,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+          env: { ...process.env, PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: "", PRODUCTION_RELEASE_LOCK_DEADLINE: "" },
+        },
+      );
+    const invalid = run([]);
+    expect(invalid.status).toBe(1);
+    expect(invalid.stdout).toBe("");
+    const valid = run(["--exit-route", exitRoute, "--deadline", futureDeadline()]);
+    expect(valid.status).toBe(0);
+    expect(valid.stdout.trim().split(/\r?\n/)).toHaveLength(5);
+    expect(valid.stdout.trim().split(/\r?\n/).at(-1)).toContain("PRODUCTION_RELEASE_LOCKED");
+  });
+
+  it("uses effective CLI overrides for every field rather than stale environment defaults", () => {
+    expect(
+      parseReleaseLockCommandsArgs(
+        ["--reason", "new", "--reference", "new-ref", "--exit-route", exitRoute, "--deadline", "new-deadline"],
+        {
+          PRODUCTION_RELEASE_LOCK_REASON: "old",
+          PRODUCTION_RELEASE_LOCK_REFERENCE: "old",
+          PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: "old",
+          PRODUCTION_RELEASE_LOCK_DEADLINE: "old",
+        },
+      ),
+    ).toMatchObject({ reason: "new", reference: "new-ref", exitRoute, deadline: "new-deadline" });
+  });
+  it.each([
+    {},
+    { exitRoute },
+    { exitRoute, deadline: "2026-10-22" },
+    { exitRoute, deadline: "2026-10-22T12:00:00" },
+    { exitRoute, deadline: "2000-01-01T00:00:00Z" },
+    { exitRoute, deadline: "2099-01-01T00:00:00Z" },
+    {
+      exitRoute: JSON.stringify({
+        kind: "host-revert",
+        reference: "https://github.com/chase-sets/chase-sets/pull/10391",
+      }),
+      deadline: futureDeadline(),
+    },
+  ])("produces no executable commands for invalid creation input %j", (values) => {
+    const result = buildReleaseLockCommands({ action: "lock", reason: "hold", ...values });
+    expect(result.passesReleaseLockCommandsGate).toBe(false);
+    expect(result.commands).toEqual([]);
+    expect(result.commandCount).toBe(0);
+  });
   it("builds lock commands with a reason and reference", () => {
     const result = buildReleaseLockCommands({
       action: "lock",
       environmentName: "production",
       reason: "Payment provider incident",
       reference: "INC-2026-05-31-001",
+      exitRoute,
+      deadline: futureDeadline(),
     });
 
     expect(result.schemaVersion).toBe(RELEASE_LOCK_COMMANDS_VERSION);
     expect(result.passesReleaseLockCommandsGate).toBe(true);
-    expect(result.commands).toEqual([
-      'gh variable set PRODUCTION_RELEASE_LOCKED --env "production" --body "true"',
+    expect(result.commandCount).toBe(5);
+    expect(result.commands.slice(0, 2)).toEqual([
       'gh variable set PRODUCTION_RELEASE_LOCK_REASON --env "production" --body "Payment provider incident"',
       'gh variable set PRODUCTION_RELEASE_LOCK_REFERENCE --env "production" --body "INC-2026-05-31-001"',
     ]);
+    expect(result.commands.at(-1)).toBe('gh variable set PRODUCTION_RELEASE_LOCKED --env "production" --body "true"');
   });
 
-  it("builds unlock commands that clear lock metadata", () => {
+  it("builds unlock commands that delete metadata after setting false", () => {
     const result = buildReleaseLockCommands({
       action: "unlock",
       environmentName: "production",
@@ -34,9 +100,51 @@ describe("release lock GitHub Environment commands", () => {
     expect(result.passesReleaseLockCommandsGate).toBe(true);
     expect(result.commands).toEqual([
       'gh variable set PRODUCTION_RELEASE_LOCKED --env "production" --body "false"',
-      'gh variable set PRODUCTION_RELEASE_LOCK_REASON --env "production" --body ""',
-      'gh variable set PRODUCTION_RELEASE_LOCK_REFERENCE --env "production" --body ""',
+      'gh variable delete PRODUCTION_RELEASE_LOCK_REASON --env "production"',
+      'gh variable delete PRODUCTION_RELEASE_LOCK_REFERENCE --env "production"',
+      'gh variable delete PRODUCTION_RELEASE_LOCK_EXIT_ROUTE --env "production"',
+      'gh variable delete PRODUCTION_RELEASE_LOCK_DEADLINE --env "production"',
     ]);
+    expect(result.commands.join("\n")).not.toMatch(/--body (?:""|`"`")/);
+  });
+
+  it.each([
+    {
+      name: "false with all four metadata names absent",
+      readback: { ok: true, variables: [{ name: "PRODUCTION_RELEASE_LOCKED", value: "false" }] },
+      complete: true,
+    },
+    {
+      name: "false with an empty metadata value still present",
+      readback: {
+        ok: true,
+        variables: [
+          { name: "PRODUCTION_RELEASE_LOCKED", value: "false" },
+          { name: "PRODUCTION_RELEASE_LOCK_REASON", value: "" },
+        ],
+      },
+      complete: false,
+    },
+    {
+      name: "locked true",
+      readback: { ok: true, variables: [{ name: "PRODUCTION_RELEASE_LOCKED", value: "true" }] },
+      complete: false,
+    },
+    { name: "list failure", readback: { ok: false, error: "permission denied" }, complete: false },
+    { name: "unparseable list output", readback: { ok: true, output: "not-json" }, complete: false },
+    {
+      name: "unknown release lock metadata",
+      readback: {
+        ok: true,
+        variables: [
+          { name: "PRODUCTION_RELEASE_LOCKED", value: "false" },
+          { name: "PRODUCTION_RELEASE_LOCK_STALE", value: "x" },
+        ],
+      },
+      complete: false,
+    },
+  ])("evaluates clear readback: $name", ({ readback, complete }) => {
+    expect(evaluateReleaseLockClearReadback(readback).complete).toBe(complete);
   });
 
   it("requires a reason when locking releases", () => {
@@ -81,6 +189,8 @@ describe("release lock GitHub Environment commands", () => {
       environmentName: 'prod "blue"',
       reason: 'Incident "checkout"',
       reference: "INC`1",
+      exitRoute,
+      deadline: futureDeadline(),
     });
 
     expect(result.commands).toContain(
@@ -89,5 +199,28 @@ describe("release lock GitHub Environment commands", () => {
     expect(result.commands).toContain(
       'gh variable set PRODUCTION_RELEASE_LOCK_REFERENCE --env "prod `"blue`"" --body "INC``1"',
     );
+  });
+
+  it("escapes PowerShell variable expansion instead of generating executable interpolation", () => {
+    expect(
+      buildReleaseLockCommands({
+        action: "lock",
+        reason: "hold $(Write-Output unsafe) $env:NAME",
+        exitRoute,
+        deadline: futureDeadline(),
+      }).commands[0],
+    ).toContain("hold `$(Write-Output unsafe) `$env:NAME");
+  });
+
+  it.each(["reason", "reference", "environmentName"])("escapes typographic PowerShell quotes in %s", (field) => {
+    const result = buildReleaseLockCommands({
+      action: "lock",
+      reason: "synthetic hold",
+      [field]: "x”; Write-Output SYNTHETIC; “y „z",
+      exitRoute,
+      deadline: futureDeadline(),
+    });
+
+    expect(result.commands.join("\n")).toContain("x`”; Write-Output SYNTHETIC; `“y `„z");
   });
 });

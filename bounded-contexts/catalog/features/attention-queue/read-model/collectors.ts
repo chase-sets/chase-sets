@@ -16,14 +16,16 @@ import type { CatalogIntegrationControlPlaneUnitReadiness } from "../../source-o
 import type { CatalogIntegrationUnitActivity } from "../../source-observations/api/admin-control-plane-overview";
 import type { CatalogAttentionItem, CatalogAttentionResolution } from "./attention-item";
 
-// A drawer resolution reveals the source's deep controls inline on the daily
-// surface; no navigation, no cross-surface redirect.
+// A drawer resolution carries the source identity and the entity home. The
+// drawer stays on Catalog home; the link is a forward navigation to the owning
+// entity page, never a detour to a retired workspace.
 function drawerResolution(
   intent: string,
   labelKey: string,
   fields: Record<string, string>,
+  href?: string,
 ): CatalogAttentionResolution {
-  return { intent, mode: "drawer", labelKey, fields };
+  return { intent, mode: "drawer", labelKey, fields, ...(href ? { href } : { unavailable: true }) };
 }
 
 function commandResolution(
@@ -54,12 +56,17 @@ export function collectUnmappedScopeItems(rows: readonly ProviderScopeMappingRow
         providerKey: row.provider_key,
         unitKey: row.unit_key,
         observedAt: row.proposed_at,
-        resolution: drawerResolution("review-scope-mapping", "catalog.features.attentionQueue.action.reviewMapping", {
-          mappingId: row.mapping_id,
-          scopeRecordId: row.scope_record_id,
-          providerKey: row.provider_key,
-          unitKey: row.unit_key,
-        }),
+        resolution: drawerResolution(
+          "review-scope-mapping",
+          "catalog.features.attentionQueue.action.reviewMapping",
+          {
+            mappingId: row.mapping_id,
+            scopeRecordId: row.scope_record_id,
+            providerKey: row.provider_key,
+            unitKey: row.unit_key,
+          },
+          `/catalog/scopes/${encodeURIComponent(row.scope_record_id)}`,
+        ),
         secondaryResolutions: [],
       } satisfies CatalogAttentionItem;
     });
@@ -90,7 +97,8 @@ export function collectMergeConflictItems(rows: readonly CatalogMergeCandidateLi
         resolution: drawerResolution(
           "review-merge-conflict",
           "catalog.features.attentionQueue.action.resolveConflict",
-          { candidateId: row.candidate_id },
+          { candidateId: row.candidate_id, scopeRecordId: row.scope_record_id ?? "" },
+          row.scope_record_id ? `/catalog/scopes/${encodeURIComponent(row.scope_record_id)}` : undefined,
         ),
         secondaryResolutions: [],
       } satisfies CatalogAttentionItem;
@@ -118,10 +126,12 @@ export function collectProviderHealthItems(
       providerKey: unit.providerKey,
       unitKey: unit.unitKey,
       observedAt: options.generatedAt,
-      resolution: drawerResolution("review-provider-health", "catalog.features.attentionQueue.action.reviewHealth", {
-        providerKey: unit.providerKey,
-        unitKey: unit.unitKey,
-      }),
+      resolution: drawerResolution(
+        "review-provider-health",
+        "catalog.features.attentionQueue.action.reviewHealth",
+        { providerKey: unit.providerKey, unitKey: unit.unitKey },
+        `/catalog/providers/${encodeURIComponent(unit.providerKey)}?unitKey=${encodeURIComponent(unit.unitKey)}`,
+      ),
       secondaryResolutions: [],
     }));
 }
@@ -164,11 +174,12 @@ export function collectImportJobItems(activity: readonly CatalogIntegrationUnitA
         providerKey: job.providerKey,
         unitKey: job.unitKey,
         observedAt: job.startedAt ?? job.createdAt,
-        resolution: drawerResolution("review-import-job", "catalog.features.attentionQueue.action.reviewJob", {
-          jobId: job.jobId,
-          providerKey: job.providerKey,
-          unitKey: job.unitKey ?? "",
-        }),
+        resolution: drawerResolution(
+          "review-import-job",
+          "catalog.features.attentionQueue.action.reviewJob",
+          { jobId: job.jobId, providerKey: job.providerKey, unitKey: job.unitKey ?? "" },
+          `/catalog/providers/${encodeURIComponent(job.providerKey)}?jobId=${encodeURIComponent(job.jobId)}`,
+        ),
         secondaryResolutions: [],
       });
     }
@@ -201,12 +212,12 @@ export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateR
       providerKey: row.provider_key,
       unitKey: null,
       observedAt: row.first_observed_at,
-      resolution: commandResolution("accept", "catalog.features.attentionQueue.action.acceptAlias", {
+      resolution: commandResolution("alias.accept", "catalog.features.attentionQueue.action.acceptAlias", {
         aliasHashes: row.alias_hash,
       }),
       secondaryResolutions: [
         commandResolution(
-          "reject",
+          "alias.reject",
           "catalog.features.attentionQueue.action.rejectAlias",
           { aliasHashes: row.alias_hash },
           true,
@@ -242,9 +253,12 @@ export function collectStaleScopeSyncItems(
       providerKey: null,
       unitKey: null,
       observedAt: row.updated_at,
-      resolution: drawerResolution("review-scope-sync", "catalog.features.attentionQueue.action.reviewScopeSync", {
-        scopeRecordId: row.scope_record_id,
-      }),
+      resolution: drawerResolution(
+        "review-scope-sync",
+        "catalog.features.attentionQueue.action.reviewScopeSync",
+        { scopeRecordId: row.scope_record_id },
+        `/catalog/scopes/${encodeURIComponent(row.scope_record_id)}`,
+      ),
       secondaryResolutions: [],
     }));
 }

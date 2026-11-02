@@ -8,7 +8,13 @@ import {
 } from "../domain/remedy";
 import { createRemedyApprovalWorkflow } from "../domain/remedy-approval";
 import type { SupportRequestListItem } from "./contracts";
-import { CustomerRemedyStatus, deriveCustomerRemedyStatus } from "./customer-remedy-status";
+import { CustomerRemedyStatus } from "./customer-remedy-status";
+import { projectCustomerRemedyStatus as deriveCustomerRemedyStatus, type CustomerRemedyRole } from "../domain/domain";
+
+function customerRequest(overrides: Parameters<typeof request>[0] = {}, role: CustomerRemedyRole = "buyer") {
+  const row = request(overrides);
+  return { ...row, customerRemedyStatus: deriveCustomerRemedyStatus(row, role), nextDeadline: null };
+}
 
 const authorizedTerms = {
   factSchemaVersion: 1 as const,
@@ -188,7 +194,7 @@ describe("CustomerRemedyStatus", () => {
   afterEach(cleanup);
 
   it("shows the buyer the approved remedy, coverage, return obligation, refund trigger, and next action", () => {
-    render(<CustomerRemedyStatus request={request()} role="buyer" />);
+    render(<CustomerRemedyStatus request={customerRequest()} />);
 
     expect(screen.getByText("Full refund of $125.00 approved.")).toBeTruthy();
     expect(screen.getByText("Chase Sets is covering this resolution.")).toBeTruthy();
@@ -201,7 +207,7 @@ describe("CustomerRemedyStatus", () => {
   });
 
   it("shows a fully platform-covered seller outcome as a zero allocation without implying fault", () => {
-    render(<CustomerRemedyStatus request={request()} role="seller" />);
+    render(<CustomerRemedyStatus request={customerRequest({}, "seller")} />);
 
     expect(screen.getByText("Seller allocation: $0.00. Chase Sets is covering $125.00.")).toBeTruthy();
     expect(screen.getByText("Platform coverage does not by itself establish seller fault.")).toBeTruthy();
@@ -215,7 +221,7 @@ describe("CustomerRemedyStatus", () => {
       status: "completed" as const,
       completedAt: "2026-07-14T15:00:00.000Z",
     };
-    render(<CustomerRemedyStatus request={request({ remedy: completed })} role="seller" />);
+    render(<CustomerRemedyStatus request={customerRequest({ remedy: completed }, "seller")} />);
 
     expect(screen.getByText("Seller charge: $0.00. Chase Sets covered $125.00.")).toBeTruthy();
     expect(screen.queryByText("Next action")).toBeNull();
@@ -231,7 +237,7 @@ describe("CustomerRemedyStatus", () => {
         fundingKind: "split" as const,
       },
     };
-    render(<CustomerRemedyStatus request={request({ remedy: createRemedyExecution(splitTerms) })} role="seller" />);
+    render(<CustomerRemedyStatus request={customerRequest({ remedy: createRemedyExecution(splitTerms) }, "seller")} />);
 
     expect(screen.getByText("Seller allocation: $25.50. Chase Sets is covering $99.50.")).toBeTruthy();
   });

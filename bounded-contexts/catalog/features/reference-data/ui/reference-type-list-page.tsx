@@ -82,7 +82,7 @@ export function ReferenceTypeListPage({ data, query }: CatalogListRouteData<Refe
     setName("");
     setDescription("");
     setAttributeKeys("");
-    revalidator.revalidate();
+    void revalidator.revalidate();
   }
 
   return (

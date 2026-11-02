@@ -7,7 +7,13 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { isSocialLoginProviderKey, type OperatorAuthority, type ResolvedActor } from "@chase-sets/auth-context";
+import {
+  EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS,
+  isSocialLoginProviderKey,
+  ROLE_PERMISSIONS,
+  type OperatorAuthority,
+  type ResolvedActor,
+} from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createAuthSecretAdapters } from "../auth-support/adapters";
@@ -19,7 +25,7 @@ import {
   type AuthSecurityLifetimesMs,
   toSessionStreamId,
 } from "../../features/sessions/domain/auth-flow";
-import { AUTH_BOOTSTRAP_TENANT_ID, AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { AUTH_BOOTSTRAP_TENANT_ID } from "../auth-support/constants";
 import {
   getAuthIdentityInvitation,
   getPendingAuthIdentityInvitationByEmail,
@@ -52,7 +58,6 @@ import {
   type AgentWebhookOutbox,
   type AgentWebhookTarget,
 } from "../ucp-support/agent-webhooks";
-import { publishAuthenticationCsatOutcomeFact } from "../request-support/csat-outcome-facts";
 import {
   createAuthIdentityInvitationProjectionPositionReader,
   createInvitationProjectionFreshnessWaiter,
@@ -251,12 +256,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
 
 export type AuthSessionMembership = Awaited<ReturnType<typeof listActiveAuthMembershipsForUser>>[number];
 
-const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = new Set([
-  "listings.manage",
-  "offers.manage",
-  "orders.manage",
-  "pricing.manage",
-]);
+const emailVerificationRestrictedPermissions: ReadonlySet<string> = new Set(EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS);
 
 function hasVerifiedEmailForCommerce(
   user: Awaited<ReturnType<typeof getAuthIdentityUser>> | null,
@@ -305,7 +305,7 @@ function restrictPermissionsForUnverifiedEmail(
     return permissions;
   }
 
-  return permissions.filter((permission) => !EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS.has(permission));
+  return permissions.filter((permission) => !emailVerificationRestrictedPermissions.has(permission));
 }
 
 export type AuthSessionStartResult =
@@ -450,7 +450,6 @@ async function startSessionForUser(
     authenticationMethod: AuthMethod;
     context: EventStoreContext;
     membershipsOverride?: readonly AuthSessionMembership[];
-    publishAuthenticationOutcome?: boolean;
   }>,
 ): Promise<AuthSessionStartResult> {
   let memberships = params.membershipsOverride ?? (await services.identity.listActiveMembershipsForUser(params.userId));
@@ -567,7 +566,6 @@ export async function startInteractiveAuth(
     authenticationMethod: AuthMethod;
     context: EventStoreContext;
     membershipsOverride?: readonly AuthSessionMembership[];
-    publishAuthenticationOutcome?: boolean;
   }>,
 ): Promise<InteractiveAuthResult> {
   const sessionResult = await startSessionForUser(services, params);
@@ -591,14 +589,6 @@ export async function startInteractiveAuth(
     sessionId: sessionResult.sessionId,
     expiresAt: sessionResult.session.expires_at,
   });
-
-  if (params.publishAuthenticationOutcome) {
-    await publishAuthenticationCsatOutcomeFact(services.eventStore, params.context, {
-      subjectAccountId: sessionResult.session.account_id,
-      sessionId: sessionResult.sessionId,
-      outcomeOccurredAt: sessionResult.session.started_at,
-    });
-  }
 
   return {
     type: "session-started",
@@ -631,7 +621,7 @@ export async function revokeSession(
 }
 
 function resolveRolePermissions(roleKey: string, storedPermissions: readonly string[]) {
-  const presetPermissions = AUTH_ROLE_PERMISSIONS[roleKey as keyof typeof AUTH_ROLE_PERMISSIONS] ?? [];
+  const presetPermissions = ROLE_PERMISSIONS[roleKey as keyof typeof ROLE_PERMISSIONS] ?? [];
   return Array.from(new Set([...storedPermissions, ...presetPermissions]));
 }
 

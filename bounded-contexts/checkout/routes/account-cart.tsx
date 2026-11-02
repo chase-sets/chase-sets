@@ -481,6 +481,7 @@ export default function CheckoutAccountCartRoute() {
   return (
     <CheckoutCartPage
       cartLines={data.cart?.items ?? []}
+      readiness={data.cart?.readiness ?? null}
       errorMessage={actionData && "error" in actionData ? actionData.error : null}
       attemptState={actionData && "attempt" in actionData ? actionData.attempt : null}
       recoveryState={

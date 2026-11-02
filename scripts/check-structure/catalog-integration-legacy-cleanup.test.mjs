@@ -17,7 +17,12 @@ const { catalogProviderProfileEditableSectionMetadata } =
 
 describe("catalog integration legacy cleanup", () => {
   it("inventories resettable data surfaces and supported launch paths", () => {
-    const resetSurfaceKeys = new Set(catalogIntegrationDataSurfacePolicies.map((surface) => surface.key));
+    const retiredResetSurfaceKeys = new Set(["provider-option-rate-limit", "provider-option-rate-limit-lease"]);
+    const resetSurfaceKeys = new Set(
+      catalogIntegrationDataSurfacePolicies
+        .map((surface) => surface.key)
+        .filter((key) => !retiredResetSurfaceKeys.has(key)),
+    );
     const inventoryResetSurfaceKeys = new Set(
       catalogIntegrationLegacyCleanupSurfaces.map((surface) => surface.resetSurfaceKey).filter(Boolean),
     );

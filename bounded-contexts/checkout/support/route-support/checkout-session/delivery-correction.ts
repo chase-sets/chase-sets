@@ -1,9 +1,4 @@
 import { t } from "@chase-sets/localization";
-import {
-  checkoutDeliveryServiceabilityIssue,
-  type CheckoutDeliveryServiceabilityIssue,
-  type CheckoutDeliveryServiceabilityIssueCode,
-} from "../../../features/sessions/domain/delivery-serviceability";
 import { CheckoutApiError } from "../../request-support/api-client";
 
 type CheckoutShippingCorrectionIssue = Readonly<{
@@ -11,31 +6,15 @@ type CheckoutShippingCorrectionIssue = Readonly<{
   message: string;
 }>;
 
-type CheckoutCorrectionIssue = CheckoutDeliveryServiceabilityIssue | CheckoutShippingCorrectionIssue;
-type CheckoutCorrectionIssueCode = CheckoutDeliveryServiceabilityIssueCode | CheckoutShippingCorrectionIssue["code"];
-
-type CheckoutDeliveryAddress = Readonly<{
-  name: string;
-  line1: string;
-  line2?: string | null;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
+type CheckoutCorrectionIssueCode =
+  | "shipping_address_required"
+  | "shipping_address_unsupported"
+  | "shipping_address_restricted"
+  | CheckoutShippingCorrectionIssue["code"];
+type CheckoutCorrectionIssue = Readonly<{
+  code: CheckoutCorrectionIssueCode;
+  message: string;
 }>;
-
-export class CheckoutDeliveryCorrectionError extends Error {
-  public constructor(public readonly issue: CheckoutDeliveryServiceabilityIssue) {
-    super(issue.message);
-  }
-}
-
-export function assertCheckoutDeliveryServiceableForAction(address: CheckoutDeliveryAddress) {
-  const issue = checkoutDeliveryServiceabilityIssue(address);
-  if (issue) {
-    throw new CheckoutDeliveryCorrectionError(issue);
-  }
-}
 
 function checkoutCorrectionMessage(code: CheckoutCorrectionIssueCode) {
   if (code === "shipping_option_unavailable") {
@@ -76,7 +55,7 @@ function checkoutApiCorrectionIssue(error: unknown): CheckoutCorrectionIssue | n
 }
 
 export function deliveryCorrectionActionData(error: unknown) {
-  const issue = error instanceof CheckoutDeliveryCorrectionError ? error.issue : checkoutApiCorrectionIssue(error);
+  const issue = checkoutApiCorrectionIssue(error);
 
   if (!issue) {
     return null;

@@ -195,7 +195,6 @@ export function deriveTypeScriptOwnerContexts({
       implementationPath: relativeTo(resolutionRoot, implementationEntry),
       implementationSourceSha256: sha256(source),
       lockfilePath: relativeTo(resolutionRoot, lockfilePath),
-      lockfileSha256: sha256(lockfile),
       lockfileKeys: lockfileKeys(lockfile),
     },
     sourceSymbols: {
@@ -348,9 +347,12 @@ export function evaluateTypeScriptOwnerContexts({
   comparedKeys = partition.semantic,
   deriveArtifact = deriveTypeScriptOwnerContexts,
 } = {}) {
+  // The whole-lockfile digest is recorded per check, never committed: a committed
+  // copy would move on every dependency change without any compiler identity moving.
   const inputs = {
     resolutionRoot: path.resolve(resolutionRoot),
     lockfilePath: path.resolve(lockfilePath),
+    lockfileSha256: sha256(readFileSync(lockfilePath)),
   };
   const derivedArtifact = deriveArtifact(inputs);
   return compareTypeScriptOwnerContexts(committedArtifact, derivedArtifact, {

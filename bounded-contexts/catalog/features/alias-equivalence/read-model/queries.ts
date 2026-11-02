@@ -221,6 +221,20 @@ export async function listCatalogItemAliases(
   return result.rows;
 }
 
+export async function listCatalogItemAliasesForTargets(
+  db: PgQueryable,
+  catalogItemIds: readonly string[],
+): Promise<readonly CatalogItemAliasRow[]> {
+  if (catalogItemIds.length === 0) return [];
+  const result = await db.query<CatalogItemAliasRow>(
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
+     FROM catalog_item_aliases WHERE catalog_item_id = ANY($1::text[])
+     ORDER BY catalog_item_id ASC, alias_type ASC, normalized_alias_text ASC`,
+    [catalogItemIds],
+  );
+  return result.rows;
+}
+
 /**
  * Downstream publication / display: only accepted/auto-accepted aliases
  * for a Catalog Item. Never returns pending, rejected, revoked, or generated.
@@ -295,6 +309,20 @@ export async function listReferenceRecordAliases(
     values,
   );
 
+  return result.rows;
+}
+
+export async function listReferenceRecordAliasesForTargets(
+  db: PgQueryable,
+  referenceRecordIds: readonly string[],
+): Promise<readonly CatalogReferenceRecordAliasRow[]> {
+  if (referenceRecordIds.length === 0) return [];
+  const result = await db.query<CatalogReferenceRecordAliasRow>(
+    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
+     FROM catalog_reference_record_aliases WHERE reference_record_id = ANY($1::text[])
+     ORDER BY reference_record_id ASC, alias_type ASC, normalized_alias_text ASC`,
+    [referenceRecordIds],
+  );
   return result.rows;
 }
 

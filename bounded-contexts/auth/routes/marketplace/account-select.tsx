@@ -18,5 +18,11 @@ export default function MarketplaceAccountSelectionRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
-  return <AccountSelectionPage memberships={data.memberships} errorMessage={actionData?.error ?? null} />;
+  return (
+    <AccountSelectionPage
+      memberships={data.memberships}
+      errorMessage={actionData?.error ?? null}
+      submissionMode="router"
+    />
+  );
 }

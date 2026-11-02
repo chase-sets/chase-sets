@@ -56,6 +56,21 @@ export const helpArticleIncorporations = [
   },
   {
     policyKey: "seller-agreement",
+    sectionId: "listing-obligations",
+    articleSlugs: ["condition-and-photo-standards"],
+  },
+  {
+    policyKey: "seller-agreement",
+    sectionId: "fulfillment-obligations",
+    articleSlugs: ["shipping-requirements", "cannot-fulfill-an-order"],
+  },
+  {
+    policyKey: "seller-agreement",
+    sectionId: "fees-and-deductions",
+    articleSlugs: ["sales-fees"],
+  },
+  {
+    policyKey: "seller-agreement",
     sectionId: "payouts-holds-and-reserves",
     articleSlugs: ["getting-paid", "order-protection"],
   },

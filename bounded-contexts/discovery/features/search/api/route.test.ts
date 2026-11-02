@@ -3,6 +3,8 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createDiscoveryItemSearchRuntime, type DiscoveryItemSearchServices } from "./runtime";
 import { discoveryItemSearchRoutes } from "./route";
 import { DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS } from "../domain/normalization";
+import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
+import { Hono } from "hono";
 
 // Plays the Search Index for one relevance Result Set: an exact first row and one other,
 // applying the emitted keyset and LIMIT/OFFSET bindings.
@@ -179,6 +181,23 @@ describe("discovery item search routes", () => {
     expect(signal?.aborted).toBe(false);
     controller.abort();
     expect(signal?.aborted).toBe(true);
+  });
+
+  it("threads the active trace correlation to search retrieval", async () => {
+    const services = createServices();
+    const app = new Hono<AuthenticatedApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("context", { trace: { traceId: "0123456789abcdef0123456789abcdef" } } as never);
+      await next();
+    });
+    app.route("/", discoveryItemSearchRoutes(services));
+
+    const response = await app.request("/?search=pikachu");
+    expect(response.status).toBe(200);
+    expect(vi.mocked(services.searchItems).mock.calls[0]?.[1]).toMatchObject({
+      signal: expect.any(AbortSignal),
+      correlationId: "0123456789abcdef0123456789abcdef",
+    });
   });
   it.each([
     ["typo plus PSA 10", "charzard psa 10", "charzard", "corrected"],

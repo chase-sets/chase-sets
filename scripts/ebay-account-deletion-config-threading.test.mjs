@@ -13,7 +13,12 @@ import {
   summarizePlatformSecret,
 } from "./platform-kubernetes-secret.mjs";
 
-const names = ["EBAY_ACCOUNT_DELETION_ENDPOINT", "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"];
+const names = [
+  "EBAY_ACCOUNT_DELETION_ENDPOINT",
+  "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+  "EBAY_APPLICATION_CLIENT_ID",
+  "EBAY_APPLICATION_CLIENT_SECRET",
+];
 const workflows = [
   "platform-pr",
   "platform-merge-gate-verification",
@@ -21,8 +26,8 @@ const workflows = [
   "platform-production",
 ];
 const read = (path) => readFileSync(path, "utf8");
-describe("ebay-account-deletion-config-threading", () => {
-  it("threads exactly both secret refs through every keyring-carrying component and environment", () => {
+describe("ebay-account-deletion-key-config", () => {
+  it("threads all four secret refs through every keyring-carrying component and environment", () => {
     const runtime = JSON.parse(read("infrastructure/helm/platform/runtime-values.json"));
     const generated = parse(read("infrastructure/helm/platform/values.yaml"));
     const base = buildPlatformHelmValues();

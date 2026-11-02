@@ -76,6 +76,27 @@ describe("invitation-acceptance-identity-atomicity", () => {
     },
   );
 
+  it("production invitation acceptance publishes the discriminated onboarding fact", async () => {
+    const store = createInMemoryEventStore();
+    await seedAcceptance(store);
+    const response = await accept(store);
+    expect(response.status).toBe(200);
+    const event = (await store.readAll()).find((candidate) => candidate.eventType === "identity.onboarding.completed");
+    expect(event).toMatchObject({
+      eventType: "identity.onboarding.completed",
+      payload: {
+        accountId: "acc_invited",
+        userId: "usr_recipient",
+        onboardingPath: "invitation",
+        invitationId: "ivt_invited",
+      },
+      streamId: expect.stringMatching(/^identity\.onboarding-/),
+      tenantId: acceptanceContext.tenantId,
+      performedByUserId: acceptanceContext.audit.performedByUserId,
+      forAccountId: acceptanceContext.audit.forAccountId,
+    });
+  });
+
   it("F2 receipt-bound acceptance remains provable after a one-hour token expires, never pending or wrong-token", async () => {
     const store = createInMemoryEventStore();
     await seedAcceptance(store);

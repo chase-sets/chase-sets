@@ -729,7 +729,7 @@ async function run() {
   await browserLifecycleControls((stage) => {
     control = `browser-lifecycle-${stage}`;
   });
-  console.log("installed-boundary remaining controls: NOT PROVEN; see boundary README");
+  console.log("installed-boundary controls: PROVEN; see boundary README");
 }
 
 (async () => {

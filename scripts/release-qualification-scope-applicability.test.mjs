@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   buildModuleResolutionContextFixture,
   enumerateCanonicalModuleCandidates,
@@ -463,7 +464,10 @@ describe("release qualification applicability evaluator", () => {
     expect(source).toContain("resolveModule");
     expect(typeof enumerateCanonicalModuleCandidates).toBe("function");
     expect(typeof resolveModule).toBe("function");
-    const imports = execFileSync("git", ["ls-files", "--", "*.mjs"], { encoding: "utf8" })
+    const imports = execFileSync("git", ["ls-files", "--", "*.mjs"], {
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split(/\r?\n/)
       .filter(Boolean)
       .filter((file) => readFileSync(file, "utf8").includes('from "./release-qualification-scope-applicability.mjs"'));
@@ -850,7 +854,10 @@ describe("release qualification applicability evaluator", () => {
   it("AC12 keeps the classifier untouched and proves candidate-sweep records against its exact merge base", () => {
     const applicabilitySource = readFileSync("scripts/release-qualification-scope.mjs", "utf8");
     expect(applicabilitySource).not.toContain("release-qualification-scope-applicability.mjs");
-    const trackedImports = execFileSync("git", ["ls-files", "--", "*.mjs"], { encoding: "utf8" })
+    const trackedImports = execFileSync("git", ["ls-files", "--", "*.mjs"], {
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split(/\r?\n/)
       .filter(Boolean)
       .filter((file) => readFileSync(file, "utf8").includes('from "./release-qualification-scope-applicability.mjs"'));
@@ -894,7 +901,10 @@ describe("release qualification applicability evaluator", () => {
       false,
     );
 
-    const trackedFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" })
+    const trackedFiles = execFileSync("git", ["ls-files"], {
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split(/\r?\n/)
       .filter(Boolean)
       .map((file) => file.replaceAll("\\", "/"));
@@ -978,7 +988,9 @@ describe("release qualification applicability evaluator", () => {
       const governed = (sha) =>
         listNonTestTypeScriptModules(process.cwd(), {
           execGit: () =>
-            execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]).toString("utf8"),
+            execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha], {
+              maxBuffer: GIT_LISTING_MAX_BUFFER,
+            }).toString("utf8"),
         });
       const governedCandidate = governed(candidate);
       expect(governedCandidate).toEqual(governed(mergeBase));
@@ -1047,7 +1059,10 @@ describe("release qualification applicability evaluator", () => {
     );
     const readTree = (sha) =>
       listNonTestTypeScriptModules(process.cwd(), {
-        execGit: () => execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]).toString("utf8"),
+        execGit: () =>
+          execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha], {
+            maxBuffer: GIT_LISTING_MAX_BUFFER,
+          }).toString("utf8"),
       });
     expect(readTree(landing)).toEqual(readTree(forkPoint));
     expect(readTree(landing).length > 0).toBe(true);

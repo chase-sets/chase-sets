@@ -1,6 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { ROLE_PERMISSIONS } from "./constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 
 const STREAM_PREFIX = "identity.membership-";

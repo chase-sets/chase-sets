@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { data, useActionData, useLoaderData } from "react-router";
+import { data, useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
 import { defineFormAction, defineResourceRoute } from "@chase-sets/platform-runtime/http";
@@ -191,14 +191,12 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountShippingAddressesRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<Readonly<{ failure: Readonly<{ message: string }> }>>();
-  const failure = actionData && "failure" in actionData ? actionData.failure : null;
   return (
     <AccountMutationBoundary
       key={`${data.mutationActor.tenantId}:${data.mutationActor.userId}:${data.mutationActor.accountId}`}
       actor={data.mutationActor}
     >
-      <ShippingAddressPage addresses={data.addresses} errorMessage={failure?.message ?? data.loadError ?? null} />
+      <ShippingAddressPage addresses={data.addresses} errorMessage={data.loadError ?? null} />
     </AccountMutationBoundary>
   );
 }

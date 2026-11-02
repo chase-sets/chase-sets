@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   aggregateSellerAttentionQueue,
   buildSellerAttentionItem,
   isSellerAttentionItem,
   resolveSellerAttentionDeepLink,
+  type SellerAttentionSourceId,
   type SellerAttentionContext,
   type SellerAttentionItem,
   type SellerAttentionSource,
@@ -34,7 +36,7 @@ describe("buildSellerAttentionItem", () => {
     const item = shipByItem();
     expect(item.id).toBe("fulfillment-ship-by:ship-1");
     expect(item.entity).toBe("shipment");
-    expect(item.deepLink).toEqual({ surface: "shipment", href: "/account/desk/shipments/ship-1" });
+    expect(item.deepLink).toEqual({ surface: "shipment", href: "/account/sales/shipments/ship-1" });
     expect(item.dueAt).toBe("2026-07-11T00:00:00.000Z");
   });
 
@@ -63,10 +65,68 @@ describe("buildSellerAttentionItem", () => {
 });
 
 describe("resolveSellerAttentionDeepLink", () => {
+  it.each([
+    ["fulfillment-ship-by", "shipment", "/account/sales/shipments/entity%2Fwith%20space"],
+    ["settlement-blocked-payout", "payout", "/account/desk/payouts/entity%2Fwith%20space"],
+    ["dispute-response", "sale", "/account/sales/entity%2Fwith%20space"],
+    [
+      "inventory-resolution",
+      "resolution-drawer",
+      "/account/desk?drawer=resolution-drawer&entity=entity%2Fwith%20space",
+    ],
+    ["channel-action", "channel-connection", "/account/channels/entity%2Fwith%20space"],
+    ["offer-response", "sell-list", "/account/desk/offers"],
+    ["pricing-repricing", "repricing-policies", "/account/desk/repricing"],
+    ["listing-action", "listing", "/account/listings/entity%2Fwith%20space"],
+  ] satisfies ReadonlyArray<readonly [SellerAttentionSourceId, string, string]>)(
+    "resolves %s to its registered owner route without changing the surface id",
+    (source, surface, href) => {
+      expect(resolveSellerAttentionDeepLink(source, "entity/with space")).toEqual({ surface, href });
+    },
+  );
+
   it("opens a drawer-target source over the Desk home rather than a route detour", () => {
     const link = resolveSellerAttentionDeepLink("inventory-resolution", "batch-9");
     expect(link.surface).toBe("resolution-drawer");
     expect(link.href).toBe("/account/desk?drawer=resolution-drawer&entity=batch-9");
+  });
+
+  it("keeps the three temporary destinations bound to tracked owner route declarations", () => {
+    const ownerManifests = {
+      "listing-action": "../../bounded-contexts/marketplace/context.json",
+      "dispute-response": "../../bounded-contexts/ordering/context.json",
+      "fulfillment-ship-by": "../../bounded-contexts/fulfillment/context.json",
+    } as const satisfies Record<string, string>;
+
+    const routePaths = (manifestPath: string): string[] => {
+      const manifest = JSON.parse(readFileSync(new URL(manifestPath, import.meta.url), "utf8")) as {
+        deployableContributions?: Array<{
+          deployable?: unknown;
+          routes?: Array<{ routePath?: unknown }>;
+        }>;
+      };
+      const marketplaceWeb = manifest.deployableContributions?.find(
+        (contribution) => contribution.deployable === "marketplace-web",
+      );
+      return (
+        marketplaceWeb?.routes?.flatMap((route) => (typeof route.routePath === "string" ? [route.routePath] : [])) ?? []
+      );
+    };
+
+    const escapeRegex = (segment: string): string => segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const routePattern = (routePath: string): RegExp =>
+      new RegExp(
+        `^/${routePath
+          .split("/")
+          .map((segment) => (segment.startsWith(":") ? "[^/]+" : escapeRegex(segment)))
+          .join("/")}$`,
+      );
+
+    for (const [source, manifestPath] of Object.entries(ownerManifests)) {
+      const href = resolveSellerAttentionDeepLink(source as SellerAttentionSourceId, "probe-id").href;
+      const matches = routePaths(manifestPath).filter((routePath) => routePattern(routePath).test(href));
+      expect(matches, `${source} resolver href ${href} must match exactly one marketplace-web route`).toHaveLength(1);
+    }
   });
 });
 

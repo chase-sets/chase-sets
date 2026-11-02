@@ -31,7 +31,6 @@
   "allowedContextDependencies": [
     "@chase-sets/checkout",
     "@chase-sets/collections",
-    "@chase-sets/customer-feedback",
     "@chase-sets/inventory",
     "@chase-sets/marketplace",
     "@chase-sets/outbound-messaging",

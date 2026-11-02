@@ -733,6 +733,8 @@ export type CatalogAliasReviewQueryServices = Readonly<{
     referenceRecordId: string,
     options?: { reviewStatuses?: readonly CatalogAliasReviewStateKey[] },
   ) => Promise<readonly CatalogReferenceRecordAliasRow[]>;
+  listCatalogItemAliasesForTargets?: (ids: readonly string[]) => Promise<readonly CatalogItemAliasRow[]>;
+  listReferenceRecordAliasesForTargets?: (ids: readonly string[]) => Promise<readonly CatalogReferenceRecordAliasRow[]>;
 }>;
 
 /**
@@ -765,8 +767,12 @@ export async function assembleCatalogAliasReviewReadModel(
   const referenceRecordIds = distinctTargetIds(candidateRows, "reference-record");
 
   const [catalogItemAliasRows, referenceRecordAliasRows] = await Promise.all([
-    fetchMany(catalogItemIds, (id) => services.listCatalogItemAliases(id)),
-    fetchMany(referenceRecordIds, (id) => services.listReferenceRecordAliases(id)),
+    services.listCatalogItemAliasesForTargets
+      ? services.listCatalogItemAliasesForTargets(catalogItemIds)
+      : fetchMany(catalogItemIds, (id) => services.listCatalogItemAliases(id)),
+    services.listReferenceRecordAliasesForTargets
+      ? services.listReferenceRecordAliasesForTargets(referenceRecordIds)
+      : fetchMany(referenceRecordIds, (id) => services.listReferenceRecordAliases(id)),
   ]);
 
   return buildCatalogAliasReviewReadModel({

@@ -88,6 +88,39 @@ place, foreign-keyed to `event_store_streams` with `ON DELETE CASCADE`).
 
 Apply `infrastructure/event-core-postgres/schema.sql` before using Postgres adapters.
 
+## Acknowledged Configuration Epochs
+
+Class-C owner configuration uses an acknowledged epoch closure protocol. A
+fully-qualified key is `OPEN(e)` at one source store incarnation. The business
+writer records `CLOSING(e, topology)` in its own transaction using
+`beginClosureInTransaction`. New grants stop on that key, but existing grants
+can still commit until the consumer receives `CLOSED-THROUGH(e)`.
+
+`driveClosure` writes each consumer's canonical guard journal under its local
+EXCLUSIVE transaction lock, then records the durable receipt in the source
+journal. `installClosureInTransaction` permits the owner's business change
+only after all receipts; its `APPLIED(e)` record opens `e+1` in that same
+transaction. Lost replies and unavailable stores remain pending or blocked;
+restart the driver against the same journal. Elapsed time releases nothing.
+
+Grant capture checks registered consumer identity under the source SHARED
+guard. Terminal `appendToStreams` takes ordered consumer-local SHARED key
+locks, then sorted stream locks, then the global append lock. It reads only
+consumer-local histories and the consumer database clock after locking and
+holds the locks through COMMIT. An absent history admits only the named
+creation epoch and consumer incarnation; partial histories refuse. Canonical
+journal anchors and linked records detect missing, changed and corrupt history.
+Terminal validation uses one consumer-local SQL read per key for isolation,
+lock ownership, store identity, canonical history and clock, with at most 32 keys.
+
+Registration and retirement refuse while CLOSING. Registration at a later
+epoch initializes the new consumer closed-through; retirement fences all old
+grants before removing membership. Every participation query uses a bounded
+timeout. No-grant callers retain their existing behavior. Single-stream and
+independent append APIs refuse class-C grants; they cannot silently bypass the
+atomic adapter. The in-memory critical section validates synchronously without
+await between version pre-check, snapshot, append and restore.
+
 ## Import Surface
 
 Core contracts and composition helpers:

@@ -16,6 +16,8 @@ import {
   createMtgjsonValidationProviderAdapter,
   MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
 } from "../../source-observations/api/providers/mtgjson/adapter";
+import { createTcgplayerProviderAdapter } from "../../source-observations/api/provider-adapters/tcgplayer";
+import { createTcgdexProviderAdapter } from "../../source-observations/api/providers/tcgdex/adapter";
 import { createScopeSyncBatchPlanner } from "./planner";
 
 const timestamp = "2026-10-14T00:00:00.000Z";
@@ -39,21 +41,21 @@ const profiles = catalogProviderIntegrationProfileVersions.filter((profile) =>
 );
 
 describe("whole Magic mapping preview", () => {
-  it("retains the complete five-unit matching scope with zero Scrydex credits", async () => {
+  it("plans the mapped Magic scope from MTGJSON and Scryfall alone, with zero Scrydex credits", async () => {
     const fixture = await magicFixture();
     const { preview, plans } = await fixture.resolve();
     expect(fixture.deniedFetch).not.toHaveBeenCalled();
     expect(preview).toMatchObject({
       status: "ready",
       confirmAllowed: true,
-      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 5 },
-      providerUnitTotals: { mtgjson: 2, scryfall: 1, tcgplayer: 2 },
+      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 3 },
       budget: { creditedProviderRequestLimits: { scrydex: 0 } },
       blockers: [],
     });
+    expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1 });
     expect(plans).toHaveLength(1);
     expect(preview.planFingerprint).toMatchInlineSnapshot(
-      `"41eac95ef7563e871b28b77c5c8d7043f67c844d1caa421261b6bf1f3d851185"`,
+      `"87dbc83a2bcd872ff3981b8aaca10eca0738c7a7e196b0cbc764140842614052"`,
     );
     expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
     expect(plans[0]!.participationPreview.units.every((unit) => unit.selected && unit.eligibility === "eligible")).toBe(
@@ -63,9 +65,10 @@ describe("whole Magic mapping preview", () => {
     expect(fixture.planImport).toHaveBeenCalledTimes(2);
     const mtgjsonPlans = await Promise.all(fixture.planImport.mock.results.map((result) => result.value));
     expect(mtgjsonPlans.map((plan) => plan.planKey).sort()).toEqual(["mtgjson:cards:set:TSP", "mtgjson:set:TSP"]);
+    expectNoAdapterCalls(fixture.tcgplayerCalls);
   });
 
-  it("keeps the five mapped units with every active Magic profile, without planning the requirement pass", async () => {
+  it("keeps the three plannable mapped units with every active Magic profile, without planning the requirement pass", async () => {
     const activeMagicProfiles = catalogProviderIntegrationProfileVersions.filter(
       (profile) =>
         profile.active &&
@@ -78,11 +81,11 @@ describe("whole Magic mapping preview", () => {
     const { preview, plans } = await fixture.resolve();
     expect(preview).toMatchObject({
       confirmAllowed: true,
-      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 5 },
-      providerUnitTotals: { mtgjson: 2, scryfall: 1, tcgplayer: 2 },
+      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 3 },
       budget: { creditedProviderRequestLimits: { scrydex: 0 } },
       blockers: [],
     });
+    expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1 });
     expect(plans[0]!.scope.providerParticipation?.selectedUnitKeys).toEqual(
       fixture.mappings.map((mapping) => mapping.unit_key),
     );
@@ -95,6 +98,7 @@ describe("whole Magic mapping preview", () => {
     expect(requirementInput.scope.providerParticipation).toBeUndefined();
     expect(fixture.planImport).toHaveBeenCalledTimes(2);
     expect(fixture.deniedFetch).not.toHaveBeenCalled();
+    expectNoAdapterCalls(fixture.tcgplayerCalls);
   });
 
   it("blocks the entire selection when an accepted mapping loses its required coordinate", async () => {
@@ -105,7 +109,7 @@ describe("whole Magic mapping preview", () => {
     const { preview, plans } = await fixture.resolve();
     expect(preview).toMatchObject({
       confirmAllowed: false,
-      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 5 },
+      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 3 },
     });
     expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
     expect(preview.blockers).toContainEqual(
@@ -126,7 +130,7 @@ describe("whole Magic mapping preview", () => {
     const { preview, plans } = await fixture.resolve();
     expect(preview).toMatchObject({ confirmAllowed: false, counts: { scopes: 2, readyScopes: 1, blockedScopes: 1 } });
     expect(plans.map((plan) => plan.scopeRecordId)).toEqual(fixture.records.map((record) => record.scope_record_id));
-    expect(plans[1]!.participationPreview.units).toHaveLength(5);
+    expect(plans[1]!.participationPreview.units).toHaveLength(3);
     expect(plans[1]!.scope.providerParticipation?.selectedUnitKeys).toEqual([]);
     expect(preview.blockers).toContainEqual(
       expect.objectContaining({ code: "mapping-missing", scopeRecordId: fixture.records[1]!.scope_record_id }),
@@ -139,7 +143,7 @@ describe("whole Magic mapping preview", () => {
     const baseline = await fixture.resolve();
     expect(baseline.preview.confirmAllowed).toBe(true);
     const requiredMapping = fixture.mappings.find(
-      (mapping) => mapping.unit_key === "tcgplayer:mtg:sealed-product:source-observation-import",
+      (mapping) => mapping.unit_key === "scryfall:mtg:single-card:reference-data",
     )!;
     expect(requiredMapping).toBeDefined();
     expect(baseline.plans[0]!.participationPreview.units).toContainEqual(
@@ -150,20 +154,150 @@ describe("whole Magic mapping preview", () => {
     expect(fixture.deniedFetch).not.toHaveBeenCalled();
     expect(preview).toMatchObject({
       confirmAllowed: false,
-      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 5 },
+      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 3 },
     });
     expect(plans[0]!.participationPreview.units).toContainEqual(
       expect.objectContaining({ unitKey: requiredMapping.unit_key, selected: true, requirement: "required" }),
     );
     expect(preview.blockers).toContainEqual(
-      expect.objectContaining({ code: "scope-planning-blocked", providerKey: "tcgplayer" }),
+      expect.objectContaining({ code: "scope-planning-blocked", providerKey: "scryfall" }),
     );
     expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
   });
 });
 
+describe("Pokemon English preview regression", () => {
+  it("keeps the selected ids, units, and fingerprint stable for English records", async () => {
+    const record = scopeRecord("scope_synthetic_pokemon_en");
+    const pokemonRecord = {
+      ...record,
+      product_domain: "pokemon" as const,
+      scope_kind: "expansion" as const,
+      reference_type_key: "expansion",
+      language_editions: ["en"],
+    };
+    const db: PgQueryable = {
+      async query<Row>(sql: string, values?: readonly unknown[]) {
+        if (sql.includes("FROM catalog_scope_records")) {
+          expect(values).toEqual(["pokemon", "expansion", "en"]);
+          expect(sql).toContain("language_editions ? $3");
+          return { rows: [pokemonRecord] as Row[] };
+        }
+        return { rows: [] as Row[] };
+      },
+    };
+    const planner = createScopeSyncBatchPlanner({
+      db,
+      now: () => timestamp,
+      previewCatalogSyncScope: async (input) => ({
+        previewVersion: "catalog-sync-provider-participation-preview-v1",
+        scope: input.scope,
+        status: "ready",
+        startAllowed: true,
+        units: [],
+        estimate: {
+          totalEstimatedRequestCount: 0,
+          estimateState: "estimated",
+          estimateReason: null,
+          creditConsumingProviders: [],
+        },
+        blockers: [],
+        explanation: "synthetic",
+      }),
+    });
+    const { preview, plans } = await planner.resolve({
+      selection: {
+        mode: "matching-scope",
+        query: { productDomain: "pokemon", scopeKind: "expansion", languageCode: "en" },
+      },
+      context,
+    });
+    expect(plans.map((plan) => plan.scopeRecordId)).toEqual(["scope_synthetic_pokemon_en"]);
+    expect(preview.counts).toMatchObject({ scopes: 1, providerUnits: 0 });
+    expect(preview.planFingerprint).toBe("05021260c31ac09ab2c1485a2581ae9adab1e527c2c3941f16faae35dbd13c68");
+  });
+
+  it("plans an accepted English mapping with its selected unit and child scope", async () => {
+    const record = scopeRecord("scope_synthetic_pokemon_en");
+    const pokemonRecord = {
+      ...record,
+      product_domain: "pokemon" as const,
+      scope_kind: "expansion" as const,
+      reference_type_key: "expansion",
+      language_editions: ["en"],
+    };
+    const pokemonProfile = catalogProviderIntegrationProfileVersions.find(
+      (profile) => profile.providerKey === "tcgdex" && profile.profileKey === "pokemon-tcg",
+    );
+    expect(pokemonProfile).toBeDefined();
+    const pokemonUnitKey = unitKeyForCatalogProviderProfileVersion(pokemonProfile!);
+    const pokemonMapping: ProviderScopeMappingRow = {
+      mapping_id: `mapping_tcgdex_${pokemonUnitKey}`,
+      scope_record_id: pokemonRecord.scope_record_id,
+      provider_key: "tcgdex",
+      unit_key: pokemonUnitKey,
+      product_line_id: null,
+      series_id: "base",
+      set_id: "base1",
+      set_name: null,
+      language_coordinates: { languageCode: "en" },
+      confidence: "exact",
+      review_status: "accepted",
+      provenance: {},
+      evidence: {},
+      last_actor: null,
+      last_reason: null,
+      policy_version: "synthetic",
+      proposed_at: timestamp,
+      reviewed_at: timestamp,
+      updated_at: timestamp,
+    };
+    const db: PgQueryable = {
+      async query<Row>(sql: string, values?: readonly unknown[]) {
+        if (sql.includes("FROM catalog_scope_records")) {
+          expect(values).toEqual(["pokemon", "expansion", "en"]);
+          expect(sql).toContain("language_editions ? $3");
+          return { rows: [pokemonRecord] as Row[] };
+        }
+        expect(sql).toContain("FROM catalog_provider_scope_mappings");
+        return { rows: [pokemonMapping] as Row[] };
+      },
+    };
+    const pokemonAdapter = createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => pokemonProfile! });
+    const planner = createScopeSyncBatchPlanner({
+      db,
+      now: () => timestamp,
+      previewCatalogSyncScope: (input) =>
+        previewCatalogSyncProviderParticipation({
+          ...input,
+          acceptedScopeMappings: input.acceptedScopeMappings ?? [],
+          providerProfileVersions: [pokemonProfile!],
+          providerAdapterRegistry: new ProviderAdapterRegistry([pokemonAdapter]),
+        }),
+    });
+    const { preview, plans } = await planner.resolve({
+      selection: {
+        mode: "matching-scope",
+        query: { productDomain: "pokemon", scopeKind: "expansion", languageCode: "en" },
+      },
+      context,
+    });
+    expect(plans.map((plan) => plan.scopeRecordId)).toEqual(["scope_synthetic_pokemon_en"]);
+    expect(preview.counts).toMatchObject({ scopes: 1, providerUnits: 1 });
+    expect(plans[0]!.participationPreview.units).toEqual([
+      expect.objectContaining({
+        unitKey: pokemonUnitKey,
+        eligibility: "eligible",
+        selected: true,
+        childExecutionScope: expect.objectContaining({ language: "en", setId: "base1" }),
+      }),
+    ]);
+    expect(preview.planFingerprint).toBe("2e68c249dcc7ae746014eb006ef329615d20f20df84bfe61660390d7390b3c33");
+  });
+});
+
 describe("held-set batch required participation", () => {
-  it("retains required units across the four held-set product domains", async () => {
+  it("retains every non-TCGplayer required unit and blocks the zero-unit Yu-Gi-Oh scope", async () => {
     const domains = [
       ["magic", "mtg", "set"],
       ["pokemon", "pokemon", "expansion"],
@@ -190,10 +324,15 @@ describe("held-set batch required participation", () => {
       unit_key: `tcgplayer:${unitDomain}:single-card:source-observation-import`,
     }));
     const db: PgQueryable = {
-      async query<Row>(sql: string) {
-        return { rows: (sql.includes("FROM catalog_scope_records") ? records : mappings) as Row[] };
+      async query<Row>(sql: string, values?: readonly unknown[]) {
+        const scopeRecordIds = values?.[0] as readonly string[];
+        const rows: readonly { scope_record_id: string }[] = sql.includes("FROM catalog_scope_records")
+          ? records
+          : mappings;
+        return { rows: rows.filter((row) => scopeRecordIds.includes(row.scope_record_id)) as Row[] };
       },
     };
+    const tcgplayer = realTcgplayerAdapter();
     const planner = createScopeSyncBatchPlanner({
       db,
       now: () => timestamp,
@@ -202,14 +341,7 @@ describe("held-set batch required participation", () => {
           ...input,
           acceptedScopeMappings: input.acceptedScopeMappings ?? [],
           providerProfileVersions: catalogProviderIntegrationProfileVersions,
-          providerAdapterRegistry: new ProviderAdapterRegistry([
-            {
-              ...offlineAdapter("tcgplayer"),
-              getCredentialReadiness: async () => {
-                throw new Error("Synthetic TCGplayer readiness unavailable.");
-              },
-            },
-          ]),
+          providerAdapterRegistry: new ProviderAdapterRegistry([tcgplayer.adapter]),
         }),
     });
     const { preview, plans } = await planner.resolve({
@@ -217,27 +349,43 @@ describe("held-set batch required participation", () => {
       context,
     });
     expect(plans.map((plan) => plan.participationPreview.units.map((unit) => unit.unitKey).sort())).toEqual([
-      [
-        "scryfall:mtg:single-card:reference-data",
-        "tcgplayer:mtg:sealed-product:source-observation-import",
-        "tcgplayer:mtg:single-card:source-observation-import",
-      ],
-      [
-        "tcgdex:pokemon:single-card:source-observation-import",
-        "tcgplayer:pokemon:sealed-product:source-observation-import",
-        "tcgplayer:pokemon:single-card:source-observation-import",
-      ],
-      ["tcgplayer:yugioh:single-card:source-observation-import"],
+      ["scryfall:mtg:single-card:reference-data"],
+      ["tcgdex:pokemon:single-card:source-observation-import"],
+      [],
       [
         "scrydex:one-piece:sealed-product:source-observation-import",
         "scrydex:one-piece:single-card:source-observation-import",
-        "tcgplayer:one-piece:single-card:source-observation-import",
       ],
+    ]);
+    expect(
+      plans.every((plan) =>
+        plan.participationPreview.units.every((unit) => unit.requirement === "required" && unit.selected),
+      ),
+    ).toBe(true);
+    expect(plans[2]!.blockers).toEqual([
+      {
+        code: "scope-planning-blocked",
+        scopeRecordId: "scope_synthetic_held_yugioh",
+        providerKey: null,
+        message: "Catalog Scope Record has no selected provider units.",
+      },
     ]);
     expect(preview).toMatchObject({
       confirmAllowed: false,
-      counts: { scopes: 4, readyScopes: 0, blockedScopes: 4, providerUnits: 10 },
+      counts: { scopes: 4, readyScopes: 0, blockedScopes: 4, providerUnits: 4 },
     });
+    expect(preview.providerUnitTotals).toEqual({ scrydex: 2, scryfall: 1, tcgdex: 1 });
+
+    const yugiohOnly = await planner.resolve({
+      selection: { mode: "ids", scopeRecordIds: ["scope_synthetic_held_yugioh"] },
+      context,
+    });
+    expect(yugiohOnly.preview).toMatchObject({
+      status: "blocked",
+      confirmAllowed: false,
+      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 0 },
+    });
+    expectNoAdapterCalls(tcgplayer.calls);
   });
 });
 
@@ -255,11 +403,13 @@ async function magicFixture(providerProfiles: readonly CatalogProviderIntegratio
   });
   const adapter = createMtgjsonProviderAdapter({ fetch: deniedFetch });
   const planImport = vi.spyOn(adapter, "planImport");
-  const siblingAdapters = [offlineAdapter("scryfall"), offlineAdapter("tcgplayer")];
-  const planningCalls = [planImport, ...siblingAdapters.map((sibling) => vi.spyOn(sibling, "planImport"))];
+  const scryfall = offlineAdapter("scryfall");
+  const tcgplayer = realTcgplayerAdapter();
+  const planningCalls = [planImport, vi.spyOn(scryfall, "planImport")];
   const fixture = {
     deniedFetch,
     planImport,
+    tcgplayerCalls: tcgplayer.calls,
     previewCatalogSyncScope: vi.fn<Parameters<typeof createScopeSyncBatchPlanner>[0]["previewCatalogSyncScope"]>(
       async (input) => {
         const callsBefore = planningCalls.map((call) => call.mock.calls.length);
@@ -267,7 +417,7 @@ async function magicFixture(providerProfiles: readonly CatalogProviderIntegratio
           ...input,
           acceptedScopeMappings: input.acceptedScopeMappings ?? [],
           providerProfileVersions: providerProfiles,
-          providerAdapterRegistry: new ProviderAdapterRegistry([adapter, ...siblingAdapters]),
+          providerAdapterRegistry: new ProviderAdapterRegistry([adapter, scryfall, tcgplayer.adapter]),
         });
         if (input.acceptedScopeMappings?.length === 0) {
           expect(planningCalls.map((call) => call.mock.calls.length)).toEqual(callsBefore);
@@ -276,7 +426,11 @@ async function magicFixture(providerProfiles: readonly CatalogProviderIntegratio
         return result;
       },
     ),
-    unitKeys: profiles.map(unitKeyForCatalogProviderProfileVersion).sort(),
+    // The TCGplayer profiles stay mapped, but the real adapter cannot plan them.
+    unitKeys: profiles
+      .filter((profile) => profile.providerKey !== "tcgplayer")
+      .map(unitKeyForCatalogProviderProfileVersion)
+      .sort(),
     records: [scopeRecord("scope_synthetic_magic_tsp")],
     mappings: profiles.map(
       (profile): ProviderScopeMappingRow => ({
@@ -329,6 +483,29 @@ async function magicFixture(providerProfiles: readonly CatalogProviderIntegratio
     previewCatalogSyncScope: fixture.previewCatalogSyncScope,
   });
   return fixture;
+}
+
+// The production TCGplayer adapter, which declares no server import planning,
+// with every transport-facing method spied so planning can prove it never calls one.
+function realTcgplayerAdapter() {
+  const adapter = createTcgplayerProviderAdapter({
+    loadProfileVersions: async () =>
+      catalogProviderIntegrationProfileVersions.filter((version) => version.providerKey === "tcgplayer"),
+  });
+  const methods = [
+    "planImport",
+    "listOptions",
+    "fetchPayloads",
+    "getCredentialReadiness",
+    "getTransportDiagnostics",
+  ] as const;
+  return { adapter, calls: methods.map((method) => [method, vi.spyOn(adapter, method)] as const) };
+}
+
+function expectNoAdapterCalls(calls: ReturnType<typeof realTcgplayerAdapter>["calls"]) {
+  for (const [method, spy] of calls) {
+    expect(spy, method).not.toHaveBeenCalled();
+  }
 }
 
 function offlineAdapter(providerKey: string): ProviderAdapter {

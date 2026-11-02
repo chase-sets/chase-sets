@@ -48,6 +48,11 @@ export interface BootstrapDbWorkloadBaseline {
 export const bootstrapDbWorkloadSelectors: Readonly<Record<string, unknown>>;
 export const bootstrapDbWorkloadSelectorsSha256: string;
 
+export function resolveApiDbWorkspaceConcurrency(workflow: string): Readonly<{
+  value: string | null;
+  gaps: readonly string[];
+}>;
+
 export function canonicalJson(value: unknown): string;
 
 export function deriveBootstrapDbWorkload(

@@ -27,7 +27,8 @@ import {
   getSafeReturnTo,
   readCookie,
 } from "../auth-support/http";
-import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
+import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "@chase-sets/auth-context";
+import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME } from "../request-support/cookies";
 import { createAuthApiClient } from "../request-support/api-client";
 import {
   authActionIntent,

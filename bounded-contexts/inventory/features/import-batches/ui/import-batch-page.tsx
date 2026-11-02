@@ -32,7 +32,6 @@ import type { InventoryCatalogItemSnapshot } from "../../inventory-items/integra
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 import { listInventoryImportSources } from "../domain/import-source-adapters";
 import { appendInventoryHandoffSearch, inventoryListingHref } from "../../inventory-items/ui/listing-handoff";
-import { activeResolutionRow, rowNeedsResolution, unresolvedResolutionRowIds } from "./resolution-flow";
 import { InventoryMutationForm } from "../../../support/ui-support/mutation-recovery";
 import {
   normalizeSelectedOptionsForSchema,
@@ -516,11 +515,13 @@ function ImportRowResolutionForm({
     : [];
 
   return (
-    <Form spacing="none" method="post">
+    <InventoryMutationForm family="import-resolve-row" targetId={row.row_id} spacing="none" method="post">
       <Stack gap={2}>
         <HiddenInput type="hidden" name="intent" value="resolve-row" />
         <HiddenInput type="hidden" name="batchId" value={row.batch_id} />
         <HiddenInput type="hidden" name="rowId" value={row.row_id} />
+        <HiddenInput type="hidden" name="expectedRowVersion" value={row.row_version} />
+        <HiddenInput type="hidden" name="expectedRowFingerprint" value={row.row_fingerprint} />
         <HiddenInput type="hidden" name="catalogItemId" value={catalogItem?.catalog_item_id ?? ""} />
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <Combobox
@@ -574,7 +575,7 @@ function ImportRowResolutionForm({
           {t("inventory.features.importBatches.ui.importBatchPage.apply.row.fix")}
         </Button>
       </Stack>
-    </Form>
+    </InventoryMutationForm>
   );
 }
 
@@ -595,15 +596,12 @@ export function InventoryImportBatchPage({
   errorMessage?: string | null;
   detailLoadMessage?: string | null;
 }) {
-  const canCommit = Boolean(
-    detail &&
-    ["uploaded", "ready-to-commit", "partial"].includes(detail.status) &&
-    detail.accepted_count > detail.committed_count,
-  );
+  const canCommit = detail?.can_commit === true;
   const latestBatchId = detail?.batch_id ?? batches[0]?.batch_id ?? null;
   const activeJob = useInventoryImportBatchJob(activeJobId);
-  const unresolvedRowIds = detail ? unresolvedResolutionRowIds(detail) : [];
-  const resolveRow = activeResolutionRow(detail, selectedResolveRowId(currentPath));
+  const unresolvedRowIds = detail ? detail.rows.filter((row) => row.needs_seller).map((row) => row.row_id) : [];
+  const selectedRowId = selectedResolveRowId(currentPath);
+  const resolveRow = detail?.rows.find((row) => row.row_id === selectedRowId && row.needs_seller) ?? null;
   const resolveRowPosition = resolveRow ? unresolvedRowIds.indexOf(resolveRow.row_id) + 1 : 0;
   const rawOffset = Number(new URLSearchParams(currentPath?.split("?")[1] ?? "").get("offset") ?? 0);
   const rowOffset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
@@ -820,7 +818,7 @@ export function InventoryImportBatchPage({
                   <Inline>
                     <Text>
                       {t("inventory.features.importBatches.ui.importBatchPage.accepted.rows.ready", {
-                        count: detail.accepted_count - detail.committed_count,
+                        count: detail.commit_ready_count,
                       })}
                     </Text>
                     <Button type="submit">
@@ -925,7 +923,7 @@ export function InventoryImportBatchPage({
                   header: t("inventory.features.importBatches.ui.importBatchPage.errors.and.outcomes"),
                   cell: (row) => (
                     <Stack gap={1}>
-                      {rowNeedsResolution(row, detail.source_key) ? (
+                      {row.needs_seller ? (
                         <LinkButton href={resolveRowHref(currentPath, row.row_id)} size="sm">
                           {t("inventory.features.importBatches.ui.importBatchPage.resolve.row")}
                         </LinkButton>
@@ -973,7 +971,7 @@ export function InventoryImportBatchPage({
                 header: t("inventory.features.importBatches.ui.importBatchPage.batch"),
                 cell: (row) => (
                   <Stack gap={1}>
-                    <Text weight="semibold">{row.source_filename ?? row.batch_id}</Text>
+                    <Text weight="semibold">{row.batch_id}</Text>
                     <Text size="sm" tone="secondary">
                       {formatDateTime(row.updated_at)}
                     </Text>

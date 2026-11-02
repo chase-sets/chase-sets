@@ -1,0 +1,270 @@
+{
+  "sourceCommit": "0a0f3f081d618ce346ac1efa1a322aea9c2d42cb",
+  "status": "synthetic-not-live-salvage-parity",
+  "observation": {
+    "productId": 7001,
+    "sales": {
+      "status": "observed",
+      "requestedAt": "2026-09-01T00:00:00.000Z",
+      "responseObservedAt": "2026-09-01T00:00:00.000Z",
+      "rejectedRows": 0,
+      "httpStatusClass": "none",
+      "rows": [
+        {
+          "condition": "Near Mint",
+          "variant": "Normal",
+          "language": "English",
+          "quantity": 2,
+          "listingType": "ListingWithoutPhotos",
+          "purchasePrice": "0.10",
+          "shippingPrice": "0.20",
+          "orderDate": "2026-08-31T00:00:00.000Z"
+        },
+        {
+          "condition": "Near Mint",
+          "variant": "Normal",
+          "language": "English",
+          "quantity": 2,
+          "listingType": "ListingWithoutPhotos",
+          "purchasePrice": "0.10",
+          "shippingPrice": "0.20",
+          "orderDate": "2026-08-31T00:00:00.000Z"
+        },
+        {
+          "condition": "Moderately Played",
+          "variant": "Normal",
+          "language": "English",
+          "quantity": 2,
+          "listingType": "ListingWithoutPhotos",
+          "purchasePrice": "0.10",
+          "shippingPrice": "0.20",
+          "orderDate": "2026-08-31T00:00:00.000Z"
+        }
+      ],
+      "coverage": "complete",
+      "pagesFetched": 1,
+      "returnedCount": 3,
+      "firstReportedTotal": 3,
+      "lastReportedTotal": 3,
+      "firstResultCount": 3,
+      "lastResultCount": 3,
+      "lastNextPage": "",
+      "credentialsMode": "omit"
+    },
+    "listings": {
+      "status": "observed",
+      "requestedAt": "2026-09-01T00:00:00.000Z",
+      "responseObservedAt": "2026-09-01T00:00:00.000Z",
+      "rejectedRows": 0,
+      "httpStatusClass": "none",
+      "rows": [
+        {
+          "sellerOrdinal": 1,
+          "condition": "Near Mint",
+          "printing": "Normal",
+          "language": "English",
+          "price": "0.10",
+          "sellerShippingPrice": "0.20"
+        },
+        {
+          "sellerOrdinal": 1,
+          "condition": "Near Mint",
+          "printing": "Foil",
+          "language": "English",
+          "price": "0.20",
+          "sellerShippingPrice": "0.20"
+        },
+        {
+          "sellerOrdinal": 1,
+          "condition": "Moderately Played",
+          "printing": "Normal",
+          "language": "English",
+          "price": "0.10",
+          "sellerShippingPrice": "0.10"
+        },
+        {
+          "sellerOrdinal": 2,
+          "condition": "Near Mint",
+          "printing": "Normal",
+          "language": "English",
+          "price": "0.11",
+          "sellerShippingPrice": "0.20"
+        },
+        {
+          "sellerOrdinal": 2,
+          "condition": "Near Mint",
+          "printing": "Foil",
+          "language": "English",
+          "price": "0.30",
+          "sellerShippingPrice": "0.20"
+        },
+        {
+          "sellerOrdinal": 2,
+          "condition": "Moderately Played",
+          "printing": "Normal",
+          "language": "English",
+          "price": "0.15",
+          "sellerShippingPrice": "0.10"
+        }
+      ],
+      "coverage": "complete",
+      "pagesFetched": 1,
+      "returnedCount": 6,
+      "reportedTotal": 6,
+      "credentialsMode": "omit"
+    },
+    "history": {
+      "status": "observed",
+      "requestedAt": "2026-09-01T00:00:00.000Z",
+      "responseObservedAt": "2026-09-01T00:00:00.000Z",
+      "rejectedRows": 0,
+      "httpStatusClass": "none",
+      "rows": [
+        {
+          "skuId": 9001,
+          "condition": "Near Mint",
+          "variant": "Normal",
+          "language": "English",
+          "buckets": [
+            {
+              "marketPrice": "0.35",
+              "quantitySold": 4,
+              "lowSalePrice": "0.10",
+              "lowSalePriceWithShipping": "0.30",
+              "highSalePrice": "0.20",
+              "highSalePriceWithShipping": "0.40",
+              "transactionCount": 2,
+              "bucketStartDate": "2026-08-25"
+            }
+          ]
+        }
+      ],
+      "coverage": "observed",
+      "resultCount": 1,
+      "bucketCount": 1,
+      "credentialsMode": "omit"
+    }
+  },
+  "expected": {
+    "sales": [
+      {
+        "captureId": "10f475b2402c38e4d85f4679bf57892ba286b99f0d058394083972550eda3301",
+        "saleFingerprint": "51279517cebbbf64a25c217376e9546fae7e8840c454833c1b2d7f5f02f0091e",
+        "observedOccurrenceCount": 2,
+        "providerCondition": "Near Mint",
+        "providerVariant": "Normal",
+        "providerLanguage": "English",
+        "listingType": "ListingWithoutPhotos",
+        "soldAt": "2026-08-31T00:00:00.000Z",
+        "quantity": 2,
+        "unitPrice": "0.10",
+        "orderShipping": "0.20"
+      },
+      {
+        "captureId": "10f475b2402c38e4d85f4679bf57892ba286b99f0d058394083972550eda3301",
+        "saleFingerprint": "de7dc4cebed581d2af1366d7f47e7f1da38e06ede8f9a646545eb7403bc0dbc7",
+        "observedOccurrenceCount": 1,
+        "providerCondition": "Moderately Played",
+        "providerVariant": "Normal",
+        "providerLanguage": "English",
+        "listingType": "ListingWithoutPhotos",
+        "soldAt": "2026-08-31T00:00:00.000Z",
+        "quantity": 2,
+        "unitPrice": "0.10",
+        "orderShipping": "0.20"
+      }
+    ],
+    "weekly": [
+      {
+        "providerKey": "tcgplayer",
+        "externalKey": "sku:9001",
+        "catalogItemId": "cat_synthetic",
+        "catalogProductKey": "cat_synthetic::condition:near-mint",
+        "weekStart": "2026-08-25",
+        "providerCondition": "Near Mint",
+        "providerVariant": "Normal",
+        "providerLanguage": "English",
+        "transactionCount": 2,
+        "quantitySold": 4,
+        "lowSaleAmount": "0.10",
+        "highSaleAmount": "0.20",
+        "lowDeliveredAmount": "0.30",
+        "highDeliveredAmount": "0.40",
+        "providerMarketAmount": "0.35",
+        "captureId": "10f475b2402c38e4d85f4679bf57892ba286b99f0d058394083972550eda3301",
+        "observedAt": "2026-09-01T00:00:00.000Z"
+      }
+    ],
+    "snapshots": [
+      {
+        "providerKey": "tcgplayer",
+        "catalogItemId": "cat_synthetic",
+        "providerVariant": "Normal",
+        "providerLanguage": "English",
+        "providerCondition": "Near Mint",
+        "observedOn": "2026-09-01",
+        "distinctSellerCount": 2,
+        "cheapestDeliveredAmount": "0.30",
+        "secondCheapestDeliveredAmount": "0.31",
+        "captureId": "10f475b2402c38e4d85f4679bf57892ba286b99f0d058394083972550eda3301",
+        "observedAt": "2026-09-01T00:00:00.000Z"
+      },
+      {
+        "providerKey": "tcgplayer",
+        "catalogItemId": "cat_synthetic",
+        "providerVariant": "Foil",
+        "providerLanguage": "English",
+        "providerCondition": "Near Mint",
+        "observedOn": "2026-09-01",
+        "distinctSellerCount": 2,
+        "cheapestDeliveredAmount": "0.40",
+        "secondCheapestDeliveredAmount": "0.50",
+        "captureId": "10f475b2402c38e4d85f4679bf57892ba286b99f0d058394083972550eda3301",
+        "observedAt": "2026-09-01T00:00:00.000Z"
+      },
+      {
+        "providerKey": "tcgplayer",
+        "catalogItemId": "cat_synthetic",
+        "providerVariant": "Normal",
+        "providerLanguage": "English",
+        "providerCondition": "Moderately Played",
+        "observedOn": "2026-09-01",
+        "distinctSellerCount": 2,
+        "cheapestDeliveredAmount": "0.20",
+        "secondCheapestDeliveredAmount": "0.25",
+        "captureId": "10f475b2402c38e4d85f4679bf57892ba286b99f0d058394083972550eda3301",
+        "observedAt": "2026-09-01T00:00:00.000Z"
+      }
+    ],
+    "askDepth": [
+      {
+        "captureId": "10f475b2402c38e4d85f4679bf57892ba286b99f0d058394083972550eda3301",
+        "anonymousCaptureSellerOrdinal": 1,
+        "providerCondition": "Moderately Played",
+        "deliveredAmount": "0.20",
+        "coverage": "complete"
+      },
+      {
+        "captureId": "10f475b2402c38e4d85f4679bf57892ba286b99f0d058394083972550eda3301",
+        "anonymousCaptureSellerOrdinal": 2,
+        "providerCondition": "Moderately Played",
+        "deliveredAmount": "0.25",
+        "coverage": "complete"
+      },
+      {
+        "captureId": "10f475b2402c38e4d85f4679bf57892ba286b99f0d058394083972550eda3301",
+        "anonymousCaptureSellerOrdinal": 1,
+        "providerCondition": "Near Mint",
+        "deliveredAmount": "0.30",
+        "coverage": "complete"
+      },
+      {
+        "captureId": "10f475b2402c38e4d85f4679bf57892ba286b99f0d058394083972550eda3301",
+        "anonymousCaptureSellerOrdinal": 2,
+        "providerCondition": "Near Mint",
+        "deliveredAmount": "0.31",
+        "coverage": "complete"
+      }
+    ]
+  }
+}

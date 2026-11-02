@@ -21,7 +21,9 @@ import {
 import { classifyCheckoutCartSourceAuthority, type CheckoutCartSourceAuthority } from "./contracts";
 import {
   createCartReadinessSnapshot,
+  createCartReadinessRead,
   type CartReadinessDecisionInput,
+  type CartReadinessRead,
   type CartReadinessSnapshot,
 } from "../domain/readiness";
 import { buildCheckoutCartProjectionHandlers } from "../read-model/projection";
@@ -117,6 +119,12 @@ export type CheckoutCartServices = Readonly<{
       decisions?: CartReadinessDecisionInput | null;
     }>,
   ) => Promise<CartReadinessSnapshot>;
+  readCart: (
+    params: Readonly<{
+      accountId: string;
+      presentedAnonymousCartId?: string | null;
+    }>,
+  ) => Promise<{ lines: CheckoutCartLineRow[]; readiness: CartReadinessRead }>;
   listCartLines: (accountId: string, presentedAnonymousCartId?: string | null) => ReturnType<typeof listCartLines>;
   /**
    * The single post-claim read decision for one presented anonymous source,
@@ -294,6 +302,30 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     };
   }
 
+  async function readAuthorizedCartLines(
+    params: Readonly<{
+      accountId: string;
+      presentedAnonymousCartId?: string | null;
+    }>,
+  ) {
+    const source = await resolveAuthorizedCartSource(params.accountId, params.presentedAnonymousCartId);
+    const projected = await listAuthorizedOwnerCartLines(
+      deps.db,
+      params.accountId,
+      source.authorizedClaimedOwnerKeys,
+      source.presentedAnonymousCartId,
+    );
+    return {
+      lines: source.readable ? projected : [],
+      unionSource: source.presentedAnonymousCartId
+        ? {
+            accountId: params.accountId,
+            presentedAnonymousCartId: source.presentedAnonymousCartId,
+          }
+        : undefined,
+    };
+  }
+
   const attempts = createCheckoutCartAttemptExecutor({
     eventStore: deps.eventStore,
     db: deps.db,
@@ -419,24 +451,12 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     // the refusal is non-enumerating in the work performed as well as in the
     // bytes returned.
     createReadinessSnapshot: async (params) => {
-      const source = await resolveAuthorizedCartSource(params.accountId, params.presentedAnonymousCartId);
-      const projected = await listAuthorizedOwnerCartLines(
-        deps.db,
-        params.accountId,
-        source.authorizedClaimedOwnerKeys,
-        source.presentedAnonymousCartId,
-      );
-      const lines = source.readable ? projected : [];
-      return createCartReadinessSnapshot(
-        lines,
-        params.decisions,
-        source.presentedAnonymousCartId
-          ? {
-              accountId: params.accountId,
-              presentedAnonymousCartId: source.presentedAnonymousCartId,
-            }
-          : undefined,
-      );
+      const { lines, unionSource } = await readAuthorizedCartLines(params);
+      return createCartReadinessSnapshot(lines, params.decisions, unionSource);
+    },
+    readCart: async (params) => {
+      const { lines, unionSource } = await readAuthorizedCartLines(params);
+      return { lines, readiness: createCartReadinessRead(lines, unionSource) };
     },
     listCartLines: (accountId, presentedAnonymousCartId) => listCartLines(deps.db, accountId, presentedAnonymousCartId),
     resolveCartSourceAuthority,

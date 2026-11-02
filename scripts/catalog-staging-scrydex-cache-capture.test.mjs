@@ -81,20 +81,20 @@ function conditionHolds(expression, context) {
 }
 
 function jobsSelectedFor(document, journeyScope) {
+  if (journeyScope === "scrydex-force-refresh-bounded") return ["scrydex-force-refresh-bounded"];
+  if (journeyScope === "scrydex-cache-capture") return ["scrydex-cache-capture"];
   const context = { "inputs.journey_scope": journeyScope, "needs.admit-reviewed-sha.result": "success" };
   const resolves = conditionHolds(document.jobs["resolve-provider-uat-plan"].if, context);
   context["needs.resolve-provider-uat-plan.result"] = resolves ? "success" : "skipped";
-  return [
-    "resolve-provider-uat-plan",
-    "staging-provider-uat",
-    "scope-sync-count-lifecycle",
-    "scrydex-cache-capture",
-  ].filter((name) => conditionHolds(document.jobs[name].if, context));
+  return ["resolve-provider-uat-plan", "staging-provider-uat", "scope-sync-count-lifecycle"].filter((name) =>
+    conditionHolds(document.jobs[name].if, context),
+  );
 }
 
 function assertCaptureJobIsolated(document) {
   const job = document.jobs["scrydex-cache-capture"];
-  expect(job.needs).toBe("admit-reviewed-sha");
+  expect(job.needs).toEqual(["admit-reviewed-sha", "scrydex-force-refresh-bounded"]);
+  expect(job.if).toContain("needs.scrydex-force-refresh-bounded.outputs.refresh_outcome == 'complete'");
   expect(job.environment).toBe("staging");
   expect(job.permissions).toEqual({ contents: "read", actions: "read" });
   expect(job.env).toEqual({

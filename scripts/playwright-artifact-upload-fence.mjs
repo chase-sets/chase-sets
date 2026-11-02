@@ -360,8 +360,9 @@ export function inspectPlaywrightArtifactUploadCorpus(corpusInput) {
     });
   }
 
-  const workflowFiles = [...parsed.keys()].filter((path) => path.startsWith(".github/workflows/")).length;
-  const compositeActionFiles = [...parsed.keys()].filter((path) => path.startsWith(".github/actions/")).length;
+  const files = [...parsed.keys()].sort();
+  const workflowFiles = files.filter((path) => path.startsWith(".github/workflows/"));
+  const compositeActionFiles = files.filter((path) => path.startsWith(".github/actions/"));
   return {
     schemaVersion: refSchemaVersion,
     status: findings.length === 0 ? "pass" : "fail",
@@ -369,14 +370,16 @@ export function inspectPlaywrightArtifactUploadCorpus(corpusInput) {
     findings,
     uploads,
     census: {
-      files: [...parsed.keys()].sort(),
+      files,
+      workflowFiles,
+      compositeActionFiles,
       localCompositeCallers,
     },
     discovery: {
-      trackedFiles: parsed.size,
+      trackedFiles: corpus.size,
       parsedFiles: parsed.size,
-      workflowFiles,
-      compositeActionFiles,
+      workflowFiles: workflowFiles.length,
+      compositeActionFiles: compositeActionFiles.length,
       uploadSteps: uploads.length,
       evaluatedUploadPaths: uploads.reduce((count, upload) => count + upload.paths.length, 0),
       localCompositeCalls,

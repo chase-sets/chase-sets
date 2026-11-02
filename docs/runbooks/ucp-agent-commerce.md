@@ -163,7 +163,7 @@ Configure the business signing key to publish it in `/.well-known/ucp`:
 - `UCP_BUSINESS_SIGNING_PRIVATE_JWK`: EC private JWK for the current signing key. Keep it in environment-scoped secrets.
 - `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`: JSON array of previous public JWKs retained during rotation.
 
-After restart, verify `/.well-known/ucp` includes `signing_keys` with public JWKs only. The runtime publishes the key set and signs no UCP response with it.
+After restart, verify `/.well-known/ucp` includes `keys` with public JWKs only. The runtime publishes the key set and signs no UCP response with it.
 
 Rotate by adding the current public key to `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`, installing the new private JWK and key id, deploying, then removing old public keys.
 
@@ -183,6 +183,23 @@ OAuth identity linking requires Authorization Code with PKCE S256. Token refresh
 
 Authorization GET must redirect to `/account/agents/consent` (or `/sign-in` with the authorize return path), never directly to a callback with a code. Consent displays the client-provided name, redirect origin, active account, and grouped scope labels. Approve or Deny submits a native same-origin POST; only Approve can issue a code. Deny preserves state and returns `access_denied`. A stale, used, foreign-session, or switched-account token must be rejected without a client redirect. Restart from the agent after the ten-minute expiry. Switching accounts restarts authorize and requires a new consent decision. Agent-bearer and guest-checkout actors must sign in interactively instead.
 
+### Operator Connection
+
+Use an operator-only connection for platform administration; do not combine `operations:*` with commerce scopes. The signed-in user must have an active `platform-admin` membership for the selected account and interactive authentication no older than ten minutes. Operator grants expire seven days after approval.
+
+Codex:
+
+```powershell
+codex mcp login <name> --scopes "operations:write"
+```
+
+Claude Code (confirmed at [#9239 Probe: prove an operator agent administers staging end to end](https://github.com/chase-sets/chase-sets/issues/9239)):
+
+```powershell
+claude mcp add-json <name> '{"type":"http","url":"https://<marketplace-host>/mcp","oauth":{"scopes":"operations:write"}}'
+claude mcp login <name>
+```
+
 Do not retain raw consent tokens, callback codes, or full token-bearing URLs in diagnostic logs. Token, refresh, introspection, and revocation behavior is unchanged.
 
 Token support endpoints:
@@ -198,6 +215,12 @@ Order reads are available through the linked account when that account is the bu
 ```powershell
 Invoke-RestMethod http://localhost:7712/ucp/v1/orders/<order-id> -Headers @{ Authorization = "Bearer <ucp-access-token>" }
 ```
+
+## UCP 2026-08-25 Shape Drill
+
+The served profile is the single `2026-08-25` version. REST and MCP share the same root-resource envelopes: successful Checkout and Order responses place the resource at the root, Catalog search returns `products[]`, and `get_product` returns a nested `product`. Resource-less failures use `ucp.status: "error"` with `messages[]` entries carrying `type`, `code`, `content`, and `severity`.
+
+Run the shape drill against a disposable harness before a release: validate the profile, every REST/MCP capture, and every error with the pinned `ucpSchemaValidator`; confirm a profile-less catalog success is accepted, a legacy `ok` envelope is rejected, and an `action.url`-only handoff renders no card. The re-open trigger remains: reopen the retired 2026-04-08 path only when a named onboarding platform cannot negotiate 2026-08-25.
 
 ## Incident Response
 

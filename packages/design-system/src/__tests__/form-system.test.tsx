@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fireEvent, isInaccessible, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, useState, type FormEvent } from "react";
+import { createRef, Profiler, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -1439,9 +1439,64 @@ describe("form system", () => {
     ]);
     render(<RouterProvider router={router} />);
     await userEvent.setup().click(screen.getByRole("button", { name: "Second" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Second" }).getAttribute("aria-busy")).toBe("true"));
-    expect(screen.getByRole("button", { name: "First" }).getAttribute("aria-busy")).toBeNull();
+    const first = screen.getByRole("button", { name: "First" });
+    const second = screen.getByRole("button", { name: "Second" });
+    await waitFor(() => expect(second.getAttribute("aria-busy")).toBe("true"));
+    expect(first.getAttribute("aria-busy")).toBeNull();
+    expect(first.querySelector(".animate-spin")).toBeNull();
+    expect(second.querySelector(".animate-spin")).not.toBeNull();
+    expect(second.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement).toBe(second);
     gate.resolve(null);
+    await waitFor(() => expect(second.getAttribute("aria-busy")).toBeNull());
+    expect(second.querySelector(".animate-spin")).toBeNull();
+    expect(second.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement).toBe(second);
+  });
+
+  it("records its committed node without a mount-time state rerender", () => {
+    let buttonNode: HTMLButtonElement | null = null;
+    const objectRef = createRef<HTMLButtonElement>();
+    const renderPhases: string[] = [];
+    const recordNode = (node: HTMLButtonElement | null) => {
+      buttonNode = node;
+    };
+
+    const view = (pendingSubmitter: HTMLButtonElement | null) => (
+      <FormProvider pendingSubmitter={pendingSubmitter}>
+        <Profiler id="button" onRender={(_, phase) => renderPhases.push(phase)}>
+          <Button ref={recordNode} type="submit">
+            Save
+          </Button>
+        </Profiler>
+        <Button ref={objectRef} type="submit">
+          Other
+        </Button>
+      </FormProvider>
+    );
+
+    const { rerender, unmount } = render(view(null));
+
+    expect(renderPhases).toEqual(["mount"]);
+    expect(buttonNode).not.toBeNull();
+
+    rerender(view(buttonNode));
+
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBe("true");
+
+    expect(objectRef.current).toBe(screen.getByRole("button", { name: "Other" }));
+    expect(objectRef.current?.getAttribute("aria-busy")).toBeNull();
+
+    rerender(view(objectRef.current));
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBeNull();
+    expect(objectRef.current?.getAttribute("aria-busy")).toBe("true");
+
+    rerender(view(document.createElement("button")));
+    expect(objectRef.current?.getAttribute("aria-busy")).toBeNull();
+
+    unmount();
+    expect(buttonNode).toBeNull();
+    expect(objectRef.current).toBeNull();
   });
 
   it("caller-written field keeps pending and reaches the action", async () => {
@@ -1624,5 +1679,79 @@ describe("form system", () => {
     // @ts-expect-error reloadDocument is intentionally excluded from RouterFormProps
     const invalid = <RouterForm reloadDocument />;
     expect(invalid).toBeTruthy();
+  });
+
+  it("owned submitting publishes the activated submitter without remounting", async () => {
+    let activations = 0;
+    function Owned() {
+      const [submitting, setSubmitting] = useState(false);
+      const [disabled, setDisabled] = useState(false);
+      return (
+        <>
+          <RouterForm
+            method="post"
+            data-testid="owned"
+            submitting={submitting}
+            disabled={disabled}
+            keepControlsEnabled
+            onSubmit={(event) => {
+              event.preventDefault();
+              activations += 1;
+              setSubmitting(true);
+            }}
+          >
+            <input aria-label="Name" />
+            <Button type="submit" name="intent" value="first">
+              First
+            </Button>
+            <Button type="submit" name="intent" value="second">
+              Second
+            </Button>
+          </RouterForm>
+          <button type="button" onClick={() => setSubmitting(false)}>
+            Settle
+          </button>
+          <button type="button" onClick={() => setDisabled(true)}>
+            Hold
+          </button>
+        </>
+      );
+    }
+    const router = createMemoryRouter([{ path: "/", element: <Owned /> }]);
+    const { container } = render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+    const name = screen.getByLabelText("Name");
+    const form = screen.getByTestId("owned");
+    await user.type(name, "Typed");
+    await user.click(screen.getByRole("button", { name: "Second" }));
+
+    const second = screen.getByRole("button", { name: "Second" });
+    expect(second.getAttribute("aria-busy")).toBe("true");
+    expect(second.matches(":disabled")).toBe(false);
+    expect(document.activeElement).toBe(second);
+    expect(screen.getByRole("button", { name: "First" }).getAttribute("aria-busy")).toBeNull();
+    expect(form.getAttribute("aria-busy")).toBe("true");
+    expect(form.getAttribute("data-form-status")).toBe("submitting");
+    expect(container.querySelector("fieldset")).toBeNull();
+    expect(screen.getByLabelText("Name")).toBe(name);
+    expect((name as HTMLInputElement).value).toBe("Typed");
+
+    await user.click(second);
+    await user.click(screen.getByRole("button", { name: "First" }));
+    await user.click(name);
+    await user.keyboard("{Enter}");
+    expect(activations).toBe(1);
+    expect(second.getAttribute("aria-busy")).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: "Settle" }));
+    expect(second.getAttribute("aria-busy")).toBeNull();
+    expect(form.getAttribute("aria-busy")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "First" }));
+    expect(activations).toBe(2);
+    expect(screen.getByRole("button", { name: "First" }).getAttribute("aria-busy")).toBe("true");
+    expect(second.getAttribute("aria-busy")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Hold" }));
+    expect(container.querySelector("fieldset[disabled]")).not.toBeNull();
   });
 });

@@ -60,10 +60,7 @@ import {
   buildCheckoutPaymentPreviewStatus,
   type CheckoutPaymentPreviewStatus,
 } from "../support/route-support/checkout-session/payment-preview";
-import {
-  assertCheckoutDeliveryServiceableForAction,
-  deliveryCorrectionActionData,
-} from "../support/route-support/checkout-session/delivery-correction";
+import { deliveryCorrectionActionData } from "../support/route-support/checkout-session/delivery-correction";
 
 const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.enter.contact.delivery.shipping.payment");
 const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
@@ -143,6 +140,18 @@ function shippingAddressFromForm(formData: FormData) {
     email: normalizeText(formData.get("shippingEmail")),
   };
 }
+
+type PendingAddressBookWrite = Readonly<{
+  kind: "create" | "update";
+  actorAccountId: string;
+  selectedSavedAddress: CheckoutShipFromAddressRow | null;
+  makeDefault: boolean;
+}>;
+
+type CheckoutShippingAddressResolution = Readonly<{
+  shippingAddress: ReturnType<typeof shippingAddressFromForm>;
+  pendingAddressBookWrite: PendingAddressBookWrite | null;
+}>;
 
 function shippingAddressFromSavedAddress(address: CheckoutShipFromAddressRow) {
   return {
@@ -241,8 +250,8 @@ async function resolveCheckoutShippingAddress(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   formData: FormData,
-  options: Readonly<{ persistAddressBook?: boolean; validateServiceability?: boolean }> = {},
-) {
+  options: Readonly<{ persistAddressBook?: boolean }> = {},
+): Promise<CheckoutShippingAddressResolution> {
   const selectedShippingAddressId = normalizeText(formData.get("shippingAddressId"));
   const addressBookAction = String(formData.get("addressBookAction") ?? "checkout-only");
   const makeDefault = String(formData.get("makeDefaultShippingAddress") ?? "") === "true";
@@ -263,20 +272,8 @@ async function resolveCheckoutShippingAddress(
   );
   const actorAccountId = persistAddressBook && canManageAddressBook && actor ? actor.accountId : null;
 
-  function assertServiceable(address: ReturnType<typeof shippingAddressFromForm>) {
-    if (!options.validateServiceability) {
-      return;
-    }
-
-    assertCheckoutDeliveryServiceableForAction(address);
-  }
-
   if (!canReadAddressBook) {
-    assertServiceable(formAddress);
-    return {
-      ...formAddress,
-      shippingAddressId: null,
-    };
+    return { shippingAddress: { ...formAddress, shippingAddressId: null }, pendingAddressBookWrite: null };
   }
 
   const savedAddresses =
@@ -289,41 +286,36 @@ async function resolveCheckoutShippingAddress(
 
   if (selectedSavedAddress && addressBookAction !== "save-new" && addressBookAction !== "update-selected") {
     const savedAddress = shippingAddressFromSavedAddress(selectedSavedAddress);
-    assertServiceable(savedAddress);
-    return savedAddress;
+    return { shippingAddress: savedAddress, pendingAddressBookWrite: null };
   }
 
   if (addressBookAction === "update-selected" && selectedSavedAddress && actorAccountId) {
-    assertServiceable(formAddress);
-    const identityApi = createIdentityRequestApiClient(request);
-    await identityApi.updateShippingAddress(actorAccountId!, selectedSavedAddress.shipping_address_id, {
-      label: selectedSavedAddress.label,
-      ...formAddress,
-      makeDefault,
-    });
     return {
-      ...formAddress,
-      shippingAddressId: selectedSavedAddress.shipping_address_id,
+      shippingAddress: { ...formAddress, shippingAddressId: selectedSavedAddress.shipping_address_id },
+      pendingAddressBookWrite: {
+        kind: "update",
+        actorAccountId,
+        selectedSavedAddress,
+        makeDefault,
+      },
     };
   }
 
   if (addressBookAction === "save-new" && actorAccountId) {
-    assertServiceable(formAddress);
-    const identityApi = createIdentityRequestApiClient(request);
-    const result = await identityApi.createShippingAddress<{ id: string }>(actorAccountId!, {
-      ...formAddress,
-      makeDefault,
-    });
     return {
-      ...formAddress,
-      shippingAddressId: result.id,
+      shippingAddress: { ...formAddress, shippingAddressId: null },
+      pendingAddressBookWrite: {
+        kind: "create",
+        actorAccountId,
+        selectedSavedAddress: null,
+        makeDefault,
+      },
     };
   }
 
-  assertServiceable(formAddress);
   return {
-    ...formAddress,
-    shippingAddressId: selectedSavedAddress?.shipping_address_id ?? null,
+    shippingAddress: { ...formAddress, shippingAddressId: selectedSavedAddress?.shipping_address_id ?? null },
+    pendingAddressBookWrite: null,
   };
 }
 
@@ -388,6 +380,45 @@ function shouldRefreshPaymentStart(error: unknown) {
   }
 
   return readApiErrorCode(error.body) === "payment_start_pending";
+}
+
+function isConfirmationChanged(error: unknown) {
+  return (
+    error instanceof CheckoutApiError &&
+    error.status === 409 &&
+    readApiErrorCode(error.body) === "checkout_confirmation_changed"
+  );
+}
+
+/**
+ * A confirm answer that cannot prove the request never reached Checkout: no
+ * HTTP answer at all, a timeout, or a server or gateway failure that is not a
+ * decided refusal such as a closed checkout.
+ */
+function isConfirmPossibleSendLoss(error: unknown) {
+  if (!(error instanceof CheckoutApiError)) {
+    return true;
+  }
+
+  return error.status === 408 || (error.status >= 500 && readApiErrorCode(error.body) !== "checkout_closed");
+}
+
+/**
+ * After a possible-send loss the action never resends confirm, purchase
+ * intent or payment start. One Session read decides: a started payment or a
+ * submitted Offer is the first result; anything else stays ambiguous.
+ */
+async function settleConfirmAfterPossibleSendLoss(api: CheckoutRequestApiClient, sessionId: string) {
+  const session = await api.getCheckoutSession(sessionId).catch(() => null);
+  if (session?.submitted_offer_id) {
+    return redirect(`/account/offers/submitted/${session.submitted_offer_id}`);
+  }
+
+  if (session?.payment_id) {
+    return redirect(`/checkout/buy/session/${sessionId}`);
+  }
+
+  return { confirmationState: "ambiguous" as const };
 }
 
 function shouldRefreshReservationUnavailable(error: unknown) {
@@ -490,7 +521,9 @@ function loadReservationUnavailableLines(
 
 type CheckoutRequestApiClient = ReturnType<typeof createCheckoutRequestApiClient>;
 type CheckoutSessionForReviewedPreview = Awaited<ReturnType<CheckoutRequestApiClient["getCheckoutSession"]>>;
-type CheckoutShippingAddressForReviewedPreview = Awaited<ReturnType<typeof resolveCheckoutShippingAddress>>;
+type CheckoutShippingAddressForReviewedPreview = Awaited<
+  ReturnType<typeof resolveCheckoutShippingAddress>
+>["shippingAddress"];
 
 function normalizeFulfillmentPreviewShippingOption(
   value: string,
@@ -808,7 +841,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     previewError,
     reviewRefreshed: searchParams.get("review") === "updated",
     paymentQuoteRequired: searchParams.get("quote") === "required",
-    autoResumePaymentStart: !session.payment_id && paymentPreview !== null,
     initialEditSection: parseCheckoutEditSection(searchParams.get("edit")),
     preparedPayment,
     paymentElementDefaultValues,
@@ -832,6 +864,13 @@ async function handleAction(intent: string, { request, params, formData }: FormA
   const writeApi = createCheckoutRequestApiClient(internalApiRequest);
 
   try {
+    if (intent === "cancel-checkout") {
+      const result = await writeApi.cancelCheckoutSession(params.sessionId);
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(result, `/checkout/buy/session/${params.sessionId}`),
+      );
+    }
+
     if (intent === "select-optimization-goal") {
       const result = await writeApi.selectOptimizationGoal(params.sessionId, {
         optimizationGoal: formData.get("optimizationGoal") === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
@@ -842,10 +881,10 @@ async function handleAction(intent: string, { request, params, formData }: FormA
     }
 
     if (intent === "refresh-checkout-preview") {
-      const shippingAddress = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
+      const shippingAddressResolution = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
         persistAddressBook: false,
-        validateServiceability: true,
       });
+      const shippingAddress = shippingAddressResolution.shippingAddress;
       const shippingOption = String(formData.get("shippingOption") ?? "standard");
       const session = await loadCheckoutSessionForReviewedPreview(readApi, params.sessionId);
       const shippingOptionResult = await writeApi.selectShippingOption(params.sessionId, {
@@ -886,9 +925,8 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return { error: GUEST_SAVED_PAYMENT_UNAVAILABLE };
       }
 
-      const shippingAddress = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
+      const shippingAddressResolution = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
         persistAddressBook: true,
-        validateServiceability: true,
       });
       const shippingOption = String(formData.get("shippingOption") ?? "standard");
       const quotedPaymentMethodCategory = String(formData.get("paymentMethodCategory") ?? "card");
@@ -901,12 +939,54 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         String(formData.get("marketplaceCheckoutFeeQuoteFingerprint") ?? "") || null;
       const savePaymentMethodForFuture =
         requestedSavePaymentMethodForFuture && actor?.roleKey !== "guest-buyer" && !selectedSavedPaymentInstrumentId;
+      let resolvedShippingAddress = shippingAddressResolution.shippingAddress;
       const session =
         typeof readApi.getCheckoutSession === "function" ? await readApi.getCheckoutSession(params.sessionId) : null;
       if (session && isExpiredCheckoutHandoff(session, Date.now())) {
         return { code: "checkout_expired", error: CHECKOUT_HANDOFF_EXPIRED_MESSAGE };
       }
+      if (session?.cancelled_at) {
+        // A cancelled Session is final: a replayed confirm sends nothing and
+        // shows the Session as it stands.
+        return redirect(`/checkout/buy/session/${params.sessionId}`);
+      }
       const hasCommittedSideEffects = hasCommittedCheckoutSideEffects(session);
+      const pendingAddressBookWrite = shippingAddressResolution.pendingAddressBookWrite;
+      if (pendingAddressBookWrite && !hasCommittedSideEffects) {
+        await writeApi.selectShippingAddress(params.sessionId, {
+          shippingAddress: resolvedShippingAddress,
+        });
+      }
+      if (pendingAddressBookWrite) {
+        const identityApi = createIdentityRequestApiClient(resolvedRequest);
+        if (pendingAddressBookWrite.kind === "update" && pendingAddressBookWrite.selectedSavedAddress) {
+          await identityApi.updateShippingAddress(
+            pendingAddressBookWrite.actorAccountId,
+            pendingAddressBookWrite.selectedSavedAddress.shipping_address_id,
+            {
+              label: pendingAddressBookWrite.selectedSavedAddress.label,
+              ...resolvedShippingAddress,
+              makeDefault: pendingAddressBookWrite.makeDefault,
+            },
+          );
+          resolvedShippingAddress = {
+            ...resolvedShippingAddress,
+            shippingAddressId: pendingAddressBookWrite.selectedSavedAddress.shipping_address_id,
+          };
+        } else if (pendingAddressBookWrite.kind === "create") {
+          const result = await identityApi.createShippingAddress<{ id: string }>(
+            pendingAddressBookWrite.actorAccountId,
+            {
+              ...resolvedShippingAddress,
+              makeDefault: pendingAddressBookWrite.makeDefault,
+            },
+          );
+          resolvedShippingAddress = {
+            ...resolvedShippingAddress,
+            shippingAddressId: result.id,
+          };
+        }
+      }
       const shippingOptionResult = hasCommittedSideEffects
         ? null
         : await writeApi.selectShippingOption(params.sessionId, {
@@ -923,7 +1003,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         visiblePaymentMethodCategory !== quotedPaymentMethodCategory ||
         (reviewedShippingOption !== null && reviewedShippingOption !== shippingOption) ||
         (reviewedShippingAddressSignature !== null &&
-          reviewedShippingAddressSignature !== normalizedAddressSignature(shippingAddress));
+          reviewedShippingAddressSignature !== normalizedAddressSignature(resolvedShippingAddress));
 
       const needsPaymentQuote =
         sourceType.length > 0 &&
@@ -935,11 +1015,11 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         sourceType !== "offer-intent" && visibleReviewChanged && !hasCommittedSideEffects;
       if (shouldRefreshReviewBeforeConfirm || needsPaymentQuote) {
         const shippingAddressResult = await writeApi.selectShippingAddress(params.sessionId, {
-          shippingAddress,
+          shippingAddress: resolvedShippingAddress,
         });
         const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(writeApi, session, {
           shippingOption,
-          shippingAddress,
+          shippingAddress: resolvedShippingAddress,
         });
         const quoteReason = needsPaymentQuote ? "&quote=required" : "";
         return redirect(
@@ -967,7 +1047,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
           savePaymentMethodForFuture,
           fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
           acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
-          shippingAddress,
+          shippingAddress: resolvedShippingAddress,
         });
       } catch (error) {
         const refreshPaymentQuote = shouldRefreshPaymentQuote(error);
@@ -993,6 +1073,17 @@ async function handleAction(intent: string, { request, params, formData }: FormA
               refreshPath,
             ),
           );
+        }
+
+        if (isConfirmationChanged(error)) {
+          return {
+            confirmationState: "changed" as const,
+            error: t("checkout.routes.checkoutSession.confirmation.changed"),
+          };
+        }
+
+        if (isConfirmPossibleSendLoss(error)) {
+          return settleConfirmAfterPossibleSendLoss(readApi, params.sessionId);
         }
 
         throw error;
@@ -1036,6 +1127,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
 export const action = defineFormAction({
   prepare: async (args) => ({ ...args, request: await resolveCheckoutSessionPostWriteRequest(args.request) }),
   intents: {
+    "cancel-checkout": (context) => handleAction("cancel-checkout", context),
     "confirm-checkout": (context) => handleAction("confirm-checkout", context),
     "retry-wallet-balance": (context) => handleAction("retry-wallet-balance", context),
     "refresh-checkout-preview": (context) => handleAction("refresh-checkout-preview", context),
@@ -1087,11 +1179,15 @@ export default function CheckoutSessionRoute() {
       canSavePaymentMethods={data.canSavePaymentMethods}
       isSignedInBuyer={data.isSignedInBuyer}
       errorMessage={
-        actionData?.error ?? (data.expiredCheckout ? CHECKOUT_HANDOFF_EXPIRED_MESSAGE : data.previewError) ?? null
+        (actionData && "error" in actionData ? actionData.error : null) ??
+        (data.expiredCheckout ? CHECKOUT_HANDOFF_EXPIRED_MESSAGE : data.previewError) ??
+        null
       }
+      confirmationAmbiguous={Boolean(
+        actionData && "confirmationState" in actionData && actionData.confirmationState === "ambiguous",
+      )}
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}
-      autoResumePaymentStart={!actionData?.error && data.autoResumePaymentStart}
       preparedPaymentEntry={
         data.preparedPayment?.status === "pending-confirmation" ? (
           <StripeConfirmationCard payment={data.preparedPayment} defaultValues={data.paymentElementDefaultValues} />

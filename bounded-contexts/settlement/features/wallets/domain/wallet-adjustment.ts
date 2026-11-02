@@ -358,15 +358,21 @@ export const decideWalletAdjustment: AggregateDecider<
       }
       assert(state.status === "requested", "Only a requested Wallet Adjustment can be approved.");
       assert(command.approvedBy !== state.requestedBy, "A Wallet Adjustment cannot be approved by its requester.");
-      assert(!state.selfBenefiting, "A self-benefiting Wallet Adjustment is blocked outright and cannot be approved.");
+      const selfBenefitingBlocked = "A self-benefiting Wallet Adjustment is blocked outright and cannot be approved.";
+      if (state.selfBenefiting) throw new WalletAdjustmentRefusal("self_benefiting_blocked", selfBenefitingBlocked);
       const controls = normalizeWalletAdjustmentControls(command.controls);
       const elevation = resolveElevation(state, command, controls);
       if (elevation.required) {
-        assert(command.elevationApprovedBy != null, "This Wallet Adjustment requires a second, elevated approval.");
         assert(
           command.elevationApprovedBy !== state.requestedBy && command.elevationApprovedBy !== command.approvedBy,
           "The elevated approver must be distinct from the requester and the primary approver.",
         );
+        if (command.elevationApprovedBy == null) {
+          throw new WalletAdjustmentRefusal(
+            "elevated_approval_required",
+            "This Wallet Adjustment requires a second, elevated approval.",
+          );
+        }
       }
 
       return [
@@ -450,6 +456,21 @@ export const decideWalletAdjustment: AggregateDecider<
       return assertNever(command);
   }
 };
+
+/**
+ * An `ApproveWalletAdjustment` refusal with a stable code: the approve route
+ * publishes `code` as the `ApiErrorDetail.code` of its `409 conflict`, so
+ * clients classify the refusal by code rather than by its message.
+ */
+export class WalletAdjustmentRefusal extends Error {
+  public constructor(
+    public readonly code: "elevated_approval_required" | "self_benefiting_blocked",
+    message: string,
+  ) {
+    super(message);
+    this.name = "WalletAdjustmentRefusal";
+  }
+}
 
 /** A balance snapshot may be negative; validate the numeric shape without forcing positivity. */
 function normalizeSignedBalance(value: string): string {

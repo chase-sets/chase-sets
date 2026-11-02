@@ -1314,8 +1314,13 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     if (!postageLabelProvider.recoverPurchasedUspsLabel) {
       return null;
     }
+    const request =
+      operation.request_json && typeof operation.request_json === "object" && !Array.isArray(operation.request_json)
+        ? (operation.request_json as Record<string, unknown>)
+        : {};
     const recovered = await postageLabelProvider.recoverPurchasedUspsLabel({
       idempotencyKey: operation.idempotency_key,
+      insuranceAmount: typeof request.insuranceAmount === "string" ? request.insuranceAmount : null,
     });
     if (!recovered) {
       return null;
@@ -2585,7 +2590,24 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           continue;
         }
 
-        const recoveredLabel = await recoverPurchasedLabelForOperation(operation);
+        let recoveredLabel: PurchasedPostageLabel | null;
+        try {
+          recoveredLabel = await recoverPurchasedLabelForOperation(operation);
+        } catch (error) {
+          if (
+            error instanceof PostageLabelProviderError &&
+            error.kind === "capability" &&
+            error.capability === "insurance"
+          ) {
+            await recordFulfillmentPostageLabelOperationFailed(deps.db, {
+              operationKey: operation.operation_key,
+              errorMessage: error.message,
+            });
+            result.failed += 1;
+            continue;
+          }
+          throw error;
+        }
         if (!recoveredLabel) {
           await recordFulfillmentPostageLabelOperationFailed(deps.db, {
             operationKey: operation.operation_key,

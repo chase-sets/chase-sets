@@ -1568,7 +1568,7 @@ describe("marketplace search-row route identity", () => {
       });
       expect(observations.filter((observation) => observation.event.type === "routechange")).toHaveLength(0);
       expect(pinned.view.container.querySelector('[data-search-row-state="expanded"]')).toBeTruthy();
-      act(() => window.dispatchEvent(new Event("scroll")));
+      await act(() => window.dispatchEvent(new Event("scroll")));
       expect(observations.at(-1)?.state).toEqual(before);
     } finally {
       pinned.view.unmount();
@@ -1589,7 +1589,7 @@ describe("marketplace search-row route identity", () => {
       expect(searchObservations.filter((observation) => observation.event.type === "routechange")).toHaveLength(0);
       expect(search.view.container.querySelector('[data-search-row-state="expanded"]')).toBeTruthy();
       expect(beforeSearch).toMatchObject({ phase: "expanded", lastScrollY: 2000 });
-      act(() => window.dispatchEvent(new Event("scroll")));
+      await act(() => window.dispatchEvent(new Event("scroll")));
       expect(searchObservations.at(-1)?.state).toEqual(beforeSearch);
     } finally {
       search.view.unmount();

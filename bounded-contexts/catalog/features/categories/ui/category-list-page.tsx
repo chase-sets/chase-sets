@@ -84,7 +84,7 @@ export function CategoryListPage({ data, query }: CatalogListRouteData<CategoryL
     setDescription("");
     setParentId("");
     setDisplayOrder("0");
-    revalidator.revalidate();
+    void revalidator.revalidate();
   }
 
   return (

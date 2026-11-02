@@ -10,7 +10,7 @@ resource "digitalocean_kubernetes_cluster" "platform" {
   name                             = local.cluster_name
   region                           = var.region
   version                          = var.kubernetes_version
-  auto_upgrade                     = var.auto_upgrade
+  auto_upgrade                     = false
   surge_upgrade                    = var.surge_upgrade
   ha                               = var.high_availability
   registry_integration             = var.registry_integration_enabled
@@ -21,7 +21,7 @@ resource "digitalocean_kubernetes_cluster" "platform" {
   tags                             = local.tags
 
   maintenance_policy {
-    day        = var.maintenance_day
+    day        = local.maintenance_day
     start_time = var.maintenance_start_time
   }
 

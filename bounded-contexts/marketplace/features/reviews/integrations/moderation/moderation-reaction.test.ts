@@ -8,6 +8,7 @@ function baseEvent(
     action: string;
     note: string | null;
     operatorUserId: string | null;
+    reporterAccountId: string;
   }>,
 ) {
   return {
@@ -15,6 +16,8 @@ function baseEvent(
     audit: { performedByUserId: "usr_system", forAccountId: "acc_system" },
     trace: {},
     data: {
+      actionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      recordedAt: "2026-07-11T00:00:00.000Z",
       targetType: "review",
       targetId: "rev_1",
       action: "withdraw-review",
@@ -91,7 +94,7 @@ describe("review moderation reaction", () => {
     });
 
     await handlers["platform-operations.reported-content.action-recorded"]?.(
-      baseEvent({ targetType: "listing", action: "unlist" }),
+      baseEvent({ targetType: "listing", targetId: "lst_1", action: "unlist", note: null }),
     );
 
     expect(operatorWithdrawReview).not.toHaveBeenCalled();
@@ -107,10 +110,30 @@ describe("review moderation reaction", () => {
       operatorWithdrawReviewReply,
     });
 
-    await handlers["platform-operations.reported-content.action-recorded"]?.(baseEvent({ action: "dismiss" }));
+    for (const action of ["dismiss", "contact-seller", "escalate-account-suspension"]) {
+      await handlers["platform-operations.reported-content.action-recorded"]?.(baseEvent({ action, note: null }));
+    }
 
     expect(operatorWithdrawReview).not.toHaveBeenCalled();
     expect(operatorRedactReviewFeedback).not.toHaveBeenCalled();
     expect(operatorWithdrawReviewReply).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an action outside the review partition", { action: "unlist" }],
+    ["a review action without a note", { note: "  " }],
+    ["an unknown field", { reporterAccountId: "acc_reporter" }],
+  ])("poisons %s through the shared closed parser before dispatching", async (_name, overrides) => {
+    const deps = {
+      operatorWithdrawReview: vi.fn(),
+      operatorRedactReviewFeedback: vi.fn(),
+      operatorWithdrawReviewReply: vi.fn(),
+    };
+    const handlers = buildReviewModerationReactionHandlers(deps);
+
+    await expect(
+      handlers["platform-operations.reported-content.action-recorded"]!(baseEvent(overrides)),
+    ).rejects.toThrow(/^Reported Content /);
+    for (const dispatch of Object.values(deps)) expect(dispatch).not.toHaveBeenCalled();
   });
 });

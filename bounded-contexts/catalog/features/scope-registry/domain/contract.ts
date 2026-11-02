@@ -21,6 +21,7 @@ export type CatalogScopeProductDomainContract = Readonly<{
   productLineReferenceRecordKey: string;
   seriesReferenceTypeKey: "series";
   leafReferenceTypeKey: CatalogScopeLeafRecordKind;
+  selectLeavesByLanguageEdition: boolean;
   requiredLeafAttributeKeys: readonly ["release-date", "official-set-code", "language-editions"];
 }>;
 
@@ -42,6 +43,7 @@ export const catalogScopeProductDomainContracts: Readonly<
     productLineReferenceRecordKey: "pokemon-trading-card-game",
     seriesReferenceTypeKey: "series",
     leafReferenceTypeKey: "expansion",
+    selectLeavesByLanguageEdition: true,
     requiredLeafAttributeKeys: ["release-date", "official-set-code", "language-editions"],
   },
   magic: {
@@ -49,6 +51,7 @@ export const catalogScopeProductDomainContracts: Readonly<
     productLineReferenceRecordKey: "magic-the-gathering",
     seriesReferenceTypeKey: "series",
     leafReferenceTypeKey: "set",
+    selectLeavesByLanguageEdition: false,
     requiredLeafAttributeKeys: ["release-date", "official-set-code", "language-editions"],
   },
   yugioh: {
@@ -56,6 +59,7 @@ export const catalogScopeProductDomainContracts: Readonly<
     productLineReferenceRecordKey: "yu-gi-oh-official-card-game",
     seriesReferenceTypeKey: "series",
     leafReferenceTypeKey: "set",
+    selectLeavesByLanguageEdition: false,
     requiredLeafAttributeKeys: ["release-date", "official-set-code", "language-editions"],
   },
   "one-piece": {
@@ -63,6 +67,7 @@ export const catalogScopeProductDomainContracts: Readonly<
     productLineReferenceRecordKey: "one-piece-card-game",
     seriesReferenceTypeKey: "series",
     leafReferenceTypeKey: "set",
+    selectLeavesByLanguageEdition: false,
     requiredLeafAttributeKeys: ["release-date", "official-set-code", "language-editions"],
   },
   lorcana: {
@@ -70,6 +75,7 @@ export const catalogScopeProductDomainContracts: Readonly<
     productLineReferenceRecordKey: "disney-lorcana",
     seriesReferenceTypeKey: "series",
     leafReferenceTypeKey: "set",
+    selectLeavesByLanguageEdition: false,
     requiredLeafAttributeKeys: ["release-date", "official-set-code", "language-editions"],
   },
 };

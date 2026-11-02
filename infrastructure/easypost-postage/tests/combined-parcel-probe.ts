@@ -21,6 +21,7 @@ const capabilities = [
   "usps-rate",
   "usps-service-level",
   "signature-delivery-confirmation",
+  "insurance",
   "label-document",
   "tracking",
 ] as const;
@@ -834,7 +835,10 @@ export async function runCase(
       transition(c, "reconciliation-required");
     else {
       try {
-        const recovered = await provider.recoverPurchasedUspsLabel!({ idempotencyKey: c.providerShipmentId });
+        const recovered = await provider.recoverPurchasedUspsLabel!({
+          idempotencyKey: c.providerShipmentId,
+          ...(id === caseIds[1] ? { insuranceAmount: "600.00" } : {}),
+        });
         if (recovered && c.observations.recovery.purchase === "yes") {
           c.errorKind = null;
           c.errorCapability = null;

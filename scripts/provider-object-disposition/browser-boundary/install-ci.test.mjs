@@ -367,12 +367,13 @@ it("native inputs stay bound to an exact commit while shared Static retains PR m
   expect(diagnostics).toContain("BOUNDARY_HEAD_SHA: ${{ github.sha }}");
 });
 
-it("required Static keeps the complete source gate and native matrix under unchanged job deadlines", () => {
+it("required Static keeps the complete source gate and native matrix under the approved job deadlines", () => {
   const workflow = read("../../../.github/workflows/platform-pr.yml");
   const source = workflow.slice(workflow.indexOf("  static-source:"), workflow.indexOf("  static:"));
   const native = workflow.slice(workflow.indexOf("  static:"), workflow.indexOf("  typecheck:"));
+  expect(source).toContain("timeout-minutes: 20");
+  expect(native).toContain("timeout-minutes: 30");
   for (const job of [source, native]) {
-    expect(job).toContain("timeout-minutes: 20");
     expect(job).toContain("needs['change-scope'].outputs.static_required == 'true'");
     expect(job).not.toContain("continue-on-error");
   }

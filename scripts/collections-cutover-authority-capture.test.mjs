@@ -521,14 +521,73 @@ describe("AC2 no ungoverned zero", () => {
       state.kube.pods.items.push(ephemeralWriterPod(statuses));
       const { result, fields } = await capture(state);
       expect(isGovernedUnknown(fields.imageDigests)).toBe(true);
-      expect(fields.imageDigests.missingAuthority).toBe(
-        "kubectl get --raw /api/v1/pods (all namespaces): unresolved-image",
+      expect(fields.imageDigests.missingAuthority).toContain(
+        "kubectl get --raw /api/v1/pods (all namespaces): unresolved-image; total:1; pods:ops/debug-ephemeral slot:ephemeral phase:Running state:absent reason:unnamed",
       );
       const applied = applyProviderCapture(jobPacket(FLOOR, MERGED_AT), result);
       expect(applied.errors).toEqual([]);
       expect(applied.missing.map((entry) => entry.field)).toEqual(["imageDigests"]);
     },
   );
+
+  it.each([
+    ["ContainerCreating", "Pending", { waiting: { reason: "ContainerCreating" } }, "waiting"],
+    ["ImagePullBackOff", "Pending", { waiting: { reason: "ImagePullBackOff" } }, "waiting"],
+    ["failed before start", "Failed", { terminated: { reason: "Error" } }, "terminated"],
+  ])("names an unresolved regular writer container in the %s state", async (_, phase, state, expectedState) => {
+    const worldState = world();
+    worldState.kube.pods.items.push({
+      metadata: meta("unresolved-regular", { namespace: "ops" }),
+      spec: { containers: [container({ env: [] }), container({ name: "writer", env: [secretKeyEnv()] })] },
+      status: { phase, containerStatuses: [{ name: "writer", state }] },
+    });
+    const { fields } = await capture(worldState);
+    expect(fields.imageDigests.missingAuthority).toContain(
+      `pods:ops/unresolved-regular slot:regular phase:${phase} state:${expectedState}`,
+    );
+  });
+
+  it("names an unresolved init writer container", async () => {
+    const worldState = world();
+    worldState.kube.pods.items.push({
+      metadata: meta("unresolved-init", { namespace: "ops" }),
+      spec: { initContainers: [container({ name: "prepare", env: [secretKeyEnv()] })], containers: [] },
+      status: {
+        phase: "Pending",
+        initContainerStatuses: [{ name: "prepare", state: { waiting: { reason: "ContainerCreating" } } }],
+      },
+    });
+    const { fields } = await capture(worldState);
+    expect(fields.imageDigests.missingAuthority).toContain(
+      "pods:ops/unresolved-init slot:init phase:Pending state:waiting reason:ContainerCreating",
+    );
+  });
+
+  it("caps unresolved attribution at ten entries while retaining the exact total and safe metadata", async () => {
+    const worldState = world();
+    worldState.kube.pods.items.push(
+      ...Array.from({ length: 11 }, (_, index) => ({
+        metadata: meta(`unresolved-${index}`, { namespace: "ops" }),
+        spec: { containers: [container({ name: `writer-${index}`, env: [secretKeyEnv()] })] },
+        status: {
+          phase: index === 0 ? "not-a-phase" : "Pending",
+          containerStatuses: [
+            {
+              name: `writer-${index}`,
+              state: { waiting: { reason: index === 1 ? `${TOKEN}` : "ImagePullBackOff" } },
+            },
+          ],
+        },
+      })),
+    );
+    const { fields } = await capture(worldState);
+    const authority = fields.imageDigests.missingAuthority;
+    expect(authority).toContain("total:11");
+    expect((authority.match(/ slot:/g) ?? []).length).toBe(10);
+    expect(authority).toContain("phase:Unknown state:waiting reason:ImagePullBackOff");
+    expect(authority).not.toContain(TOKEN);
+    expect(authority).not.toContain("not-a-phase");
+  });
 
   it("an unserved resource type is notServed, not unknown or empty", async () => {
     const { fields } = await capture();

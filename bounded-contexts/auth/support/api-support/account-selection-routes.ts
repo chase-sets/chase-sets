@@ -43,7 +43,6 @@ export function registerAccountSelectionRoutes(app: AuthApiApp, services: AuthSe
       accountId: typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: selection.authentication_method as AuthMethod,
       context: getBootstrapContext(c),
-      publishAuthenticationOutcome: true,
     });
 
     if (authResult.type !== "session-started") {

@@ -207,8 +207,15 @@ function toLocalBootEnvEntry(entry) {
 
 function localBootEnvValue(name) {
   if (name === "CHANNELS_CREDENTIAL_KEYRING_JSON") return "";
-  if (name === "EBAY_ACCOUNT_DELETION_ENDPOINT" || name === "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN") return "";
-  if (name === "CATALOG_OPERATOR_SESSION_KEYRING_JSON") return "";
+  if (
+    [
+      "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "EBAY_APPLICATION_CLIENT_ID",
+      "EBAY_APPLICATION_CLIENT_SECRET",
+    ].includes(name)
+  )
+    return "";
   if (name.includes("DATABASE_URL")) {
     return "postgres://local-boot:not-used@localhost:5432/local_boot";
   }

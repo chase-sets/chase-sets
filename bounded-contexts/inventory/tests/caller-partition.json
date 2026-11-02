@@ -234,7 +234,7 @@
   "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx": {
     "families": ["import-commit", "import-create", "import-resolve", "location-read"],
     "authority": "existing Inventory account authority",
-    "attempt": "existing path retained until #9500 or #9503",
+    "attempt": "create-batch and resolve-row forward the form's persisted attempt (import-create, import-resolve-row) and resolve-row forwards the rendered row facts; commit retained until #9503",
     "read": "existing Inventory reader retained",
     "consumer": "pending later-family cutover",
     "status": "pending"
@@ -308,7 +308,7 @@
       "restock-record"
     ],
     "authority": "Inventory owner context",
-    "attempt": "composed owner transaction; import create cut over, commit/resolve pending #9503",
+    "attempt": "composed owner transaction; import create cut over; import-resolve-row receipts run inside the import-batches resolve authority; commit pending #9503",
     "read": "private actor/requesting-account-bound mutation receipt; retained account-scoped queries",
     "consumer": "Inventory recovery composition",
     "status": "cutover"

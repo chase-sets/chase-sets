@@ -14,6 +14,14 @@ const instantPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const refusalPattern = /^revocation_[a-z_]{1,64}$/;
 const recoveryRunner = "auth.agent-grant-revocation-recovery";
 const logWindow = { since: "5m", tail: 200, maxPods: 100 };
+const failureCategories = new Set([
+  "pod_exec",
+  "rbac",
+  "database_connectivity",
+  "schema_permission",
+  "application",
+  "unknown",
+]);
 
 export function proofDigest(proof) {
   const keys = [...Object.keys(proof), ...Object.keys(proof.replicas[0])].sort();
@@ -29,10 +37,68 @@ function lastRefusalLine(text) {
     .at(-1);
 }
 
+function lastDiagnosticLine(text) {
+  return text
+    .slice(-4096)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter((value) => value?.schemaVersion === "agent-grant-revocation-diagnostic/v1")
+    .at(-1);
+}
+
 // Only a bounded code crosses the CLI boundary; raw kubectl, git and pod errors can carry secrets.
 export function refusalCode(error) {
   if (error instanceof Error && refusalPattern.test(error.message)) return error.message;
   return lastRefusalLine(typeof error?.stderr === "string" ? error.stderr : "") ?? "revocation_release_refused";
+}
+
+export function sqlstateClass(error) {
+  const code = error && typeof error === "object" ? error.code : undefined;
+  return typeof code === "string" && /^[0-9A-Z]{5}$/.test(code) ? code.slice(0, 2) : "unknown";
+}
+
+export function failureCategory(error) {
+  const candidate = error && typeof error === "object" ? error.failureCategory : undefined;
+  return typeof candidate === "string" && failureCategories.has(candidate) ? candidate : "unknown";
+}
+
+function diagnosticFromError(error) {
+  const value = error && typeof error === "object" ? error.diagnostic : undefined;
+  if (!value || typeof value !== "object") return null;
+  return {
+    identity: {
+      state: ["activated", "dormant", "unknown"].includes(value.identity?.state) ? value.identity.state : "unknown",
+    },
+    sqlstateClass: /^[0-9A-Z]{2}$/.test(value.sqlstateClass ?? "") ? value.sqlstateClass : "unknown",
+    failureCategory: failureCategories.has(value.failureCategory) ? value.failureCategory : "unknown",
+  };
+}
+
+export function diagnosticRecord({ options, refusal, failure, identityState = "unknown" }) {
+  const inherited = diagnosticFromError(failure);
+  const statusIdentityState = ["activated", "dormant", "unknown"].includes(identityState) ? identityState : "unknown";
+  const childIdentityState = inherited?.identity?.state;
+  const identity = ["activated", "dormant"].includes(childIdentityState)
+    ? inherited.identity
+    : { state: statusIdentityState };
+  return {
+    schemaVersion: "agent-grant-revocation-diagnostic/v1",
+    evidenceId: /^\d+\/\d+$/.test(options.evidenceId ?? "") ? options.evidenceId : "unknown/unknown",
+    environment: options.environment,
+    releaseCommit: options.releaseCommit,
+    imageDigest: options.imageDigest,
+    identity,
+    code: refusal ?? "revocation_activation_succeeded",
+    sqlstateClass: inherited?.sqlstateClass ?? sqlstateClass(failure),
+    failureCategory: inherited?.failureCategory ?? failureCategory(failure),
+  };
 }
 
 export function captureServingSet({
@@ -400,8 +466,12 @@ async function activate(options, { run, spawn }) {
       else throw new Error("revocation_command_protocol_invalid");
     }
     const code = await exited;
-    if (code !== 0 || !receipt || receipt.proofDigest !== proofDigest(proof))
-      throw new Error((code !== 0 && lastRefusalLine(stderr)) || "revocation_activation_unconfirmed");
+    if (code !== 0 || !receipt || receipt.proofDigest !== proofDigest(proof)) {
+      const error = new Error((code !== 0 && lastRefusalLine(stderr)) || "revocation_activation_unconfirmed");
+      const diagnostic = lastDiagnosticLine(stderr);
+      if (diagnostic) error.diagnostic = diagnostic;
+      throw error;
+    }
   } catch (error) {
     child.stdin.end();
     if (child.exitCode === null) child.kill();
@@ -554,7 +624,10 @@ function identityStatus(namespace, run) {
  * The post-command record a deploy job retains. Every section is read
  * independently; a failed read is recorded as an unknown code, never as a pass.
  */
-function captureStatus({ environment, namespace, command, outcome, refusal }, { run, now }) {
+function captureStatus(
+  { environment, namespace, command, outcome, refusal, evidenceId, releaseCommit, imageDigest, failure },
+  { run, now },
+) {
   const section = (read) => {
     try {
       return read();
@@ -562,10 +635,13 @@ function captureStatus({ environment, namespace, command, outcome, refusal }, { 
       return { state: "unknown", code: refusalCode(error) };
     }
   };
-  return {
+  const status = {
     schemaVersion: "agent-grant-revocation-status/v1",
     environment,
     namespace,
+    evidenceId,
+    releaseCommit,
+    imageDigest,
     command,
     result: refusal ? "refused" : outcome,
     refusal,
@@ -574,6 +650,15 @@ function captureStatus({ environment, namespace, command, outcome, refusal }, { 
     identity: section(() => identityStatus(namespace, run)),
     logs: section(() => runtimeLogs(namespace, run)),
   };
+  status.diagnostic = refusal
+    ? diagnosticRecord({
+        options: { evidenceId, environment, releaseCommit, imageDigest },
+        refusal,
+        failure,
+        identityState: status.identity?.state,
+      })
+    : null;
+  return status;
 }
 
 export async function main(
@@ -628,12 +713,18 @@ export async function main(
     failure = error;
   }
   const refusal = failure === undefined ? null : refusalCode(failure);
+  let status;
   try {
-    writeJson(values["--status-out"], captureStatus({ ...options, command: action, outcome, refusal }, { run, now }));
+    status = captureStatus({ ...options, command: action, outcome, refusal, failure }, { run, now });
+    writeJson(values["--status-out"], status);
   } catch {
     // A refusal keeps its own code; a success without its record is not a success.
     if (!refusal) throw new Error("revocation_status_unwritten");
   }
+  if (refusal)
+    process.stdout.write(
+      `${JSON.stringify(status?.diagnostic ?? diagnosticRecord({ options, refusal, failure, identityState: "unknown" }))}\n`,
+    );
   if (failure !== undefined) throw failure;
 }
 

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PERMISSION_PRESETS, ROLE_PERMISSIONS } from "../features/memberships/read-model/constants";
+import { PERMISSION_PRESETS, ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import { ROLE_KEYS } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
 import {
