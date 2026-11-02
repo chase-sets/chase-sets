@@ -233,6 +233,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
           PLAYWRIGHT_INSTALL_SITE: catalog-staging-provider-uat
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
         run: node scripts/playwright-chromium-install.mjs
 
       - name: Run staging provider sync UAT
@@ -325,6 +326,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
           PLAYWRIGHT_INSTALL_SITE: catalog-scope-sync-count-lifecycle
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
         run: node scripts/playwright-chromium-install.mjs
       - name: Capture count lifecycle without confirmation
         id: capture
@@ -382,6 +384,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
           PLAYWRIGHT_INSTALL_SITE: catalog-scrydex-coordinate-preview
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
         run: node scripts/playwright-chromium-install.mjs
       - name: Capture Scrydex coordinate preview
         id: capture
@@ -457,6 +460,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
           PLAYWRIGHT_INSTALL_SITE: catalog-scrydex-cache-capture
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
         run: node scripts/playwright-chromium-install.mjs
       - name: Capture Scrydex option cache without refresh
         id: capture
@@ -521,6 +525,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
           PLAYWRIGHT_INSTALL_SITE: catalog-scrydex-force-refresh-bounded
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
         run: node scripts/playwright-chromium-install.mjs
       - name: Run bounded Scrydex force refresh
         id: refresh

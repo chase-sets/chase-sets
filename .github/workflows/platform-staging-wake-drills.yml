@@ -306,6 +306,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
           PLAYWRIGHT_INSTALL_SITE: platform-staging-wake-drills
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
         run: node scripts/playwright-chromium-install.mjs
 
       - name: Run staging wake drill

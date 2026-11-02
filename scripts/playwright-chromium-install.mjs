@@ -155,6 +155,12 @@ export async function installPlaywrightChromium({
   }
   const site = safeField(rawSite, PLAYWRIGHT_INSTALL_SITE);
   const attempt = safeField(rawAttempt, "1");
+  const policy = env.PLAYWRIGHT_INSTALL_POLICY ?? "e2e-retry";
+  if (!["single-attempt", "e2e-retry"].includes(policy)) {
+    return refusal({ site, attempt, reason: "invalid-policy", cache: "invalid", write });
+  }
+  const timeoutSeconds = policy === "single-attempt" ? 600 : PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS;
+  const maxAttempts = policy === "single-attempt" ? 1 : 2;
   let cachePath;
   try {
     cachePath = validateCachePath(env.PLAYWRIGHT_BROWSERS_PATH);
@@ -176,7 +182,7 @@ export async function installPlaywrightChromium({
     return value instanceof Date ? value.getTime() : Number(value);
   };
   const envelopeEndsAt = clockMs() + PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS * 1000;
-  const attemptBudgetMs = PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS * 1000 + INSTALLER_TIMEOUT_GRACE_MS;
+  const attemptBudgetMs = timeoutSeconds * 1000 + INSTALLER_TIMEOUT_GRACE_MS;
   // A retry starts only when its whole bound and kill grace still end inside the envelope.
   const retryFits = (reservedMs) => clockMs() + reservedMs + attemptBudgetMs <= envelopeEndsAt;
   for (let installerAttempt = 1; ; installerAttempt += 1) {
@@ -194,7 +200,7 @@ export async function installPlaywrightChromium({
         cacheHit: cacheBefore.state === "complete",
         requireComplete: false,
         cancelSignal,
-        timeoutSeconds: PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS,
+        timeoutSeconds,
         now,
         // A job keeps one timing record: the attempt that decides its outcome.
         write: (line) => {
@@ -229,7 +235,7 @@ export async function installPlaywrightChromium({
       return fail("cleanup-refusal");
     }
     // Refused authority, a refused start and cancellation are terminal; other finished attempts get one retry.
-    if (["authority-refusal", "start-refusal", "cancelled"].includes(reason) || installerAttempt === 2)
+    if (["authority-refusal", "start-refusal", "cancelled"].includes(reason) || installerAttempt === maxAttempts)
       return fail(reason);
     if (!retryFits(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS)) return fail("timeout");
     write(retryDiagnostic(site, attempt, installerAttempt, reason, cacheAfter.state));

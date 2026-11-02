@@ -454,6 +454,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
           PLAYWRIGHT_INSTALL_SITE: platform-pr-synthetic-capture
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
         run: |
           set -euo pipefail
           test -n "$AC4_SOURCE_SHA"

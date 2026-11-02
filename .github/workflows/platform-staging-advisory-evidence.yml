@@ -493,6 +493,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
           PLAYWRIGHT_INSTALL_SITE: platform-staging-advisory-evidence
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
         run: node scripts/playwright-chromium-install.mjs
 
       - name: Staging marketplace critical flows

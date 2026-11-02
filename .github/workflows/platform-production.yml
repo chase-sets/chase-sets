@@ -2182,6 +2182,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
           PLAYWRIGHT_INSTALL_SITE: platform-production-deploy-staging
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
           PLAYWRIGHT_INSTALL_ATTEMPT: "1"
         run: |
           set +e
@@ -2193,8 +2194,8 @@ jobs:
           node scripts/playwright-chromium-install.mjs 2>&1 | tee -a "$attempts_log"
           status=${PIPESTATUS[0]}
           reason="$(sed -n 's/.*\"reason\":\"\([^\"]*\)\".*/\1/p' "$attempts_log" | tail -n 1)"
-          case "$reason" in
-            timeout|partial-download|cache-restore-failure|incomplete-cache)
+          case "$status:$reason" in
+            [1-9]*:timeout|[1-9]*:partial-download|[1-9]*:cache-restore-failure|[1-9]*:incomplete-cache)
               sleep 5
               PLAYWRIGHT_INSTALL_ATTEMPT="2" node scripts/playwright-chromium-install.mjs 2>&1 | tee -a "$attempts_log"
               status=${PIPESTATUS[0]}
