@@ -7318,9 +7318,12 @@ fn wallet_api(method: &Method, rest: &str, cookie: &str, body: &str) -> Response
         )
             .into_response(),
         (Method::POST, "") => (StatusCode::CREATED, receipt(), Json(wallet_adjustment("wad_new", "requested", "usr_1", true))).into_response(),
-        (Method::POST, "/wad_req/approve") if sent.get("elevationApprovedByUserId").is_none() => {
-            refusal(StatusCode::CONFLICT, "conflict", "This Wallet Adjustment requires a second, elevated approval.")
-        }
+        (Method::POST, "/wad_req/approve") if sent.get("elevationApprovedByUserId").is_none() => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": { "code": "conflict", "message": "This Wallet Adjustment requires a second, elevated approval.",
+                "details": [{ "code": "elevated_approval_required", "message": "This Wallet Adjustment requires a second, elevated approval." }] } })),
+        )
+            .into_response(),
         (Method::POST, "/wad_req/approve") => (receipt(), Json(wallet_adjustment("wad_req", "posted", "usr_2", true))).into_response(),
         (Method::POST, "/wad_req/reject") => (receipt(), Json(wallet_adjustment("wad_req", "rejected", "usr_2", true))).into_response(),
         (Method::POST, "/wad_post/reverse") => {
@@ -7524,6 +7527,7 @@ async fn the_site_files_are_admin_webs() {
     assert_eq!(manifest["name"], "Chase Sets Admin");
     assert_eq!(manifest["short_name"], "CS Admin");
     assert_eq!(manifest["theme_color"], "#0f766e");
+    assert_eq!((&manifest["orientation"], &manifest["categories"]), (&json!("any"), &json!(["business", "productivity"])));
     assert!(manifest["description"].as_str().unwrap().starts_with("Manage Chase Sets catalog"));
     let icons = manifest["icons"].as_array().unwrap();
     assert_eq!(icons.len(), 4);
