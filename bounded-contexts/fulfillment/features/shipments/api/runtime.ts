@@ -57,6 +57,7 @@ import {
   getShipmentForPostageRecovery,
   listStaleFulfillmentPostageLabelOperations,
   listStaleFulfillmentPostageLabelVoidOperations,
+  listSellerCommandCenterShipments,
   listSellerPackingSlips,
   listBuyerShipments,
   listSellerShipments,
@@ -93,6 +94,7 @@ import {
   ShipmentHistoryPoisonedError,
 } from "../domain/mutation-attempt";
 import { assertShipmentActionAllowed } from "../domain/shipment-action";
+import { buildFulfillmentCommandCenter, type FulfillmentCommandCenter } from "../read-model/command-center";
 import {
   claimPostageOperationForFinalization,
   claimReservedPostageOperation,
@@ -331,6 +333,9 @@ export type FulfillmentShipmentServices = Readonly<{
   getBuyerShipment: (shipmentId: string, buyerAccountId: string) => ReturnType<typeof getBuyerShipment>;
   listSellerShipments: (params: Parameters<typeof listSellerShipments>[1]) => ReturnType<typeof listSellerShipments>;
   getSellerShipment: (shipmentId: string, sellerAccountId: string) => ReturnType<typeof getSellerShipment>;
+  // The seller's command center: the shipments that need them now, bucketed, ordered by the
+  // Seller Desk attention policy, each with its action plan.
+  getSellerCommandCenter: (params: Readonly<{ sellerAccountId: string }>) => Promise<FulfillmentCommandCenter>;
   recoverShipmentMutation: (
     params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId: string }>,
     context: EventStoreContext,
@@ -3092,6 +3097,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     getBuyerShipment: (shipmentId, buyerAccountId) => getBuyerShipment(deps.db, shipmentId, buyerAccountId),
     listSellerShipments: (params) => listSellerShipments(deps.db, params),
     getSellerShipment: (shipmentId, sellerAccountId) => getSellerShipment(deps.db, shipmentId, sellerAccountId),
+    getSellerCommandCenter: async (params) =>
+      buildFulfillmentCommandCenter(await listSellerCommandCenterShipments(deps.db, params)),
     listSellerPackingSlips: (params) => listSellerPackingSlips(deps.db, params),
     projectors: [
       createProjectionHandlerSet({
