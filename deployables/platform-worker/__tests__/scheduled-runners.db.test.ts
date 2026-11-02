@@ -12,8 +12,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { module as orderingModule } from "@chase-sets/ordering";
 import { module as pricingModule } from "@chase-sets/pricing";
-import { createMarketplaceOfferRuntime } from "../../../bounded-contexts/marketplace/features/offers/api/runtime";
-import { createManagedOfferWork } from "../../../bounded-contexts/marketplace/features/offers/integrations/managed-work";
+import { createMarketplaceOfferRuntime, createManagedOfferWork } from "@chase-sets/marketplace/server";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";

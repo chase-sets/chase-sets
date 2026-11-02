@@ -28,10 +28,17 @@ import {
   marketplaceBrowserE2eSeedContract,
 } from "./support/seed-contract";
 
+// Two nominal recovery periods plus estimated scheduling/projection/read slack, not a latency SLA.
+const MANAGED_OFFER_CONVERGENCE_BUDGET_MS = 180_000;
+const MANAGED_OFFER_JOURNEY_BUDGET_MS = 240_000;
+test.describe.configure({ retries: 0 });
+test.use({ trace: "on" });
+
 test("market-following consent, changed target, Checkout acceptance and permanent stop @marketplace-account @browser-e2e-seed", async ({
   page,
   browser,
 }, testInfo) => {
+  test.setTimeout(MANAGED_OFFER_JOURNEY_BUDGET_MS);
   const fixture = marketplaceBrowserE2eSeedContract.marketFollowing;
   const catalogDatabaseUrl: unknown = testInfo.config.metadata.catalogDatabaseUrl;
   if (typeof catalogDatabaseUrl !== "string") throw new Error("The owned E2E database target is required.");
@@ -63,6 +70,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
   let sellerContext: BrowserContext | undefined;
   const authorizations: unknown[] = [];
   const writes: unknown[] = [];
+  let journeyFailed = false;
   try {
     await test.step("Prepare and verify the exact synthetic Pricing estimate before Preview (not worker proof)", async () => {
       removeEstimates.push(await seedSyntheticOfferMarketPrice(pool, fixture));
@@ -239,29 +247,288 @@ test("market-following consent, changed target, Checkout acceptance and permanen
     for (const field of ["itemCommitmentAllowance", "consumedItemAmount", "remainingItemAllowance"])
       expect(JSON.stringify(owner)).not.toContain(`"${field}"`);
     await test.step("A versioned Market Price changes the authorized Offer through the real worker", async () => {
-      await expect(
-        seedSyntheticOfferMarketPrice(pool, {
-          ...fixture,
-          estimateVersion: "8347002",
-          previousEstimateVersion: "999",
-          amount: "135.00",
-        }),
-      ).rejects.toThrow("exact previous owned estimate");
-      removeEstimates.push(
-        await seedSyntheticOfferMarketPrice(pool, {
-          ...fixture,
-          estimateVersion: "8347002",
-          previousEstimateVersion: fixture.estimateVersion,
-          amount: "135.00",
-        }),
-      );
-      await expect
-        .poll(async () => {
-          const response = await page.request.get(`/api/marketplace/account/offers/submitted/${controlOfferId}`);
-          expect(response.ok()).toBe(true);
-          return (await response.json()).price_amount;
-        })
-        .toBe("135.00");
+      if (!sandbox.DATABASE_URL_MARKETPLACE)
+        throw new Error("Offer observation requires the current owned E2E Marketplace sandbox.");
+      const marketplaceUrl = new URL(sandbox.DATABASE_URL_MARKETPLACE);
+      if (
+        !/^\/cs_[a-z0-9_]+_marketplace$/.test(marketplaceUrl.pathname) ||
+        !["localhost", "127.0.0.1"].includes(marketplaceUrl.hostname) ||
+        marketplaceUrl.host !== catalogUrl.host ||
+        marketplaceUrl.pathname !== catalogUrl.pathname.replace(/_catalog$/, "_marketplace")
+      )
+        throw new Error("Offer observation requires the same owned local E2E database.");
+      const marketplacePool = createPgPool(marketplaceUrl.toString(), { max: 1 });
+      companionPools.push(marketplacePool);
+      const marketplace = createPostgresEventStore({ pool: marketplacePool });
+      const convergence = {
+        step: "managed Offer convergence",
+        offerId: controlOfferId,
+        buyerAccountId: actor.accountId,
+        policyId,
+        catalogItemId: fixture.catalogItemId,
+        productId: fixture.productId,
+        startedAt: null as string | null,
+        endedAt: null as string | null,
+        elapsedMs: 0,
+        budgetMs: MANAGED_OFFER_CONVERGENCE_BUDGET_MS,
+        pollCount: 0,
+        baselineStreamVersion: null as number | null,
+        currentStreamVersion: null as number | null,
+        events: [] as { eventId: string; eventType: string; streamVersion: number; payload: unknown }[],
+        authoritativePair: null as { priceUpdateVersion: number; evaluationVersion: number } | null,
+        http: null as {
+          status: number;
+          offerId?: string;
+          buyerAccountId?: string;
+          amount?: string;
+          currencyCode?: string;
+          streamVersion?: number;
+          offerStatus?: string;
+        } | null,
+        outcome: "not observed",
+      };
+      timeline.push(convergence);
+      let startedAtMs: number | undefined;
+      let streamReadFailure: unknown;
+      const client = await marketplacePool.connect();
+      try {
+        const readOfferStream = () =>
+          readCompleteStream(
+            { readStream: (input) => marketplace.readStreamInTransaction(client, input) },
+            { streamId: `marketplace.offer-${controlOfferId}`, maxEvents: 100 },
+          );
+        const baseline = await readOfferStream();
+        expect(baseline.find((event) => event.eventType === "marketplace.offer.submitted")?.payload).toMatchObject({
+          offerId: controlOfferId,
+          buyerAccountId: actor.accountId,
+          catalogItemId: fixture.catalogItemId,
+          productId: fixture.productId,
+        });
+        expect(baseline.find((event) => event.eventType === "marketplace.offer.buyer-policy-bound")?.payload).toEqual({
+          offerId: controlOfferId,
+          buyerAccountId: actor.accountId,
+          policyId,
+        });
+        const baselineVersion = baseline.at(-1)!.streamVersion;
+        convergence.baselineStreamVersion = baselineVersion;
+        convergence.currentStreamVersion = baselineVersion;
+        await expect(
+          seedSyntheticOfferMarketPrice(pool, {
+            ...fixture,
+            estimateVersion: "8347002",
+            previousEstimateVersion: "999",
+            amount: "135.00",
+          }),
+        ).rejects.toThrow("exact previous owned estimate");
+        startedAtMs = performance.now();
+        convergence.startedAt = new Date().toISOString();
+        const deadline = startedAtMs + MANAGED_OFFER_CONVERGENCE_BUDGET_MS;
+        let deadlineExpired = false;
+        const remainingBudget = () => {
+          const remaining = Math.floor(deadline - performance.now());
+          if (remaining <= 0) {
+            deadlineExpired = true;
+            throw new Error("Managed Offer convergence deadline exhausted.");
+          }
+          return remaining;
+        };
+        // This timer bounds I/O, never delays an assertion or buys another convergence window.
+        const beforeDeadline = async <T>(read: () => Promise<T>): Promise<T> => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            return await Promise.race([
+              new Promise<never>((_, reject) => {
+                timer = setTimeout(() => {
+                  deadlineExpired = true;
+                  reject(new Error("Managed Offer read exceeded its remaining budget."));
+                }, remainingBudget());
+              }),
+              read(),
+            ]);
+          } finally {
+            clearTimeout(timer);
+          }
+        };
+        removeEstimates.push(
+          await seedSyntheticOfferMarketPrice(pool, {
+            ...fixture,
+            estimateVersion: "8347002",
+            previousEstimateVersion: fixture.estimateVersion,
+            amount: "135.00",
+          }),
+        );
+        let readFailure: unknown;
+        try {
+          await expect
+            .poll(
+              async () => {
+                convergence.pollCount += 1;
+                try {
+                  const events = await beforeDeadline(readOfferStream);
+                  convergence.currentStreamVersion = events.at(-1)?.streamVersion ?? null;
+                  const relevant = events.filter((event) =>
+                    ["marketplace.offer.price-updated", "marketplace.offer.managed-evaluated"].includes(
+                      event.eventType,
+                    ),
+                  );
+                  for (const event of relevant) {
+                    expect(event.payload).toMatchObject(
+                      event.eventType === "marketplace.offer.price-updated"
+                        ? {
+                            offerId: controlOfferId,
+                            buyerAccountId: actor.accountId,
+                            priceAmount: expect.stringMatching(/^\d+\.\d{2}$/),
+                            priceCurrencyCode: expect.stringMatching(/^[A-Z]{3}$/),
+                          }
+                        : {
+                            offerId: controlOfferId,
+                            policyId,
+                            status: expect.stringMatching(/^(applied|held)$/),
+                            reason: expect.any(String),
+                            evidence: expect.any(Object),
+                          },
+                    );
+                  }
+                  convergence.events = relevant.slice(-12).map((event) => ({
+                    eventId: event.eventId,
+                    eventType: event.eventType,
+                    streamVersion: event.streamVersion,
+                    payload: {
+                      offerId: event.payload.offerId,
+                      buyerAccountId: event.payload.buyerAccountId,
+                      policyId: event.payload.policyId,
+                      priceAmount: event.payload.priceAmount,
+                      priceCurrencyCode: event.payload.priceCurrencyCode,
+                      status: event.payload.status,
+                      reason: event.payload.reason,
+                      marketPrice:
+                        (event.payload.evidence as { marketPrice?: unknown } | undefined)?.marketPrice ?? null,
+                    },
+                  }));
+                  const evaluationIndex = events.findIndex((event, index) => {
+                    const price = events[index - 1];
+                    const evidence = event.payload.evidence as { marketPrice?: Record<string, unknown> } | undefined;
+                    const marketPrice = evidence?.marketPrice;
+                    return (
+                      event.eventType === "marketplace.offer.managed-evaluated" &&
+                      event.streamVersion > baselineVersion &&
+                      event.payload.offerId === controlOfferId &&
+                      event.payload.policyId === policyId &&
+                      event.payload.status === "applied" &&
+                      event.payload.reason === "market-price-target" &&
+                      marketPrice?.catalogItemId === fixture.catalogItemId &&
+                      marketPrice.productId === fixture.productId &&
+                      marketPrice.estimateVersion === "8347002" &&
+                      marketPrice.amount === "135.00" &&
+                      marketPrice.currencyCode === "USD" &&
+                      price?.eventType === "marketplace.offer.price-updated" &&
+                      price.streamVersion > baselineVersion &&
+                      price.streamVersion + 1 === event.streamVersion &&
+                      price.payload.offerId === controlOfferId &&
+                      price.payload.buyerAccountId === actor.accountId &&
+                      price.payload.priceAmount === "135.00" &&
+                      price.payload.priceCurrencyCode === "USD"
+                    );
+                  });
+                  const evaluation = events[evaluationIndex];
+                  convergence.authoritativePair = evaluation
+                    ? {
+                        priceUpdateVersion: events[evaluationIndex - 1]!.streamVersion,
+                        evaluationVersion: evaluation.streamVersion,
+                      }
+                    : null;
+                  const latestFirst = [...events].reverse();
+                  const latestPrice = latestFirst.find((event) =>
+                    [
+                      "marketplace.offer.submitted",
+                      "marketplace.offer.price-updated",
+                      "marketplace.offer.accepted",
+                    ].includes(event.eventType),
+                  );
+                  const latestLifecycle = latestFirst.find((event) =>
+                    [
+                      "marketplace.offer.submitted",
+                      "marketplace.offer.resumed",
+                      "marketplace.offer.paused",
+                      "marketplace.offer.withdrawn",
+                      "marketplace.offer.accepted",
+                    ].includes(event.eventType),
+                  );
+                  const response = await page.request.get(
+                    `/api/marketplace/account/offers/submitted/${controlOfferId}`,
+                    {
+                      timeout: remainingBudget(),
+                      maxRetries: 0,
+                    },
+                  );
+                  convergence.http = { status: response.status() };
+                  expect(response.ok(), "buyer-authenticated submitted Offer read during convergence").toBe(true);
+                  const detail = await beforeDeadline(() => response.json());
+                  expect(detail).toMatchObject({
+                    offer_id: controlOfferId,
+                    buyer_account_id: actor.accountId,
+                    price_amount: expect.stringMatching(/^\d+\.\d{2}$/),
+                    price_currency_code: "USD",
+                    status: expect.stringMatching(/^(submitted|paused|withdrawn|accepted)$/),
+                    last_stream_version: expect.any(Number),
+                  });
+                  expect(Number.isSafeInteger(detail.last_stream_version) && detail.last_stream_version > 0).toBe(true);
+                  convergence.http = {
+                    status: response.status(),
+                    offerId: detail.offer_id,
+                    buyerAccountId: detail.buyer_account_id,
+                    amount: detail.price_amount,
+                    currencyCode: detail.price_currency_code,
+                    streamVersion: detail.last_stream_version,
+                    offerStatus: detail.status,
+                  };
+                  remainingBudget();
+                  return evaluation &&
+                    latestPrice?.payload.priceAmount === "135.00" &&
+                    latestPrice.payload.priceCurrencyCode === "USD" &&
+                    ["marketplace.offer.submitted", "marketplace.offer.resumed"].includes(
+                      latestLifecycle?.eventType ?? "",
+                    ) &&
+                    detail.price_amount === "135.00" &&
+                    detail.status === "submitted" &&
+                    detail.last_stream_version >= evaluation.streamVersion
+                    ? "converged"
+                    : "pending";
+                } catch (error) {
+                  readFailure = error;
+                  return "read-failed";
+                }
+              },
+              {
+                intervals: [1_000],
+                timeout: remainingBudget(),
+                message: "Observe the paired 135.00 managed update and its projection within one deadline",
+              },
+            )
+            .not.toBe("pending");
+          if (readFailure) throw readFailure;
+          convergence.outcome = "converged";
+        } catch (error) {
+          convergence.outcome =
+            readFailure && !deadlineExpired && performance.now() < deadline
+              ? "read failed; convergence not proven"
+              : convergence.authoritativePair
+                ? "authoritative update observed; projection not caught up"
+                : "no matching authoritative update observed";
+          throw error;
+        }
+      } catch (error) {
+        streamReadFailure = error;
+        throw error;
+      } finally {
+        convergence.endedAt = new Date().toISOString();
+        convergence.elapsedMs = startedAtMs === undefined ? 0 : Math.round(performance.now() - startedAtMs);
+        try {
+          client.release(streamReadFailure);
+        } catch (error) {
+          if (!streamReadFailure) throw error;
+        }
+      }
       await page.reload();
       await expect(page.getByText("$135.00", { exact: true }).first()).toBeVisible();
       for (const [width, height] of [
@@ -336,6 +603,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
       const seller = await sellerContext!.newPage();
       if (marketplaceBrowserE2eSellerCredentials().email !== marketplaceBrowserE2eSeedContract.seller.email)
         throw new Error("This journey requires the seeded synthetic seller.");
+      let sellerStepFailed = false;
       try {
         const listing = await seller.request.post("/api/marketplace/account/listings", {
           data: {
@@ -378,9 +646,12 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           true,
         );
 
-        const sellerSession = await seller.request.get("/api/auth/session");
-        expect(sellerSession.ok()).toBe(true);
-        const sellerActor = (await sellerSession.json()).actor;
+        const sellerFixtureIdentity = {
+          tenantId: actor.tenantId,
+          accountId: identitySeedIds.demo.accountId,
+          userId: identitySeedIds.demo.userId,
+        };
+        const payoutPools: PgTransactionalPool[] = [];
         for (const contextName of ["settlement", "checkout"]) {
           const url = new URL(sandbox[`DATABASE_URL_${contextName.toUpperCase()}`] ?? "");
           if (
@@ -388,24 +659,26 @@ test("market-following consent, changed target, Checkout acceptance and permanen
             url.pathname !== databaseUrl.pathname.replace(/_pricing$/, `_${contextName}`)
           )
             throw new Error("Payout fixture requires the same owned E2E sandbox.");
-          companionPools.push(createPgPool(url.toString(), { max: 1 }));
+          const companion = createPgPool(url.toString(), { max: 1 });
+          companionPools.push(companion);
+          payoutPools.push(companion);
         }
-        const [settlementPool, checkoutPool] = companionPools;
+        const [settlementPool, checkoutPool] = payoutPools;
         const settlement = createPostgresEventStore({ pool: settlementPool! });
-        const streamId = `settlement.payout-readiness-${sellerActor.accountId}`;
+        const streamId = `settlement.payout-readiness-${sellerFixtureIdentity.accountId}`;
         const prior = (await readCompleteStream(settlement, { streamId })).at(-1);
         const [ready] = await settlement.appendToStream({
           streamId,
           expectedVersion: prior?.streamVersion ?? 0,
           context: {
-            tenantId: sellerActor.tenantId,
-            audit: { forAccountId: sellerActor.accountId, performedByUserId: sellerActor.userId },
+            tenantId: sellerFixtureIdentity.tenantId,
+            audit: { forAccountId: sellerFixtureIdentity.accountId, performedByUserId: sellerFixtureIdentity.userId },
           },
           events: [
             {
               eventType: "settlement.payout-readiness.recorded",
               payload: {
-                accountId: sellerActor.accountId,
+                accountId: sellerFixtureIdentity.accountId,
                 status: "ready",
                 missingRequirements: [],
                 recordedAt: new Date().toISOString(),
@@ -517,8 +790,15 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           path: testInfo.outputPath("market-following-checkout-confirmation.png"),
           fullPage: true,
         });
+      } catch (error) {
+        sellerStepFailed = true;
+        throw error;
       } finally {
-        await seller.close();
+        try {
+          await seller.close();
+        } catch (error) {
+          if (!sellerStepFailed) throw error;
+        }
       }
     });
     const stopConfirmation = page.getByRole("checkbox", { name: /^Stop is permanent/ });
@@ -531,8 +811,25 @@ test("market-following consent, changed target, Checkout acceptance and permanen
     await page.goto(`/account/offers/submitted/${heldControlOfferId}`);
     await page.getByRole("button", { name: /^Manage Stopped/ }).click();
     await expect(page.getByText(/Stop is permanent/)).toBeVisible();
+  } catch (error) {
+    journeyFailed = true;
+    throw error;
   } finally {
-    try {
+    let teardownError: unknown;
+    const cleanup = async (action: () => Promise<unknown>) => {
+      try {
+        await action();
+      } catch (error) {
+        teardownError ??= error;
+      }
+    };
+    await cleanup(() =>
+      testInfo.attach("market-following-command-timeline", {
+        body: JSON.stringify(timeline, null, 2),
+        contentType: "application/json",
+      }),
+    );
+    await cleanup(async () => {
       if (policyId) {
         const response = await page.request.get(`/api/marketplace/account/offer-policies/${policyId}`);
         if (response.status() === 404) {
@@ -553,31 +850,20 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           }
         }
       }
-    } finally {
-      try {
-        if (listingId && sellerContext) {
-          const withdrawn = await sellerContext.request.post(
-            `/api/marketplace/account/listings/${listingId}/withdraw`,
-            {
-              data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
-            },
-          );
-          expect(withdrawn.ok()).toBe(true);
-        }
-        await sellerContext?.close();
-      } finally {
-        try {
-          await testInfo.attach("market-following-command-timeline", {
-            body: JSON.stringify(timeline, null, 2),
-            contentType: "application/json",
-          });
-          for (const remove of removeEstimates.reverse()) await remove();
-          for (const companion of companionPools)
-            await (companion as PgTransactionalPool & { end: () => Promise<void> }).end();
-        } finally {
-          await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
-        }
+    });
+    await cleanup(async () => {
+      if (listingId && sellerContext) {
+        const withdrawn = await sellerContext.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`, {
+          data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
+        });
+        expect(withdrawn.ok()).toBe(true);
       }
-    }
+    });
+    await cleanup(async () => sellerContext?.close());
+    for (const remove of removeEstimates.reverse()) await cleanup(remove);
+    for (const companion of companionPools)
+      await cleanup(() => (companion as PgTransactionalPool & { end: () => Promise<void> }).end());
+    await cleanup(() => (pool as PgTransactionalPool & { end: () => Promise<void> }).end());
+    if (!journeyFailed && teardownError) throw teardownError;
   }
 });
