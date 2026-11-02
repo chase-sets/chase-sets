@@ -138,6 +138,7 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
       runSettlement: {
         runId: "not-a-pull-run",
         expectedRunRevision: 0,
+        stagedReadback: null,
         fromState: "composed",
         toState: "abandoned",
         verificationSnapshotId: null,

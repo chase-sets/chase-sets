@@ -158,6 +158,7 @@ describe("connector-settlement-authority", () => {
   const runSettlement: ConnectorRunSettlement = {
     runId: "run_test",
     expectedRunRevision: 2,
+    stagedReadback: null,
     fromState: "claimed",
     toState: "abandoned",
     verificationSnapshotId: null,

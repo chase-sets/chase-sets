@@ -270,6 +270,9 @@ export type ClaimedReservationRunSettlement = Readonly<{
   verificationSnapshotGeneration: number | null;
   uploadAttemptedAt: string | null;
   uploadFileName: string | null;
+  stagedReadback:
+    | import("../../connector-client/domain/tcgplayer-staged-import-readback-verdict").TcgplayerStagedImportReadbackVerdict
+    | null;
   importSummary: Readonly<{
     fileName: string;
     dateImportedText: string;

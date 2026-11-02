@@ -262,6 +262,7 @@ describe("connector-feed-malformed-payload", () => {
     const runSettlement = {
       runId: "run_test",
       expectedRunRevision: 1,
+      stagedReadback: null,
       fromState: "claimed",
       toState: "applied",
       verificationSnapshotId: "snapshot_test",
@@ -283,6 +284,7 @@ describe("connector-feed-malformed-payload", () => {
     const nullable = {
       ...runSettlement,
       expectedRunRevision: 0,
+      stagedReadback: null,
       verificationSnapshotId: null,
       verificationSnapshotGeneration: null,
       uploadAttemptedAt: null,

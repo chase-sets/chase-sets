@@ -28,6 +28,20 @@ import { buildChannelListingStateProjectionHandlers } from "../read-model/state-
 import { syntheticProfile } from "./test-support";
 import { createConnectionHarness, testContext } from "../../connections/tests/test-support";
 import { deriveClaimedOperationOutcomes } from "../../tcgplayer-csv/domain/lifecycle";
+import { canonicalManualClaimLeasePolicySnapshotDigest } from "../../tcgplayer-csv/domain/validation";
+
+function manualLeaseSnapshot() {
+  const tuple = {
+    policyKey: "channels.tcgplayer-manual-claim-lease" as const,
+    value: { leaseMs: 60_000 },
+    source: "fallback" as const,
+    documentId: null,
+    effectiveFrom: null,
+    effectiveUntil: null,
+    resolvedAt: "2026-09-09T12:01:00Z",
+  };
+  return { ...tuple, digest: canonicalManualClaimLeasePolicySnapshotDigest(tuple) };
+}
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -423,9 +437,9 @@ describeDb("channel-listing-desired-state-production-path", () => {
       {
         runId: "run-boundary",
         connectionId,
-        claimant: { claimantKind: "connector", claimantId: "connector-boundary" },
+        claimant: { claimantKind: "manual", claimantId: "manual-boundary" },
         leaseMs: 60_000,
-        manualClaimLeasePolicySnapshot: null,
+        manualClaimLeasePolicySnapshot: manualLeaseSnapshot(),
         resolvedPolicy: { maxRowsPerBatch: 500 },
         composedAt: "2026-09-09T12:02:00Z",
       },
@@ -477,6 +491,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
       runSettlement: {
         runId: applied.runId,
         expectedRunRevision: awaiting.revision,
+        stagedReadback: null,
         fromState: "awaiting-verification" as const,
         toState: "applied" as const,
         verificationSnapshotId: "snapshot-boundary-proof",
@@ -761,9 +776,9 @@ async function createClampPauseHarness() {
         {
           runId: "run-clamp",
           connectionId,
-          claimant: { claimantKind: "connector", claimantId: "connector-clamp" },
+          claimant: { claimantKind: "manual", claimantId: "manual-clamp" },
           leaseMs: 60_000,
-          manualClaimLeasePolicySnapshot: null,
+          manualClaimLeasePolicySnapshot: manualLeaseSnapshot(),
           resolvedPolicy: { maxRowsPerBatch: 500 },
           composedAt: "2026-09-09T12:02:00Z",
         },

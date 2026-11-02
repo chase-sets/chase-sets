@@ -408,6 +408,7 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
       assertTcgplayerImportSummary(input.importSummary);
       const run = await readRun(dependencies.db, input.runId);
       if (!run) throw new ChannelSyncRunError("unknown-run");
+      if (run.claimant.claimantKind !== "manual") throw new ChannelSyncRunError("illegal-transition");
       const verification = await readSnapshotById(dependencies.db, input.verificationSnapshotId);
       if (
         !verification ||
@@ -462,6 +463,7 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
           uploadAttemptedAt: null,
           uploadFileName: null,
           importSummary: null,
+          stagedReadback: null,
           context: null,
         },
       });
@@ -770,6 +772,7 @@ async function reportTerminalRun(
       uploadAttemptedAt: transition.uploadAttemptedAt,
       uploadFileName: transition.uploadFileName,
       importSummary: transition.importSummary,
+      stagedReadback: null,
       context,
     },
   });

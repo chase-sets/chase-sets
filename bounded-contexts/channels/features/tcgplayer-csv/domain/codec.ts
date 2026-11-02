@@ -98,9 +98,8 @@ function decodeChannelSyncRunEvent(stored: Pick<StoredEvent, "eventType" | "payl
       }
     } else if (trigger === "verify") {
       if (
-        stored.payload.verificationSnapshotId === null ||
-        stored.payload.importSummary === null ||
-        stored.payload.uploadAttemptedAt !== null
+        stored.payload.verificationSnapshotId !== null &&
+        (stored.payload.importSummary === null || stored.payload.uploadAttemptedAt !== null)
       ) {
         throw new Error("Verification transition evidence is invalid.");
       }

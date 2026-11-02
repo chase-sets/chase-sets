@@ -1,4 +1,4 @@
-import type { ClaimedOperationOutcome } from "../../outbound-sync/domain/contracts";
+import type { ClaimedOperationOutcome, ClaimedReservationRunSettlement } from "../../outbound-sync/domain/contracts";
 import {
   ChannelSyncRunError,
   channelSyncRunTerminalStates,
@@ -160,6 +160,78 @@ export function applicationMatchesImportSummary(run: ChannelSyncRun, summary: Tc
   }
   const composedCount = run.members.filter((member) => member.memberKind === "composed").length;
   return summary.fileName === run.uploadFileName && summary.numberOfProducts === composedCount;
+}
+
+export function assertChannelSyncRunSettlement(
+  run: ChannelSyncRun,
+  settlement: ClaimedReservationRunSettlement,
+  options: Readonly<{
+    leaseExpired?: boolean;
+  }> = {},
+): void {
+  if (isChannelSyncRunTerminalState(run.state)) throw new ChannelSyncRunError("terminal");
+  if (run.state !== settlement.fromState || run.membershipCompleteness.kind !== "complete") refuseSettlement();
+  const verdict = settlement.stagedReadback;
+  const snapshot = settlement.verificationSnapshotId !== null || settlement.verificationSnapshotGeneration !== null;
+  const uploadAttemptedAt = settlement.uploadAttemptedAt ?? run.uploadAttemptedAt;
+  if ((settlement.uploadAttemptedAt === null) !== (settlement.uploadFileName === null)) refuseSettlement();
+  if (run.claimant.claimantKind === "manual") {
+    if (verdict !== null) refuseSettlement();
+    // verifyRun already owns the manual snapshot-plus-summary proof.
+    return;
+  }
+  if (run.claimant.claimantKind === "connector" && snapshot) refuseSettlement();
+  if (verdict !== null && (run.claimant.claimantKind !== "connector" || uploadAttemptedAt === null)) refuseSettlement();
+  const corroborated = { ...run, uploadFileName: settlement.uploadFileName ?? run.uploadFileName };
+  if (
+    run.claimant.claimantKind === "connector" &&
+    settlement.importSummary !== null &&
+    !applicationMatchesImportSummary(corroborated, settlement.importSummary)
+  ) {
+    refuseSettlement();
+  }
+  if (settlement.toState === "applied" || settlement.toState === "application-unknown") {
+    if (run.state !== "awaiting-verification") refuseSettlement();
+    if (verdict !== null) {
+      if (verdict.kind === "basis-diverged") refuseSettlement();
+      const composedCount = run.members.filter((member) => member.memberKind === "composed").length;
+      if (verdict.counts.members !== composedCount) refuseSettlement();
+      const toState = verdict.kind === "applied" ? "applied" : "application-unknown";
+      if (settlement.toState !== toState) refuseSettlement();
+      return;
+    }
+    if (
+      settlement.toState === "application-unknown" &&
+      options.leaseExpired === true &&
+      settlement.uploadAttemptedAt === null &&
+      settlement.uploadFileName === null &&
+      settlement.importSummary === null
+    )
+      return;
+    refuseSettlement();
+  }
+  if (
+    verdict !== null ||
+    snapshot ||
+    settlement.importSummary !== null ||
+    settlement.uploadAttemptedAt !== null ||
+    settlement.uploadFileName !== null
+  )
+    refuseSettlement();
+  const trigger =
+    settlement.toState === "validation-rejected"
+      ? "report-validation-cancelled"
+      : settlement.toState === "superseded"
+        ? "supersede"
+        : settlement.toState === "stale-basis"
+          ? "observe-newer-basis"
+          : "reservation-lease-expired";
+  if (settlement.toState === "validation-rejected" && uploadAttemptedAt !== null) refuseSettlement();
+  if (decideChannelSyncRunTransition(run.state, trigger) !== settlement.toState) refuseSettlement();
+}
+
+function refuseSettlement(): never {
+  throw new ChannelSyncRunError("illegal-transition", "Channel Sync Run settlement evidence is invalid.");
 }
 
 function assertNever(value: never): never {

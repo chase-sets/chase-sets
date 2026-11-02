@@ -15,6 +15,127 @@ import { mutatedOutboundRuntime } from "../../outbound-sync/tests/runtime-mutati
 import { createTcgplayerClaimedReservationRunSettlementPort } from "../../tcgplayer-csv/integrations/outbound-sync-settlement";
 import { createChannelListingPublicationOutcomeRecorder } from "../../outbound-sync/integrations/listing-composition";
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { channelSyncRunEventCodec } from "../../tcgplayer-csv/domain/codec";
+import { buildTcgplayerCsvProjectionHandlers } from "../../tcgplayer-csv/read-model/projection";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+
+describeDb("tcgplayer-run-settlement-readback-retention / tcgplayer-run-law-readback-day-after", () => {
+  const h = transportDatabase("readback_9974");
+  it.each(["applied", "application-unknown", "validation-rejected"] as const)(
+    "settles %s once, replays without verdicts, and refuses changed reports",
+    async (state) => {
+      const initial = await prepareConnectorBoundSettlement(h.db, h.services, {
+        connectionId: target.connectionId,
+        pairingId: h.pairingId,
+        context: transportContext,
+      });
+      const composed = await h.services.tcgplayerCsv.readRun(initial.runSettlement!.runId);
+      if (!composed) throw new Error("missing-synthetic-run");
+      let run = await h.services.tcgplayerCsv.claimRun(
+        { runId: composed.runId, expectedRevision: composed.revision },
+        transportContext,
+      );
+      if (state !== "validation-rejected")
+        run = await h.services.tcgplayerCsv.recordUploadAttempt(
+          {
+            runId: run.runId,
+            expectedRevision: run.revision,
+            uploadAttemptedAt: new Date().toISOString(),
+            fileName: "synthetic-readback.csv",
+          },
+          transportContext,
+        );
+      const counts = { preRows: 2, postRows: 2, members: 2 };
+      const settlement: NonNullable<ConnectorReport["runSettlement"]> = {
+        runId: run.runId,
+        expectedRunRevision: run.revision,
+        fromState: state === "validation-rejected" ? "claimed" : "awaiting-verification",
+        toState: state,
+        verificationSnapshotId: null,
+        verificationSnapshotGeneration: null,
+        uploadAttemptedAt: null,
+        uploadFileName: null,
+        importSummary: null,
+        stagedReadback:
+          state === "validation-rejected"
+            ? null
+            : state === "applied"
+              ? { kind: "applied", counts }
+              : { kind: "outcome-unknown", reason: "non-member-drift", counts },
+      };
+      const body = {
+        reservationId: run.reservationId,
+        outcomes: deriveClaimedOperationOutcomes({ ...run, state }),
+        runSettlement: settlement,
+      };
+      const untouched = await h.effects();
+      if (state !== "validation-rejected") {
+        const summary = {
+          fileName: "synthetic-readback.csv",
+          dateImportedText: "synthetic import",
+          numberOfProducts: 2,
+          recordedAt: new Date().toISOString(),
+        };
+        for (const patch of [
+          { stagedReadback: null, importSummary: summary },
+          { stagedReadback: { kind: "basis-diverged", counts } },
+          { stagedReadback: { ...settlement.stagedReadback, counts: { ...counts, members: 1 } } },
+          { verificationSnapshotId: "snapshot_context_free", verificationSnapshotGeneration: 2 },
+        ]) {
+          expect((await h.request("report", { ...body, runSettlement: { ...settlement, ...patch } })).status).toBe(400);
+          expect((await h.effects()).e1).toEqual(untouched.e1);
+        }
+      }
+      const leaked = {
+        ...body,
+        runSettlement: {
+          ...settlement,
+          stagedReadback: { ...settlement.stagedReadback, bytes: "READBACK_BYTES_SENTINEL_9974" },
+        },
+      };
+      expect((await h.request("report", leaked)).status).toBe(400);
+      expect((await h.effects()).e1).toEqual(untouched.e1);
+      expect((await h.request("report", body)).status).toBe(200);
+      expect((await h.services.tcgplayerCsv.readRun(run.runId))?.state).toBe(state);
+      const settled = await h.effects();
+      h.restart();
+      expect((await h.request("report", body)).status).toBe(200);
+      expect((await h.effects()).e1).toEqual(settled.e1);
+      const changed = {
+        ...body,
+        runSettlement: {
+          ...settlement,
+          stagedReadback:
+            settlement.stagedReadback === null
+              ? { kind: "applied", counts }
+              : { ...settlement.stagedReadback, counts: { ...counts, preRows: 3 } },
+        },
+      };
+      expect((await h.request("report", changed)).status).toBe(409);
+      expect((await h.effects()).e1).toEqual(settled.e1);
+      const store = createPostgresEventStore({ pool: h.db });
+      const events = await store.readStream({ streamId: `channels.tcgplayer-sync-run-${run.runId}`, limit: 10 });
+      const projection = buildTcgplayerCsvProjectionHandlers(h.db);
+      for (const event of events) {
+        expect(() => channelSyncRunEventCodec.decode(event)).not.toThrow();
+        await projection[event.eventType]?.(toTransportEvent(event));
+      }
+      expect((await h.services.tcgplayerCsv.readRun(run.runId))?.state).toBe(state);
+      const persisted = JSON.stringify((await h.effects()).e1);
+      for (const forbidden of [
+        "stagedReadback",
+        "preRows",
+        "postRows",
+        "non-member-drift",
+        "READBACK_BYTES_SENTINEL_9974",
+      ])
+        expect(persisted).not.toContain(forbidden);
+      expect(JSON.stringify((await h.db.query("SELECT * FROM channel_connector_audit")).rows)).not.toContain(
+        "READBACK_BYTES_SENTINEL_9974",
+      );
+    },
+  );
+});
 
 function report(
   reservation: ClaimedOperationReservation,
@@ -94,6 +215,7 @@ describeDb("connector-feed-round-trip / connector-feed-lease-redelivery / connec
       runSettlement: {
         runId: run.runId,
         expectedRunRevision: run.revision,
+        stagedReadback: null,
         fromState: "composed",
         toState: "abandoned",
         verificationSnapshotId: null,
