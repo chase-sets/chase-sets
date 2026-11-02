@@ -114,7 +114,7 @@ confirm activation here: the connection's status reads `active` in the list
 rendered by
 `bounded-contexts/channels/features/connections/ui/connection-pages.tsx`. The
 only connection actions exposed on this surface are `pause`, `resume`, and
-`disconnect` (`allowedChannelConnectionActions` in `connection-pages.tsx`),
+`disconnect` (the Channels API `allowedActions` response),
 posted as `intent` form values to `POST /api/channels/connections/:id/pause`,
 `/resume`, and `/disconnect`. There is no `connect` or `activate` action on
 this route or its API — do not look for one.
@@ -227,7 +227,7 @@ forward to `applied`, `validation-rejected`, `application-unknown`,
 ### Pause And Resume The Connection
 
 Use the `pause` and `resume` intents on `/account/channels`
-(`connection-pages.tsx`, `allowedChannelConnectionActions`). Pausing sets the
+(`domain.ts`, `allowedChannelConnectionActions`). Pausing sets the
 connection's Channel Outbound Hold source to `seller-pause`
 (`bounded-contexts/channels/features/reconciliation/api/runtime.ts`,
 `readChannelOutboundHold`); resuming clears that source. Per

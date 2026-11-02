@@ -17,6 +17,31 @@ export const initialChannelConnectionState: ChannelConnectionState = {
   bindings: [],
 };
 
+export type ChannelConnectionAllowedAction = "pause" | "resume" | "disconnect";
+
+const allowedActionCommands: Readonly<Record<ChannelConnectionAllowedAction, ChannelConnectionCommand>> = {
+  pause: { type: "PauseChannelConnection" },
+  resume: { type: "ResumeChannelConnection" },
+  disconnect: { type: "DisconnectChannelConnection" },
+};
+
+export function allowedChannelConnectionActions(
+  status: NonNullable<ChannelConnectionState["status"]>,
+): readonly ChannelConnectionAllowedAction[] {
+  const state: ChannelConnectionState = {
+    ...initialChannelConnectionState,
+    connectionId: "connection",
+    status,
+  };
+  return (Object.keys(allowedActionCommands) as ChannelConnectionAllowedAction[]).filter((action) => {
+    try {
+      return decideChannelConnection(state, allowedActionCommands[action]).length > 0;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export const decideChannelConnection: AggregateDecider<
   ChannelConnectionState,
   ChannelConnectionCommand,

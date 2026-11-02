@@ -186,6 +186,7 @@ export type PublicChannelConnection = Readonly<{
   environment: ChannelEnvironment;
   status: ChannelConnectionStatus;
   createdAt: string;
+  allowedActions: readonly ("pause" | "resume" | "disconnect")[];
 }>;
 
 export type ChannelConnectionPage = Readonly<{

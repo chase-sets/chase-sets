@@ -10,6 +10,7 @@ import {
 import { assertClosedRecord, assertOpaqueId, assertProviderKey, assertSafeInteger } from "../domain/validation";
 import { closePublicChannelConnection, toPublicChannelConnection } from "../read-model/queries";
 import { resolveConnectionStorageLocation, withConnectionAuthoritySnapshot } from "./runtime";
+import { listConnectableChannelProviders } from "./providers";
 
 export type ChannelConnectionRouteOptions = Readonly<{
   deploymentEnvironment?: DeploymentEnvironment;
@@ -101,6 +102,16 @@ export function channelConnectionRoutes(
         return c.json(errorBody("invalid-page"), 400);
       }
       throw error;
+    }
+  });
+
+  app.get("/providers", async (c) => {
+    if (new URL(c.req.url).searchParams.size > 0) return c.json(errorBody("invalid-request"), 400);
+    if (!c.get("actor").permissions.includes("channels.manage")) return c.json({ items: [] });
+    try {
+      return c.json({ items: await listConnectableChannelProviders(deploymentEnvironment) });
+    } catch {
+      return c.json(errorBody("invalid-request"), 400);
     }
   });
 
