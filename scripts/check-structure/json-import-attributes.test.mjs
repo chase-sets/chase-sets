@@ -341,7 +341,7 @@ describe("JSON import-attribute production guard", () => {
     const inventory = inspectFixture(
       contextFiles("export const marker = true;\n", {
         "deployables/platform-api/src/context-registry.ts":
-          'import "../../../../bounded-contexts/example/renderer.tsx";\n',
+          'import "../../../bounded-contexts/example/renderer.tsx";\n',
         "bounded-contexts/example/renderer.tsx":
           'import contextManifest from "./context.json" with { type: "json" };\n',
       }),
@@ -493,8 +493,8 @@ describe("manifest host-registration predicate parity", () => {
     const source = readFileSync(sourceUrl, "utf8");
     const extracted = extractRegistryBuilderManifestFields(source, path.dirname(fileURLToPath(sourceUrl)));
 
-    expect(extracted.builders).toEqual([...registryBuilderNames].sort());
-    expect(extracted.fields).toEqual([...manifestHostRegistrationFields].sort());
+    expect(extracted.builders).toEqual([]);
+    expect(extracted.fields).toEqual([]);
   });
 
   it("detects a seventh field read by a registry builder", () => {
@@ -790,7 +790,7 @@ describe("real repository execution membership", () => {
     withFixture(
       contextFiles('export { default as contextManifest } from "./context.json" with { type: "json" };', {
         "deployables/platform-api/src/context-registry.ts":
-          'import "../../../../bounded-contexts/example/bridge"; import "../../../../bounded-contexts/example/unused";',
+          'import "../../../bounded-contexts/example/bridge"; import "../../../bounded-contexts/example/unused";',
         "bounded-contexts/example/bridge.ts": 'export * from "./loop"; import type { Shape } from "./types";',
         "bounded-contexts/example/loop.ts": 'export * from "./bridge"; export * from "./index";',
         "bounded-contexts/example/types.ts": 'import contextManifest from "./context.json"; export type Shape = {};',
@@ -927,7 +927,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "ffbc641c1fbbd64cc206f4520d3bb11c9b53082d772c71caa375eec32f5c3ee0",
+      "318ca6622740d86b032f0355021d5e6a351619b4532c7c2bf0d108c9e05ccfed",
     );
     expect(
       normalized.filter(

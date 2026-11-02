@@ -300,9 +300,9 @@ describe("worktree sandbox", () => {
     expect(listSandboxDatabases(sandbox).map(({ key }) => key)).toEqual(["control", "catalog", "marketplace"]);
   });
 
-  it("sandbox-platform-api-database-owner-parity matches the generated registry and rejects a deletion mutant", () => {
+  it("sandbox-platform-api-database-owner-parity matches the owner registry and rejects a deletion mutant", () => {
     const registrySource = readFileSync(
-      path.join(repoRoot, "deployables", "platform-api", "src", "generated", "api-context-registry.ts"),
+      path.join(repoRoot, "deployables", "platform-api", "src", "context-registry.ts"),
       "utf8",
     );
     const generatedContextNames = [...registrySource.matchAll(/^\s+contextName: "([^"]+)",$/gmu)].map(

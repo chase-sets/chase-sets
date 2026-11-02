@@ -384,6 +384,18 @@ describe("scoped guard-test selection", () => {
       ],
     ],
     [
+      "scripts/check-structure/context-registry-guard.test.mjs",
+      [
+        "scripts/check-structure/context-registry-guard.mjs",
+        "scripts/check-structure/context-registry-guard.test.mjs",
+        "deployables/platform-api/src/context-registry.ts",
+        "deployables/platform-worker/src/context-registry.ts",
+        "deployables/admin-web/app/context-registry.ts",
+        "deployables/marketplace/app/context-registry.ts",
+        "deployables/public-web/app/context-registry.ts",
+      ],
+    ],
+    [
       "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs",
       [
         "package.json",

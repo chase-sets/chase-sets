@@ -783,6 +783,9 @@ describe("channels-foundation-deployable-registration", () => {
     writeSource(root, trackedLocaleFile, 'export const channels = { "channels.example": "Example" } as const;\n');
 
     const common = { rootDir: root, trackedLocaleFiles: [trackedLocaleFile] };
+    for (const relativePath of registryPaths) {
+      writeSource(root, relativePath, readFileSync(path.join(repoRoot, relativePath), "utf8"));
+    }
     syncWorkspaceMetadata({ ...common, workspaces: [] });
     const before = readRegistryBytes(root);
     const channelsWorkspace = {
@@ -796,8 +799,8 @@ describe("channels-foundation-deployable-registration", () => {
     const candidate = readRegistryBytes(root);
 
     for (const relativePath of [registryPaths[0], registryPaths[1], registryPaths[2], registryPaths[3]]) {
-      expect(candidate[relativePath]).not.toEqual(before[relativePath]);
       expect(candidate[relativePath].toString("utf8")).toContain("@chase-sets/channels");
+      expect(candidate[relativePath]).toEqual(before[relativePath]);
     }
     for (const relativePath of [registryPaths[4]]) {
       expect(candidate[relativePath]).toEqual(before[relativePath]);

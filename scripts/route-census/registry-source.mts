@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 export const LEGACY_API_REGISTRY_PATH = "deployables/platform-api/src/generated/api-context-registry.ts";
 export const CURRENT_API_REGISTRY_PATH = "deployables/platform-api/src/context-registry.ts";
@@ -14,6 +15,7 @@ function trackedPath(root: string, relativePath: string): string | null {
   try {
     const output = execFileSync("git", ["-C", root, "ls-files", "--error-unmatch", "--", relativePath], {
       encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
       windowsHide: true,
     }).trim();
     return output === relativePath ? output : null;

@@ -221,7 +221,7 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
     rule: "five owner-authored context registries, exact AST shape, admission membership/order, and retired-path absence",
     evidence: [
       "scripts/check-structure/context-registry-guard.mjs:1-220",
-      "scripts/check-structure/context-registry-guard.test.mjs:1-80",
+      "scripts/check-structure/context-registry-guard.test.mjs:1-47",
     ],
     include: [
       ...exact(
