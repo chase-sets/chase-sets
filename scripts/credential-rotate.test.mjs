@@ -189,7 +189,10 @@ async function rotate(argv, { stdin = pipedStdin([SENTINEL]), fetch = liveFetch(
 const secretSets = () => gh.calls.filter((call) => call.args[0] === "secret");
 const workflowRuns = () => gh.calls.filter((call) => call.args[0] === "workflow");
 const writeOrder = () =>
-  secretSets().map((call) => `${call.args[2]}@${call.args.includes("--env") ? call.args.at(-1) : "repository"}`);
+  secretSets().map((call) => {
+    const environmentIndex = call.args.indexOf("--env");
+    return `${call.args[2]}@${environmentIndex >= 0 ? call.args[environmentIndex + 1] : "repository"}`;
+  });
 
 function respondWithRunUrls(overrides = () => undefined) {
   let run = 1000;
@@ -282,7 +285,9 @@ describe("AC1: a value reaches only gh's stdin", () => {
     expect(result.stderr.indexOf("New value for PAIR_SECRET_KEY")).toBeLessThan(
       result.stderr.indexOf("New value for PAIR_ACCESS_ID"),
     );
-    expect(secretSets()[0]).toMatchObject({ args: ["secret", "set", "PAIR_SECRET_KEY", "--env", "merge-gate"] });
+    expect(secretSets()[0]).toMatchObject({
+      args: ["secret", "set", "PAIR_SECRET_KEY", "--env", "merge-gate", "--repo", "chase-sets/chase-sets"],
+    });
     expect(secretSets()[0].stdin).toBe(SENTINEL);
     expect(secretSets()[1].stdin).toBe(SENTINEL_PARTNER);
   });
@@ -318,7 +323,15 @@ describe("AC2: writes follow the selected value group", () => {
       ENVIRONMENTS.flatMap((environment) => [`PAIR_ACCESS_ID@${environment}`, `PAIR_SECRET_KEY@${environment}`]),
     );
     for (const call of secretSets()) {
-      expect(call.args).toEqual(["secret", "set", call.args[2], "--env", call.args[4]]);
+      expect(call.args).toEqual([
+        "secret",
+        "set",
+        call.args[2],
+        "--env",
+        call.args[4],
+        "--repo",
+        "chase-sets/chase-sets",
+      ]);
       expect(call.options.stdio).toEqual(["pipe", "pipe", "pipe"]);
     }
   });
@@ -408,7 +421,9 @@ describe("AC2: writes follow the selected value group", () => {
   it("writes a repository-scoped entry to the repository without --env", async () => {
     const result = await rotate(["--secret", "REPO_TOKEN"]);
     expect(result.code).toBe(0);
-    expect(secretSets().map((call) => call.args)).toEqual([["secret", "set", "REPO_TOKEN"]]);
+    expect(secretSets().map((call) => call.args)).toEqual([
+      ["secret", "set", "REPO_TOKEN", "--repo", "chase-sets/chase-sets"],
+    ]);
   });
 
   it("refuses stdin that does not carry exactly one line per value", async () => {
@@ -503,8 +518,8 @@ describe("AC4: proof dispatch and --dry-run", () => {
     const result = await rotate(["--secret", "PAIR_ACCESS_ID"], { stdin: pipedStdin([SENTINEL, SENTINEL_PARTNER]) });
     expect(result.code).toBe(0);
     expect(workflowRuns().map((call) => call.args)).toEqual([
-      ["workflow", "run", "platform-credential-health.yml", "--ref", "main"],
-      ["workflow", "run", "representative-catalog-snapshot.yml", "--ref", "main"],
+      ["workflow", "run", "platform-credential-health.yml", "--ref", "main", "--repo", "chase-sets/chase-sets"],
+      ["workflow", "run", "representative-catalog-snapshot.yml", "--ref", "main", "--repo", "chase-sets/chase-sets"],
     ]);
     expect(gh.calls.findIndex((call) => call.args[0] === "workflow")).toBe(8);
     expect(result.stdout).toContain(`platform-credential-health.yml on main: ${RUN_URL}1001`);
