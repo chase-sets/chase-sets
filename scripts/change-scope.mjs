@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,212 @@ import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
+
+// Kept local to avoid loading the TypeScript/Vitest-heavy enrollment authority
+// from release and static importers. A parity test pins this projection.
+export const platformApiEnrollmentSelectors = Object.freeze({
+  schema: "db-enrollment-workload/v1",
+  w1: Object.freeze({
+    census: "deployables/platform-api derivePlatformApiDbTestCensus dbEntries and bootstrapEntries",
+    scripts: "deployables/platform-api/package.json test:db:* scripts",
+  }),
+  w2: Object.freeze([
+    "^deployables/platform-api/__tests__/",
+    "^deployables/platform-api/src/test-support/",
+    "^contracts/[^/]+/test-support\\.ts$",
+    "^bounded-contexts/.+/tests/[^/]*test-support\\.ts$",
+    "^bounded-contexts/.+/tests/[^/]*fixture[^/]*\\.ts$",
+  ]),
+  w3: Object.freeze({
+    exact: Object.freeze([
+      "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
+      "deployables/platform-api/src/database-pools.ts",
+      "deployables/platform-api/src/representative-commerce-state.ts",
+      "bounded-contexts/catalog/features/source-observations/api/provider-integration-profile-store.ts",
+      "bounded-contexts/catalog/features/source-observations/api/representative-catalog-replay.ts",
+      "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
+      "bounded-contexts/identity/support/runtime-support/bootstrap-context.ts",
+      "infrastructure/bounded-context-runtime/seed-aggregate-state.ts",
+      "infrastructure/bounded-context-runtime/seeding.ts",
+      "infrastructure/bounded-context-runtime/test-support.ts",
+      "infrastructure/platform-runtime/api.ts",
+      "infrastructure/platform-runtime/context-pools.ts",
+      "infrastructure/platform-runtime/host-runtime-selection.ts",
+    ]),
+    patterns: Object.freeze([
+      Object.freeze({ include: "^contracts/[^/]+-seed/", exclude: "\\.test\\.[^/]+$" }),
+      Object.freeze({ include: "^bounded-contexts/(?:.+/)?seed\\.ts$" }),
+      Object.freeze({ include: "^bounded-contexts/(?:.+/)?seed-support/" }),
+      Object.freeze({ include: "^bounded-contexts/(?:.+/)?api/seeding/" }),
+    ]),
+    json: "static .json imports of W1-W3 modules at any path, except context.json manifests",
+    selections:
+      "deployables/platform-api/src/generated/api-context-registry.ts entries projected through infrastructure/platform-runtime/api.ts ApiContextManifest",
+  }),
+  w4: Object.freeze({
+    config: "deployables/platform-api/vitest.config.ts resolved per test:db:* unit with CHASE_SETS_LANE_MODE unset",
+    fields: Object.freeze([
+      "allowOnly",
+      "bail",
+      "clearMocks",
+      "dangerouslyIgnoreUnhandledErrors",
+      "env",
+      "environment",
+      "environmentOptions",
+      "exclude",
+      "execArgv",
+      "fakeTimers",
+      "fileParallelism",
+      "globalSetup",
+      "globals",
+      "hookTimeout",
+      "include",
+      "includeSource",
+      "isolate",
+      "maxConcurrency",
+      "maxWorkers",
+      "minWorkers",
+      "mockReset",
+      "passWithNoTests",
+      "pool",
+      "poolOptions",
+      "restoreMocks",
+      "retry",
+      "sequence",
+      "setupFiles",
+      "teardownTimeout",
+      "testNamePattern",
+      "testTimeout",
+      "unstubEnvs",
+      "unstubGlobals",
+      "vmMemoryLimit",
+    ]),
+    environment: Object.freeze({ CI: "true", GITHUB_ACTIONS: "true" }),
+    postgres: ".github/workflows/platform-pr.yml db-tests job",
+  }),
+  w5: Object.freeze({
+    lockfile: "pnpm-lock.yaml",
+    importer: "deployables/platform-api",
+    packages: Object.freeze(["pg", "vitest"]),
+  }),
+});
+
+const platformApiEnrollmentBindingSections = new Set([
+  "W1 case identities",
+  "W1 census",
+  "W1 file",
+  "W1 partition",
+  "W2 file",
+  "W3 file",
+  "W3 json",
+  "W3 selection",
+]);
+const platformApiEnrollmentCache = new Map();
+const platformApiConfigCache = new Map();
+
+function platformApiConfigClosure(baseDir) {
+  const configPath = path.join(baseDir, "deployables", "platform-api", "vitest.config.ts");
+  let configSignature = "missing";
+  try {
+    configSignature = String(statSync(configPath).mtimeMs);
+  } catch {}
+  const cached = platformApiConfigCache.get(configPath);
+  if (cached?.signature === configSignature) return cached.paths;
+  const seen = new Set();
+  const queue = [configPath];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (seen.has(current) || !existsSync(current)) continue;
+    seen.add(current);
+    let source;
+    try {
+      source = readFileSync(current, "utf8");
+    } catch {
+      continue;
+    }
+    for (const match of source.matchAll(/(?:from|import)\s*\(?\s*["'](\.[^"']+)["']/g)) {
+      const raw = path.resolve(path.dirname(current), match[1]);
+      const resolved = [raw, `${raw}.ts`, `${raw}.mjs`, `${raw}.js`, path.join(raw, "index.ts")].find(existsSync);
+      if (resolved) queue.push(resolved);
+    }
+  }
+  const paths = new Set([...seen].map((filePath) => normalizeFilePath(path.relative(baseDir, filePath))));
+  platformApiConfigCache.set(configPath, { signature: configSignature, paths });
+  return paths;
+}
+
+function platformApiEnrollmentBaseline(baseDir) {
+  const fixtureDir = path.join(baseDir, "deployables", "platform-api", "__tests__", "fixtures");
+  let names;
+  try {
+    names = readdirSync(fixtureDir)
+      .filter((name) => /^db-enrollment-workload-\d+\.json$/.test(name))
+      .sort();
+  } catch {
+    return { available: false, paths: new Set(), aliasOwners: new Set(), configPaths: new Set() };
+  }
+  const signature = names
+    .map((name) => {
+      try {
+        return `${name}:${statSync(path.join(fixtureDir, name)).mtimeMs}`;
+      } catch {
+        return `${name}:missing`;
+      }
+    })
+    .join("|");
+  const cached = platformApiEnrollmentCache.get(fixtureDir);
+  if (cached?.signature === signature) return { ...cached.value, configPaths: platformApiConfigClosure(baseDir) };
+  const paths = new Set();
+  const aliasTargets = new Set();
+  let available = names.length > 0;
+  for (const name of names) {
+    try {
+      const baseline = JSON.parse(readFileSync(path.join(fixtureDir, name), "utf8"));
+      if (baseline.schema !== platformApiEnrollmentSelectors.schema || !Array.isArray(baseline.bindings)) {
+        available = false;
+        continue;
+      }
+      for (const binding of baseline.bindings) {
+        if (!Array.isArray(binding) || typeof binding[0] !== "string") {
+          available = false;
+          continue;
+        }
+        if (platformApiEnrollmentBindingSections.has(binding[0]) && typeof binding[1] === "string")
+          paths.add(normalizeFilePath(binding[1]));
+        if (binding[0] === "W4 alias" && typeof binding[2] === "string")
+          aliasTargets.add(normalizeFilePath(binding[2]));
+      }
+    } catch {
+      available = false;
+    }
+  }
+  const aliasOwners = new Set();
+  for (const target of aliasTargets) {
+    let current = path.dirname(path.join(baseDir, target));
+    while (current.startsWith(baseDir) && current !== baseDir) {
+      const packagePath = path.join(current, "package.json");
+      if (existsSync(packagePath)) {
+        aliasOwners.add(normalizeFilePath(path.relative(baseDir, packagePath)));
+        break;
+      }
+      current = path.dirname(current);
+    }
+  }
+  const value = { available, paths, aliasOwners, configPaths: platformApiConfigClosure(baseDir) };
+  platformApiEnrollmentCache.set(fixtureDir, { signature, value });
+  return value;
+}
+
+function isPlatformApiEnrollmentMember(filePath, baseline) {
+  if (filePath === "pnpm-lock.yaml" || filePath === ".github/workflows/platform-pr.yml") return true;
+  if (baseline.paths.has(filePath) || baseline.aliasOwners.has(filePath) || baseline.configPaths.has(filePath))
+    return true;
+  if (platformApiEnrollmentSelectors.w3.exact.includes(filePath)) return true;
+  if (platformApiEnrollmentSelectors.w2.some((pattern) => new RegExp(pattern).test(filePath))) return true;
+  return platformApiEnrollmentSelectors.w3.patterns.some(({ include, exclude }) => {
+    return new RegExp(include).test(filePath) && (!exclude || !new RegExp(exclude).test(filePath));
+  });
+}
 
 export class StaticScopeDerivationError extends Error {
   constructor(code, message) {
@@ -388,8 +594,16 @@ export function classifyChanges({
   const publicPresenceWorkspace = workspaces.find(
     (workspace) => workspace.root === "bounded-contexts" && workspace.dirName === "public-presence",
   )?.name;
+  const platformApiEnrollmentBaselineData = platformApiEnrollmentBaseline(baseDir);
+  let platformApiEnrollmentChanged = false;
 
   for (const filePath of normalizedFiles) {
+    if (
+      !platformApiEnrollmentBaselineData.available ||
+      isPlatformApiEnrollmentMember(filePath, platformApiEnrollmentBaselineData)
+    ) {
+      platformApiEnrollmentChanged = true;
+    }
     for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
       if (matchesAny(filePath, patterns)) {
         exposurePostureCategories.add(category);
@@ -581,8 +795,13 @@ export function classifyChanges({
   const affectedWorkspaces = workspaces
     .map((workspace) => workspace.name)
     .filter((workspaceName) => affectedWorkspaceSet.has(workspaceName));
-  const unitTestsRequired = affectedWorkspaces.length > 0;
-  return {
+  const unitTestWorkspaceSet = new Set(affectedWorkspaces);
+  if (platformApiEnrollmentChanged && platformApiWorkspace) unitTestWorkspaceSet.add(platformApiWorkspace);
+  const unitTestWorkspaces = workspaces
+    .map((workspace) => workspace.name)
+    .filter((workspaceName) => unitTestWorkspaceSet.has(workspaceName));
+  const unitTestsRequired = unitTestWorkspaces.length > 0;
+  const result = {
     changedFiles: normalizedFiles,
     affectedWorkspaces,
     runtimeAffectedWorkspaces,
@@ -611,6 +830,8 @@ export function classifyChanges({
     exposurePostureChanged: exposurePostureCategories.size > 0,
     exposurePostureCategories: [...exposurePostureCategories].sort(),
   };
+  Object.defineProperty(result, "unitTestWorkspaces", { value: unitTestWorkspaces, enumerable: false });
+  return result;
 }
 
 export function listChangedFiles(base, head, options = {}) {
@@ -765,6 +986,7 @@ export function toOutputMap(scope) {
     docs_only: String(scope.docsOnly),
     local_checks: String(scope.localChecksRequired),
     unit_tests: String(scope.unitTestsRequired),
+    unit_test_workspaces: (scope.unitTestWorkspaces ?? scope.affectedWorkspaces ?? []).join(","),
     db_tests: String(scope.dbTestsRequired),
     e2e_tests: String(scope.e2eTestsRequired),
     e2e_suites: scope.e2eSuiteIds.join(","),

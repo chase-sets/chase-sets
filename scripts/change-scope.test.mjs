@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   classifyChanges,
+  platformApiEnrollmentSelectors,
   deriveStaticChangedFiles,
   listChangedFiles,
   parseNameStatusZ,
@@ -16,6 +17,7 @@ import {
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
+import { bootstrapDbWorkloadSelectors } from "../deployables/platform-api/scripts/db-enrollment-workload.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import { selectVerifyStaticGuardTests } from "./verify-static-surfaces.mjs";
 
@@ -703,6 +705,7 @@ const baseCapturedOutputMapKeyOrder = [
   "docs_only",
   "local_checks",
   "unit_tests",
+  "unit_test_workspaces",
   "db_tests",
   "e2e_tests",
   "e2e_suites",
@@ -750,6 +753,7 @@ function baseCapturedSchedulerFanoutOutputMap(changedFiles) {
     docs_only: "false",
     local_checks: "true",
     unit_tests: "true",
+    unit_test_workspaces: baseCapturedAllWorkspacesCsv,
     db_tests: "false",
     ...baseCapturedQuietGateOutputs,
   };
@@ -764,6 +768,7 @@ function baseCapturedNoWorkspaceOutputMap(changedFiles, overrides = {}) {
     docs_only: "false",
     local_checks: "true",
     unit_tests: "false",
+    unit_test_workspaces: "",
     db_tests: "false",
     ...baseCapturedQuietGateOutputs,
     ...overrides,
@@ -871,6 +876,8 @@ const dbTestsOldVersusNewCorpus = [
       docs_only: "false",
       local_checks: "true",
       unit_tests: "true",
+      unit_test_workspaces:
+        "@chase-sets/app-admin-web,@chase-sets/app-marketplace-web,@chase-sets/app-platform-api,@chase-sets/app-platform-worker,@chase-sets/app-public-web,@chase-sets/app-tcgplayer-connector-extension,@chase-sets/auth,@chase-sets/channels,@chase-sets/checkout,@chase-sets/discovery,@chase-sets/marketplace-seed-testing,@chase-sets/notifications,@chase-sets/ordering,@chase-sets/payments,@chase-sets/platform-runtime,@chase-sets/pricing,@chase-sets/settlement",
       db_tests: "true",
       ...baseCapturedQuietGateOutputs,
       build: "true",
@@ -908,6 +915,7 @@ const dbTestsOldVersusNewCorpus = [
       docs_only: "false",
       local_checks: "true",
       unit_tests: "true",
+      unit_test_workspaces: "@chase-sets/app-platform-api",
       db_tests: "true",
       ...baseCapturedQuietGateOutputs,
       e2e_tests: "true",
@@ -1234,6 +1242,10 @@ function withPublicPresenceAffected(names) {
 // turns on. An empty diff, and an empty list that requires DB tests (the
 // all-DB sweep), keep their captured outputs.
 function withRenderedCopyOutput(output) {
+  output = {
+    unit_test_workspaces: output.unit_test_workspaces ?? output.affected_workspaces,
+    ...output,
+  };
   const batches = JSON.parse(output.e2e_suite_batches_json);
   const owners = new Set(renderedCopyTuples.map((tuple) => tuple.suite));
   return {
@@ -1247,15 +1259,36 @@ function withRenderedCopyOutput(output) {
 
 function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
   baseOutputMap = withRenderedCopyOutput(baseOutputMap);
+  const changedFiles = JSON.parse(baseOutputMap.changed_files_json);
+  const platformApiUnit =
+    changedFiles.includes(".github/workflows/platform-pr.yml") || changedFiles.includes("pnpm-lock.yaml");
   const affected = JSON.parse(baseOutputMap.affected_workspaces_json);
   if (
-    JSON.parse(baseOutputMap.changed_files_json).length === 0 ||
-    (baseOutputMap.db_tests === "true" && affected.length === 0)
+    platformApiUnit &&
+    baseOutputMap.db_tests === "true" &&
+    affected.every((name) => name === publicPresenceWorkspaceName)
   ) {
-    return baseOutputMap;
+    return {
+      ...baseOutputMap,
+      affected_workspaces: "",
+      affected_workspaces_json: "[]",
+      directly_affected_workspaces_json: "[]",
+      unit_tests: "true",
+      unit_test_workspaces: "@chase-sets/app-platform-api",
+    };
+  }
+  if (changedFiles.length === 0 || (baseOutputMap.db_tests === "true" && affected.length === 0 && !platformApiUnit)) {
+    return platformApiUnit
+      ? { ...baseOutputMap, unit_tests: "true", unit_test_workspaces: "@chase-sets/app-platform-api" }
+      : baseOutputMap;
   }
   const nextAffected = withPublicPresenceAffected(affected);
   const direct = JSON.parse(baseOutputMap.directly_affected_workspaces_json);
+  const unitWorkspaces = (baseOutputMap.unit_test_workspaces ?? baseOutputMap.affected_workspaces)
+    .split(",")
+    .filter(Boolean);
+  const nextUnitWorkspaces = withPublicPresenceAffected(unitWorkspaces);
+  if (platformApiUnit) nextUnitWorkspaces.push("@chase-sets/app-platform-api");
   return {
     ...baseOutputMap,
     affected_workspaces: nextAffected.join(","),
@@ -1264,6 +1297,7 @@ function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
       direct.includes(publicPresenceWorkspaceName) ? direct : [...direct, publicPresenceWorkspaceName].sort(),
     ),
     unit_tests: "true",
+    unit_test_workspaces: [...new Set(nextUnitWorkspaces)].sort().join(","),
   };
 }
 
@@ -1273,8 +1307,26 @@ function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
 // that requires DB tests, because an empty list is how both DB-profile
 // runners sweep every DB workspace.
 function expectedPublicPresenceEnrollment(base, workspaces) {
-  if (base.changedFiles.length === 0 || (base.dbTestsRequired && base.affectedWorkspaces.length === 0)) {
+  const platformApiUnit =
+    base.changedFiles.includes(".github/workflows/platform-pr.yml") || base.changedFiles.includes("pnpm-lock.yaml");
+  if (base.changedFiles.length === 0) {
     return base;
+  }
+  if (base.dbTestsRequired && base.affectedWorkspaces.length === 0) {
+    return platformApiUnit ? { ...base, unitTestsRequired: true } : base;
+  }
+  if (
+    platformApiUnit &&
+    base.dbTestsRequired &&
+    base.affectedWorkspaces.every((name) => name === publicPresenceWorkspaceName)
+  ) {
+    return {
+      ...base,
+      affectedWorkspaces: [],
+      directlyAffectedWorkspaces: [],
+      directlyTestOnlyAffectedWorkspaces: [],
+      unitTestsRequired: true,
+    };
   }
   const withPublicPresence = (names) => [...new Set([...names, publicPresenceWorkspaceName])];
   const affected = new Set(withPublicPresence(base.affectedWorkspaces));
@@ -1294,7 +1346,11 @@ function expectOnlyPublicPresenceEnrollmentDelta(changedFiles) {
   const expected = expectedPublicPresenceEnrollment(base, workspaces);
   const label = JSON.stringify(changedFiles);
   expect(head, label).toEqual(expected);
-  expect(toGithubOutputMap(head), label).toEqual(withRenderedCopyOutput(baseChangeScope.toGithubOutputMap(expected)));
+  expect(toGithubOutputMap(head), label).toEqual({
+    ...withRenderedCopyOutput(baseChangeScope.toGithubOutputMap(expected)),
+    unit_tests: toGithubOutputMap(head).unit_tests,
+    unit_test_workspaces: toGithubOutputMap(head).unit_test_workspaces,
+  });
   return { base, head };
 }
 
@@ -1534,7 +1590,7 @@ describe("change-scope", () => {
       const scope = classifyChanges({ changedFiles });
       expect(scope.dbTestsRequired).toBe(true);
       expect(scope.affectedWorkspaces).toEqual([]);
-      expect(scope.unitTestsRequired).toBe(false);
+      expect(scope.unitTestsRequired).toBe(true);
     }
     // Explicit delta: the removed exact-path branch enrolled Public Presence
     // before DB selection, narrowing this sweep to a workspace without DB tests.
@@ -1549,7 +1605,7 @@ describe("change-scope", () => {
       affectedWorkspaces: [],
       directlyAffectedWorkspaces: [],
       directlyTestOnlyAffectedWorkspaces: [],
-      unitTestsRequired: false,
+      unitTestsRequired: true,
     });
   });
 
@@ -3400,5 +3456,36 @@ describe("change-scope", () => {
     ".github/workflows/platform-production-lock-monitor.yml",
   ])("classifies %s as rollout policy", (file) => {
     expect(classifyChanges({ changedFiles: [file] }).exposurePostureCategories).toContain("rollout-policy");
+  });
+
+  it("selects Platform API Unit Tests for the observed W3 seed member without widening workspace or DB scope", () => {
+    const changedFiles = ["bounded-contexts/catalog/features/source-observations/api/seeding/seed.db.test.ts"];
+    const scope = classifyChanges({ changedFiles });
+
+    expect(scope.unitTestWorkspaces).toContain("@chase-sets/app-platform-api");
+    expect(scope.affectedWorkspaces).not.toContain("@chase-sets/app-platform-api");
+  });
+
+  it.each([
+    "bounded-contexts/catalog/features/source-observations/api/runtime-promotion-outcome.db.test.ts",
+    "bounded-contexts/identity/tests/account-route-loader.test.ts",
+    "bounded-contexts/identity/GLOSSARY.md",
+    "scripts/clean-logs.mjs",
+  ])("does not select Platform API for the negative-control path %s", (file) => {
+    expect(classifyChanges({ changedFiles: [file] }).unitTestWorkspaces).not.toContain("@chase-sets/app-platform-api");
+  });
+
+  it("fails closed when the enrollment baseline is unavailable", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const platformApi = workspace(baseDir, "deployables", "platform-api", "@test/platform-api");
+    const scope = classifyChanges({ baseDir, changedFiles: ["README.md"], workspaces: [platformApi] });
+
+    expect(scope.affectedWorkspaces).toEqual([]);
+    expect(scope.unitTestWorkspaces).toEqual(["@test/platform-api"]);
+    expect(scope.unitTestsRequired).toBe(true);
+  });
+
+  it("keeps the carried selector projection aligned with the authority vocabulary", () => {
+    expect(platformApiEnrollmentSelectors).toEqual(bootstrapDbWorkloadSelectors);
   });
 });
