@@ -117,9 +117,7 @@ export function createIdentityMutationPersistence(
           return history;
         },
         append: async (inputs) => {
-          const reader = membershipHistoryReader(client, {
-            readStream: (input) => store.readStreamInTransaction(client, input),
-          });
+          const reader = membershipHistoryReader(client, (input) => store.readStreamInTransaction(client, input));
           const expanded = await planMembershipSetAppends(reader, inputs);
           return store.appendToStreamsInTransaction(client, expanded);
         },

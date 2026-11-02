@@ -14,6 +14,7 @@ const sources = () => new Map(paths.map((file) => [file, readFileSync(path.join(
 
 test("Membership writer census partitions every source and rejects the differently shaped sibling", () => {
   const result = validateMembershipSetWriters({ repoRoot });
+  console.log(`Membership writer census: ${result.scanned}/${result.total} sources; ${result.membershipSites} Membership sites; partition ${result.partition.production}+${result.partition.excluded}=${result.partition.discovered}; sibling bypass ${result.plantedBypass}`);
   assert.deepEqual(result.violations, []);
   assert.equal(result.scanned, result.total);
   assert.equal(result.partition.discovered, result.partition.production + result.partition.excluded);
@@ -21,6 +22,7 @@ test("Membership writer census partitions every source and rejects the different
   for (const suffix of [
     "api.ts",
     "features/memberships/api/route.ts",
+    "features/memberships/api/mcp.ts",
     "support/runtime-support/production-bootstrap.ts",
     "support/runtime-support/seed.ts",
     "support/runtime-support/admin-qa-actor-fixtures.ts",
@@ -33,6 +35,9 @@ test("Membership writer census partitions every source and rejects the different
     );
   for (const owner of [
     "membershipRoutes",
+    "changeMembershipRole",
+    "revokeMembership",
+    "reinstateMembership",
     "appendPersonalIdentityRegistration",
     "grantGuestAccountForAuth",
     "acceptInvitationForUserFromAuth",
@@ -52,6 +57,39 @@ test("source omission cannot turn the census green", () => {
     () => scanMembershipSetWriters(sources(), paths.slice(1)),
     /incomplete Membership writer source partition/,
   );
+});
+
+test("MCP writer enrollment permits only its three command handlers, never raw appends or new siblings", () => {
+  const file = "bounded-contexts/identity/features/memberships/api/mcp.ts";
+  for (const owner of ["changeMembershipRole", "revokeMembership", "reinstateMembership"]) {
+    const candidate = sources();
+    candidate.set(file, `export function ${owner}(services, id) { return services.commandHandler({streamId: 'identity.membership-' + id}); }`);
+    assert.deepEqual(scanMembershipSetWriters(candidate, [...paths, file]).violations, []);
+    candidate.set(file, `export function ${owner}(store, id) { return store.appendToStream({streamId: 'identity.membership-' + id}); }`);
+    assert.ok(scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) => line.includes(`unclassified Membership writer (appendToStream, ${owner})`)));
+  }
+  const candidate = sources();
+  candidate.set(file, "export function different(services, id) { return services.commandHandler({streamId: 'identity.membership-' + id}); }");
+  assert.ok(scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) => line.includes("unclassified Membership writer (commandHandler, different)")));
+});
+
+test("the conservative census filter retains every append spelling, alias and escaped property", () => {
+  const file = "scripts/synthetic-new-import.mjs";
+  const calls = [
+    ...["appendToStream", "appendToStreams", "appendToStreamInTransaction", "appendToStreamsInTransaction", "appendToStreamsIndependently", "append", "commandHandler", "createAggregateCommandHandler"].map((name) => `store.${name}(input)`),
+    "store['appendToStream'](input)",
+    "store[`appendToStream`](input)",
+    "store['append\\u0054oStream'](input)",
+    "store.append\\u0054oStream(input)",
+    "(() => { const { appendToStream: emit } = store; return emit(input); })()",
+    "(() => { const emit = store.appendToStream.bind(store); return emit(input); })()",
+    "(() => { const label = `before ${input.id} after`; return store.appendToStream(input); })()",
+  ];
+  for (const call of calls) {
+    const candidate = sources();
+    candidate.set(file, `export function different(store, input) { const stream = 'identity.membership-mbr_new'; return ${call}; }`);
+    assert.ok(scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) => line.includes("unclassified Membership writer")), call);
+  }
 });
 
 test("unchanged admission inputs plus a direct source append mutant rejects at the planner boundary", () => {

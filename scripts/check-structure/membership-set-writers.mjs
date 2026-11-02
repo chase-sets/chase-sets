@@ -8,10 +8,12 @@ const identity = "bounded-contexts/identity/";
 const composition = `${identity}support/runtime-support/services.ts`;
 const transaction = `${identity}features/account-management/api/fences.ts`;
 const cutover = `${identity}features/memberships/api/membership-set-cutover.ts`;
+const membershipMcp = `${identity}features/memberships/api/mcp.ts`;
 const allowedWriterFiles = new Set([
   composition,
   transaction,
   cutover,
+  membershipMcp,
   `${identity}api.ts`,
   `${identity}features/memberships/api/runtime.ts`,
   `${identity}features/memberships/api/route.ts`,
@@ -31,6 +33,7 @@ const appendNames = new Set([
   "commandHandler",
   "createAggregateCommandHandler",
 ]);
+const writerSurfaceNames = new Set([...appendNames, "createPostgresEventStore", "createMembershipRuntime"]);
 const allowedOwners = new Map([
   ["appendPersonalIdentityRegistration", `${identity}api.ts`],
   ["grantGuestAccountForAuth", `${identity}api.ts`],
@@ -38,6 +41,9 @@ const allowedOwners = new Map([
   ["readInvitationAcceptanceAuthority", `${identity}features/invitations/api/acceptance-operation.ts`],
   ["acceptInvitationOperation", `${identity}features/invitations/api/acceptance-operation.ts`],
   ["membershipRoutes", `${identity}features/memberships/api/route.ts`],
+  ["changeMembershipRole", membershipMcp],
+  ["revokeMembership", membershipMcp],
+  ["reinstateMembership", membershipMcp],
   ["createMembershipRuntime", `${identity}features/memberships/api/runtime.ts`],
   ["createIdentityMutationPersistence", transaction],
   ["provisionAdminQaActorFixture", `${identity}support/runtime-support/admin-qa-actor-fixtures.ts`],
@@ -63,6 +69,11 @@ function property(node) {
   return null;
 }
 
+function hasWriterSurface(source) {
+  // Escaped identifiers and properties must reach the AST even without a literal name match.
+  return source.includes("\\") || [...writerSurfaceNames].some((name) => source.includes(name));
+}
+
 export function scanMembershipSetWriters(sources, expectedFiles) {
   if (JSON.stringify([...sources.keys()].sort()) !== JSON.stringify([...expectedFiles].sort()))
     throw new Error("incomplete Membership writer source partition");
@@ -70,6 +81,7 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
   const violations = [];
   let appendSites = 0;
   for (const [file, source] of sources) {
+    if (!hasWriterSurface(source)) continue;
     const ast = ts.createSourceFile(
       file,
       source,
@@ -221,7 +233,10 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
       )
         return;
       const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1;
-      const approved = allowedWriterFiles.has(file) && allowedOwners.get(ownerName) === file;
+      const approved =
+        allowedWriterFiles.has(file) &&
+        allowedOwners.get(ownerName) === file &&
+        (file !== membershipMcp || called === "commandHandler");
       rows.push({
         file,
         line,
@@ -279,12 +294,18 @@ export function validateMembershipSetWriters({ repoRoot }) {
   const sources = new Map(included.map((file) => [file, readFileSync(path.join(repoRoot, file), "utf8")]));
   const census = scanMembershipSetWriters(sources, included);
   const plantedFile = `${identity}features/synthetic-sibling/alternate.ts`;
-  const planted = new Map(sources);
+  // Bindings are file-local; retain canonical wiring when testing the added file.
+  const planted = new Map(
+    [composition, transaction, `${identity}features/memberships/api/runtime.ts`].flatMap((file) => {
+      const source = sources.get(file);
+      return source === undefined ? [] : [[file, source]];
+    }),
+  );
   planted.set(
     plantedFile,
     `import { createPostgresEventStore as connect } from "@chase-sets/event-core-postgres"; export function different(pool, input) { const { appendToStream: emit } = connect({ pool }); return emit(input); }`,
   );
-  const mutant = scanMembershipSetWriters(planted, [...included, plantedFile]);
+  const mutant = scanMembershipSetWriters(planted, [...planted.keys()]);
   if (
     !mutant.violations.some(
       (violation) => violation === `${plantedFile}: raw EventStore factory bypasses Identity composition`,

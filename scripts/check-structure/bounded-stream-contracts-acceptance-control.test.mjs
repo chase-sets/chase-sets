@@ -65,6 +65,8 @@ const expectedInventory = [
   // Fenced enrollment reads the creation event; its decorator still forwards complete caller requests.
   ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#1", "1"],
   ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#2", null],
+  ["bounded-contexts/identity/features/memberships/api/membership-set-cutover.ts#readStream#1", null],
+  ["bounded-contexts/identity/features/memberships/api/membership-set-cutover.ts#readStream#2", "1"],
   // Evidence Access Attempt audit pages are explicit cursor pages that report nextCursor.
   ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts#readStream#1", "51"],
   [

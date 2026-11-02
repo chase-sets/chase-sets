@@ -27,6 +27,10 @@ import { planMembershipSetAppends, readUserMembershipSet } from "./membership-se
 const base = process.env.TEST_DATABASE_URL;
 if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 const context = createIdentityBootstrapContext();
+const cutoverHistoryReadContractSiteId =
+  "bounded-contexts/identity/features/memberships/api/membership-set-cutover.ts#readStream#1";
+const cutoverCreationReadContractSiteId =
+  "bounded-contexts/identity/features/memberships/api/membership-set-cutover.ts#readStream#2";
 function grant(index: number, userId = "usr_set_boundary"): AppendToStreamInput {
   const membershipId = `mbr_set_${index}`;
   return {
@@ -61,7 +65,7 @@ function grant(index: number, userId = "usr_set_boundary"): AppendToStreamInput 
 
   it("a competing User Set revision rolls back an otherwise new source stream", async () => {
     const store = createPostgresEventStore({ pool });
-    const reader = membershipHistoryReader(pool, store);
+    const reader = membershipHistoryReader(pool, store.readStream.bind(store));
     const first = await planMembershipSetAppends(reader, [grant(0)]);
     const racing = await planMembershipSetAppends(reader, [grant(1)]);
     await store.appendToStreams!(first);
@@ -101,7 +105,7 @@ function grant(index: number, userId = "usr_set_boundary"): AppendToStreamInput 
       await runtime.reconcile(context);
       const last = grant(count - 1);
       await store.appendToStreams!(
-        await planMembershipSetAppends(membershipHistoryReader(pool, store), [
+        await planMembershipSetAppends(membershipHistoryReader(pool, store.readStream.bind(store)), [
           { ...last, expectedVersion: 1, events: [{ eventType: "identity.membership.revoked", payload: {} }] },
         ]),
       );
@@ -135,7 +139,7 @@ function grant(index: number, userId = "usr_set_boundary"): AppendToStreamInput 
     },
   );
 
-  it("restarts after committed imports before checkpoint, includes post-checkpoint dual-writes, and never imports twice", async () => {
+  it(`${cutoverHistoryReadContractSiteId} ${cutoverCreationReadContractSiteId} restarts after committed imports before checkpoint, includes post-checkpoint dual-writes, and never imports twice`, async () => {
     const store = createPostgresEventStore({ pool });
     await store.appendToStreams!([grant(0), grant(1)]);
     let lost = false;
@@ -154,16 +158,24 @@ function grant(index: number, userId = "usr_set_boundary"): AppendToStreamInput 
       "synthetic runner loss",
     );
     await store.appendToStreams!(
-      await planMembershipSetAppends(membershipHistoryReader(pool, store), [
+      await planMembershipSetAppends(membershipHistoryReader(pool, store.readStream.bind(store)), [
         { ...grant(0), expectedVersion: 1, events: [{ eventType: "identity.membership.revoked", payload: {} }] },
       ]),
     );
-    await store.appendToStreams!(await planMembershipSetAppends(membershipHistoryReader(pool, store), [grant(2)]));
+    await store.appendToStreams!(
+      await planMembershipSetAppends(membershipHistoryReader(pool, store.readStream.bind(store)), [grant(2)]),
+    );
     const runtime = createMembershipSetRuntime(pool, store);
     await runtime.reconcile(context);
     await runtime.reconcile(context);
     expect(
-      (await readUserMembershipSet(membershipHistoryReader(pool, store), "usr_set_boundary", context.tenantId)).facts,
+      (
+        await readUserMembershipSet(
+          membershipHistoryReader(pool, store.readStream.bind(store)),
+          "usr_set_boundary",
+          context.tenantId,
+        )
+      ).facts,
     ).toHaveLength(4);
   });
 
@@ -186,7 +198,7 @@ function grant(index: number, userId = "usr_set_boundary"): AppendToStreamInput 
     await expect(runtime.reconcile(context)).rejects.toThrow("source-to-Set census mismatch");
     expect(await runtime.authority("usr_set_boundary", context.tenantId)).toMatchObject({ status: "blocked-unknown" });
     const repair = await planMembershipSetAppends(
-      membershipHistoryReader(pool, store),
+      membershipHistoryReader(pool, store.readStream.bind(store)),
       [{ ...grant(1), expectedVersion: 1, events: [] }],
       { reconcile: true },
     );

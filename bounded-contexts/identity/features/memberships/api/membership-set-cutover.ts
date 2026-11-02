@@ -35,10 +35,10 @@ type Checkpoint = Readonly<{
 
 export function membershipHistoryReader(
   db: PgQueryable,
-  store: Pick<EventStore, "readStream">,
+  readStream: EventStore["readStream"],
 ): MembershipHistoryReader {
   return {
-    readStream: (input) => store.readStream(input),
+    readStream,
     readVersion: async (streamId) => {
       const result = await db.query<{ current_version: number }>(
         "SELECT current_version FROM event_store_streams WHERE stream_id = $1",
@@ -170,7 +170,8 @@ async function reconcileThroughPosition(db: PgQueryable, store: EventStore, thro
 }
 
 export function createMembershipSetRuntime(pool: PgTransactionalPool, store: EventStore) {
-  const reader = membershipHistoryReader(pool, store);
+  // @stream-read-contract bounded-contexts/identity/features/memberships/api/membership-set.db.test.ts
+  const reader = membershipHistoryReader(pool, (input) => store.readStream(input));
   async function loadCheckpoint() {
     const history = await readCompleteStream(reader, { streamId: CUTOVER_STREAM, maxEvents: 100_000 });
     if (history.length !== (await reader.readVersion(CUTOVER_STREAM)))
@@ -217,6 +218,7 @@ export function createMembershipSetRuntime(pool: PgTransactionalPool, store: Eve
         const inputs: AppendToStreamInput[] = [];
         for (const streamId of new Set(events.map((event) => event.streamId))) {
           const sourceVersion = await reader.readVersion(streamId);
+          // @stream-read-contract bounded-contexts/identity/features/memberships/api/membership-set.db.test.ts
           const creation = await store.readStream({ streamId, fromVersion: 1, limit: 1 });
           if (!creation[0]) membershipSetUnknown("missing source creation during import");
           const sourceContext = { ...context, tenantId: creation[0].tenantId };
