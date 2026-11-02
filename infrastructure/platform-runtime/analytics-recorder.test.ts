@@ -3,7 +3,7 @@ import { recordPlatformItemDetailRailAnalytics, registerItemDetailRailAnalyticsR
 
 describe("analytics recorder port", () => {
   it("drops unregistered events and restores the preceding registration", () => {
-    const event = {event: "fixture"};
+    const event = { event: "fixture" };
     const restoreAbsent = registerItemDetailRailAnalyticsRecorder(null);
     const first = vi.fn();
     const second = vi.fn();
@@ -19,6 +19,10 @@ describe("analytics recorder port", () => {
       restoreFirst();
       expect(() => recordPlatformItemDetailRailAnalytics(event)).not.toThrow();
       expect(first).toHaveBeenCalledTimes(1);
-    } finally { restoreSecond(); restoreFirst(); restoreAbsent(); }
+    } finally {
+      restoreSecond();
+      restoreFirst();
+      restoreAbsent();
+    }
   });
 });

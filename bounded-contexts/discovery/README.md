@@ -142,7 +142,7 @@ item-category/status facts; it does not silently checkpoint unrelated blueprint,
 
 ## Item Detail Rail Analytics
 
-The simplified item-detail rail analytics contract is documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md). Discovery owns the browser event vocabulary; the marketplace deployable owns capture and observability.
+The simplified item-detail rail analytics contract is documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md). Discovery owns the browser event vocabulary and ingestion route; the marketplace deployable composes the shared browser bridge and registers the observability adapter at server startup.
 
 Search Query and Result Set click telemetry is documented in [Discovery Search Observability](./docs/search-observability.md).
 

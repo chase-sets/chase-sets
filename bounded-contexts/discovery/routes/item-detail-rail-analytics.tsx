@@ -1,10 +1,12 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { itemDetailRailAnalyticsEventNames } from "../features/item-detail/ui/item-detail-rail-analytics";
-import { recordPlatformItemDetailRailAnalytics, type ItemDetailRailAnalyticsEvent } from "@chase-sets/platform-runtime/analytics-recorder";
+import {
+  recordPlatformItemDetailRailAnalytics,
+  type ItemDetailRailAnalyticsEvent,
+} from "@chase-sets/platform-runtime/analytics-recorder";
 
 const allowedEvents = new Set<string>(itemDetailRailAnalyticsEventNames);
 const invalidAnalyticsLabel = Symbol("invalid analytics label");
-
 
 export function loader(_args: LoaderFunctionArgs) {
   return new Response(null, {
