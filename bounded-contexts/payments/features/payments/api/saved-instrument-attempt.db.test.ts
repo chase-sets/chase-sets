@@ -777,6 +777,7 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       const command = { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId: freshAttemptId() };
       const streamId = streamIdFor(command.attemptId);
       const firstStartedCommit = deferred();
+      const releaseReplicaLock = deferred();
       const appended: Runtime[] = [];
       const trace: Array<{ event: string; runtime?: Runtime; detail?: unknown }> = [];
       const readAbsent: Record<Runtime, boolean> = { primary: false, replica: false };
@@ -784,6 +785,8 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       let firstStarted: Runtime | undefined;
       let firstReadRuntime: Runtime | undefined;
       let readReleased = false;
+      let primaryEffectFinished = false;
+      let replicaLockHeld = false;
 
       intercept = async (statement, run) => {
         const readsAttemptStream =
@@ -813,9 +816,24 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
           firstStartedCommit.resolve();
           return result;
         }
+        if (statement.runtime === "replica" && isAttemptLock(statement, command.attemptId) && !primaryEffectFinished) {
+          replicaLockHeld = true;
+          trace.push({ event: "replicaLockHeld", runtime: "replica" });
+          await releaseReplicaLock.promise;
+          trace.push({ event: "replicaLockReleased", runtime: "replica" });
+        }
         if (streamUpsert(statement, streamId) && !appended.includes(statement.runtime)) {
           appended.push(statement.runtime);
           trace.push({ event: "appended", runtime: statement.runtime });
+        }
+        if (statement.runtime === "primary" && isDefaultWrite(statement.sql)) {
+          try {
+            return await run();
+          } finally {
+            primaryEffectFinished = true;
+            trace.push({ event: "primaryEffectFinished", runtime: "primary" });
+            releaseReplicaLock.resolve();
+          }
         }
         return run();
       };
@@ -825,13 +843,14 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       const copiesSettled = Promise.allSettled([first, duplicate]);
       onTestFinished(async () => {
         firstStartedCommit.resolve();
+        releaseReplicaLock.resolve();
         await copiesSettled;
         console.info(
           "saved-instrument-race-control",
           JSON.stringify({
             trace,
             appended,
-            assertions: { readAbsent, firstStarted, lateSecondRead },
+            assertions: { readAbsent, firstStarted, lateSecondRead, primaryEffectFinished, replicaLockHeld },
             bounds: { cleanup: true },
           }),
         );
@@ -842,6 +861,8 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       expect(lateSecondRead).toBe(true);
       const other: Runtime = firstStarted === "primary" ? "replica" : "primary";
       expect(readAbsent[other]).toBe(false);
+      expect(primaryEffectFinished).toBe(true);
+      expect(replicaLockHeld).toBe(true);
       expect(appended).toHaveLength(1);
       expect(writes.filter(isDefaultWrite)).toHaveLength(1);
       expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
