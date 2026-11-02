@@ -13,9 +13,13 @@ it("releases all leases after 20 real HTTP clients abort before the headers", as
   let lastAbortAt = 0;
   const app = createRealtimeRoutes({
     resourceLimits: { maxActiveStreamsPerConnectionKey: 20 },
+    observer: { wakeWaitEnded: () => undefined },
     stores: [{ contextName: "discovery", db: { query: async () => ({ rows: [] }) } }],
     resolveActor: async (request) => {
+      const requestIndex = requests.length;
       requests.push(request);
+      // Exercise disconnects before the first lazy signal read as well as during acquire.
+      if (requestIndex % 2 === 0) await delay(150);
       return {
         sessionId: "sess_abort",
         tenantId: "tenant_abort",
