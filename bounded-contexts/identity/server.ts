@@ -106,10 +106,7 @@ export type {
   IdentityAuthMutationClient,
   IdentityCommandSnapshot,
 } from "./support/request-support/auth-mutation-client";
-export {
-  reportSocialLoginLinkConflict,
-  type SocialLoginSubjectResolution,
-} from "./features/users/api/social-login-ownership";
+export { type SocialLoginSubjectResolution } from "./features/users/api/social-login-ownership";
 import type { IdentityAuthMutationClient } from "./support/request-support/auth-mutation-client";
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {

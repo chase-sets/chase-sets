@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ProjectorHandler, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
@@ -12,7 +13,6 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { type AccountId, type UserId, type TenantId } from "@chase-sets/primitives/typed-ids";
 import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
-import { reportSocialLoginLinkConflict } from "@chase-sets/identity/server";
 import { AUTH_BOOTSTRAP_ACCOUNT_ID, AUTH_BOOTSTRAP_TENANT_ID, AUTH_BOOTSTRAP_USER_ID } from "./constants";
 
 export const authIdentityProjectionSchemaSql = `
@@ -578,6 +578,17 @@ export async function upsertActiveAuthIdentityMembershipMirror(
   );
 }
 
+const SOCIAL_LOGIN_LINK_CONFLICT_USER_ID_LIMIT = 10;
+
+/** Bounded, subject-free signal for a replayed link naming a second User; the same shape Identity's projection emits. */
+function reportSocialLoginLinkConflict(providerName: string, providerSubject: string, userIds: readonly string[]) {
+  console.warn("social_login_link_conflict", {
+    providerName,
+    linkKey: createHash("sha256").update(`${providerName}:${providerSubject.trim()}`, "utf8").digest("hex"),
+    userIds: [...new Set(userIds)].sort().slice(0, SOCIAL_LOGIN_LINK_CONFLICT_USER_ID_LIMIT),
+  });
+}
+
 export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.user.created": async (event) => {
@@ -800,11 +811,10 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
           `SELECT user_id FROM auth_identity_user_social_login_links WHERE provider_name = $1 AND provider_subject = $2`,
           [link.providerName, link.providerSubject],
         );
-        reportSocialLoginLinkConflict({
-          providerName: link.providerName,
-          providerSubject: link.providerSubject,
-          userIds: [...owner.rows.map((row) => row.user_id), userId],
-        });
+        reportSocialLoginLinkConflict(link.providerName, link.providerSubject, [
+          ...owner.rows.map((row) => row.user_id),
+          userId,
+        ]);
       }
     },
     "identity.user.suspended": async (event) => {
