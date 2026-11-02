@@ -470,23 +470,81 @@ function deriveVersions(tree, gaps) {
   return versions;
 }
 
+function extractDbTestsJob(workflow) {
+  const start = workflow?.search(/^ {2}db-tests:\s*$/m) ?? -1;
+  if (!workflow || start < 0) return null;
+  const rest = workflow.slice(start + 1);
+  const next = rest.search(/^ {2}[A-Za-z0-9_-]+:\s*$/m);
+  return next < 0 ? rest : rest.slice(0, next);
+}
+
+function resolveApiDbWorkspaceConcurrencyFromJob(job, workflowPath) {
+  const envDeclarations = [...job.matchAll(/^\s*DB_WORKSPACE_CONCURRENCY:\s*(.*?)\s*$/gm)];
+  if (envDeclarations.length !== 1) {
+    return {
+      value: null,
+      gaps: [`${workflowPath} db-tests job must declare exactly one DB_WORKSPACE_CONCURRENCY environment entry`],
+    };
+  }
+
+  const expression = envDeclarations[0][1];
+  const expressionMatch = expression.match(
+    /^\$\{\{\s*matrix\.db-workspace-group\s*==\s*'([^']+)'\s*&&\s*'([^']+)'\s*\|\|\s*'([^']+)'\s*\}\}$/,
+  );
+  if (!expressionMatch || expressionMatch[1] !== "other") {
+    return {
+      value: null,
+      gaps: [`${workflowPath} db-tests job DB_WORKSPACE_CONCURRENCY must be an unambiguous matrix expression for api`],
+    };
+  }
+  const [, , conditionalValue, apiValue] = expressionMatch;
+  if (![conditionalValue, apiValue].every((value) => /^[1-9][0-9]*$/.test(value))) {
+    return {
+      value: null,
+      gaps: [`${workflowPath} db-tests job DB_WORKSPACE_CONCURRENCY must resolve to positive integers`],
+    };
+  }
+
+  const invocations = [...job.matchAll(/run-workspaces\.mjs\s+"test:db\*"([^\r\n]*)/g)];
+  const concurrencyArguments = invocations.flatMap(([, rest]) => [
+    ...rest.matchAll(/--concurrency\s*=\s*(?:"([^"]+)"|'([^']+)'|(\S+))/g),
+  ]);
+  if (
+    invocations.length !== 1 ||
+    concurrencyArguments.length !== 1 ||
+    (concurrencyArguments[0][1] ?? concurrencyArguments[0][2] ?? concurrencyArguments[0][3]) !==
+      "$DB_WORKSPACE_CONCURRENCY"
+  ) {
+    return {
+      value: null,
+      gaps: [`${workflowPath} db-tests job must pass --concurrency from DB_WORKSPACE_CONCURRENCY exactly once`],
+    };
+  }
+
+  return { value: apiValue, gaps: [] };
+}
+
+/** Resolves the API matrix cell's effective DB workspace concurrency. */
+export function resolveApiDbWorkspaceConcurrency(workflow) {
+  const workflowPath = ".github/workflows/platform-pr.yml";
+  const job = extractDbTestsJob(workflow);
+  if (!job) return { value: null, gaps: [`${workflowPath} has no db-tests job`] };
+  return resolveApiDbWorkspaceConcurrencyFromJob(job, workflowPath);
+}
+
 function derivePostgresSettings(tree, gaps) {
   const workflow = tree.read(workflowPath)?.toString("utf8");
-  const start = workflow?.search(/^ {2}db-tests:\s*$/m) ?? -1;
-  if (!workflow || start < 0) {
+  const job = extractDbTestsJob(workflow);
+  if (!job) {
     gaps.push(`${workflowPath} has no db-tests job`);
     return [];
   }
-  const rest = workflow.slice(start + 1);
-  const next = rest.search(/^ {2}[A-Za-z0-9_-]+:\s*$/m);
-  const job = next < 0 ? rest : rest.slice(0, next);
   const settings = {
     image: /^\s+image:\s*(\S+)\s*$/gm,
     maxConnections: /target_max_connections=(\d+)/g,
     maxLocksPerTransaction: /target_max_locks_per_transaction=(\d+)/g,
-    workspaceConcurrency: /run-workspaces\.mjs "test:db\*" --concurrency=(\d+)/g,
   };
-  return Object.entries(settings).flatMap(([name, pattern]) => {
+  const bindings = Object.entries(settings).flatMap(([name, pattern]) => {
     const matches = [...job.matchAll(pattern)];
     if (matches.length !== 1) {
       gaps.push(`${workflowPath} db-tests job must declare exactly one ${name}`);
@@ -494,6 +552,10 @@ function derivePostgresSettings(tree, gaps) {
     }
     return [["W4 postgres", name, matches[0][1]]];
   });
+  const concurrency = resolveApiDbWorkspaceConcurrencyFromJob(job, workflowPath);
+  gaps.push(...concurrency.gaps);
+  if (concurrency.value !== null) bindings.push(["W4 postgres", "workspaceConcurrency", concurrency.value]);
+  return bindings;
 }
 
 const hostedConfigCache = new Map();

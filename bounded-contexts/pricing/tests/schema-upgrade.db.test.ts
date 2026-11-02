@@ -75,6 +75,18 @@ describeDb("pricing schema upgrades", () => {
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
 
+  it("adds nullable authoring intent to an existing policy table across repeated boots", async () => {
+    const pool = pools.pricing;
+    await pool.query(pricingModule.schemaSql);
+    await pool.query("ALTER TABLE pricing_repricing_policies DROP COLUMN authoring_intent");
+    await bootstrapContextDatabase(pricingModule, pool);
+    await bootstrapContextDatabase(pricingModule, pool);
+    const column = await pool.query<{ is_nullable: string; data_type: string }>(
+      "SELECT is_nullable, data_type FROM information_schema.columns WHERE table_name = 'pricing_repricing_policies' AND column_name = 'authoring_intent'",
+    );
+    expect(column.rows).toEqual([{ is_nullable: "YES", data_type: "jsonb" }]);
+  });
+
   it("keeps pre-denomination versions null across two boots and rebuilds them on the next closer pass", async () => {
     const pool = pools.pricing;
     const migration = pricingDemandCurveSchemaMigrations.find(

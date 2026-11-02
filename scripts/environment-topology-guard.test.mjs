@@ -40,6 +40,7 @@ function fixturePaths() {
   const registry = readRegistry();
   return [
     registryRelativePath,
+    "scripts/lib/git-listing.mjs",
     "scripts/environment-hosts.schema.json",
     "docs/architecture/environment-domain-names.md",
     ...authorityAnchors.map((anchor) => anchor.file),

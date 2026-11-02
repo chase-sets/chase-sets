@@ -9,6 +9,10 @@ import {
 } from "../../source-observations/api/catalog-sync-scope-planner";
 import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
+import {
+  catalogScopeProductDomainContracts,
+  normalizeCatalogScopeProductDomain,
+} from "../../scope-registry/domain/contract";
 import { observeCountCapturePlan } from "./count-capture-context";
 import {
   buildScopeSyncBatchPreview,
@@ -181,6 +185,15 @@ async function resolveScopeRecords(
     values.push(selection.query.scopeKind);
     conditions.push(`scope_kind = $${values.length}`);
   }
+  const productDomain = normalizeCatalogScopeProductDomain(selection.query.productDomain);
+  if (
+    selection.query.languageCode &&
+    productDomain &&
+    catalogScopeProductDomainContracts[productDomain].selectLeavesByLanguageEdition
+  ) {
+    values.push(selection.query.languageCode);
+    conditions.push(`language_editions ? $${values.length}`);
+  }
   const result = await db.query<CatalogScopeRecordRow>(
     `SELECT *
      FROM catalog_scope_records
@@ -260,6 +273,17 @@ function scopePlanBlockers(
       scopeRecordId: record.scope_record_id,
       providerKey: null,
       message: t("catalog.features.scopeSyncBatches.api.planner.accepted.provider.scope.mapping.missing"),
+    });
+  }
+  // Enqueue refuses a scope with no selected provider unit, so such a plan is
+  // blocked rather than counted ready (for example, a scope mapped only to
+  // providers whose adapters cannot plan imports).
+  if (!preview.units.some((unit) => unit.selected)) {
+    blockers.push({
+      code: "scope-planning-blocked",
+      scopeRecordId: record.scope_record_id,
+      providerKey: null,
+      message: t("catalog.features.scopeSyncBatches.api.planner.selected.provider.units.missing"),
     });
   }
   const planningBlockers = [...preview.blockers, ...preview.units.flatMap((unit) => unit.blockers)].filter(

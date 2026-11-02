@@ -9,7 +9,10 @@ export const discoveryWakeRegistryEntry = registryEntry({
   priorityLane: "standard",
   expectedEventVolume: "medium",
   wakeStoreLoadEstimate: "low",
-  affectedProjectionNames: ["discovery:discovery-product-alert-page-projection"],
+  affectedProjectionNames: [
+    "discovery:discovery-product-alert-page-projection",
+    "customer-feedback:customer-feedback-csat-outcome-fact-projection",
+  ],
   routeDependencyIds: [
     "discovery.item-detail-add-to-cart-semantic-handoff",
     "discovery.item-detail-add-to-sell-list-semantic-handoff",

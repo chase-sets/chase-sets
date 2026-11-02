@@ -200,6 +200,8 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.dynamic.filter.label": "{facet}: {value}",
   "discovery.features.search.ui.searchPage.english": "English",
   "discovery.features.search.ui.searchPage.error": "Error",
+  "discovery.features.search.ui.searchPage.results.error.description":
+    "Search results could not load. Try again in a moment.",
   "discovery.features.search.ui.searchPage.any.market.activity": "Any market activity",
   "discovery.features.search.ui.searchPage.facet.choices": "{facet} choices",
   "discovery.features.search.ui.searchPage.facet.option.search.empty": "No matching {facet} options",
@@ -348,6 +350,8 @@ export const discoveryEnglishTranslations = {
     "Get notified when matching supply appears at or below your target.",
   "discovery.routes.itemDetail.buy.card.description": "Choose a listing, product, or offer action.",
   "discovery.routes.itemDetail.buy.card.title": "Buy options",
+  "discovery.routes.itemDetail.buy.changed":
+    "Your selection changed after you chose Buy now. Check it and choose Buy now again.",
   "discovery.routes.itemDetail.buy.best.available.listing": "Buy best available listing",
   "discovery.routes.itemDetail.buy.best.match": "Buy best match",
   "discovery.routes.itemDetail.buy.now": "Buy this listing",

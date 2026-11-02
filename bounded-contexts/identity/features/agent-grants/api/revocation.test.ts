@@ -1,5 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { bindingDigest, parseRevocationHistory, type RevocationBinding } from "./revocation";
+import { bindingDigest, parseRevocationHistory, revocationBacklogAge, type RevocationBinding } from "./revocation";
+
+describe("agent-grant-revocation-status backlog age", () => {
+  const now = new Date("2026-10-20T00:10:00.000Z");
+  const activatedAt = "2026-10-20T00:00:00.000Z";
+  it("ages an admitted operation from its admission, not from activation", () => {
+    expect(
+      revocationBacklogAge({
+        now,
+        oldest: { admission: "admitted", recordedAt: "2026-10-20T00:08:00.000Z" },
+        activatedAt,
+      }),
+    ).toEqual({ oldestAgeMs: 120_000, oldestSource: "admission" });
+  });
+  it("ages a never-adopted backfill row from activation", () => {
+    expect(revocationBacklogAge({ now, oldest: { admission: "absent" }, activatedAt })).toEqual({
+      oldestAgeMs: 600_000,
+      oldestSource: "activation",
+    });
+  });
+  it.each([
+    ["an unadmitted row without activation", { admission: "absent" as const }, null],
+    ["an invalid owner stream", { admission: "invalid" as const }, activatedAt],
+    ["an unreadable instant", { admission: "admitted" as const, recordedAt: "unreadable" }, activatedAt],
+  ])("reports %s as unknown instead of a pass", (_name, oldest, activation) => {
+    expect(revocationBacklogAge({ now, oldest, activatedAt: activation })).toEqual({
+      oldestAgeMs: null,
+      oldestSource: "unknown",
+    });
+  });
+  it("reports no age without a nonterminal operation", () => {
+    expect(revocationBacklogAge({ now, oldest: null, activatedAt })).toEqual({ oldestAgeMs: null, oldestSource: null });
+  });
+});
 
 describe("agent-grant-revocation-concurrency-history", () => {
   it("binds every authority field rather than writing by attempt key only", () => {

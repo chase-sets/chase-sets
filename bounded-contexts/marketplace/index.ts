@@ -59,6 +59,7 @@ import { inspectMarketplaceSeedState, seedMarketplaceContextDatabase } from "./s
 import { marketplaceChannelInboundClampSchemaMigrations } from "./features/channel-inbound-clamp/read-model/schema";
 import { marketplaceBuyerOfferPolicySchemaMigrations } from "./features/offer-policy/read-model/schema";
 import { marketplaceManagedOfferSchemaMigrations } from "./features/offers/read-model/managed-schema";
+import { inventoryDraftReceiptMigrations } from "./features/listings/read-model/inventory-draft-receipt-schema";
 import { buildManagedOfferMarketPriceReactions } from "./features/offers/integrations/managed-work";
 import { emitBuyerAccountOfferMatchPatches } from "./features/offers/read-model/projection";
 
@@ -68,6 +69,7 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
   manifest: marketplaceContextManifest,
   schemaSql: marketplaceSchemaSql,
   schemaMigrations: [
+    ...inventoryDraftReceiptMigrations,
     ...marketplaceUnloggedProjectionSchemaMigrations,
     ...marketplaceSupplyProjectionSchemaMigrations,
     ...marketplaceListingSchemaMigrations,

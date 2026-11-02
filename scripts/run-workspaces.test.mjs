@@ -3,7 +3,11 @@ import { globSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createVitest, parseCLI } from "vitest/node";
-import { derivePlatformApiDbTestCensus } from "../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
+import {
+  bootstrapDbEnrollmentManifest,
+  derivePlatformApiDbTestCensus,
+  platformApiNonBootstrapDbCensus,
+} from "../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
   DB_TEST_SCRIPT_SELECTOR,
@@ -913,7 +917,32 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    expect(census.entries).toHaveLength(58);
+    // Named members, never a moving total: the bootstrap manifest and the frozen non-bootstrap census each declare
+    // their DB entries and execution units, and the Vitest include rule declares the complete discovered set.
+    const declaredUnits = [
+      ...Object.entries(bootstrapDbEnrollmentManifest).map(([file, { executionUnit }]) => [
+        `__tests__/${file}`,
+        executionUnit,
+      ]),
+      ...Object.entries(platformApiNonBootstrapDbCensus.entries),
+    ];
+    const declaredBootstrap = Object.keys(bootstrapDbEnrollmentManifest)
+      .map((file) => `__tests__/${file}`)
+      .sort();
+    const declaredDb = declaredUnits.map(([file]) => file).sort();
+    const resolved = (entries) => entries.map((entry) => path.resolve(api.dir, entry).replaceAll("\\", "/")).sort();
+    const expectDeclared = (actual, declared) => expect([...actual].sort()).toEqual(declared);
+    expectDeclared(census.dbEntries, declaredDb);
+    expectDeclared(census.bootstrapEntries, declaredBootstrap);
+    for (const [actual, declared] of [
+      [census.dbEntries.slice(1), declaredDb],
+      [[...census.dbEntries, census.dbEntries[0]], declaredDb],
+      [[...census.dbEntries, "__tests__/forged-unenrolled.db.test.ts"], declaredDb],
+      [census.dbEntries, [...declaredDb, declaredDb[0]].sort()],
+      [census.bootstrapEntries, declaredDb],
+    ]) {
+      expect(() => expectDeclared(actual, declared)).toThrow();
+    }
     expect(census.entries).toContain("__tests__/ucp-checkout-dispatch.test.ts");
     expect(census.dbEntries).not.toContain("__tests__/ucp-checkout-dispatch.test.ts");
     expect(census.entries).toContain("__tests__/activate-agent-grant-revocation.test.ts");
@@ -927,32 +956,48 @@ describe("DB duration scheduling", () => {
     expect(census.entries).toContain("__tests__/ebay-account-deletion-staff-composition.test.ts");
     expect(census.entries).toContain("__tests__/staging-proof-credit-environment.test.ts");
     expect(census.dbEntries).not.toContain("__tests__/staging-proof-credit-environment.test.ts");
-    expect(census.dbEntries).toHaveLength(18);
-    expect(census.bootstrapEntries).toHaveLength(12);
     expect(census.dbEntries).toEqual(census.suffixEntries);
-    const onDisk = census.dbEntries.map((file) => path.resolve(api.dir, file).replaceAll("\\", "/")).sort();
+    const onDisk = resolved(census.dbEntries);
     const vitest = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false });
     try {
+      expect((await vitest.globTestSpecifications()).map((spec) => spec.moduleId).sort()).toEqual(
+        resolved(census.entries),
+      );
       const groups = [];
       for (const args of output.invocations) {
         const parts = scripts[args[3]].split(" && ");
         expect(parts[0]).toBe("node ./scripts/check-bootstrap-db-enrollment.mjs");
         expect(parts[1]).toContain("--maxWorkers=3");
         const { filter } = parseCLI(parts[1]);
-        groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
+        groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId).sort());
       }
       expect(groups.flat().sort()).toEqual(onDisk);
-      expect(groups.map((files) => files.length)).toEqual([3, 12, 3]);
-      expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
+      expect(output.invocations.map((args) => args[3])).toEqual(
+        [...new Set(declaredUnits.map(([, executionUnit]) => executionUnit))].sort((left, right) =>
+          left.localeCompare(right, "en", { numeric: true }),
+        ),
+      );
+      expect(groups).toEqual(
+        output.invocations.map((args) =>
+          resolved(declaredUnits.filter(([, executionUnit]) => executionUnit === args[3]).map(([file]) => file)),
+        ),
+      );
+      const operatorSessionDb = resolved(declaredDb.filter((entry) => entry.includes("/operator-session/")));
+      expect(operatorSessionDb.length).toBeGreaterThan(0);
+      expect(groups[1].filter((file) => file.includes("/operator-session/"))).toEqual(operatorSessionDb);
       expect(groups[1]).toContain(
         path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),
       );
-      const expectedOrdinary = census.entries
-        .filter((entry) => !census.dbEntries.includes(entry))
-        .map((entry) => path.resolve(api.dir, entry).replaceAll("\\", "/"))
-        .sort();
+      const expectedOrdinary = resolved(census.entries.filter((entry) => !census.dbEntries.includes(entry)));
       const operatorOrdinary = expectedOrdinary.filter((entry) => entry.includes("/operator-session/"));
-      expect(operatorOrdinary).toHaveLength(3);
+      expect(operatorOrdinary.length).toBeGreaterThan(0);
+      expect(operatorOrdinary).toEqual(
+        resolved(
+          globSync("__tests__/operator-session/**/*.test.ts", { cwd: api.dir }).filter(
+            (entry) => !entry.endsWith(".db.test.ts"),
+          ),
+        ),
+      );
       for (const name of ["test:unit", "test:fast"]) {
         const {
           options: { exclude },
@@ -1311,8 +1356,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(unitEntries).toHaveLength(67);
-    expect(replay.observations).toHaveLength(91);
+    expect(unitEntries).toHaveLength(69);
+    expect(replay.observations).toHaveLength(93);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {
@@ -1526,6 +1571,164 @@ describe("closed duration scheduling contracts", () => {
       ["@chase-sets/delta", 10, false],
     ]);
     expect(stdout.at(-1)).toBe(summaryLines[0]);
+  });
+
+  it("partitions every eligible unit task into exactly one shard for the checked-in registry", async () => {
+    const registry = readJson("scripts/workspace-test-duration-hints-v1.json");
+    const cases = [
+      ["test", "--exclude-test-profile=db"],
+      ["test:unit", "--test-profile=db"],
+    ];
+
+    for (const [script, profile] of cases) {
+      const unsharded = [];
+      await captureConsole(() =>
+        runWorkspaceScripts({
+          argv: [script, profile, "--concurrency=1"],
+          buildInvocation,
+          durationHintRegistry: registry,
+          listWorkspaces: listWorkspacePackages,
+          loadEnvironment: () => {},
+          run: async (_command, args) => unsharded.push(args[1]),
+        }),
+      );
+
+      for (const total of [1, 2, 3, 4]) {
+        const shards = [];
+        for (let index = 1; index <= total; index += 1) {
+          const invoked = [];
+          await captureConsole(() =>
+            runWorkspaceScripts({
+              argv: [script, profile, "--concurrency=1", `--shard=${index}/${total}`],
+              buildInvocation,
+              durationHintRegistry: registry,
+              listWorkspaces: listWorkspacePackages,
+              loadEnvironment: () => {},
+              run: async (_command, args) => invoked.push(args[1]),
+            }),
+          );
+          shards.push(invoked);
+        }
+
+        expect(new Set(shards.flat())).toEqual(new Set(unsharded));
+        expect(shards.flat()).toHaveLength(unsharded.length);
+        for (const shard of shards) {
+          const positions = shard.map((name) => unsharded.indexOf(name));
+          expect(positions).toEqual([...positions].sort((left, right) => left - right));
+        }
+      }
+    }
+  });
+
+  it("keeps unsharded scheduling identical", async () => {
+    const workspaces = [
+      workspace("@chase-sets/alpha", { test: "test" }),
+      workspace("@chase-sets/bravo", { test: "test" }),
+      workspace("@chase-sets/charlie", { test: "test" }),
+    ];
+    const registry = durationRegistry([
+      durationEntry("@chase-sets/alpha", "test", 10),
+      durationEntry("@chase-sets/bravo", "test", 20),
+      durationEntry("@chase-sets/charlie", "test", 15),
+    ]);
+    const invoke = (argv) => {
+      const runs = [];
+      return captureConsole(() =>
+        runWorkspaceScripts({
+          argv,
+          buildInvocation,
+          durationHintRegistry: registry,
+          listWorkspaces: () => workspaces,
+          loadEnvironment: () => {},
+          run: async (_command, args) => runs.push(args[1]),
+        }),
+      ).then(() => runs);
+    };
+
+    await expect(invoke(["test", "--exclude-test-profile=db", "--concurrency=1"])).resolves.toEqual([
+      "@chase-sets/bravo",
+      "@chase-sets/charlie",
+      "@chase-sets/alpha",
+    ]);
+  });
+
+  it("runs an empty shard as no workspaces matched", async () => {
+    const output = await captureConsole(() =>
+      runWorkspaceScripts({
+        argv: ["test", "--exclude-test-profile=db", "--shard=2/2"],
+        buildInvocation,
+        durationHintRegistry: durationRegistry([durationEntry("@chase-sets/only", "test", 1)]),
+        listWorkspaces: () => [workspace("@chase-sets/only", { test: "test" })],
+        loadEnvironment: () => {},
+        run: async () => {
+          throw new Error("empty shard must not run a workspace");
+        },
+      }),
+    );
+
+    expect(output.stdout).toContain("No workspaces matched test.");
+    expect(output.stdout.at(-1)).toMatch(/^RUN_WORKSPACES_SUMMARY /);
+  });
+
+  it("rejects invalid shard specifications before running", async () => {
+    const cases = [
+      ["test", "--exclude-test-profile=db", "--shard=0/2"],
+      ["test", "--exclude-test-profile=db", "--shard=3/2"],
+      ["test", "--exclude-test-profile=db", "--shard=1/0"],
+      ["test", "--exclude-test-profile=db", "--shard=a/b"],
+      ["test", "--exclude-test-profile=db", "--shard=1/9"],
+      ["test", "--exclude-test-profile=db", "--shard=1/2", "--shard=2/2"],
+      ["build", "--shard=1/2"],
+      [DB_TEST_SCRIPT_SELECTOR, "--shard=1/2"],
+      ["test", "--shard=1/2"],
+    ];
+
+    for (const argv of cases) {
+      let runs = 0;
+      await expect(
+        runWorkspaceScripts({
+          argv,
+          buildInvocation,
+          durationHintRegistry: durationRegistry([durationEntry("@chase-sets/only", "test", 1)]),
+          listWorkspaces: () => {
+            throw new Error("workspace discovery must not run");
+          },
+          loadEnvironment: () => {
+            throw new Error("environment loading must not run");
+          },
+          run: async () => {
+            runs += 1;
+          },
+        }),
+      ).rejects.toThrow();
+      expect(runs).toBe(0);
+    }
+  });
+
+  it("fails a shard when one of its workspaces fails", async () => {
+    const output = await captureConsole(async () => {
+      await expect(
+        runWorkspaceScripts({
+          argv: ["test", "--exclude-test-profile=db", "--shard=2/2"],
+          buildInvocation,
+          durationHintRegistry: durationRegistry([
+            durationEntry("@chase-sets/alpha", "test", 1),
+            durationEntry("@chase-sets/bravo", "test", 1),
+          ]),
+          listWorkspaces: () => [
+            workspace("@chase-sets/alpha", { test: "test" }),
+            workspace("@chase-sets/bravo", { test: "test" }),
+          ],
+          loadEnvironment: () => {},
+          run: async (_command, args) => {
+            if (args[1] === "@chase-sets/bravo") throw new Error("synthetic shard failure");
+          },
+        }),
+      ).rejects.toThrow("1 workspace script run(s) failed.");
+    });
+
+    expect(output.stderr.join("\n")).toContain("Failed workspaces: @chase-sets/bravo");
+    expect(output.stderr.join("\n")).toContain("synthetic shard failure");
   });
 
   it("DB admission preserves selection and summaries while adding DB-only telemetry", async () => {

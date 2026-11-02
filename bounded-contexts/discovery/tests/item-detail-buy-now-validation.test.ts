@@ -97,6 +97,8 @@ vi.mock("@chase-sets/inventory/server", () => ({
 
 import { action, loader } from "../routes/item-detail";
 
+const PRESENTED_ENTRY_KEY = "chkentry_01JD2K3M4N5P6Q7R8S9T0V1W2X";
+
 async function resolvePostWriteUrl(url: URL) {
   const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
   return new URL(resolvedRequest.url);
@@ -253,6 +255,7 @@ describe("item detail buy now validation and watch intents", () => {
           selectedOptions: "[]",
           quantity: "1",
           lockedListingId: "lst_charizard",
+          entryAttemptKey: PRESENTED_ENTRY_KEY,
         }),
       }),
       params: { id: "cat_charizard" },
@@ -263,6 +266,8 @@ describe("item detail buy now validation and watch intents", () => {
     expect(result).toEqual({
       intent: "buy-this-listing",
       error: "Buying opens at public launch. You can keep browsing and adding items to your Buy Cart.",
+      entryAttemptKey: PRESENTED_ENTRY_KEY,
+      buyDraft: { quantity: 1, selection: null },
     });
     expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
   });
@@ -380,6 +385,7 @@ describe("item detail buy now validation and watch intents", () => {
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
     form.set("lockedListingId", "lst_charizard");
+    form.set("entryAttemptKey", PRESENTED_ENTRY_KEY);
 
     const result = (await action({
       request: new Request("http://localhost/items/cat_charizard", {
@@ -394,6 +400,8 @@ describe("item detail buy now validation and watch intents", () => {
     expect(result).toEqual({
       error: "Only 1 available from this listing. Lower the quantity or choose another listing.",
       intent: "buy-this-listing",
+      entryAttemptKey: PRESENTED_ENTRY_KEY,
+      buyDraft: { quantity: 2, selection: null },
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
@@ -423,6 +431,7 @@ describe("item detail buy now validation and watch intents", () => {
     form.set("productSummary", "Raw");
     form.set("quantity", "1");
     form.set("lockedListingId", "lst_missing");
+    form.set("entryAttemptKey", PRESENTED_ENTRY_KEY);
 
     const result = (await action({
       request: new Request("http://localhost/items/cat_charizard", {
@@ -437,6 +446,8 @@ describe("item detail buy now validation and watch intents", () => {
     expect(result).toEqual({
       error: "This listing is no longer available. Choose another listing.",
       intent: "buy-this-listing",
+      entryAttemptKey: PRESENTED_ENTRY_KEY,
+      buyDraft: { quantity: 1, selection: null },
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });

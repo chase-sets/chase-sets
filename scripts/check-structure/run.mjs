@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -48,6 +49,12 @@ import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
+import {
+  enumerateMarketplaceAttemptCallers,
+  readTrackedMarketplaceCallerSources,
+  unpartitionedMarketplaceOfferCallers,
+} from "./marketplace-attempt-callers.mjs";
+import { scanTcgplayerHostCredentialPolicy } from "./tcgplayer-host-credential-guard.mjs";
 
 const roots = workspaceRoots;
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -92,6 +99,8 @@ const placeholderFieldTokens = new Set([
 ]);
 const crossCuttingRuntimeCompositionSupportDirectories = new Set(["auth-support", "request-support", "seed-support"]);
 const nonPackageWorkspaceDirectoryExceptions = new Set([
+  // A Rust (Corten) app; its scripts run with the root workspace's tools.
+  "deployables/corten-pilot",
   "infrastructure/digitalocean",
   "infrastructure/helm",
   "infrastructure/remote-dev",
@@ -1639,7 +1648,11 @@ function classifyShellManifest({ manifest, root, manifestPath = `${root}/context
 }
 
 export async function discoverShellContributionManifests({ repoRoot: rootDir = repoRoot } = {}) {
-  const files = execFileSync("git", ["ls-files", "-z", "--", "*.json"], { cwd: rootDir, encoding: "utf8" })
+  const files = execFileSync("git", ["ls-files", "-z", "--", "*.json"], {
+    cwd: rootDir,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean);
   const manifests = [];
@@ -2039,6 +2052,8 @@ export async function runStructureCheck(options = {}) {
   violations.push(...sqlExecutionSurface.violations);
   const realClockElapsedBounds = await validateRealClockElapsedBounds({ repoRoot });
   violations.push(...realClockElapsedBounds.violations);
+  const tcgplayerHostCredentialGuard = await scanTcgplayerHostCredentialPolicy({ repoRoot });
+  violations.push(...tcgplayerHostCredentialGuard.violations);
 
   for (const violation of findGitKeySetTripwireViolations({ repoRoot })) {
     addPathViolation(violation.testPath, violation.message);
@@ -3944,6 +3959,11 @@ export async function runStructureCheck(options = {}) {
   const doksIngressChartVersionResult = await validateDoksIngressChartVersion({ repoRoot });
   violations.push(...doksIngressChartVersionResult.violations);
   violations.push(...checkDbDurationBaseline({ repoRoot }).map(({ file, message }) => `${file}: ${message}`));
+  violations.push(
+    ...unpartitionedMarketplaceOfferCallers(
+      enumerateMarketplaceAttemptCallers(readTrackedMarketplaceCallerSources(repoRoot)),
+    ).map(({ path, line, method }) => `${path}:${line}: Unpartitioned Marketplace attempt caller: ${method}`),
+  );
 
   const retentionSweepCoverageResult = await validateRetentionSweepCoverage({ repoRoot });
   violations.push(...retentionSweepCoverageResult.violations);

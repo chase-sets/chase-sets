@@ -415,3 +415,40 @@ export async function selectStagingDeployGeneration({
     throw error;
   }
 }
+
+const isDeployGeneration = (generation) =>
+  hasExactKeys(generation, generationKeys) &&
+  isDecimalId(generation.runId) &&
+  inRange(generation.runAttempt, 1, 100) &&
+  isDecimalId(generation.jobId) &&
+  isInstant(generation.jobCompletedAt) &&
+  matches(/^[a-f0-9]{40}$/, generation.deployedHead);
+
+const sameDeployGeneration = (left, right) => generationKeys.every((key) => left[key] === right[key]);
+
+// Recompute the owning Deploy Staging job immediately before a mutating phase.
+// The held generation's completion is the lower bound for the rerun: the held
+// job itself is eligible at equality, while any newer applied job or
+// unfinished/indeterminate deploy fails closed as advanced.
+export async function verifyDeployGeneration(generation, deps) {
+  if (!isDeployGeneration(generation) || !isRecord(deps))
+    throw new TypeError("staging-deploy-generation-input-invalid");
+
+  const selection = await selectStagingDeployGeneration({
+    ...deps,
+    maxAgeSeconds: undefined,
+    windowStart: generation.jobCompletedAt,
+  });
+
+  if (selection.stop === null)
+    return {
+      verdict: sameDeployGeneration(generation, selection.deployGeneration) ? "current" : "deploy-generation-advanced",
+    };
+
+  return {
+    verdict:
+      selection.stop === "deploy-in-progress" || selection.stop === "deploy-outcome-indeterminate"
+        ? "deploy-generation-advanced"
+        : "deploy-generation-unverifiable",
+  };
+}

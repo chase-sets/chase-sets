@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildPaymentsApi } from "../../../api";
@@ -437,6 +438,122 @@ describe("payments routes", () => {
     expect(limited.headers.get("Retry-After")).toBe("42");
     expect(await limited.json()).toMatchObject({
       error: { code: "rate_limited", surface: "payments.card-decline.fingerprint" },
+    });
+  });
+
+  it("keeps the status, body and headers of every guard reply", async () => {
+    const wire = async (response: Response) => ({
+      status: response.status,
+      headers: [...response.headers.entries()],
+      body: await response.json(),
+    });
+    const post = (path: string, forwardedFor: string) =>
+      new Request(`http://payments.test/account${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": forwardedFor },
+        body: JSON.stringify({ orderIds: ["ord_1"] }),
+      });
+    const owner: NonNullable<PaymentsApiEnv["Variables"]["actor"]> = {
+      sessionId: "ses_guard",
+      tenantId: "tnt_identity",
+      userId: "usr_guard",
+      accountId: "acc_guard_replies",
+      membershipId: "mbr_guard",
+      roleKey: "owner",
+      permissions: ["orders.view", "orders.manage"],
+    };
+    const json = [["content-type", "application/json"]];
+    const authenticationRequired = {
+      status: 401,
+      headers: json,
+      body: {
+        error: {
+          code: "authentication_required",
+          message: t("payments.features.payments.api.route.authentication.required"),
+        },
+      },
+    };
+    const forbidden = {
+      status: 403,
+      headers: json,
+      body: {
+        error: { code: "authorization_forbidden", message: t("payments.features.payments.api.route.forbidden") },
+      },
+    };
+
+    const anonymous = buildAccountApp({ actor: null, services: createServices() });
+    expect(await wire(await anonymous.fetch(new Request("http://payments.test/account/checkout/status")))).toEqual(
+      authenticationRequired,
+    );
+    expect(await wire(await anonymous.fetch(post("/payments", "198.51.100.1")))).toEqual(authenticationRequired);
+
+    const unpermitted = buildAccountApp({ actor: { ...owner, permissions: [] }, services: createServices() });
+    expect(await wire(await unpermitted.fetch(new Request("http://payments.test/account/payment-methods")))).toEqual(
+      forbidden,
+    );
+    expect(await wire(await unpermitted.fetch(post("/checkout/recover", "198.51.100.2")))).toEqual(forbidden);
+
+    const services = createServices();
+    const app = buildAccountApp({ actor: owner, services });
+    vi.mocked(services.createAccountPayment).mockRejectedValueOnce(new PaymentDeclineLimitUnavailableError());
+    expect(await wire(await app.fetch(post("/payments", "198.51.100.3")))).toEqual({
+      status: 503,
+      headers: json,
+      body: {
+        error: {
+          code: "payment_decline_limit_unavailable",
+          message: "Payment attempts are temporarily unavailable. Please retry later.",
+        },
+      },
+    });
+    const declined = new PaymentsRateLimitExceededError("payments.card-decline.fingerprint", 42);
+    vi.mocked(services.recoverCheckoutPayment).mockRejectedValueOnce(declined);
+    expect(await wire(await app.fetch(post("/checkout/recover", "198.51.100.4")))).toEqual({
+      status: 429,
+      headers: [...json, ["retry-after", "42"]],
+      body: {
+        error: {
+          code: "rate_limited",
+          message: declined.message,
+          surface: "payments.card-decline.fingerprint",
+          retryAfterSeconds: 42,
+        },
+      },
+    });
+    vi.mocked(services.createAccountPayment).mockRejectedValueOnce(
+      new Error(`fee_quote_stale:${JSON.stringify(checkoutFeeQuote)}`),
+    );
+    expect(await wire(await app.fetch(post("/payments", "198.51.100.5")))).toEqual({
+      status: 409,
+      headers: json,
+      body: {
+        error: {
+          code: "fee_quote_stale",
+          message: t("payments.features.payments.api.route.marketplace.checkout.fee.quote.stale"),
+        },
+        marketplace_checkout_fee: checkoutFeeQuote,
+      },
+    });
+
+    const limitedApp = buildAccountApp({
+      actor: { ...owner, accountId: "acc_guard_creation_limit" },
+      services: createServices(),
+    });
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      expect((await limitedApp.fetch(post("/payments", `198.51.100.${10 + attempt}`))).status).toBe(201);
+    }
+    const limited = await wire(await limitedApp.fetch(post("/payments", "198.51.100.30")));
+    expect(limited).toEqual({
+      status: 429,
+      headers: [...json, ["retry-after", String(limited.body.error.retryAfterSeconds)]],
+      body: {
+        error: {
+          code: "rate_limited",
+          message: "Too many requests. Please retry after the rate-limit window.",
+          surface: "payments.payment.create.account",
+          retryAfterSeconds: expect.any(Number),
+        },
+      },
     });
   });
 

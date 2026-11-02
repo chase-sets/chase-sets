@@ -15,6 +15,7 @@ export const platformOperationsWakeRegistryEntry = registryEntry({
   wakeStoreLoadEstimate: "low",
   affectedProjectionNames: [
     "platform-operations:experience-platform-feedback-projection",
+    "platform-operations:account-appeal-projection",
     "platform-operations:platform-policy-document-projection",
     "platform-operations:public-doc-review-queue-projection",
     "platform-operations:reported-content-queue-projection",

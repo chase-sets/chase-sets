@@ -8,6 +8,7 @@ export const payoutUnavailableReasonLabels = {
   "negative-balance-active": moneyStatusLabel("negative-balance-active"),
   "recent-payout-failure": moneyStatusLabel("recent-payout-failure"),
   "payout-reconciliation-required": moneyStatusLabel("payout-reconciliation-required"),
+  "payout-summary-incomplete": moneyStatusLabel("payout-summary-incomplete"),
   "platform-balance-insufficient": moneyStatusLabel("platform-balance-insufficient"),
   "amount-below-minimum": moneyStatusLabel("amount-below-minimum"),
   "amount-above-maximum": moneyStatusLabel("amount-above-maximum"),

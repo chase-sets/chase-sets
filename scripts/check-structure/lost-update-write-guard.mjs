@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const guardedPredicate =
@@ -30,6 +31,7 @@ export async function validateLostUpdateWriteGuard({ repoRoot }) {
           cwd: repoRoot,
           encoding: "utf8",
           timeout: 10000,
+          maxBuffer: GIT_LISTING_MAX_BUFFER,
         })
           .split("\0")
           .filter(Boolean),

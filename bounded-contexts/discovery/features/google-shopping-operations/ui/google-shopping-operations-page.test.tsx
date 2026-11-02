@@ -9,6 +9,8 @@ import type { GoogleShoppingFeedRowList } from "./contracts";
 
 vi.mock("react-router", () => ({
   Form: (props: { children?: ReactNode; method?: string }) => <form method={props.method}>{props.children}</form>,
+  useNavigation: () => ({ state: "idle", formMethod: undefined, formAction: undefined }),
+  useFormAction: () => "/",
   Link: (props: { children?: ReactNode; to: string; className?: string }) => (
     <a href={props.to} className={props.className}>
       {props.children}

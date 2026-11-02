@@ -43,6 +43,24 @@ const REVIEW_INTENTS = new Set(["accept", "reject", "revoke"]);
 
 type ReviewIntent = "accept" | "reject" | "revoke";
 
+export type ProviderScopeMappingReviewInput = Readonly<{
+  intent: ReviewIntent;
+  mappingIds: readonly string[];
+  reason?: string | null;
+}>;
+
+export class ProviderScopeMappingReviewInputError extends Error {
+  constructor(
+    readonly code:
+      | "provider_scope_mapping_invalid_intent"
+      | "provider_scope_mapping_no_candidates"
+      | "provider_scope_mapping_reason_required",
+  ) {
+    super(code);
+    this.name = "ProviderScopeMappingReviewInputError";
+  }
+}
+
 function isReviewIntent(value: string): value is ReviewIntent {
   return REVIEW_INTENTS.has(value);
 }
@@ -54,6 +72,93 @@ function parseMappingIds(value: unknown): readonly string[] {
   return [...new Set(value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0))];
 }
 
+export function parseProviderScopeMappingReviewInput(
+  body: Readonly<Record<string, unknown>>,
+): ProviderScopeMappingReviewInput {
+  const intent = String(body.intent ?? "").trim();
+  if (!isReviewIntent(intent)) throw new ProviderScopeMappingReviewInputError("provider_scope_mapping_invalid_intent");
+  const mappingIds = parseMappingIds(body.mappingIds);
+  if (mappingIds.length === 0) throw new ProviderScopeMappingReviewInputError("provider_scope_mapping_no_candidates");
+  const reason = String(body.reason ?? "").trim();
+  if ((intent === "reject" || intent === "revoke") && !reason) {
+    throw new ProviderScopeMappingReviewInputError("provider_scope_mapping_reason_required");
+  }
+  return { intent, mappingIds, reason };
+}
+
+/** Applies an already parsed review input; HTTP and MCP callers own boundary parsing. */
+export async function reviewProviderScopeMappings(
+  services: ProviderScopeMappingServices,
+  input: ProviderScopeMappingReviewInput,
+  context: Parameters<ProviderScopeMappingServices["commandHandler"]>[0]["context"],
+) {
+  const reason = input.reason?.trim() ?? "";
+  const actor = context.audit.performedByUserId;
+  const applied: Array<{ mappingId: string; reviewStatus: string | null; version: number }> = [];
+  for (const mappingId of input.mappingIds) {
+    const result = await services.commandHandler({
+      streamId: `${CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX}${mappingId}`,
+      command: reviewCommand(input.intent, actor, reason),
+      context,
+    });
+    applied.push({ mappingId, reviewStatus: result.state.reviewStatus, version: result.version });
+  }
+  return { intent: input.intent, applied, count: applied.length };
+}
+
+export async function proposeProviderScopeMapping(
+  services: ProviderScopeMappingServices,
+  body: Readonly<Record<string, unknown>>,
+  context: Parameters<ProviderScopeMappingServices["commandHandler"]>[0]["context"],
+) {
+  const scopeRecordId = String(body.scopeRecordId ?? "").trim();
+  const providerKey = String(body.providerKey ?? "").trim();
+  const unitKey = String(body.unitKey ?? "").trim();
+  const coordinates = isRecord(body.coordinates) ? body.coordinates : {};
+  if (!scopeRecordId || !providerKey || !unitKey) throw new Error("provider_scope_mapping_missing_fields");
+  const actor = context.audit.performedByUserId;
+  const candidate = buildProviderScopeMappingCandidate({
+    scopeRecordId,
+    providerKey,
+    unitKey,
+    coordinates: {
+      productLineId: stringOrNull(coordinates.productLineId),
+      seriesId: stringOrNull(coordinates.seriesId),
+      setId: stringOrNull(coordinates.setId),
+      setName: stringOrNull(coordinates.setName),
+    },
+    confidence: normalizeManualConfidence(body.confidence),
+    reviewStatus: "proposed",
+    provenance: { source: "operator-manual-mapping" },
+  });
+  const proposeResult = await services.commandHandler({
+    streamId: `${CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX}${candidate.mappingId}`,
+    command: { type: "ProposeProviderScopeMapping", candidate, actor },
+    context,
+  });
+  if (!body.autoAccept) {
+    return {
+      mappingId: candidate.mappingId,
+      reviewStatus: proposeResult.state.reviewStatus,
+      version: proposeResult.version,
+    };
+  }
+  const acceptResult = await services.commandHandler({
+    streamId: `${CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX}${candidate.mappingId}`,
+    command: {
+      type: "AcceptProviderScopeMapping",
+      actor,
+      reason: typeof body.reason === "string" ? body.reason : null,
+    },
+    context,
+  });
+  return {
+    mappingId: candidate.mappingId,
+    reviewStatus: acceptResult.state.reviewStatus,
+    version: acceptResult.version,
+  };
+}
+
 export function providerScopeMappingRoutes(services: ProviderScopeMappingServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -63,12 +168,7 @@ export function providerScopeMappingRoutes(services: ProviderScopeMappingService
       return permissionError;
     }
 
-    const limit = Number(c.req.query("limit")) || undefined;
-    const requestedProductDomain = c.req.query("productDomain")?.trim();
-    const productDomain = catalogScopeProductDomains.includes(requestedProductDomain as CatalogScopeProductDomain)
-      ? (requestedProductDomain as CatalogScopeProductDomain)
-      : undefined;
-    const inbox = await services.getUnmappedScopeInbox({ limit, ...(productDomain ? { productDomain } : {}) });
+    const inbox = await services.getUnmappedScopeInbox(unmappedScopeInboxParams(c.req.query()));
     return c.json(inbox);
   });
 
@@ -104,59 +204,30 @@ export function providerScopeMappingRoutes(services: ProviderScopeMappingService
       mappingIds?: unknown;
       reason?: unknown;
     };
-    const intent = String(body.intent ?? "").trim();
-    if (!isReviewIntent(intent)) {
+    let input: ProviderScopeMappingReviewInput;
+    try {
+      input = parseProviderScopeMappingReviewInput(body);
+    } catch (error) {
+      const code =
+        error instanceof ProviderScopeMappingReviewInputError ? error.code : "provider_scope_mapping_invalid_intent";
+      const message =
+        code === "provider_scope_mapping_invalid_intent"
+          ? t("catalog.features.providerScopeMapping.api.route.invalid.intent")
+          : code === "provider_scope_mapping_no_candidates"
+            ? t("catalog.features.providerScopeMapping.api.route.no.candidates")
+            : t("catalog.features.providerScopeMapping.api.route.reason.required");
       return c.json(
         {
           error: {
-            code: "provider_scope_mapping_invalid_intent",
-            message: t("catalog.features.providerScopeMapping.api.route.invalid.intent"),
+            code,
+            message,
           },
         },
         400,
       );
     }
 
-    const mappingIds = parseMappingIds(body.mappingIds);
-    if (mappingIds.length === 0) {
-      return c.json(
-        {
-          error: {
-            code: "provider_scope_mapping_no_candidates",
-            message: t("catalog.features.providerScopeMapping.api.route.no.candidates"),
-          },
-        },
-        400,
-      );
-    }
-
-    const reason = String(body.reason ?? "").trim();
-    if ((intent === "reject" || intent === "revoke") && !reason) {
-      return c.json(
-        {
-          error: {
-            code: "provider_scope_mapping_reason_required",
-            message: t("catalog.features.providerScopeMapping.api.route.reason.required"),
-          },
-        },
-        400,
-      );
-    }
-
-    const context = c.get("context");
-    const actor = context.audit.performedByUserId;
-    const applied: Array<{ mappingId: string; reviewStatus: string | null; version: number }> = [];
-
-    for (const mappingId of mappingIds) {
-      const result = await services.commandHandler({
-        streamId: `${CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX}${mappingId}`,
-        command: reviewCommand(intent, actor, reason),
-        context,
-      });
-      applied.push({ mappingId, reviewStatus: result.state.reviewStatus, version: result.version });
-    }
-
-    return c.json({ intent, applied, count: applied.length });
+    return c.json(await reviewProviderScopeMappings(services, input, c.get("context")));
   });
 
   app.post("/propose", async (c) => {
@@ -175,12 +246,11 @@ export function providerScopeMappingRoutes(services: ProviderScopeMappingService
       reason?: unknown;
     };
 
-    const scopeRecordId = String(body.scopeRecordId ?? "").trim();
-    const providerKey = String(body.providerKey ?? "").trim();
-    const unitKey = String(body.unitKey ?? "").trim();
-    const coordinates = isRecord(body.coordinates) ? body.coordinates : {};
-
-    if (!scopeRecordId || !providerKey || !unitKey) {
+    if (
+      !String(body.scopeRecordId ?? "").trim() ||
+      !String(body.providerKey ?? "").trim() ||
+      !String(body.unitKey ?? "").trim()
+    ) {
       return c.json(
         {
           error: {
@@ -192,58 +262,19 @@ export function providerScopeMappingRoutes(services: ProviderScopeMappingService
       );
     }
 
-    const context = c.get("context");
-    const actor = context.audit.performedByUserId;
-
-    const candidate = buildProviderScopeMappingCandidate({
-      scopeRecordId,
-      providerKey,
-      unitKey,
-      coordinates: {
-        productLineId: stringOrNull(coordinates.productLineId),
-        seriesId: stringOrNull(coordinates.seriesId),
-        setId: stringOrNull(coordinates.setId),
-        setName: stringOrNull(coordinates.setName),
-      },
-      confidence: normalizeManualConfidence(body.confidence),
-      reviewStatus: "proposed",
-      provenance: { source: "operator-manual-mapping" },
-    });
-
-    const proposeResult = await services.commandHandler({
-      streamId: `${CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX}${candidate.mappingId}`,
-      command: { type: "ProposeProviderScopeMapping", candidate, actor },
-      context,
-    });
-
-    if (!body.autoAccept) {
-      return c.json(
-        {
-          mappingId: candidate.mappingId,
-          reviewStatus: proposeResult.state.reviewStatus,
-          version: proposeResult.version,
-        },
-        201,
-      );
-    }
-
-    const acceptResult = await services.commandHandler({
-      streamId: `${CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX}${candidate.mappingId}`,
-      command: {
-        type: "AcceptProviderScopeMapping",
-        actor,
-        reason: typeof body.reason === "string" ? body.reason : null,
-      },
-      context,
-    });
-
-    return c.json(
-      { mappingId: candidate.mappingId, reviewStatus: acceptResult.state.reviewStatus, version: acceptResult.version },
-      201,
-    );
+    return c.json(await proposeProviderScopeMapping(services, body, c.get("context")), 201);
   });
 
   return app;
+}
+
+export function unmappedScopeInboxParams(record: Readonly<Record<string, unknown>>) {
+  const limit = Number(record.limit) || undefined;
+  const requestedProductDomain = typeof record.productDomain === "string" ? record.productDomain.trim() : undefined;
+  const productDomain = catalogScopeProductDomains.includes(requestedProductDomain as CatalogScopeProductDomain)
+    ? (requestedProductDomain as CatalogScopeProductDomain)
+    : undefined;
+  return { limit, ...(productDomain ? { productDomain } : {}) };
 }
 
 function reviewCommand(intent: ReviewIntent, actor: string, reason: string) {

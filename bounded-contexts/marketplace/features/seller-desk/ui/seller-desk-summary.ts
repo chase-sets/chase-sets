@@ -5,6 +5,7 @@
 // surface that shows it, never inside the transport-agnostic read model.
 
 import { t } from "@chase-sets/localization";
+import { inventoryCapacityRecoveryAction } from "../../listings/ui/inventory-capacity-status";
 import type {
   SellerAttentionItem,
   SellerAttentionSeverity,
@@ -54,6 +55,12 @@ export function resolveAttentionSummary(item: SellerAttentionItem): string {
     case "offer-awaiting-response":
       return t("marketplace.features.sellerDesk.summary.offerAwaitingResponse", params);
     case "listing-needs-action":
+      if (typeof params.action === "string" && params.action.startsWith("inventory-capacity:")) {
+        return t("marketplace.features.listings.capacityRecovery.summary", {
+          reference: params.reference ?? "",
+          action: inventoryCapacityRecoveryAction(params.action.slice("inventory-capacity:".length)),
+        });
+      }
       return t("marketplace.features.sellerDesk.summary.listingNeedsAction", params);
     case "repricing-halt-engaged":
       return t("marketplace.features.sellerDesk.summary.repricingHaltEngaged", params);

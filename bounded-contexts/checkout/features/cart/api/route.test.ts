@@ -19,6 +19,7 @@ import { createCheckoutCartRuntime, type CheckoutCartServices } from "./runtime"
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CheckoutCartLineOutcome } from "../../command-attempts/api/contracts";
 import { CheckoutCommandAttemptRefusal } from "../../command-attempts/api/cart-attempt";
+import { createCartReadinessRead } from "../domain/readiness";
 
 function buildApp(
   options: Readonly<{
@@ -229,6 +230,10 @@ function createServices() {
       fulfillmentGroups: [],
       customerSafeFacts: ["Ready for checkout."],
     })),
+    readCart: vi.fn<CheckoutCartServices["readCart"]>(async () => ({
+      lines: [],
+      readiness: createCartReadinessRead([]),
+    })),
     projectors: [],
   } satisfies CheckoutCartServices;
   return Object.assign(services, commands);
@@ -341,10 +346,11 @@ function collectCheckoutObservabilityEvents() {
 describe("checkout cart routes", () => {
   it("counts cart item quantities instead of raw cart lines", async () => {
     const services = createServices();
-    vi.mocked(services.listAuthorizedCartLines).mockResolvedValue([
+    const lines = [
       internalCartLineRow({ line_id: "cli_1", quantity: 2 }),
       internalCartLineRow({ line_id: "cli_2", quantity: 3 }),
-    ]);
+    ];
+    vi.mocked(services.readCart).mockResolvedValue({ lines, readiness: createCartReadinessRead(lines) });
     const app = buildApp({
       actor: accountCartActor(),
       services,
@@ -357,9 +363,115 @@ describe("checkout cart routes", () => {
     });
   });
 
+  it("returns the cart readiness projection with the cart read", async () => {
+    const services = createServices();
+    const line = internalCartLineRow({ quantity: 1 });
+    vi.mocked(services.readCart).mockResolvedValue({ lines: [line], readiness: createCartReadinessRead([line]) });
+    const app = buildApp({ actor: accountCartActor(), services });
+
+    const response = await app.fetch(new Request("http://checkout.test/account/cart"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      count: 1,
+      readiness: {
+        loaded: { status: "ready", includedLineIds: ["cli_1"] },
+        declined: { status: "ready", includedLineIds: ["cli_1"] },
+        accepted: null,
+        lineListingIds: { cli_1: "lst_1" },
+        blockedLineCount: 0,
+        estimatedSubtotal: { amount: "25.00", currency: "USD" },
+        savings: null,
+      },
+    });
+  });
+
+  it("uses the same readiness response contract for a guest cart read", async () => {
+    const services = createServices();
+    const line = internalCartLineRow({ buyer_account_id: "anon_cart_1", quantity: 1 });
+    vi.mocked(services.readCart).mockResolvedValue({ lines: [line], readiness: createCartReadinessRead([line]) });
+    const app = buildApp({ actor: null, services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/cart", {
+        headers: { "x-checkout-anonymous-cart-id": "anon_cart_1" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      count: 1,
+      readiness: {
+        loaded: { status: "ready" },
+        declined: { status: "ready" },
+        accepted: null,
+        lineListingIds: { cli_1: "lst_1" },
+      },
+    });
+    expect(services.readCart).toHaveBeenCalledWith({ accountId: "anon_cart_1" });
+  });
+
+  it("returns the domain oracle for account and guest unresolved, mixed, empty, and optimization reads", async () => {
+    const base = internalCartLineRow();
+    const cases = [
+      { name: "empty", lines: [] as CheckoutCartLineRow[] },
+      {
+        name: "unresolved",
+        lines: [internalCartLineRow({ availability_state: "unavailable" })],
+      },
+      {
+        name: "mixed-currency",
+        lines: [
+          base,
+          internalCartLineRow({
+            line_id: "cli_eur",
+            locked_listing_id: "lst_eur",
+            seller_options: [
+              {
+                ...base.seller_options[0]!,
+                listing_id: "lst_eur",
+                price_currency_code: "EUR",
+              },
+            ],
+          }),
+        ],
+      },
+      {
+        name: "optimization",
+        lines: [
+          internalCartLineRow({
+            locked_listing_id: "lst_expensive",
+            seller_options: [
+              { ...base.seller_options[0]!, listing_id: "lst_expensive", price_amount: "30.00" },
+              { ...base.seller_options[0]!, listing_id: "lst_lower", price_amount: "24.00" },
+            ],
+          }),
+        ],
+      },
+    ];
+
+    for (const routeKind of ["account", "guest"] as const) {
+      for (const testCase of cases) {
+        const services = createServices();
+        const readiness = createCartReadinessRead(testCase.lines.map((line) => line));
+        vi.mocked(services.readCart).mockResolvedValue({ lines: testCase.lines, readiness });
+        const app = buildApp({ actor: routeKind === "account" ? accountCartActor() : null, services });
+        const response = await app.fetch(
+          new Request(`http://checkout.test/${routeKind}/cart`, {
+            headers: routeKind === "guest" ? { "x-checkout-anonymous-cart-id": "anon_cart_1" } : undefined,
+          }),
+        );
+        expect(response.status, `${routeKind} ${testCase.name}`).toBe(200);
+        const body = (await response.json()) as { readiness: unknown };
+        expect(body.readiness, `${routeKind} ${testCase.name}`).toEqual(readiness);
+      }
+    }
+  });
+
   it("lets guest checkout actors read their merged account cart", async () => {
     const services = createServices();
-    vi.mocked(services.listAuthorizedCartLines).mockResolvedValue([internalCartLineRow({ line_id: "cli_1" })]);
+    const lines = [internalCartLineRow({ line_id: "cli_1" })];
+    vi.mocked(services.readCart).mockResolvedValue({ lines, readiness: createCartReadinessRead(lines) });
     const app = buildApp({
       actor: guestCheckoutActor(),
       services,
@@ -371,7 +483,7 @@ describe("checkout cart routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       count: 1,
     });
-    expect(services.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: "acc_guest" });
+    expect(services.readCart).toHaveBeenCalledWith({ accountId: "acc_guest" });
   });
 
   it("adds a browsed marketplace item to the current account cart", async () => {
@@ -1525,7 +1637,11 @@ describe("post-claim cart reads through the real Cart runtime", () => {
 
     expect([claimed.status, noKey.status]).toEqual([200, 200]);
     expect(claimedBody).toBe(await noKey.text());
-    expect(JSON.parse(claimedBody)).toEqual({ items: [], count: 0 });
+    expect(JSON.parse(claimedBody)).toMatchObject({
+      items: [],
+      count: 0,
+      readiness: { loaded: { status: "blocked" } },
+    });
   });
 
   it("still reads an unclaimed key by possession, so the claimed refusal is not a vacuous empty read", async () => {
@@ -1696,7 +1812,11 @@ describe("post-claim cart reads through the real Cart runtime", () => {
     expect(refused.response.status).toBe(unclaimedEmpty.response.status);
     expect(headerPairs(refused.response)).toEqual(headerPairs(unclaimedEmpty.response));
     expect(refused.body).toBe(unclaimedEmpty.body);
-    expect(JSON.parse(refused.body)).toEqual({ items: [], count: 0 });
+    expect(JSON.parse(refused.body)).toMatchObject({
+      items: [],
+      count: 0,
+      readiness: { loaded: { status: "blocked" }, declined: { status: "blocked" } },
+    });
   });
 
   it("performs identical read work for refused and valid unclaimed-empty guest readiness", async () => {
@@ -1739,6 +1859,31 @@ describe("post-claim cart reads through the real Cart runtime", () => {
     expect(harness.work).toEqual(["aggregate-read", "projection-query"]);
     expect(response.status).toBe(200);
     expect(JSON.parse(body)).toMatchObject({ count: 1, items: [{ line_id: "cli_unclaimed" }] });
+  });
+
+  it("derives account and keyed guest readiness from their non-empty real-runtime cart lines", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+
+    const guestResponse = await harness.guestApp().request("/guest/cart", {
+      headers: { "x-checkout-anonymous-cart-id": UNCLAIMED_SOURCE },
+    });
+    const guestBody = (await guestResponse.json()) as {
+      items: Parameters<typeof createCartReadinessRead>[0];
+      readiness: unknown;
+    };
+    expect(guestBody.items).toHaveLength(1);
+    expect(guestBody.readiness).toEqual(createCartReadinessRead(guestBody.items));
+
+    const accountResponse = await harness
+      .accountApp(OTHER)
+      .request(new Request("http://checkout.test/account/cart", { method: "GET" }));
+    const accountBody = (await accountResponse.json()) as {
+      items: Parameters<typeof createCartReadinessRead>[0];
+      readiness: unknown;
+    };
+    expect(accountBody.items).toHaveLength(1);
+    expect(accountBody.readiness).toEqual(createCartReadinessRead(accountBody.items));
   });
 
   it("keeps an indeterminate guest read on the same work and response, and re-decides on retry", async () => {

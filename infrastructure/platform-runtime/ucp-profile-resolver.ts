@@ -198,9 +198,7 @@ function validProfile(value: unknown): value is UcpPlatformProfile {
           (order) => Array.isArray(order) && order.every((key) => typeof key === "string"),
         ))) &&
     (ucp.capabilities === undefined || registry(ucp.capabilities, "capability")) &&
-    [value.keys, value.signing_keys, ucp.signing_keys].every(
-      (keys) => keys === undefined || (Array.isArray(keys) && keys.every(publicKey)),
-    )
+    (value.keys === undefined || (Array.isArray(value.keys) && value.keys.every(publicKey)))
   );
 }
 function publicAddress(address: string) {

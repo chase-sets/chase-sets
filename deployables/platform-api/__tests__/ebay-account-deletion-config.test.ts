@@ -12,9 +12,47 @@ beforeEach(() => {
   vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "local");
   vi.stubEnv("EBAY_ACCOUNT_DELETION_ENDPOINT", "");
   vi.stubEnv("EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN", "");
+  vi.stubEnv("EBAY_APPLICATION_CLIENT_ID", "");
+  vi.stubEnv("EBAY_APPLICATION_CLIENT_SECRET", "");
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("ebay-account-deletion-config", () => {
+  it.each(["production", "staging", "preview", "local"])(
+    "ebay-account-deletion-key-config binds %s only to deployment authority",
+    (environment) => {
+      vi.stubEnv("DEPLOYMENT_ENVIRONMENT", environment);
+      vi.stubEnv("CHASE_SETS_RUNTIME_PROFILE", "landing");
+      vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "synthetic-internal-secret");
+      vi.stubEnv("STRIPE_CONNECT_WEBHOOK_SECRET", "whsec_synthetic_connect");
+      vi.stubEnv("CATALOG_ASSET_STORAGE_KIND", "s3");
+      vi.stubEnv("CATALOG_ASSET_S3_BUCKET", "synthetic-assets");
+      vi.stubEnv("CATALOG_ASSET_S3_REGION", "nyc3");
+      vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "https://synthetic.example");
+      vi.stubEnv("EBAY_ACCOUNT_DELETION_ENDPOINT", endpoint);
+      vi.stubEnv("EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN", token);
+      vi.stubEnv("EBAY_APPLICATION_CLIENT_ID", "synthetic-client-id");
+      vi.stubEnv("EBAY_APPLICATION_CLIENT_SECRET", "synthetic-client-secret");
+      expect(loadConfig().ebayAccountDeletionConfiguration?.applicationAuthority).toEqual({
+        clientId: "synthetic-client-id",
+        clientSecret: "synthetic-client-secret",
+        environment: environment === "production" ? "production" : "sandbox",
+      });
+    },
+  );
+  it.each([
+    ["id", ""],
+    ["", "secret"],
+    ["bad:id", "secret"],
+    ["id", "bad\nsecret"],
+    ["id", " "],
+  ])(
+    "ebay-account-deletion-key-config rejects malformed/partial application authority without values: %#",
+    (id, secret) => {
+      vi.stubEnv("EBAY_APPLICATION_CLIENT_ID", id);
+      vi.stubEnv("EBAY_APPLICATION_CLIENT_SECRET", secret);
+      expect(() => loadConfig()).toThrow(/^ebay_application_key_authority_configuration_invalid$/);
+    },
+  );
   it("disables absent and empty pairs", () => {
     expect(loadConfig().ebayAccountDeletionConfiguration).toBeNull();
     vi.stubEnv("EBAY_ACCOUNT_DELETION_ENDPOINT", undefined);

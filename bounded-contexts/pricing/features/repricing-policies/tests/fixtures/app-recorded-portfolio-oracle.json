@@ -1,0 +1,282 @@
+{
+  "status": "app-recorded-synthetic-not-live",
+  "sourceRepository": "todd-skelton/tcgplayer-automation-app",
+  "sourceCommit": "bdeffa0190be035084abccb464716aaaa2541a59",
+  "sourceBlobs": {
+    "app/features/pricing/domain/pricingPolicy.ts": "36f40f8096ba9657118096b20e705c53fedfb7b8",
+    "app/core/types/pricingPolicy.ts": "aa652940720ea8a923c3e7a9507e44ce0664bc2e",
+    "app/core/types/pricing.ts": "8d72572cce52b4c504e50785e89750a952b803cd",
+    "app/features/pricing/domain/maximize.ts": "3e6b75f9b9a3dc67d135262bf3ae361ef81eaacd",
+    "app/features/pricing/domain/horizonValueCurve.ts": "1d6ccccfa59b9a53876df4f41722bfe6355f7e87",
+    "app/features/pricing/domain/capitalCycle.ts": "1fc6c9b93c190ccafd008c46c542ead58222cd9a"
+  },
+  "fixture": {
+    "file": "portfolio-parity-fixture.json",
+    "sha256": "5d318f7c13aa93a71104716e6c553b2f372d9045aeace585b309366ff1744373"
+  },
+  "scenarios": {
+    "matched": {
+      "plan": {
+        "baselineValue": 112.5,
+        "selectedOneCopyValue": 112.5,
+        "valueDifference": 0,
+        "valueTolerance": 0.01,
+        "matchStatus": "matched",
+        "minimumReachableValue": 57.54,
+        "maximumReachableValue": 217.48,
+        "resolvedHorizonDays": 38.04543551496619,
+        "modeledSkuCount": 6,
+        "unavailableBaselineSkuCount": 1,
+        "raisedCount": 2,
+        "loweredCount": 4,
+        "heldCount": 1,
+        "sparseDecisionCount": 1,
+        "cappedHistoryCount": 1
+      },
+      "decisions": {
+        "lst_portfolio_01": 9.54,
+        "lst_portfolio_02": 27.35,
+        "lst_portfolio_03": 4.09,
+        "lst_portfolio_04": 36.41,
+        "lst_portfolio_05": 15.11,
+        "lst_portfolio_06": 8,
+        "lst_portfolio_07": 12
+      }
+    },
+    "boundary-high": {
+      "plan": {
+        "baselineValue": 450,
+        "selectedOneCopyValue": 253.48,
+        "valueDifference": -196.52,
+        "valueTolerance": 0.05,
+        "matchStatus": "boundary",
+        "minimumReachableValue": 93.54,
+        "maximumReachableValue": 253.48,
+        "resolvedHorizonDays": 991.2004682007217,
+        "modeledSkuCount": 6,
+        "unavailableBaselineSkuCount": 1,
+        "raisedCount": 0,
+        "loweredCount": 6,
+        "heldCount": 1,
+        "sparseDecisionCount": 1,
+        "cappedHistoryCount": 1
+      },
+      "decisions": {
+        "lst_portfolio_01": 19.95,
+        "lst_portfolio_02": 49.88,
+        "lst_portfolio_03": 9.97,
+        "lst_portfolio_04": 79.8,
+        "lst_portfolio_05": 29.92,
+        "lst_portfolio_06": 15.96,
+        "lst_portfolio_07": 48
+      }
+    },
+    "boundary-low": {
+      "plan": {
+        "baselineValue": 11.25,
+        "selectedOneCopyValue": 46.74,
+        "valueDifference": 35.49,
+        "valueTolerance": 0.01,
+        "matchStatus": "boundary",
+        "minimumReachableValue": 46.74,
+        "maximumReachableValue": 206.68,
+        "resolvedHorizonDays": 0.18714973875118524,
+        "modeledSkuCount": 6,
+        "unavailableBaselineSkuCount": 1,
+        "raisedCount": 6,
+        "loweredCount": 0,
+        "heldCount": 1,
+        "sparseDecisionCount": 1,
+        "cappedHistoryCount": 1
+      },
+      "decisions": {
+        "lst_portfolio_01": 3.95,
+        "lst_portfolio_02": 9.88,
+        "lst_portfolio_03": 1.98,
+        "lst_portfolio_04": 15.8,
+        "lst_portfolio_05": 5.93,
+        "lst_portfolio_06": 8,
+        "lst_portfolio_07": 1.2
+      }
+    },
+    "infeasible": {
+      "plan": {
+        "baselineValue": 12,
+        "selectedOneCopyValue": 12,
+        "valueDifference": 0,
+        "valueTolerance": 0.01,
+        "matchStatus": "infeasible",
+        "minimumReachableValue": 12,
+        "maximumReachableValue": 12,
+        "resolvedHorizonDays": 1,
+        "modeledSkuCount": 0,
+        "unavailableBaselineSkuCount": 1,
+        "raisedCount": 0,
+        "loweredCount": 0,
+        "heldCount": 1,
+        "sparseDecisionCount": 0,
+        "cappedHistoryCount": 0
+      },
+      "decisions": {
+        "lst_portfolio_07": 12
+      }
+    },
+    "one-listing": {
+      "plan": {
+        "baselineValue": 10,
+        "selectedOneCopyValue": 10,
+        "valueDifference": 0,
+        "valueTolerance": 0.01,
+        "matchStatus": "matched",
+        "minimumReachableValue": 3.95,
+        "maximumReachableValue": 19.95,
+        "resolvedHorizonDays": 46.13325382117186,
+        "modeledSkuCount": 1,
+        "unavailableBaselineSkuCount": 0,
+        "raisedCount": 0,
+        "loweredCount": 0,
+        "heldCount": 1,
+        "sparseDecisionCount": 0,
+        "cappedHistoryCount": 0
+      },
+      "decisions": {
+        "lst_portfolio_01": 10
+      }
+    }
+  },
+  "horizonModel": {
+    "range": {
+      "minimumDays": 0.18714973875118524,
+      "maximumDays": 991.2004682007217
+    },
+    "samples": [
+      {
+        "horizonDays": 0.18714973875118524,
+        "value": 57.54
+      },
+      {
+        "horizonDays": 0.2717071475627285,
+        "value": 58.51
+      },
+      {
+        "horizonDays": 0.39446901999058653,
+        "value": 59.77
+      },
+      {
+        "horizonDays": 0.5726967771299036,
+        "value": 61.79
+      },
+      {
+        "horizonDays": 0.8314508412924425,
+        "value": 63.98
+      },
+      {
+        "horizonDays": 1.207114356309887,
+        "value": 65.93
+      },
+      {
+        "horizonDays": 1.7525089841083275,
+        "value": 69.5
+      },
+      {
+        "horizonDays": 2.544322104468411,
+        "value": 72.24
+      },
+      {
+        "horizonDays": 3.693889748919205,
+        "value": 76.88
+      },
+      {
+        "horizonDays": 5.362851446051963,
+        "value": 80.35
+      },
+      {
+        "horizonDays": 7.785878190012726,
+        "value": 85.06
+      },
+      {
+        "horizonDays": 11.303669288535518,
+        "value": 89.49
+      },
+      {
+        "horizonDays": 16.41085774350808,
+        "value": 95.24
+      },
+      {
+        "horizonDays": 23.82556009054571,
+        "value": 101.87
+      },
+      {
+        "horizonDays": 34.590350029252,
+        "value": 110.03
+      },
+      {
+        "horizonDays": 50.218853642855436,
+        "value": 120.1
+      },
+      {
+        "horizonDays": 72.9085788108479,
+        "value": 131.58
+      },
+      {
+        "horizonDays": 105.84990454026169,
+        "value": 146.63
+      },
+      {
+        "horizonDays": 153.67467688885296,
+        "value": 163.7
+      },
+      {
+        "horizonDays": 223.1074880932996,
+        "value": 183.99
+      },
+      {
+        "horizonDays": 323.91121459330344,
+        "value": 200.03
+      },
+      {
+        "horizonDays": 470.2597650843258,
+        "value": 212.67
+      },
+      {
+        "horizonDays": 682.7310592960786,
+        "value": 215.57
+      },
+      {
+        "horizonDays": 991.2004682007217,
+        "value": 217.48
+      }
+    ],
+    "curve": {
+      "floorValue": 57.54,
+      "ceilingValue": 217.48,
+      "midpointDays": 60.714595160309166,
+      "steepness": 0.810384236197666,
+      "residual": 0.054654260493043866
+    },
+    "kneeDays": 308.36593251338894,
+    "marginalValuePerDayAtKnee": 0.07005359599930676,
+    "gainElasticityAtKnee": 0.17125433964095704
+  },
+  "bestCapitalCycle": {
+    "portfolio": {
+      "marketValue": 112.5,
+      "unitCount": 7
+    },
+    "economics": {
+      "costBasisShareOfMarket": 0.55,
+      "costBasisDiscountPerUnit": 0.25,
+      "relativeOverhead": 0.1325,
+      "staticOverheadPerUnit": 0.5,
+      "turnaroundDays": 5
+    },
+    "cycle": {
+      "horizonDays": 22.69175693900999,
+      "netProceeds": 89.50363172802021,
+      "profit": 29.378631728020203,
+      "cycleDays": 27.69175693900999,
+      "profitPerDay": 1.0609161344556608,
+      "dailyReturn": 0.014367216745206302
+    }
+  }
+}

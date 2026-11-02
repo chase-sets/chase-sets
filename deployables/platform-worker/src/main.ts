@@ -6,10 +6,8 @@ import {
   type NotificationChannelAdapter,
   type NotificationPreferenceResolver,
 } from "@chase-sets/outbound-messaging";
-import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
-  createObjectStorageTcgplayerMarketCaptureReceiptSink,
   createBuyerOfferPricing,
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
@@ -22,14 +20,19 @@ import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
-import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
+import type { GoogleShoppingSyncMode, GoogleShoppingSyncServices } from "@chase-sets/discovery/server";
+import {
+  createGoogleMerchantApiClient,
+  createGoogleMerchantServiceAccountAccessTokenProvider,
+  type GoogleMerchantConfig,
+} from "@chase-sets/google-merchant";
 import type {
   InventoryAccountSellerSkuItemResolution,
   InventoryDraftListingCreator,
-  InventoryServices,
 } from "@chase-sets/inventory/server";
 import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
 import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
+import { createPlatformWorkerInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
 import type {
   BulkRepriceIngestionServices,
   PricingRecommendationServices,
@@ -122,6 +125,7 @@ import {
   recordCatalogIntegrationOptionQuery,
   recordDiscoverySearchQuerySignal,
   recordDiscoveryQueryEmbeddingLoad,
+  recordDiscoverySearchRetrievalFailure,
   recordProjectionInterestIndexLookup,
   recordProjectionStatus,
   recordProjectionWakeIntentEnqueueOutcome,
@@ -131,11 +135,7 @@ import {
   recordSettlementOperationSignal,
   type ProjectionWakeIntentOutcomeSignal,
 } from "@chase-sets/observability";
-import {
-  loadConfig,
-  type PlatformWorkerCatalogAssetStorageConfig,
-  type PlatformWorkerGoogleMerchantConfig,
-} from "./config";
+import { loadConfig, type PlatformWorkerCatalogAssetStorageConfig } from "./config";
 import { createAgentWebhookDispatchRunners, createOrderingAgentWebhookOrderResolvers } from "./agent-webhook-runners";
 import { createChannelsOutboundRunners } from "./channels-outbound-runners";
 import { createPlatformWorkerMarketplaceChannelInboundClampBinding } from "./channels-outbound-runners";
@@ -145,14 +145,9 @@ import {
 } from "./channels-reconciliation-runners";
 import { closePlatformWorkerPools, createPlatformWorkerPools, createSettlementBootstrapPool } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
-import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
-import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
-import {
-  createInventoryProductResolutionMaintenanceRunners,
-  createRegisteredScheduledRunners,
-  createSupportEvidenceCleanupHostPort,
-} from "./scheduled-runners";
+import { createRegisteredScheduledRunners, createSupportEvidenceCleanupHostPort } from "./scheduled-runners";
+import { createInventoryJobRunners } from "./inventory-job-runners";
 import { runStartupRetry } from "./startup-retry";
 import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
 import {
@@ -245,20 +240,6 @@ const postageLabelProvider =
       })
     : createSandboxPostageLabelProvider();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
-  pool: pools.catalog,
-  config: config.tcgplayerAutomation,
-  keyring: config.catalogOperatorSessionKeyring,
-});
-const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
-const pricingTcgplayerAutomationHttpClients = createTcgplayerAutomationRuntime(
-  {
-    pool: pools.catalog,
-    config: config.tcgplayerAutomation,
-    keyring: config.catalogOperatorSessionKeyring,
-  },
-  { ownership: "pricing-non-window" },
-)?.httpClients;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
 const marketplaceChannelInboundClamp = createPlatformWorkerMarketplaceChannelInboundClampBinding(
@@ -275,8 +256,6 @@ const commercialTermsResolver = pools["commercial-terms"]
   : undefined;
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
-      tcgplayerMarketTransport: pricingTcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
-      tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
       channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
         const services = runtime?.services.channels;
@@ -298,13 +277,7 @@ const checkoutProcessingFeePolicyResolver = pools["commercial-terms"]
   : undefined;
 const emailNotificationAdapter = createPlatformEmailNotificationAdapter(config.notificationEmail);
 const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
-  const marketplaceServices = runtime?.services.marketplace as
-    | {
-        listings?: {
-          createBatchDraftListingFromInventorySnapshot?: InventoryDraftListingCreator;
-        };
-      }
-    | undefined;
+  const marketplaceServices = runtime?.services.marketplace as MarketplaceServices | undefined;
   const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
   if (!createDraft) {
     throw new Error("Marketplace draft listing service is unavailable.");
@@ -312,6 +285,9 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
 
   return createDraft(params, context);
 };
+const inventoryDraftListingConsumer = createPlatformWorkerInventoryDraftListingConsumer(
+  () => runtime?.services.marketplace as MarketplaceServices | undefined,
+);
 
 const identityHostPorts = {
   capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
@@ -323,6 +299,8 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     runtimeProfile: config.runtimeProfile,
     runtimeLifecycle,
     hostPorts: {
+      inventoryDraftListingConsumer,
+      draftListingDelivery: inventoryDraftListingConsumer,
       ...identityHostPorts,
       ...supportEvidenceCleanupHostPort,
       ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
@@ -332,7 +310,6 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       postageLabelProvider,
       addressVerificationProvider: postageLabelProvider,
       catalogAssetStorage,
-      ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
       ...(pricingHostPorts ?? {}),
       sourceObservationTelemetry,
       evidenceWindowCorrelation,
@@ -363,6 +340,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       searchTelemetry: {
         recordSearchQuery: recordDiscoverySearchQuerySignal,
         recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
+        recordSearchRetrievalFailure: recordDiscoverySearchRetrievalFailure,
       },
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },
@@ -470,7 +448,7 @@ const projectionOperationRunners = collectProjectionOperationRunners(runtime, {
   observer: createWorkerObserver(logger, workerKind, undefined, recordProjectionStatus),
 });
 const inventoryImportJobRunners = platformWorkerGroupsEnabled
-  ? createInventoryJobRunners(runtime.services, config)
+  ? createInventoryJobRunners(runtime.services, config, logger)
   : [];
 const bulkJobRunners = [
   ...createCatalogBulkJobRunners(runtime.services, config),
@@ -1504,51 +1482,6 @@ function createCatalogBulkJobRunners(
   return runners;
 }
 
-function createInventoryJobRunners(
-  services: Readonly<Record<string, unknown>>,
-  input: Pick<
-    ReturnType<typeof loadConfig>,
-    | "workerId"
-    | "leaseTtlMs"
-    | "inventoryImportBatchJobLaneCount"
-    | "inventoryImportBatchJobWorkflowMaxActiveClaims"
-    | "inventoryImportBatchJobMaxActiveClaimsPerJob"
-  >,
-): readonly WorkerRunner[] {
-  const inventory = services.inventory as InventoryServices | undefined;
-  const processNextImportBatchJob = inventory?.importBatches?.processNextImportBatchJob;
-  const processNextProductResolutionMaintenanceJob =
-    inventory?.importBatches?.processNextImportProductResolutionMaintenanceJob;
-
-  if (!processNextImportBatchJob && !processNextProductResolutionMaintenanceJob) {
-    return [];
-  }
-
-  const runners: WorkerRunner[] = [];
-  if (processNextImportBatchJob) {
-    runners.push(
-      ...createDurableJobLaneRunners({
-        workflowName: "inventory.import-batch-jobs",
-        laneCount: input.inventoryImportBatchJobLaneCount,
-        runLane: async (lane) => ({
-          processed: await processNextImportBatchJob({
-            claimOwnerId: `${input.workerId}:${lane.laneName}`,
-            claimTtlMs: input.leaseTtlMs * 4,
-            workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
-            jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
-            laneName: lane.laneName,
-            signal: lane.runnerContext?.signal,
-            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-          }),
-          lastGlobalPosition: "0" as never,
-        }),
-      }),
-    );
-  }
-  runners.push(...createInventoryProductResolutionMaintenanceRunners(services, input));
-  return runners;
-}
-
 function createGoogleShoppingJobRunners(
   services: Readonly<Record<string, unknown>>,
   input: Pick<
@@ -1558,31 +1491,12 @@ function createGoogleShoppingJobRunners(
 ): readonly WorkerRunner[] {
   const discovery = services.discovery as
     | {
-        googleShoppingSync?: {
-          processNextFullSyncJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            merchantClientForMode: (mode: GoogleShoppingSyncMode) => ReturnType<typeof createGoogleMerchantApiClient>;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-          processNextIncrementalSyncJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            mode: GoogleShoppingSyncMode;
-            merchantClientForMode: (mode: GoogleShoppingSyncMode) => ReturnType<typeof createGoogleMerchantApiClient>;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-          processNextDiagnosticsRefreshJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            previousIssueChunkSize?: number;
-            merchantClientForMode: (mode: GoogleShoppingSyncMode) => ReturnType<typeof createGoogleMerchantApiClient>;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
+        googleShoppingSync?: Partial<
+          Pick<
+            GoogleShoppingSyncServices,
+            "processNextFullSyncJob" | "processNextIncrementalSyncJob" | "processNextDiagnosticsRefreshJob"
+          >
+        >;
       }
     | undefined;
   const processNextFullSyncJob = discovery?.googleShoppingSync?.processNextFullSyncJob;
@@ -1895,7 +1809,7 @@ function createSourceObservationTelemetry() {
   };
 }
 
-function createGoogleShoppingMerchantClient(config: PlatformWorkerGoogleMerchantConfig, mode: GoogleShoppingSyncMode) {
+function createGoogleShoppingMerchantClient(config: GoogleMerchantConfig, mode: GoogleShoppingSyncMode) {
   if (mode === "live" && config.syncEnabled && config.dryRun) {
     throw new Error("Google Shopping live sync requested while GOOGLE_MERCHANT_DRY_RUN=true.");
   }
@@ -1905,6 +1819,7 @@ function createGoogleShoppingMerchantClient(config: PlatformWorkerGoogleMerchant
     clientConfig.syncEnabled && !clientConfig.dryRun
       ? createGoogleMerchantServiceAccountAccessTokenProvider({
           credentialSecretName: clientConfig.credentialSecretName,
+          secretResolver: (secretName) => process.env[secretName],
         })
       : async () => {
           throw new Error("Google Merchant credentials are not required in dry-run mode.");

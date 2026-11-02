@@ -19,7 +19,8 @@ import { withInventoryMutationAttempt } from "../../../support/runtime-support/m
 import { createInventoryImportBatchRuntime } from "../api/runtime";
 import { loadInventoryImportSnapshotPage, stageInventoryImportSnapshot } from "../api/safe-snapshot";
 import { prepareInventoryImportSnapshot } from "../api/safe-snapshot";
-import { contractInventoryImportSources, migrateInventoryImportSource } from "../api/source-migration";
+import { migrateInventoryImportSource } from "../api/source-migration";
+import { contractionLedgerRows, enterSourceFloor, rawSourceColumns } from "./source-floor-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -63,8 +64,7 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
   it.each(["csv", "parsed", "normalized"])(
     "issue-7169-c3-safe-rollout: lossless %s legacy source conversion is replay-safe",
     async (kind) => {
-      await pools.inventory.query(`ALTER TABLE inventory_import_batch_job_inputs ADD COLUMN csv_text text,
-      ADD COLUMN parsed_rows jsonb, ADD COLUMN source_filename text`);
+      await enterSourceFloor(pools.inventory);
       const original = prepareInventoryImportSnapshot(params);
       const inputId = `input_legacy_${kind}_synthetic`;
       if (kind !== "normalized")
@@ -90,28 +90,39 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
           ],
         );
       const fallback = { inputId, normalizedRows: original.rows };
-      expect(await migrateInventoryImportSource(pools.inventory, inputId, accountId, fallback)).toEqual(
-        original.header,
+      await pools.inventory.query(
+        `INSERT INTO inventory_import_batch_jobs (job_id, job_kind, status, payload, progress, created_at, updated_at)
+         VALUES ($1, 'create', 'queued', $2::jsonb, '{"phase":"queued","total":1}'::jsonb, now(), now())`,
+        [
+          `job_legacy_${kind}_synthetic`,
+          JSON.stringify({ accountId, batchId: `imb_legacy_${kind}`, create: fallback }),
+        ],
       );
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
       expect(await migrateInventoryImportSource(pools.inventory, inputId, accountId, fallback)).toEqual(
         original.header,
       );
       expect((await loadInventoryImportSnapshotPage(pools.inventory, inputId, accountId)).rows).toEqual(original.rows);
       const retained = await pools.inventory.query(
-        `SELECT csv_text, parsed_rows, source_filename, snapshot_version
-      FROM inventory_import_batch_job_inputs WHERE input_id = $1`,
+        "SELECT snapshot_version FROM inventory_import_batch_job_inputs WHERE input_id = $1",
         [inputId],
       );
-      expect(retained.rows).toEqual([
-        { csv_text: null, parsed_rows: null, source_filename: null, snapshot_version: 1 },
-      ]);
+      expect(retained.rows).toEqual([{ snapshot_version: 1 }]);
+      expect(
+        (
+          await pools.inventory.query(
+            "SELECT job_kind, payload #> '{create,normalizedRows}' AS rows FROM inventory_import_batch_jobs",
+          )
+        ).rows,
+      ).toEqual([{ job_kind: "create-snapshot-v1", rows: null }]);
+      expect(await rawSourceColumns(pools.inventory)).toEqual([]);
+      expect(await contractionLedgerRows(pools.inventory)).toHaveLength(1);
     },
   );
 
   it("issue-7169-c3-safe-rollout: interrupted conversion preserves old work, then contracts after compatible readers", async () => {
-    await pools.inventory.query(`ALTER TABLE inventory_import_batch_job_inputs ADD COLUMN csv_text text,
-      ADD COLUMN parsed_rows jsonb, ADD COLUMN source_filename text`);
-    await pools.inventory.query("ALTER TABLE inventory_import_batches ADD COLUMN source_filename text");
+    await enterSourceFloor(pools.inventory);
     const inventory = services();
     const job = await inventory.importBatches.enqueueCreateBatchJob(
       params,
@@ -143,24 +154,17 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
         };
       },
     };
-    await expect(contractInventoryImportSources(interrupted)).rejects.toThrow("synthetic-conversion-kill");
+    await expect(bootstrapContextDatabase(inventoryModule, interrupted)).rejects.toThrow("synthetic-conversion-kill");
     expect(
       (await pools.inventory.query("SELECT csv_text, snapshot_version FROM inventory_import_batch_job_inputs")).rows,
     ).toEqual([{ csv_text: params.csvText, snapshot_version: null }]);
     expect((await pools.inventory.query("SELECT row_number FROM inventory_import_snapshot_rows")).rows).toEqual([]);
-    await contractInventoryImportSources(pools.inventory);
-    await contractInventoryImportSources(pools.inventory);
-    const columns = await pools.inventory.query(`SELECT column_name FROM information_schema.columns
-      WHERE table_schema = current_schema() AND table_name IN ('inventory_import_batch_job_inputs', 'inventory_import_batches')
-        AND column_name IN ('csv_text', 'parsed_rows', 'source_filename')`);
-    expect(columns.rows).toHaveLength(4);
+    expect(await rawSourceColumns(pools.inventory)).toHaveLength(4);
+    expect(await contractionLedgerRows(pools.inventory)).toEqual([]);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
-    expect(
-      (
-        await pools.inventory.query(`SELECT column_name FROM information_schema.columns
-      WHERE table_schema = current_schema() AND table_name = 'inventory_import_batch_job_inputs' AND column_name = 'csv_text'`)
-      ).rows,
-    ).toHaveLength(1);
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    expect(await rawSourceColumns(pools.inventory)).toEqual([]);
+    expect(await contractionLedgerRows(pools.inventory)).toHaveLength(1);
     expect(
       (await loadInventoryImportSnapshotPage(pools.inventory, job.payload.create!.inputId, accountId)).rows,
     ).toHaveLength(1);
@@ -169,7 +173,7 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     const beforeProbe = await pools.inventory.query<{ xmin: string }>(
       "SELECT xmin::text AS xmin FROM inventory_import_batch_rows ORDER BY row_id LIMIT 1",
     );
-    await contractInventoryImportSources(pools.inventory);
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
     const afterProbe = await pools.inventory.query<{ xmin: string }>(
       "SELECT xmin::text AS xmin FROM inventory_import_batch_rows ORDER BY row_id LIMIT 1",
     );
@@ -221,9 +225,7 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
       await baseJobStore.claimNext({ claimOwnerId: "base-old", claimTtlMs: 30_000, jobKinds: ["create"] }),
     ).toBeNull();
 
-    await pools.inventory.query(
-      "ALTER TABLE inventory_import_batch_job_inputs ADD COLUMN csv_text text, ADD COLUMN parsed_rows jsonb, ADD COLUMN source_filename text",
-    );
+    await enterSourceFloor(pools.inventory);
     await pools.inventory.query("DELETE FROM inventory_import_snapshot_rows WHERE input_id = $1", [
       job.payload.create!.inputId,
     ]);
@@ -237,7 +239,20 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     await pools.inventory.query("UPDATE inventory_import_batch_work_units SET unit_kind = 'create' WHERE job_id = $1", [
       job.jobId,
     ]);
-    await contractInventoryImportSources(pools.inventory);
+    // A base rollback inside the floor window still writes a raw legacy source.
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_batch_job_inputs (input_id, account_id, csv_text, parsed_rows, source_filename, created_at)
+       VALUES ('input_rollback_synthetic', $1, $2, NULL, 'rollback.csv', now())`,
+      [accountId, params.csvText],
+    );
+    expect(
+      (
+        await pools.inventory.query(
+          "SELECT csv_text FROM inventory_import_batch_job_inputs WHERE input_id = 'input_rollback_synthetic'",
+        )
+      ).rows,
+    ).toEqual([{ csv_text: params.csvText }]);
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
     expect(
       (await pools.inventory.query("SELECT job_kind FROM inventory_import_batch_jobs WHERE job_id = $1", [job.jobId]))
         .rows,
@@ -256,26 +271,26 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     expect(
       await baseJobStore.claimNext({ claimOwnerId: "base-old-2", claimTtlMs: 30_000, jobKinds: ["create"] }),
     ).toBeNull();
-    await pools.inventory.query(
-      `INSERT INTO inventory_import_batch_job_inputs (input_id, account_id, csv_text, parsed_rows, source_filename, created_at)
-       VALUES ('input_rollback_synthetic', $1, $2, NULL, 'rollback.csv', now())`,
-      [accountId, params.csvText],
-    );
     expect(
       (
         await pools.inventory.query(
-          "SELECT csv_text FROM inventory_import_batch_job_inputs WHERE input_id = 'input_rollback_synthetic'",
-        )
-      ).rows,
-    ).toEqual([{ csv_text: params.csvText }]);
-    expect(
-      (
-        await pools.inventory.query(
-          "SELECT csv_text, snapshot_version FROM inventory_import_batch_job_inputs WHERE input_id = $1",
+          "SELECT input_id, snapshot_version FROM inventory_import_batch_job_inputs ORDER BY input_id = $1 DESC",
           [job.payload.create!.inputId],
         )
       ).rows,
-    ).toEqual([{ csv_text: null, snapshot_version: 1 }]);
+    ).toEqual([
+      { input_id: job.payload.create!.inputId, snapshot_version: 1 },
+      { input_id: "input_rollback_synthetic", snapshot_version: 1 },
+    ]);
+    expect(await rawSourceColumns(pools.inventory)).toEqual([]);
+    // Rollback below the floor is unsupported once the raw columns are gone.
+    await expect(
+      pools.inventory.query(
+        `INSERT INTO inventory_import_batch_job_inputs (input_id, account_id, csv_text, created_at)
+         VALUES ('input_rollback_late_synthetic', $1, $2, now())`,
+        [accountId, params.csvText],
+      ),
+    ).rejects.toMatchObject({ code: "42703" });
     expect(await inventory.importBatches.processNextImportBatchJob(claim)).toBe(1);
     expect((await inventory.importBatches.getImportBatchJob(job.jobId))?.status).toBe("completed");
   });
@@ -322,9 +337,7 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
   });
 
   it("issue-7169-c3-safe-rollout: isolates poison retained records and continues valid work", async () => {
-    await pools.inventory.query(
-      `ALTER TABLE inventory_import_batch_job_inputs ADD COLUMN csv_text text, ADD COLUMN parsed_rows jsonb, ADD COLUMN source_filename text`,
-    );
+    await enterSourceFloor(pools.inventory);
     const inventory = services();
     const valid = await inventory.importBatches.enqueueCreateBatchJob(
       params,
@@ -370,11 +383,14 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
         JSON.stringify({ phase: "queued", total: 1 }),
       ],
     );
-    await contractInventoryImportSources(pools.inventory);
-    const poisonedInput = await pools.inventory.query(
-      "SELECT csv_text, parsed_rows, source_filename FROM inventory_import_batch_job_inputs WHERE input_id = 'input_poison_synthetic'",
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    const poisonedInput = await pools.inventory.query<{ input: Record<string, unknown> }>(
+      "SELECT to_jsonb(input) AS input FROM inventory_import_batch_job_inputs AS input WHERE input_id = 'input_poison_synthetic'",
     );
-    expect(poisonedInput.rows).toEqual([{ csv_text: null, parsed_rows: null, source_filename: null }]);
+    expect(poisonedInput.rows).toHaveLength(1);
+    expect(poisonedInput.rows[0].input).toMatchObject({ snapshot_version: null });
+    for (const column of ["csv_text", "parsed_rows", "source_filename"])
+      expect(poisonedInput.rows[0].input).not.toHaveProperty(column);
     const retained = await pools.inventory.query<{ raw_row: Record<string, unknown> }>(
       "SELECT raw_row FROM inventory_import_batch_rows WHERE row_id = 'imr_poison_synthetic'",
     );

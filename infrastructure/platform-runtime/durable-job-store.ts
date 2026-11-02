@@ -115,6 +115,11 @@ export type DurableJobStore<
   listActive: (input?: {
     jobKinds?: readonly string[];
   }) => Promise<readonly DurableJobRecord<TPayload, TProgress, TResult>[]>;
+  listActiveSnapshot?: (input?: {
+    jobKinds?: readonly string[];
+    eventContext?: EventStoreContext | null;
+    limit?: number;
+  }) => Promise<DurableJobActiveSnapshot<TPayload, TProgress, TResult>>;
   listRecent: (input?: {
     jobKinds?: readonly string[];
     eventContext?: EventStoreContext | null;
@@ -127,6 +132,11 @@ export type DurableJobStore<
   waitForEvents: (input: { jobId: string; signal?: AbortSignal; timeoutMs?: number }) => Promise<void>;
   stop?: () => Promise<void>;
   pruneTerminalJobs: (input: { completedBefore: string | Date; limit?: number }) => Promise<number>;
+}>;
+
+export type DurableJobActiveSnapshot<TPayload, TProgress, TResult> = Readonly<{
+  items: readonly DurableJobRecord<TPayload, TProgress, TResult>[];
+  completeness: "complete" | "incomplete";
 }>;
 
 export type DurableJobTables = Readonly<{
@@ -223,6 +233,18 @@ CREATE INDEX IF NOT EXISTS ${jobsTable}_event_context_actor_idx
     (event_context->'audit'->>'performedByUserId'),
     updated_at DESC
   );
+
+CREATE INDEX IF NOT EXISTS ${jobsTable}_active_context_idx
+  ON ${jobsTable} (
+    job_kind,
+    status,
+    (event_context->>'tenantId'),
+    (event_context->'audit'->>'forAccountId'),
+    (event_context->'audit'->>'performedByUserId'),
+    created_at ASC,
+    job_id ASC
+  )
+  WHERE status IN ('queued', 'running');
 
 CREATE TABLE IF NOT EXISTS ${eventsTable} (
   job_id text NOT NULL REFERENCES ${jobsTable}(job_id) ON DELETE CASCADE,
@@ -661,6 +683,7 @@ export function createPostgresDurableJobStore<
          SET status = 'failed',
              progress = $3::jsonb,
              error_message = $4,
+             claim_owner_id = NULL,
              claimed_until = NULL,
              completed_at = now(),
              updated_at = now()
@@ -694,6 +717,29 @@ export function createPostgresDurableJobStore<
         [jobKinds],
       );
       return result.rows.map(mapJobRow<TPayload, TProgress, TResult>);
+    },
+    listActiveSnapshot: async (input = {}) => {
+      const jobKinds = input.jobKinds?.length ? [...new Set(input.jobKinds)] : null;
+      const tenantId = input.eventContext?.tenantId ?? null;
+      const forAccountId = input.eventContext?.audit?.forAccountId ?? null;
+      const performedByUserId = input.eventContext?.audit?.performedByUserId ?? null;
+      const limit = Math.max(1, Math.min(input.limit ?? 50, 250));
+      const result = await db.query<DurableJobRow>(
+        `SELECT ${DURABLE_JOB_COLUMNS}
+         FROM ${jobsTable}
+         WHERE status IN ('queued', 'running')
+           AND ($1::text[] IS NULL OR job_kind = ANY($1::text[]))
+           AND ($2::text IS NULL OR event_context->>'tenantId' = $2::text)
+           AND ($3::text IS NULL OR event_context->'audit'->>'forAccountId' = $3::text)
+           AND ($4::text IS NULL OR event_context->'audit'->>'performedByUserId' = $4::text)
+         ORDER BY created_at ASC, job_id ASC
+         LIMIT $5`,
+        [jobKinds, tenantId, forAccountId, performedByUserId, limit + 1],
+      );
+      return {
+        items: result.rows.slice(0, limit).map(mapJobRow<TPayload, TProgress, TResult>),
+        completeness: result.rows.length > limit ? "incomplete" : "complete",
+      };
     },
     listRecent: async (input = {}) => {
       const jobKinds = input.jobKinds?.length ? [...new Set(input.jobKinds)] : null;

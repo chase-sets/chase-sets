@@ -345,6 +345,9 @@ async function expectAdminGoogleWorkspaceSsoStart(adminOrigin) {
 async function expectUcpEndpoints(origin) {
   const profileResponse = await expectOk("UCP business profile", `${origin}/.well-known/ucp`);
   const profile = await profileResponse.json();
+  if (profile.ucp?.version !== "2026-08-25" || profile.ucp?.payment_handlers === undefined) {
+    throw new Error("UCP business profile did not advertise the 2026-08-25 profile shape.");
+  }
   const services = profile.ucp?.services?.["dev.ucp.shopping"] ?? [];
   const endpoints = new Set(
     Array.isArray(services) ? services.map((service) => `${service?.transport}:${service?.endpoint}`) : [],
@@ -374,10 +377,10 @@ async function expectUcpEndpoints(origin) {
   const catalogResponse = await expectOk("UCP REST profile-less catalog", `${origin}/ucp/v1/catalog/search`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query: "charizard", limit: 1 }),
+    body: JSON.stringify({ query: "charizard", pagination: { limit: 1 } }),
   });
   const catalog = await catalogResponse.json();
-  if (catalog.ucp?.status !== "ok") {
+  if (catalog.ucp?.status !== "success") {
     throw new Error("UCP REST profile-less catalog did not succeed.");
   }
 

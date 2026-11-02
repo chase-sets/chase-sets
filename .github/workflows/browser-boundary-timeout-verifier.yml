@@ -1,0 +1,46 @@
+name: Browser Boundary Timeout Verifier
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/browser-boundary-timeout-verifier.yml
+      - .github/workflows/platform-pr.yml
+      - scripts/provider-browser-install-*.mjs
+      - scripts/provider-object-disposition/browser-boundary/**
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  timeout:
+    name: Synthetic browser installer timeout
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      INSTALLER_TIMEOUT_SECONDS: "600"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Run real Linux synthetic timeout
+        id: timeout
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/provider-browser-install-timeout-verifier.mjs
+      - name: Synthetic installed-boundary controls
+        id: controls
+        if: steps.timeout.outcome == 'success'
+        run: exit 1
+      - name: Require timeout proof and non-executed controls
+        if: always()
+        env:
+          TIMEOUT_OUTCOME: ${{ steps.timeout.outcome }}
+          TIMEOUT_PROVEN: ${{ steps.timeout.outputs.timeout_proven }}
+          CONTROLS_OUTCOME: ${{ steps.controls.outcome }}
+        run: |
+          test "$TIMEOUT_OUTCOME" = failure
+          test "$TIMEOUT_PROVEN" = true
+          test "$CONTROLS_OUTCOME" = skipped

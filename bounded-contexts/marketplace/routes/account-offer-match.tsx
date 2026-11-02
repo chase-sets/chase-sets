@@ -1,6 +1,9 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
+import { useEffect, useRef } from "react";
+import { Stack, Text } from "@chase-sets/design-system";
+import { MarketplaceCommandRecoveryError } from "../client";
 import {
   defineFormAction,
   defineResourceRoute,
@@ -79,15 +82,18 @@ export const action = defineFormAction({
         await createMarketplaceRequestApiClient(request).acceptOfferMatch(params.offerId!, {
           listingId: String(formData.get("listingId") ?? ""),
           feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
+          sourceActionKey: String(formData.get("attemptId") ?? ""),
         }),
         `/account/offers/matches/${params.offerId}`,
         {
           telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
         },
       ),
-    "decline-offer": async ({ request, params }) =>
+    "decline-offer": async ({ request, params, formData }) =>
       formActionRedirect(
-        await createMarketplaceRequestApiClient(request).declineOfferMatch(params.offerId!),
+        await createMarketplaceRequestApiClient(request).declineOfferMatch(params.offerId!, {
+          attemptId: String(formData.get("attemptId") ?? ""),
+        }),
         "/account/offers/matches",
         {
           telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
@@ -96,6 +102,12 @@ export const action = defineFormAction({
   },
   onUnknownIntent: () => null,
   onError: (error) => {
+    if (error instanceof MarketplaceCommandRecoveryError)
+      return {
+        error: t(error.phase === "ambiguous" ? "marketplace.recovery.ambiguous" : "marketplace.recovery.failedSafe"),
+        currentQuote: null,
+        recovery: error.phase,
+      };
     if (error instanceof MarketplaceApiError && error.status === 409) {
       const currentQuote =
         typeof error.body === "object" &&
@@ -110,12 +122,14 @@ export const action = defineFormAction({
       return {
         error: t("marketplace.routes.accountOfferMatch.fee.quote.stale"),
         currentQuote,
+        recovery: "failed-safe" as const,
       };
     }
 
     return {
       error: error instanceof Error ? error.message : t("marketplace.routes.accountOfferMatch.request.failed"),
       currentQuote: null,
+      recovery: "failed-safe" as const,
     };
   },
 });
@@ -130,22 +144,46 @@ export default function MarketplaceAccountOfferMatchRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
+  const navigation = useNavigation();
+  const feedback = useRef<HTMLParagraphElement>(null);
+  const ambiguous = actionData?.recovery === "ambiguous";
+  const phase = ambiguous
+    ? "ambiguous"
+    : navigation.state === "submitting"
+      ? "submitting"
+      : navigation.state === "loading" || !data.offerMatch
+        ? "confirming"
+        : (actionData?.recovery ?? (data.offerMatch.status === "accepted" ? "succeeded" : "editing"));
+  useEffect(() => {
+    if (phase === "ambiguous" || phase === "failed-safe") feedback.current?.focus();
+  }, [phase]);
 
   if (!data.offerMatch) {
     return (
-      <MarketplaceOfferDetailRecoveryPage kind="offer-match" currentPath={`${location.pathname}${location.search}`} />
+      <Stack>
+        <Text role="status">{t("marketplace.recovery.confirming")}</Text>
+        <MarketplaceOfferDetailRecoveryPage kind="offer-match" currentPath={`${location.pathname}${location.search}`} />
+      </Stack>
     );
   }
 
   return (
-    <MarketplaceOfferMatchDetailPage
-      offer={data.offerMatch as OfferMatchDetail}
-      acceptanceTerms={
-        (actionData?.currentQuote as MarketplaceListingTermsPreview | null | undefined) ??
-        (data.acceptanceTerms as MarketplaceListingTermsPreview | null)
-      }
-      canAccept
-      errorMessage={actionData?.error ?? null}
-    />
+    <Stack>
+      {phase !== "editing" ? (
+        <Text ref={feedback} tabIndex={-1} role={ambiguous ? "alert" : "status"}>
+          {t(`marketplace.recovery.${phase === "failed-safe" ? "failedSafe" : phase}`)}
+        </Text>
+      ) : null}
+      <MarketplaceOfferMatchDetailPage
+        offer={data.offerMatch as OfferMatchDetail}
+        acceptanceTerms={
+          (actionData?.currentQuote as MarketplaceListingTermsPreview | null | undefined) ??
+          (data.acceptanceTerms as MarketplaceListingTermsPreview | null)
+        }
+        canAccept
+        actionDisabled={ambiguous || navigation.state !== "idle"}
+        errorMessage={actionData?.error ?? null}
+      />
+    </Stack>
   );
 }

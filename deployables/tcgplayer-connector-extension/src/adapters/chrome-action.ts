@@ -1,4 +1,5 @@
 import type { ConnectorBackgroundPorts, ConnectorStatus } from "@chase-sets/channels/client";
+import { chromeListener } from "./chrome-listener";
 
 const badges = {
   unpaired: "",
@@ -15,7 +16,7 @@ const badges = {
 export function chromeAction(): ConnectorBackgroundPorts["action"] {
   return {
     onClicked: (listener) => {
-      chrome.action.onClicked.addListener(listener);
+      chrome.action.onClicked.addListener(chromeListener(listener));
     },
     setBadge: ({ state }) => chrome.action.setBadgeText({ text: badges[state] }),
     setTitle: ({ state }) => chrome.action.setTitle({ title: state }),

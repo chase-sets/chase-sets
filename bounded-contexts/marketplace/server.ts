@@ -1,4 +1,6 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
+export { hashMarketplaceRequest } from "./features/mutation-recovery/api/attempt";
+export { marketplaceOfferCanonicalRequest } from "./features/mutation-recovery/domain/contracts";
 export { createMarketplaceChannelInboundClampCapability } from "./features/channel-inbound-clamp/api/capability";
 export type { MarketplaceListingServices } from "./features/listings/api/runtime";
 export {
@@ -12,6 +14,10 @@ export {
   type MarketplaceChannelInboundClampResult,
 } from "./features/channel-inbound-clamp/domain/contracts";
 export type { MarketplaceServices } from "./support/runtime-support/services";
+export {
+  bindInventoryDraftListingConsumer,
+  type InventoryDraftListingConsumer,
+} from "./features/listings/api/inventory-draft-consumer";
 export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
 export type {
   MarketplaceListingInventoryItemOption,

@@ -4,15 +4,30 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import {
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+
+const temporaryRoot = mkdtempSync(path.join(tmpdir(), "design-system-export-runtime-"));
+const previousTemporaryEnvironment = new Map(["TEMP", "TMP", "TMPDIR"].map((key) => [key, process.env[key]]));
+for (const key of previousTemporaryEnvironment.keys()) process.env[key] = temporaryRoot;
+afterAll(() => {
+  try {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  } finally {
+    for (const [key, value] of previousTemporaryEnvironment) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+const {
   TESTED_DESIGN_SYSTEM_ROOT_EXPORTS,
   RUNTIME_IMPORT_DEADLINE_MS,
   collectDesignSystemRuntimeExports,
   compareDesignSystemExportCoverage,
   formatDesignSystemExportCoverageFailure,
   runDesignSystemExportCoverageCheck,
-} from "./check-design-system-export-coverage.mjs";
+} = await import("./check-design-system-export-coverage.mjs");
 
 describe("design-system export coverage guard", () => {
   it("enumerates the complete runtime namespace through the supplied module loader", async () => {

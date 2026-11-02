@@ -130,8 +130,6 @@ describe("Offer lifecycle mixed-version rollout", () => {
           resolveShipmentOrderId: async () => null,
           resolveWebhookTargets: async () => [],
         },
-        tcgplayerMarketTransport: { kind: "not-mounted" },
-        tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: createNoopCommercialTermsResolver(),
         channelConnectionIdentityReader: { resolve: async () => null },
       } satisfies PricingHostPorts & Record<string, unknown>,

@@ -22,6 +22,7 @@ import {
   type ReviewRole,
   type ReviewStatus,
 } from "./common";
+import { assertSafeAuthoredText } from "./authored-text-safeguard";
 import {
   createReputationCsatOutcomeFact,
   reputationCsatOutcomeFactEventType,
@@ -311,6 +312,9 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
 
       const authorRole = normalizeReviewRole(command.authorRole);
       const scoring = normalizeMarketplaceReviewSubmittedScoring(command);
+      const rating = normalizeRating(command.rating);
+      const feedback = normalizeFeedback(command.feedback);
+      assertSafeAuthoredText("review-feedback", feedback);
       return [
         {
           type: "marketplace.review.submitted",
@@ -320,8 +324,8 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
             authorAccountId: command.authorAccountId,
             subjectAccountId: command.subjectAccountId,
             authorRole,
-            rating: normalizeRating(command.rating),
-            feedback: normalizeFeedback(command.feedback),
+            rating,
+            feedback,
             submittedAt,
             reviewWindowExpiresAt,
             scoringDisposition: scoring.scoringDisposition,
@@ -348,22 +352,26 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
         },
       ];
     }
-    case "UpdateReview":
+    case "UpdateReview": {
       assert(state.reviewId !== null, "Review must be submitted first.");
       assert(state.status !== "withdrawn", "Withdrawn reviews cannot be updated.");
       assert(state.revealedAt === null, "Reviews cannot be edited after they are revealed.");
+      const rating = normalizeRating(command.rating);
+      const feedback = normalizeFeedback(command.feedback);
+      assertSafeAuthoredText("review-feedback", feedback, state.feedback);
 
       return [
         {
           type: "marketplace.review.updated",
           data: {
             reviewId: state.reviewId,
-            rating: normalizeRating(command.rating),
-            feedback: normalizeFeedback(command.feedback),
+            rating,
+            feedback,
             updatedAt: ensureIsoTimestamp(command.updatedAt, "Review update must record a timestamp."),
           },
         },
       ];
+    }
     case "WithdrawReview":
       assert(state.reviewId !== null, "Review must be submitted first.");
       if (state.status === "withdrawn") {
@@ -444,15 +452,18 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
       assert(state.revealedAt !== null, "Reviews cannot be replied to before they are revealed.");
       assert(command.subjectAccountId === state.subjectAccountId, "Only the review subject may reply.");
       assert(state.replyId === null, "A reply already exists for this review.");
+      const replyId = normalizeRequiredText(command.replyId, "Reply id is required.");
+      const feedback = normalizeReplyFeedback(command.feedback);
+      assertSafeAuthoredText("review-response-feedback", feedback);
 
       return [
         {
           type: "marketplace.review.reply-submitted",
           data: {
             reviewId: state.reviewId,
-            replyId: normalizeRequiredText(command.replyId, "Reply id is required."),
+            replyId,
             subjectAccountId: state.subjectAccountId,
-            feedback: normalizeReplyFeedback(command.feedback),
+            feedback,
             submittedAt: ensureIsoTimestamp(command.submittedAt, "Reply submission must record a timestamp."),
           },
         },

@@ -214,6 +214,36 @@ describe("deployment root-cause taxonomy", () => {
     expect(body).not.toContain("fixture-secret");
   });
 
+  it("classifies only explicit active-GC gate evidence, not a bare unauthorized message", () => {
+    expect(
+      classifyDeploymentRootCause({
+        phase: "build-image",
+        message: "unauthorized:",
+        diagnostics: [{ rootCauseCode: "registry-gc-read-only", active: true, status: "deleting unreferenced blobs" }],
+      }),
+    ).toMatchObject({ rootCauseCode: "registry-gc-read-only", affectedComponent: "digitalocean-container-registry" });
+    expect(classifyDeploymentRootCause({ phase: "build-image", message: "unauthorized:" })).toMatchObject({
+      rootCauseCode: "unknown",
+    });
+  });
+
+  it("carries a build-image registry refusal through classify-run", () => {
+    expect(
+      classifyPlatformDeployRun({
+        resolveReleaseResult: "success",
+        buildImageResult: "failure",
+        buildRootCauseCode: "registry-gc-read-only",
+        deployStagingResult: "skipped",
+        deployProductionResult: "skipped",
+        recordStagingHealthResult: "success",
+      }),
+    ).toMatchObject({
+      action: "create-or-update",
+      reason: "registry-gc-read-only",
+      rootCauseCode: "registry-gc-read-only",
+    });
+  });
+
   it("redacts tokens, connection strings, cookies, authorization headers, JSON secrets, and private keys", () => {
     const redacted = redactDeployDiagnosticText(
       [
@@ -554,5 +584,49 @@ describe("admission webhook root cause", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe("Agent Grant revocation activation root cause", () => {
+  const status = (refusal) => ({ schemaVersion: "agent-grant-revocation-status/v1", result: "refused", refusal });
+
+  it("classifies an activation refusal ahead of unrelated diagnostic text, carrying only its bounded code", () => {
+    const result = classifyDeploymentRootCause({
+      phase: "agent-grant-revocation-activation",
+      diagnostics: ["lock_timeout during migration failed", status("revocation_membership_changed")],
+    });
+    expect(result).toMatchObject({
+      rootCauseCode: "agent-grant-revocation-activation-refused",
+      affectedComponent: "agent-grant-revocation",
+      phase: "agent-grant-revocation-activation",
+      providerReason: "revocation_membership_changed",
+      blocking: true,
+    });
+    expect(result.remediation).toContain("do not retry a non-transient refusal");
+  });
+
+  it("falls back to a fixed code when no bounded refusal was recorded", () => {
+    for (const diagnostics of [[], [status("synthetic raw failure postgres://user:secret@db")], [status(null)]])
+      expect(
+        classifyDeploymentRootCause({ phase: "agent-grant-revocation-activation", diagnostics }).providerReason,
+      ).toBe("revocation_release_refused");
+  });
+
+  it("never classifies an ordinary deploy failure as an activation refusal", () => {
+    for (const phase of ["production-deploy", "staging-deploy"])
+      expect(
+        classifyDeploymentRootCause({ phase, diagnostics: [status("revocation_membership_changed")] }).rootCauseCode,
+      ).not.toBe("agent-grant-revocation-activation-refused");
+  });
+
+  it("keeps the code stable through the run-level incident classification", () => {
+    expect(
+      classifyPlatformDeployRun({
+        resolveReleaseResult: "success",
+        buildImageResult: "success",
+        deployStagingResult: "failure",
+        stagingRootCauseCode: "agent-grant-revocation-activation-refused",
+      }),
+    ).toMatchObject({ action: "create-or-update", reason: "agent-grant-revocation-activation-refused" });
   });
 });

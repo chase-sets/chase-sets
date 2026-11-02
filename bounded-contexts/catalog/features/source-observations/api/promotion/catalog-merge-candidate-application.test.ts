@@ -1,5 +1,31 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
+import {
+  closeMultiContextTestPools,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import {
+  createPostgresEventStore,
+  createPostgresProjectionStore,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
+import { module as catalogModule } from "../../../../index";
+import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
+import { seedCatalogDatabase } from "../../../../support/authoring-support/seed";
+import { createCatalogServices, type CatalogServices } from "../../../../support/authoring-support/services";
+import { seedContext as context } from "../../../../support/seed-support/context";
+import {
+  evolveCatalogItem,
+  initialCatalogItemState,
+  type CatalogItemEvent,
+} from "../../../catalog-items/domain/domain";
 import {
   decideCatalogMergeCandidate,
   evolveCatalogMergeCandidate,
@@ -8,15 +34,38 @@ import {
   type CatalogMergeCandidatePromotionPlan,
   type CatalogMergeCandidateReviewSnapshot,
 } from "../../domain/catalog-merge-candidate";
+import { decideSourceObservation, initialSourceObservationState } from "../../domain/domain";
+import { getSourceObservationDetail } from "../../read-model/queries";
+import { createCatalogIntegrationRolloutControlPolicyFromEnv } from "../governance/catalog-integration-rollout-controls";
+import { loadCatalogItemPromotionProfile } from "../source-observation-promotion-execution";
+import { createPostgresPromotionTargetExclusion } from "./promotion-target-exclusion";
+import {
+  magicCandidate,
+  magicObservation,
+  observationRow,
+  registeredMagicProfile,
+  registeredMagicProfiles,
+} from "../../tests/magic-provider-role-fixture";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider-integration-profiles";
-import { catalogMergeCandidateStreamId } from "../source-observation-stream-identity";
+import { catalogProviderProfileVersionIngestionUnitKey } from "../providers/registry";
+import { catalogMergeCandidateStreamId, sourceObservationStreamId } from "../source-observation-stream-identity";
 import {
   applyCatalogMergeCandidatePromotion,
   catalogMergeCandidateTargetId,
   loadCandidateApplication,
   requirePinnedProfileEligible,
+  snapshotWithAuthoredFacts,
+  shouldBlockDuplicatePrevention,
   type CatalogMergeCandidateApplicationPorts,
 } from "./catalog-merge-candidate-application";
+import { applyCatalogMergeCandidateEdit } from "./catalog-merge-candidate-edit";
+import type { CatalogProviderSourceObservationInput } from "./provider-source-observation-normalizer";
+
+const databaseBaseUrl = process.env.TEST_DATABASE_URL;
+if (!databaseBaseUrl && process.env.CI) {
+  throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
+}
+const describeDb = databaseBaseUrl ? describe : describe.skip;
 
 const pinned = { providerKey: "tcgdex", profileKey: "pokemon-tcg", profileVersion: "2026.06.24" };
 
@@ -86,6 +135,49 @@ describe("pinned application profile eligibility", () => {
     expect(catalogMergeCandidateTargetId("cand_a")).toBe(catalogMergeCandidateTargetId("cand_a"));
     expect(catalogMergeCandidateTargetId("cand_a")).toMatch(/^cat_candidate_[a-f0-9]{64}$/);
     expect(catalogMergeCandidateTargetId("cand_a")).not.toBe(catalogMergeCandidateTargetId("cand_b"));
+  });
+
+  it("does not block a plan for review-only bridge evidence without concrete duplicate candidates", () => {
+    expect(
+      shouldBlockDuplicatePrevention({
+        status: "review-only",
+        ruleKey: "exact-external-catalog-item-reference",
+        candidateCatalogItemIds: [],
+        evidenceSummary: {
+          ruleKey: "exact-external-catalog-item-reference",
+          matchKind: "exact-external-catalog-item-reference",
+          evidenceText: "0 external Catalog Item reference(s)",
+          candidateCatalogItemIds: [],
+        },
+      }),
+    ).toBe(false);
+    expect(
+      shouldBlockDuplicatePrevention({
+        status: "review-only",
+        ruleKey: "exact-external-catalog-item-reference",
+        candidateCatalogItemIds: ["cat_existing"],
+        evidenceSummary: {
+          ruleKey: "exact-external-catalog-item-reference",
+          matchKind: "exact-external-catalog-item-reference",
+          evidenceText: "1 external Catalog Item reference(s)",
+          candidateCatalogItemIds: ["cat_existing"],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      shouldBlockDuplicatePrevention({
+        status: "blocked",
+        ruleKey: "exact-external-catalog-item-reference",
+        diagnosticText: "Multiple Catalog Items match this Source Observation's external catalog item references.",
+        candidateCatalogItemIds: [],
+        evidenceSummary: {
+          ruleKey: "exact-external-catalog-item-reference",
+          matchKind: "exact-external-catalog-item-reference",
+          evidenceText: "0 external Catalog Item reference(s)",
+          candidateCatalogItemIds: [],
+        },
+      }),
+    ).toBe(true);
   });
 });
 
@@ -315,6 +407,553 @@ describe("retained application checkpoint replay", () => {
     const conflict = /^promotion-application-conflicting-history/;
     await expect(loadCandidateApplication(retained(history()), candidateId)).rejects.toThrow(conflict);
     await expect(apply(retained(history()))).rejects.toThrow(conflict);
+  });
+});
+
+describe("Catalog Item authority from each member's own reviewed provider unit (registered Magic profiles)", () => {
+  const scopeRecordId = "scope_time_spiral";
+  const at = "2026-10-27T00:00:00.000Z";
+  const scryfallCardPrint = registeredMagicProfile("scryfall-card-print");
+  type Event = Readonly<{ type: string; data: unknown }>;
+  type Arranged = Readonly<{
+    candidateId: string;
+    snapshot: CatalogMergeCandidateReviewSnapshot;
+    eventStore: EventStore;
+  }>;
+
+  // The real matcher builds the candidate; member streams are what the
+  // Source Observation decider records for each mapped observation.
+  function arrange(
+    members: readonly CatalogProviderSourceObservationInput[],
+    review: (snapshot: CatalogMergeCandidateReviewSnapshot) => CatalogMergeCandidateReviewSnapshot = (s) => s,
+  ): Arranged {
+    const matched = magicCandidate(members.map(observationRow), scopeRecordId);
+    const snapshot = review(matched.snapshot);
+    const streams = new Map<string, readonly Event[]>([
+      [
+        catalogMergeCandidateStreamId(matched.candidateId),
+        decideCatalogMergeCandidate(initialCatalogMergeCandidateState, {
+          type: "CreateCatalogMergeCandidate",
+          candidateId: matched.candidateId,
+          snapshot,
+          createdAt: at,
+        }),
+      ],
+      ...members.map((member): [string, readonly Event[]] => [
+        sourceObservationStreamId(member.observationId),
+        decideSourceObservation(initialSourceObservationState, { type: "RecordSourceObservation", ...member }),
+      ]),
+    ]);
+    const eventStore = {
+      readStream: async ({ streamId, fromVersion = 1, limit = 1000 }: Parameters<EventStore["readStream"]>[0]) =>
+        (streams.get(streamId) ?? [])
+          .map((event, index) => ({
+            eventType: event.type,
+            payload: structuredClone(event.data),
+            streamVersion: index + 1,
+          }))
+          .filter((row) => row.streamVersion >= fromVersion)
+          .slice(0, limit),
+    } as unknown as EventStore;
+    return { candidateId: matched.candidateId, snapshot, eventStore };
+  }
+
+  // Nothing past provider-role resolution is wired: a candidate write, a
+  // database read or a Reference Data call is recorded and fails by name.
+  async function apply(arranged: Arranged, versions = registeredMagicProfiles()) {
+    const touched: string[] = [];
+    const allowed: unknown[] = [];
+    const refuse = (what: string) => () => {
+      touched.push(what);
+      throw new Error(`unexpected-${what}`);
+    };
+    const ports = {
+      deps: { eventStore: arranged.eventStore, db: { query: refuse("database") } },
+      referenceData: {},
+      profileVersions: {
+        listProfileVersions: async (providerKey: string) =>
+          versions.filter((version) => version.providerKey === providerKey),
+        getActiveProfileVersion: refuse("profile-selector"),
+      },
+      rolloutControlPolicy: { assertAllowed: (input: unknown) => void allowed.push(input) },
+      applyCandidateCommandAtVersion: refuse("candidate-write"),
+    } as unknown as CatalogMergeCandidateApplicationPorts;
+    const settled = await applyCatalogMergeCandidatePromotion(ports, {
+      candidateId: arranged.candidateId,
+      jobId: "job_provider_roles",
+      unitId: arranged.candidateId,
+      approvalReason: "Synthetic.",
+      context: {} as never,
+    }).then(
+      (result) => ({ result, error: null }),
+      (error: unknown) => ({ result: null, error }),
+    );
+    return { ...settled, touched: [...new Set(touched)], allowed };
+  }
+
+  const mixed = (card: Parameters<typeof magicObservation>[1] = {}) => [
+    magicObservation("mtgjson-card"),
+    magicObservation("scryfall-card-print", card),
+  ];
+  const scryfallPromotion = {
+    capability: "promotion",
+    providerKey: "scryfall",
+    unitKey: catalogProviderProfileVersionIngestionUnitKey(scryfallCardPrint),
+  };
+  const replaced = (overrides: Partial<CatalogProviderIntegrationProfileVersionRecord>) =>
+    registeredMagicProfiles().map((version) =>
+      version === scryfallCardPrint ? { ...version, ...overrides } : version,
+    );
+  const successor = (kind = scryfallCardPrint.profile.normalizedObservationMapping.kind) =>
+    ({
+      ...scryfallCardPrint,
+      profileVersion: "2026.10.27",
+      profile: {
+        ...scryfallCardPrint.profile,
+        normalizedObservationMapping: { ...scryfallCardPrint.profile.normalizedObservationMapping, kind },
+      },
+    }) as CatalogProviderIntegrationProfileVersionRecord;
+
+  it("AC1 reproduction: a mixed MTGJSON/Scryfall candidate passes its MTGJSON member and resolves only the Scryfall card-print unit", async () => {
+    const arranged = arrange(mixed());
+    expect(arranged.snapshot.membership.map((member) => member.providerKey)).toEqual(["mtgjson", "scryfall"]);
+    expect(arranged.snapshot.conflicts).toEqual([]);
+
+    const { error, touched, allowed } = await apply(arranged);
+
+    // The pre-repair baseline refused here with promotion-plan-blocked:promotion-profile-unavailable
+    // at the MTGJSON lookup. Now only the Scryfall member is resolved and gated, and the
+    // application proceeds to load its Catalog mapping (the first unwired dependency).
+    expect(allowed).toEqual([scryfallPromotion]);
+    expect(touched).toEqual(["database"]);
+    expect(error).toMatchObject({ message: "unexpected-database" });
+  });
+
+  const withoutScryfallReference = (snapshot: CatalogMergeCandidateReviewSnapshot) =>
+    applyCatalogMergeCandidateEdit(snapshot, {
+      promotionIntent: snapshot.promotionIntent,
+      catalogItemId: null,
+      productIds: [],
+      factOverrides: [],
+      droppedExternalCatalogItemReferenceIndexes: snapshot.proposedExternalCatalogItemReferences.flatMap(
+        (entry, index) => (entry.providerKey === "scryfall" ? [index] : []),
+      ),
+      droppedExternalProductReferenceIndexes: [],
+    });
+
+  it.each([
+    ["with its reviewed Scryfall external reference", true],
+    ["whose reviewer dropped the Scryfall external reference", false],
+  ])("AC2: an MTGJSON-only candidate %s is skipped as reference-only with zero writes", async (_name, reference) => {
+    const arranged = arrange([magicObservation("mtgjson-card")], reference ? undefined : withoutScryfallReference);
+    expect(
+      arranged.snapshot.proposedExternalCatalogItemReferences.some((entry) => entry.providerKey === "scryfall"),
+    ).toBe(reference);
+
+    const { result, error, touched, allowed } = await apply(arranged);
+
+    expect(error).toBeNull();
+    expect(result).toStrictEqual({
+      candidateId: arranged.candidateId,
+      status: "skipped-not-eligible",
+      disposition: "reference-only",
+      catalogItemId: null,
+      reason: expect.stringMatching(/^Catalog Merge Candidate has no item-producing member/),
+      appliedCatalogItemId: null,
+      appliedMode: null,
+      approvalVersion: null,
+      planFingerprint: null,
+    });
+    expect(touched).toEqual([]);
+    expect(allowed).toEqual([]);
+  });
+
+  it("AC2: an MTGJSON set-reference-only candidate is skipped as reference-only with zero writes", async () => {
+    const arranged = arrange([magicObservation("mtgjson-set")]);
+
+    const { result, error, touched, allowed } = await apply(arranged);
+
+    expect(error).toBeNull();
+    expect(result).toStrictEqual({
+      candidateId: arranged.candidateId,
+      status: "skipped-not-eligible",
+      disposition: "reference-only",
+      catalogItemId: null,
+      reason: expect.stringMatching(/^Catalog Merge Candidate has no item-producing member/),
+      appliedCatalogItemId: null,
+      appliedMode: null,
+      approvalVersion: null,
+      planFingerprint: null,
+    });
+    expect(touched).toEqual([]);
+    expect(allowed).toEqual([]);
+  });
+
+  it("keeps an unregistered non-promotable member blocked", async () => {
+    const arranged = arrange([magicObservation("mtgjson-set")], (snapshot) => snapshot);
+    const versions = registeredMagicProfiles().filter((version) => version.profileKey !== "mtg-set-reference-data");
+
+    const { result, error, touched, allowed } = await apply(arranged, versions);
+
+    expect(result).toBeNull();
+    expect(error).toMatchObject({ code: "promotion-plan-blocked:no-promotable-member" });
+    expect(touched).toEqual([]);
+    expect(allowed).toEqual([]);
+  });
+
+  it("AC3: an active Scryfall card-print profile never qualifies a Scryfall member reviewed under the image-evidence unit", async () => {
+    const arranged = arrange([magicObservation("mtgjson-card"), magicObservation("scryfall-image-evidence")]);
+    expect(arranged.snapshot.membership.map((member) => member.sourceProfileKey)).toEqual([
+      "mtg-card-reference-data",
+      "mtg-card-image-evidence",
+    ]);
+
+    const { result, touched, allowed } = await apply(arranged);
+
+    expect(result).toMatchObject({ status: "skipped-not-eligible", disposition: "reference-only" });
+    expect(touched).toEqual([]);
+    expect(allowed).toEqual([]);
+  });
+
+  it("AC3: a reviewed tuple that names the card-print unit for an image-evidence revision qualifies nothing", async () => {
+    const arranged = arrange(
+      [magicObservation("mtgjson-card"), magicObservation("scryfall-image-evidence")],
+      (snapshot) => ({
+        ...snapshot,
+        membership: snapshot.membership.map((member) =>
+          member.providerKey === "scryfall" ? { ...member, sourceProfileKey: scryfallCardPrint.profileKey } : member,
+        ),
+      }),
+    );
+
+    const { error, touched, allowed } = await apply(arranged);
+
+    expect(error).toMatchObject({ code: "promotion-plan-blocked:member-revision-missing" });
+    expect(touched).toEqual([]);
+    expect(allowed).toEqual([]);
+  });
+
+  it.each<[string, string, () => readonly CatalogProviderIntegrationProfileVersionRecord[]]>([
+    [
+      "is not registered",
+      "promotion-profile-unavailable",
+      () => registeredMagicProfiles().filter((version) => version !== scryfallCardPrint),
+    ],
+    [
+      "is deprecated without a successor",
+      "promotion-profile-inactive",
+      () => replaced({ lifecycle: "deprecated", active: false }),
+    ],
+    ["is retired", "promotion-profile-inactive", () => replaced({ lifecycle: "retired", active: false })],
+    ["is registered twice", "promotion-profile-ambiguous", () => [...registeredMagicProfiles(), scryfallCardPrint]],
+    [
+      "is active in two competing versions",
+      "promotion-profile-ambiguous",
+      () => [...registeredMagicProfiles(), successor()],
+    ],
+    [
+      "is succeeded by a version that maps another kind",
+      "promotion-profile-incompatible",
+      () => [...replaced({ lifecycle: "deprecated", active: false }), successor("magic-sealed-product")],
+    ],
+  ])(
+    "AC2/AC3: the Scryfall card-print unit that %s fails closed with %s and no writes",
+    async (_name, code, versions) => {
+      const { error, touched } = await apply(arrange(mixed()), versions());
+
+      expect(error).toMatchObject({ code: `promotion-plan-blocked:${code}` });
+      expect(touched).toEqual([]);
+    },
+  );
+
+  it("AC2/AC3: a retained Scryfall revision without the required name fails closed before planning", async () => {
+    const [mtgjson, scryfall] = mixed();
+    const { name: _name, ...nameless } = scryfall!.normalized as unknown as Record<string, unknown>;
+    const arranged = arrange([mtgjson!, { ...scryfall!, normalized: nameless as never }]);
+    // The approved name exists only because the MTGJSON member carries it.
+    expect(arranged.snapshot.proposedCatalogItemFacts.name).toBe("Fury Sliver");
+
+    const { error, touched, allowed } = await apply(arranged);
+
+    expect(error).toMatchObject({ code: "promotion-plan-blocked:promotion-facts-missing" });
+    expect(allowed).toEqual([scryfallPromotion]);
+    expect(touched).toEqual([]);
+  });
+
+  it("AC3: an approved fact that only the MTGJSON member carries never authors the Item", async () => {
+    // As checked in, the Scryfall fixture has no rarity; the approved rarity is MTGJSON's.
+    const arranged = arrange(mixed({ scryfallRarity: null }));
+    expect(arranged.snapshot.proposedCatalogItemFacts.rarity).toBe("uncommon");
+
+    const { error, touched } = await apply(arranged);
+
+    // Optional reference-only facts are omitted; planning continues until the
+    // first unwired database dependency. A fallback mutant would instead
+    // carry MTGJSON rarity into the Item plan and fail the DB discriminant.
+    expect(error).toMatchObject({ message: "unexpected-database" });
+    expect(touched).toEqual(["database"]);
+  });
+
+  it("AC3: an optional fact recovered from candidate identity is not authored by the Scryfall member", async () => {
+    const [mtgjson, scryfall] = mixed();
+    const { cardNumber: _cardNumber, ...withoutCardNumber } = scryfall!.normalized as unknown as Record<
+      string,
+      unknown
+    >;
+    const arranged = arrange([mtgjson!, { ...scryfall!, normalized: withoutCardNumber as never }]);
+    const effective = snapshotWithAuthoredFacts(arranged.snapshot, [
+      {
+        revision: { normalized: withoutCardNumber, providerKey: "scryfall" },
+        normalized: withoutCardNumber,
+        version: scryfallCardPrint,
+      },
+    ] as never);
+
+    expect(effective.proposedCatalogItemFacts).not.toHaveProperty("collectorNumber");
+    expect(effective.fieldProvenance).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ fieldPath: "catalogItem.collectorNumber" })]),
+    );
+  });
+
+  it("AC3: an optional MTGJSON-only rarity is omitted before display planning", () => {
+    const [mtgjson, scryfall] = mixed({ scryfallRarity: null });
+    const arranged = arrange([mtgjson!, scryfall!]);
+    const effective = snapshotWithAuthoredFacts(arranged.snapshot, [
+      {
+        revision: { normalized: scryfall!.normalized, providerKey: "scryfall" },
+        normalized: scryfall!.normalized,
+        version: scryfallCardPrint,
+      },
+    ] as never);
+
+    expect(effective.proposedCatalogItemFacts).not.toHaveProperty("rarity");
+    expect(effective.fieldProvenance).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ fieldPath: "catalogItem.rarity" })]),
+    );
+  });
+
+  it("AC3: a reviewer's correction is reviewed authority, not reference facts", async () => {
+    const arranged = arrange(mixed({ scryfallRarity: null }), (snapshot) =>
+      applyCatalogMergeCandidateEdit(snapshot, {
+        promotionIntent: snapshot.promotionIntent,
+        catalogItemId: null,
+        productIds: [],
+        factOverrides: [{ key: "rarity", value: "uncommon" }],
+        droppedExternalCatalogItemReferenceIndexes: [],
+        droppedExternalProductReferenceIndexes: [],
+      }),
+    );
+
+    const { error, touched } = await apply(arranged);
+
+    expect(error).toMatchObject({ message: "unexpected-database" });
+    expect(touched).toEqual(["database"]);
+  });
+});
+
+describeDb("Catalog Merge Candidate application with registered Magic profiles (db)", () => {
+  const scopeRecordId = "scope_time_spiral";
+  let pool: PgTransactionalPool;
+  let services: CatalogServices;
+  let store: ReturnType<typeof createPostgresEventStore>;
+
+  beforeAll(async () => {
+    const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["catalog"], "magic_candidate_application");
+    await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
+    pool = createMultiContextTestPools(urls).catalog;
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas({ catalog: pool });
+    await bootstrapContextDatabase(catalogModule, pool);
+    await seedCatalogDatabase(pool, undefined, { enabledDataProfiles: ["catalog-integration-bootstrap"] });
+    services = createCatalogServices(pool);
+    store = createPostgresEventStore({ pool });
+  });
+  afterAll(async () => closeMultiContextTestPools({ catalog: pool }));
+
+  function candidateCommands() {
+    return createAggregateCommandHandler({
+      eventStore: store,
+      codec: createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>(),
+      initialState: () => initialCatalogMergeCandidateState,
+      evolve: evolveCatalogMergeCandidate,
+      decide: decideCatalogMergeCandidate,
+    }).commandHandler;
+  }
+
+  // Observations are recorded through the Source Observation service; the real
+  // matcher builds the candidate from their projected rows.
+  async function candidateFrom(observations: readonly CatalogProviderSourceObservationInput[]) {
+    const rows = [];
+    for (const observation of observations) {
+      await services.sourceObservations.commandHandler({
+        streamId: sourceObservationStreamId(observation.observationId),
+        command: { type: "RecordSourceObservation", ...observation },
+        context,
+      });
+      await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
+      rows.push((await getSourceObservationDetail(pool, observation.observationId))!);
+    }
+    const { candidateId, snapshot } = magicCandidate(rows, scopeRecordId);
+    await candidateCommands()({
+      streamId: catalogMergeCandidateStreamId(candidateId),
+      command: { type: "CreateCatalogMergeCandidate", candidateId, snapshot, createdAt: new Date().toISOString() },
+      context,
+    });
+    return { candidateId, snapshot };
+  }
+
+  // The production composition of the bulk runtime's application ports.
+  function ports(): CatalogMergeCandidateApplicationPorts {
+    const commandHandler = candidateCommands();
+    return {
+      deps: {
+        db: pool,
+        eventStore: store,
+        checkpointStore: createPostgresProjectionStore({ db: pool }),
+        promotionTargetExclusion: createPostgresPromotionTargetExclusion({ pool, eventStore: store }),
+      } as CatalogRuntimeDeps,
+      referenceData: services.referenceData,
+      profileVersions: services.providerIntegrationProfiles,
+      rolloutControlPolicy: createCatalogIntegrationRolloutControlPolicyFromEnv({}),
+      applyCandidateCommandAtVersion: async ({ candidateId, command, expectedVersion, context: commandContext }) =>
+        (
+          await commandHandler({
+            streamId: catalogMergeCandidateStreamId(candidateId),
+            command,
+            expectedVersion,
+            context: commandContext,
+          })
+        ).state,
+    };
+  }
+
+  const apply = (candidateId: string, jobId = "job_time_spiral") =>
+    applyCatalogMergeCandidatePromotion(ports(), {
+      candidateId,
+      jobId,
+      unitId: candidateId,
+      approvalReason: "Apply the reviewed Time Spiral candidate.",
+      context,
+    });
+
+  async function eventCount(): Promise<number> {
+    const result = await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events");
+    return Number(result.rows[0]!.count);
+  }
+
+  async function itemCreations(): Promise<number> {
+    const result = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM event_store_events WHERE event_type = 'catalog.catalog-item.created'",
+    );
+    return Number(result.rows[0]!.count);
+  }
+
+  it("AC1: applies exactly one Item from the Scryfall member's facts with truthful id, mode and provenance", async () => {
+    const { candidateId, snapshot } = await candidateFrom([
+      magicObservation("mtgjson-card"),
+      magicObservation("scryfall-card-print"),
+    ]);
+    expect(snapshot.membership.map((member) => member.providerKey)).toEqual(["mtgjson", "scryfall"]);
+    const target = catalogMergeCandidateTargetId(candidateId);
+
+    const result = await apply(candidateId);
+
+    expect(result).toStrictEqual({
+      candidateId,
+      status: "promoted",
+      catalogItemId: null,
+      reason: null,
+      appliedCatalogItemId: target,
+      appliedMode: "create",
+      approvalVersion: 2,
+      planFingerprint: expect.any(String),
+    });
+    expect(await itemCreations()).toBe(1);
+
+    // The bound plan pins only the Scryfall card-print profile and keeps the reviewed membership intact.
+    const candidateEvents = await readCompleteStream(store, { streamId: catalogMergeCandidateStreamId(candidateId) });
+    const planned = candidateEvents.find((event) => event.eventType === "catalog.merge-candidate.promotion-planned");
+    const plan = (planned?.payload as { plan: CatalogMergeCandidatePromotionPlan }).plan;
+    const scryfallCardPrint = registeredMagicProfile("scryfall-card-print");
+    expect(plan.profiles).toEqual([
+      {
+        providerKey: "scryfall",
+        profileKey: scryfallCardPrint.profileKey,
+        profileVersion: scryfallCardPrint.profileVersion,
+      },
+    ]);
+    expect(plan.membership).toEqual(snapshot.membership);
+    expect(plan).toMatchObject({ catalogItemId: target, mode: "create", planFingerprint: result.planFingerprint });
+
+    // The Item carries the Scryfall member's facts and the reviewed external references.
+    const itemHistory = await readCompleteStream(store, { streamId: `catalog.item-${target}` });
+    const item = itemHistory
+      .map(createPassthroughDomainEventCodec<CatalogItemEvent>().decode)
+      .reduce(evolveCatalogItem, initialCatalogItemState);
+    const mapping = await loadCatalogItemPromotionProfile(
+      {
+        db: pool,
+        eventStore: store,
+        checkpointStore: createPostgresProjectionStore({ db: pool }),
+      } as CatalogRuntimeDeps,
+      scryfallCardPrint.profile,
+    );
+    expect(item).toMatchObject({ id: target, blueprintId: mapping.blueprintId, status: "draft" });
+    expect(item.fieldValues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fieldId: mapping.fieldIds.cardNumber, value: "157" }),
+        expect.objectContaining({ fieldId: mapping.fieldIds.rarity, value: "uncommon" }),
+      ]),
+    );
+    expect(item.externalCatalogItemReferences).toEqual(
+      expect.arrayContaining(
+        snapshot.proposedExternalCatalogItemReferences.map((reference) => expect.objectContaining(reference)),
+      ),
+    );
+
+    // Recovering the applied candidate writes nothing; another unit skips it.
+    const events = await eventCount();
+    await expect(apply(candidateId)).resolves.toStrictEqual(result);
+    await expect(apply(candidateId, "job_time_spiral_later")).resolves.toMatchObject({
+      status: "skipped-not-eligible",
+      reason: "Catalog Merge Candidate application is already complete.",
+    });
+    expect(await eventCount()).toBe(events);
+    expect(await itemCreations()).toBe(1);
+  });
+
+  it("AC3: an optional rarity carried only by MTGJSON is omitted before the display-identity gate", async () => {
+    const { candidateId } = await candidateFrom([
+      magicObservation("mtgjson-card"),
+      magicObservation("scryfall-card-print", { scryfallRarity: null }),
+    ]);
+
+    await expect(apply(candidateId)).rejects.toMatchObject({
+      code: "promotion-plan-blocked:display-identity-unresolvable",
+    });
+    expect(await itemCreations()).toBe(0);
+  });
+
+  it("AC2: an MTGJSON-only candidate with a Scryfall reference is reference-only with zero Item, Reference Record or candidate writes", async () => {
+    const { candidateId, snapshot } = await candidateFrom([magicObservation("mtgjson-card")]);
+    expect(snapshot.proposedExternalCatalogItemReferences.some((entry) => entry.providerKey === "scryfall")).toBe(true);
+    const events = await eventCount();
+
+    const result = await apply(candidateId);
+
+    expect(result).toMatchObject({
+      candidateId,
+      status: "skipped-not-eligible",
+      disposition: "reference-only",
+      appliedCatalogItemId: null,
+      appliedMode: null,
+      approvalVersion: null,
+      planFingerprint: null,
+    });
+    expect(result).not.toHaveProperty("diagnosticCode");
+    expect(await eventCount()).toBe(events);
+    expect(await itemCreations()).toBe(0);
   });
 });
 

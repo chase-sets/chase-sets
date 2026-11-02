@@ -119,6 +119,42 @@ describeDb("ordering order read-model queries against live Postgres", () => {
     expect(purchases.items[0]?.item_titles).toEqual([]);
   });
 
+  it("withholds self-service cancel while a recorded payment has no terminal failure", async () => {
+    for (const orderId of ["ord_unpaid", "ord_paying", "ord_failed"]) {
+      await insertOrderPage(pools.ordering, { orderId, buyerAccountId: "acc_buyer", sellerAccountId: "acc_seller" });
+    }
+    await pools.ordering.query(
+      `INSERT INTO ordering_payment_deadline_inputs (
+         order_id, payment_id, payment_method_category, payment_deadline_at, payment_deadline_policy,
+         terminal_failure_at, failure_code, updated_at
+       ) VALUES
+         ('ord_paying', 'pay_open', 'card', now() + interval '1 hour', 'card-standard', NULL, NULL, now()),
+         ('ord_failed', 'pay_failed', NULL, now() + interval '10 minutes', 'terminal-failure', now(), 'card_declined', now())`,
+    );
+
+    const phases = Object.fromEntries(
+      await Promise.all(
+        ["ord_unpaid", "ord_paying", "ord_failed"].map(async (orderId) => {
+          const purchase = await getPurchase(pools.ordering, orderId, "acc_buyer");
+          return [
+            orderId,
+            [purchase?.self_service_cancellation_available, purchase?.cancellation_unavailable_reason],
+          ] as const;
+        }),
+      ),
+    );
+
+    expect(phases).toEqual({
+      ord_unpaid: [true, null],
+      ord_paying: [false, "payment-unresolved"],
+      ord_failed: [true, null],
+    });
+    const listed = await listPurchases(pools.ordering, { buyerAccountId: "acc_buyer" });
+    expect(listed.items.find((item) => item.order_id === "ord_paying")?.cancellation_unavailable_reason).toBe(
+      "payment-unresolved",
+    );
+  });
+
   it("also surfaces item_titles on the seller-facing sale read model", async () => {
     await insertOrderPage(pools.ordering, {
       orderId: "ord_3",

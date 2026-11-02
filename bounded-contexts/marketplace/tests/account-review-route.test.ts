@@ -6,6 +6,7 @@ import {
 } from "@chase-sets/http/responses";
 import { action as reviewAction, loader as reviewLoader } from "../routes/marketplace/account-review";
 import { jsonResponse, requestUrl } from "./test-support/http";
+import { authoredTextRecoveryMessage } from "../features/reviews/ui/authored-text-recovery";
 
 const actor = {
   sessionId: "ses_1",
@@ -257,6 +258,37 @@ describe("marketplace account review route", () => {
         values: { feedback: "Second reply attempt." },
       });
     });
+
+    it.each([
+      [400, { code: "text_duplicate_link", message: "server copy" }, true],
+      [429, { code: "rate_limited", message: "Too many requests.", retryAfterSeconds: 60 }, false],
+    ] as const)(
+      "issue-5258-marketplace-ac4 returns closed recovery and the draft for a %s response",
+      async (status, error, fieldLevel) => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (input: string | URL | Request) => {
+            const url = requestUrl(input);
+            if (url.includes("/api/auth/session")) return jsonResponse({ actor });
+            if (url.includes("/api/marketplace/reviews/rev_1/reply")) return jsonResponse({ error }, status);
+            return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+          }),
+        );
+
+        const result = await reviewAction({
+          request: replyFormRequest("Thanks https://a.example https://a.example"),
+          params: { reviewId: "rev_1" },
+          context: undefined,
+        } as never);
+
+        const message = authoredTextRecoveryMessage(error.code);
+        expect(result).toEqual({
+          error: message,
+          values: { feedback: "Thanks https://a.example https://a.example" },
+          recovery: { code: error.code, message, fieldLevel },
+        });
+      },
+    );
   });
 
   describe("customer review report action", () => {

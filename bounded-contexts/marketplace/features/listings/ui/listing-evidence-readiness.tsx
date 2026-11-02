@@ -24,6 +24,19 @@ import type {
 } from "./contracts";
 import { evidenceCoverageCodeLocaleKey } from "../domain/evidence-coverage";
 import { trackListingEvidenceEvent } from "./listing-evidence-analytics";
+import { AuthoredTextGuidance } from "../../reviews/ui/authored-text-guidance";
+import type { AuthoredTextRecovery } from "../../reviews/ui/authored-text-recovery";
+
+/** A rejected image description, kept for the evidence entry whose form submitted it. */
+export type ListingEvidenceAltTextRecovery = Readonly<{
+  photoId: string;
+  altText: string;
+  recovery: AuthoredTextRecovery;
+}>;
+
+export function listingEvidenceAltTextFieldId(photoId: string) {
+  return `listing-evidence-alt-text-${photoId}`;
+}
 
 function galleryImage(image: MarketplaceListingPublicGalleryImage, fallbackAlt: string) {
   const primary =
@@ -142,7 +155,13 @@ export function EvidenceReadinessChecklist({
   );
 }
 
-export function ListingEvidenceReadiness({ listing }: { listing: MarketplaceListingDetail }) {
+export function ListingEvidenceReadiness({
+  listing,
+  altTextRecovery,
+}: {
+  listing: MarketplaceListingDetail;
+  altTextRecovery?: ListingEvidenceAltTextRecovery | null;
+}) {
   const readiness = listing.evidence_readiness;
   const activePhotos = listing.evidence
     .filter((photo) => photo.status === "active")
@@ -164,6 +183,7 @@ export function ListingEvidenceReadiness({ listing }: { listing: MarketplaceList
       ) : null}
       {listing.status === "draft" ? (
         <Stack gap={3}>
+          <AuthoredTextGuidance />
           <Form
             method="post"
             encType="multipart/form-data"
@@ -189,7 +209,7 @@ export function ListingEvidenceReadiness({ listing }: { listing: MarketplaceList
                   <Text weight="semibold">
                     {photo.altText ?? t("marketplace.features.listings.ui.evidence.photo.label", { index: index + 1 })}
                   </Text>
-                  <Form method="post">
+                  <Form method="post" errorAnnouncement="summary">
                     <HiddenInput type="hidden" name="intent" value="classify-photo" />
                     <HiddenInput type="hidden" name="photoId" value={photo.photoId} />
                     <NativeSelect
@@ -203,9 +223,17 @@ export function ListingEvidenceReadiness({ listing }: { listing: MarketplaceList
                       }))}
                     />
                     <TextInput
+                      id={listingEvidenceAltTextFieldId(photo.photoId)}
                       label={t("marketplace.features.listings.ui.evidence.alt.text")}
                       name="altText"
-                      defaultValue={photo.altText ?? ""}
+                      defaultValue={
+                        altTextRecovery?.photoId === photo.photoId ? altTextRecovery.altText : (photo.altText ?? "")
+                      }
+                      error={
+                        altTextRecovery?.photoId === photo.photoId && altTextRecovery.recovery.fieldLevel
+                          ? altTextRecovery.recovery.message
+                          : undefined
+                      }
                     />
                     <Button type="submit" tone="secondary">
                       {t("marketplace.features.listings.ui.evidence.save.classification")}

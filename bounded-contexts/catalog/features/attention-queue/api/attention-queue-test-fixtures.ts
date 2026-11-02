@@ -26,14 +26,14 @@ export function catalogAttentionAliasCandidateItem(
     unitKey: null,
     observedAt: "2026-07-05T00:00:00.000Z",
     resolution: {
-      intent: "accept",
+      intent: "alias.accept",
       mode: "command",
       labelKey: "catalog.features.attentionQueue.action.acceptAlias",
       fields: { aliasHash: "h1", targetKind: "catalog-item", targetId: "i1" },
     },
     secondaryResolutions: [
       {
-        intent: "reject",
+        intent: "alias.reject",
         mode: "command",
         labelKey: "catalog.features.attentionQueue.action.rejectAlias",
         fields: { aliasHash: "h1", targetKind: "catalog-item", targetId: "i1" },

@@ -56,7 +56,7 @@ export async function handleAttentionQueueCommand(input: {
 
   if (httpIntent === "dismiss") {
     await api.dispatchCatalogAttentionQueueCommand({ intent: "dismiss", itemKey, kind, reason });
-    return attentionResult(intent, "success", "job-queued", context);
+    return attentionResult(intent, "success", "job-queued", context, itemKey);
   }
 
   const deferHours = Number(formData.get("deferHours") ?? "24");
@@ -67,7 +67,7 @@ export async function handleAttentionQueueCommand(input: {
     reason,
     deferHours: Number.isFinite(deferHours) && deferHours > 0 ? deferHours : 24,
   });
-  return attentionResult(intent, "success", "job-queued", context);
+  return attentionResult(intent, "success", "job-queued", context, itemKey);
 }
 
 function attentionResult(
@@ -75,10 +75,12 @@ function attentionResult(
   status: CatalogIntegrationsCommandResult["feedback"]["status"],
   result: CatalogIntegrationsCommandResult["feedback"]["result"],
   context: RouteContext,
+  attentionItemKey?: string,
 ): CatalogIntegrationsCommandResult {
   return {
     feedback: { status, intent, result },
     context,
     section: "import-to-promotion",
+    ...(attentionItemKey ? { attentionItemKey } : {}),
   };
 }

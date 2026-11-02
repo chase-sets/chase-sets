@@ -1,9 +1,11 @@
+import { sendListingCommandsWithFreshAttempts } from "../tests/listing-attempt-test-support";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
 import { MarketplaceListingEvidenceIncompleteError, type MarketplaceListingServices } from "./runtime";
+import { initialMarketplaceListingState, normalizePurchaseLimits } from "../domain/domain";
 
 function buildApp(
   options: Readonly<{
@@ -11,7 +13,7 @@ function buildApp(
     services: MarketplaceListingServices;
   }>,
 ) {
-  const app = new Hono<MarketplaceApiEnv>();
+  const app = sendListingCommandsWithFreshAttempts(new Hono<MarketplaceApiEnv>());
 
   app.use("*", async (c, next) => {
     c.set("actor", options.actor);
@@ -43,11 +45,13 @@ function createServices(): MarketplaceListingServices {
       listingId: "lst_checkout_fallback" as never,
       version: 1,
       feeQuoteFingerprint: "12.00|0.60|11.40|cts_default|",
+      state: initialMarketplaceListingState,
     })),
     createListingFromInventorySnapshot: vi.fn(async () => ({
       listingId: "lst_checkout_fallback" as never,
       version: 1,
       feeQuoteFingerprint: "12.00|0.60|11.40|cts_default|",
+      state: initialMarketplaceListingState,
     })),
     previewPublicStandardListingTerms: vi.fn(async () => ({
       account_type: "personal",
@@ -350,6 +354,7 @@ describe("marketplace listing routes", () => {
       total_quantity: 3,
       available_quantity: 3,
       acquisition_cost_amount: "4.50",
+      acquisition_cost_currency_code: null,
     });
     const app = buildApp({
       actor: sellerActor,
@@ -389,6 +394,7 @@ describe("marketplace listing routes", () => {
       total_quantity: 3,
       available_quantity: 0,
       acquisition_cost_amount: "4.50",
+      acquisition_cost_currency_code: null,
     });
     const app = buildApp({
       actor: sellerActor,
@@ -619,6 +625,49 @@ describe("marketplace listing routes", () => {
     });
   });
 
+  it("returns committed channel-only aggregate state while Listing projections are poisoned", async () => {
+    const services = createServices();
+    const state = {
+      ...initialMarketplaceListingState,
+      listingId: "lst_channel" as never,
+      accountId: "acc_seller" as never,
+      publicationScope: "channel-only" as const,
+      nativeVisibility: "disabled" as const,
+      nativeFeeState: "not-enrolled" as const,
+      priceAmount: "12.00",
+      priceCurrencyCode: "USD",
+      quantityCap: 1,
+    };
+    vi.mocked(services.createListing).mockResolvedValueOnce({
+      listingId: "lst_channel" as never,
+      version: 1,
+      feeQuoteFingerprint: null,
+      state,
+    });
+    vi.mocked(services.getSellerListing).mockImplementation(async () => {
+      throw new Error("Poisoned Listing projection");
+    });
+    const app = buildApp({ actor: sellerActor, services });
+    const response = await app.request("/account/listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        inventoryItemId: "inv_1",
+        priceAmount: "12.00",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+        publicationScope: "channel-only",
+      }),
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).state).toEqual(state);
+    expect(services.getSellerListing).not.toHaveBeenCalled();
+    expect(services.createListing).toHaveBeenCalledWith(
+      expect.objectContaining({ publicationScope: "channel-only" }),
+      expect.any(Object),
+    );
+  });
+
   it("passes Checkout-provided deterministic listing IDs into seller listing creation", async () => {
     const services = createServices();
     const app = buildApp({
@@ -682,6 +731,86 @@ describe("marketplace listing routes", () => {
       new Request("http://marketplace.test/account/listings", { method: "POST", body: missingCurrency }),
     );
     expect(rejected.status).toBe(400);
+  });
+
+  it.each(["unrelatedField", "purchaseLimits"])("keeps multipart create closed to %s", async (key) => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+    const form = new FormData();
+    form.set("inventoryItemId", "inv_1");
+    form.set("priceAmount", "12.00");
+    form.set("priceCurrencyCode", "USD");
+    form.set("quantityCap", "7");
+    form.set(key, JSON.stringify({ maxUnitsPerOrder: 1 }));
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", { method: "POST", body: form }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "listing_request_unknown_field" } });
+    expect(services.createListing).not.toHaveBeenCalled();
+    expect(services.createListingFromInventorySnapshot).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "populated", limits: { maxUnitsPerOrder: 1, maxUnitsPerDay: 2, maxUnitsPerCustomerAccount: 3 } },
+    { label: "null", limits: { maxUnitsPerOrder: null, maxUnitsPerDay: null, maxUnitsPerCustomerAccount: null } },
+    { label: "omitted", limits: undefined },
+  ])("preserves JSON create's nested $label purchase limits", async ({ limits }) => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inventoryItemId: "inv_1",
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 7,
+          purchaseLimits: limits,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.createListing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        purchaseLimits: limits ?? { maxUnitsPerOrder: null, maxUnitsPerDay: null, maxUnitsPerCustomerAccount: null },
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it.each(
+    ["maxUnitsPerOrder", "maxUnitsPerDay", "maxUnitsPerCustomerAccount"].flatMap((key) =>
+      [0, -1, 1.5].map((value) => ({ key, value })),
+    ),
+  )("preserves multipart positive-integer validation for $key=$value", async ({ key, value }) => {
+    const services = createServices();
+    const create = vi.mocked(services.createListing).getMockImplementation()!;
+    vi.mocked(services.createListing).mockImplementation(async (input, context) => {
+      normalizePurchaseLimits(input.purchaseLimits, input.quantityCap);
+      return create(input, context);
+    });
+    const app = buildApp({ actor: sellerActor, services });
+    const form = new FormData();
+    for (const [field, text] of Object.entries({
+      inventoryItemId: "inv_1",
+      priceAmount: "12.00",
+      priceCurrencyCode: "USD",
+      quantityCap: "7",
+      [key]: String(value),
+    }))
+      form.set(field, text);
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", { method: "POST", body: form }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "listing_command_rejected" } });
   });
 
   it("rejects incomplete, malformed, and recursively open price authoring requests", async () => {
@@ -958,6 +1087,7 @@ describe("marketplace listing routes", () => {
         accountId: "acc_seller",
         listingId: "lst_1",
         feeQuoteFingerprint: null,
+        idempotencyKey: expect.stringMatching(/^test_attempt_/),
       },
       expect.objectContaining({
         audit: expect.objectContaining({
@@ -1133,12 +1263,19 @@ describe("marketplace listing routes", () => {
       {
         accountId: "acc_seller",
         updates: [
-          { listingId: "lst_1", priceAmount: "21.00", priceCurrencyCode: "USD", feeQuoteFingerprint: null },
+          {
+            listingId: "lst_1",
+            priceAmount: "21.00",
+            priceCurrencyCode: "USD",
+            feeQuoteFingerprint: null,
+            idempotencyKey: expect.stringMatching(/^test_attempt_/),
+          },
           {
             listingId: "lst_2",
             priceAmount: "22.00",
             priceCurrencyCode: "EUR",
             feeQuoteFingerprint: "some-fingerprint",
+            idempotencyKey: expect.stringMatching(/^test_attempt_/),
           },
         ],
       },
@@ -1262,6 +1399,7 @@ describe("marketplace listing routes", () => {
         reasonCategory: "audit",
         availableAgainOn: "2026-06-01",
         availableAgainAt: null,
+        idempotencyKey: expect.stringMatching(/^test_attempt_/),
       },
       expect.objectContaining({
         audit: expect.objectContaining({
@@ -1306,6 +1444,7 @@ describe("marketplace listing routes", () => {
         reasonCategory: "travel",
         availableAgainOn: "2026-07-20",
         availableAgainAt: "2026-07-20T05:00:00.000Z",
+        idempotencyKey: expect.stringMatching(/^test_attempt_/),
       },
       expect.objectContaining({
         audit: expect.objectContaining({
@@ -1351,7 +1490,7 @@ describe("marketplace listing routes", () => {
       maxOpenOrders: 5,
     });
     expect(services.setSellerOrderCapacity).toHaveBeenCalledWith(
-      { accountId: "acc_seller", maxOpenOrders: 5 },
+      { accountId: "acc_seller", maxOpenOrders: 5, idempotencyKey: expect.stringMatching(/^test_attempt_/) },
       expect.objectContaining({
         audit: expect.objectContaining({
           forAccountId: "acc_seller",
@@ -1394,7 +1533,7 @@ describe("marketplace listing routes", () => {
       maxOpenOrders: null,
     });
     expect(services.clearSellerOrderCapacity).toHaveBeenCalledWith(
-      { accountId: "acc_seller" },
+      { accountId: "acc_seller", idempotencyKey: expect.stringMatching(/^test_attempt_/) },
       expect.objectContaining({
         audit: expect.objectContaining({
           forAccountId: "acc_seller",
@@ -1469,6 +1608,7 @@ describe("marketplace listing routes", () => {
         reasonCategory: "travel",
         startsAt: "2026-07-20T05:00:00.000Z",
         endsAt: "2026-07-27T05:00:00.000Z",
+        idempotencyKey: expect.stringMatching(/^test_attempt_/),
       },
       expect.objectContaining({
         audit: expect.objectContaining({
@@ -1536,7 +1676,7 @@ describe("marketplace listing routes", () => {
       version: 2,
     });
     expect(services.cancelScheduledAwayWindow).toHaveBeenCalledWith(
-      { accountId: "acc_seller" },
+      { accountId: "acc_seller", idempotencyKey: expect.stringMatching(/^test_attempt_/) },
       expect.objectContaining({
         audit: expect.objectContaining({
           forAccountId: "acc_seller",

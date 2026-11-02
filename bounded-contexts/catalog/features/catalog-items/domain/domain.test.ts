@@ -370,8 +370,6 @@ describe("CatalogItem aggregate", () => {
       const state = draftWithBlueprint();
       const events = decide(decideCatalogItem, state, {
         type: "PublishCatalogItem" as const,
-        blueprintIsActive: true,
-        requiredFieldIds: [fieldA],
         displayIdentity: currentDisplayIdentity(state),
       });
 
@@ -383,45 +381,9 @@ describe("CatalogItem aggregate", () => {
         () =>
           decide(decideCatalogItem, createdState(), {
             type: "PublishCatalogItem" as const,
-            blueprintIsActive: true,
-            requiredFieldIds: [],
             displayIdentity: currentDisplayIdentity(createdState()),
           }),
         "Items require a blueprint before publish.",
-      );
-    });
-
-    it("rejects publish when blueprint is not active", () => {
-      const state = givenEvents(createdState(), evolveCatalogItem, [
-        { type: "catalog.catalog-item.blueprint-assigned", data: { blueprintId: bpId } },
-      ] as CatalogItemEvent[]);
-
-      expectDomainError(
-        () =>
-          decide(decideCatalogItem, state, {
-            type: "PublishCatalogItem" as const,
-            blueprintIsActive: false,
-            requiredFieldIds: [],
-            displayIdentity: currentDisplayIdentity(state),
-          }),
-        "Items may only publish against active blueprints.",
-      );
-    });
-
-    it("rejects publish when required fields are missing", () => {
-      const state = givenEvents(createdState(), evolveCatalogItem, [
-        { type: "catalog.catalog-item.blueprint-assigned", data: { blueprintId: bpId } },
-      ] as CatalogItemEvent[]);
-
-      expectDomainError(
-        () =>
-          decide(decideCatalogItem, state, {
-            type: "PublishCatalogItem" as const,
-            blueprintIsActive: true,
-            requiredFieldIds: [fieldA],
-            displayIdentity: currentDisplayIdentity(state),
-          }),
-        "Items must satisfy all required field rules before publish.",
       );
     });
 
@@ -435,8 +397,6 @@ describe("CatalogItem aggregate", () => {
         () =>
           decide(decideCatalogItem, state, {
             type: "PublishCatalogItem" as const,
-            blueprintIsActive: true,
-            requiredFieldIds: [fieldA],
             displayIdentity: {
               ...currentDisplayIdentity(state),
               readiness,
@@ -453,8 +413,6 @@ describe("CatalogItem aggregate", () => {
         () =>
           decide(decideCatalogItem, state, {
             type: "PublishCatalogItem" as const,
-            blueprintIsActive: true,
-            requiredFieldIds: [fieldA],
             displayIdentity: { ...currentDisplayIdentity(state), languageCode: "fr" },
           }),
         "Catalog Item display identity belongs to a different language.",
@@ -463,8 +421,6 @@ describe("CatalogItem aggregate", () => {
         () =>
           decide(decideCatalogItem, state, {
             type: "PublishCatalogItem" as const,
-            blueprintIsActive: true,
-            requiredFieldIds: [fieldA],
             displayIdentity: undefined,
           }),
         "Catalog Item requires a current resolved display identity.",
@@ -473,8 +429,6 @@ describe("CatalogItem aggregate", () => {
         () =>
           decide(decideCatalogItem, state, {
             type: "PublishCatalogItem" as const,
-            blueprintIsActive: true,
-            requiredFieldIds: [fieldA],
             displayIdentity: { ...currentDisplayIdentity(state), resolutionStatus: undefined },
           }),
         "Catalog Item display identity is degraded.",
@@ -486,8 +440,6 @@ describe("CatalogItem aggregate", () => {
         () =>
           decide(decideCatalogItem, activeState(), {
             type: "PublishCatalogItem" as const,
-            blueprintIsActive: true,
-            requiredFieldIds: [],
           }),
         "Only draft items can be published.",
       );

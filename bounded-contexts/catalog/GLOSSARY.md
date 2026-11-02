@@ -56,21 +56,21 @@ This glossary focuses on catalog truth and identity. Browsing, filtering, and li
 
 ## Operator Session
 
-A TCGplayer Operator Session is encrypted custody of Todd's operator cookie, not a username/password or another user's credential. `stored` custody supplies automation requests; `cleared` custody retains only its monotonic revision and last key id. Clearing custody restores the environment fallback but does not prove that a browser or provider session ended. Reaccepting advances the retained revision, never restarts it.
+A TCGplayer Operator Session is the pairing status Admin shows for the TCGplayer Operator Extension: whether an Operator Session Push Grant is active, with its created, last-used and idle-expiry times. It holds no cookie, browser session, username/password or other TCGplayer credential; Catalog never stores or uses one, never contacts TCGplayer servers, and reports server credential custody as unavailable.
 
 ### Operator Session Push Grant
 
-An Operator Session Push Grant is a narrow bearer credential minted directly by a recently authenticated platform administrator for Todd's operator session. Catalog stores only its hash. It permits session pushes and unpairing, not Admin access or other users' credentials. A completed push renews its 30-day idle expiry using database time; expired or revoked grants cannot revive. Unpair revokes only the grant. Disconnect commits revocation before clearing custody and does not log out the browser or provider.
+An Operator Session Push Grant is an opaque bearer pairing grant that a platform administrator with `catalog.manage`, authenticated within the last ten minutes, mints in Admin for the TCGplayer Operator Extension. It carries no provider credential. Catalog shows it once and stores only its hash. Minting replaces the previous active grant. A grant expires 30 days after minting and nothing renews it; expired or revoked grants cannot revive. Its only authority is unpairing, which revokes that grant; it grants no Admin access. Disconnect in Admin revokes every active grant. Neither proves that TCGplayer accepted anything, and neither logs out the browser or provider.
 
 ## Core Model
 
 ### TCGplayer Operator Extension
 
-The TCGplayer Operator Extension forwards Todd's current applicable browser
-session to Catalog using a narrow Operator Session Push Grant. It is separate
-from the seller connector. Pairing is per environment; unpairing revokes the
-grant, not custody or the browser/provider session. The popup cannot read
-stored grants or cookies.
+The TCGplayer Operator Extension holds one Operator Session Push Grant per
+environment in Todd's operator browser. It never reads, stores or forwards a
+TCGplayer session, cookie or credential. It is separate from the seller
+connector. Pairing is per environment; unpairing revokes the grant, not the
+browser/provider session. The popup cannot read stored grants or cookies.
 
 - `Admin pair handoff` is the primary pairing path: after a successful mint,
   the Admin TCGplayer provider page sends the grant once to the extension
@@ -185,6 +185,10 @@ The batch advances a bounded number of scope units per leased worker turn. It ne
 ## Scope Sync Count Lifecycle Receipt
 
 A `scope-sync-count-lifecycle` receipt is the closed, support-safe staging artifact of one combined count-lifecycle capture for #9424 AC5 and #9431 AC7: the host authority envelope it ran under, the approved page-1 count acquisitions, the card and sealed count sources each preview and pre-confirm planner read consumed, every possible provider send, and the zero-effects comparison. It classifies itself `CONFORMING` only when every claim holds, otherwise `INCOMPLETE` for missing evidence or `FAILED` for contradicted evidence, separately per acceptance criterion; a complete-cache source never satisfies a page-1 claim. Validating it proves shape and causal consistency only; the live deployment, pods, review and spend authority are bound by the host verifier. Contract: `features/scope-sync-batches/domain/count-lifecycle-receipt.ts`.
+
+## Scrydex Coordinate Preview Receipt
+
+A `scrydex-coordinate-preview/v1` receipt is the closed, support-safe staging artifact of the `scrydex-coordinate-preview` journey scope: one signed-in Admin session makes one ordinary two-ID Scope Sync Batch preview over one active One Piece and one active Lorcana `set` Scope Record and joins it to exactly five rows, one per participating Scrydex unit (One Piece set, card and sealed; Lorcana set and card). Each row carries the accepted mapping's id, version and review status, its coordinates, the coordinate the shipped planner reads from them (`setId` before `setName`), that coordinate's membership in the unit's cache-only option row, and the preview's plan fingerprint and sample entries for that mapping and profile. The coordinates are the Admin-recorded `setId` and `setName` on the accepted Provider Scope Mapping; there is no separate Admin set identity. The deployment generation read before sign-in must equal the one read after capture and name the runner's reviewed head. Only a Scrydex `scope-planning-blocked` blocker on a selected Scope Record, or on none, blocks; every other preview blocker, estimate-unavailable included, is kept verbatim. `requests.signIn` counts every allowed sign-in-phase request, the isolation document included, and `requests.forbidden` counts every refused request. The isolation document is the same-origin path `/__scrydex-coordinate-preview-isolation`, loaded as a sign-in navigation and fulfilled with a constant script-free page so no Admin app code issues requests during capture; anywhere else the fence treats that path like any other request. The receipt is `complete` only with zero reasons; any other receipt is `governed-unknown`, a diagnostic that never promotes. Contract: `features/scope-sync-batches/domain/scrydex-coordinate-preview.ts`.
 
 ## Held-Set Export
 
@@ -441,6 +445,8 @@ Catalog does not define:
 - Discovery ranking, filtering, or presentation of Product Contents
 
 Catalog sync decision vocabulary:
+
+- `scrydex-option-refresh/v1` is the bounded hosted staging receipt for exactly five Scrydex `sets` option-cache force reads. A complete receipt proves five live/bypass responses; refused or stopped runs are diagnostic only and never imply zero spend.
 
 - `split` means one provider-sourced candidate should become more than one Catalog candidate.
 - `update` means an approved candidate refreshes existing Catalog Item/Product facts through Catalog commands.

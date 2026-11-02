@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS identity_linked_platform_authorizations (
   refresh_token_hash text NULL UNIQUE,
   access_token_expires_at timestamptz NOT NULL,
   refresh_token_expires_at timestamptz NULL,
+  absolute_expires_at timestamptz NULL,
   granted_at timestamptz NOT NULL,
   last_refreshed_at timestamptz NULL,
   refresh_token_rotated_at timestamptz NULL,
@@ -30,6 +31,9 @@ ALTER TABLE identity_linked_platform_authorizations
 
 ALTER TABLE identity_linked_platform_authorizations
   ADD COLUMN IF NOT EXISTS revocation_reason text NULL;
+
+ALTER TABLE identity_linked_platform_authorizations
+  ADD COLUMN IF NOT EXISTS absolute_expires_at timestamptz NULL;
 
 CREATE INDEX IF NOT EXISTS identity_linked_platform_authorizations_access_token_idx
   ON identity_linked_platform_authorizations (access_token_hash)
@@ -51,6 +55,7 @@ export type LinkedPlatformAuthorizationRow = Readonly<{
   refresh_token_hash: string | null;
   access_token_expires_at: string;
   refresh_token_expires_at: string | null;
+  absolute_expires_at?: string | null;
   granted_at: string;
   last_refreshed_at: string | null;
   refresh_token_rotated_at: string | null;
@@ -72,6 +77,7 @@ export type LinkedPlatformAuthorizationStore = Readonly<{
       refreshTokenHash?: string | null;
       accessTokenExpiresAt: string;
       refreshTokenExpiresAt?: string | null;
+      absoluteExpiresAt?: string | null;
       grantedAt: string;
     }>,
   ) => Promise<LinkedPlatformAuthorizationRow>;
@@ -111,6 +117,7 @@ export function createLinkedPlatformAuthorizationStore(db: PgTransactionalPool):
            refresh_token_hash,
            access_token_expires_at,
            refresh_token_expires_at,
+           absolute_expires_at,
            granted_at,
            updated_at
          ) VALUES (
@@ -123,9 +130,10 @@ export function createLinkedPlatformAuthorizationStore(db: PgTransactionalPool):
            'active',
            $7,
            $8,
-           $9::timestamptz,
-           $10::timestamptz,
+           LEAST($9::timestamptz, COALESCE($11::timestamptz, $9::timestamptz)),
+           LEAST($10::timestamptz, COALESCE($11::timestamptz, $10::timestamptz)),
            $11::timestamptz,
+           $12::timestamptz,
            now()
          )
          RETURNING *`,
@@ -140,6 +148,7 @@ export function createLinkedPlatformAuthorizationStore(db: PgTransactionalPool):
           params.refreshTokenHash ?? null,
           params.accessTokenExpiresAt,
           params.refreshTokenExpiresAt ?? null,
+          params.absoluteExpiresAt ?? null,
           params.grantedAt,
         ],
       );
@@ -185,8 +194,8 @@ export function createLinkedPlatformAuthorizationStore(db: PgTransactionalPool):
         `UPDATE identity_linked_platform_authorizations
          SET access_token_hash = $2,
              refresh_token_hash = $3,
-             access_token_expires_at = $4::timestamptz,
-             refresh_token_expires_at = $5::timestamptz,
+             access_token_expires_at = LEAST($4::timestamptz, COALESCE(absolute_expires_at, $4::timestamptz)),
+             refresh_token_expires_at = LEAST($5::timestamptz, COALESCE(absolute_expires_at, $5::timestamptz)),
              last_refreshed_at = $6::timestamptz,
              refresh_token_rotated_at = $6::timestamptz,
              updated_at = now()
@@ -244,5 +253,6 @@ function mapLinkedPlatformAuthorizationRow(row: LinkedPlatformAuthorizationRow):
   return {
     ...row,
     scopes: Array.isArray(row.scopes) ? row.scopes : [],
+    absolute_expires_at: row.absolute_expires_at ?? null,
   };
 }

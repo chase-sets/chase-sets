@@ -73,7 +73,7 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
     setName("");
     setDescription("");
     setValueKind("unordered");
-    revalidator.revalidate();
+    void revalidator.revalidate();
   }
 
   return (

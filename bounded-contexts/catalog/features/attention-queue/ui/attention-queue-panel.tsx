@@ -6,6 +6,7 @@ import {
   EmptyState,
   HiddenInput,
   KeyValueList,
+  LinkButton,
   MetricStrip,
   SideSheet,
   TextInput,
@@ -171,7 +172,6 @@ export function CatalogAttentionQueuePanel({
     </WorkflowModule>
   );
 }
-
 // A one-click resolution that POSTs a daily-surface intent (e.g. alias accept)
 // and stays on the daily route. Reason-requiring resolutions carry a default
 // reason so the single-click action remains valid without a separate page.
@@ -200,7 +200,6 @@ function ResolutionCommandButton({
     </WorkbenchForm>
   );
 }
-
 // The inline drawer for an item: its evidence plus the universal park controls
 // (dismiss / defer with a reason). Opening and acting stays on the daily surface.
 function AttentionItemDrawer({
@@ -237,6 +236,16 @@ function AttentionItemDrawer({
     >
       <WorkbenchStack>
         <KeyValueList items={evidence} />
+
+        {item.resolution.href ? (
+          <LinkButton href={item.resolution.href} size="sm" tone="secondary" data-attention-destination="true">
+            {t("catalog.features.attentionQueue.action.openDestination")}
+          </LinkButton>
+        ) : (
+          <WorkbenchText size="sm" tone="secondary" data-attention-destination="unavailable">
+            {t("catalog.features.attentionQueue.resolution.unavailable")}
+          </WorkbenchText>
+        )}
 
         <WorkbenchForm variant="inline" method="post" action={actionHref} data-attention-park="dismiss">
           <HiddenInput name="_intent" value={CATALOG_ATTENTION_DISMISS_INTENT} />
@@ -293,7 +302,6 @@ function severityTone(severity: CatalogAttentionSeverity): "danger" | "warning" 
       return "info";
   }
 }
-
 function severityLabel(severity: CatalogAttentionSeverity): string {
   switch (severity) {
     case "critical":
