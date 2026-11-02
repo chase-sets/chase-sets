@@ -246,10 +246,7 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
           node.arguments[1]?.getText(ast) !== "expanded")
       )
         violations.push(`${file}: raw append bypasses Membership Set planner`);
-      if (
-        !hasMembership &&
-        !(file === `${identity}features/account-management/api/runtime.ts` && called === "append")
-      )
+      if (!hasMembership && !(file === `${identity}features/account-management/api/runtime.ts` && called === "append"))
         return;
       const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1;
       const approved =
