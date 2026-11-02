@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -234,6 +237,67 @@ describe("credential:rotate registration", () => {
 });
 
 describe("AC1: a value reaches only gh's stdin", () => {
+  it("pins the documented staging rotation in a duplicate-remotes checkout", async () => {
+    // rotate-repo-plan-r1.reproduction.log, 2026-11-01T21:25Z: ambient gh failed before any write.
+    const cwd = mkdtempSync(join(tmpdir(), "credential-rotate-duplicate-remotes-"));
+    const previousCwd = process.cwd();
+    const successfulWrites = [];
+    try {
+      for (const args of [
+        ["init"],
+        ["remote", "add", "origin", "https://example.invalid/synthetic/repo.git"],
+        ["remote", "add", "undefined", "https://example.invalid/synthetic/repo.git"],
+      ]) {
+        const result = gh.actual.spawnSync("git", args, { cwd, encoding: "utf8" });
+        expect(result.status, result.stderr).toBe(0);
+      }
+      process.chdir(cwd);
+      respondWithRunUrls((call) => {
+        if (!call.args.includes("--repo")) {
+          return {
+            code: 1,
+            stderr:
+              "gh: multiple remotes detected. please specify which repo to use by providing the -R, --repo argument",
+          };
+        }
+        if (call.args[0] === "secret") successfulWrites.push(call.args[2]);
+        return undefined;
+      });
+      const name = "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON";
+      const inventory = inventoryOf([
+        entry(name, { scope: ["staging"], proofWorkflows: ["platform-credential-health.yml"] }),
+      ]);
+      const result = await rotate(["--secret", name, "--env", "staging"], { inventory });
+      expect(result.code, JSON.stringify({ stderr: result.stderr, successfulWrites })).toBe(0);
+      expect(successfulWrites).toEqual([name]);
+      expect(secretSets()).toHaveLength(1);
+      expect(secretSets()[0].args).toEqual([
+        "secret",
+        "set",
+        name,
+        "--env",
+        "staging",
+        "--repo",
+        "chase-sets/chase-sets",
+      ]);
+      expect(secretSets()[0].stdin).toBe(SENTINEL);
+      expect(workflowRuns()).toHaveLength(1);
+      for (const call of workflowRuns()) {
+        expect(call.args.slice(-2)).toEqual(["--repo", "chase-sets/chase-sets"]);
+        expect(call.stdin).toBeNull();
+      }
+      for (const call of gh.calls) {
+        expect(call.args.join("\n")).not.toContain(SENTINEL);
+        expect(JSON.stringify(call.options.env ?? process.env)).not.toContain(SENTINEL);
+      }
+      expect(result.output).not.toContain(SENTINEL);
+      expect(gh.forbidden).toEqual([]);
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("keeps a sentinel pair out of every argv, child environment, stdout and stderr", async () => {
     const result = await rotate(["--secret", "PAIR_ACCESS_ID"], { stdin: pipedStdin([SENTINEL, SENTINEL_PARTNER]) });
     expect(result.code).toBe(0);
