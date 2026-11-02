@@ -126,7 +126,7 @@ Proof: [Step 8 — Give a changed decision a new version with its own Golden Dec
 
 ### Step 9 — Prove every registered Forecast Kind through the Conformance Kit
 
-Every kind the [#7708 Record every price forecast and grade it against realized sales](https://github.com/chase-sets/chase-sets/issues/7708)
+Every kind the Forecast Kind registry ([#7708 Record every price forecast and grade it against realized sales](https://github.com/chase-sets/chase-sets/issues/7708))
 registers passes the Forecast Kind suite. Inputs are evaluation-producer values,
 unavailable states return null only where the kind reads that evidence, and each
 result is finite, positive and stable.
@@ -136,7 +136,7 @@ Proof: [Step 9 — Prove every registered Forecast Kind through the Conformance 
 ### Step 10 — Show the fixture goal in Pricing Health picker and comparison
 
 The test-only `fixture-flat-offset` goal is registered through the same registry
-port used by the real composition. The [#7709 Compare goals on a Pricing Health surface with a verdict](https://github.com/chase-sets/chase-sets/issues/7709)
+port used by the real composition. The Pricing Health surface ([#7709 Compare goals on a Pricing Health surface with a verdict](https://github.com/chase-sets/chase-sets/issues/7709))
 renders it in the registry-driven picker and comparison without a surface edit.
 
 Proof: [Step 10 — Show the fixture goal in Pricing Health picker and comparison](../tests/conformance/fixture-goal-pricing-health.db.test.tsx)
@@ -144,7 +144,7 @@ Proof: [Step 10 — Show the fixture goal in Pricing Health picker and compariso
 ### Step 11 — Project the fixture goal's incumbent and shadow traces to the Forecast Ledger
 
 The fixture goal's incumbent and shadow evaluations each write one
-[#7708 Record every price forecast and grade it against realized sales](https://github.com/chase-sets/chase-sets/issues/7708) row
+Forecast Ledger ([#7708 Record every price forecast and grade it against realized sales](https://github.com/chase-sets/chase-sets/issues/7708)) row
 carrying its goal id, Goal Version, curve version and every registered forecast.
 The proof invokes the context's subscribed projection handler, with no ledger or
 engine edit.
@@ -156,7 +156,7 @@ Proof: [Step 11 — Project the fixture goal's incumbent and shadow traces to th
 The #9310 lifecycle governs adoption. At most one `shadow` version exists per
 goal id. A lifecycle change is a reviewed registration change, never a job.
 Selecting a version above 1 cites its graded adoption evidence: the Forecast
-Grade from #7708, which grades every shadow trace against realized sales.
+Grade from [#7708 Record every price forecast and grade it against realized sales](https://github.com/chase-sets/chase-sets/issues/7708), which grades every shadow trace against realized sales.
 Grading and its adoption gate are not yet on `main`. Until they land, keep
 later versions in `shadow`. Retire a version by setting it `retired`. A
 recorded anchor that names it then exhausts as `goal-retired`, and the chain

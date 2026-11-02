@@ -6,7 +6,7 @@ import {
   type ForecastKindDefinition,
 } from "../../features/forecast-ledger/domain/forecast-kinds";
 import { expect, it } from "vitest";
-import { deepFreeze, describeConformance, runConformance, type ConformanceProperty } from "./kit";
+import { deepFreeze, describeConformance, registrationCoverage, runConformance, type ConformanceProperty } from "./kit";
 import { parityCurve } from "../../features/repricing-engine/tests/curve-objective-fixture";
 
 const pricedAt = "2026-10-13T12:00:00.000Z";
@@ -55,7 +55,10 @@ const forecastKindProperties: readonly ConformanceProperty<ForecastKindDefinitio
   },
   {
     name: "returns null when the evaluated curve is absent",
-    check: (kind) => expect(kind.forecast(validInput({ curve: null }))).toBeNull(),
+    check: (kind) => {
+      expect(kind.forecast(validInput({ curve: null })), "with goal read-back").toBeNull();
+      expect(kind.forecast(validInput({ curve: null, goalForecast: null })), "without goal read-back").toBeNull();
+    },
   },
   {
     name: "does not read the goal read-back unless the curve kind needs it",
@@ -72,7 +75,7 @@ const forecastKindProperties: readonly ConformanceProperty<ForecastKindDefinitio
     },
   },
   {
-    name: "returns null only for buyer-choice when buyer-choice evidence is unusable",
+    name: "returns null for each kind that reads missing buyer-choice evidence",
     check: (kind) => {
       const noBuyerArrival = {
         ...curve,
@@ -131,4 +134,5 @@ describeConformance(forecastKindSuite);
 
 it("Step 9 — Prove every registered Forecast Kind through the Conformance Kit", async () => {
   expect(await runConformance(forecastKindSuite)).toEqual([]);
+  expect(await registrationCoverage(forecastKindSuite)).toEqual([]);
 });
