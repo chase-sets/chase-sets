@@ -39,8 +39,8 @@ pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};
 pub use status_badge::StatusBadge;
 
 /// The components every page renders (the frame and the shared parts), tokens first: their
-/// stylesheets are `components.css`.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, AdminNav, Section];
+/// stylesheets are `components.css`. The kit's `NavBar` is the top bar's, before `AdminNav`'s own rules.
+pub const COMPONENTS: &[Component] = &[theme::TOKENS, platform::ui::nav_bar::NavBar, AdminNav, Section];
 
 /// Signing in (`/access/sign-in`, its magic link and account selection): the page's stylesheet.
 pub const SIGN_IN: &[Component] = &[SignInPage];

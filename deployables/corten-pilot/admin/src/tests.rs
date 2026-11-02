@@ -1945,7 +1945,24 @@ async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
     assert!(section.contains(".list-page__table") && section.contains(".catalog-dialog__form"), "{section}");
     assert!(!section.contains(".policy-table__"), "{section}");
     assert!(!shared.contains(".list-page__") && !shared.contains(".policy-table__"), "{shared}");
-    assert!(shared.contains(".admin-nav__bar"), "{shared}");
+    assert!(shared.contains(".nav-bar__bar") && shared.contains(".admin-nav__tag"), "the frame is shared: {shared}");
+}
+
+#[tokio::test]
+async fn the_top_bar_is_the_kits_with_the_pages_section_current() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/dimensions", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let bar = &html[html.find("<header").unwrap()..html.find("</header>").unwrap()];
+    // The kit's bar, with the pilot's phone rule (todd-skelton/corten 673).
+    assert!(bar.starts_with(r#"<header class="nav-bar__bar admin-nav__phone">"#), "{bar}");
+    assert!(bar.contains(r#"<nav class="nav-bar__sections""#), "{bar}");
+    // The catalog's section is current (the kit draws it from `aria-current="page"`), marked for
+    // markNav after a client navigation; the others are not.
+    assert!(bar.contains(r#"aria-current="page" data-nav-path="/catalog""#), "{bar}");
+    assert_eq!(bar.matches(r#"aria-current"#).count(), 1, "{bar}");
+    assert!(bar.contains(r#"data-nav-path="/commerce""#), "{bar}");
+    assert!(bar.contains(r#"<div class="nav-bar__actions"><details class="admin-nav__account">"#), "{bar}");
 }
 
 #[tokio::test]

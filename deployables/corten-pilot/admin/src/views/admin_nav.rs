@@ -1,4 +1,5 @@
 use corten::prelude::*;
+use platform::ui::nav_bar::{NavActions, NavBar, NavBrand, NavSections};
 
 use super::{admin_web, link_to};
 use crate::{
@@ -42,6 +43,11 @@ fn section_label(p: Pilot, section: &str) -> &'static str {
 /// admin-web's frame: the sections the viewer can open, and the pages of the one the page is in
 /// (catalog or commerce). An entry links to the pilot's page when the pilot serves its path, and to
 /// admin-web's otherwise.
+///
+/// The top bar is the kit's `NavBar`, which draws the current section from `aria-current="page"`.
+/// Most section homes are admin-web's, which `req.nav_of` cannot mark, so the section links are
+/// marked here and, after a client navigation, by `markNav` (`data-nav-path`; the README's
+/// todd-skelton/corten 341 row).
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     let path = req.path();
@@ -50,43 +56,41 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     let items = auth::section_items(viewer, here);
     let m: SignInMsg = req.t();
     html! {
-        <header class={Bar}>
-            <a class={Brand} href={admin_web("/").map(|u| u.to_string()).unwrap_or_default()}>{p.shell_admin()}</a>
-            <span class={Tag}>{p.shell_pilot()}</span>
-            <nav aria-label={p.shell_navigation()}>
-                <ul class={Sections}>
-                    for section in &sections {
-                        <li>
-                            <a
-                                class={Section}
-                                href={section_link(req, section)}
-                                aria-current={(*section == here).then_some("true")}
-                            >
-                                {section_label(p, section)}
-                            </a>
-                        </li>
-                    }
-                </ul>
+        // `Phone`: the section links take their own row on a phone (todd-skelton/corten 673).
+        <header class={(NavBar {}, Phone)}>
+            <a class={NavBrand {}} href={admin_web("/").map(|u| u.to_string()).unwrap_or_default()}>
+                {p.shell_admin()}
+                <span class={Tag}>{p.shell_pilot()}</span>
+            </a>
+            <nav class={NavSections {}} aria-label={p.shell_navigation()}>
+                for section in &sections {
+                    let href = section_link(req, section);
+                    <a href={&href} aria-current={(*section == here).then_some("page")} data-nav-path={format!("/{section}")}>
+                        {section_label(p, section)}
+                    </a>
+                }
             </nav>
             // admin-web's account menu (`AdminAccountMenu`): switch account, sessions and sign out.
-            <details class={Account}>
-                <summary class={Section} aria-label={m.menu_account_menu()}>{m.menu_account()}</summary>
-                <ul class={Menu}>
-                    <li>
-                        <a class={Item} href={link_to(req, "/access/account-select").unwrap_or_default()}>
-                            {m.menu_switch_account()}
-                        </a>
-                    </li>
-                    <li>
-                        <a class={Item} href={link_to(req, "/access/sessions").unwrap_or_default()}>{m.menu_sessions()}</a>
-                    </li>
-                    <li>
-                        <form method="post" action={sign_in::sign_out::SignOut}>
-                            <button type="submit" class={(Item, Plain)}>{m.menu_sign_out()}</button>
-                        </form>
-                    </li>
-                </ul>
-            </details>
+            <div class={NavActions {}}>
+                <details class={Account}>
+                    <summary class={Trigger} aria-label={m.menu_account_menu()}>{m.menu_account()}</summary>
+                    <ul class={Menu}>
+                        <li>
+                            <a class={Item} href={link_to(req, "/access/account-select").unwrap_or_default()}>
+                                {m.menu_switch_account()}
+                            </a>
+                        </li>
+                        <li>
+                            <a class={Item} href={link_to(req, "/access/sessions").unwrap_or_default()}>{m.menu_sessions()}</a>
+                        </li>
+                        <li>
+                            <form method="post" action={sign_in::sign_out::SignOut}>
+                                <button type="submit" class={(Item, Plain)}>{m.menu_sign_out()}</button>
+                            </form>
+                        </li>
+                    </ul>
+                </details>
+            </div>
         </header>
         <nav class={Side} aria-label={p.shell_section_navigation(section_label(p, here))}>
             <ul>

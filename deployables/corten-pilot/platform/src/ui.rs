@@ -20,6 +20,7 @@ pub mod dialog;
 pub mod dropdown_menu;
 pub mod field;
 pub mod input;
+pub mod nav_bar;
 pub mod pagination;
 pub mod popover;
 pub mod radio_group;
@@ -49,6 +50,7 @@ pub const COMPONENTS: &[Component] = &[
     dropdown_menu::DropdownMenu,
     field::Field,
     input::Input,
+    nav_bar::NavBar,
     pagination::Pagination,
     popover::Popover,
     radio_group::RadioGroup,
