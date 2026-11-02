@@ -278,27 +278,31 @@ describe("settlement admin wallet workbench route action", () => {
     });
   });
 
-  it("classifies the elevated-approval domain conflict without losing the adjustment id", async () => {
-    const approveWalletAdjustment = vi.fn(async () => {
-      throw new SettlementApiError(409, {
-        error: { code: "conflict", message: "This Wallet Adjustment requires a second, elevated approval." },
+  it.each([
+    { detailCode: "elevated_approval_required", kind: "requires-elevated-approval" },
+    { detailCode: "self_benefiting_blocked", kind: "self-benefiting-blocked" },
+    { detailCode: null, kind: "conflict" },
+  ])(
+    "classifies an approval conflict with detail code $detailCode as $kind without losing the adjustment id",
+    async ({ detailCode, kind }) => {
+      const message = "This Wallet Adjustment requires a second, elevated approval.";
+      const approveWalletAdjustment = vi.fn(async () => {
+        throw new SettlementApiError(409, {
+          error: { code: "conflict", message, ...(detailCode ? { details: [{ code: detailCode, message }] } : {}) },
+        });
       });
-    });
-    mockCreateSettlementRequestApiClient.mockReturnValue({ approveWalletAdjustment });
+      mockCreateSettlementRequestApiClient.mockReturnValue({ approveWalletAdjustment });
 
-    const form = new URLSearchParams({ intent: "approve-adjustment", adjustmentId: "wad_1" });
-    const result = await walletWorkbenchAction({
-      request: formRequest("acc_test", form),
-      params: { accountId: "acc_test" },
-      context: undefined,
-    } as never);
+      const form = new URLSearchParams({ intent: "approve-adjustment", adjustmentId: "wad_1" });
+      const result = await walletWorkbenchAction({
+        request: formRequest("acc_test", form),
+        params: { accountId: "acc_test" },
+        context: undefined,
+      } as never);
 
-    expect(result).toMatchObject({
-      intent: "approve-adjustment",
-      adjustmentId: "wad_1",
-      error: { kind: "requires-elevated-approval" },
-    });
-  });
+      expect(result).toMatchObject({ intent: "approve-adjustment", adjustmentId: "wad_1", error: { kind, message } });
+    },
+  );
 
   it("retries approval with the supplied elevated approver", async () => {
     const approveWalletAdjustment = vi.fn(async () => ({ adjustment_id: "wad_1", status: "posted" }));

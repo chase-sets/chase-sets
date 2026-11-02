@@ -92,10 +92,14 @@ export const action = defineFormAction({
     "resolve-row": async ({ request, formData }) => {
       const batchId = String(formData.get("batchId") ?? "");
       const rowId = String(formData.get("rowId") ?? "");
-      const detail = await createInventoryRequestApiClient(request).resolveImportBatchRow(batchId, rowId, {
+      const detail = await createInventoryRequestApiClient(request, {
+        mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+      }).resolveImportBatchRow(batchId, rowId, {
         catalogItemId: String(formData.get("catalogItemId") ?? ""),
         selectedOptions: parseSelectedOptionsInput(String(formData.get("selectedOptions") ?? "")),
         storageLocationId: String(formData.get("storageLocationId") ?? ""),
+        expectedRowVersion: String(formData.get("expectedRowVersion") ?? ""),
+        expectedRowFingerprint: String(formData.get("expectedRowFingerprint") ?? ""),
       });
       const base = `/account/inventory/imports/${batchId}`;
       const nextRowId = detail.next_needs_seller_row_id;

@@ -4,6 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { InventoryApiEnv } from "../../../api";
 import { inventoryImportBatchRoutes } from "./route";
 import type { InventoryImportBatchServices, InventoryImportBatchJob } from "./runtime";
+import { hasInventoryMutationAttempt } from "../../../support/runtime-support/mutation-attempt";
 
 describe("inventory import batch routes", () => {
   const authority: EventStoreContext = {
@@ -187,12 +188,15 @@ describe("inventory import batch routes", () => {
     const response = await app.request("/imb_1/rows/imr_1/resolve", {
       method: "POST",
       body: JSON.stringify({
-        catalogItemId: "cat_active",
+        catalogItemId: " cat_active ",
         selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
         storageLocationId: "loc_active",
+        expectedRowVersion: "2026-11-01T08:00:00.123456Z",
+        expectedRowFingerprint: "native-csv|1",
       }),
       headers: {
         "content-type": "application/json",
+        "Inventory-Mutation-Attempt": "7d3d2c8f-963e-4e4b-b6d9-9c5092403b07",
       },
     });
 
@@ -205,8 +209,13 @@ describe("inventory import batch routes", () => {
         catalogItemId: "cat_active",
         selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
         storageLocationId: "loc_active",
+        expectedRowVersion: "2026-11-01T08:00:00.123456Z",
+        expectedRowFingerprint: "native-csv|1",
       },
-      context,
+      expect.objectContaining(context),
+    );
+    expect(hasInventoryMutationAttempt((resolveRow.mock.calls[0] as unknown as [unknown, EventStoreContext])[1])).toBe(
+      true,
     );
   });
 });
