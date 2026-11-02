@@ -13,7 +13,9 @@ import { decodeRealtimeCursor, encodeRealtimeCursor } from "./realtime-cursor";
 
 function deferred() {
   let resolve!: () => void;
-  const promise = new Promise<void>((settle) => { resolve = settle; });
+  const promise = new Promise<void>((settle) => {
+    resolve = settle;
+  });
   return { promise, resolve };
 }
 
@@ -105,10 +107,17 @@ describe("realtime SSE routes", () => {
         await resume.promise;
       };
       const app = createRealtimeRoutes({
-        stores: [{ contextName: "discovery", db: { query: async () => {
-          if (pendingAwait === "context-head read") await pause();
-          return { rows: [] };
-        } } }],
+        stores: [
+          {
+            contextName: "discovery",
+            db: {
+              query: async () => {
+                if (pendingAwait === "context-head read") await pause();
+                return { rows: [] };
+              },
+            },
+          },
+        ],
         resolveActor: async () => {
           if (pendingAwait === "resolveActor") await pause();
           return actor;
@@ -170,9 +179,9 @@ describe("realtime SSE routes", () => {
       abort.abort();
     }
     await expect.poll(() => limiter.activeConnectionCount?.()).toBe(0);
-    await expect.poll(() => closed).toEqual([
-      expect.objectContaining({ connectionKey: "account:account_1", activeConnectionCount: 0 }),
-    ]);
+    await expect
+      .poll(() => closed)
+      .toEqual([expect.objectContaining({ connectionKey: "account:account_1", activeConnectionCount: 0 })]);
     expect(opened).toEqual([expect.objectContaining({ connectionKey: "account:account_1" })]);
   });
 

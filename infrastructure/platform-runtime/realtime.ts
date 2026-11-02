@@ -532,7 +532,7 @@ export function createRealtimeRoutes(
   const topicPolicyManifest = options.topicPolicyManifest ?? platformRealtimeTopicPolicyManifest;
 
   const handleEvents = async (c: Context, mode: RealtimeEndpointMode) => {
-    // node-server creates its abort controller lazily; capture before any await (issue #10524).
+    // node-server creates its abort controller lazily; capture before any await.
     const signal = c.req.raw.signal;
     if (signal.aborted) {
       return c.body(null, 204);
