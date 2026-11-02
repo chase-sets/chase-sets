@@ -6967,7 +6967,7 @@
     "deployables/platform-api/src/bootstrap.ts": "6f17f151b341612b22c59fb46c26322929987253d96bb790d4fbaeb9df8c87da",
     "deployables/platform-api/src/config.ts": "8b9983779075b2c654415e842502bc263b7755b151af96edc6d14145919936b7",
     "deployables/platform-api/src/database-pools.ts": "405137814237aecb43c87a09e2a36e3e70a21b8ee7b990409fdaf4dd3e2d9f78",
-    "deployables/platform-api/src/generated/api-context-registry.ts": "13bc0a43959059fc7a60ec6e3deb53be071c71bbafcc1862070e5c02d81b25f7",
+    "deployables/platform-api/src/context-registry.ts": "63354bac444138b3fd720d5cedd6d6e9f95212be545fbc0b6a811b17e3caaf16",
     "deployables/platform-api/src/inventory-draft-listing-consumer.ts": "8a9e69960a95f0ba10a08b3e540daae782f2356769874de7320503fe57b77cc6",
     "deployables/platform-api/src/main.ts": "b391d4114ffa1936f145c75ade2c8aa777cd8c43f58b73641e9b4634ad1ee935",
     "deployables/platform-api/src/middleware/auth-context.ts": "7e45eaaa1d57ae0c3bb1786dff1ff29b37a5f20420d42c2e15c0b9a45b03debd",

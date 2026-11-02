@@ -1,7 +1,7 @@
 import { resolveWebHostActiveKeyAcrossSlots, resolveWebHostNavItems } from "@chase-sets/platform-runtime/web";
 import { resolveWebHostRouteConfigRecords } from "@chase-sets/platform-runtime/web-route-config";
 import type { AccountMenuItem, NavigationItem } from "@chase-sets/design-system";
-import { webContextRegistry } from "./generated/web-context-registry";
+import { webContextRegistry } from "./context-registry";
 
 type MarketplaceNavActor = Readonly<{ permissions?: readonly string[]; roleKey?: string | null }> | null | undefined;
 type MarketplaceNavOptions = Readonly<{ cartCount?: number }>;

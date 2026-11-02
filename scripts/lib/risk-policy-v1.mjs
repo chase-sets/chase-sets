@@ -33,8 +33,8 @@ const integrationRules = [
     integrationReason: "Cross-context subscription or runtime composition changed",
     patterns: [
       /^infrastructure\/(?:bounded-context-runtime|platform-runtime)\//,
-      /^deployables\/(?:platform-api|platform-worker)\/src\/generated\/.*context-registry\.[cm]?[jt]s$/,
-      /^deployables\/(?:admin-web|marketplace|public-web)\/app\/generated\/web-context-registry\.[cm]?[jt]s$/,
+      /^deployables\/(?:platform-api|platform-worker)\/src\/context-registry\.[cm]?[jt]s$/,
+      /^deployables\/(?:admin-web|marketplace|public-web)\/app\/context-registry\.[cm]?[jt]s$/,
     ],
   },
   {

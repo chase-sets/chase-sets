@@ -9,8 +9,8 @@ const sourceExtensions = [".ts", ".tsx", ".mts", ".cts"];
 const sourceExtensionSet = new Set(sourceExtensions);
 const jsonAttributeText = 'with { type: "json" }';
 const nodeClosureSeeds = [
-  "deployables/platform-api/src/generated/api-context-registry.ts",
-  "deployables/platform-worker/src/generated/worker-context-registry.ts",
+  "deployables/platform-api/src/context-registry.ts",
+  "deployables/platform-worker/src/context-registry.ts",
 ];
 export const manifestHostRegistrationFields = Object.freeze([
   "apiDeployables",

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { discoveryPortableRoutes } from "@chase-sets/discovery/web";
 import { identityPortableRoutes } from "@chase-sets/identity/web";
 import { createPortableClientRouter, type PortableClientFetch } from "@chase-sets/platform-runtime/portable-client";
-import { webContextRegistry } from "./generated/web-context-registry";
+import { webContextRegistry } from "./context-registry";
 
 type ClientRouterRoute = Readonly<{
   id: string;

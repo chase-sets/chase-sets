@@ -12,7 +12,7 @@ import { createPlatformBootstrapStoragePorts } from "./bootstrap-storage";
 import { loadBootstrapConfig } from "./config";
 import { closePlatformApiPools, createSeedCommandPools } from "./database-pools";
 import { ensurePreviewPostgresDatabases } from "./preview-postgres";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import { apiContextRegistry } from "./context-registry";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } from "./test-support/provider-gateways";
 

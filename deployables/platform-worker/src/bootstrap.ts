@@ -4,7 +4,7 @@ import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/cont
 import { getWorkerHostEntries } from "@chase-sets/platform-runtime/worker";
 import { loadConfig } from "./config";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
-import { workerContextRegistry } from "./generated/worker-context-registry";
+import { workerContextRegistry } from "./context-registry";
 
 const config = loadConfig();
 const pools = createPlatformWorkerPools(config);

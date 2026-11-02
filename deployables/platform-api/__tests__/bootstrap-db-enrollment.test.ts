@@ -3847,7 +3847,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       {
         label: "the API boot list",
         edits: {
-          "deployables/platform-api/src/generated/api-context-registry.ts": replaceOnce(
+          "deployables/platform-api/src/context-registry.ts": replaceOnce(
             '  {\n    contextName: "settlement",\n    packageName: "@chase-sets/settlement",\n    manifest: settlementManifest,\n    module: settlementModule,\n  },\n',
             "",
           ),

@@ -15,6 +15,7 @@ import {
 } from "./artifact.mts";
 import { asRouteCensusError, fail, RouteCensusError, type RouteCensusErrorCode } from "./errors.mts";
 import { parseJsonStrict } from "./strict-json.mts";
+import { resolveApiRegistrySource } from "./registry-source.mts";
 import { sha256 } from "./target-authority.mts";
 import type { RouteCapture } from "./model.mts";
 
@@ -117,6 +118,12 @@ export async function preflightParity(options: ParityOptions): Promise<Preflight
   const harnessRoot = await canonicalCleanWorktree(harnessRootFromModule, options.harnessHead, "Harness");
   if (baseRoot === candidateRoot)
     fail("E_ROOT_INVALID", "Base and candidate roots must be separately rooted worktrees.");
+  try {
+    resolveApiRegistrySource(baseRoot, { allowLegacy: true });
+    resolveApiRegistrySource(candidateRoot, { allowLegacy: false });
+  } catch (error) {
+    fail("E_ROOT_INVALID", error instanceof Error ? error.message : String(error));
+  }
   const outputPath = await outputMustBeAbsent(options.outputPath);
   return { baseRoot, candidateRoot, harnessRoot, outputPath };
 }

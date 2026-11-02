@@ -7,7 +7,7 @@ import { module as orderingModule } from "@chase-sets/ordering";
 import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/inventory/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPlatformApiHost } from "../src/app";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 
 const captured = vi.hoisted(() => ({ ports: undefined as Readonly<Record<string, unknown>> | undefined }));

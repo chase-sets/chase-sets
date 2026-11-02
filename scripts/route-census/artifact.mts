@@ -21,6 +21,7 @@ import {
   type RouteCapture,
 } from "./model.mts";
 import { isPathInside, loadTargetHonoAuthority, sha256 } from "./target-authority.mts";
+import { resolveApiRegistrySource } from "./registry-source.mts";
 
 const execFile = promisify(execFileCallback);
 const MAX_STRING = 65_536;
@@ -328,17 +329,36 @@ async function validateProvenance(
   const sourceFiles = array(object.sourceFiles, `${pathName}.sourceFiles`).map((item, index) =>
     validateFileEvidence(item, `${pathName}.sourceFiles[${index}]`),
   );
+  let registryRelativePath = "deployables/platform-api/src/context-registry.ts";
+  const registryAllowedPaths = pathName.startsWith("artifact.base")
+    ? [
+        "deployables/platform-api/src/context-registry.ts",
+        "deployables/platform-api/src/generated/api-context-registry.ts",
+      ]
+    : ["deployables/platform-api/src/context-registry.ts"];
+  if (options.verifyLiveProvenance !== false) {
+    try {
+      registryRelativePath = resolveApiRegistrySource(root, {
+        allowLegacy: pathName.startsWith("artifact.base"),
+      }).relativePath;
+    } catch (error) {
+      fail("E_PROVENANCE", error instanceof Error ? error.message : String(error));
+    }
+  }
   const expectedSources = [
-    "deployables/platform-api/src/generated/api-context-registry.ts",
+    registryRelativePath,
     "infrastructure/bounded-context-runtime/api-mounts.ts",
     "deployables/platform-api/src/app.ts",
     "pnpm-lock.yaml",
   ];
-  exact(
-    sourceFiles.map(({ relativePath }) => relativePath),
-    expectedSources,
-    `${pathName}.sourceFiles is incomplete or reordered.`,
-  );
+  const sourcePaths = sourceFiles.map(({ relativePath }) => relativePath);
+  if (
+    sourcePaths.length !== expectedSources.length ||
+    sourcePaths.slice(1).some((value, index) => value !== expectedSources[index + 1]) ||
+    !registryAllowedPaths.includes(sourcePaths[0])
+  ) {
+    invalid(`${pathName}.sourceFiles is incomplete, reordered, or uses a disallowed registry path.`);
+  }
   const authority = await loadTargetHonoAuthority(root);
   exact(
     {
