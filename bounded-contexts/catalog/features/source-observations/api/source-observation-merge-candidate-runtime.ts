@@ -127,18 +127,15 @@ export function createSourceObservationMergeCandidateRuntime({
     const incomingScopeIds = new Set(
       generated.candidates.map((candidate) => candidate.snapshot.identity.scopeRecordId),
     );
-    const discoveredCandidateIds = await listCatalogMergeCandidateIdsForScopeRecords(
-      deps.db,
-      [...incomingScopeIds],
-    );
-    const existingCandidateIds = [
-      ...new Set([...discoveredCandidateIds, ...knownCandidateIds]),
-    ];
-    const existing = (await Promise.all(
-      existingCandidateIds.map(async (candidateId) =>
-        catalogMergeCandidateRepository.load(catalogMergeCandidateStreamId(candidateId)),
-      ),
-    )).filter(
+    const discoveredCandidateIds = await listCatalogMergeCandidateIdsForScopeRecords(deps.db, [...incomingScopeIds]);
+    const existingCandidateIds = [...new Set([...discoveredCandidateIds, ...knownCandidateIds])];
+    const existing = (
+      await Promise.all(
+        existingCandidateIds.map(async (candidateId) =>
+          catalogMergeCandidateRepository.load(catalogMergeCandidateStreamId(candidateId)),
+        ),
+      )
+    ).filter(
       ({ state }) =>
         state.snapshot !== null &&
         incomingScopeIds.has(state.snapshot.identity.scopeRecordId) &&
@@ -161,11 +158,10 @@ export function createSourceObservationMergeCandidateRuntime({
     for (const observation of observations) {
       allRows.set(observation.observation_id, observation);
     }
-    const allProviderKeys = [...new Set([...allRows.values()].map((row) => row.provider_key.trim().toLowerCase()))].sort();
-    const allAcceptedScopeMappings = await listAcceptedProviderScopeMappingsForProviders(
-      deps.db,
-      allProviderKeys,
-    );
+    const allProviderKeys = [
+      ...new Set([...allRows.values()].map((row) => row.provider_key.trim().toLowerCase())),
+    ].sort();
+    const allAcceptedScopeMappings = await listAcceptedProviderScopeMappingsForProviders(deps.db, allProviderKeys);
     const allProviderVersions = (
       await Promise.all(allProviderKeys.map((providerKey) => profileVersions.listProfileVersions(providerKey)))
     ).flat();
@@ -224,7 +220,6 @@ export function createSourceObservationMergeCandidateRuntime({
 
     return completeGenerated;
   }
-
 
   function sourceObservationRecordToCandidateRow(observation: SourceObservationRecordInput): SourceObservationListRow {
     return {
