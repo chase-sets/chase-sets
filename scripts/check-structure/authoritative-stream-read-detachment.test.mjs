@@ -222,7 +222,9 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
 
   it("derives thirty-two green grammar instances across twenty-eight live locations without a registry", () => {
     const green = productionGrammar;
-    console.log(`Stream-read grammar: ${green.length} instances / ${new Set(green.map((entry) => `${entry.file}:${entry.line}`)).size} locations`);
+    console.log(
+      `Stream-read grammar: ${green.length} instances / ${new Set(green.map((entry) => `${entry.file}:${entry.line}`)).size} locations`,
+    );
     expect(green).toHaveLength(32);
     expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(28);
     const declarations = resolveGrammarSelectors(green, memberDeclarationSelectors);

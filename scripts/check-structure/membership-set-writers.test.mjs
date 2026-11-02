@@ -14,7 +14,9 @@ const sources = () => new Map(paths.map((file) => [file, readFileSync(path.join(
 
 test("Membership writer census partitions every source and rejects the differently shaped sibling", () => {
   const result = validateMembershipSetWriters({ repoRoot });
-  console.log(`Membership writer census: ${result.scanned}/${result.total} sources; ${result.membershipSites} Membership sites; partition ${result.partition.production}+${result.partition.excluded}=${result.partition.discovered}; sibling bypass ${result.plantedBypass}`);
+  console.log(
+    `Membership writer census: ${result.scanned}/${result.total} sources; ${result.membershipSites} Membership sites; partition ${result.partition.production}+${result.partition.excluded}=${result.partition.discovered}; sibling bypass ${result.plantedBypass}`,
+  );
   assert.deepEqual(result.violations, []);
   assert.equal(result.scanned, result.total);
   assert.equal(result.partition.discovered, result.partition.production + result.partition.excluded);
@@ -63,20 +65,46 @@ test("MCP writer enrollment permits only its three command handlers, never raw a
   const file = "bounded-contexts/identity/features/memberships/api/mcp.ts";
   for (const owner of ["changeMembershipRole", "revokeMembership", "reinstateMembership"]) {
     const candidate = sources();
-    candidate.set(file, `export function ${owner}(services, id) { return services.commandHandler({streamId: 'identity.membership-' + id}); }`);
+    candidate.set(
+      file,
+      `export function ${owner}(services, id) { return services.commandHandler({streamId: 'identity.membership-' + id}); }`,
+    );
     assert.deepEqual(scanMembershipSetWriters(candidate, [...paths, file]).violations, []);
-    candidate.set(file, `export function ${owner}(store, id) { return store.appendToStream({streamId: 'identity.membership-' + id}); }`);
-    assert.ok(scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) => line.includes(`unclassified Membership writer (appendToStream, ${owner})`)));
+    candidate.set(
+      file,
+      `export function ${owner}(store, id) { return store.appendToStream({streamId: 'identity.membership-' + id}); }`,
+    );
+    assert.ok(
+      scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) =>
+        line.includes(`unclassified Membership writer (appendToStream, ${owner})`),
+      ),
+    );
   }
   const candidate = sources();
-  candidate.set(file, "export function different(services, id) { return services.commandHandler({streamId: 'identity.membership-' + id}); }");
-  assert.ok(scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) => line.includes("unclassified Membership writer (commandHandler, different)")));
+  candidate.set(
+    file,
+    "export function different(services, id) { return services.commandHandler({streamId: 'identity.membership-' + id}); }",
+  );
+  assert.ok(
+    scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) =>
+      line.includes("unclassified Membership writer (commandHandler, different)"),
+    ),
+  );
 });
 
 test("the conservative census filter retains every append spelling, alias and escaped property", () => {
   const file = "scripts/synthetic-new-import.mjs";
   const calls = [
-    ...["appendToStream", "appendToStreams", "appendToStreamInTransaction", "appendToStreamsInTransaction", "appendToStreamsIndependently", "append", "commandHandler", "createAggregateCommandHandler"].map((name) => `store.${name}(input)`),
+    ...[
+      "appendToStream",
+      "appendToStreams",
+      "appendToStreamInTransaction",
+      "appendToStreamsInTransaction",
+      "appendToStreamsIndependently",
+      "append",
+      "commandHandler",
+      "createAggregateCommandHandler",
+    ].map((name) => `store.${name}(input)`),
     "store['appendToStream'](input)",
     "store[`appendToStream`](input)",
     "store['append\\u0054oStream'](input)",
@@ -87,8 +115,16 @@ test("the conservative census filter retains every append spelling, alias and es
   ];
   for (const call of calls) {
     const candidate = sources();
-    candidate.set(file, `export function different(store, input) { const stream = 'identity.membership-mbr_new'; return ${call}; }`);
-    assert.ok(scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) => line.includes("unclassified Membership writer")), call);
+    candidate.set(
+      file,
+      `export function different(store, input) { const stream = 'identity.membership-mbr_new'; return ${call}; }`,
+    );
+    assert.ok(
+      scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) =>
+        line.includes("unclassified Membership writer"),
+      ),
+      call,
+    );
   }
 });
 
