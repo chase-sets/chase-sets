@@ -4,7 +4,8 @@ name: Platform Merge Qualification Observer
 # the exact repository/workflow/run/attempt, terminalizes missing evidence
 # deterministically, and performs event-driven cleanup after every terminal
 # advisory run. Both event and scheduled deliveries reconcile the complete
-# inventory of attempts inside the bounded recent window.
+# inventory of attempts inside the bounded recent window, and create matrix
+# legs only for attempts the latest settled-attempt index does not settle.
 on:
   workflow_run:
     workflows: ["Platform PR", "Platform Merge Qualification Advisory"]
@@ -33,18 +34,48 @@ jobs:
       pending: ${{ steps.inventory.outputs.pending }}
       producer_matrix: ${{ steps.producer_inventory.outputs.matrix }}
       producer_pending: ${{ steps.producer_inventory.outputs.pending }}
+      settled_index_state: ${{ steps.settled_index.outputs.state }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
+      # Three REST calls: latest successful observer run, its named index
+      # artifact, and the download. Unknown evidence leaves every attempt pending.
+      - name: Read latest settled-attempt index
+        id: settled_index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification.mjs settled-index-read \
+            --repository "${{ github.repository }}" \
+            --default-branch "${{ github.event.repository.default_branch || github.ref_name }}" \
+            --out artifacts/merge-qualification-settled/prior/settled-index.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Carry validated settled-attempt index to the writer
+        if: steps.settled_index.outputs.state == 'valid'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-settled-index-prior
+          path: artifacts/merge-qualification-settled/prior/settled-index.json
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Inventory original enabled advisory attempts
         id: inventory
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          inventory_now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "INVENTORY_NOW=${inventory_now}" >> "$GITHUB_ENV"
           node ./scripts/merge-qualification.mjs inventory \
             --repository "${{ github.repository }}" \
+            --now "$inventory_now" \
+            --settled-index artifacts/merge-qualification-settled/prior/settled-index.json \
+            --advisory-runs-out artifacts/merge-qualification-settled/advisory-runs.json \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
@@ -57,6 +88,9 @@ jobs:
           node ./scripts/merge-qualification.mjs producer-inventory \
             --repository "${{ github.repository }}" \
             --default-branch "${{ github.event.repository.default_branch }}" \
+            --now "$INVENTORY_NOW" \
+            --settled-index artifacts/merge-qualification-settled/prior/settled-index.json \
+            --advisory-runs artifacts/merge-qualification-settled/advisory-runs.json \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
@@ -162,6 +196,35 @@ jobs:
           path: artifacts/merge-qualification-producer/event.json
           if-no-files-found: error
           retention-days: 30
+      # A producer loss settles on its durable terminal alone; a late advisory
+      # run keeps it pending until the conflict record names that run.
+      - name: Derive producer-loss settlement entry
+        id: settle
+        env:
+          EVENT_WRITTEN: ${{ steps.inspect.outputs.event_written }}
+        run: |
+          set -euo pipefail
+          event_args=()
+          if [ "$EVENT_WRITTEN" = "true" ]; then
+            event_args=(--event artifacts/merge-qualification-producer/event.json)
+          fi
+          node ./scripts/merge-qualification.mjs settled-entry \
+            --variant producer_loss \
+            --repository "${{ github.repository }}" \
+            --terminal-records artifacts/merge-qualification-producer/terminal/records.json \
+            "${event_args[@]}" \
+            --advisory-run artifacts/merge-qualification-producer/advisory.json \
+            --out "artifacts/merge-qualification-settled/merge-qualification-settled-entry-producer_loss-${{ matrix.run_id }}-${{ matrix.run_attempt }}.json" \
+            --github-output "$GITHUB_OUTPUT"
+      # One key-named file per artifact keeps the merged download layout flat.
+      - name: Upload producer-loss settlement entry
+        if: steps.settle.outputs.settled == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-settled-entry-producer_loss-${{ matrix.run_id }}-${{ matrix.run_attempt }}
+          path: artifacts/merge-qualification-settled/merge-qualification-settled-entry-producer_loss-${{ matrix.run_id }}-${{ matrix.run_attempt }}.json
+          if-no-files-found: error
+          retention-days: 1
 
   inspect:
     name: Inspect Merge Qualification
@@ -561,3 +624,86 @@ jobs:
           path: artifacts/merge-qualification/event.json
           if-no-files-found: error
           retention-days: 30
+      # An advisory attempt settles only with its durable terminal and the
+      # exact cleanup marker verified above.
+      - name: Derive advisory settlement entry
+        id: settle
+        env:
+          EVENT_WRITTEN: ${{ steps.terminalize.outputs.event_written }}
+        run: |
+          set -euo pipefail
+          event_args=()
+          if [ "$EVENT_WRITTEN" = "true" ]; then
+            event_args=(--event artifacts/merge-qualification/event.json)
+          fi
+          node ./scripts/merge-qualification.mjs settled-entry \
+            --variant advisory \
+            --repository "${{ github.repository }}" \
+            --terminal-records artifacts/merge-qualification/terminal-records.json \
+            "${event_args[@]}" \
+            --cleanup-marker artifacts/merge-qualification-cleanup-complete/cleanup-complete.json \
+            --out "artifacts/merge-qualification-settled/merge-qualification-settled-entry-advisory-${{ matrix.run_id }}-${{ matrix.run_attempt }}.json" \
+            --github-output "$GITHUB_OUTPUT"
+      # One key-named file per artifact keeps the merged download layout flat.
+      - name: Upload advisory settlement entry
+        if: steps.settle.outputs.settled == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-settled-entry-advisory-${{ matrix.run_id }}-${{ matrix.run_attempt }}
+          path: artifacts/merge-qualification-settled/merge-qualification-settled-entry-advisory-${{ matrix.run_id }}-${{ matrix.run_attempt }}.json
+          if-no-files-found: error
+          retention-days: 1
+
+  # Fan-in after every leg: carry the prior index forward, add this delivery's
+  # settlements, and publish the one index the next delivery reads. Only a
+  # successful run's index is read back, so a failed leg never advances it.
+  settle:
+    name: Write Settled-Attempt Index
+    needs: [reconcile, producer-inspect, terminalize]
+    if: ${{ !cancelled() && needs.reconcile.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Download validated prior settled-attempt index
+        if: needs.reconcile.outputs.settled_index_state == 'valid'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: merge-qualification-settled-index-prior
+          path: artifacts/merge-qualification-settled/prior
+      # merge-multiple: a lone match would otherwise unpack without its
+      # artifact-named directory, so every count yields the same flat layout.
+      - name: Download this delivery's settlement entries
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: merge-qualification-settled-entry-*
+          path: artifacts/merge-qualification-settled/entries
+          merge-multiple: true
+      - name: Write monotonic settled-attempt index
+        env:
+          PRIOR_STATE: ${{ needs.reconcile.outputs.settled_index_state }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/merge-qualification-settled/entries
+          prior_args=()
+          if [ "$PRIOR_STATE" = "valid" ]; then
+            prior_args=(--prior artifacts/merge-qualification-settled/prior/settled-index.json)
+          fi
+          node ./scripts/merge-qualification.mjs settled-index-write \
+            --repository "${{ github.repository }}" \
+            "${prior_args[@]}" \
+            --entries-dir artifacts/merge-qualification-settled/entries \
+            --writer-run-id "${{ github.run_id }}" \
+            --writer-run-attempt "${{ github.run_attempt }}" \
+            --out artifacts/merge-qualification-settled/settled-index.json \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Upload settled-attempt index
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-settled-index
+          path: artifacts/merge-qualification-settled/settled-index.json
+          if-no-files-found: error
+          retention-days: 3
