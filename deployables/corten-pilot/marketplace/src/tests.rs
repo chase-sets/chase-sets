@@ -16994,13 +16994,15 @@ async fn a_connections_manual_sync_shows_channels_panel_and_its_writes() {
     assert_eq!(headers[header::CONTENT_DISPOSITION], "attachment; filename=\"tcgplayer-staged-run_1.csv\"");
     assert!(!headers.get_all(header::SET_COOKIE).iter().any(|c| c == "leak=1"), "{headers:?}");
     assert!(csv.starts_with("TCGplayer Id,Add to Quantity"), "{csv}");
-    // A refused download goes back to the connection, which says so.
-    let (status, headers, _) =
+    // A refused download is the connection, which says so, as the panel's other writes are.
+    let (status, headers, html) =
         pilot.send(post(&download, "channeler", "intent=download&runId=run_1&expectedRevision=1", false)).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers[header::LOCATION], "/account/channels/conn_active?manual=failed");
-    let (_, _, html) = pilot.send(get("/account/channels/conn_active?manual=failed", Some("channeler"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(headers[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/html"), "{headers:?}");
     assert!(text(&html).contains("Manual sync action failed Reload the current run state"), "{html}");
+    // Without a run there is nothing to download: the connection, saying the action was not valid.
+    let (status, _, html) = pilot.send(post(&download, "channeler", "intent=download", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
 
     // Compose without a newer Staged export says to ingest one; Release goes back to the connection.
     let write = format!("{CONNECTION}/manual-sync");
@@ -17559,6 +17561,7 @@ async fn the_site_files_are_marketplaces() {
     assert_eq!(manifest["description"], "Purchase and sell trading cards.");
     assert_eq!(manifest["theme_color"], "#4845c6");
     assert_eq!(manifest["background_color"], "#f7f5f1");
+    assert_eq!((&manifest["orientation"], &manifest["categories"]), (&json!("any"), &json!(["shopping", "productivity"])));
     let icons = manifest["icons"].as_array().unwrap();
     assert_eq!(icons.len(), 4);
     for icon in icons {
