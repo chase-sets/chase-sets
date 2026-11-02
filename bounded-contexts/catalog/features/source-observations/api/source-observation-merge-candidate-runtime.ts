@@ -13,6 +13,8 @@ import {
 } from "../domain/catalog-merge-candidate";
 import {
   listSourceObservationsForCandidateMatching,
+  listSourceObservationsByIds,
+  listCatalogMergeCandidateIdsForScopeRecords,
   type SourceObservationFilterScope,
   type SourceObservationListRow,
 } from "../read-model/queries";
@@ -49,6 +51,9 @@ export function createSourceObservationMergeCandidateRuntime({
   deps,
   profileVersions,
 }: SourceObservationMergeCandidateRuntimeDeps) {
+  // Keeps child imports in the same Scope Sync run independent of projection
+  // catch-up; the event stream remains the authority for every loaded state.
+  const knownCandidateIds = new Set<string>();
   const { commandHandler: catalogMergeCandidateCommandHandler, repository: catalogMergeCandidateRepository } =
     createAggregateCommandHandler({
       eventStore: deps.eventStore,
@@ -115,12 +120,88 @@ export function createSourceObservationMergeCandidateRuntime({
       acceptedScopeMappings,
       providerUnitKeyByObservationId,
     });
+    if (generated.candidates.length === 0) {
+      return generated;
+    }
 
-    for (const candidate of generated.candidates) {
+    const incomingScopeIds = new Set(
+      generated.candidates.map((candidate) => candidate.snapshot.identity.scopeRecordId),
+    );
+    const discoveredCandidateIds = await listCatalogMergeCandidateIdsForScopeRecords(
+      deps.db,
+      [...incomingScopeIds],
+    );
+    const existingCandidateIds = [
+      ...new Set([...discoveredCandidateIds, ...knownCandidateIds]),
+    ];
+    const existing = (await Promise.all(
+      existingCandidateIds.map(async (candidateId) =>
+        catalogMergeCandidateRepository.load(catalogMergeCandidateStreamId(candidateId)),
+      ),
+    )).filter(
+      ({ state }) =>
+        state.snapshot !== null &&
+        incomingScopeIds.has(state.snapshot.identity.scopeRecordId) &&
+        state.status !== "promoted" &&
+        state.status !== "rejected",
+    );
+    const existingMembers = existing.flatMap(({ state }) =>
+      state.status === "promoted" || state.status === "rejected"
+        ? []
+        : (state.snapshot?.membership ?? []).map((member) => member.observationId),
+    );
+    const priorRows = await listSourceObservationsByIds(deps.db, existingMembers);
+    if (priorRows.length !== new Set(existingMembers).size) {
+      throw new Error(
+        "Catalog Merge Candidate refresh could not prove every existing member row; import failed closed.",
+      );
+    }
+
+    const allRows = new Map(priorRows.map((row) => [row.observation_id, row]));
+    for (const observation of observations) {
+      allRows.set(observation.observation_id, observation);
+    }
+    const allProviderKeys = [...new Set([...allRows.values()].map((row) => row.provider_key.trim().toLowerCase()))].sort();
+    const allAcceptedScopeMappings = await listAcceptedProviderScopeMappingsForProviders(
+      deps.db,
+      allProviderKeys,
+    );
+    const allProviderVersions = (
+      await Promise.all(allProviderKeys.map((providerKey) => profileVersions.listProfileVersions(providerKey)))
+    ).flat();
+    const allUnitKeys = new Map(
+      allProviderVersions.map((version) => [
+        catalogProviderProfileVersionLookupKey(version.providerKey, version.profileKey, version.profileVersion),
+        unitKeyForCatalogProviderProfileVersion(version),
+      ]),
+    );
+    const allUnitByObservationId = Object.fromEntries(
+      [...allRows.values()].flatMap((observation) => {
+        const unitKey = allUnitKeys.get(
+          catalogProviderProfileVersionLookupKey(
+            observation.provider_key,
+            observation.source_profile_key,
+            observation.source_profile_version,
+          ),
+        );
+        return unitKey ? [[observation.observation_id, unitKey]] : [];
+      }),
+    );
+    const completeGenerated = buildCatalogMergeCandidatesFromObservations([...allRows.values()], {
+      addedAt,
+      acceptedScopeMappings: allAcceptedScopeMappings,
+      providerUnitKeyByObservationId: allUnitByObservationId,
+    });
+
+    const expectedVersions = new Map(existing.map(({ state, version }) => [state.id, version]));
+
+    for (const candidate of completeGenerated.candidates) {
+      knownCandidateIds.add(candidate.candidateId);
       const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
       // @stream-read-contract bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.test.ts
       const existingEvents = await deps.eventStore.readStream({ streamId, limit: 1 });
       const now = new Date().toISOString();
+      const expectedVersion = expectedVersions.get(candidate.candidateId);
       await catalogMergeCandidateCommandHandler({
         streamId,
         command:
@@ -136,12 +217,14 @@ export function createSourceObservationMergeCandidateRuntime({
                 snapshot: candidate.snapshot,
                 createdAt: now,
               },
+        ...(expectedVersion === undefined ? {} : { expectedVersion }),
         context,
       });
     }
 
-    return generated;
+    return completeGenerated;
   }
+
 
   function sourceObservationRecordToCandidateRow(observation: SourceObservationRecordInput): SourceObservationListRow {
     return {

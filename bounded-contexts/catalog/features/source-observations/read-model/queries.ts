@@ -359,6 +359,28 @@ export async function listCatalogMergeCandidateIdsForScope(
   return result.rows.map((row) => row.candidate_id);
 }
 
+/** Candidate stream ids for the scope records touched by an import. The
+ * projection supplies discovery only; callers load each stream authoritatively
+ * before reconciling or appending it.
+ */
+export async function listCatalogMergeCandidateIdsForScopeRecords(
+  db: PgQueryable,
+  scopeRecordIds: readonly string[],
+): Promise<readonly string[]> {
+  const ids = [...new Set(scopeRecordIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) {
+    return [];
+  }
+  const result = await db.query<{ candidate_id: string }>(
+    `SELECT candidate_id
+     FROM catalog_merge_candidates
+     WHERE scope_record_id = ANY($1::text[])
+     ORDER BY candidate_id ASC`,
+    [ids],
+  );
+  return result.rows.map((row) => row.candidate_id).filter(Boolean);
+}
+
 export async function listSourceObservationsForCandidateMatching(
   db: PgQueryable,
   params: SourceObservationFilterScope = {},
@@ -376,6 +398,29 @@ export async function listSourceObservationsForCandidateMatching(
     filter.values,
   );
 
+  return result.rows;
+}
+
+/**
+ * Reads the current source rows for an already-membered candidate set. The
+ * observation ids are supplied by the event-sourced candidate membership, not
+ * by the projection, so an absent row remains an explicit unknown to callers.
+ */
+export async function listSourceObservationsByIds(
+  db: PgQueryable,
+  observationIds: readonly string[],
+): Promise<readonly SourceObservationListRow[]> {
+  const ids = [...new Set(observationIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) {
+    return [];
+  }
+  const result = await db.query<SourceObservationListRow>(
+    `SELECT ${sourceObservationListColumns}
+     FROM catalog_source_observations
+     WHERE observation_id = ANY($1::text[])
+     ORDER BY observation_id ASC`,
+    [ids],
+  );
   return result.rows;
 }
 
