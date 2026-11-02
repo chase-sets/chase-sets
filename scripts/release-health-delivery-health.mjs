@@ -1721,8 +1721,11 @@ async function collectPartitionedHistory({ end, maxPages, read, identity, create
       const midpoint = Math.floor((start + finish) / 2);
       const left = await visit(start, midpoint);
       const right = await visit(midpoint + 1, finish);
-      if (left.total + right.total !== collection.total) throw new Error("history_total_changed");
-      return { total: collection.total, values: [...left.values, ...right.values] };
+      const total = left.total + right.total;
+      // A saturated provider count is a lower bound, not an exact parent total.
+      if (collection.saturated ? total < collection.total : total !== collection.total)
+        throw new Error("history_total_changed");
+      return { total, values: [...left.values, ...right.values] };
     }
     const values = await collection.collect();
     if (values.length !== collection.total) throw new Error("history_total_changed");
@@ -1867,6 +1870,8 @@ async function fetchWorkflowRuns(client, workflow, window, maxPages) {
       if (first?.incomplete_results === true) throw new Error("history_collection_incomplete");
       return {
         total: first?.total_count,
+        // Workflow count metadata can saturate at 2500 independently of its 1000-result page cap.
+        saturated: first?.total_count === 2500,
         collect: () =>
           client.paginate(path, (payload) => payload?.workflow_runs, {
             source: `workflow:${workflow}`,

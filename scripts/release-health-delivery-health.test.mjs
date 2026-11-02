@@ -517,7 +517,9 @@ describe("canonical advisory collection", () => {
 
   it("default-off real-scale command preserves legacy alerts, old retries and independent last-N cohorts", async () => {
     const fixture = qualificationTransport({ disabled: true });
-    const old = (index) => new Date(Date.parse("2026-01-01T00:00:00Z") + index * 1000).toISOString();
+    const epoch = Date.parse("2026-01-01T00:00:00Z");
+    const timestamps = Array.from({ length: 14624 }, (_, index) => new Date(epoch + index * 1000).toISOString());
+    const old = (index) => timestamps[index];
     const pulls = Array.from({ length: 4207 }, (_, index) => ({
       number: index + 1,
       state: "MERGED",
@@ -529,12 +531,13 @@ describe("canonical advisory collection", () => {
       files: { totalCount: 1, nodes: [{ path: "scripts/example.mjs", additions: 1, deletions: 0 }] },
       reviews: { totalCount: 0, nodes: [] },
     }));
-    const runs = Array.from({ length: 14623 }, (_, index) =>
-      run(index + 10000, "push", "success", {
-        created_at: old(index),
-        updated_at: old(index + 1),
-      }),
-    );
+    const historicalRun = run(10000, "push", "success");
+    const runs = Array.from({ length: 14623 }, (_, index) => ({
+      ...historicalRun,
+      id: index + 10000,
+      created_at: old(index),
+      updated_at: old(index + 1),
+    }));
     for (let index = 0; index < 10; index += 1) {
       Object.assign(runs[index], {
         event: "pull_request",
@@ -559,6 +562,41 @@ describe("canonical advisory collection", () => {
     for (let index = 11; index < 32; index += 1)
       Object.assign(runs[index], { event: "merge_group", updated_at: "2026-07-01T11:00:00Z" });
     const requests = [];
+    const partitions = [];
+    const selectRange = (values, timestamp) => {
+      const indexed = values
+        .map((value) => ({ value, created: Date.parse(timestamp(value)) }))
+        .sort((left, right) => left.created - right.created);
+      const lowerBound = (target) => {
+        let left = 0;
+        let right = indexed.length;
+        while (left < right) {
+          const midpoint = Math.floor((left + right) / 2);
+          if (indexed[midpoint].created < target) left = midpoint + 1;
+          else right = midpoint;
+        }
+        return left;
+      };
+      const cache = new Map();
+      return (range) => {
+        if (!cache.has(range)) {
+          const [start, end] = range ? range.split("..").map(Date.parse) : [-Infinity, Infinity];
+          const first = lowerBound(start);
+          const last = lowerBound(end + 1);
+          cache.set(range, {
+            length: last - first,
+            slice: (from, to) =>
+              indexed
+                .slice(Math.max(first, last - to), Math.max(first, last - from))
+                .reverse()
+                .map(({ value }) => value),
+          });
+        }
+        return cache.get(range);
+      };
+    };
+    const selectPulls = selectRange(pulls, (pull) => pull.createdAt);
+    const selectRuns = selectRange(runs, (entry) => entry.created_at);
     const response = (values, total, url, key) => {
       const page = Number(url.searchParams.get("page") ?? 1);
       const headers = {};
@@ -571,18 +609,13 @@ describe("canonical advisory collection", () => {
         headers,
       });
     };
-    const within = (value, range) => {
-      if (!range) return true;
-      const [start, end] = range.split("..").map(Date.parse);
-      return Date.parse(value) >= start && Date.parse(value) <= end;
-    };
     const fetchImpl = async (input, request = {}) => {
       const url = new URL(input);
       requests.push({ path: url.pathname, search: url.search, body: request.body });
       if (url.pathname === "/graphql") {
         const variables = JSON.parse(request.body).variables;
         const range = /created:([^ ]+)/.exec(variables.query ?? "")?.[1];
-        const selected = pulls.filter((pull) => within(pull.createdAt, range)).reverse();
+        const selected = selectPulls(range);
         const offset = Number(variables.cursor ?? 0);
         const connection = {
           issueCount: selected.length,
@@ -590,17 +623,21 @@ describe("canonical advisory collection", () => {
           nodes: selected.slice(offset, offset + 100),
           pageInfo: { hasNextPage: offset + 100 < selected.length, endCursor: String(offset + 100) },
         };
-        return new Response(JSON.stringify({ data: { search: connection, repository: { pullRequests: connection } } }));
+        return new Response(JSON.stringify({ data: { search: connection } }));
       }
       if (url.pathname.endsWith("/workflows/platform-pr.yml/runs")) {
-        const selected = runs.filter((entry) => within(entry.created_at, url.searchParams.get("created"))).reverse();
-        return response(selected, selected.length, url, "workflow_runs");
+        const range = url.searchParams.get("created");
+        const selected = selectRuns(range);
+        // Synthetic rows, matching the recorded provider's saturated 2500 counts.
+        const total = Math.min(selected.length, 2500);
+        if (!url.searchParams.has("page")) partitions.push({ range, total });
+        return response(selected, total, url, "workflow_runs");
       }
       if (url.pathname.endsWith(`/runs/${runs[10].id}/attempts/1`))
         return new Response(JSON.stringify({ ...runs[10], run_attempt: 1, updated_at: runs[10].created_at }));
       return fixture.fetchImpl(input, request);
     };
-    const directory = await mkdtemp(join(tmpdir(), "10968-impl-g2-scale-"));
+    const directory = await mkdtemp(join(tmpdir(), "10968-impl-g3-scale-"));
     const out = join(directory, "health.json");
     const markdownOut = join(directory, "health.md");
     const spy = vi.spyOn(globalThis, "fetch").mockImplementation(fetchImpl);
@@ -642,14 +679,78 @@ describe("canonical advisory collection", () => {
       expect(await readFile(markdownOut, "utf8")).not.toContain("Alerts are suppressed");
       expect(requests.some((entry) => entry.search.includes("created="))).toBe(true);
       expect(requests.some((entry) => entry.path.endsWith(`/runs/${runs[10].id}/attempts/1`))).toBe(true);
+      expect(partitions[0].total).toBe(2500);
+      expect(
+        partitions.some(({ range, total }) => {
+          if (total !== 2500) return false;
+          const [start, end] = range.split("..").map(Date.parse);
+          const midpoint = Math.floor((start / 1000 + Math.floor(end / 1000)) / 2) * 1000;
+          return [
+            [start, midpoint + 999],
+            [midpoint + 1000, end],
+          ].every(([from, to]) =>
+            partitions.some((child) => {
+              const bounds = child.range.split("..").map(Date.parse);
+              return child.total === 2500 && bounds[0] === from && bounds[1] === to;
+            }),
+          );
+        }),
+      ).toBe(true);
     } finally {
       spy.mockRestore();
       await rm(directory, { recursive: true, force: true });
     }
   });
 
+  it("partitioned history reconciles exact parents split by the page policy", async () => {
+    const end = Date.parse(qualificationCheckedAt);
+    const runs = Array.from({ length: 201 }, (_, index) => {
+      const created = new Date(Math.floor((index * end) / 201_000) * 1000).toISOString();
+      return run(index + 40000, "push", "success", { created_at: created, updated_at: created });
+    });
+    for (const changed of [false, true]) {
+      const fixture = qualificationTransport({ disabled: true });
+      const fetchImpl = async (input, request) => {
+        const url = new URL(input);
+        if (!url.pathname.endsWith("/workflows/platform-pr.yml/runs")) return fixture.fetchImpl(input, request);
+        const [start, finish] = url.searchParams.get("created").split("..").map(Date.parse);
+        const selected = runs.filter((entry) => {
+          const created = Date.parse(entry.created_at);
+          return created >= start && created <= finish;
+        });
+        return new Response(
+          JSON.stringify({
+            total_count: selected.length + (changed && start === 0 && finish === end + 999 ? 1 : 0),
+            workflow_runs: selected.slice(0, 100),
+          }),
+        );
+      };
+      const result = await collectDeliveryHealth(
+        {
+          repository: qualificationRepository,
+          checkedAt: qualificationCheckedAt,
+          publicationMode: "hourly",
+          updateIssues: false,
+          fetchImpl,
+          sleep: async () => {},
+        },
+        { policy: { ...policy, collection: { ...policy.collection, maxPages: 1 } } },
+      );
+      expect(result.record.completeness.reasons, String(changed)).toEqual(changed ? ["source:platform-pr-runs"] : []);
+      expect(result.record.completeness.status, String(changed)).toBe(changed ? "partial" : "complete");
+    }
+  });
+
   it("partitioned history refuses changed totals, shifted rows, unsplittable caps and budget exhaustion", async () => {
-    for (const defect of [null, "parent-total", "shifted-row", "capped-second", "budget"]) {
+    for (const defect of [
+      null,
+      "parent-total",
+      "parent-total-low",
+      "saturated-deficit",
+      "shifted-row",
+      "capped-second",
+      "budget",
+    ]) {
       const fixture = qualificationTransport({ disabled: true });
       const runs = Array.from({ length: 1001 }, (_, index) =>
         run(index + 30000, "push", "success", {
@@ -668,6 +769,12 @@ describe("canonical advisory collection", () => {
         const selected = runs.filter((run) => Date.parse(run.created_at) >= start && Date.parse(run.created_at) <= end);
         const page = Number(url.searchParams.get("page") ?? 1);
         const values = selected.slice((page - 1) * 100, page * 100);
+        let total = selected.length;
+        if (start === 0 && end === Date.parse(qualificationCheckedAt) + 999) {
+          if (defect === "parent-total") total += 1;
+          if (defect === "parent-total-low") total -= 1;
+          if (defect === "saturated-deficit") total = 2500;
+        }
         if (defect === "shifted-row" && selected.length < 1000 && values.length)
           values[0] = { ...values[0], created_at: "1970-01-01T00:00:00Z" };
         calls.push({ range, page, probe: !url.searchParams.has("page"), count: selected.length });
@@ -679,9 +786,7 @@ describe("canonical advisory collection", () => {
         }
         return new Response(
           JSON.stringify({
-            total_count:
-              selected.length +
-              (defect === "parent-total" && start === 0 && end === Date.parse(qualificationCheckedAt) + 999 ? 1 : 0),
+            total_count: total,
             workflow_runs: values,
           }),
           { headers },
