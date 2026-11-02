@@ -2453,7 +2453,9 @@ describe("busy-group-pass-attribution Postgres", () => {
               }
             },
             wakeIntentCompleted: (event) => {
-              pollLoop!.completeProjectionWakeLeaseHandoff(createProjectionGroupRunnerName(event));
+              if (event.priorityLane === "hot" && !event.requeued) {
+                pollLoop!.completeProjectionWakeLeaseHandoff(createProjectionGroupRunnerName(event));
+              }
               if (event.projectionName !== fixture.projectionName) {
                 trace("sibling-wake-completed", event);
                 return;
@@ -2530,7 +2532,7 @@ describe("busy-group-pass-attribution Postgres", () => {
         leaseTtlMs: loopOptions.leaseTtlMs,
         leaseRenewIntervalMs: loopOptions.leaseRenewIntervalMs,
         pollIntervalMs: loopOptions.pollIntervalMs,
-        groups: runtime.projectionGroups.map((mountedGroup, index) => ({
+        groups: runtime.projectionGroups.filter((candidate) => workers.some((runner) => runner.name === createProjectionGroupRunnerName(candidate))).map((mountedGroup) => ({
           runner: workers.find((candidate) => candidate.name === createProjectionGroupRunnerName(mountedGroup))!.name,
           targetContextName: mountedGroup.targetContextName,
           projectionName: mountedGroup.projectionName,

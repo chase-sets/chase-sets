@@ -1354,7 +1354,9 @@ function createProjectionWakeSchedulerLogObserver(
         ...event,
       }),
     wakeIntentCompleted: (event) => {
-      options.onTerminal?.(event);
+      if (!event.requeued) {
+        options.onTerminal?.(event);
+      }
       recordIntentOutcome(event, event.outcome === "ran" ? "completed" : "already-satisfied", {
         processingDurationMs: event.processingDurationMs,
         requeued: event.requeued,
