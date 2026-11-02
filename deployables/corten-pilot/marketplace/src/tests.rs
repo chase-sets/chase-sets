@@ -824,6 +824,12 @@ fn checkout_session(id: &str) -> Value {
         "chk_paid" => session["payment_id"] = json!("pay_1"),
         "chk_paydown" => session["payment_id"] = json!("pay_down"),
         "chk_cancelled" => session["cancelled_at"] = json!("2026-10-28T00:00:00.000Z"),
+        // Its one line can no longer be bought, so it cannot be confirmed.
+        "chk_blocked" => {
+            let line = json!(["lst_seed_lugia_neo_genesis_bgs_95"]);
+            session["fulfillment_preview_snapshot"]["readyLineKeys"] = json!([]);
+            session["fulfillment_preview_snapshot"]["unavailableLineKeys"] = line;
+        }
         _ => {}
     }
     session
@@ -835,7 +841,8 @@ const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions/";
 
 /// A buy checkout's reads and writes, as the stand-in answers them. `chk_gone` is not found,
 /// `chk_theirs` is another account's, `chk_down` fails and `chk_slow` has not caught up with
-/// any write; `chk_offer` is a purchase intent and `chk_paid`'s payment has started. Each review
+/// any write; `chk_offer` is a purchase intent, `chk_paid`'s payment has started and
+/// `chk_blocked`'s one line can no longer be bought. Each review
 /// write applies with a receipt (an address in 00000 is one the API cannot deliver to); Pay now
 /// starts `pay_1`, but `chk_stale`'s quote is stale, and `chk_offer`'s Submit offer becomes the
 /// offer `ofr_1` (`chk_offered` already did). Payments quotes $620.00 as the sandbox
@@ -11632,6 +11639,16 @@ async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_
     let calls: Vec<String> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
     assert!(!calls.iter().any(|p| p == "/api/settlement/wallet" || p.ends_with("/ship-from-addresses")), "{calls:?}");
     assert!(calls.iter().any(|p| p.contains("requestedBalanceCreditAmount=0.00")), "{calls:?}");
+}
+
+#[tokio::test]
+async fn a_checkout_that_cannot_be_confirmed_draws_review_as_blocked() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_blocked", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Review (blocked) Confirm and pay"), "{page}");
+    assert!(!page.contains("Review (not started)"), "{page}");
 }
 
 #[tokio::test]
