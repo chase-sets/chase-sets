@@ -1,0 +1,329 @@
+/* Mobile first: one column, each control the full width and at least 2.75rem tall; from 48rem a
+   card's facts sit side by side, the mandate's caps in a row, and the decisions on one line. */
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-block-end: var(--space-4);
+}
+.title {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.part {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-end: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  min-width: 0;
+}
+.part p {
+  margin: 0;
+}
+.part-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.name {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.label {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.code {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mono {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+.links,
+.buttons,
+.decisions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.buttons {
+  justify-content: flex-end;
+}
+.links button,
+.links a,
+.buttons button,
+.decisions button,
+.actions button,
+.form input:not([type="checkbox"]),
+.crumbs a {
+  min-height: 2.75rem;
+}
+.decisions {
+  margin-block-end: var(--space-3);
+}
+.decisions form {
+  flex: 1 1 100%;
+}
+.decisions button {
+  width: 100%;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  text-decoration: none;
+}
+.secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-danger-contrast);
+}
+.assistants,
+.families {
+  display: grid;
+  gap: var(--space-4);
+}
+.steps {
+  margin: var(--space-1) 0 0;
+  padding-inline-start: 1.25rem;
+  display: grid;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+.cards {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.card {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: inherit;
+  text-decoration: none;
+}
+a.card:hover {
+  border-color: var(--color-border-strong);
+}
+.facts,
+.details {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 0 0 var(--space-4);
+}
+.facts {
+  margin: 0;
+}
+.facts > div,
+.details > div {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.facts dt,
+.details dt {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+.facts dd,
+.details dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.details dd.muted {
+  font-weight: 400;
+}
+.badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  font: 600 0.75rem/1.5 var(--font-body);
+}
+.badge[data-status="active"],
+.badge[data-outcome="allowed"] {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.badge[data-status="revoked"],
+.badge[data-outcome="failed"] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.badge[data-outcome="denied"] {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-end: var(--space-3);
+  font-size: 0.875rem;
+}
+.crumbs a,
+.crumbs > span {
+  display: inline-flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+.status:empty {
+  display: none;
+}
+.status {
+  display: grid;
+  gap: var(--space-2);
+  margin-block-end: var(--space-4);
+}
+.banner {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--color-info-soft);
+}
+.banner p {
+  margin: 0;
+}
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.banner[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.actions {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-end: var(--space-5);
+}
+.form,
+.fields,
+.rails {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.rails {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.check {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  min-height: 2.75rem;
+}
+.check input {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  margin-block-start: 0.125rem;
+  flex: none;
+}
+.check > span {
+  display: grid;
+  gap: 0.125rem;
+}
+.error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-soft);
+}
+.secret {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--space-3);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+}
+.secret .code {
+  width: 100%;
+}
+.dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-overlay);
+}
+.dialog[open] {
+  display: grid;
+  gap: var(--space-3);
+}
+.dialog::backdrop {
+  background: var(--color-overlay);
+}
+@media (min-width: 48rem) {
+  .facts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .details,
+  .assistants {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .decisions form {
+    flex: 0 0 auto;
+  }
+  .decisions button {
+    width: auto;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+  }
+}

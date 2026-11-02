@@ -99,6 +99,8 @@ const placeholderFieldTokens = new Set([
 ]);
 const crossCuttingRuntimeCompositionSupportDirectories = new Set(["auth-support", "request-support", "seed-support"]);
 const nonPackageWorkspaceDirectoryExceptions = new Set([
+  // A Rust (Corten) app; its scripts run with the root workspace's tools.
+  "deployables/corten-pilot",
   "infrastructure/digitalocean",
   "infrastructure/helm",
   "infrastructure/remote-dev",

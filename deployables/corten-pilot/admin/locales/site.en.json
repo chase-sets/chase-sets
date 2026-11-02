@@ -1,0 +1,7 @@
+{
+  "manifest_description": "Manage Chase Sets catalog, identity, commercial terms, waitlist, and platform feedback workflows.",
+  "offline.description": "Reconnect to continue. Admin records stay network-only.",
+  "offline.heading": "Admin is offline",
+  "offline.retry": "Try again",
+  "offline.title": "Offline | Chase Sets Admin"
+}

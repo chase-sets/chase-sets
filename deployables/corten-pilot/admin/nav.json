@@ -1,0 +1,632 @@
+[
+  {
+    "section": "access",
+    "key": "sessions",
+    "label": "Sessions",
+    "href": "/sessions",
+    "order": 50,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "security.manage"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "clock"
+  },
+  {
+    "section": "catalog",
+    "key": "dimensions",
+    "label": "Dimensions",
+    "href": "/dimensions",
+    "order": 10,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "spark"
+  },
+  {
+    "section": "catalog",
+    "key": "fields",
+    "label": "Fields",
+    "href": "/fields",
+    "order": 20,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "edit"
+  },
+  {
+    "section": "catalog",
+    "key": "components",
+    "label": "Components",
+    "href": "/components",
+    "order": 30,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "package"
+  },
+  {
+    "section": "catalog",
+    "key": "blueprints",
+    "label": "Blueprints",
+    "href": "/blueprints",
+    "order": 40,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "copy"
+  },
+  {
+    "section": "catalog",
+    "key": "categories",
+    "label": "Categories",
+    "href": "/categories",
+    "order": 50,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "filter"
+  },
+  {
+    "section": "catalog",
+    "key": "catalog-items",
+    "label": "Catalog Items",
+    "href": "/catalog-items",
+    "order": 60,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "dashboard"
+  },
+  {
+    "section": "catalog",
+    "key": "display-templates",
+    "label": "Display Templates",
+    "href": "/display-templates",
+    "order": 62,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "copy"
+  },
+  {
+    "section": "catalog",
+    "key": "reference-records",
+    "label": "Reference Data",
+    "href": "/reference-records",
+    "order": 65,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "book"
+  },
+  {
+    "section": "catalog",
+    "key": "scopes",
+    "label": "Scopes",
+    "href": "/scopes",
+    "order": 67,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "grid"
+  },
+  {
+    "section": "catalog",
+    "key": "scope-coverage",
+    "label": "Scope Coverage",
+    "href": "/scope-coverage",
+    "order": 68,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "checkCircle"
+  },
+  {
+    "section": "catalog",
+    "key": "integrations",
+    "label": "Integrations",
+    "order": 70,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "catalog.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "rocket",
+    "children": [
+      {
+        "key": "integrations-import",
+        "label": "Import",
+        "href": "/integrations",
+        "order": 10,
+        "visibility": "signed-in",
+        "requiredPermissions": [
+          "catalog.view"
+        ],
+        "requiredPermissionsMatch": "all",
+        "excludedRoleKeys": [],
+        "icon": "refreshCcw"
+      },
+      {
+        "key": "integrations-settings",
+        "label": "Settings",
+        "href": "/integrations/settings",
+        "order": 30,
+        "visibility": "signed-in",
+        "requiredPermissions": [
+          "catalog.view"
+        ],
+        "requiredPermissionsMatch": "all",
+        "excludedRoleKeys": [],
+        "icon": "shield"
+      },
+      {
+        "key": "integrations-health",
+        "label": "Integration health",
+        "href": "/integrations/health",
+        "order": 40,
+        "visibility": "signed-in",
+        "requiredPermissions": [
+          "catalog.view"
+        ],
+        "requiredPermissionsMatch": "all",
+        "excludedRoleKeys": [],
+        "icon": "checkCircle"
+      }
+    ]
+  },
+  {
+    "section": "support",
+    "key": "ebay-account-deletion-lookup",
+    "label": "eBay Deletion Lookup",
+    "href": "/ebay-account-deletion",
+    "order": 7,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "support.manage"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "search"
+  },
+  {
+    "section": "commerce",
+    "key": "commercial-terms",
+    "label": "Commercial Terms",
+    "href": "/terms",
+    "order": 70,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "commercial-terms.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "settings"
+  },
+  {
+    "section": "support",
+    "key": "customer-feedback-attention",
+    "label": "Customer Feedback",
+    "href": "/customer-feedback/attention",
+    "order": 20,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "support.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "message"
+  },
+  {
+    "section": "growth",
+    "key": "google-shopping",
+    "label": "Google Shopping",
+    "href": "/google-shopping",
+    "order": 10,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "google-shopping.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "bag"
+  },
+  {
+    "section": "commerce",
+    "key": "return-intake",
+    "label": "Return Intake",
+    "href": "/return-intake",
+    "order": 20,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "return-intake.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "package"
+  },
+  {
+    "section": "access",
+    "key": "accounts",
+    "label": "Accounts",
+    "href": "/accounts",
+    "order": 10,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "accounts.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "package"
+  },
+  {
+    "section": "access",
+    "key": "users",
+    "label": "Users",
+    "href": "/users",
+    "order": 20,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "security.manage"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "user"
+  },
+  {
+    "section": "access",
+    "key": "memberships",
+    "label": "Memberships",
+    "href": "/memberships",
+    "order": 30,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "memberships.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "settings"
+  },
+  {
+    "section": "access",
+    "key": "invitations",
+    "label": "Invitations",
+    "href": "/invitations",
+    "order": 40,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "memberships.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "info"
+  },
+  {
+    "section": "access",
+    "key": "api-keys",
+    "label": "API Keys",
+    "href": "/api-keys",
+    "order": 60,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "security.manage"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "settings"
+  },
+  {
+    "section": "commerce",
+    "key": "inventory-recovered-items",
+    "label": "Recovered Returns",
+    "href": "/recovered-items",
+    "order": 30,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "recovered-inventory.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "package"
+  },
+  {
+    "section": "platform",
+    "key": "listing-evidence-policy",
+    "label": "Listing Evidence Policy",
+    "href": "/listing-evidence-policy",
+    "order": 245,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "listing-evidence-policy.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "settings"
+  },
+  {
+    "section": "commerce",
+    "key": "postage-policies",
+    "label": "Postage Policies",
+    "href": "/postage-policies",
+    "order": 75,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "postage-policies.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "settings"
+  },
+  {
+    "section": "platform",
+    "key": "provider-connections",
+    "label": "Provider connections",
+    "href": "/provider-connections",
+    "order": 6,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "provider-connections.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "package"
+  },
+  {
+    "section": "support",
+    "key": "reported-content",
+    "label": "Reported Content",
+    "href": "/reported-content",
+    "order": 15,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "reported-content.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "flag"
+  },
+  {
+    "section": "support",
+    "key": "risk-alerts",
+    "label": "Risk Alerts",
+    "href": "/risk-alerts",
+    "order": 16,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "reported-content.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "bell"
+  },
+  {
+    "section": "support",
+    "key": "support-requests",
+    "label": "Support",
+    "href": "/requests",
+    "order": 5,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "support.manage"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "help"
+  },
+  {
+    "section": "support",
+    "key": "support-reference-lookup",
+    "label": "Reference Lookup",
+    "href": "/reference-lookup",
+    "order": 6,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "support.manage"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "search"
+  },
+  {
+    "section": "support",
+    "key": "platform-feedback",
+    "label": "Platform Feedback",
+    "href": "/platform-feedback",
+    "order": 20,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "platform-feedback.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "message"
+  },
+  {
+    "section": "support",
+    "key": "csat-dashboard",
+    "label": "CSAT dashboard",
+    "href": "/csat",
+    "order": 19,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "platform-feedback.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "dashboard"
+  },
+  {
+    "section": "platform",
+    "key": "operations-attention",
+    "label": "Attention Queue",
+    "href": "/operations-attention",
+    "order": 1,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "projection-operations.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "inbox"
+  },
+  {
+    "section": "platform",
+    "key": "projection-operations",
+    "label": "Projection Operations",
+    "href": "/projections",
+    "order": 10,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "projection-operations.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "refreshCcw"
+  },
+  {
+    "section": "platform",
+    "key": "policy-console",
+    "label": "Policy Console",
+    "href": "/policy-console",
+    "order": 15,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "platform-policy.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "settings"
+  },
+  {
+    "section": "platform",
+    "key": "ops-dashboard",
+    "label": "Ops Dashboard",
+    "href": "/insights/ops-dashboard",
+    "order": 5,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "insights-dashboards.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "chart"
+  },
+  {
+    "section": "platform",
+    "key": "offer-economics",
+    "label": "Offer Economics",
+    "href": "/insights/offer-economics",
+    "order": 6,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "insights-dashboards.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "chart"
+  },
+  {
+    "section": "growth",
+    "key": "waitlist",
+    "label": "Waitlist",
+    "href": "/waitlist",
+    "order": 20,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "public-presence.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "message"
+  },
+  {
+    "section": "growth",
+    "key": "campaign-analytics",
+    "label": "Campaign Analytics",
+    "href": "/campaign-analytics",
+    "order": 22,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "public-presence.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "chart"
+  },
+  {
+    "section": "growth",
+    "key": "promo-bar",
+    "label": "Promo Bar",
+    "href": "/promo-bar",
+    "order": 21,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "public-presence.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "spark"
+  },
+  {
+    "section": "commerce",
+    "key": "settlement-money-health",
+    "label": "Money Health",
+    "href": "/money-health",
+    "order": 80,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "payouts.reconcile",
+      "payouts.platform.view"
+    ],
+    "requiredPermissionsMatch": "any",
+    "excludedRoleKeys": [],
+    "icon": "wallet"
+  },
+  {
+    "section": "commerce",
+    "key": "settlement-payout-operations",
+    "label": "Payout Operations",
+    "href": "/payout-operations",
+    "order": 85,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "payouts.reconcile",
+      "payouts.platform.view"
+    ],
+    "requiredPermissionsMatch": "any",
+    "excludedRoleKeys": [],
+    "icon": "wallet"
+  }
+]

@@ -1,0 +1,202 @@
+/* Mobile first: one column, each control the full width; from 48rem the form's fields sit side by
+   side and the signals three across. */
+.header {
+  display: grid;
+  gap: var(--space-4);
+  margin-block-end: var(--space-5);
+}
+.heading {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 48rem;
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.named {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-info-soft);
+  color: var(--color-info);
+  font: 600 0.75rem/1.5 var(--font-body);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.actions {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.form {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.row {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.links {
+  display: grid;
+  gap: var(--space-2);
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+}
+.secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+button.secondary:hover:not(:disabled) {
+  background: var(--color-surface-2);
+}
+.status:empty {
+  display: none;
+}
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  margin-block-end: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--color-info-soft);
+}
+.banner p {
+  margin: 0;
+}
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.banner[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.part {
+  display: grid;
+  gap: var(--space-3);
+  margin-block: var(--space-6);
+}
+.part-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.tinted {
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+.metrics {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+.metric {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.metric dt {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+.metric dd {
+  margin: 0;
+}
+.value {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.specs {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+}
+.specs > div {
+  display: grid;
+  gap: 0.125rem;
+}
+.specs dt {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+.specs dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.cue {
+  display: grid;
+  gap: var(--space-1);
+  padding-block-start: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+@media (min-width: 48rem) {
+  .row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+    align-items: end;
+  }
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .specs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

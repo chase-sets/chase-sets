@@ -1,0 +1,286 @@
+{
+  "shell": {
+    "marketplace": "Chase Sets Marketplace",
+    "navigation": "Marketplace",
+    "pilot": "Corten pilot",
+    "exit_guest_checkout": "Exit guest checkout",
+    "account_menu": "Account menu",
+    "account": "Account",
+    "sign_out": "Sign Out"
+  },
+  "guest": {
+    "saved_payment_unavailable": "Saved payment methods are available after sign-in. Continue with card payment.",
+    "payment_link_expired_title": "Guest checkout link expired",
+    "payment_link_expired": "This guest checkout payment link is invalid or expired."
+  },
+  "check": {
+    "required": "Enter a value.",
+    "attempt": "This form is out of date. Reload the page and try again."
+  },
+  "load": {
+    "pending": "Storage locations are still updating. Reload this page in a moment.",
+    "unverified": "Storage location update could not be verified. Reload this page and try again.",
+    "restock_pending": "Restock decisions are still updating. Reload this page in a moment."
+  },
+  "item": {
+    "continue_on_marketplace": "Continue on marketplace",
+    "watch_saved": "Watch alert saved",
+    "watch_saved_description": "We will notify you when this product matches your alert.",
+    "manage_alerts": "Manage alerts",
+    "listing_published": "Listing published",
+    "listing_published_description": "It shows here in a moment, as soon as the marketplace has caught up.",
+    "sales_again": "Show sales history",
+    "chart_summary": "{name}: {count} points, from {min} to {max}.",
+    "chart_marker": "{name} marker: {label}.",
+    "saved_to_list": "Added to your Saved List",
+    "saved_choose_list": "Choose a Saved List, or create a new one.",
+    "saved_title_required": "Enter a title of 1 to 120 characters for the new Saved List.",
+    "saved_quantity_invalid": "Enter a Tracked Quantity: a whole number from 1 to 1,000,000."
+  },
+  "error": {
+    "forbidden_title": "Not allowed",
+    "forbidden": "Your role cannot open this page.",
+    "not_found_title": "Not found",
+    "not_found": "There is nothing at this address.",
+    "failed_title": "Something went wrong",
+    "failed": "The platform API did not answer. Try again in a moment.",
+    "unidentified_title": "Not available",
+    "unidentified": "We could not check who you are. Try again in a moment."
+  },
+  "listing": {
+    "price": "Price",
+    "seller": "Seller",
+    "returns": "Returns",
+    "protection": "Protection",
+    "completed": "Completed",
+    "buy_refused": "This listing could not be bought. Reload the page and try again.",
+    "report_received": "Thanks. We received your report, and we will review this listing.",
+    "report_repeat": "You have already reported this listing. We will review it.",
+    "report_limited": "You have sent several reports in a short time. Try again in a few minutes.",
+    "report_reason_required": "Choose a reason for the report.",
+    "report_details_too_long": "Keep the details to 1,000 characters or fewer.",
+    "report_refused": "The report could not be sent. Check it and try again."
+  },
+  "account": {
+    "verified_purchase": "Verified purchase",
+    "review_actions": "Review actions",
+    "pagination": "Pagination",
+    "previous_page": "Previous page",
+    "next_page": "Next page",
+    "page_number": "Page {page}",
+    "report_reason_required": "Choose a reason for the report.",
+    "report_details_too_long": "Keep the explanation to 1,000 characters or fewer.",
+    "report_limited": "You have sent several reports in a short time. Try again in a few minutes.",
+    "report_refused": "The report could not be sent. Check it and try again.",
+    "report_close": "Close"
+  },
+  "notifications": {
+    "pending": "Saved. Your Product alerts will show the change in a moment.",
+    "unconfirmed": "Saved, but your Product alerts could not be read. Reload the page to see the change."
+  },
+  "orders": {
+    "source_buy_now": "Buy now",
+    "source_cart": "Cart checkout",
+    "source_offer_acceptance": "Accepted offer",
+    "terms_locked": "Seller terms were locked when this order was created.",
+    "summary": "Order summary",
+    "purchase_pending": "We are preparing your purchase. Refresh in a moment and it should appear.",
+    "sale_pending": "We are preparing your sale. Refresh in a moment and it should appear.",
+    "purchase_unverified": "Purchase handoff is no longer valid.",
+    "sale_unverified": "Sale handoff is no longer valid.",
+    "evidence_alt": "{title} evidence"
+  },
+  "shipments": {
+    "line": "{count} line",
+    "lines": "{count} lines",
+    "actions_on_marketplace": "Labels and the shipment's other actions are on marketplace for now.",
+    "open_on_marketplace": "Open on marketplace"
+  },
+  "packing": {
+    "quantity_invalid": "Enter how many of this line are packed as a whole number.",
+    "package_count_invalid": "Enter a package count of 1 or more.",
+    "not_applied": "Nothing was changed. Review the shipment and try again.",
+    "unconfirmed_title": "We could not confirm your last packing change",
+    "unconfirmed": "Packing actions are paused until we can confirm whether it was saved. Check again in a moment.",
+    "check": "Check again",
+    "discard": "Discard recovery metadata",
+    "discard_confirmation": "Discard recovery metadata only? This does not cancel or undo the original change. Contact support if its result is still uncertain.",
+    "storage_unavailable": "Shipment recovery storage is unavailable. No change was sent.",
+    "copied": "Copied"
+  },
+  "addresses": {
+    "close": "Close",
+    "cancel": "Cancel",
+    "check": "Check again",
+    "suggested": "Suggested address",
+    "entered": "Address entered"
+  },
+  "account_home": {
+    "pending": "Your profile is still updating. This page reads it again in a moment."
+  },
+  "sessions": {
+    "revoked": "The session was revoked. Anyone using it must sign in again.",
+    "not_active": "This session is no longer active.",
+    "switched": "The session now acts for the account you chose.",
+    "switch_refused": "The session could not switch to that account. It still acts for the account shown.",
+    "failed": "The change could not be confirmed. The session is shown as it is now.",
+    "pending": "This session is still updating. This page reads it again in a moment.",
+    "other_accounts": "Switch to"
+  },
+  "security": {
+    "pending": "Your security details are still updating. This page reads them again in a moment.",
+    "pending_secret": "Your API keys are still updating. Reload this page after you have stored the secret."
+  },
+  "listing_new": {
+    "find": "Find",
+    "choose": "Choose",
+    "change_item": "Choose another item",
+    "update_options": "Update options",
+    "use_inventory": "Use this inventory",
+    "choose_options": "Choose every product option to list this item.",
+    "photo_type": "Each photo must be a JPEG, PNG or WebP image.",
+    "photo_size": "Each photo must be 10 MB or smaller.",
+    "photo_count": "Choose at most 24 photos.",
+    "photos_too_large": "These photos are too large to send together (60 MB at most).",
+    "photos_again": "If you had chosen photos, choose them again.",
+    "photos_unprocessed": "The photos could not be processed, so nothing was created. Check each photo and try again.",
+    "draft_saved": "The listing was saved as a draft and not published.",
+    "open_draft": "Open the draft"
+  },
+  "seller_listing": {
+    "cancel": "Cancel",
+    "photo_type": "Each photo must be a JPEG, PNG or WebP image.",
+    "photo_size": "Each photo must be 10 MB or smaller.",
+    "photo_count": "Choose at most 24 photos.",
+    "photos_too_large": "These photos are too large to send together (60 MB at most).",
+    "photos_again": "If you had chosen photos, choose them again.",
+    "photos_unprocessed": "The photos could not be processed, so nothing was changed. Check each photo and try again.",
+    "choose_photo": "Choose a photo to upload.",
+    "whole_number": "Enter a whole number of at least 1.",
+    "move_earlier_label": "Move photo {index} earlier",
+    "move_later_label": "Move photo {index} later",
+    "remove_label": "Remove photo {index}",
+    "status_draft": "Draft",
+    "status_active": "Active",
+    "status_paused": "Paused",
+    "status_withdrawn": "Withdrawn",
+    "terms_seller": "Seller terms",
+    "terms_standard": "Standard seller terms",
+    "close": "Close"
+  },
+  "seller_listings": {
+    "select": "Select {title}",
+    "pages": "Listing pages",
+    "previous": "Previous page",
+    "next": "Next page",
+    "page_of": "Page {page} of {pages}",
+    "choose_listings": "Check the listings to pause or withdraw first.",
+    "date": "Enter a date as YYYY-MM-DD."
+  },
+  "offer_matches": {
+    "unavailable": "This offer is no longer open, so nothing was added to your Sell List.",
+    "add_for": "Add {buyer}'s offer for {title} to the Sell List",
+    "decline_for": "Decline {buyer}'s offer for {title}",
+    "open_for": "Open {buyer}'s offer for {title}",
+    "rating": "{rating} out of 5 from {reviews} reviews",
+    "new_buyer": "New",
+    "seller_terms": "Seller terms"
+  },
+  "submitted_offers": {
+    "choose": "Check the Offers to change first.",
+    "open_for": "Open your Offer for {title}",
+    "rating": "{rating} out of 5 from {reviews} reviews",
+    "unknown_action": "That change is not one an Offer takes."
+  },
+  "imports": {
+    "file_or_rows": "A file is read when one is chosen; otherwise the rows pasted above are.",
+    "rows": "Rows"
+  },
+  "inventory": {
+    "quantity": "Enter a whole number of 1 or more.",
+    "price": "Enter a price like 12.50.",
+    "honor_role": "Only an account owner or manager can honor an offline sale.",
+    "honor_confirm": "Confirm what honoring this sale means for the affected orders.",
+    "items_slow": "Inventory items are taking longer than expected. Reload this page in a moment.",
+    "locations_slow": "Storage locations are taking longer than expected. Reload this page in a moment.",
+    "pages": "Inventory item pages",
+    "previous": "Previous page",
+    "next": "Next page",
+    "page_of": "Page {page} of {pages}",
+    "record_sale_for": "Record sale for {item}",
+    "options": "Product options",
+    "choose_option": "Choose an option",
+    "delta": "Enter a whole number other than 0, like -1 or 5.",
+    "item_unverified": "Inventory item update could not be verified. Reload this page and try again.",
+    "ledger_offline_sale": "Sold offline"
+  },
+  "repricing": {
+    "pages": "Repricing pages",
+    "desk": "Seller Desk",
+    "close": "Close",
+    "apply": "Apply",
+    "refresh": "Refresh to see the result",
+    "preview_first": "Preview this policy and let the preview finish before you activate it.",
+    "changed": "Your settings changed since this preview. Preview again to activate them.",
+    "policy_actions": "Policy actions",
+    "unknown_setting": "A setting this page can't show yet"
+  },
+  "recommendations": {
+    "pages": "Recommendation pages"
+  },
+  "channels": {
+    "pages": "Channel pages",
+    "pending": "This connection is still updating. This page reads it again in a moment.",
+    "refresh": "Refresh",
+    "choose_location": "Choose at least one storage location to activate on.",
+    "more_on_marketplace": "Drift, the connection's health, pairing and the operation log are on marketplace for now.",
+    "open_on_marketplace": "Open on marketplace",
+    "connections": "Channel connections",
+    "filter": "Connection status",
+    "whole_number": "Enter a whole number, or leave it empty.",
+    "mapping_options": "Mapping {source}"
+  },
+  "bulk_reprice": {
+    "pages": "Bulk reprice pages",
+    "unavailable": "Bulk reprice isn't available yet.",
+    "too_large": "That file is too large. Upload a CSV of up to 16 MB.",
+    "not_text": "Choose a CSV file of text with at least one row."
+  },
+  "auth": {
+    "sign_in_title": "Sign In | Marketplace",
+    "register_title": "Register | Marketplace",
+    "account_selection_title": "Select Account | Marketplace"
+  },
+  "team": {
+    "pending": "Your team is still updating. This page reads it again in a moment."
+  },
+  "consents": {
+    "none": "No consents are recorded for you yet."
+  },
+  "reviews": {
+    "reply_required": "Write a response before posting it.",
+    "reply_too_long": "Keep the response to 1,000 characters or fewer.",
+    "submit_failed": "Review could not be submitted.",
+    "rating_star": "{rating} of 5"
+  },
+  "support": {
+    "not_sent": "This support action was not sent.",
+    "summary_required": "Enter a summary.",
+    "reason_required": "Enter a reason.",
+    "refund_required": "Enter the partial refund amount.",
+    "refund_invalid": "Enter the partial refund amount as money, like 12.50.",
+    "choice_invalid": "Choose one of the listed options.",
+    "check_status_title": "Check status"
+  },
+  "agents": {
+    "mandate_saved": "The spending mandate was saved.",
+    "webhook_saved": "The webhook endpoint was saved.",
+    "webhook_disabled": "The webhook was disabled.",
+    "amount_invalid": "Enter an amount such as 12.50, or leave it empty for no cap.",
+    "webhook_invalid": "Enter an HTTPS callback URL.",
+    "grant_revoked": "This connection is revoked, so it cannot be changed.",
+    "mandate_unsupported": "Spending mandates are not available yet.",
+    "activity_unavailable": "Activity is not available yet.",
+    "failed": "The change could not be confirmed. The connection is shown as it is now."
+  }
+}

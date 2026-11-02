@@ -1,0 +1,262 @@
+/* Mobile first: one column, every control at least --control-height tall and nothing wider than
+   the screen; from 40rem a fact's key beside its value. */
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: end;
+  justify-content: space-between;
+  margin-block-end: var(--space-5);
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.part-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  padding: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-block: var(--space-6);
+}
+.tight {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 48rem;
+}
+.tight p {
+  margin: 0;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+  min-width: 0;
+}
+.end {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: end;
+}
+.card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  max-width: 48rem;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.card > p {
+  margin: 0;
+}
+.notices:empty {
+  display: none;
+}
+.notices {
+  display: grid;
+  gap: var(--space-3);
+}
+.banner {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--color-info-soft, var(--color-surface-2));
+}
+.banner p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.banner[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.banner[data-tone="success"] {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.next {
+  margin-block: var(--space-5);
+}
+.badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  font: 600 0.75rem/1.5 var(--font-body);
+}
+.badge[data-tone="success"] {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.badge[data-tone="warning"] {
+  background: var(--color-warning-soft);
+}
+.badge[data-tone="danger"] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.facts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  min-width: 0;
+}
+.facts > div {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.facts dt {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.form {
+  max-width: 40rem;
+}
+.plain {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.plain > legend {
+  margin-block-end: var(--space-1);
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.field input,
+.field select,
+.field textarea {
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  min-width: 0;
+  max-width: 100%;
+}
+.field textarea {
+  resize: vertical;
+}
+/* A partial refund's amount: shown when the select picks it, where the browser has :has; corten-ui's
+   RequiredWhen draws a plain fieldset around it. */
+.refund > fieldset {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+@supports selector(:has(*)) {
+  .refund {
+    display: none;
+  }
+  .form:has(option[value="offer-partial-refund"]:checked) .refund {
+    display: grid;
+  }
+}
+.timeline {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  border-inline-start: 2px solid var(--color-border);
+  list-style: none;
+}
+.entry {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.entry p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.secondary {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-danger-contrast);
+}
+@media (min-width: 40rem) {
+  .facts > div {
+    grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: baseline;
+  }
+}

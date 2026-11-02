@@ -1,0 +1,287 @@
+/* The help center (help-pages.tsx) on the design system's tokens. A phone first: one column;
+   from 48rem (md) the cards two across; from 64rem (lg) the hub's and related cards three across
+   and an article's contents in a 16rem column beside its body, kept in view as the body scrolls.
+   Links and buttons are 44px tall. */
+.page {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+  max-width: 72rem;
+}
+.wide {
+  max-width: none;
+}
+.header {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 48rem;
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  font: 600 2.25rem/1.15 var(--font-display);
+  overflow-wrap: anywhere;
+}
+@media (min-width: 48rem) {
+  .title {
+    font-size: 3rem;
+  }
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+.section {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.section-head {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 48rem;
+}
+.section-title {
+  margin: 0;
+  font: 600 1.5rem/1.25 var(--font-display);
+}
+.grid {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+@media (min-width: 48rem) {
+  .two,
+  .three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 64rem) {
+  .three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.card {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+@media (min-width: 48rem) {
+  .card {
+    padding: var(--space-5);
+  }
+}
+.card p {
+  margin: 0;
+}
+.card-title {
+  margin: 0;
+  font: 600 1.25rem/1.3 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: 600 0.875rem/1.25 var(--font-body);
+  text-decoration: none;
+  box-shadow: var(--shadow-sm);
+}
+.button:hover {
+  border-color: var(--color-border-strong);
+}
+.trail ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+.trail li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.trail li + li::before {
+  content: "/";
+  color: var(--color-text-muted);
+}
+.trail a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  color: var(--color-text-secondary);
+}
+.trail [aria-current] {
+  color: var(--color-text);
+}
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--color-info-soft);
+}
+.banner p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+.banner-title {
+  font-weight: 600;
+}
+.split {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+}
+@media (min-width: 64rem) {
+  .with-contents {
+    grid-template-columns: minmax(0, 1fr) 16rem;
+    align-items: start;
+  }
+  .with-contents .contents {
+    position: sticky;
+    top: 6rem;
+  }
+}
+.body {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  max-width: 48rem;
+}
+.h2,
+.h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  scroll-margin-top: var(--space-4);
+}
+.h2 {
+  font-size: 1.5rem;
+  line-height: 1.25;
+  margin-block-start: var(--space-2);
+}
+.h3 {
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+.paragraph {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-inline-start: var(--space-5);
+  color: var(--color-text-secondary);
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.body code {
+  padding: 0 0.25em;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-3);
+  font-size: 0.875em;
+  overflow-wrap: anywhere;
+}
+.body strong {
+  color: var(--color-text);
+}
+.unavailable {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.contents {
+  background: var(--color-surface-2);
+  box-shadow: none;
+}
+.contents ul {
+  display: grid;
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+.contents a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding-block: var(--space-1);
+  line-height: 1.4;
+  color: var(--color-text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.contents a:hover {
+  text-decoration: underline;
+}
+/* The developer portal: its links in a row, and each tool's schemas (EvidenceCodeBlock), wrapped. */
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.tool {
+  gap: var(--space-2);
+}
+.tool .list {
+  line-height: 1.5;
+}
+.schema {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+.schema-label {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.schema pre {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font: 0.75rem/1.25rem var(--font-mono, ui-monospace, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,314 @@
+/* Return Intake's station: figures in one column on a phone, two from 40rem, three from 64rem; the
+   scanned package beside its form from 64rem; each table scrolls on its own. The connection pills
+   follow the station's data-offline, which the script sets; without it the station reads online. */
+.station {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.header {
+  display: grid;
+  gap: var(--space-3);
+}
+.header h1 {
+  margin: 0;
+  font: 600 1.75rem/1.25 var(--font-display);
+}
+.eyebrow {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.muted {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+}
+.words {
+  overflow-wrap: anywhere;
+}
+.connection {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  max-inline-size: 100%;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.online,
+.done {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+.offline {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+.warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+.offline,
+.offline-note {
+  display: none;
+}
+.station[data-offline] .online {
+  display: none;
+}
+.station[data-offline] .offline {
+  display: inline-flex;
+}
+.station[data-offline] .offline-note {
+  display: block;
+}
+.alert,
+.note,
+.warn,
+.success {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+}
+.alert p,
+.note p,
+.warn p {
+  margin: 0;
+}
+.alert {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.note {
+  border-color: var(--color-info);
+  background: var(--color-info-soft);
+}
+.warn {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.success {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-weight: 600;
+}
+.card {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.heading {
+  margin: 0;
+  font: 600 1.25rem/1.3 var(--font-display);
+}
+.inline {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+.inline .button {
+  justify-self: start;
+}
+.form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+}
+.form .button {
+  justify-self: start;
+}
+.grid {
+  display: grid;
+  gap: var(--space-3);
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.field input,
+.field select,
+.field textarea {
+  min-height: 2.75rem;
+  max-inline-size: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-background);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 400;
+}
+.field input[type="file"] {
+  padding-block: var(--space-2);
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.secondary {
+  border-color: var(--color-border-strong);
+  background: var(--color-secondary);
+  color: var(--color-secondary-foreground);
+}
+.stats {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+.stat {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.stat dt {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.stat dd {
+  margin: 0;
+  font: 600 1.5rem/1.2 var(--font-display);
+}
+.workstation {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.facts {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+.facts dt {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.facts dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+.scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-background);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.table caption {
+  padding: var(--space-3) var(--space-4) 0;
+  text-align: start;
+  color: var(--color-text-secondary);
+}
+.table th {
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-border);
+}
+.table td {
+  min-inline-size: 7rem;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+.table td .form {
+  min-inline-size: 14rem;
+}
+.table tr:last-child td {
+  border-bottom: 0;
+}
+@media (min-width: 40rem) {
+  .header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+  .connection {
+    justify-items: end;
+    text-align: end;
+  }
+  .inline {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+  .grid,
+  .facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 64rem) {
+  .stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .workstation {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    align-items: start;
+  }
+}
+@media print {
+  .station > :not(.workstation) {
+    display: none;
+  }
+}

@@ -1,0 +1,77 @@
+/* Money Health and Payout Operations, around the UI kit's cards, tables, badges and buttons
+   (platform::ui): the header's actions and the filters wrap, and each table scrolls on its own
+   on a phone. */
+.page {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.header {
+  display: grid;
+  gap: var(--space-3);
+}
+.header h1 {
+  margin: 0;
+  font: 600 1.75rem/1.25 var(--font-display);
+}
+.eyebrow {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.muted {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+}
+.words {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.number {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.actions,
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.facts {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+/* The kit's table keeps every cell on one line; these cells wrap. A sentence is wide enough to
+   read on a phone, where the table scrolls. (The kit's cell rule is a class and an element, so
+   each needs as much: todd-skelton/corten#562.) */
+.prose:is(td, th) {
+  min-inline-size: 16rem;
+  white-space: normal;
+}
+.words:is(td, th) {
+  white-space: normal;
+}
+.nothing {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-6) var(--space-4);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+@media (min-width: 40rem) {
+  .header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+}
