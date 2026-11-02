@@ -216,6 +216,8 @@ export function createCheckoutUcpHandlers(
         entryAttempt,
         createdAt,
         handoffExpiresAt: new Date(Date.parse(createdAt) + handoffTtlMs).toISOString(),
+        // The buyer confirms on the web checkout (continue_url), which preselects this address.
+        previewShippingAddress: await checkout.sessions.firstPreviewShippingAddress(accountId),
       });
       const session = await checkout.sessions.getSession(prepared.sessionId, accountId);
       if (!session) throw new CheckoutDomainError("Checkout was not found after creation.", "not_found");
