@@ -162,6 +162,69 @@ jobs:
     expect(result.violations).toEqual([expect.stringContaining("must be pinned with an explicit @ref")]);
   });
 
+  // #9230: the Compose exact-target receiver runs the composite Docker Hub
+  // guard from one immutable trusted main commit. The expected literal is
+  // written out here on purpose, never derived from the checker's constant.
+  const trustedGuardAction = "chase-sets/chase-sets/.github/actions/block-docker-hub";
+  const trustedGuardSha = "9763ba0932d3904493e02ba6cb1df9d5133626d9";
+  const workflowUsing = (uses) => `
+name: Test
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ${uses}
+`;
+
+  it("accepts only the exact trusted composite Docker Hub guard pin without a release comment", () => {
+    const rootDir = workflowRootWith(workflowUsing(`${trustedGuardAction}@${trustedGuardSha}`));
+
+    expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
+  });
+
+  const notAllowlisted = "is not in the Node 24 compatibility allowlist";
+  it.each([
+    ["another owner", `other-owner/chase-sets/.github/actions/block-docker-hub@${trustedGuardSha}`, notAllowlisted],
+    ["another repository", `chase-sets/other-repo/.github/actions/block-docker-hub@${trustedGuardSha}`, notAllowlisted],
+    [
+      "another same-repository composite action",
+      `chase-sets/chase-sets/.github/actions/setup-pnpm-workspace@${trustedGuardSha}`,
+      notAllowlisted,
+    ],
+    [
+      "another same-repository Node action",
+      `chase-sets/chase-sets/.github/actions/node24-example@${trustedGuardSha}`,
+      notAllowlisted,
+    ],
+    [
+      "a traversal to another same-repository action",
+      `${trustedGuardAction}/../setup-pnpm-workspace@${trustedGuardSha}`,
+      notAllowlisted,
+    ],
+    [
+      "a one-character different full SHA",
+      `${trustedGuardAction}@9763ba0932d3904493e02ba6cb1df9d5133626d8`,
+      notAllowlisted,
+    ],
+    ["a short SHA", `${trustedGuardAction}@9763ba0`, notAllowlisted],
+    ["an uppercase SHA spelling", `${trustedGuardAction}@${trustedGuardSha.toUpperCase()}`, notAllowlisted],
+    ["a suffixed SHA", `${trustedGuardAction}@${trustedGuardSha}0`, notAllowlisted],
+    ["a branch", `${trustedGuardAction}@main`, notAllowlisted],
+    ["a tag", `${trustedGuardAction}@v1.0.0`, notAllowlisted],
+    [
+      "an invented release comment on another full SHA",
+      `${trustedGuardAction}@${"f".repeat(40)} # v1.0.0`,
+      notAllowlisted,
+    ],
+    ["an expression-derived ref", `${trustedGuardAction}@\${{ inputs.target_sha }}`, notAllowlisted],
+    ["a missing ref", trustedGuardAction, "must be pinned with an explicit @ref"],
+  ])("rejects %s for the trusted composite guard", (_name, uses, expectedViolation) => {
+    const result = checkGithubActionsRuntime({ rootDir: workflowRootWith(workflowUsing(uses)) });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([expect.stringContaining(expectedViolation)]);
+  });
+
   it("accepts preview cleanup when pull_request_target is closed-only, timed out, and checks out trusted refs", () => {
     const rootDir = workflowRootWith(previewCleanupWorkflow(), "platform-preview-cleanup.yml");
 
