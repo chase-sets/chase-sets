@@ -487,8 +487,6 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/browser-e2e-probe.test.mjs": "browser probe is not an inherited-owner dependent",
   "scripts/bundle-node-service.test.mjs": "bundle tests invoke the exported builder, not the guarded CLI",
   "scripts/change-scope.test.mjs": "change-scope fixtures do not spawn a guarded child",
-  "scripts/check-structure/authoritative-stream-read-classification.test.mjs":
-    "static classification does not spawn the guard",
   "scripts/check-structure/brand-foil-sites.test.mjs": "brand-foil checks do not spawn the guard",
   "scripts/check-structure/brand-mark-representations.test.mjs": "icon checks do not spawn the guard",
   "scripts/check-structure/browser-e2e-disclosure-guard.test.mjs": "disclosure fixture does not spawn the guard",
@@ -516,7 +514,6 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/route-census/publication.test.mjs": "route census does not spawn the guard",
   "scripts/run-e2e-suite.test.mjs": "suite test does not spawn a guarded child",
   "scripts/run-workspaces.test.mjs": "workspace test owns its child admission",
-  "scripts/verify-static-scoped.test.mjs": "scoped gate owns its aggregate admission",
   "scripts/check-heavy-slot-coverage.test.mjs": "inventory owner; inert fixture controllers only",
 });
 
@@ -567,7 +564,7 @@ function classifyInheritedOwnerCandidates(
 test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
   const candidates = deriveInheritedOwnerCandidates();
   const classification = classifyInheritedOwnerCandidates(candidates);
-  assert.equal(candidates.length, 31);
+  assert.equal(candidates.length, 29);
   assert.equal(inheritedOwnerScriptTests.length, 5);
   assert.deepEqual(classification, {
     unclassified: [],

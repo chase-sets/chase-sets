@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
-import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
+import { classifyChanges, StaticScopeDerivationError } from "./change-scope.mjs";
+import { listWorkspacePackages, repoRoot as defaultRepoRoot } from "./lib/repo.mjs";
 import { BRAND_FOIL_PROOF_ENTRY_PATHS, BRAND_FOIL_PROOF_INPUT_PATHS } from "./check-structure/brand-foil-proof.mjs";
 
 function scriptKind(file) {
@@ -80,7 +81,7 @@ function resolveSpecifier(root, fromRelative, specifier, packages) {
   ];
 }
 
-function collectBrandFoilProofStaticImportPaths(root = repoRoot) {
+function collectBrandFoilProofStaticImportPaths(root = defaultRepoRoot) {
   const packages = new Map(listWorkspacePackages({ repoRoot: root }).map((workspace) => [workspace.name, workspace]));
   const pending = [...BRAND_FOIL_PROOF_ENTRY_PATHS];
   const discovered = new Set();
@@ -118,7 +119,10 @@ const brandFoilProofInputSurface = Object.freeze(
 
 const brandFoilProofSurfaceCache = new Map();
 
-export function deriveBrandFoilProofStepSurface(root = repoRoot, collect = collectBrandFoilProofStaticImportPaths) {
+export function deriveBrandFoilProofStepSurface(
+  root = defaultRepoRoot,
+  collect = collectBrandFoilProofStaticImportPaths,
+) {
   if (collect === collectBrandFoilProofStaticImportPaths && brandFoilProofSurfaceCache.has(root))
     return brandFoilProofSurfaceCache.get(root);
   const surface = Object.freeze([
@@ -144,6 +148,239 @@ const brandFoilProofStepSurface = Object.freeze([
 export const VERIFY_STATIC_SCOPED_EXCLUSIONS = Object.freeze({
   "test:scripts": "complete scripts battery is a hosted-CI gate; run named focused script tests locally",
 });
+
+export function parseVerifyStaticChain(packageJson) {
+  const chain = packageJson?.scripts?.["verify:static"];
+  if (typeof chain !== "string" || chain.trim() === "") {
+    throw new Error("package.json scripts.verify:static must be a non-empty command chain");
+  }
+  return chain.split(/\s*&&\s*/).map((command) => {
+    const match = /^pnpm run ([^\s]+)(?:\s+(.*))?$/.exec(command.trim());
+    if (!match) throw new Error(`Unsupported verify:static link: ${command}`);
+    const link = { name: match[1], command: command.trim(), forwarded: match[2] ?? "" };
+    Object.defineProperty(link, "script", { value: packageJson.scripts[match[1]], enumerable: false });
+    return link;
+  });
+}
+
+export function verifyStaticSurfaceMapCompleteness(chain, surfaces = VERIFY_STATIC_SURFACES) {
+  const chainNames = new Set(chain.map((link) => link.name));
+  return {
+    missing: [...chainNames].filter((name) => !Object.hasOwn(surfaces, name)),
+    extra: Object.keys(surfaces).filter((name) => !chainNames.has(name)),
+    invalidMayNarrow: [...chainNames].filter((name) => {
+      const entry = surfaces[name];
+      return entry?.classification === MAY_NARROW && (!Array.isArray(entry.include) || entry.include.length === 0);
+    }),
+  };
+}
+
+export function verifyStaticGuardTestMapCompleteness({
+  repoRoot = defaultRepoRoot,
+  surfaces = VERIFY_STATIC_GUARD_TEST_SURFACES,
+  testFileExists = (file) => existsSync(path.join(repoRoot, file)),
+} = {}) {
+  const entries = Object.entries(surfaces);
+  return {
+    missingTestFiles: entries.filter(([file]) => !testFileExists(file)).map(([file]) => file),
+    invalidTargets: entries.filter(([file]) => !/^scripts\/.+\.test\.mjs$/.test(file)).map(([file]) => file),
+    invalidInclude: entries
+      .filter(([, entry]) => !Array.isArray(entry?.include) || entry.include.length === 0)
+      .map(([file]) => file),
+    invalidEvidence: entries
+      .filter(
+        ([, entry]) =>
+          typeof entry?.rule !== "string" ||
+          entry.rule.trim() === "" ||
+          !Array.isArray(entry.evidence) ||
+          entry.evidence.length === 0 ||
+          entry.evidence.some((citation) => !/^[^:]+:\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/.test(citation)),
+      )
+      .map(([file]) => file),
+  };
+}
+
+export function selectVerifyStaticGuardTests({
+  changedFiles,
+  repoRoot = defaultRepoRoot,
+  surfaces = VERIFY_STATIC_GUARD_TEST_SURFACES,
+  forceFull = false,
+  testFileExists = (file) => existsSync(path.join(repoRoot, file)),
+} = {}) {
+  const completeness = verifyStaticGuardTestMapCompleteness({ repoRoot, surfaces, testFileExists });
+  if (completeness.missingTestFiles.length > 0 || completeness.invalidTargets.length > 0) {
+    throw new StaticScopeDerivationError(
+      "STATIC_SCOPE_GUARD_TEST_MAP_INVALID",
+      `invalid or missing configured guard test: ${[...completeness.missingTestFiles, ...completeness.invalidTargets].join(", ")}`,
+    );
+  }
+  const selectAll = forceFull || completeness.invalidInclude.length > 0 || completeness.invalidEvidence.length > 0;
+  const selected = new Set();
+  for (const [file, entry] of Object.entries(surfaces)) {
+    if (selectAll || linkSurfaceMatches(entry, changedFiles)) selected.add(file);
+  }
+  for (const changedFile of changedFiles) {
+    const file = changedFile.replaceAll("\\", "/").replace(/^\.\//, "");
+    if (!file.startsWith("scripts/") || !file.endsWith(".mjs")) continue;
+    const testFile = file.endsWith(".test.mjs") ? file : file.replace(/\.mjs$/, ".test.mjs");
+    if (testFileExists(testFile)) selected.add(testFile);
+  }
+  return [...selected].sort();
+}
+
+function allWorkspacesAffected(changedFiles, repoRoot, dependencies) {
+  const workspaces = dependencies.listWorkspacePackages({ repoRoot });
+  if (workspaces.length === 0) return false;
+  const scope = dependencies.classifyChanges({ changedFiles, workspaces, baseDir: repoRoot });
+  return scope.affectedWorkspaces.length === workspaces.length;
+}
+
+function validateScopedStepMap(chain, surfaces) {
+  for (const link of chain) {
+    const scopedSteps = surfaces[link.name]?.scopedSteps;
+    if (scopedSteps === undefined) continue;
+    if (link.name !== "check:structure" || !Array.isArray(scopedSteps) || scopedSteps.length === 0) {
+      throw new StaticScopeDerivationError(
+        "STATIC_SCOPE_STEPS_MAP_INVALID",
+        `scopedSteps is only supported as a non-empty array on check:structure: ${link.name}`,
+      );
+    }
+    for (const step of scopedSteps) {
+      if (
+        typeof step?.name !== "string" ||
+        typeof step.command !== "string" ||
+        ![ALWAYS_RUN, MAY_NARROW].includes(step.classification) ||
+        (step.classification === MAY_NARROW &&
+          (!Array.isArray(step.include) || step.include.length === 0 || typeof step.rule !== "string"))
+      ) {
+        throw new StaticScopeDerivationError("STATIC_SCOPE_STEPS_MAP_INVALID", `invalid scoped step in ${link.name}`);
+      }
+    }
+  }
+}
+
+function withScopedDetails(link, details) {
+  const enriched = { ...link };
+  for (const [key, value] of Object.entries(details))
+    Object.defineProperty(enriched, key, { value, enumerable: false, configurable: true });
+  return enriched;
+}
+
+function selectScopedSteps(link, entry, changedFiles) {
+  const expectedCommand = entry.scopedSteps.map((step) => step.command).join(" && ");
+  if (expectedCommand !== (link.script ?? link.command))
+    return { link: withScopedDetails(link, { scopedStepsStale: true }), skippedSteps: [] };
+  const selectedSteps = [];
+  const skippedSteps = [];
+  for (const step of entry.scopedSteps) {
+    if (step.classification === ALWAYS_RUN || linkSurfaceMatches(step, changedFiles)) selectedSteps.push(step);
+    else skippedSteps.push(step);
+  }
+  return { link: withScopedDetails(link, { selectedSteps, skippedSteps }), skippedSteps };
+}
+
+export function selectVerifyStaticLinks({
+  chain,
+  changedFiles,
+  repoRoot = defaultRepoRoot,
+  surfaces = VERIFY_STATIC_SURFACES,
+  scopedExclusions = VERIFY_STATIC_SCOPED_EXCLUSIONS,
+  guardSurfaces = VERIFY_STATIC_GUARD_TEST_SURFACES,
+  testFileExists,
+  forceFull = false,
+  dependencies = { classifyChanges, listWorkspacePackages },
+} = {}) {
+  validateScopedStepMap(chain, surfaces);
+  const guardTests = selectVerifyStaticGuardTests({
+    changedFiles,
+    repoRoot,
+    surfaces: guardSurfaces,
+    forceFull,
+    testFileExists,
+  });
+  const excluded = chain
+    .filter((link) => Object.hasOwn(scopedExclusions, link.name))
+    .map((link) => ({ link, rule: scopedExclusions[link.name] }));
+  const scopedChain = chain.filter((link) => !Object.hasOwn(scopedExclusions, link.name));
+  if (changedFiles.length === 0 && !forceFull)
+    return {
+      selected: [],
+      skipped: scopedChain.map((link) => ({ link, rule: "empty derived diff" })),
+      excluded,
+      fullReason: null,
+      guardTests,
+      stepSkips: [],
+    };
+  const scriptsChanged = changedFiles.some((filePath) =>
+    linkSurfaceMatches({ include: [{ kind: "prefix", value: "scripts" }] }, [filePath]),
+  );
+  const fullReason = forceFull
+    ? "changed-file derivation failed closed"
+    : scriptsChanged
+      ? "scripts/** changed (guard and tooling changes require the full static chain)"
+      : allWorkspacesAffected(changedFiles, repoRoot, dependencies)
+        ? "classifyChanges affected every workspace (derived root-runtime fanout)"
+        : null;
+  let planningSurfaces = surfaces;
+  if (!forceFull && scopedChain.some((link) => Array.isArray(surfaces[link.name]?.scopedSteps))) {
+    try {
+      const collect = dependencies.collectBrandFoilProofStaticImportPaths;
+      const derivedSteps = deriveBrandFoilProofStepSurface(repoRoot, collect);
+      planningSurfaces = {
+        ...surfaces,
+        "check:structure": {
+          ...surfaces["check:structure"],
+          scopedSteps: surfaces["check:structure"]?.scopedSteps?.map((step) =>
+            step.name === "brand-foil-proof" ? { ...step, include: derivedSteps } : step,
+          ),
+        },
+      };
+    } catch (error) {
+      if (error instanceof StaticScopeDerivationError) throw error;
+      throw new StaticScopeDerivationError(
+        "STATIC_SCOPE_BRAND_FOIL_DERIVATION_FAILED",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  if (fullReason) {
+    const selected = scopedChain.map((link) => {
+      const entry = planningSurfaces[link.name];
+      if (forceFull || !Array.isArray(entry?.scopedSteps)) return link;
+      return selectScopedSteps(link, entry, changedFiles).link;
+    });
+    const fullStepSkips = selected.flatMap((link) =>
+      Array.isArray(link.skippedSteps) ? link.skippedSteps.map((step) => ({ link, step, rule: step.rule })) : [],
+    );
+    return { selected, skipped: [], excluded, fullReason, guardTests, stepSkips: fullStepSkips };
+  }
+  const selected = [];
+  const skipped = [];
+  const stepSkips = [];
+  for (const link of scopedChain) {
+    const entry = planningSurfaces[link.name];
+    if (!entry) {
+      selected.push(link);
+      continue;
+    }
+    if (Array.isArray(entry.scopedSteps)) {
+      const scoped = selectScopedSteps(link, entry, changedFiles);
+      selected.push(scoped.link);
+      for (const step of scoped.skippedSteps) stepSkips.push({ link, step, rule: step.rule });
+      continue;
+    }
+    if (
+      entry.classification === ALWAYS_RUN ||
+      entry.classification !== MAY_NARROW ||
+      !Array.isArray(entry.include) ||
+      entry.include.length === 0 ||
+      linkSurfaceMatches(entry, changedFiles)
+    )
+      selected.push(link);
+    else skipped.push({ link, rule: entry.rule });
+  }
+  return { selected, skipped, excluded, fullReason: null, guardTests, stepSkips };
+}
 
 // Repository-wide reads cannot be narrowed to the paths in historical failures.
 // These rules describe scan inputs, not the tests' static import graphs.
