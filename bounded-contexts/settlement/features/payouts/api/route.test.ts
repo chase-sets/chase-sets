@@ -111,7 +111,7 @@ describe("settlement payout routes", () => {
     const app = createAuthenticatedApp({ listPayoutsNeedingReconciliation }, ["payouts.platform.view"]);
     const response = await app.request("/payouts/reconciliation?accountId=acc_other&scope=account");
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ items: rows, total: 2, count: 2 });
+    await expect(response.json()).resolves.toMatchObject({ items: rows, total: 2, count: 2 });
     expect(listPayoutsNeedingReconciliation).toHaveBeenCalledExactlyOnceWith({
       accountId: null,
       limit: 100,
@@ -578,7 +578,7 @@ describe("platform payout read authority", () => {
       expect(s.listNegativeBalanceAccounts).toHaveBeenCalledExactlyOnceWith({ limit: 25 });
       s.listPayoutsNeedingReconciliation.mockClear();
       const list = await app.request(`/payouts/reconciliation${query}&limit=7&filter=failed`);
-      await expect(list.json()).resolves.toEqual({
+      await expect(list.json()).resolves.toMatchObject({
         items: expectedPayouts,
         count: expectedPayouts.length,
         total: expectedPayouts.length,

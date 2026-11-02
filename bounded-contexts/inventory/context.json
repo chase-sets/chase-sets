@@ -504,7 +504,7 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx"
       ],
       "visibleDestination": {
@@ -526,19 +526,19 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/rows/:rowId/resolve",
-        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1"
+        "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/rows/:rowId/resolve"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-import",
         "description": "Native import review row fixes synchronously update the Inventory import-batch row and account SKU mapping, return the updated InventoryImportBatchDetail snapshot, then redirect back to the same import batch detail route after the write completes."
       },
       "proof": {
-        "authoritativeResponse": "resolveRow validates the selected catalog item/options and storage location, writes the row resolution plus account SKU mapping in Inventory-owned tables, refreshes batch counts, and returns getImportBatch from the same request before the browser route redirects.",
+        "authoritativeResponse": "resolveRow refuses unless the caller's row_version, row_fingerprint and mutation attempt are current, validates the selected catalog item/options and storage location, writes the row resolution plus account SKU mapping in Inventory-owned tables, refreshes batch counts, and returns getImportBatch from the same request before the browser route redirects.",
         "tests": [
           "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
           "bounded-contexts/inventory/features/import-batches/api/route.test.ts",
-          "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx"
+          "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx",
+          "bounded-contexts/inventory/features/import-batches/tests/issue-7169-ac7-partial-resolution.test.ts"
         ]
       }
     },

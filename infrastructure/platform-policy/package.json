@@ -14,13 +14,14 @@
     "./queries": "./queries.ts",
     "./cache": "./cache.ts",
     "./resolver": "./resolver.ts",
-    "./runtime": "./runtime.ts"
+    "./runtime": "./runtime.ts",
+    "./policy-history-reader": "./policy-history-reader.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
-    "test:unit": "vitest run --config ./vitest.config.ts --exclude consent-activation-authority.db.test.ts",
-    "test:db": "vitest run --config ./vitest.config.ts consent-activation-authority.db.test.ts",
+    "test:unit": "vitest run --config ./vitest.config.ts --exclude consent-activation-authority.db.test.ts --exclude policy-history-reader.db.test.ts",
+    "test:db": "vitest run --config ./vitest.config.ts consent-activation-authority.db.test.ts policy-history-reader.db.test.ts",
     "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {

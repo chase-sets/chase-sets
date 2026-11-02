@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryRouter, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { readFreshWriteToken } from "@chase-sets/http/responses";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import {
@@ -106,6 +107,165 @@ function checkoutSessionResult(sessionId: string, position = "42") {
       },
     ],
   };
+}
+
+function guestStart(guestToken = "guest_token", accountId = "acc_guest") {
+  return { accountId, guestToken, expiresAt: "2099-01-01T00:00:00.000Z" };
+}
+
+/** Auth resolves the guest-buyer only when the request presents that guest's cookie. */
+function resolveGuestFromCookie(guestToken = "guest_token") {
+  mockResolveActorFromAuthApi.mockImplementation(async ({ request }: { request: Request }) =>
+    (request.headers.get("cookie") ?? "").includes(`chase_sets_guest_checkout=${guestToken}`)
+      ? guestCheckoutActor()
+      : null,
+  );
+}
+
+/** One start POST as the browser sends it, presenting the cookies it holds. */
+async function postStart(url: string, body: URLSearchParams, cookie = "") {
+  return (await checkoutStartAction({
+    request: new Request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", ...(cookie ? { cookie } : {}) },
+      body: body.toString(),
+    }),
+    params: {},
+    context: undefined,
+  } as never)) as Response;
+}
+
+/** The `name=value` pairs a response asks the browser to store. */
+function setCookiePairs(response: Response) {
+  return response.headers.getSetCookie().map((cookie) => cookie.split(";")[0] ?? "");
+}
+
+/**
+ * Follows a guest entry `307` as a browser does: the same method and body to
+ * its Location, presenting the cookies the browser already held plus the ones
+ * the hop set.
+ */
+async function followGuestEntry(hop: Response, body: URLSearchParams, heldCookie = "", origin = "http://localhost") {
+  expect(hop.status).toBe(307);
+  expect(hop.headers.get("X-Remix-Reload-Document")).toBeNull();
+  const location = new URL(hop.headers.get("Location") ?? "", origin);
+  expect(location.pathname).toBe("/checkout/buy/readiness");
+  expect(location.searchParams.get("guestEntry")).toBe("1");
+  return postStart(location.toString(), body, [heldCookie, ...setCookiePairs(hop)].filter(Boolean).join("; "));
+}
+
+const buyNowStartUrl =
+  "http://localhost/checkout/buy/readiness?source=buy-now&listingId=lst_1&fulfillmentMode=locked-listing&lockedListingId=lst_1&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&quantity=1";
+
+/**
+ * A browser and the owners behind guest entry. The browser keeps one cookie
+ * jar across every POST and may lose a response (its cookies never arrive) or
+ * refuse cookies. Auth mints contact-less guests. Checkout resolves the
+ * account from the cookie its client presents and, as #9994 does, opens one
+ * Session per account and entry key and replays it for the same pair.
+ */
+function guestEntryWorld(options: { refuseCookies?: boolean } = {}) {
+  const jar = new Map<string, string>();
+  const guests = new Map<string, { accountId: string; expired: boolean; refused: boolean }>();
+  const sessions: Array<{ sessionId: string; accountId: string; entryAttemptKey: string }> = [];
+  const checkoutCalls: string[] = [];
+
+  const presentedGuest = (cookieHeader: string | null | undefined) => {
+    const token = /(?:^|;\s*)chase_sets_guest_checkout=([^;]+)/.exec(cookieHeader ?? "")?.[1];
+    const guest = token ? guests.get(decodeURIComponent(token)) : undefined;
+    return guest && !guest.expired ? guest : null;
+  };
+
+  mockStartGuestCheckout.mockImplementation(async () => {
+    const minted = guests.size + 1;
+    const guest = guestStart(`guest_token_${minted}`, `acc_guest_${minted}`);
+    guests.set(guest.guestToken, { accountId: guest.accountId, expired: false, refused: false });
+    return guest;
+  });
+  mockCreateAuthRequestApiClient.mockReturnValue({ startGuestCheckout: mockStartGuestCheckout });
+  mockResolveActorFromAuthApi.mockImplementation(async ({ request }: { request: Request }) => {
+    const guest = presentedGuest(request.headers.get("cookie"));
+    return guest ? { ...guestCheckoutActor(), accountId: guest.accountId } : null;
+  });
+  mockCreateCheckoutRequestApiClient.mockImplementation(
+    (request: Request, clientOptions?: { headers?: Record<string, string> }) => {
+      // A client presents the cookie it was built with, else the request's own.
+      const guest = presentedGuest(clientOptions?.headers?.cookie ?? request.headers.get("cookie"));
+      const called =
+        <T>(name: string, answer: () => T) =>
+        async () => {
+          checkoutCalls.push(name);
+          return answer();
+        };
+      return {
+        getGuestCart: called("getGuestCart", () => ({ items: [], count: 1 })),
+        mergeGuestCartToAccount: called("mergeGuestCartToAccount", () => ({ status: "merged" })),
+        createCartReadiness: called("createCartReadiness", readyCartReadinessResponse),
+        createCheckoutSession: async (body: { entryAttemptKey?: string }) => {
+          checkoutCalls.push("createCheckoutSession");
+          if (!guest) throw new MockCheckoutApiError(401, { error: { code: "authentication_required" } });
+          if (guest.refused) throw new MockCheckoutApiError(403, { error: { code: "authorization_forbidden" } });
+          const entryAttemptKey = body.entryAttemptKey ?? "";
+          const first = sessions.find(
+            (session) => session.accountId === guest.accountId && session.entryAttemptKey === entryAttemptKey,
+          );
+          if (first) return checkoutSessionResult(first.sessionId);
+          const opened = {
+            sessionId: `chk_guest_entry_${sessions.length + 1}`,
+            accountId: guest.accountId,
+            entryAttemptKey,
+          };
+          sessions.push(opened);
+          return checkoutSessionResult(opened.sessionId);
+        },
+      };
+    },
+  );
+
+  const store = (response: Response) => {
+    if (options.refuseCookies) return;
+    for (const pair of setCookiePairs(response)) {
+      const [name = "", value = ""] = pair.split("=");
+      if (value) jar.set(name, value);
+      else jar.delete(name);
+    }
+  };
+  const cookieHeader = () => [...jar].map(([name, value]) => `${name}=${value}`).join("; ");
+
+  return {
+    jar,
+    guests,
+    sessions,
+    checkoutCalls,
+    cookieHeader,
+    /** Applies a response the browser received: it stores the cookies the response set. */
+    receive(response: Response) {
+      store(response);
+      return response;
+    },
+    /** One POST from the browser. An undelivered response never reaches it, so its cookies are lost. */
+    async post(url: string, body: URLSearchParams, { delivered = true } = {}) {
+      const response = await postStart(new URL(url, "http://localhost").toString(), body, cookieHeader());
+      if (delivered && response instanceof Response) store(response);
+      return response;
+    },
+    expireGuest(guestToken: string) {
+      guests.get(guestToken)!.expired = true;
+    },
+    refuseGuest(guestToken: string) {
+      guests.get(guestToken)!.refused = true;
+    },
+    ownedSessions(accountId: string) {
+      return sessions.filter((session) => session.accountId === accountId);
+    },
+  };
+}
+
+function buyNowEntryForm(entryAttemptKey = "chkentry_01JGUESTENTRYBINDS0001") {
+  const form = new URLSearchParams();
+  form.set("entryAttemptKey", entryAttemptKey);
+  form.set("source", "buy-now");
+  return form;
 }
 
 describe("checkout web routes: checkout start", () => {
@@ -304,13 +464,9 @@ describe("checkout web routes: checkout start", () => {
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("starts signed-out cart checkout in one POST without guest contact fields", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockStartGuestCheckout.mockResolvedValue({
-      accountId: "acc_guest",
-      guestToken: "guest_token",
-      expiresAt: "2026-04-02T00:00:00.000Z",
-    });
+  it("starts signed-out cart checkout through the guest entry hop without guest contact fields", async () => {
+    resolveGuestFromCookie();
+    mockStartGuestCheckout.mockResolvedValue(guestStart());
     mockCreateAuthRequestApiClient.mockReturnValue({
       startGuestCheckout: mockStartGuestCheckout,
     });
@@ -327,24 +483,21 @@ describe("checkout web routes: checkout start", () => {
     form.set("source", "cart");
     form.set("readinessSnapshotId", "cr_ready");
     form.set("readinessSourceRevision", "cr_source");
+    const anonymousCart = "chase_sets_anonymous_cart=anon_cart_1";
 
-    const result = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const hop = await postStart("http://localhost/checkout/buy/readiness", form, anonymousCart);
 
-    expect(result.headers.get("Location")).toBe("/checkout/buy/session/chk_guest_one_post");
     expect(mockGetGuestCart).toHaveBeenCalledWith("anon_cart_1");
     expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
     expect(mockStartGuestCheckout).toHaveBeenCalledWith({});
+    expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+    expect(mockCreateCartReadiness).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+
+    const result = await followGuestEntry(hop, form, anonymousCart);
+
+    expect(result.headers.get("Location")).toBe("/checkout/buy/session/chk_guest_one_post");
+    expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
     expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_1");
     expect(mockCreateCartReadiness).toHaveBeenCalledWith({});
     expect(mockCreateCheckoutSession).toHaveBeenCalledOnce();
@@ -517,7 +670,7 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("entryAttemptKey", "entry_attempt_1");
+    form.set("entryAttemptKey", "chkentry_01JSTARTENTRYKEY000001");
     form.set("source", "buy-now");
     form.set("listingId", "lst_1");
     form.set("catalogItemId", "cat_1");
@@ -540,7 +693,7 @@ describe("checkout web routes: checkout start", () => {
 
     expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: "entry_attempt_1",
+      entryAttemptKey: "chkentry_01JSTARTENTRYKEY000001",
       source: {
         type: "buy-now",
         listingId: "lst_1",
@@ -574,13 +727,9 @@ describe("checkout web routes: checkout start", () => {
     });
   });
 
-  it("starts signed-out buy-now checkout with a guest cookie and fresh checkout receipt", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockStartGuestCheckout.mockResolvedValue({
-      accountId: "acc_guest",
-      guestToken: "guest_token",
-      expiresAt: "2026-04-02T00:00:00.000Z",
-    });
+  it("starts signed-out buy-now checkout with a guest cookie on the hop and a fresh checkout receipt", async () => {
+    resolveGuestFromCookie();
+    mockStartGuestCheckout.mockResolvedValue(guestStart());
     mockCreateAuthRequestApiClient.mockReturnValue({
       startGuestCheckout: mockStartGuestCheckout,
     });
@@ -590,7 +739,7 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("entryAttemptKey", "entry_attempt_1");
+    form.set("entryAttemptKey", "chkentry_01JSTARTENTRYKEY000001");
     form.set("source", "cart");
     form.set("listingId", "lst_tampered");
     form.set("fulfillmentMode", "locked-listing");
@@ -601,23 +750,21 @@ describe("checkout web routes: checkout start", () => {
     form.set("selectedOptions", "[]");
     form.set("quantity", "99");
 
-    const response = (await checkoutStartAction({
-      request: new Request(
-        "http://localhost/checkout/buy/readiness?source=buy-now&listingId=lst_1&fulfillmentMode=locked-listing&lockedListingId=lst_1&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&selectedOptions=%5B%7B%22dimensionId%22%3A%22condition%22%2C%22optionId%22%3A%22raw%22%7D%5D&quantity=1",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: form.toString(),
-        },
-      ),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
-    const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
+    const hop = await postStart(
+      "http://localhost/checkout/buy/readiness?source=buy-now&listingId=lst_1&fulfillmentMode=locked-listing&lockedListingId=lst_1&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&selectedOptions=%5B%7B%22dimensionId%22%3A%22condition%22%2C%22optionId%22%3A%22raw%22%7D%5D&quantity=1",
+      form,
+    );
 
     expect(mockStartGuestCheckout).toHaveBeenCalledWith({});
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+    expect(setCookiePairs(hop)).toEqual(["chase_sets_guest_checkout=guest_token"]);
+
+    const response = await followGuestEntry(hop, form);
+    const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
+
+    expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: "entry_attempt_1",
+      entryAttemptKey: "chkentry_01JSTARTENTRYKEY000001",
       source: expect.objectContaining({
         type: "buy-now",
         listingId: "lst_1",
@@ -632,7 +779,6 @@ describe("checkout web routes: checkout start", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
-    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token");
     expect(redirectUrl.pathname).toBe("/checkout/buy/session/chk_guest_buy_now");
     expect(await readRedirectFreshWriteToken(redirectUrl.toString())).toMatchObject({
       sources: [
@@ -645,8 +791,39 @@ describe("checkout web routes: checkout start", () => {
     });
   });
 
-  it("silently recovers active guest buy-now checkout when the current guest account cannot start the preserved session", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+  it("refuses a keyless signed-out buy-now entry before minting a guest or sending any command", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateAuthRequestApiClient.mockReturnValue({ startGuestCheckout: mockStartGuestCheckout });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ createCheckoutSession: mockCreateCheckoutSession });
+    const form = new URLSearchParams();
+    form.set("source", "buy-now");
+
+    const result = await checkoutStartAction({
+      request: new Request(
+        "http://localhost/checkout/buy/readiness?source=buy-now&listingId=lst_1&fulfillmentMode=locked-listing&lockedListingId=lst_1&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&quantity=1",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        },
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({ recovery: { kind: "attempt-changed", recoveryKind: "action-required" } });
+    expect(mockStartGuestCheckout).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("hands a guest whose access no longer matches to a fresh guest through the entry hop, with no Session write in that request", async () => {
+    mockResolveActorFromAuthApi.mockImplementation(async ({ request }: { request: Request }) => {
+      const cookie = request.headers.get("cookie") ?? "";
+      if (cookie.includes("chase_sets_guest_checkout=guest_token_recovered")) {
+        return { ...guestCheckoutActor(), accountId: "acc_guest_recovered" };
+      }
+      return cookie.includes("chase_sets_guest_checkout=stale_guest_token") ? guestCheckoutActor() : null;
+    });
     const blockedCreateCheckoutSession = vi.fn(async () => {
       throw new MockCheckoutApiError(403, {
         error: { code: "authorization_forbidden", message: "Forbidden." },
@@ -672,7 +849,7 @@ describe("checkout web routes: checkout start", () => {
       });
 
     const form = new URLSearchParams();
-    form.set("entryAttemptKey", "entry_attempt_1");
+    form.set("entryAttemptKey", "chkentry_01JSTARTENTRYKEY000001");
     form.set("source", "buy-now");
     form.set("listingId", "lst_1");
     form.set("catalogItemId", "cat_1");
@@ -681,21 +858,14 @@ describe("checkout web routes: checkout start", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "raw" }]));
     form.set("quantity", "1");
 
-    const response = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_guest_checkout=stale_guest_token",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const hop = await postStart(
+      "http://localhost/checkout/buy/readiness",
+      form,
+      "chase_sets_guest_checkout=stale_guest_token",
+    );
 
     expect(blockedCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: "entry_attempt_1",
+      entryAttemptKey: "chkentry_01JSTARTENTRYKEY000001",
       source: expect.objectContaining({
         type: "buy-now",
         listingId: "lst_1",
@@ -704,9 +874,19 @@ describe("checkout web routes: checkout start", () => {
         itemTitle: "Charizard",
       }),
     });
+    expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
     expect(mockStartGuestCheckout).toHaveBeenCalledWith({});
+    expect(recoveredCreateCheckoutSession).not.toHaveBeenCalled();
+    expect(setCookiePairs(hop)).toEqual(["chase_sets_guest_checkout=guest_token_recovered"]);
+
+    // The browser replaces the stale guest cookie with the one the hop set.
+    const response = await followGuestEntry(hop, form);
+
+    expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
+    expect(blockedCreateCheckoutSession).toHaveBeenCalledOnce();
+    expect(recoveredCreateCheckoutSession).toHaveBeenCalledOnce();
     expect(recoveredCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: "entry_attempt_1",
+      entryAttemptKey: "chkentry_01JSTARTENTRYKEY000001",
       source: expect.objectContaining({
         type: "buy-now",
         listingId: "lst_1",
@@ -718,8 +898,27 @@ describe("checkout web routes: checkout start", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_guest_recovered");
     expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
-    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token_recovered");
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("takes the shipped start recovery, not another guest, when the followed guest entry is refused", async () => {
+    resolveGuestFromCookie();
+    mockStartGuestCheckout.mockResolvedValue(guestStart());
+    mockCreateAuthRequestApiClient.mockReturnValue({ startGuestCheckout: mockStartGuestCheckout });
+    mockCreateCheckoutSession.mockRejectedValue(
+      new MockCheckoutApiError(403, { error: { code: "authorization_forbidden", message: "Forbidden." } }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ createCheckoutSession: mockCreateCheckoutSession });
+    const form = buyNowEntryForm();
+
+    const hop = await postStart(buyNowStartUrl, form);
+    const result = await followGuestEntry(hop, form);
+
+    expect(result).toEqual({
+      recovery: expect.objectContaining({ kind: "guest-access-expired", recoveryKind: "action-required" }),
+    });
+    expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
+    expect(mockCreateCheckoutSession).toHaveBeenCalledOnce();
   });
 
   it("keeps signed-in wrong-account checkout start protected", async () => {
@@ -734,6 +933,7 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const form = new URLSearchParams();
+    form.set("entryAttemptKey", "chkentry_01JSTARTENTRYKEY000002");
     form.set("source", "buy-now");
     form.set("listingId", "lst_1");
     form.set("catalogItemId", "cat_1");
@@ -770,7 +970,7 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("entryAttemptKey", "entry_attempt_offer_1");
+    form.set("entryAttemptKey", "chkentry_01JSTARTOFFERKEY000001");
     form.set("source", "buy-now");
     form.set("listingId", "lst_tampered");
     form.set("catalogItemId", "cat_tampered");
@@ -794,7 +994,7 @@ describe("checkout web routes: checkout start", () => {
 
     expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: "entry_attempt_offer_1",
+      entryAttemptKey: "chkentry_01JSTARTOFFERKEY000001",
       source: {
         type: "offer-intent",
         catalogItemId: "cat_1",
@@ -813,12 +1013,8 @@ describe("checkout web routes: checkout start", () => {
   });
 
   it("starts signed-out cart checkout by creating a guest account and merging the anonymous cart", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockStartGuestCheckout.mockResolvedValue({
-      accountId: "acc_guest",
-      guestToken: "guest_token",
-      expiresAt: "2026-04-02T00:00:00.000Z",
-    });
+    resolveGuestFromCookie();
+    mockStartGuestCheckout.mockResolvedValue(guestStart());
     mockCreateAuthRequestApiClient.mockReturnValue({
       startGuestCheckout: mockStartGuestCheckout,
     });
@@ -834,19 +1030,15 @@ describe("checkout web routes: checkout start", () => {
 
     const form = new URLSearchParams();
     form.set("source", "cart");
+    const anonymousCart = "chase_sets_anonymous_cart=anon_cart_1";
 
-    const response = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const hop = await postStart("http://localhost/checkout/buy/readiness", form, anonymousCart);
+
+    // The hop carries only the guest cookie; the anonymous cart stays for the followed POST to merge.
+    expect(setCookiePairs(hop)).toEqual(["chase_sets_guest_checkout=guest_token"]);
+    expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+
+    const response = await followGuestEntry(hop, form, anonymousCart);
 
     expect(mockStartGuestCheckout).toHaveBeenCalledWith({});
     expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_1");
@@ -862,16 +1054,12 @@ describe("checkout web routes: checkout start", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_guest");
     expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
-    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token");
+    expect(setCookiePairs(response)).toEqual(["chase_sets_anonymous_cart="]);
   });
 
-  it("uses one anonymous-source client for guest merge, readiness, and session without polling", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockStartGuestCheckout.mockResolvedValue({
-      accountId: "acc_guest",
-      guestToken: "guest_token",
-      expiresAt: "2026-04-02T00:00:00.000Z",
-    });
+  it("uses one anonymous-source client per request for guest merge, readiness, and session without polling", async () => {
+    resolveGuestFromCookie();
+    mockStartGuestCheckout.mockResolvedValue(guestStart());
     mockCreateAuthRequestApiClient.mockReturnValue({
       startGuestCheckout: mockStartGuestCheckout,
     });
@@ -909,33 +1097,23 @@ describe("checkout web routes: checkout start", () => {
 
     const form = new URLSearchParams();
     form.set("source", "cart");
+    const anonymousCart = "chase_sets_anonymous_cart=anon_cart_1";
 
-    const response = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const hop = await postStart("http://localhost/checkout/buy/readiness", form, anonymousCart);
+    const response = await followGuestEntry(hop, form, anonymousCart);
     const redirectReceipt = await readRedirectFreshWriteToken(response.headers.get("Location"));
 
     expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_1");
     expect(mockGetCart).not.toHaveBeenCalled();
     expect(mutableApiClientCalls).toHaveLength(2);
-    expect(mutableApiClientCalls[0]?.options).toEqual({
-      headers: { "x-checkout-anonymous-cart-id": "anon_cart_1" },
-    });
-    expect(mutableApiClientCalls[1]?.options).toEqual({
-      headers: {
-        cookie: "chase_sets_guest_checkout=guest_token",
-        "x-checkout-anonymous-cart-id": "anon_cart_1",
-      },
-    });
+    for (const call of mutableApiClientCalls) {
+      expect(call.options).toEqual({ headers: { "x-checkout-anonymous-cart-id": "anon_cart_1" } });
+    }
+    // The Session-writing client presents the guest cookie on the request itself.
+    expect(mutableApiClientCalls[0]?.request.headers.get("cookie")).toBe(anonymousCart);
+    expect(mutableApiClientCalls[1]?.request.headers.get("cookie")).toBe(
+      `${anonymousCart}; chase_sets_guest_checkout=guest_token`,
+    );
     expect(mockCreateCartReadiness).toHaveBeenCalledWith({});
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
       source: {
@@ -957,12 +1135,8 @@ describe("checkout web routes: checkout start", () => {
   });
 
   it("continues guest cart entry from the union when the best-effort merge throws", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockStartGuestCheckout.mockResolvedValue({
-      accountId: "acc_guest",
-      guestToken: "guest_token",
-      expiresAt: "2026-04-02T00:00:00.000Z",
-    });
+    resolveGuestFromCookie();
+    mockStartGuestCheckout.mockResolvedValue(guestStart());
     mockCreateAuthRequestApiClient.mockReturnValue({ startGuestCheckout: mockStartGuestCheckout });
     mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
     mockMergeGuestCartToAccount.mockRejectedValue(new Error("anon_raw_merge_marker secret"));
@@ -974,19 +1148,12 @@ describe("checkout web routes: checkout start", () => {
       mergeGuestCartToAccount: mockMergeGuestCartToAccount,
     });
 
-    const response = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: new URLSearchParams({ source: "cart" }).toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const form = new URLSearchParams({ source: "cart" });
+    const anonymousCart = "chase_sets_anonymous_cart=anon_cart_1";
+    const hop = await postStart("http://localhost/checkout/buy/readiness", form, anonymousCart);
+    const response = await followGuestEntry(hop, form, anonymousCart);
 
+    expect(mockMergeGuestCartToAccount).toHaveBeenCalledOnce();
     expect(mockGetCart).not.toHaveBeenCalled();
     expect(mockCreateCartReadiness).toHaveBeenCalledWith({});
     expect(mockCreateCheckoutSession).toHaveBeenCalledOnce();
@@ -995,12 +1162,8 @@ describe("checkout web routes: checkout start", () => {
   });
 
   it("marks guest checkout and cleared anonymous cart cookies secure on HTTPS handoff", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockStartGuestCheckout.mockResolvedValue({
-      accountId: "acc_guest",
-      guestToken: "guest_token",
-      expiresAt: "2026-04-02T00:00:00.000Z",
-    });
+    resolveGuestFromCookie();
+    mockStartGuestCheckout.mockResolvedValue(guestStart());
     mockCreateAuthRequestApiClient.mockReturnValue({
       startGuestCheckout: mockStartGuestCheckout,
     });
@@ -1017,31 +1180,22 @@ describe("checkout web routes: checkout start", () => {
     const form = new URLSearchParams();
     form.set("source", "cart");
 
-    const response = (await checkoutStartAction({
-      request: new Request("https://staging.chasesets.com/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
-    const cookies = response.headers.getSetCookie();
+    const anonymousCart = "chase_sets_anonymous_cart=anon_cart_1";
+    const origin = "https://staging.chasesets.com";
+    const hop = await postStart(`${origin}/checkout/buy/readiness`, form, anonymousCart);
+    const response = await followGuestEntry(hop, form, anonymousCart, origin);
 
-    expect(cookies.find((cookie) => cookie.startsWith("chase_sets_guest_checkout="))).toContain("Secure");
-    expect(cookies.find((cookie) => cookie.startsWith("chase_sets_anonymous_cart="))).toContain("Secure");
+    expect(hop.headers.getSetCookie().find((cookie) => cookie.startsWith("chase_sets_guest_checkout="))).toContain(
+      "Secure",
+    );
+    expect(response.headers.getSetCookie().find((cookie) => cookie.startsWith("chase_sets_anonymous_cart="))).toContain(
+      "Secure",
+    );
   });
 
   it("does not start payment while starting signed-out guest cart checkout", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockStartGuestCheckout.mockResolvedValue({
-      accountId: "acc_guest",
-      guestToken: "guest_token",
-      expiresAt: "2026-04-02T00:00:00.000Z",
-    });
+    resolveGuestFromCookie();
+    mockStartGuestCheckout.mockResolvedValue(guestStart());
     mockCreateAuthRequestApiClient.mockReturnValue({
       startGuestCheckout: mockStartGuestCheckout,
     });
@@ -1061,20 +1215,12 @@ describe("checkout web routes: checkout start", () => {
 
     const form = new URLSearchParams();
     form.set("source", "cart");
+    const anonymousCart = "chase_sets_anonymous_cart=anon_cart_1";
 
-    await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
+    const hop = await postStart("http://localhost/checkout/buy/readiness", form, anonymousCart);
+    await followGuestEntry(hop, form, anonymousCart);
 
+    expect(mockCreateCheckoutSession).toHaveBeenCalledOnce();
     expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
@@ -1120,5 +1266,266 @@ describe("checkout web routes: checkout start", () => {
         .map((item) => item.description)
         .join(" "),
     ).not.toContain("Guest");
+  });
+
+  describe("guest entry binds before write", () => {
+    it("opens the Session as the minted guest only on the followed POST, and replays it when that response is lost", async () => {
+      const world = guestEntryWorld();
+      const form = buyNowEntryForm();
+
+      const hop = await world.post(buyNowStartUrl, form);
+
+      expect(hop.status).toBe(307);
+      expect(hop.headers.get("X-Remix-Reload-Document")).toBeNull();
+      expect(hop.headers.get("Location")).toBe(`${buyNowStartUrl.replace("http://localhost", "")}&guestEntry=1`);
+      expect(setCookiePairs(hop)).toEqual(["chase_sets_guest_checkout=guest_token_1"]);
+      expect(world.checkoutCalls).toEqual([]);
+
+      // The followed POST presents the cookie and opens the Session; its response never arrives.
+      const followed = new URL(hop.headers.get("Location") ?? "", "http://localhost").toString();
+      const lost = await world.post(followed, form, { delivered: false });
+      expect(lost.status).toBe(302);
+      expect(lost.headers.get("X-Remix-Reload-Document")).toBe("true");
+
+      // The browser already holds the cookie, so a re-click and a POST resubmit both replay the first Session.
+      const reclicked = await world.post(buyNowStartUrl, form);
+      const resubmitted = await world.post(followed, form);
+
+      for (const answer of [lost, reclicked, resubmitted]) {
+        expect(new URL(answer.headers.get("Location") ?? "", "http://localhost").pathname).toBe(
+          "/checkout/buy/session/chk_guest_entry_1",
+        );
+      }
+      expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
+      expect([...world.guests.keys()]).toEqual(["guest_token_1"]);
+      // One entry attempt per account and key: the owner recorded exactly one and opened no second Session.
+      expect(world.sessions).toEqual([
+        {
+          sessionId: "chk_guest_entry_1",
+          accountId: "acc_guest_1",
+          entryAttemptKey: "chkentry_01JGUESTENTRYBINDS0001",
+        },
+      ]);
+    });
+
+    it("leaves one Session, owned by the second guest, when the 307 itself is lost", async () => {
+      const world = guestEntryWorld();
+      const form = buyNowEntryForm();
+
+      const lostHop = await world.post(buyNowStartUrl, form, { delivered: false });
+      expect(lostHop.status).toBe(307);
+      expect(world.jar.size).toBe(0);
+
+      const hop = await world.post(buyNowStartUrl, form);
+      const opened = await world.post(hop.headers.get("Location") ?? "", form);
+
+      expect(new URL(opened.headers.get("Location") ?? "", "http://localhost").pathname).toBe(
+        "/checkout/buy/session/chk_guest_entry_1",
+      );
+      expect(mockStartGuestCheckout).toHaveBeenCalledTimes(2);
+      expect(world.sessions).toHaveLength(1);
+      expect(world.ownedSessions("acc_guest_2")).toHaveLength(1);
+      expect(world.ownedSessions("acc_guest_1")).toEqual([]);
+    });
+
+    it("mints nothing and shows guest-access-expired when the browser refuses the guest cookie", async () => {
+      const world = guestEntryWorld({ refuseCookies: true });
+      const form = buyNowEntryForm();
+
+      const hop = await world.post(buyNowStartUrl, form);
+      const result = await world.post(hop.headers.get("Location") ?? "", form);
+
+      expect(result).toEqual({
+        recovery: expect.objectContaining({
+          kind: "guest-access-expired",
+          status: 401,
+          trustCue: "Your payment has not started.",
+        }),
+      });
+      expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
+      expect(world.checkoutCalls).toEqual([]);
+      expect(world.sessions).toEqual([]);
+    });
+
+    it("mints nothing and shows guest-access-expired when the guest cookie expired before the followed POST", async () => {
+      const world = guestEntryWorld();
+      const form = buyNowEntryForm();
+
+      const hop = await world.post(buyNowStartUrl, form);
+      world.expireGuest("guest_token_1");
+      const result = await world.post(hop.headers.get("Location") ?? "", form);
+
+      expect(result).toEqual({
+        recovery: expect.objectContaining({ kind: "guest-access-expired", status: 401 }),
+      });
+      expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
+      expect(world.checkoutCalls).toEqual([]);
+      expect(world.sessions).toEqual([]);
+    });
+
+    it("answers anonymous-cart entry with the 307 and no Session write, then opens the Session as the new guest", async () => {
+      const world = guestEntryWorld();
+      world.jar.set("chase_sets_anonymous_cart", "anon_cart_1");
+      const form = new URLSearchParams({ source: "cart" });
+
+      const hop = await world.post("http://localhost/checkout/buy/readiness", form);
+
+      expect(hop.status).toBe(307);
+      expect(setCookiePairs(hop)).toEqual(["chase_sets_guest_checkout=guest_token_1"]);
+      expect(world.checkoutCalls).toEqual(["getGuestCart"]);
+      expect(world.sessions).toEqual([]);
+
+      const opened = await world.post(hop.headers.get("Location") ?? "", form);
+
+      expect(opened.headers.get("X-Remix-Reload-Document")).toBe("true");
+      expect(world.checkoutCalls).toEqual([
+        "getGuestCart",
+        "mergeGuestCartToAccount",
+        "createCartReadiness",
+        "createCheckoutSession",
+      ]);
+      expect(world.ownedSessions("acc_guest_1")).toHaveLength(1);
+      expect(world.jar.has("chase_sets_anonymous_cart")).toBe(false);
+    });
+
+    it("answers the 403 mismatch recovery with the 307 and no Session write, then opens the Session as the new guest", async () => {
+      const world = guestEntryWorld();
+      const form = buyNowEntryForm();
+      // A returning guest holds a cookie whose access no longer matches the Session it starts.
+      await world.post(buyNowStartUrl, form);
+      world.refuseGuest("guest_token_1");
+      const callsBefore = world.checkoutCalls.length;
+
+      const hop = await world.post(buyNowStartUrl, form);
+
+      expect(hop.status).toBe(307);
+      expect(setCookiePairs(hop)).toEqual(["chase_sets_guest_checkout=guest_token_2"]);
+      expect(world.checkoutCalls.slice(callsBefore)).toEqual(["createCheckoutSession"]);
+      expect(world.sessions).toEqual([]);
+
+      const opened = await world.post(hop.headers.get("Location") ?? "", form);
+
+      expect(opened.headers.get("X-Remix-Reload-Document")).toBe("true");
+      expect(mockStartGuestCheckout).toHaveBeenCalledTimes(2);
+      expect(world.sessions).toEqual([
+        {
+          sessionId: "chk_guest_entry_1",
+          accountId: "acc_guest_2",
+          entryAttemptKey: "chkentry_01JGUESTENTRYBINDS0001",
+        },
+      ]);
+    });
+  });
+
+  describe("guest entry through the data router", () => {
+    /** The window a data router reads to tell a document redirect from a client-side one. */
+    function browserWindow() {
+      return {
+        document: { createElement: () => ({}) },
+        location: { origin: "http://localhost", assign: vi.fn(), replace: vi.fn() },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+    }
+
+    async function settled(router: ReturnType<typeof createMemoryRouter>) {
+      await vi.waitFor(() => {
+        expect(router.state.initialized).toBe(true);
+        expect(router.state.navigation.state).toBe("idle");
+      });
+    }
+
+    it("re-submits the guest entry 307 with its method and body and reaches the Session with the guest cookie and afterWrite receipt", async () => {
+      const world = guestEntryWorld();
+      const browser = browserWindow();
+      vi.stubGlobal("window", browser);
+      const posts: Array<{ url: string; method: string; body: string; cookie: string }> = [];
+      const sessionLoads: Array<{ url: string; cookie: string }> = [];
+      /** The network between router and server: each request presents the jar, each response fills it. */
+      const send = async (request: Request) => {
+        const headers = new Headers(request.headers);
+        if (world.cookieHeader()) headers.set("cookie", world.cookieHeader());
+        const body = request.method === "GET" ? undefined : await request.text();
+        return new Request(request.url, { method: request.method, headers, body, signal: request.signal });
+      };
+      const routes = [
+        {
+          id: "checkout-start",
+          path: "/checkout/buy/readiness",
+          loader: async (args: LoaderFunctionArgs) =>
+            checkoutStartLoader({ ...args, request: await send(args.request) }),
+          action: async (args: ActionFunctionArgs) => {
+            const request = await send(args.request);
+            posts.push({
+              url: request.url,
+              method: request.method,
+              body: await request.clone().text(),
+              cookie: request.headers.get("cookie") ?? "",
+            });
+            const result = await checkoutStartAction({ ...args, request });
+            return result instanceof Response ? world.receive(result) : result;
+          },
+        },
+        {
+          id: "checkout-session",
+          path: "/checkout/buy/session/:sessionId",
+          loader: async (args: LoaderFunctionArgs) => {
+            const request = await send(args.request);
+            sessionLoads.push({ url: request.url, cookie: request.headers.get("cookie") ?? "" });
+            return null;
+          },
+        },
+      ];
+      const startPath = buyNowStartUrl.replace("http://localhost", "");
+      const formData = new FormData();
+      formData.set("entryAttemptKey", "chkentry_01JGUESTENTRYROUTER001");
+      formData.set("source", "buy-now");
+      const sentBody = "entryAttemptKey=chkentry_01JGUESTENTRYROUTER001&source=buy-now";
+
+      try {
+        const router = createMemoryRouter(routes, { initialEntries: [startPath] });
+        await settled(router);
+        await router.navigate(startPath, { formMethod: "post", formData });
+
+        // The router re-sends the 307 with the same method and body, now presenting the guest cookie.
+        expect(posts).toEqual([
+          { url: buyNowStartUrl, method: "POST", body: sentBody, cookie: "" },
+          {
+            url: `${buyNowStartUrl}&guestEntry=1`,
+            method: "POST",
+            body: sentBody,
+            cookie: "chase_sets_guest_checkout=guest_token_1",
+          },
+        ]);
+        // The Session answer is the guest document redirect, so the browser loads it as a new document.
+        expect(browser.location.assign).toHaveBeenCalledOnce();
+        const documentPath = String(browser.location.assign.mock.calls[0]?.[0]);
+        router.dispose();
+        const sessionDocument = createMemoryRouter(routes, { initialEntries: [documentPath] });
+        await settled(sessionDocument);
+        sessionDocument.dispose();
+
+        expect(new URL(documentPath, "http://localhost").pathname).toBe("/checkout/buy/session/chk_guest_entry_1");
+        expect(sessionLoads).toEqual([
+          {
+            url: new URL(documentPath, "http://localhost").toString(),
+            cookie: "chase_sets_guest_checkout=guest_token_1",
+          },
+        ]);
+        expect(await readRedirectFreshWriteToken(documentPath)).toMatchObject({
+          sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_chk_guest_entry_1"] }],
+        });
+        expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
+        expect(world.sessions).toEqual([
+          {
+            sessionId: "chk_guest_entry_1",
+            accountId: "acc_guest_1",
+            entryAttemptKey: "chkentry_01JGUESTENTRYROUTER001",
+          },
+        ]);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 });

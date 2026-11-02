@@ -92,5 +92,11 @@ describe("item detail offer intent route", () => {
     expect(location).toContain("offerPriceAmount=350.00");
     expect(location).toContain("offerPriceCurrencyCode=EUR");
     expect(location).toContain("quantity=1");
+    // Discovery authors intent only; Checkout owns the one attempt-producing submit.
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input, init]) => String(input).includes("/offers") && init?.method === "POST"),
+    ).toHaveLength(0);
   });
 });

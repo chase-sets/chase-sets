@@ -2,11 +2,13 @@
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { SettlementPayoutReadinessRow } from "../read-model/queries";
+import type { SettlementPayoutReadinessRow } from "../../../client";
 import { PayoutReadinessPanel } from "./payout-readiness-panel";
+import { withPayoutSetupDecision } from "../domain/setup-progress";
+import { payoutSetupMatrix } from "../tests/setup-decision.test-data";
 
 function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
-  return {
+  return withPayoutSetupDecision({
     account_id: "acc_test" as never,
     status: "pending",
     missing_requirements: [],
@@ -27,10 +29,70 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
     requirements_collector: "application",
     updated_at: "2026-06-01T15:00:00.000Z",
     ...overrides,
-  };
+  });
 }
 
 describe("payout readiness panel recovery paths", () => {
+  it.each([
+    ["restricted_past_due", "Required payout details are overdue. Complete them now to restore payouts."],
+    [
+      "restricted_review",
+      "The payout provider is reviewing this account. No payout can be requested until the review finishes.",
+    ],
+    ["restricted_rejected", "The payout provider cannot enable this account. Contact support for next steps."],
+    ["restricted_paused", "The payout account is paused. Contact support to restore payouts."],
+    [
+      "restricted",
+      "Payouts cannot be requested until the provider restriction clears. Review payout setup in Chase Sets and contact support if the restriction remains.",
+    ],
+  ] as const)("locale-key-snapshot preserves %s description", (next_step, description) => {
+    const html = renderToStaticMarkup(<PayoutReadinessPanel payoutReadiness={{ ...readiness(), next_step }} />);
+    expect(html).toContain(description);
+  });
+
+  it("unknown-input-negative-tests: an unknown decision never suggests a next step", () => {
+    const html = renderToStaticMarkup(
+      <PayoutReadinessPanel
+        payoutReadiness={{ ...readiness(), next_step: "unknown" as never, provider_setup_available: false }}
+      />,
+    );
+    expect(html).not.toContain('href="/account/support"');
+    expect(html).not.toContain("Payout setup can continue");
+    expect(html).not.toContain("Provider review is in progress");
+  });
+
+  it.each(payoutSetupMatrix)("matrix-row-tests: locale-key-snapshot $name", ({ projection, expected, title }) => {
+    const html = renderToStaticMarkup(<PayoutReadinessPanel payoutReadiness={{ ...projection, ...expected }} />);
+    if (title) {
+      expect(html).toContain(title);
+    } else {
+      for (const { title: recoveryTitle } of payoutSetupMatrix) {
+        if (recoveryTitle) expect(html).not.toContain(recoveryTitle);
+      }
+    }
+    expect(html.includes('href="/account/support"')).toBe(expected.support_recommended && title !== null);
+    expect(html).not.toContain("requirements.review");
+  });
+
+  it("uses next_step and support_recommended rather than recomputing contradictory raw readiness", () => {
+    const html = renderToStaticMarkup(
+      <PayoutReadinessPanel
+        payoutReadiness={{
+          ...readiness({
+            status: "restricted",
+            disabled_reason: "past_due",
+            missing_requirements: ["external_account"],
+          }),
+          next_step: "provider_review",
+          support_recommended: false,
+        }}
+      />,
+    );
+    expect(html).toContain("Provider review is in progress");
+    expect(html).not.toContain("Required payout details are overdue");
+    expect(html).not.toContain('href="/account/support"');
+  });
+
   it("renders support-safe groups and tints progress-step furniture", () => {
     const html = renderToStaticMarkup(
       <PayoutReadinessPanel

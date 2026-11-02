@@ -9,9 +9,9 @@ import {
   expectAccessibleDisclosure,
   expectAccessibleMain,
 } from "@chase-sets/playwright-evidence";
-import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eSeedContract, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
+import { settleSearchResults } from "./support/search-settle";
 import { hasIdentifierSubmitHandler } from "./support/sign-in-readiness";
 
 const configuredMarketplaceAccount = {
@@ -20,6 +20,7 @@ const configuredMarketplaceAccount = {
 };
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
+const browseSearchQuery = marketplaceBrowserE2eSeedContract.browse.searchQuery;
 const authProjectionTimeoutMs = 90_000;
 
 const accountCriticalRoutes = [
@@ -237,20 +238,7 @@ test.describe("marketplace critical flows", () => {
     expect(body.items).toHaveLength(10);
     const orderedIds = body.items.map((item) => item.catalog_item_id);
     expect(new Set(orderedIds).size).toBe(10);
-    expect([...orderedIds].sort()).toEqual(
-      [
-        catalogSeedIds.items.bulbasaurBaseSet,
-        catalogSeedIds.items.charizardBaseSet,
-        catalogSeedIds.items.japaneseCharizardBaseSet,
-        catalogSeedIds.items.lugiaNeoGenesis,
-        catalogSeedIds.items.mewtwoBlackStarPromo,
-        catalogSeedIds.items.pikachuJungle,
-        catalogSeedIds.items.pikachuPrismaticEvolutions,
-        catalogSeedIds.items.prismaticEvolutionsBoosterPack,
-        catalogSeedIds.items.surgingSparksBoosterBox,
-        catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
-      ].sort(),
-    );
+    expect([...orderedIds].sort()).toEqual([...marketplaceBrowserE2eSeedContract.browse.itemCatalogIds].sort());
     expect(body.items.every((item) => typeof item.slug === "string" && item.slug.length > 0)).toBe(true);
     const expectedHrefs = body.items.map((item) => `/items/${item.slug}`).sort();
     const main = page.getByRole("main");
@@ -379,6 +367,99 @@ test.describe("marketplace critical flows", () => {
     await ready();
     expect(await snapshot()).toEqual(stable);
     await captureAccessibilityEvidence({ page, testInfo, surface: "6110-populated-browse" });
+  });
+
+  test("browse narrows the Result Set by a category Facet @marketplace-browse", async ({ page }) => {
+    await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
+
+    const resultLinks = page.getByRole("link", { name: /View details for/i });
+    const initialResultCount = await settleSearchResults(page, resultLinks);
+    expect(initialResultCount).toBeGreaterThan(2);
+
+    const categoriesSection = page.locator(
+      '[data-facet-list-presentation="desktop"] [data-accordion-item-value="categories"]',
+    );
+    const categoryPanel = categoriesSection.locator('[role="region"]');
+    await expect(categoryPanel).toBeVisible();
+    const categoryButtons = categoryPanel.getByRole("button");
+    const categoryLabels = await categoryButtons.allTextContents();
+    const categoryIndex = categoryLabels.findIndex((label) => {
+      const count = Number(label.match(/\((\d+)\)\s*$/)?.[1]);
+      return count >= 2 && count < initialResultCount;
+    });
+    expect(categoryIndex, "seeded browse needs a category that narrows to at least two results").toBeGreaterThanOrEqual(
+      0,
+    );
+    const categoryChoice = categoryButtons.nth(categoryIndex);
+    const categoryText = categoryLabels[categoryIndex]!;
+    const categoryCount = Number(categoryText.match(/\((\d+)\)\s*$/)![1]);
+    const categoryLabel = categoryText.replace(/\s*\(\d+\)\s*$/, "").trim();
+    const selectedCategory = categoryPanel.getByRole("button", {
+      name: new RegExp(`^${categoryLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(`),
+    });
+
+    await categoryChoice.click();
+    await expect(page).toHaveURL((url) => url.pathname.startsWith("/categories/") || url.searchParams.has("category"));
+    await expect(selectedCategory).toHaveAttribute("aria-pressed", "true");
+    const filteredResultCount = await settleSearchResults(page, resultLinks);
+    expect(filteredResultCount).toBe(categoryCount);
+    expect(filteredResultCount).not.toBe(initialResultCount);
+  });
+
+  test("browse Sort Order reverses the Result Set @marketplace-browse", async ({ page }) => {
+    await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
+
+    const resultLinks = page.getByRole("link", { name: /View details for/i });
+    const initialResultCount = await settleSearchResults(page, resultLinks);
+    expect(initialResultCount).toBeGreaterThan(2);
+    const sort = page.getByRole("combobox", { name: "Sort" });
+
+    await sort.click();
+    await page.getByRole("option", { name: "Title A-Z" }).click();
+    await expect(page).toHaveURL(/(?:\?|&)sort=title_asc(?:&|$)/);
+    const ascendingResultCount = await settleSearchResults(page, resultLinks);
+    expect(ascendingResultCount).toBe(initialResultCount);
+    const ascendingResultHrefs = await resultLinks.evaluateAll((links) =>
+      links.map((link) => link.getAttribute("href")),
+    );
+    expect(ascendingResultHrefs).toHaveLength(initialResultCount);
+
+    await sort.click();
+    await page.getByRole("option", { name: "Title Z-A" }).click();
+    await expect(sort).toContainText("Title Z-A");
+    await expect(page).toHaveURL(/(?:\?|&)sort=title_desc(?:&|$)/);
+    const descendingResultCount = await settleSearchResults(page, resultLinks);
+    expect(descendingResultCount).toBe(initialResultCount);
+    const descendingResultHrefs = await resultLinks.evaluateAll((links) =>
+      links.map((link) => link.getAttribute("href")),
+    );
+    expect(descendingResultHrefs).toEqual([...ascendingResultHrefs].reverse());
+  });
+
+  test("browse recovers from a zero-result search @marketplace-browse", async ({ page }) => {
+    const testInfo = test.info();
+    await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
+
+    const searchBox = page.getByRole("searchbox", { name: "Marketplace search" });
+    const resultLinks = page.getByRole("link", { name: /View details for/i });
+    await settleSearchResults(page, resultLinks);
+    await expect(searchBox).toHaveValue(browseSearchQuery);
+
+    const invocationIdentity = syntheticAccountFor(testInfo).email.split("@", 1)[0];
+    const missingQuery = `no-result-${invocationIdentity}`;
+    await searchBox.fill(missingQuery);
+    await searchBox.press("Enter");
+    await expect(page).toHaveURL((url) => url.searchParams.get("q") === missingQuery);
+    await expect(page.getByRole("heading", { name: "No items found" })).toBeVisible();
+    const zeroResultCount = await settleSearchResults(page, resultLinks);
+    expect(zeroResultCount).toBe(0);
+    await captureAccessibilityEvidence({ page, testInfo, surface: "6111-zero-result" });
+
+    await page.getByRole("button", { name: "Clear search" }).click();
+    await expect(page).toHaveURL((url) => url.searchParams.get("q") === null);
+    const recoveredResultCount = await settleSearchResults(page, resultLinks);
+    expect(recoveredResultCount).toBeGreaterThan(0);
+    await expect(searchBox).toHaveValue("");
   });
 
   test("signed-out shoppers can browse, search, and reach auth entry points @marketplace-browse", async ({ page }) => {

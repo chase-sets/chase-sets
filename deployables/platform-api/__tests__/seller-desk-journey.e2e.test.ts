@@ -3,6 +3,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { describe, expect, it, vi } from "vitest";
 import { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { hashMarketplaceRequest, marketplaceOfferCanonicalRequest } from "@chase-sets/marketplace/server";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { buildPlatformApiApp } from "../src/app";
 
@@ -509,7 +510,14 @@ describe("Seller Desk full-journey acceptance gate @seller-desk-journey", () => 
               offerId: "off_1",
               listingId: "listing_1",
               feeQuoteFingerprint: "fee_quote_1",
-              sourceActionKey: "seller-desk:accept-offer-1",
+              attemptId: "seller_desk_accept_attempt_1",
+              requestHash: hashMarketplaceRequest(
+                marketplaceOfferCanonicalRequest("offer.accept", {
+                  offerId: "off_1",
+                  listingId: "listing_1",
+                  feeQuoteFingerprint: "fee_quote_1",
+                }),
+              ),
               idempotencyKey: "seller-desk-accept-offer-1",
               confirmationText: "Accept Offer.",
             },
