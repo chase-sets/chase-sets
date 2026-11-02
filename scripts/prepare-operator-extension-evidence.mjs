@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readGitHead } from "./lib/git-listing.mjs";
 
 const suite = "tcgplayer_operator_extension";
 const extensionId = "ghemdloifdkoadnapmigabiekchlholm";
@@ -20,8 +20,8 @@ const requireSafe = (condition) => {
   if (!condition) throw new Error("Operator evidence refused");
 };
 
-export function operatorEvidenceIdentity(root, env = process.env) {
-  const checkoutHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+export function operatorEvidenceIdentity(root, env = process.env, { runGit } = {}) {
+  const checkoutHead = readGitHead({ cwd: root, runGit });
   const identity = {
     sourceHead: env.OPERATOR_EVIDENCE_SOURCE_HEAD || checkoutHead,
     checkoutHead,
