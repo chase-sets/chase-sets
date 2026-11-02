@@ -35,9 +35,11 @@ import type {
   FulfillmentShipmentLabelRefundStatusRecordedPayload,
   FulfillmentShipmentPackagePreparedPayload,
   FulfillmentShipmentPackingStartedPayload,
+  IdentityAccountBlockedPayload,
   IdentityAccountClosedPayload,
   IdentityAccountReactivatedPayload,
   IdentityAccountSuspendedPayload,
+  IdentityAccountUnblockedPayload,
   IdentityFounderNumberClaimedPayload,
   InventoryHoldPlacedPayload,
   InventoryChannelStockAllocationSetPayload,
@@ -866,6 +868,14 @@ const aggregateTypeIdentity = {
   "identity.account.closed": true satisfies IsExactly<
     ChaseSetsEventPayloads["identity.account.closed"],
     IdentityAccountClosedPayload
+  >,
+  "identity.account-blocked": true satisfies IsExactly<
+    ChaseSetsEventPayloads["identity.account-blocked"],
+    IdentityAccountBlockedPayload
+  >,
+  "identity.account-unblocked": true satisfies IsExactly<
+    ChaseSetsEventPayloads["identity.account-unblocked"],
+    IdentityAccountUnblockedPayload
   >,
   "marketplace.listing.auto-unlisted": true satisfies IsExactly<
     ChaseSetsEventPayloads["marketplace.listing.auto-unlisted"],

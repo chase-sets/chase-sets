@@ -625,6 +625,28 @@ A **Store Invitation** is the planned request for a User or email address to joi
 
 An **Agent Grant Revocation Operation** is Identity's retained owner of one Account's withdrawal of an Agent Grant. It records the first revocation time, reason and provenance, then tracks Identity terminal authority, Payments cleanup, webhook exclusion and completion. Repeated token and Account requests resume that owner rather than creating another revocation. Adoption records system recovery of an already-revoked Grant; it does not invent historical user intent or cleanup completion.
 
+## Account Safety
+
+### Account Block
+
+An **Account Block** is one directed, Account-owned safety relation from a blocking Account to a blocked Account. It is either inactive or active; a Block activates it and an Unblock deactivates it. The relation belongs to the Accounts, not to the User who asked: the initiating User is audit identity only. Its authority is one private directed pair stream plus one private Account-wide budget stream per blocking Account. Only effective transitions count against the versioned limits of 10 per pair and 60 per blocking Account in a rolling hour, and there is no cap on active Account Blocks. The public facts `identity.account-blocked` and `identity.account-unblocked` carry exactly the two Accounts.
+
+### Blocking Account
+
+The **Blocking Account** is the Account that owns an Account Block and whose rolling budget its transitions consume.
+
+### Blocked Account
+
+The **Blocked Account** is the counterpart Account an Account Block is directed at. A Block never tells the Blocked Account who blocked it.
+
+### Block
+
+A **Block** is the transition that makes an inactive Account Block active. A Block for an already-active Account Block changes nothing and consumes no budget.
+
+### Unblock
+
+An **Unblock** is the transition that makes an active Account Block inactive. It affects only the Blocking Account's own direction, and an Unblock for an already-inactive Account Block changes nothing and consumes no budget.
+
 ## Language Rules
 
 To maintain consistency:

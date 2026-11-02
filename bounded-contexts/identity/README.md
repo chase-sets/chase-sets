@@ -52,6 +52,23 @@ An **Account Capability** is a named durable product-policy dimension describing
 
 The catalog declarations are `authenticity.seller-included`, `inventory.locations`, `mcp.rate-tier`, and `support.evidence.any-case`. Their product namespaces do not assert context ownership: `mcp.rate-tier` and `support.evidence.any-case` are owned by Platform Operations. These declarations are inert metadata. They provide no grants, resolution, enforcement, pricing, or UI behavior; only a Capability Grant changes what an Account holds.
 
+## Account Blocks
+
+An **Account Block** is a directed, Account-owned relation, either inactive or active. Its authority (`features/account-blocks`) has two private participants per command, locked and appended in this order:
+
+1. The blocking Account's budget stream. One `identity.account-block-budget-recorded` entry per effective transition carries the Account-wide rolling budget.
+2. The directed pair stream. Each transition is a private `identity.account-block-transition-recorded` event, immediately followed by its public `identity.account-blocked` or `identity.account-unblocked` fact, whose payload is exactly `{ blockingAccountId, blockedAccountId }`.
+
+A command reads only its one pair and its one budget stream, so the number of active Blocks never enlarges a read.
+
+The effective instant comes from the PostgreSQL server clock, read after the stream locks, and never moves before any stream's last stored instant. Replay folds only stored effective instants. The limits are versioned domain constants: 10 transitions per pair and 60 per blocking Account in the rolling hour `(effectiveAt - PT1H, effectiveAt]`.
+
+History that is private-only, public-only, reordered, duplicated, missing its budget entry, non-monotonic, malformed or carrying an altered identity is poison and fails closed. A stream beyond 31 events without an authority snapshot is refused rather than replayed.
+
+The slice stages the append plan inside a caller-owned transaction and appends nothing itself. The receipt admission owner appends the plan with its receipt in one transaction, and no route mounts it yet.
+
+Account Block facts cross the context boundary only through the privacy-redacted transport envelope. Subscription registration refuses the private types outside Identity.
+
 ## Core Aggregates and Process Managers
 
 - Account

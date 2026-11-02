@@ -16,7 +16,7 @@ import {
 import { createTransientProjectionError } from "@chase-sets/event-core/projector";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { compareGlobalPosition, EVENT_STORE_READ_PAGE_SIZE_MAX } from "@chase-sets/event-core/storage";
-import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { isContextPrivateEventType, type TransportEvent } from "@chase-sets/event-core/transport";
 import { isDeepStrictEqual } from "node:util";
 import type {
   ProjectionBlockedStream,
@@ -511,6 +511,7 @@ export function createSubscriptionRunner(
   sourcePool: PgTransactionalPool,
   subscription: BcEventSubscription,
 ): ContextSubscriptionRunner {
+  assertNoCrossContextPrivateEventTypes(targetContextName, subscription);
   const sourceEventStore = createPostgresEventStore({ pool: sourcePool });
   const batchSize = subscription.batchSize ?? 100;
   const handlerKind = subscription.handlerKind ?? "projection";
@@ -1513,6 +1514,7 @@ export function resolveModuleSubscriptions(
 
     for (const subscription of subscriptions) {
       validateSubscriptionEventFilters(entry.contextName, subscription);
+      assertNoCrossContextPrivateEventTypes(entry.contextName, subscription);
       if (
         subscription.sourceContextMount === "when-all-sources-mounted" &&
         !allProjectionSourcesMounted(subscription, projectionSourcesByName, mountedContextNames)
@@ -1676,6 +1678,29 @@ function validateSubscriptionEventFilters(contextName: string, subscription: BcE
   if (missingEventTypes.length > 0) {
     throw new Error(
       `Context '${contextName}' subscription '${subscription.subscriptionName}' for projection '${subscription.projectionName}' declares eventTypes that do not cover handler event types. Missing: [${missingEventTypes.join(", ")}]. Add the missing event type(s) to the bounded context manifest or remove the handler.`,
+    );
+  }
+}
+
+/**
+ * A context-private event type (for example Identity's private Account Block transition,
+ * Account budget or receipt types) is delivered only to a subscription that both lives in
+ * and reads from its owning context. Declared filters and handler keys are both checked,
+ * because either one selects what the runner delivers.
+ */
+function assertNoCrossContextPrivateEventTypes(targetContextName: string, subscription: BcEventSubscription): void {
+  const selectedEventTypes = new Set([...(subscription.eventTypes ?? []), ...Object.keys(subscription.handlers)]);
+  const crossingPrivateEventTypes = [...selectedEventTypes]
+    .filter((eventType) => isContextPrivateEventType(eventType))
+    .filter((eventType) => {
+      const ownerContextName = eventType.slice(0, eventType.indexOf("."));
+      return targetContextName !== ownerContextName || subscription.sourceContextName !== ownerContextName;
+    })
+    .sort();
+
+  if (crossingPrivateEventTypes.length > 0) {
+    throw new Error(
+      `Context '${targetContextName}' subscription '${subscription.subscriptionName}' from source context '${subscription.sourceContextName}' selects context-private event types that never cross a context boundary: [${crossingPrivateEventTypes.join(", ")}].`,
     );
   }
 }

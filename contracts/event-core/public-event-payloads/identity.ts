@@ -227,8 +227,85 @@ function isAccountProfileReportInstant(value: unknown): value is string {
   );
 }
 
+/**
+ * Account Block public fact v1: the blocking Account blocked or unblocked the blocked
+ * Account. The event type alone says Block versus Unblock. The payload is closed to the
+ * two Accounts; transition, time, command and User identity stay Identity-private.
+ */
+export type IdentityAccountBlockFactPayload = Readonly<{
+  blockingAccountId: AccountId;
+  blockedAccountId: AccountId;
+}>;
+
+export type IdentityAccountBlockedPayload = IdentityAccountBlockFactPayload;
+export type IdentityAccountUnblockedPayload = IdentityAccountBlockFactPayload;
+
+export const identityAccountBlockFactEventTypes = {
+  block: "identity.account-blocked",
+  unblock: "identity.account-unblocked",
+} as const;
+
+export type IdentityAccountBlockFactEventType =
+  (typeof identityAccountBlockFactEventTypes)[keyof typeof identityAccountBlockFactEventTypes];
+
+export function isIdentityAccountBlockFactEventType(eventType: string): eventType is IdentityAccountBlockFactEventType {
+  return (
+    eventType === identityAccountBlockFactEventTypes.block || eventType === identityAccountBlockFactEventTypes.unblock
+  );
+}
+
+/**
+ * Every Identity-private Account Block authority type (transition, Account budget and any
+ * receipt-shaped type) lives under this prefix. None of them is in the public registry and
+ * none may cross a context boundary. The public facts above do not match it.
+ */
+export const identityAccountBlockPrivateEventTypePrefix = "identity.account-block-";
+
+export function isIdentityAccountBlockPrivateEventType(eventType: string): boolean {
+  return eventType.startsWith(identityAccountBlockPrivateEventTypePrefix);
+}
+
+const accountBlockFactKeys = ["blockingAccountId", "blockedAccountId"] as const;
+
+/**
+ * Reads a stored or candidate Account Block fact. The record is closed: exactly the two
+ * Account keys, no version, time, trace, User or prototype key, and never a self-Block.
+ * Errors never echo input values.
+ */
+export function parseIdentityAccountBlockFactPayload(value: unknown): IdentityAccountBlockFactPayload {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Account Block fact must be an object.");
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new Error("Account Block fact must be a plain object.");
+  }
+  const input = value as Readonly<Record<string, unknown>>;
+  const keys = Reflect.ownKeys(input);
+  if (keys.length !== accountBlockFactKeys.length || accountBlockFactKeys.some((key) => !Object.hasOwn(input, key))) {
+    throw new Error(`Account Block fact requires exactly: ${accountBlockFactKeys.join(", ")}.`);
+  }
+  const blockingAccountId = accountBlockFactAccountId(input.blockingAccountId, "blocking");
+  const blockedAccountId = accountBlockFactAccountId(input.blockedAccountId, "blocked");
+  if (blockingAccountId === blockedAccountId) {
+    throw new Error("Account Block fact cannot name the same Account twice.");
+  }
+  return { blockingAccountId, blockedAccountId };
+}
+
+function accountBlockFactAccountId(value: unknown, label: "blocking" | "blocked"): AccountId {
+  try {
+    if (typeof value !== "string") throw new Error();
+    return parseStrictTypedUlid(value, "acc");
+  } catch {
+    throw new Error(`Account Block fact ${label} Account must be a canonical 'acc_' ULID.`);
+  }
+}
+
 export type IdentityEventPayloads = Readonly<{
   "identity.registration.completed": IdentityRegistrationCompletedPayload;
+  "identity.account-blocked": IdentityAccountBlockedPayload;
+  "identity.account-unblocked": IdentityAccountUnblockedPayload;
   "identity.onboarding.completed": IdentityOnboardingCompletedPayload;
   "identity.account-profile.report-submitted": IdentityAccountProfileReportSubmittedPayload;
   "identity.account.suspended": IdentityAccountSuspendedPayload;
