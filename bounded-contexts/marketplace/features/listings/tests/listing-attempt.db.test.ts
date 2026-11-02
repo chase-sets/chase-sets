@@ -191,9 +191,10 @@ describeDb("Listing attempts on PostgreSQL", () => {
         return error;
       }
     })();
-    expect(conflict).toMatchObject({ code: "concurrency_conflict" });
-    expect(String((conflict as Error).message)).toContain(streamId);
-    expect(String((conflict as Error).message)).toContain("expected version 1");
+    expect(conflict).toMatchObject({
+      code: "concurrency_conflict",
+      details: { streamId, expectedVersion: loaded.length },
+    });
     /*
      * The Listing writer is current; only the guard's stale expected version
      * should reject this atomic append.
