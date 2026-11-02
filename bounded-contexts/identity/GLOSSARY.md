@@ -267,6 +267,9 @@ Notes:
 - Auth owns the provider redirect, callback verification, and session journey.
 - A provider identity must not be linked to more than one User.
 - Provider tokens and raw profile payloads are not Identity facts.
+- A **Social Login Ownership Claim** is the event-sourced fact that decides which User owns one provider identity. Its stream is keyed by a hash of the provider name and trimmed subject, so the raw subject never appears in stream or scope names. A link is appended only in the same transaction that claims the subject for that User; the link projections are views of those facts and never move a provider identity to another User.
+- Links recorded before the claim existed are folded into claims by a bounded catch-up over link history, so an existing link and a later competing link are decided the same way.
+- **`repair-required`** is the claim state when link history shows one provider identity linked to more than one User. The provider identity then signs in, registers, and links no one until it is repaired; Auth refuses it with `provider_link_repair_required`.
 
 ### API Key
 

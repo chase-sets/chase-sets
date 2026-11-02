@@ -57,18 +57,3 @@ export async function getUserByPhone(db: PgQueryable, phone: string) {
   );
   return result.rows[0] ?? null;
 }
-
-export async function getUserBySocialLogin(
-  db: PgQueryable,
-  params: Readonly<{ providerName: string; providerSubject: string }>,
-) {
-  const result = await db.query<UserRow>(
-    `SELECT users.*
-     FROM identity_user_social_login_links AS links
-     INNER JOIN identity_users AS users ON users.user_id = links.user_id
-     WHERE links.provider_name = $1
-       AND links.provider_subject = $2`,
-    [params.providerName, params.providerSubject],
-  );
-  return result.rows[0] ?? null;
-}

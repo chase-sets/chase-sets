@@ -315,7 +315,6 @@ function createIdentityRuntime(services: Record<string, unknown>) {
       listUsers: emptyList,
       getUser: vi.fn(async () => null),
       getUserState: vi.fn(async () => null),
-      getUserBySocialLogin: vi.fn(async () => null),
       projectors: [],
     },
     memberships: {
