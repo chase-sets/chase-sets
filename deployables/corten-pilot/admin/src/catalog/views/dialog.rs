@@ -372,6 +372,11 @@ pub fn RefTypeForm<'a, I: Id + AttrValue + Copy>(
         </form>
     }
 }
+
+/// A relationship row's record picker (corten-ui's `ComboBox`), by its form's id and row.
+#[derive(Id)]
+struct ReferenceRowId<'a>(&'a str);
+
 /// A reference record's create form or its edit form. The type is picked from the active types
 /// (typed when there are none); a relationship's record is picked from `records` with
 /// corten-ui's combobox (a select without JavaScript), the record itself left out (`own`).
@@ -408,18 +413,18 @@ pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
             record_labels.push((picked.to_owned(), picked.to_owned()));
         }
     }
-    let row_ids: Vec<String> = (0..rows.len()).map(|row| super::id_with(&id, &format!("-reference-{row}"))).collect();
+    let row_ids: Vec<String> = (0..rows.len()).map(|row| super::id_with(&id, &format!("-{row}"))).collect();
     let (choose, none) = (t.ref_record_choose_reference_record(), t.ref_record_no_reference_records_match());
     html! {
         let type_options: Vec<(&str, &str)> = type_labels.iter().map(|(k, l)| (k.as_str(), l.as_str())).collect();
         let choices: Vec<corten_ui::Choice<&str>> =
             record_labels.iter().map(|(value, label)| corten_ui::Choice::new(value.as_str(), label.as_str())).collect();
-        let pickers: Vec<Picker<&str>> = rows
+        let pickers: Vec<Picker<ReferenceRowId, &str>> = rows
             .iter()
             .zip(&row_ids)
             .map(|((_, value), row_id)| Picker {
                 value: Some(value.trim()).filter(|v| !v.is_empty()),
-                ..Picker::new(row_id, f.reference_id, choose, none, &choices)
+                ..Picker::new(ReferenceRowId(row_id), f.reference_id, choose, none, &choices)
             })
             .collect();
         <form class={Form} id={id} method="post" action={action} data-patch>
@@ -455,7 +460,7 @@ pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
                             <input type="text" name={f.relationship_type} value={*kind}>
                         </label>
                         <div class={Field}>
-                            <label class={Label} for={row_id}>{t.ref_record_reference_record()}</label>
+                            <label class={Label} for={ReferenceRowId(row_id)}>{t.ref_record_reference_record()}</label>
                             <ComboBox field={picker} />
                         </div>
                         <button type="submit" class={(Small, Danger)} name={f.rerow} value={row} formnovalidate>
