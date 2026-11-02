@@ -221,21 +221,10 @@ pub struct ItemCommand {
     pub total_quantity: u64,
     pub acquisition_cost_amount: Option<String>,
     pub acquisition_cost_currency_code: Option<String>,
-    /// A graded card's details, only for a graded product (`InventoryGradedCardDetails`).
+    /// Only for a Graded product, `null` when none was typed. Inventory works out the grading company
+    /// and grade from the options, and refuses a Graded create without this member.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub graded_card: Option<GradedCard>,
-}
-
-/// `InventoryGradedCardDetails` as marketplace's Create inventory item sends it: no population
-/// and no condition descriptors.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GradedCard {
-    pub grading_company: String,
-    pub grade: String,
-    pub certification_number: Option<String>,
-    pub population: Option<()>,
-    pub condition_descriptors: [(); 0],
+    pub certification_number: Option<Option<String>>,
 }
 
 #[derive(Deserialize)]
@@ -3158,6 +3147,9 @@ pub struct CatalogItem {
     pub subtitle: Option<String>,
     pub status: String,
     pub product_schema: Option<Schema>,
+    /// The options that make the product Graded, as Inventory names them. Absent from an older API.
+    #[serde(default)]
+    pub graded_selections: Vec<Selected>,
 }
 
 /// A guest's listing draft an account claims (`MarketplaceAnonymousListingDraftIntent`): the form

@@ -19,9 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::chrome::Chrome;
 use crate::{
-    api::{
-        ApiError, GradedCard, Inventory as _, InventoryItems, InventoryList as _, ItemCommand, Location, SaleCommand, SaleResult,
-    },
+    api::{ApiError, Inventory as _, InventoryItems, InventoryList as _, ItemCommand, Location, SaleCommand, SaleResult},
     app::{Config, Shared, read_failed, sign_in, url},
     auth::{Seller, Viewer},
     items::Raw,
@@ -176,28 +174,20 @@ impl CreateItem {
         self.catalog.ready().filter(|(item, _)| item.status == "active")
     }
 
-    /// The chosen product's grading company and grade, when it is a graded card.
-    pub fn graded(&self) -> Option<(String, String)> {
-        let (item, picks) = self.ready()?;
-        graded(item.product_schema.as_ref()?, picks)
+    /// Whether the chosen product is Graded, so the form asks for its certification number.
+    pub fn graded(&self) -> bool {
+        self.ready().is_some_and(|(item, picks)| graded(item, picks))
     }
 }
 
-/// Whether the options name a graded card, with its grading company and grade, as marketplace's
-/// Create inventory item works them out: the active `Form` dimension's option is `Graded`, and the
-/// company and grade are the `Grading Company` and `Grade` options' names, empty when unchosen.
-/// The Inventory API should derive these itself (chase-sets/chase-sets#10789).
-pub fn graded(schema: &crate::api::Schema, picks: &crate::items::Picks) -> Option<(String, String)> {
+/// Whether `picks` choose one of the options Inventory names as Graded (`selectsGradedOption`),
+/// on a dimension that applies. Inventory works out the grading company and grade itself.
+pub fn graded(item: &crate::api::CatalogItem, picks: &crate::items::Picks) -> bool {
+    let Some(schema) = item.product_schema.as_ref() else { return false };
     let active = crate::items::active_dimensions(schema, picks);
-    let label = |name: &str| {
-        active
-            .iter()
-            .find(|d| d.dimension_name == name)
-            .and_then(|d| d.allowed_options.iter().find(|o| picks.get(&d.dimension_id) == Some(&o.option_id)))
-            .map(|o| crate::items::option_label(o).to_owned())
-            .unwrap_or_default()
-    };
-    (label("Form") == "Graded").then(|| (label("Grading Company"), label("Grade")))
+    item.graded_selections.iter().any(|pair| {
+        picks.get(&pair.dimension_id) == Some(&pair.option_id) && active.iter().any(|d| d.dimension_id == pair.dimension_id)
+    })
 }
 
 /// An account page to go back to (`safeAccountReturnTo`): a path under `/account/`, nothing else.
@@ -503,9 +493,6 @@ pub(crate) async fn create(
         errors.add(f.total_quantity, p.inventory_quantity());
     }
     let graded = create.graded();
-    if graded.as_ref().is_some_and(|(company, grade)| company.trim().is_empty() || grade.trim().is_empty()) {
-        errors.add(f.q, t.list_graded_details_required());
-    }
     if errors.is_empty()
         && let (Some((item, picks)), Some(quantity)) = (create.ready(), quantity)
     {
@@ -517,13 +504,7 @@ pub(crate) async fn create(
             total_quantity: quantity,
             acquisition_cost_amount: optional(&create.cost_amount),
             acquisition_cost_currency_code: optional(&create.cost_currency),
-            graded_card: graded.map(|(grading_company, grade)| GradedCard {
-                grading_company,
-                grade,
-                certification_number: optional(&create.certification_number),
-                population: None,
-                condition_descriptors: [],
-            }),
+            certification_number: graded.then(|| optional(&create.certification_number)),
         };
         match caller.create_item(&attempt, &command).await {
             Ok((id, receipt)) => return created(&req, &create, &id, &attempt, receipt),
@@ -622,7 +603,7 @@ fn sold(req: &Req, place: &Place, result: &SaleResult, receipt: Option<Receipt>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::{Clause, Dimension, DimensionOption, DimensionRef, Schema};
+    use crate::api::{CatalogItem, Clause, Dimension, DimensionOption, DimensionRef, Schema, Selected};
 
     /// A card as the catalog names it: its Form, and for a graded one its Grading Company and Grade.
     fn card() -> Schema {
@@ -656,12 +637,20 @@ mod tests {
     }
 
     #[test]
-    fn a_graded_card_takes_its_company_and_grade_from_the_options_names() {
+    fn a_card_is_graded_when_it_picks_an_option_inventory_names_graded() {
         let picks = |pairs: &[(&str, &str)]| pairs.iter().map(|(d, o)| ((*d).to_owned(), (*o).to_owned())).collect();
-        let s = card();
-        assert_eq!(graded(&s, &picks(&[("form", "g"), ("company", "psa"), ("grade", "10")])), Some(("PSA".into(), "10".into())));
-        assert_eq!(graded(&s, &picks(&[("form", "g")])), Some((String::new(), String::new())), "unchosen: empty, refused");
-        assert_eq!(graded(&s, &picks(&[("form", "r"), ("company", "psa")])), None, "a raw card sends no details");
+        let item = |graded_selections: Vec<Selected>| CatalogItem {
+            catalog_item_id: "cat".into(),
+            title: "Card".into(),
+            subtitle: None,
+            status: "active".into(),
+            product_schema: Some(card()),
+            graded_selections,
+        };
+        let named = item(vec![Selected { dimension_id: "form".into(), option_id: "g".into() }]);
+        assert!(graded(&named, &picks(&[("form", "g")])), "no company or grade yet: Inventory refuses it");
+        assert!(!graded(&named, &picks(&[("form", "r"), ("company", "psa")])), "a raw card");
+        assert!(!graded(&item(vec![]), &picks(&[("form", "g")])), "the page has no Form/Graded rule of its own");
     }
 
     #[test]

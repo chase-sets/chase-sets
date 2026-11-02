@@ -8326,6 +8326,7 @@ fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
             Some(
                 Json(json!({
                     "catalog_item_id": "cat_card", "title": "Charizard", "subtitle": "Base Set", "status": "active",
+                    "graded_selections": [{ "dimensionId": "dim_form", "optionId": "chc_graded" }],
                     "product_schema": {
                         "dimensions": [
                             { "dimensionId": "dim_form", "dimensionName": "Form", "required": true, "appliesWhen": [],
@@ -9996,6 +9997,14 @@ fn inventory_items(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMa
             if sent["storageLocationId"] == "loc_refused" {
                 return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Storage location is archived."));
             }
+            // `cat_card` names no grading company, so Inventory refuses every Graded create of it.
+            if sent["selectedOptions"].as_array().is_some_and(|o| o.iter().any(|o| o["optionId"] == "chc_graded")) {
+                return Some(refusal(
+                    StatusCode::BAD_REQUEST,
+                    "validation_failed",
+                    "Choose a grading company and grade before creating a Graded inventory item.",
+                ));
+            }
             stand.applied.lock().unwrap().insert(attempt, ("item-create".into(), "draft".into()));
             (StatusCode::CREATED, receipt(), Json(json!({ "id": "inv_new", "version": 1, "status": "created" }))).into_response()
         }
@@ -10119,25 +10128,29 @@ async fn the_inventory_list_needs_inventory_view_and_record_sale_inventory_manag
 }
 
 #[tokio::test]
-async fn a_graded_inventory_item_needs_its_grading_company_and_grade_and_sends_them() {
+async fn a_graded_inventory_item_sends_only_its_certification_number_and_inventory_decides() {
     let pilot = Pilot::new().await;
-    // Graded: the certification number is offered.
+    // Graded, as Inventory names it: the certification number is offered.
     let (_, _, html) =
         pilot.send(get("/account/inventory?catalogItemId=cat_card&option.dim_form=chc_graded&redraw=1", Some("seller"))).await;
     assert!(html.contains(r#"name="certificationNumber""#), "{html}");
     let (_, _, raw) =
         pilot.send(get("/account/inventory?catalogItemId=cat_card&option.dim_form=chc_raw&redraw=1", Some("seller"))).await;
     assert!(!raw.contains(r#"name="certificationNumber""#), "a raw card has none");
-    // This card names no grading company, so the form refuses it and sends nothing.
-    let body = format!(
-        "inventoryMutationAttemptId={}&catalogItemId=cat_card&option.dim_form=chc_graded&option.dim_grade=chc_grade_10\
-         &storageLocationId=loc_main&totalQuantity=1&certificationNumber=12345",
-        new_attempt()
-    );
-    let (status, _, html) = pilot.send(post(INVENTORY_SCREEN, "seller", &body, false)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
-    assert!(text(&html).contains("Choose a grading company and grade before creating a Graded inventory item."), "{html}");
-    assert!(pilot.writes().is_empty(), "nothing is sent");
+    // The page sends the number (null when blank), never a card, and shows Inventory's refusal.
+    for (typed, sent) in [("12345", json!("12345")), ("%20%20", Value::Null)] {
+        let body = format!(
+            "inventoryMutationAttemptId={}&catalogItemId=cat_card&option.dim_form=chc_graded&option.dim_grade=chc_grade_10\
+             &storageLocationId=loc_main&totalQuantity=1&certificationNumber={typed}",
+            new_attempt()
+        );
+        let (status, _, html) = pilot.send(post(INVENTORY_SCREEN, "seller", &body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+        assert!(text(&html).contains("Choose a grading company and grade before creating a Graded inventory item."), "{html}");
+        let command: Value = serde_json::from_str(&pilot.writes().last().unwrap().body).unwrap();
+        assert_eq!(command["certificationNumber"], sent, "{command}");
+        assert!(command.get("certificationNumber").is_some() && command.get("gradedCard").is_none(), "{command}");
+    }
 }
 
 #[tokio::test]
