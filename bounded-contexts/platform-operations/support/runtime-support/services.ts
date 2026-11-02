@@ -46,6 +46,8 @@ import { createAccountAppealRuntime, type AccountAppealRuntime } from "../../fea
 import type { ProjectionOperationsSnapshot } from "../../features/projection-operations/read-model/contracts";
 import type { WakeStoreStatus } from "../../features/projection-operations/read-model/wake-status-contracts";
 import { buildAccountAppealProjectionHandlerSet } from "../../features/account-appeals/read-model/projection";
+import { sellerComplianceCohortPolicy } from "../../features/seller-compliance-cohorts/domain/seller-compliance-cohort-policy";
+import { createSellerComplianceCohortRuntime } from "../../features/seller-compliance-cohorts/api/cohort-evaluation-runtime";
 
 export type OperationsAttentionRuntimeReads = Readonly<{
   loadBlockedProjections: () => Promise<ProjectionOperationsSnapshot["blockedProjections"]>;
@@ -119,6 +121,7 @@ export type PlatformOperationsServices = Readonly<{
   supportReferenceLookup: ReturnType<typeof createSupportReferenceLookupRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   accountAppeals: AccountAppealRuntime;
+  sellerComplianceCohort: ReturnType<typeof createSellerComplianceCohortRuntime>;
   operationsAttentionRuntimeReads?: OperationsAttentionRuntimeReads;
 }>;
 
@@ -146,6 +149,7 @@ export function createPlatformOperationsServices(
   const riskAlerts = createRiskAlertRuntime({ db, eventStore });
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const policies = createPolicyRuntime({ eventStore, db });
+  const sellerComplianceCohort = createSellerComplianceCohortRuntime({ db, pool, policies });
   const supportRequests = createSupportRequestRuntime({
     eventStore,
     checkpointStore,
@@ -161,6 +165,7 @@ export function createPlatformOperationsServices(
     rateLimitPolicy,
     supportDeadlinePolicy,
     platformRemedyPolicy,
+    sellerComplianceCohortPolicy,
   ] as unknown as readonly PolicyDefinition<JsonValue>[];
   const policyConsoleEntries: readonly PolicyConsoleEntry[] = [
     ...ownPolicyDefinitions.map(
@@ -247,6 +252,7 @@ export function createPlatformOperationsServices(
       buildAccountAppealProjectionHandlerSet(db),
     ],
     accountAppeals,
+    sellerComplianceCohort,
     operationsAttentionRuntimeReads: ports.operationsAttentionRuntimeReads,
   };
 }

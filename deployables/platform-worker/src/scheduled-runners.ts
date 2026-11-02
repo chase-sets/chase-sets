@@ -148,6 +148,9 @@ export function createRegisteredScheduledRunners({
             now?: string;
           }) => Promise<{ status: "ok" | "drift-alarm" }>;
         };
+        sellerComplianceCohort?: {
+          sweep?: (params?: { now?: string; limit?: number }) => Promise<number>;
+        };
       }
     | undefined;
   const marketplaceReviews = (services.marketplace as { reviews?: unknown } | undefined)?.reviews as
@@ -239,6 +242,13 @@ export function createRegisteredScheduledRunners({
     | undefined;
   const durableJobRetention = createDurableJobRetentionTask(services, logger);
   const runners: WorkerRunner[] = [];
+  if (platformOperations?.sellerComplianceCohort?.sweep) {
+    runners.push(
+      createScheduledJobRunner("platform-operations.seller-compliance-cohort-sweep", 5 * 60 * 1000, controlPlane, () =>
+        platformOperations.sellerComplianceCohort!.sweep!({ now: new Date().toISOString(), limit: 100 }),
+      ),
+    );
+  }
   const channels = services.channels;
   if (isChannelsServices(channels)) {
     runners.push(createEbayReceiptExpiryRunner(channels.ebayReceiptExpiry, logger, undefined, controlPlane));
