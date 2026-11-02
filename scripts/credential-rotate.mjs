@@ -13,6 +13,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { checkCredentialLiveness } from "./credential-health.mjs";
 import { REPOSITORY_SCOPE, SPACES_LIVENESS_KINDS, loadCredentialInventory } from "./credential-inventory.mjs";
+import { withGithubRepository } from "./lib/github-repository.mjs";
 
 export const PROOF_REF = "main";
 const USAGE = "usage: credential-rotate.mjs --secret <NAME> [--env <name>[,<name>...]] [--dry-run]";
@@ -38,11 +39,11 @@ function targetLabel(target) {
 }
 
 function secretSetArgs(name, target) {
-  return ["secret", "set", name, ...(target === REPOSITORY_SCOPE ? [] : ["--env", target])];
+  return withGithubRepository(["secret", "set", name, ...(target === REPOSITORY_SCOPE ? [] : ["--env", target])]);
 }
 
 function workflowRunArgs(workflow) {
-  return ["workflow", "run", workflow, "--ref", PROOF_REF];
+  return withGithubRepository(["workflow", "run", workflow, "--ref", PROOF_REF]);
 }
 
 // Unrecognised arguments are refused by position, never echoed: a value pasted

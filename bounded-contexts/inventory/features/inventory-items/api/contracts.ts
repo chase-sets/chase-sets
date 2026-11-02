@@ -19,6 +19,9 @@ export type InventoryCreateItemRequest = Readonly<
     /** Optional source-authored pair. Neither member is inferred. */
     acquisitionCostAmount?: string | null;
     acquisitionCostCurrencyCode?: string | null;
+    /** Required (string or null) when the selected options are Graded. Inventory derives the grading
+     * company and grade from those options and refuses a client-sent graded card. */
+    certificationNumber?: string | null;
   }
 >;
 

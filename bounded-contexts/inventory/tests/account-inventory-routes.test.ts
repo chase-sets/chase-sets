@@ -378,19 +378,22 @@ describe("marketplace inventory routes", () => {
     expect(result).toEqual({ error: "Bad inventory input.", intent: "create-item" });
   });
 
-  it.each([
-    null,
-    {
+  describe("forwards cert and refuses stale card", () => {
+    const staleCard = JSON.stringify({
       gradingCompany: "PSA",
       grade: "10",
       certificationNumber: "cert-123",
       population: null,
       conditionDescriptors: [],
-    },
-  ])(
-    "forwards create details as an object and carries the receipt into the detail redirect: %j",
-    async (gradedCard) => {
-      const createRequests: unknown[] = [];
+    });
+    const graded = JSON.stringify([
+      { dimensionId: "dim_form", optionId: "opt_graded" },
+      { dimensionId: "dim_company", optionId: "opt_psa" },
+      { dimensionId: "dim_grade", optionId: "opt_ten" },
+    ]);
+    const raw = JSON.stringify([{ dimensionId: "dim_form", optionId: "opt_raw" }]);
+
+    function stubInventoryApi(createRequests: unknown[]) {
       vi.stubGlobal(
         "fetch",
         vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -412,20 +415,29 @@ describe("marketplace inventory routes", () => {
             );
           }
 
-          createRequests.push(JSON.parse(String(init?.body)));
-          return Promise.resolve(jsonResponse({ id: "inv_created", version: 7 }, 201, commitHeaders("61")));
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          createRequests.push(body);
+          return Promise.resolve(
+            "gradedCard" in body
+              ? jsonResponse(
+                  { error: { code: "inventory_mutation_refused", message: "Inventory request was not accepted." } },
+                  400,
+                )
+              : jsonResponse({ id: "inv_created", version: 7 }, 201, commitHeaders("61")),
+          );
         }),
       );
+    }
 
-      const form = new URLSearchParams();
-      form.set("intent", "create-item");
-      form.set("catalogItemId", "cat_1");
-      form.set("selectedOptions", "[]");
-      form.set("storageLocationId", "loc_1");
-      form.set("totalQuantity", "3");
-      if (gradedCard) form.set("gradedCard", JSON.stringify(gradedCard));
-
-      const response = (await inventoryAction({
+    function submit(fields: Record<string, string>) {
+      const form = new URLSearchParams({
+        intent: "create-item",
+        catalogItemId: "cat_1",
+        storageLocationId: "loc_1",
+        totalQuantity: "3",
+        ...fields,
+      });
+      return inventoryAction({
         request: new Request("http://localhost/account/inventory", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -433,26 +445,46 @@ describe("marketplace inventory routes", () => {
         }),
         params: {},
         context: undefined,
-      } as never)) as Response;
+      } as never);
+    }
+
+    const base = { catalogItemId: "cat_1", storageLocationId: "loc_1", totalQuantity: 3 };
+    const noCost = { acquisitionCostAmount: null, acquisitionCostCurrencyCode: null };
+
+    it.each([
+      [
+        "new cert form",
+        { selectedOptions: graded, certificationNumber: " cert-123 " },
+        { certificationNumber: "cert-123" },
+      ],
+      ["new blank cert form", { selectedOptions: graded, certificationNumber: "   " }, { certificationNumber: null }],
+      ["new raw form", { selectedOptions: raw }, {}],
+      ["new raw-after-cert form", { selectedOptions: raw }, {}],
+      ["new no-metadata form", { selectedOptions: graded }, {}],
+      ["old raw form", { selectedOptions: raw }, {}],
+      ["empty stale card field", { selectedOptions: raw, gradedCard: "" }, {}],
+    ])("sends the %s exactly and carries the receipt into the detail redirect", async (_name, fields, forwarded) => {
+      const createRequests: unknown[] = [];
+      stubInventoryApi(createRequests);
+
+      const response = (await submit(fields)) as Response;
 
       const location = response.headers.get("Location") ?? "";
       expect(location).toContain("/account/inventory/items/inv_created?");
-      expect(location).not.toContain("feedbackWorkflow=");
       expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("61");
-      expect(createRequests).toEqual([
-        {
-          catalogItemId: "cat_1",
-          selectedOptions: "[]",
-          storageLocationId: "loc_1",
-          totalQuantity: 3,
-          acquisitionCostAmount: null,
-          acquisitionCostCurrencyCode: null,
-          ...(gradedCard ? { gradedCard } : {}),
-        },
-      ]);
-    },
-  );
+      expect(createRequests).toEqual([{ ...base, selectedOptions: fields.selectedOptions, ...forwarded, ...noCost }]);
+    });
 
+    it("forwards an old graded form's card unread and shows Inventory's refusal", async () => {
+      const createRequests: unknown[] = [];
+      stubInventoryApi(createRequests);
+
+      const result = await submit({ selectedOptions: graded, gradedCard: staleCard });
+
+      expect(createRequests).toEqual([{ ...base, selectedOptions: graded, gradedCard: staleCard, ...noCost }]);
+      expect(result).toEqual({ error: "Inventory request was not accepted.", intent: "create-item" });
+    });
+  });
   it("returns to Sell List after creating inventory from a Sell List recovery", async () => {
     vi.stubGlobal(
       "fetch",

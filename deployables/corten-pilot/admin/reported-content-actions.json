@@ -1,0 +1,22 @@
+{
+  "listing": [
+    "dismiss",
+    "contact-seller",
+    "unlist",
+    "escalate-account-suspension"
+  ],
+  "review": [
+    "dismiss",
+    "contact-seller",
+    "withdraw-review",
+    "redact-review-feedback",
+    "withdraw-review-reply",
+    "escalate-account-suspension"
+  ],
+  "account-profile": [
+    "dismiss",
+    "contact-account",
+    "redact-profile-display-name",
+    "escalate-account-suspension"
+  ]
+}

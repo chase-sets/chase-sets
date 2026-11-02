@@ -1,0 +1,116 @@
+{
+  "shell": {
+    "admin": "Chase Sets Admin",
+    "navigation": "Admin sections",
+    "section_navigation": "{section} pages",
+    "skip": "Skip to content",
+    "pilot": "Corten pilot"
+  },
+  "section": {
+    "access": "Access",
+    "catalog": "Catalog",
+    "commerce": "Commerce",
+    "growth": "Growth",
+    "support": "Support",
+    "platform": "Platform"
+  },
+  "pages": {
+    "label": "Pagination",
+    "previous": "Previous",
+    "next": "Next",
+    "current": "Page {page} of {pages}"
+  },
+  "check": {
+    "required": "Enter a value.",
+    "number": "Enter a number.",
+    "json_object": "Enter a JSON object, such as {{}}.",
+    "relationship": "Enter both the relationship and the reference record, or neither.",
+    "received_at": "Enter the date and time the package was received.",
+    "evidence_too_large": "The photos are too large together. Send up to 10 photos of 10 MB each."
+  },
+  "error": {
+    "forbidden_title": "Not allowed",
+    "forbidden": "Your role cannot open this page.",
+    "not_found_title": "Not found",
+    "not_found": "There is nothing at this address.",
+    "failed_title": "Something went wrong",
+    "failed": "The platform API did not answer. Try again in a moment.",
+    "pending": "We are preparing your change. Refresh in a moment and it should appear.",
+    "unidentified_title": "Not available",
+    "unidentified": "We could not check who you are. Try again in a moment."
+  },
+  "catalog": {
+    "close": "Close",
+    "breadcrumbs": "Breadcrumbs",
+    "action": "This action is not available here.",
+    "edit_option": "Edit {code}",
+    "options_label": "Options of {name}",
+    "drafts_only": "Check only draft Catalog Items to remove them.",
+    "rules_unread": "This component's rules could not be read, so it was not saved. Refresh in a moment and save again.",
+    "blueprint_rules_unread": "This blueprint's rules could not be read, so they cannot be set here yet. Refresh in a moment and open this again."
+  },
+  "access": {
+    "view": "View",
+    "items_one": "{count} item",
+    "items_other": "{count} items",
+    "close": "Close",
+    "breadcrumbs": "Breadcrumbs",
+    "refused": "The change was not made.",
+    "assignable_badges": "Assign or remove badges"
+  },
+  "bulk": {
+    "label": "Bulk changes",
+    "select_row": "Select row {id}",
+    "select_all": "Select all rows",
+    "none_selected": "Select at least one row to preview.",
+    "failed": "The bulk change failed.",
+    "unknown_job": "This bulk change is not known."
+  },
+  "item": {
+    "contents_unavailable": "Product Contents could not be loaded. Refresh in a moment."
+  },
+  "scope": {
+    "refused": "The Catalog API refused the change.",
+    "propose_needs": "Enter the provider, the unit, and a set id or set name.",
+    "alias_accepted": "The alias was accepted.",
+    "alias_rejected": "The alias was rejected.",
+    "alias_revoked": "The alias was revoked.",
+    "alias_deferred": "The candidate stays pending for a later review.",
+    "workspace_title": "Import to promotion",
+    "workspace_elsewhere": "This workspace is not in the pilot yet. It opens on admin-web.",
+    "workspace_open": "Open the workspace on admin-web",
+    "stages": "Journey stages",
+    "stage_complete": "Complete",
+    "stage_current": "Current",
+    "stage_upcoming": "Upcoming",
+    "stage_blocked": "Blocked"
+  },
+  "payout": {
+    "check_again": "Check again"
+  },
+  "support": {
+    "remedy_elsewhere": "Platform-funded remedies are not in the pilot yet. Review and act on this request's remedy on admin-web.",
+    "remedy_open": "Open the remedy on admin-web"
+  },
+  "chart": {
+    "empty_title": "No data yet",
+    "empty_description": "Data will appear here once activity accumulates.",
+    "insufficient_title": "Not enough data yet",
+    "insufficient_description": "At least 2 data points are required to show a reliable trend."
+  },
+  "evidence": {
+    "show_values": "Show values",
+    "show_values_hint": "Show the values for the selector chosen"
+  },
+  "sync": {
+    "failed": "The Catalog API could not run the scope sync batch command.",
+    "quote_required": "Count quote is required.",
+    "fingerprint_required": "Count fingerprint is required.",
+    "plan_required": "Plan fingerprint is required.",
+    "batch_required": "Batch id is required.",
+    "scope_required": "Scope Record id is required.",
+    "unsupported": "Scope Sync Batch command is not supported.",
+    "file_required": "Choose a held-set export CSV.",
+    "upload_too_large": "The held-set export is larger than 16 MiB."
+  }
+}
