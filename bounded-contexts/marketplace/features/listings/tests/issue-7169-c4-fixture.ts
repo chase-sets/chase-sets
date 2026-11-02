@@ -1,6 +1,6 @@
 import type { InventoryDraftListingMessage } from "@chase-sets/inventory-draft-listing";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
+import type { MarketplaceListingServices } from "../api/runtime";
 
 export const draftContext = {
   tenantId: "tnt_c4",
@@ -43,12 +43,35 @@ export function draftMessage(): InventoryDraftListingMessage {
   };
 }
 
-export function directPortInput(): Parameters<InventoryDraftListingCreator>[0] {
+/** The snapshot-draft fields the Inventory draft consumer forwards; a Marketplace rename breaks this Pick. */
+export type InventorySnapshotDraftInput = Pick<
+  Parameters<MarketplaceListingServices["createBatchDraftListingFromInventorySnapshot"]>[0],
+  | "accountId"
+  | "importBatchId"
+  | "importRowId"
+  | "inventoryItemId"
+  | "listingIdOverride"
+  | "catalogItemId"
+  | "productId"
+  | "selectedOptions"
+  | "storageLocationId"
+  | "storageLocationName"
+  | "shipFromCode"
+  | "shipFromAddress"
+  | "totalQuantity"
+  | "acquisitionCostAmount"
+  | "acquisitionCostCurrencyCode"
+  | "priceAmount"
+  | "priceCurrencyCode"
+  | "quantityCap"
+>;
+
+export function directPortInput(): InventorySnapshotDraftInput {
   const { committedAt: _committedAt, ...snapshot } = draftMessage().snapshot;
   return {
     ...snapshot,
     selectedOptions: [...snapshot.selectedOptions].reverse(),
     accountId: draftMessage().authority.accountId,
     listingIdOverride: "lst_c4_1" as never,
-  } satisfies Parameters<InventoryDraftListingCreator>[0];
+  } satisfies InventorySnapshotDraftInput;
 }

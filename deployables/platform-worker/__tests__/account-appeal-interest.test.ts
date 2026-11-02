@@ -117,7 +117,6 @@ function createPlatformWorkerHost() {
       moneyMovementGateway: createFakeMoneyMovementGateway(),
       operationsRecorder: { record: () => undefined },
       postageLabelProvider: createSandboxPostageLabelProvider(),
-      draftListingCreator: { createDraftListings: async () => [] },
       inventoryCleanupAuthority: { kind: "not-mounted" },
       channelSaleRecorder: createPlatformChannelSaleRecorder(createUnusedPool()),
       notificationAdapter: { send: async () => undefined },
