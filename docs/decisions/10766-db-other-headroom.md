@@ -33,9 +33,13 @@ quarantine, fixture-only proof, or coverage reduction.
 
 ## Measured hosted evidence
 
-All records below are existing successful `DB Profile Tests (other)` jobs,
-`merge_group`, attempt 1, complete 24-workspace census. They are historical
-authority, not a new five-run predicate or a hosted pass for this Probe.
+All records below are existing `DB Profile Tests (other)` jobs with successful
+job conclusions, attempt 1, and a complete 24-workspace census. The five base
+records are `merge_group` jobs; the head-1 and exact-head records are
+`pull_request` jobs from the closed implementation branch `codex/10766-impl-g1`.
+The cited job conclusions are authoritative even where the enclosing run
+conclusion differs. They are historical authority, not a new five-run
+predicate or a hosted pass for this Probe.
 
 ### Wall and hot-workspace observations
 
