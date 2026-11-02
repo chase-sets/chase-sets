@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { gitListingOptions } from "../lib/git-listing.mjs";
 import { repoRoot } from "../lib/repo.mjs";
 
 // The browser-e2e scenario Source Observations (one promoted, one changed tcgdex row) are
@@ -17,7 +18,7 @@ function source(file) {
 }
 
 function productionTypescriptFiles() {
-  return execFileSync("git", ["ls-files", "*.ts", "*.tsx"], { cwd: repoRoot, encoding: "utf8" })
+  return execFileSync("git", ["ls-files", "*.ts", "*.tsx"], gitListingOptions({ cwd: repoRoot, encoding: "utf8" }))
     .split(/\r?\n/)
     .filter(Boolean)
     .filter((file) => !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file));
