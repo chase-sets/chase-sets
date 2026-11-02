@@ -159,6 +159,7 @@ export async function collectDeliveryHealth(options, dependencies = {}) {
 
 async function collectSourceData({ options, policy, client, queryStart }) {
   const workflows = policy.collection.workflowSources;
+  const window = { start: queryStart, end: options.checkedAt, limit: policy.windows.lastN };
   const sourceFailures = [];
   const safely = async (source, collect) => {
     try {
@@ -169,32 +170,18 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     }
   };
   const [pulls, platformPrRuns, dispatchRuns, deployRuns, ephemeralRuns, circuitIssues] = await Promise.all([
-    safely("pull-requests", () =>
-      fetchPullRequests(client, options.repository, queryStart, policy.collection.maxPages),
-    ),
+    safely("pull-requests", () => fetchPullRequests(client, options.repository, window, policy.collection.maxPages)),
     safely("platform-pr-runs", () =>
-      fetchWorkflowRuns(client, workflows.platformPr, queryStart, policy.collection.maxPages, policy.windows.lastN),
+      fetchWorkflowRuns(client, workflows.platformPr, window, policy.collection.maxPages),
     ),
     safely("release-dispatch-runs", () =>
-      fetchWorkflowRuns(
-        client,
-        workflows.releaseDispatch,
-        queryStart,
-        policy.collection.maxPages,
-        policy.windows.lastN,
-      ),
+      fetchWorkflowRuns(client, workflows.releaseDispatch, window, policy.collection.maxPages),
     ),
     safely("platform-deploy-runs", () =>
-      fetchWorkflowRuns(client, workflows.platformDeploy, queryStart, policy.collection.maxPages, policy.windows.lastN),
+      fetchWorkflowRuns(client, workflows.platformDeploy, window, policy.collection.maxPages),
     ),
     safely("ephemeral-verification-runs", () =>
-      fetchWorkflowRuns(
-        client,
-        workflows.ephemeralVerification,
-        queryStart,
-        policy.collection.maxPages,
-        policy.windows.lastN,
-      ),
+      fetchWorkflowRuns(client, workflows.ephemeralVerification, window, policy.collection.maxPages),
     ),
     safely("delivery-failure-signatures", () =>
       fetchCircuitIssues(client, options.repository, policy.collection.maxPages),
@@ -1718,35 +1705,110 @@ export function createGitHubClient(options, collection = {}) {
   };
 }
 
-async function fetchPullRequests(client, repository, queryStart, maxPages) {
-  const [owner, name] = repository.split("/");
+// A created-date window alone loses old runs retried today. Reconcile disjoint
+// historical partitions before selecting latest-activity and independent last-N series.
+async function collectPartitionedHistory({ end, maxPages, read, identity, createdAt }) {
+  let queries = 0;
+  const seen = new Map();
+  const visit = async (start, finish) => {
+    if (++queries > maxPages * 8) throw new Error("history_partition_limit");
+    const range = `${new Date(start * 1000).toISOString()}..${new Date(finish * 1000 + 999).toISOString()}`;
+    const collection = await read(range);
+    if (!Number.isSafeInteger(collection.total) || collection.total < 0)
+      throw new Error("history_collection_incomplete");
+    if (collection.total >= 1000 || collection.total > maxPages * 100) {
+      if (start >= finish) throw new Error("history_provider_cap");
+      const midpoint = Math.floor((start + finish) / 2);
+      const left = await visit(start, midpoint);
+      const right = await visit(midpoint + 1, finish);
+      if (left.total + right.total !== collection.total) throw new Error("history_total_changed");
+      return { total: collection.total, values: [...left.values, ...right.values] };
+    }
+    const values = await collection.collect();
+    if (values.length !== collection.total) throw new Error("history_total_changed");
+    for (const value of values) {
+      const key = identity(value);
+      const created = Date.parse(createdAt(value));
+      if (
+        (typeof key !== "string" && !Number.isSafeInteger(key)) ||
+        String(key).length < 1 ||
+        String(key).length > 256 ||
+        (seen.has(String(key)) && seen.get(String(key)) !== range) ||
+        !Number.isFinite(created) ||
+        created < start * 1000 ||
+        created > finish * 1000 + 999
+      )
+        throw new Error("history_identity_or_range_invalid");
+      seen.set(String(key), range);
+    }
+    return { total: collection.total, values };
+  };
+  return (await visit(0, Math.floor(Date.parse(end) / 1000))).values;
+}
+
+function selectCollectedWindow(values, window, series) {
+  const selected = new Set();
+  for (const [cohort, timestamp] of series) {
+    for (const value of selectMetricSeries(cohort, { kind: "last-n", limit: window.limit, end: window.end }, timestamp))
+      selected.add(value);
+  }
+  return values.filter((value) => selected.has(value) || inBounds(value.updatedAt ?? runTimestamp(value), window));
+}
+
+async function fetchPullRequests(client, repository, window, maxPages) {
+  const pulls = await collectPartitionedHistory({
+    end: window.end,
+    maxPages,
+    identity: (pull) => pull.number,
+    createdAt: (pull) => pull.createdAt,
+    read: async (range) => {
+      const query = `repo:${repository} is:pr created:${range}`;
+      const first = await fetchPullRequestPage(client, query, null);
+      return {
+        total: first.issueCount,
+        collect: () => fetchPullRequestPartition(client, query, first, maxPages),
+      };
+    },
+  });
+  return selectCollectedWindow(pulls, window, [
+    [pulls, (pull) => pull.createdAt],
+    [pulls.filter((pull) => pull.mergedAt), (pull) => pull.mergedAt],
+  ]);
+}
+
+async function fetchPullRequestPage(client, query, cursor) {
+  const payload = await client.json(GRAPHQL_URL, {
+    method: "POST",
+    body: {
+      query: `query DeliveryHealthPulls($query:String!,$cursor:String){search(query:$query,type:ISSUE,first:100,after:$cursor){issueCount pageInfo{hasNextPage endCursor}nodes{... on PullRequest{number state isDraft createdAt updatedAt mergedAt additions deletions changedFiles timelineItems(first:1,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}}reviews(first:100){totalCount nodes{state}}files(first:100){totalCount nodes{path additions deletions}}}}}}`,
+      variables: { query, cursor },
+    },
+  });
+  if (payload.errors?.length) throw new Error(`GitHub GraphQL failed: ${boundedError(payload.errors[0]?.message)}`);
+  return payload.data?.search ?? {};
+}
+
+async function fetchPullRequestPartition(client, query, first, maxPages) {
   const pulls = [];
   let cursor = null;
   let total;
   const cursors = new Set();
   const identities = new Set();
   for (let page = 1; page <= maxPages; page += 1) {
-    const payload = await client.json(GRAPHQL_URL, {
-      method: "POST",
-      body: {
-        query: `query DeliveryHealthPulls($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC}){totalCount pageInfo{hasNextPage endCursor}nodes{number state isDraft createdAt updatedAt mergedAt additions deletions changedFiles timelineItems(first:1,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}}reviews(first:100){totalCount nodes{state}}files(first:100){totalCount nodes{path additions deletions}}}}}}`,
-        variables: { owner, name, cursor },
-      },
-    });
-    if (payload.errors?.length) throw new Error(`GitHub GraphQL failed: ${boundedError(payload.errors[0]?.message)}`);
-    const connection = payload.data?.repository?.pullRequests;
+    const connection = page === 1 ? first : await fetchPullRequestPage(client, query, cursor);
     const nodes = connection?.nodes ?? [];
     if (!Array.isArray(nodes) || nodes.length > 100 || typeof connection?.pageInfo?.hasNextPage !== "boolean")
       throw new Error("pull_collection_incomplete");
-    if (connection.totalCount !== undefined) {
+    if (connection.issueCount !== undefined) {
       if (
-        !Number.isSafeInteger(connection.totalCount) ||
-        connection.totalCount < 0 ||
-        (total !== undefined && total !== connection.totalCount) ||
-        connection.totalCount > maxPages * 100
+        !Number.isSafeInteger(connection.issueCount) ||
+        connection.issueCount < 0 ||
+        (total !== undefined && total !== connection.issueCount) ||
+        connection.issueCount > maxPages * 100 ||
+        connection.issueCount >= 1000
       )
         throw new Error("pull_collection_incomplete");
-      total = connection.totalCount;
+      total = connection.issueCount;
     } else throw new Error("pull_collection_incomplete");
     for (const node of nodes) {
       if (!Number.isSafeInteger(node?.number) || identities.has(node.number))
@@ -1790,15 +1852,38 @@ async function fetchPullRequests(client, repository, queryStart, maxPages) {
     cursor = connection.pageInfo.endCursor;
     cursors.add(cursor);
   }
-  client.markTruncated("pull-requests");
-  return pulls;
+  throw new Error("pull_collection_incomplete");
 }
 
-async function fetchWorkflowRuns(client, workflow, queryStart, maxPages, lastN) {
-  return client.paginate(
-    `/actions/workflows/${encodeURIComponent(workflow)}/runs?per_page=100`,
-    (payload) => payload?.workflow_runs,
-    { source: `workflow:${workflow}`, maxPages, requireTotal: true, providerCap: 1000 },
+async function fetchWorkflowRuns(client, workflow, window, maxPages) {
+  const runs = await collectPartitionedHistory({
+    end: window.end,
+    maxPages,
+    identity: (run) => run.id,
+    createdAt: (run) => run.created_at,
+    read: async (range) => {
+      const path = `/actions/workflows/${encodeURIComponent(workflow)}/runs?per_page=100&created=${encodeURIComponent(range)}`;
+      const first = await client.json(path);
+      if (first?.incomplete_results === true) throw new Error("history_collection_incomplete");
+      return {
+        total: first?.total_count,
+        collect: () =>
+          client.paginate(path, (payload) => payload?.workflow_runs, {
+            source: `workflow:${workflow}`,
+            maxPages,
+            requireTotal: true,
+            providerCap: 1000,
+          }),
+      };
+    },
+  });
+  return selectCollectedWindow(
+    runs,
+    window,
+    [...new Set(runs.map((run) => run.event))].map((event) => [
+      runs.filter((run) => run.event === event),
+      runTimestamp,
+    ]),
   );
 }
 

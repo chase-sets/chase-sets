@@ -171,12 +171,10 @@ function qualificationTransport({
     if (path === "/graphql")
       body = {
         data: {
-          repository: {
-            pullRequests: {
-              totalCount: 0,
-              nodes: [],
-              pageInfo: { hasNextPage: false, endCursor: null },
-            },
+          search: {
+            issueCount: 0,
+            nodes: [],
+            pageInfo: { hasNextPage: false, endCursor: null },
           },
         },
       };
@@ -517,6 +515,201 @@ describe("canonical advisory collection", () => {
     expect(health(valid.record.qualification).record.slis).toEqual(legacy.record.slis);
   });
 
+  it("default-off real-scale command preserves legacy alerts, old retries and independent last-N cohorts", async () => {
+    const fixture = qualificationTransport({ disabled: true });
+    const old = (index) => new Date(Date.parse("2026-01-01T00:00:00Z") + index * 1000).toISOString();
+    const pulls = Array.from({ length: 4207 }, (_, index) => ({
+      number: index + 1,
+      state: "MERGED",
+      isDraft: false,
+      createdAt: old(index),
+      updatedAt: old(index + 1),
+      mergedAt: old(index + 1),
+      changedFiles: 1,
+      files: { totalCount: 1, nodes: [{ path: "scripts/example.mjs", additions: 1, deletions: 0 }] },
+      reviews: { totalCount: 0, nodes: [] },
+    }));
+    const runs = Array.from({ length: 14623 }, (_, index) =>
+      run(index + 10000, "push", "success", {
+        created_at: old(index),
+        updated_at: old(index + 1),
+      }),
+    );
+    for (let index = 0; index < 10; index += 1) {
+      Object.assign(runs[index], {
+        event: "pull_request",
+        conclusion: "failure",
+        created_at: "2026-07-21T10:00:00Z",
+        updated_at: "2026-07-21T11:00:00Z",
+        repository: { full_name: qualificationRepository },
+        workflow_id: 12,
+        head_sha: "a".repeat(40),
+        status: "completed",
+      });
+    }
+    Object.assign(runs[10], {
+      event: "pull_request",
+      run_attempt: 2,
+      updated_at: "2026-07-21T11:30:00Z",
+      repository: { full_name: qualificationRepository },
+      workflow_id: 12,
+      head_sha: "a".repeat(40),
+      status: "completed",
+    });
+    for (let index = 11; index < 32; index += 1)
+      Object.assign(runs[index], { event: "merge_group", updated_at: "2026-07-01T11:00:00Z" });
+    const requests = [];
+    const response = (values, total, url, key) => {
+      const page = Number(url.searchParams.get("page") ?? 1);
+      const headers = {};
+      if (page * 100 < total) {
+        const next = new URL(url);
+        next.searchParams.set("page", String(page + 1));
+        headers.link = `<${next.href}>; rel="next"`;
+      }
+      return new Response(JSON.stringify({ total_count: total, [key]: values.slice((page - 1) * 100, page * 100) }), {
+        headers,
+      });
+    };
+    const within = (value, range) => {
+      if (!range) return true;
+      const [start, end] = range.split("..").map(Date.parse);
+      return Date.parse(value) >= start && Date.parse(value) <= end;
+    };
+    const fetchImpl = async (input, request = {}) => {
+      const url = new URL(input);
+      requests.push({ path: url.pathname, search: url.search, body: request.body });
+      if (url.pathname === "/graphql") {
+        const variables = JSON.parse(request.body).variables;
+        const range = /created:([^ ]+)/.exec(variables.query ?? "")?.[1];
+        const selected = pulls.filter((pull) => within(pull.createdAt, range)).reverse();
+        const offset = Number(variables.cursor ?? 0);
+        const connection = {
+          issueCount: selected.length,
+          totalCount: selected.length,
+          nodes: selected.slice(offset, offset + 100),
+          pageInfo: { hasNextPage: offset + 100 < selected.length, endCursor: String(offset + 100) },
+        };
+        return new Response(JSON.stringify({ data: { search: connection, repository: { pullRequests: connection } } }));
+      }
+      if (url.pathname.endsWith("/workflows/platform-pr.yml/runs")) {
+        const selected = runs.filter((entry) => within(entry.created_at, url.searchParams.get("created"))).reverse();
+        return response(selected, selected.length, url, "workflow_runs");
+      }
+      if (url.pathname.endsWith(`/runs/${runs[10].id}/attempts/1`))
+        return new Response(JSON.stringify({ ...runs[10], run_attempt: 1, updated_at: runs[10].created_at }));
+      return fixture.fetchImpl(input, request);
+    };
+    const directory = await mkdtemp(join(tmpdir(), "10968-impl-g2-scale-"));
+    const out = join(directory, "health.json");
+    const markdownOut = join(directory, "health.md");
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(fetchImpl);
+    try {
+      expect(
+        await runDeliveryHealthCommand(
+          [
+            "--repository",
+            qualificationRepository,
+            "--checked-at",
+            qualificationCheckedAt,
+            "--out",
+            out,
+            "--markdown-out",
+            markdownOut,
+            "--github-summary",
+            join(directory, "summary.md"),
+            "--update-issues",
+            "false",
+          ],
+          {},
+          { policy },
+        ),
+      ).toBe(0);
+      const record = JSON.parse(await readFile(out, "utf8"));
+      expect(record.completeness).toMatchObject({ status: "complete", reasons: [] });
+      expect(record.qualification).toMatchObject({ status: "disabled" });
+      expect(record.slis).toContainEqual(
+        expect.objectContaining({ id: "pull-request-ci-success", status: "breaching", sample: 11 }),
+      );
+      expect(record.windows.rolling24h.prs.platformPr.pullRequest).toMatchObject({
+        runCount: 11,
+        numerator: 1,
+        denominator: 11,
+      });
+      expect(record.windows.lastN.prs.platformPr.mergeGroup.runCount).toBe(20);
+      expect(record.windows.lastN.prs.created).toBe(20);
+      expect(record.windows.lastN.prs.merged).toBe(20);
+      expect(await readFile(markdownOut, "utf8")).not.toContain("Alerts are suppressed");
+      expect(requests.some((entry) => entry.search.includes("created="))).toBe(true);
+      expect(requests.some((entry) => entry.path.endsWith(`/runs/${runs[10].id}/attempts/1`))).toBe(true);
+    } finally {
+      spy.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("partitioned history refuses changed totals, shifted rows, unsplittable caps and budget exhaustion", async () => {
+    for (const defect of [null, "parent-total", "shifted-row", "capped-second", "budget"]) {
+      const fixture = qualificationTransport({ disabled: true });
+      const runs = Array.from({ length: 1001 }, (_, index) =>
+        run(index + 30000, "push", "success", {
+          created_at: new Date(
+            Date.parse("2026-01-01T00:00:00Z") + (defect === "capped-second" ? 0 : index * 1000),
+          ).toISOString(),
+          updated_at: "2026-01-02T00:00:00Z",
+        }),
+      );
+      const calls = [];
+      const fetchImpl = async (input, request) => {
+        const url = new URL(input);
+        if (!url.pathname.endsWith("/workflows/platform-pr.yml/runs")) return fixture.fetchImpl(input, request);
+        const range = url.searchParams.get("created");
+        const [start, end] = range.split("..").map(Date.parse);
+        const selected = runs.filter((run) => Date.parse(run.created_at) >= start && Date.parse(run.created_at) <= end);
+        const page = Number(url.searchParams.get("page") ?? 1);
+        const values = selected.slice((page - 1) * 100, page * 100);
+        if (defect === "shifted-row" && selected.length < 1000 && values.length)
+          values[0] = { ...values[0], created_at: "1970-01-01T00:00:00Z" };
+        calls.push({ range, page, probe: !url.searchParams.has("page"), count: selected.length });
+        const headers = {};
+        if (page * 100 < selected.length) {
+          const next = new URL(url);
+          next.searchParams.set("page", String(page + 1));
+          headers.link = `<${next.href}>; rel="next"`;
+        }
+        return new Response(
+          JSON.stringify({
+            total_count:
+              selected.length +
+              (defect === "parent-total" && start === 0 && end === Date.parse(qualificationCheckedAt) + 999 ? 1 : 0),
+            workflow_runs: values,
+          }),
+          { headers },
+        );
+      };
+      const result = await collectDeliveryHealth(
+        {
+          repository: qualificationRepository,
+          checkedAt: qualificationCheckedAt,
+          publicationMode: "hourly",
+          updateIssues: false,
+          fetchImpl,
+          sleep: async () => {},
+        },
+        { policy: defect === "budget" ? { ...policy, collection: { ...policy.collection, maxPages: 1 } } : policy },
+      );
+      expect(result.record.completeness.reasons, defect).toEqual(defect ? ["source:platform-pr-runs"] : []);
+      expect(result.record.completeness.status, defect).toBe(defect ? "partial" : "complete");
+      expect(result.record.query.sourceRunIds.platformPr, defect).toHaveLength(defect ? 0 : 20);
+      if (defect === "capped-second")
+        expect(calls.at(-1).range.split("..").map(Date.parse)).toEqual([
+          Date.parse("2026-01-01T00:00:00Z"),
+          Date.parse("2026-01-01T00:00:00.999Z"),
+        ]);
+      if (defect === "budget") expect(calls.filter((call) => call.probe)).toHaveLength(8);
+    }
+  });
+
   it("refuses recursively open workflow collection policy before requesting data", async () => {
     for (const collection of [
       { ...policy.collection, surprise: true },
@@ -575,14 +768,14 @@ describe("first-attempt workflow success", () => {
         calls.push(request);
         if (request === "https://api.github.com/graphql")
           return {
-            data: { repository: { pullRequests: { totalCount: 0, pageInfo: { hasNextPage: false }, nodes: [] } } },
+            data: { search: { issueCount: 0, pageInfo: { hasNextPage: false }, nodes: [] } },
           };
         if (request.includes("/attempts/1")) {
           if (unavailable) throw new Error("inaccessible");
           return attempts[request.split("/")[3]];
         }
-        if (request.includes("platform-pr.yml")) return { workflow_runs: runs };
-        return { workflow_runs: [] };
+        if (request.includes("platform-pr.yml")) return { total_count: runs.length, workflow_runs: runs };
+        return { total_count: 0, workflow_runs: [] };
       },
       paginate: async (request) => (request.includes("platform-pr.yml") ? runs : []),
       markTruncated: () => {},
@@ -715,7 +908,7 @@ describe("first-attempt workflow success", () => {
             path === "/graphql"
               ? {
                   data: {
-                    repository: { pullRequests: { totalCount: 0, pageInfo: { hasNextPage: false }, nodes: [] } },
+                    search: { issueCount: 0, pageInfo: { hasNextPage: false }, nodes: [] },
                   },
                 }
               : path.includes("platform-pr.yml")
@@ -1707,16 +1900,14 @@ function collectorClient({ archive, withArtifact }) {
       if (request === "https://api.github.com/graphql") {
         return {
           data: {
-            repository: {
-              pullRequests: { totalCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
-            },
+            search: { issueCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
           },
         };
       }
       if (String(request).includes("platform-ephemeral-verification.yml")) {
-        return { workflow_runs: [ephemeralRun] };
+        return { total_count: 1, workflow_runs: [ephemeralRun] };
       }
-      return { workflow_runs: [] };
+      return { total_count: 0, workflow_runs: [] };
     },
     paginate: async (request) => {
       if (String(request).includes("platform-ephemeral-verification.yml")) return [ephemeralRun];
