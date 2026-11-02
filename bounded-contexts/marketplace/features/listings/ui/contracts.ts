@@ -279,6 +279,12 @@ export interface MarketplaceListingPriceInput {
   priceCurrencyCode: string;
 }
 
+/** The shipped Listing carrier every browser, MCP, Discovery, Checkout and Pricing command sends. */
+export interface MarketplaceListingAttemptInput {
+  idempotencyKey: string;
+  requestHash?: string;
+}
+
 export interface MarketplaceCreateListingInput extends MarketplaceListingPriceInput {
   inventoryItemId: string;
   quantityCap: number;
@@ -343,7 +349,10 @@ export interface MarketplaceBulkListingPriceUpdateInput {
    */
   expectedVersion?: number;
   minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
+  /** The target's attempt: a browser batch id or an exempt engine `repricing:` key. */
   idempotencyKey?: string;
+  /** Canonical listingId + amount + currency hash; a changed value under the same key conflicts. */
+  requestHash?: string;
 }
 
 /** Per-listing outcome of a bulk price-update run -- failure isolation means one listing's conflict or error never prevents the others from applying. */

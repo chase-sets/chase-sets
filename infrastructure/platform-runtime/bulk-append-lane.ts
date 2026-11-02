@@ -11,6 +11,7 @@ import type {
   ExpectedStreamVersion,
   StoredEvent,
 } from "@chase-sets/event-core/storage";
+import type { JsonObject } from "@chase-sets/primitives/json";
 
 /**
  * The bulk append lane: the reusable "chunked multi-listing appends + lane
@@ -49,6 +50,8 @@ export type BulkAppendLaneItem<Command> = Readonly<{
   expectedVersion?: ExpectedStreamVersion;
   /** Stable mutation identity; encoded events receive deterministic ids for retry-safe appends. */
   eventIdPrefix?: string;
+  /** Facts recorded on every event of this item, e.g. the attempt's canonical request hash. */
+  eventMetadata?: JsonObject;
 }>;
 
 export type BulkAppendLaneOutcome<Event extends DomainEvent> = Readonly<{
@@ -173,9 +176,12 @@ async function prepareBulkAppendItem<State, Command, Event extends DomainEvent>(
 
     const events = newEvents.map((event, index) => {
       const encoded = config.codec.encode(event);
-      return item.eventIdPrefix
-        ? { ...encoded, eventId: `${item.eventIdPrefix}:${index}` as NonNullable<typeof encoded.eventId> }
+      const stamped = item.eventMetadata
+        ? { ...encoded, metadata: { ...(encoded.metadata ?? {}), ...item.eventMetadata } }
         : encoded;
+      return item.eventIdPrefix
+        ? { ...stamped, eventId: `${item.eventIdPrefix}:${index}` as NonNullable<typeof encoded.eventId> }
+        : stamped;
     });
 
     return {

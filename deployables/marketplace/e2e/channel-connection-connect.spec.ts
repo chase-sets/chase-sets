@@ -441,7 +441,13 @@ async function publishTwoSellerListings(
     );
     const listing = await successfulJson<{ id: string; feeQuoteFingerprint: string }>(
       await page.request.post("/api/marketplace/account/listings", {
-        data: { inventoryItemId: item.id, priceAmount: "5.00", priceCurrencyCode: "USD", quantityCap: 2 },
+        data: {
+          idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
+          inventoryItemId: item.id,
+          priceAmount: "5.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 2,
+        },
       }),
     );
     const path = `/api/marketplace/account/listings/${listing.id}`;
@@ -487,7 +493,10 @@ async function publishTwoSellerListings(
     }
     await successfulJson(
       await page.request.post(`${path}/publish`, {
-        data: { feeQuoteFingerprint: listing.feeQuoteFingerprint },
+        data: {
+          idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
+          feeQuoteFingerprint: listing.feeQuoteFingerprint,
+        },
       }),
     );
   }

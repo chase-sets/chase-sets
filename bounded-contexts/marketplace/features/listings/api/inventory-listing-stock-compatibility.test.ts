@@ -207,6 +207,7 @@ describe("Inventory Listing stock compatibility", () => {
       expect(snapshot.shipFromAddress.verification).toBeNull();
       const { app, create } = harness();
       const body = {
+        idempotencyKey: `test_stock_ensure_${transport}_00000001`,
         inventoryItemId: "",
         priceAmount: "999.00",
         priceCurrencyCode: "USD",
@@ -242,6 +243,7 @@ describe("Inventory Listing stock compatibility", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        idempotencyKey: "test_stock_cost_00000000000001",
         priceAmount: "999.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
