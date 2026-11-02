@@ -499,7 +499,7 @@ jobs:
         id: marketplace_e2e
         if: steps.advisory_preflight.outcome == 'success' && steps.scenario_seed.outcome == 'success' && steps.await_scenario_seed.outcome == 'success'
         continue-on-error: true
-        timeout-minutes: 79
+        timeout-minutes: 10
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}

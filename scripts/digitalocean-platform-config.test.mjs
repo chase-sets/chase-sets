@@ -6047,8 +6047,10 @@ describe("DigitalOcean platform configuration", () => {
     const install = later.find((step) => step.name === "Install Playwright Chromium for staging critical flows");
     const consumer = later.find((step) => step.id === "marketplace_e2e");
     expect(install["timeout-minutes"]).toBe(11);
-    expect(consumer["timeout-minutes"]).toBe(79);
-    expect(605 + consumer["timeout-minutes"] * 60 + 55).toBe(job["timeout-minutes"] * 60);
+    expect(consumer["timeout-minutes"]).toBe(10);
+    expect(605 + consumer["timeout-minutes"] * 60 + 55).toBeLessThanOrEqual(job["timeout-minutes"] * 60);
+    const laterTimeoutTotal = later.reduce((sum, step) => sum + step["timeout-minutes"], 0);
+    expect(cap + laterTimeoutTotal).toBeLessThanOrEqual(job["timeout-minutes"]);
     expect(job["timeout-minutes"]).toBe(90);
     const awaitStep = later.find((step) => step.id === "await_scenario_seed");
     const deadline = Number(awaitStep.run.match(/deadline=\$\(\( \$\(date \+%s\) \+ (\d+) \)\)/u)?.[1]);

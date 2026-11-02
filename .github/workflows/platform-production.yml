@@ -2186,16 +2186,23 @@ jobs:
         run: |
           set +e
           mkdir -p artifacts/release-health
-          node scripts/playwright-chromium-install.mjs 2>&1 | tee artifacts/release-health/staging-browser-install.txt
+          attempts_log=artifacts/release-health/staging-browser-install-attempts.txt
+          classifier_log=artifacts/release-health/staging-browser-install.txt
+          : > "$attempts_log"
+          : > "$classifier_log"
+          node scripts/playwright-chromium-install.mjs 2>&1 | tee -a "$attempts_log"
           status=${PIPESTATUS[0]}
-          reason="$(sed -n 's/.*\"reason\":\"\([^\"]*\)\".*/\1/p' artifacts/release-health/staging-browser-install.txt | tail -n 1)"
+          reason="$(sed -n 's/.*\"reason\":\"\([^\"]*\)\".*/\1/p' "$attempts_log" | tail -n 1)"
           case "$reason" in
             timeout|partial-download|cache-restore-failure|incomplete-cache)
               sleep 5
-              PLAYWRIGHT_INSTALL_ATTEMPT="2" node scripts/playwright-chromium-install.mjs 2>&1 | tee -a artifacts/release-health/staging-browser-install.txt
+              PLAYWRIGHT_INSTALL_ATTEMPT="2" node scripts/playwright-chromium-install.mjs 2>&1 | tee -a "$attempts_log"
               status=${PIPESTATUS[0]}
               ;;
           esac
+          if [ "$status" -ne 0 ]; then
+            grep -E 'Playwright Chromium install failed|provider-browser-install-timing/v1' "$attempts_log" | tail -n 1 > "$classifier_log"
+          fi
           exit "$status"
 
       - name: Await staging projection convergence

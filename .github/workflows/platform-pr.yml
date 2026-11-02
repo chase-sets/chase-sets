@@ -448,9 +448,9 @@ jobs:
         with:
           install: true
 
-      - name: Prove three synthetic Chromium capture cases
+      - name: Install Playwright Chromium
         shell: bash
-        timeout-minutes: 15
+        timeout-minutes: 11
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
           PLAYWRIGHT_INSTALL_SITE: platform-pr-synthetic-capture
@@ -462,6 +462,14 @@ jobs:
           printf 'AC4 source=%s run=%s attempt=%s job=%s\n' \
             "$AC4_SOURCE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB"
           node scripts/playwright-chromium-install.mjs
+
+      - name: Prove three synthetic Chromium capture cases
+        shell: bash
+        timeout-minutes: 4
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
+        run: |
+          set -euo pipefail
           CHASE_SETS_HERMETIC_CHROMIUM=1 xvfb-run --auto-servernum \
             pnpm --filter @chase-sets/channels run test:unit \
             features/connector-client/integrations/order-authority-probe/capture.test.ts \

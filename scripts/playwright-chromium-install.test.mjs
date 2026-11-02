@@ -92,32 +92,55 @@ function supervisedInstall({ signalGroupImpl = vi.fn(), cancelSignal, removeCach
 
 describe("Playwright Chromium installer primitive", () => {
   it("AC1/AC2 inventories every scoped caller, budgets its envelope, and leaves E2E separate", () => {
-    const workflow = (name) => readFileSync(`.github/workflows/${name}`, "utf8");
-    const catalog = workflow("catalog-staging-provider-uat.yml");
-    const advisory = workflow("platform-staging-advisory-evidence.yml");
-    const route = workflow("platform-staging-route-matrix-evidence.yml");
-    const wake = workflow("platform-staging-wake-drills.yml");
-    const production = workflow("platform-production.yml");
-    const platformPr = workflow("platform-pr.yml");
-    for (const source of [catalog, advisory, route, wake, production]) {
-      expect(source).toContain("node scripts/playwright-chromium-install.mjs");
-      expect(source).not.toMatch(/^ {6}[A-Z_]+: \$\{\{ runner\.temp \}\}/m);
+    const workflow = (name) => parse(readFileSync(`.github/workflows/${name}`, "utf8"));
+    const workflows = {
+      catalog: workflow("catalog-staging-provider-uat.yml"),
+      advisory: workflow("platform-staging-advisory-evidence.yml"),
+      route: workflow("platform-staging-route-matrix-evidence.yml"),
+      wake: workflow("platform-staging-wake-drills.yml"),
+      production: workflow("platform-production.yml"),
+      platformPr: workflow("platform-pr.yml"),
+    };
+    const rows = [
+      ["catalog", "staging-provider-uat", "Install Playwright Chromium", "Run staging provider sync UAT", "catalog-staging-provider-uat", 61, 11, 50, 1],
+      ["catalog", "scope-sync-count-lifecycle", "Install isolated Chromium", "Capture count lifecycle without confirmation", "catalog-scope-sync-count-lifecycle", 15, 11, 4, 1],
+      ["catalog", "scrydex-coordinate-preview", "Install isolated Chromium", "Capture Scrydex coordinate preview", "catalog-scrydex-coordinate-preview", 20, 11, 9, 1],
+      ["catalog", "scrydex-cache-capture", "Install isolated Chromium", "Capture Scrydex option cache without refresh", "catalog-scrydex-cache-capture", 20, 11, 9, 1],
+      ["catalog", "scrydex-force-refresh-bounded", "Install isolated Chromium", "Run bounded Scrydex force refresh", "catalog-scrydex-force-refresh-bounded", 20, 11, 9, 1],
+      ["advisory", "staging-advisory-evidence", "Install Playwright Chromium for staging critical flows", "Staging marketplace critical flows", "platform-staging-advisory-evidence", 90, 11, 10, 1],
+      ["route", "route-matrix", "Install Playwright Chromium", "Run route matrix probes", "platform-staging-route-matrix-evidence", 45, 11, 34, 1],
+      ["wake", "wake-drills", "Install Playwright Chromium", "Run wake drill probes", "platform-staging-wake-drills", 45, 11, 34, 1],
+    ];
+    const job = (wf, id) => workflows[wf].jobs[id];
+    for (const [wf, id, installName, consumerName, site, jobMinutes, installMinutes, consumerMinutes, attempts] of rows) {
+      const candidate = job(wf, id);
+      expect(candidate, `${wf}/${id}`).toBeTruthy();
+      const install = candidate.steps.find((step) => step.name === installName);
+      const consumer = candidate.steps.find((step) => step.name === consumerName);
+      expect(install, `${site} install`).toBeTruthy();
+      expect(consumer, `${site} consumer`).toBeTruthy();
+      expect(install.run).toContain("node scripts/playwright-chromium-install.mjs");
+      expect(install["timeout-minutes"]).toBe(installMinutes);
+      expect(install.env.PLAYWRIGHT_INSTALL_SITE).toBe(site);
+      expect(install.env.PLAYWRIGHT_BROWSERS_PATH).toBe(consumer.env.PLAYWRIGHT_BROWSERS_PATH);
+      expect(consumer["timeout-minutes"]).toBe(consumerMinutes);
+      expect(candidate["timeout-minutes"]).toBe(jobMinutes);
+      expect(605 * attempts + 5 * (attempts - 1) + consumerMinutes * 60 + 55).toBeLessThanOrEqual(jobMinutes * 60);
     }
-    expect(catalog).toContain("timeout-minutes: 61");
-    expect(catalog).toContain('CATALOG_STAGING_PROVIDER_UAT_TEST_TIMEOUT_MS: "3000000"');
-    expect(catalog).toContain("timeout-minutes: 50");
-    expect(advisory).toContain("timeout-minutes: 90");
-    expect(advisory).toContain("timeout-minutes: 11");
-    expect(advisory).toContain("timeout-minutes: 79");
-    expect(route).toContain("PLAYWRIGHT_INSTALL_SITE: platform-staging-route-matrix-evidence");
-    expect(wake).toContain("PLAYWRIGHT_INSTALL_SITE: platform-staging-wake-drills");
-    expect(production).toContain("timeout-minutes: 21");
-    expect(production).toContain('PLAYWRIGHT_INSTALL_ATTEMPT: "1"');
-    expect(production).toContain('PLAYWRIGHT_INSTALL_ATTEMPT=\"2\" node scripts/playwright-chromium-install.mjs');
-    expect(production).toContain("staging-browser-install.txt");
-    expect(platformPr).toContain("PLAYWRIGHT_INSTALL_SITE: platform-pr-synthetic-capture");
-    expect(platformPr).toContain("timeout-minutes: 15");
-    expect(platformPr).toContain("pnpm exec playwright install --with-deps chromium");
+    const production = workflows.production.jobs["deploy-staging"];
+    const productionInstall = production.steps.find((step) => step.name === "Install Playwright Chromium for staging critical flows");
+    expect(productionInstall.run).toContain("staging-browser-install-attempts.txt");
+    expect(productionInstall.run).toContain('exit "$status"');
+    expect(productionInstall.env.PLAYWRIGHT_BROWSERS_PATH).toBe("${{ runner.temp }}/playwright-chromium");
+    expect(productionInstall["timeout-minutes"]).toBe(21);
+    expect(production["timeout-minutes"]).toBe(180);
+    const platformPr = workflows.platformPr.jobs["capture-hermetic-chromium"];
+    const syntheticInstall = platformPr.steps.find((step) => step.name === "Install Playwright Chromium");
+    const syntheticCapture = platformPr.steps.find((step) => step.name === "Prove three synthetic Chromium capture cases");
+    expect(syntheticInstall["timeout-minutes"]).toBe(11);
+    expect(syntheticCapture["timeout-minutes"]).toBe(4);
+    expect(platformPr["timeout-minutes"]).toBe(15);
+    expect(workflows.platformPr.jobs["e2e-tests"].steps.filter((step) => /playwright install/.test(step.run ?? ""))).toHaveLength(1);
   });
 
   it.each(["relative/cache", "~/cache", path.parse(process.cwd()).root])(
