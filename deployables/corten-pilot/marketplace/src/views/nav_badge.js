@@ -1,8 +1,8 @@
 // @ts-check
 // The nav's cart count after a cart page's write. The server draws the count with each full load
-// (the page's `Chrome`), but the cart page's writes are `data-patch` forms whose redirect the
-// runtime follows as a navigation, which keeps the header the full load drew (the pilot README's
-// open workarounds track it). The cart page tells the badge the count its own read found.
+// and with the page a write redirects to, but while the write lands that page has no count, and
+// the page read again then (`ReadAgain`) swaps only `<main>` (the pilot README's open
+// workarounds track it). The cart page tells the badge the count its own read found.
 
 /**
  * Draws `total` on every cart badge, and shows a visitor's cart entry once it is not 0.

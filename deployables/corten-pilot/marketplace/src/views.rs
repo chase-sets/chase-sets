@@ -689,7 +689,7 @@ pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crat
     let check_out = readiness.map(|r| &r.declined).filter(|s| s.status == "ready");
     let lower_price = readiness.and_then(|r| r.accepted.as_ref()).filter(|_| screen.offer());
     let (search, resolve) = (cart_item::link("/search"), url::CheckoutStart.href());
-    // The nav's badge keeps the count this read found (a client navigation keeps the layout).
+    // The nav's badge takes the count this read found: a read again keeps the layout.
     let count = (!screen.pending).then(|| screen.item_count());
     html! {
         if let Some(count) = count {
