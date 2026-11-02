@@ -26,6 +26,7 @@ use crate::{
     app::{Config, ORDERS_MANAGE, Shared, read_failed, sign_in, url},
     auth::{OrderBuyer, OrderSeller, Viewer},
     cart::AfterWrite,
+    email_verification::{self, Purpose},
     text::{OrdersMsg, Pilot},
     views::{self, Layout},
 };
@@ -98,9 +99,11 @@ pub struct OrderScreen {
     pub order: Option<OrderDetail>,
     /// What a cancellation the API refused said (marketplace's `actionData.error`).
     pub notice: Option<String>,
-    /// Whether the caller may cancel (`orders.manage`). Marketplace draws Cancel for anyone who
-    /// may read the order, and its action refuses the rest (chase-sets/chase-sets#10635).
+    /// Whether the caller may cancel (`orders.manage`), as account-purchase's cancel authority.
     pub may_cancel: bool,
+    /// For a buyer whose cancel Auth withheld until their email is verified, the sign-in that
+    /// verifies it and comes back (account-purchase's `verify-email` cancel authority).
+    pub verify_email: Option<String>,
 }
 
 pub fn list_href(side: Side, page: Paging) -> String {
@@ -245,7 +248,11 @@ async fn order(
         Err(error) => return order_failed(req, viewer, side, error, receipt.is_some(), chrome.cart().await),
     };
     let may_cancel = viewer.actor.can(ORDERS_MANAGE);
-    render(req, viewer, OrderScreen { side, order, notice: None, may_cancel }, StatusCode::OK, chrome.cart().await)
+    let verify_email = (side == Side::Buyer && email_verification::awaits(&viewer.actor, ORDERS_MANAGE)).then(|| {
+        email_verification::sign_in_href(&url::Purchase { id, after: Default::default() }.href(), Purpose::CancelPurchase)
+    });
+    let screen = OrderScreen { side, order, notice: None, may_cancel, verify_email };
+    render(req, viewer, screen, StatusCode::OK, chrome.cart().await)
 }
 
 /// A read that failed: a 404 is the error page's Not found, after a write the screen's "could not
@@ -297,7 +304,7 @@ async fn cancel(
     render(
         req,
         viewer,
-        OrderScreen { side, order: Some(order), notice: Some(message), may_cancel: true },
+        OrderScreen { side, order: Some(order), notice: Some(message), may_cancel: true, verify_email: None },
         status,
         chrome.cart().await,
     )

@@ -275,7 +275,13 @@ mod tests {
     use platform::api::Actor;
 
     fn viewer() -> Viewer {
-        let actor = Actor { user_id: "usr_1".into(), account_id: "acc_1".into(), role_key: "owner".into(), permissions: vec![] };
+        let actor = Actor {
+            user_id: "usr_1".into(),
+            account_id: "acc_1".into(),
+            role_key: "owner".into(),
+            permissions: vec![],
+            agent: false,
+        };
         Viewer { actor, color_mode: Default::default() }
     }
 
