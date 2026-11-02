@@ -1,15 +1,6 @@
 import { createHash, webcrypto } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createContext, Script } from "node:vm";
@@ -21,42 +12,16 @@ const core = "bounded-contexts/channels/features/connector-client/integrations/o
 const scratch = path.join(repo, "artifacts", "9155", "tests");
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 const encode = (value: unknown) => JSON.stringify(value, null, 2) + "\n";
-let fixture: string;
+const fixture = repo;
 let driver = await import(new URL("./selector-human-route-rehearsal.mjs", import.meta.url).href);
-let packaging = await import(new URL("../integrations/order-authority-probe/package.mjs", import.meta.url).href);
+const packaging = await driver.loadHistoricalPackage();
 let metadata: ReturnType<typeof driver.prepareRehearsal>;
-const git = (...args: string[]) => execFileSync("git", args, { cwd: fixture, stdio: ["ignore", "pipe", "pipe"] });
-const freshOut = () => path.join(fixture, "artifacts", "9115", `human-route-rehearsal-${++sequence}`);
+const freshOut = () =>
+  path.join(fixture, "artifacts", "9115", `historical-route-rehearsal-${process.pid}-${++sequence}`);
 let sequence = 0;
 
 beforeAll(async () => {
   mkdirSync(scratch, { recursive: true });
-  fixture = mkdtempSync(path.join(scratch, "synthetic-seat-"));
-  for (const name of [
-    relative,
-    "scripts/lib/heavy-slot.mjs",
-    ...["capture.html", "capture.test.ts", "helper.js", "manifest.json", "package.mjs", "worker.js"].map(
-      (name) => `${core}/${name}`,
-    ),
-  ]) {
-    const dest = path.join(fixture, name);
-    mkdirSync(path.dirname(dest), { recursive: true });
-    copyFileSync(path.join(repo, name), dest);
-  }
-  writeFileSync(path.join(fixture, ".gitignore"), "artifacts/\n");
-  git("init", "--initial-branch=synthetic");
-  git("add", ".");
-  git(
-    "-c",
-    "user.name=Synthetic fixture",
-    "-c",
-    "user.email=synthetic@example.invalid",
-    "commit",
-    "-m",
-    "synthetic fixture only",
-  );
-  driver = await import(pathToFileURL(path.join(fixture, relative)).href);
-  packaging = await import(pathToFileURL(path.join(fixture, core, "package.mjs")).href);
   metadata = driver.prepareRehearsal(freshOut());
 });
 
@@ -72,41 +37,57 @@ describe("selector-human-rehearsal-preparation", () => {
     expect(p.extensionId).not.toBe(metadata.preparation.extensionId);
     expect(p.profileDirectory).not.toBe(metadata.preparation.profileDirectory);
     for (const [name, digest] of Object.entries(driver.LANDED_DIGESTS))
-      expect(hash(readFileSync(path.join(fixture, core, name)))).toBe(digest);
+      expect(hash(readFileSync(path.join(driver.historicalSource, core, name)))).toBe(digest);
     for (const name of ["worker.js", "helper.js", "capture.html"])
       expect(hash(readFileSync(path.join(p.packageDirectory, name)))).toBe(driver.LANDED_DIGESTS[name]);
   });
 
-  it("refuses dirty and committed wrong source rather than rebaselining the digest oracle", () => {
-    const file = path.join(fixture, core, "helper.js");
+  it("historical-tamper refuses before preparation, never rebaselines to changed candidate core", () => {
+    const file = path.join(driver.historicalSource, core, "helper.js");
     const original = readFileSync(file);
     writeFileSync(file, "synthetic tamper");
     try {
-      expect(() => driver.prepareRehearsal(freshOut())).toThrow("dirty_source_refused");
-      git("add", file);
-      git(
-        "-c",
-        "user.name=Synthetic fixture",
-        "-c",
-        "user.email=synthetic@example.invalid",
-        "commit",
-        "-m",
-        "synthetic wrong source control",
-      );
       expect(() => driver.prepareRehearsal(freshOut())).toThrow("wrong_landed_source");
     } finally {
       writeFileSync(file, original);
-      git("add", file);
-      git(
-        "-c",
-        "user.name=Synthetic fixture",
-        "-c",
-        "user.email=synthetic@example.invalid",
-        "commit",
-        "-m",
-        "restore synthetic fixture",
-      );
     }
+  });
+  it("assertSource-bypass mutant FAILS immutable #9121 helper bytes even with changed candidate core", async () => {
+    const source = readFileSync(path.join(repo, relative), "utf8");
+    expect(source.split("const head = assertSource();")).toHaveLength(2);
+    const mutated = source
+      .replace(
+        "const driver = fileURLToPath(import.meta.url);",
+        `const driver = ${JSON.stringify(path.join(repo, relative))};`,
+      )
+      .replace("const head = assertSource();", "const head = LANDED_HEAD;");
+    const bypass = await import(`data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}`);
+    await bypass.loadHistoricalPackage();
+    const file = path.join(driver.historicalSource, core, "helper.js");
+    const original = readFileSync(file);
+    writeFileSync(file, Buffer.concat([original, Buffer.from("\n// SYNTHETIC historical tamper mutant\n")]));
+    try {
+      expect(() => driver.prepareRehearsal(freshOut())).toThrow("wrong_landed_source");
+      const admitted = bypass.prepareRehearsal(freshOut());
+      expect(admitted.preparation.packageDigests["helper.js"]).not.toBe(driver.LANDED_DIGESTS["helper.js"]);
+    } finally {
+      writeFileSync(file, original);
+    }
+  });
+  it("missing historical source in a shallow checkout fails closed with a fixed code, never a candidate fallback", () => {
+    const emptySeat = mkdtempSync(path.join(scratch, "synthetic-shallow-"));
+    const module = path.join(emptySeat, relative);
+    mkdirSync(path.dirname(module), { recursive: true });
+    writeFileSync(module, readFileSync(path.join(repo, relative)));
+    execFileSync("git", ["init", "--initial-branch=synthetic"], { cwd: emptySeat, stdio: "ignore" });
+    const code = `import(${JSON.stringify(pathToFileURL(module).href)}).then(m=>m.loadHistoricalPackage()).then(()=>{throw new Error('candidate_fallback')}).catch(e=>{console.log(e.message)})`;
+    expect(
+      execFileSync(process.execPath, ["--input-type=module", "-e", code], {
+        cwd: emptySeat,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim(),
+    ).toBe("historical_source_unavailable");
   });
 
   it("refuses relative, existing, wrong-parent, symlink and malformed destinations", () => {
@@ -948,39 +929,17 @@ describe("selector-human-rehearsal-isolation actual emitted helper/worker/export
   });
 });
 
-describe("selector-human-rehearsal-handoff", () => {
-  it("ships bound runnable commands, all human phases and N4/N5/N9/N10 without live authority", () => {
+describe("selector-historical-rehearsal-handoff", () => {
+  it("retains immutable historical bytes, withdraws prospective packet and leaves WorkerIsolation reusable", () => {
     const readback = JSON.parse(readFileSync(path.join(metadata.out, "handoff.json"), "utf8"));
-    expect(readback.head).toBe(git("rev-parse", readback.head).toString().trim());
+    expect(readback.head).toBe(driver.LANDED_HEAD);
     expect(readback.driverDigest).toBe(hash(readFileSync(path.join(fixture, relative))));
     expect(readback.landedCoreDigests).toEqual(driver.LANDED_DIGESTS);
-    const instructions = readFileSync(path.join(metadata.out, "HUMAN.md"), "utf8");
-    for (const term of [
-      "actual merge head",
-      "identical driver/core digests",
-      "exclusive heavy admission",
-      "not a lane publication/landing gate",
-      "No Playwright download/dialog owner",
-      "await orderAuthorityCapture.run()",
-      "30000 ms",
-      "120000 ms",
-      "actually reloading",
-      "ONCE",
-      "chrome://extensions",
-      "ACTUAL UTC",
-      "zero exact-profile",
-      "unknown/unreadable command lines",
-      "OUTSIDE agent tools",
-      "--record-removal",
-      "--verify-export",
-      "#9115 remains HOLD",
-      "PENDING_HOST_REVIEW",
-    ])
-      expect(instructions).toContain(term);
-    expect(instructions).toContain(metadata.preparation.extensionId);
-    expect(instructions).toContain(metadata.preparation.packageDirectory);
-    expect(instructions).toContain(metadata.preparation.profileDirectory);
-    expect(instructions).toContain(metadata.ordersUrl);
+    const instructions = readFileSync(path.join(metadata.out, "HISTORICAL.md"), "utf8");
+    expect(instructions).toContain("No prospective human launch or acceptance authority");
+    expect(existsSync(path.join(metadata.out, "HUMAN.md"))).toBe(false);
+    expect(driver.WorkerIsolation).toBeDefined();
+    expect(driver.WorkerCdp).toBeDefined();
     const orders = readFileSync(fileURLToPath(metadata.ordersUrl), "utf8");
     const range = { value: "LastTwoYears" };
     let onLoad: () => void = () => {};
