@@ -320,9 +320,9 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "inventory-mutation/v1:*",
     evidenceRefs: [
-      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:83",
-      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:87",
-      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:92",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:84",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:88",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:93",
     ],
     factualSummary:
       "Inventory recovery reads, writes, and removes sessionStorage entries in the inventory-mutation/v1: key family through an injected Storage seam. A record holds the opaque attempt, account, acting User, operation family, target and creation time, not the mutation payload or result.",
@@ -348,11 +348,11 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "discovery.search.loader-cache.v1",
     evidenceRefs: [
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:103",
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:141",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:109",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:147",
       "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:43",
       "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:50",
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:95",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:97",
     ],
     factualSummary:
       "The search loader cache reads, writes, and removes a browser storage entry named discovery.search.loader-cache.v1 through an injected Pick<Storage, ...> seam. The stored value holds a bounded, time-limited set of loader payloads keyed by the search URL that produced them.",

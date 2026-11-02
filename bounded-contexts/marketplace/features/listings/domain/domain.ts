@@ -1,4 +1,5 @@
 import { MarketplaceListingDomainError } from "./listing-error";
+import { activeListingPhotos } from "./active-listing-photos";
 import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
 import {
   parseMarketplaceListingAutoUnlistedPayload,
@@ -36,6 +37,7 @@ import type { ListingEvidenceRequirementSnapshot } from "./evidence-requirement-
 import type { ListingEvidenceReadinessResult } from "./listing-evidence-readiness";
 
 export type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "./fee-lock";
+export { activeListingPhotos } from "./active-listing-photos";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -256,11 +258,6 @@ export type MarketplaceListingPhotoDraft = Readonly<{
 /** Derives the immutable asset revision key for a normalized asset set. */
 export function listingPhotoAssetRevision(sourceHash: string): string {
   return `rev-${sourceHash.trim().slice(0, 16)}`;
-}
-
-/** Returns only the current (active) evidence entries. */
-export function activeListingPhotos(photos: readonly MarketplaceListingPhoto[]): readonly MarketplaceListingPhoto[] {
-  return photos.filter((photo) => photo.status === "active");
 }
 
 export type MarketplaceGradedCardDetails = Readonly<{

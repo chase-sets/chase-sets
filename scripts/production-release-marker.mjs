@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { appendFile, readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
@@ -326,22 +327,78 @@ export async function readCompletePages(api, path, field) {
   throw new Error(`${field} authority exceeded ten-page bound`);
 }
 
-function githubApi(env) {
+// The delays sit between the three reads; no read follows the last failure.
+const authorityReadBackoffMs = [1_000, 2_000];
+
+// Only a failure class reaches diagnostics: upstream messages can quote header values or response bodies.
+function transientAuthorityFailure(error) {
+  if (error?.name === "TimeoutError") return "timeout";
+  if (error?.name === "AbortError") return "aborted";
+  if (error instanceof TypeError && ["fetch failed", "terminated"].includes(error.message)) {
+    const code = error.cause?.code;
+    return typeof code === "string" && /^[A-Z][A-Z0-9_]{0,39}$/.test(code)
+      ? `transport error (${code})`
+      : "transport error";
+  }
+  return null;
+}
+
+async function discardBody(response) {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The status already decides; an unreadable body changes nothing.
+  }
+}
+
+export function githubApi(
+  env,
+  { fetch: fetchImpl = globalThis.fetch, sleep = delay, log = (line) => console.error(line) } = {},
+) {
   requireThat(
     env.GITHUB_TOKEN && /^[\w.-]+\/[\w.-]+$/.test(env.GITHUB_REPOSITORY),
     "missing GitHub authority credentials",
   );
   return async (path) => {
-    const response = await fetch(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/${path}`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      signal: AbortSignal.timeout(30_000),
-    });
-    requireThat(response.ok, `GitHub authority read failed: HTTP ${response.status}`);
-    return response.json();
+    const reads = authorityReadBackoffMs.length + 1;
+    let failure;
+    for (let read = 1; read <= reads; read += 1) {
+      if (read > 1) {
+        log(`GitHub authority read retry ${read}/${reads} after ${path} ${failure}`);
+        await sleep(authorityReadBackoffMs[read - 2]);
+      }
+      let response;
+      try {
+        response = await fetchImpl(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/${path}`, {
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+          signal: AbortSignal.timeout(30_000),
+        });
+      } catch (error) {
+        failure = transientAuthorityFailure(error);
+        requireThat(failure, `GitHub authority read failed: ${path} request error`);
+        continue;
+      }
+      if (response.status === 429 || response.status >= 500) {
+        failure = `HTTP ${response.status}`;
+        await discardBody(response);
+        continue;
+      }
+      if (!response.ok) {
+        await discardBody(response);
+        throw new Error(`GitHub authority read failed: ${path} HTTP ${response.status}`);
+      }
+      try {
+        return await response.json();
+      } catch (error) {
+        failure = transientAuthorityFailure(error);
+        requireThat(failure, `GitHub authority read failed: ${path} malformed JSON`);
+      }
+    }
+    throw new Error(`GitHub authority read failed after ${reads} reads: ${path} ${failure}`);
   };
 }
 
@@ -848,11 +905,12 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
   return io;
 }
 
-async function main(action, env) {
+// The authority reader is the only injected boundary; every other effect stays the production adapter.
+export async function main(action, env, authorityRead = {}) {
   let identity;
   let knownProduction = "unknown";
   try {
-    const api = githubApi(env);
+    const api = githubApi(env, authorityRead);
     const runId = Number(env.GITHUB_RUN_ID);
     const attempt = Number(env.GITHUB_RUN_ATTEMPT);
     requireThat(

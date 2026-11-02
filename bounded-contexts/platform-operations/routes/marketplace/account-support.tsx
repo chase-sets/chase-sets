@@ -76,10 +76,8 @@ export async function action({ request }: ActionFunctionArgs) {
   } catch {
     return { error: t("support.routes.marketplace.accountSupport.photos.intakeRejected") };
   }
-  const api = createSupportRequestRequestApiClient(
-    request,
-    formValue(formData, "participantAttemptId") || crypto.randomUUID(),
-  );
+  const attemptId = formValue(formData, "participantAttemptId") || crypto.randomUUID();
+  const api = createSupportRequestRequestApiClient(request, attemptId);
   if (!participantActorMatches(formData, actor)) return { error: t("support.participantAttempt.accountChanged") };
   let participantRecovery: ParticipantRouteRecovery | null = null;
   try {
@@ -95,7 +93,6 @@ export async function action({ request }: ActionFunctionArgs) {
   }
   const affectedLineIds = formData.getAll("affectedLineIds").map(String);
   const files = formData.getAll("attachments").filter(isUploadedFile);
-  const photoRequired = formValue(formData, "photoRequired") === "true";
   let supportRequestId = formValue(formData, "supportRequestId");
   let uploadedAttachmentReferences = formData.getAll("uploadedAttachmentReferences").map(String);
   const attachmentOperationId = formValue(formData, "attachmentOperationId");
@@ -118,44 +115,28 @@ export async function action({ request }: ActionFunctionArgs) {
   if (uploadUncertain && uploadedAttachmentReferences.length === 0)
     return { error: t("support.routes.marketplace.accountSupport.photos.uncertain"), ...recovery() };
 
-  if (photoRequired && files.length === 0 && uploadedAttachmentReferences.length === 0) {
-    return {
-      error: t("support.routes.marketplace.accountSupport.photos.required"),
-      ...recovery(),
-    };
-  }
-
   try {
-    let commandResult: unknown;
-    if (!supportRequestId) {
-      const result = await api.openSupportRequest({
-        orderId: formValue(formData, "orderId"),
-        flowType: formValue(formData, "flowType"),
-        ...(affectedLineIds.length > 0 ? { affectedLineIds } : {}),
-      });
-      supportRequestId = result.id;
-      commandResult = result;
-    }
+    const open = {
+      orderId: formValue(formData, "orderId"),
+      flowType: formValue(formData, "flowType"),
+      ...(affectedLineIds.length ? { affectedLineIds } : {}),
+    };
     if (files.length > 0 && uploadedAttachmentReferences.length === 0) {
       uploadUncertain = true;
-      const uploaded = await api.uploadSupportEvidenceAttachments(supportRequestId, files, attachmentOperationId);
+      const uploaded = await api.stageParticipantIntakeAttachments(
+        { ...open, attemptId },
+        files,
+        attachmentOperationId,
+      );
       uploadUncertain = false;
       uploadedAttachmentReferences = uploaded.attachments.map((attachment) => attachment.reference);
     }
-    if (uploadedAttachmentReferences.length > 0) {
-      commandResult = await api.participantCommand(
-        "submit-evidence",
-        {
-          submittedByRole: "buyer",
-          evidenceType: "photo",
-          summary: t("support.routes.marketplace.accountSupport.photos.summary"),
-          attachments: uploadedAttachmentReferences,
-          attachmentOperationId,
-        },
-        formValue(formData, "evidenceAttemptId") || crypto.randomUUID(),
-        supportRequestId,
-      );
-    }
+    const commandResult = await api.openSupportRequest({
+      ...open,
+      intakePhotoReferences: uploadedAttachmentReferences,
+      ...(uploadedAttachmentReferences.length ? { attachmentOperationId } : {}),
+    });
+    supportRequestId = commandResult.id;
     return redirect(navigateAfterWrite(commandResult, `/account/support/${encodeURIComponent(supportRequestId)}`));
   } catch (error) {
     if (error instanceof SupportEvidenceUploadError && error.status >= 400 && error.status < 500)

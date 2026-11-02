@@ -32,8 +32,14 @@ export type ProviderConnectionsCrossContextPort = Readonly<{
 
 export type ProviderConnectionsSection = Readonly<{
   state: "available" | "partial" | "unavailable";
-  rows: readonly ProviderConnectionRow[];
+  rows: readonly ProviderConnectionsResponseRow[];
 }>;
+
+export type ProviderConnectionsResponseRow = ProviderConnectionRow &
+  Readonly<{
+    freshnessState: "unknown" | "ageOnly" | "fresh" | "aging" | "stale" | "unavailable";
+    ageSeconds: number | null;
+  }>;
 
 export type ProviderConnectionsSnapshot = Readonly<{
   evaluatedAt: string;

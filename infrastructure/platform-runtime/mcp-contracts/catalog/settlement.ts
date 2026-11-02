@@ -6,6 +6,7 @@ import {
   idempotencyKeyProperty,
   integerProperty,
   objectSchema,
+  nullableProperty,
   readTool,
   resource,
   service,
@@ -80,8 +81,69 @@ const settlementPayoutsOutputSchema = objectSchema(
     items: arrayProperty("Payouts visible to the actor.", settlementPayoutOutputProperty),
     total: integerProperty("Total payout count."),
     count: integerProperty("Returned payout count."),
+    completeness: {
+      type: "object",
+      description: "Whether the payout summary is complete or capped.",
+      additionalProperties: false,
+      required: ["kind", "total"],
+      properties: {
+        kind: stringProperty("Summary completeness state."),
+        total: integerProperty("Total actionable payout count."),
+        cap: integerProperty("Summary hard cap when bounded."),
+        reason: stringProperty("Reason the summary is bounded."),
+      },
+    },
+    next_payout: nullableProperty({
+      type: "object",
+      description: "Next requested or in-transit payout.",
+      additionalProperties: false,
+      required: ["payout_id", "amount", "requested_amount", "fee_amount", "currency_code", "estimated_arrival_at"],
+      properties: {
+        payout_id: stringProperty("Payout identifier."),
+        amount: stringProperty("Net payout amount."),
+        requested_amount: stringProperty("Requested payout amount."),
+        fee_amount: stringProperty("Payout fee amount."),
+        currency_code: stringProperty("Payout currency code."),
+        estimated_arrival_at: stringProperty("Estimated arrival timestamp."),
+      },
+    }),
+    blocked_payouts: arrayProperty("Payouts requiring retry or reconciliation.", {
+      type: "object",
+      description: "Blocked payout summary row.",
+      additionalProperties: false,
+      required: ["payout_id", "account_id", "reference", "block_reason", "kind", "next_action", "observed_at"],
+      properties: {
+        payout_id: stringProperty("Payout identifier."),
+        account_id: stringProperty("Account that owns the payout."),
+        reference: stringProperty("Human payout reference."),
+        block_reason: stringProperty("Provider-neutral blocked reason."),
+        kind: stringProperty("Blocked payout kind."),
+        next_action: stringProperty("Recommended next action."),
+        observed_at: stringProperty("Timestamp the block was observed."),
+      },
+    }),
+    availability: {
+      type: "object",
+      description: "Settlement payout availability.",
+      additionalProperties: false,
+      required: ["can_request", "unavailable_reasons", "unavailable_reason_details"],
+      properties: {
+        can_request: booleanProperty("Whether the actor may request a payout."),
+        unavailable_reasons: arrayProperty("Availability reason codes.", stringProperty("Reason code.")),
+        unavailable_reason_details: arrayProperty("Availability reason details.", {
+          type: "object",
+          description: "Availability reason detail.",
+          additionalProperties: false,
+          required: ["code", "message"],
+          properties: {
+            code: stringProperty("Reason code."),
+            message: stringProperty("Human reason message."),
+          },
+        }),
+      },
+    },
   },
-  ["accountId", "items", "total", "count"],
+  ["accountId", "items", "total", "count", "completeness", "next_payout", "blocked_payouts", "availability"],
 );
 
 const settlementPayoutOutputSchema = objectSchema(

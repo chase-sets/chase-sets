@@ -11,9 +11,14 @@ import type { ImportCsvRow } from "../domain/csv";
 import { listInventoryImportSourceProfiles, type InventoryImportSourceKey } from "../domain/import-source-profiles";
 import type { InventoryImportQuantityMode } from "../domain/import-source-adapters";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import { parseSelectedOptionsInput } from "../../inventory-items/integrations/catalog/versioning";
+import {
+  parseSelectedOptionsInput,
+  type InventorySelectedOptionEntry,
+} from "../../inventory-items/integrations/catalog/versioning";
 import { withInventoryMutationAttempt } from "../../../support/runtime-support/mutation-attempt";
+import { InventoryDomainError } from "../../../support/runtime-support/common";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { ImportRowResolveConflict, isImportRowFingerprint, isImportRowVersion } from "../domain/row-resolve-conflict";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("inventory.features.importBatches.api.route.request.failed");
@@ -80,14 +85,111 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
   };
 }
 
-async function parseResolveRowRequest(c: Context<InventoryApiEnv>) {
-  const body = (await c.req.json().catch(() => ({}))) as Readonly<Record<string, unknown>>;
+const RESOLVE_ROW_KEYS = [
+  "catalogItemId",
+  "selectedOptions",
+  "storageLocationId",
+  "expectedRowVersion",
+  "expectedRowFingerprint",
+] as const;
+const RESOLVE_ROW_MAX_SELECTED_OPTIONS = 64;
+const RESOLVE_ROW_MAX_ID_LENGTH = 256;
 
+type ResolveRowRequest = Readonly<{
+  catalogItemId: string;
+  selectedOptions: readonly InventorySelectedOptionEntry[];
+  storageLocationId: string;
+  expectedRowVersion: string;
+  expectedRowFingerprint: string;
+}>;
+type ResolveRowRefusal = "invalid_resolve_request" | "invalid_row_facts" | "missing_row_facts";
+
+const resolveRowRefusalMessages: Readonly<Record<ResolveRowRefusal, string>> = {
+  invalid_resolve_request: "Import row fix request is invalid. Reload the batch and try again.",
+  invalid_row_facts: new ImportRowResolveConflict("invalid_row_facts").message,
+  missing_row_facts: new ImportRowResolveConflict("missing_row_facts").message,
+};
+
+function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isBoundedId(value: unknown): value is string {
+  return typeof value === "string" && value.length <= RESOLVE_ROW_MAX_ID_LENGTH;
+}
+
+function isSelectedOption(value: unknown): value is InventorySelectedOptionEntry {
+  return (
+    isPlainRecord(value) &&
+    Object.keys(value).length === 2 &&
+    isBoundedId(value.dimensionId) &&
+    value.dimensionId.length > 0 &&
+    isBoundedId(value.optionId) &&
+    value.optionId.length > 0
+  );
+}
+
+/** Closed resolve body: exactly the five known keys; anything unknown, aliased, nested or mistyped is refused. */
+export function parseResolveRowBody(
+  value: unknown,
+): Readonly<{ ok: true; body: ResolveRowRequest }> | Readonly<{ ok: false; code: ResolveRowRefusal }> {
+  if (!isPlainRecord(value)) return { ok: false, code: "invalid_resolve_request" };
+  const keys = Object.keys(value);
+  if (
+    keys.length !== RESOLVE_ROW_KEYS.length ||
+    keys.some((key) => !(RESOLVE_ROW_KEYS as readonly string[]).includes(key)) ||
+    !isBoundedId(value.catalogItemId) ||
+    !isBoundedId(value.storageLocationId) ||
+    !Array.isArray(value.selectedOptions) ||
+    value.selectedOptions.length > RESOLVE_ROW_MAX_SELECTED_OPTIONS ||
+    !value.selectedOptions.every(isSelectedOption)
+  ) {
+    return { ok: false, code: "invalid_resolve_request" };
+  }
+  if (value.expectedRowVersion === "" || value.expectedRowFingerprint === "") {
+    return { ok: false, code: "missing_row_facts" };
+  }
+  if (!isImportRowVersion(value.expectedRowVersion) || !isImportRowFingerprint(value.expectedRowFingerprint)) {
+    return { ok: false, code: "invalid_row_facts" };
+  }
   return {
-    catalogItemId: String(body.catalogItemId ?? "").trim(),
-    storageLocationId: String(body.storageLocationId ?? "").trim(),
-    selectedOptions: parseSelectedOptionsInput(body.selectedOptions),
+    ok: true,
+    body: {
+      catalogItemId: value.catalogItemId.trim(),
+      storageLocationId: value.storageLocationId.trim(),
+      selectedOptions: parseSelectedOptionsInput(value.selectedOptions),
+      expectedRowVersion: value.expectedRowVersion,
+      expectedRowFingerprint: value.expectedRowFingerprint,
+    },
   };
+}
+
+function resolveRowAttemptContext(c: Context<InventoryApiEnv>): EventStoreContext | null {
+  try {
+    return withInventoryMutationAttempt(c.get("context"), c.req.header("Inventory-Mutation-Attempt") ?? "");
+  } catch {
+    return null;
+  }
+}
+
+function resolveRowFailure(error: unknown) {
+  if (error instanceof ImportRowResolveConflict) {
+    const status = error.code === "invalid_row_facts" || error.code === "missing_row_facts" ? 400 : 409;
+    return { status, body: { error: { code: error.code, message: error.message } } } as const;
+  }
+  return {
+    status: 400,
+    body: {
+      error: {
+        code: "validation_failed",
+        // Domain messages are fixed Inventory text; anything else (driver, parser) is never echoed.
+        message:
+          error instanceof InventoryDomainError
+            ? error.message
+            : t("inventory.features.importBatches.api.route.request.failed"),
+      },
+    },
+  } as const;
 }
 
 export function inventoryImportBatchRoutes(services: InventoryImportBatchServices) {
@@ -246,7 +348,12 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
 
   app.post("/:id/rows/:rowId/resolve", async (c) => {
     const actor = c.get("actor");
-    const body = await parseResolveRowRequest(c);
+    const parsed = parseResolveRowBody(await c.req.json().catch(() => null));
+    const attemptContext = resolveRowAttemptContext(c);
+    if (!parsed.ok || !attemptContext) {
+      const code = parsed.ok ? "invalid_resolve_request" : parsed.code;
+      return c.json({ error: { code, message: resolveRowRefusalMessages[code] } }, 400);
+    }
 
     try {
       const detail = await services.resolveRow(
@@ -254,23 +361,14 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
           batchId: c.req.param("id"),
           rowId: c.req.param("rowId"),
           accountId: actor.accountId as AccountId,
-          catalogItemId: body.catalogItemId,
-          selectedOptions: body.selectedOptions,
-          storageLocationId: body.storageLocationId,
+          ...parsed.body,
         },
-        c.get("context"),
+        attemptContext,
       );
       return c.json(detail);
     } catch (error) {
-      return c.json(
-        {
-          error: {
-            code: "validation_failed",
-            message: errorMessage(error),
-          },
-        },
-        400,
-      );
+      const failure = resolveRowFailure(error);
+      return c.json(failure.body, failure.status);
     }
   });
 

@@ -1210,11 +1210,62 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(1, "off_1");
-    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(2, "off_2");
+    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(1, "off_1", { attemptId: "decline_off_1".padEnd(22, "_") });
+    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(2, "off_2", { attemptId: "decline_off_2".padEnd(22, "_") });
     expect(removeSellListLine).toHaveBeenCalledWith("sll_1");
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/desk/offers");
+  });
+
+  it("revalidates recovering guest Offer reviews after a decline without another Marketplace command", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const lag = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
+    mockGetGuestSellList.mockRejectedValue(lag);
+    mockGetGuestSellListOfferReviews.mockRejectedValueOnce(lag).mockResolvedValue({ offerReviews: [] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [{ line_id: "sll_1", line_type: "selected-offer", offer_id: "off_1" }],
+      })),
+      removeSellListLine: vi.fn(async () => ({ status: "removed" })),
+      getGuestSellList: mockGetGuestSellList,
+      getGuestSellListOfferReviews: mockGetGuestSellListOfferReviews,
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      declineOfferMatch: mockDeclineOfferMatch.mockResolvedValue({ status: "declined" }),
+    });
+    const form = new URLSearchParams({ intent: "decline-sell-list-offers", bulkOfferId: "off_1" });
+    await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+    const revalidate = () =>
+      accountSellListLoader({
+        request: new Request(
+          `http://localhost${appendFreshWriteToken("/account/sell-list", checkoutCommit("13", "evt_sell_list_line"))}`,
+          { headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" } },
+        ),
+        params: {},
+        context: undefined,
+      } as never);
+
+    expect(await revalidate()).toMatchObject({
+      sellListRecovery: { kind: "pending-fresh-write", actorMode: "account" },
+      offerReviews: [],
+    });
+    expect(await revalidate()).toMatchObject({ offerReviews: [] });
+    expect(mockGetGuestSellListOfferReviews).toHaveBeenCalledTimes(2);
+    expect(mockDeclineOfferMatch).toHaveBeenCalledExactlyOnceWith("off_1", {
+      attemptId: "decline_off_1".padEnd(22, "_"),
+    });
+    expect(mockCreateMarketplaceRequestApiClient).toHaveBeenCalledOnce();
+    expect(mockMergeGuestSellListToAccount).not.toHaveBeenCalled();
   });
 
   it("adds a posted selected offer snapshot to the anonymous Sell List when signed out", async () => {

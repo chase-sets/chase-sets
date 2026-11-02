@@ -27,7 +27,11 @@ import type {
   SupportRequesterRole,
   SupportResponseType,
 } from "../domain/common";
-import type { SupportFlowDetail } from "../api/support-flow-projection";
+import type {
+  SupportFlowDetail,
+  SupportParticipantAction,
+  SupportParticipantPolicy,
+} from "../api/support-flow-projection";
 import type { SupportRequestDetail } from "./contracts";
 import { formatSupportDateTime, SupportDeadlineCountdown } from "./support-request-presentation";
 
@@ -37,8 +41,8 @@ type SupportRequestDetailPageProps = Readonly<{
   request: SupportRequestDetail;
   flow: SupportFlowDetail;
   viewerRole: SupportParticipantRole;
+  participantPolicy: SupportParticipantPolicy;
   now: string;
-  canCancel?: boolean;
   actionError?: string | null;
   actionResult?: string | null;
 }>;
@@ -66,35 +70,6 @@ function statusLabel(status: string) {
   }
 }
 
-function supportNextActor(request: SupportRequestDetail): SupportRequesterRole | null {
-  if (isTerminalStatus(request.status)) return null;
-  if (request.pending_offer) return request.pending_offer.pendingWithRole;
-
-  const requiredItem = request.checklist.find(
-    (item) => item.required && item.satisfiedAt === null && item.ownerRole !== "support",
-  );
-  if (requiredItem) return requiredItem.ownerRole;
-
-  switch (request.status) {
-    case "waiting-on-buyer":
-      return "buyer";
-    case "waiting-on-seller":
-      return "seller";
-    case "ready-for-support":
-      return "support";
-    default:
-      return "support";
-  }
-}
-
-function participantDeadline(request: SupportRequestDetail, nextActor: SupportRequesterRole | null) {
-  if (nextActor === "seller") {
-    return request.seller_condition_attestation_due_at ?? request.seller_response_due_at;
-  }
-  if (nextActor === "support") return request.support_review_due_at;
-  return request.seller_response_due_at ?? request.support_review_due_at;
-}
-
 function actionTitle(nextActor: SupportRequesterRole | null, viewerRole: SupportParticipantRole, status: string) {
   if (isTerminalStatus(status)) return statusLabel(status);
   if (nextActor === viewerRole) {
@@ -117,25 +92,6 @@ function evidenceTypeLabel(type: SupportEvidenceType) {
 
 function responseTypeLabel(type: SupportResponseType) {
   return t(`support.features.supportRequests.ui.supportRequestDetailPage.responseType.${type}`);
-}
-
-function responseResolutionType(type: SupportResponseType) {
-  switch (type) {
-    case "accept-return":
-      return "return-for-refund";
-    case "offer-partial-refund":
-      return "partial-refund";
-    case "offer-replacement":
-      return "replacement";
-    default:
-      return null;
-  }
-}
-
-function checklistPrompts(request: SupportRequestDetail, viewerRole: SupportParticipantRole) {
-  return request.checklist.filter(
-    (item) => item.ownerRole === viewerRole && item.required && item.satisfiedAt === null,
-  );
 }
 
 function EvidencePrompt({
@@ -187,7 +143,6 @@ function ResponseForm({ flow, viewerRole }: Readonly<{ flow: SupportFlowDetail; 
   const firstResponse = allowedResponses[0];
   const [responseType, setResponseType] = useState<SupportResponseType | null>(firstResponse ?? null);
   if (!firstResponse || !responseType) return null;
-  const resolutionType = responseResolutionType(responseType);
 
   return (
     <Card elevation="tinted" data-elevation-role="furniture">
@@ -201,7 +156,6 @@ function ResponseForm({ flow, viewerRole }: Readonly<{ flow: SupportFlowDetail; 
         <RouterForm method="post" spacing="md">
           <HiddenInput name="intent" value="response" readOnly />
           <HiddenInput name="submittedByRole" value={viewerRole} readOnly />
-          {resolutionType ? <HiddenInput name="offerResolutionType" value={resolutionType} readOnly /> : null}
           <NativeSelect
             label={t("support.features.supportRequests.ui.supportRequestDetailPage.response.type")}
             name="responseType"
@@ -252,7 +206,11 @@ function RequestSupportReviewForm() {
   );
 }
 
-function OfferDecision({ request }: Readonly<{ request: SupportRequestDetail }>) {
+function OfferDecision({
+  request,
+  canAccept,
+  canDecline,
+}: Readonly<{ request: SupportRequestDetail; canAccept: boolean; canDecline: boolean }>) {
   const offer = request.pending_offer;
   if (!offer) return null;
 
@@ -278,25 +236,29 @@ function OfferDecision({ request }: Readonly<{ request: SupportRequestDetail }>)
           ]}
         />
         <Cluster>
-          <RouterForm method="post">
-            <HiddenInput name="intent" value="accept-offer" readOnly />
-            <HiddenInput name="offerId" value={offer.offerId} readOnly />
-            <Button type="submit">
-              {t("support.features.supportRequests.ui.supportRequestDetailPage.offer.accept")}
-            </Button>
-          </RouterForm>
-          <RouterForm method="post">
-            <HiddenInput name="intent" value="decline-offer" readOnly />
-            <HiddenInput name="offerId" value={offer.offerId} readOnly />
-            <HiddenInput
-              name="summary"
-              value={t("support.features.supportRequests.ui.supportRequestDetailPage.offer.declineSummary")}
-              readOnly
-            />
-            <Button type="submit" tone="secondary">
-              {t("support.features.supportRequests.ui.supportRequestDetailPage.offer.decline")}
-            </Button>
-          </RouterForm>
+          {canAccept ? (
+            <RouterForm method="post">
+              <HiddenInput name="intent" value="accept-offer" readOnly />
+              <HiddenInput name="offerId" value={offer.offerId} readOnly />
+              <Button type="submit">
+                {t("support.features.supportRequests.ui.supportRequestDetailPage.offer.accept")}
+              </Button>
+            </RouterForm>
+          ) : null}
+          {canDecline ? (
+            <RouterForm method="post">
+              <HiddenInput name="intent" value="decline-offer" readOnly />
+              <HiddenInput name="offerId" value={offer.offerId} readOnly />
+              <HiddenInput
+                name="summary"
+                value={t("support.features.supportRequests.ui.supportRequestDetailPage.offer.declineSummary")}
+                readOnly
+              />
+              <Button type="submit" tone="secondary">
+                {t("support.features.supportRequests.ui.supportRequestDetailPage.offer.decline")}
+              </Button>
+            </RouterForm>
+          ) : null}
         </Cluster>
       </Card.Body>
     </Card>
@@ -470,20 +432,18 @@ export function SupportRequestDetailPage({
   request,
   flow,
   viewerRole,
+  participantPolicy,
   now,
-  canCancel = false,
   actionError,
   actionResult,
 }: SupportRequestDetailPageProps) {
-  const nextActor = supportNextActor(request);
+  const { nextActor, deadlineAt, actions } = participantPolicy;
   const viewerActsNext = nextActor === viewerRole;
-  const prompts = viewerActsNext && !request.pending_offer ? checklistPrompts(request, viewerRole) : [];
-  const deadline = participantDeadline(request, nextActor);
+  const allows = (kind: SupportParticipantAction["kind"]) => actions.some((action) => action.kind === kind);
+  const prompts = request.checklist.filter((item) =>
+    actions.some((action) => action.kind === "submit-evidence" && action.checklistItemKey === item.key),
+  );
   const resultMessage = actionResultMessage(actionResult);
-  const shouldShowResponse =
-    viewerActsNext && viewerRole === "seller" && prompts.length === 0 && request.pending_offer === null;
-  const shouldShowBuyerReview =
-    viewerActsNext && viewerRole === "buyer" && prompts.length === 0 && request.pending_offer === null;
 
   return (
     <Page width="content">
@@ -511,7 +471,7 @@ export function SupportRequestDetailPage({
                 status: statusLabel(request.status),
               })}
             </Text>
-            {!isTerminalStatus(request.status) ? <SupportDeadlineCountdown dueAt={deadline} now={now} /> : null}
+            {!isTerminalStatus(request.status) ? <SupportDeadlineCountdown dueAt={deadlineAt} now={now} /> : null}
             <Text size="sm">{flow.automationSummary}</Text>
           </Stack>
         }
@@ -553,28 +513,28 @@ export function SupportRequestDetailPage({
         </PageSection>
       ) : null}
 
-      {viewerActsNext && request.pending_offer ? (
+      {request.pending_offer && (allows("accept-offer") || allows("decline-offer")) ? (
         <PageSection title={t("support.features.supportRequests.ui.supportRequestDetailPage.actions.title")}>
-          <OfferDecision request={request} />
+          <OfferDecision request={request} canAccept={allows("accept-offer")} canDecline={allows("decline-offer")} />
         </PageSection>
       ) : null}
 
-      {shouldShowResponse ? (
+      {allows("record-response") ? (
         <PageSection title={t("support.features.supportRequests.ui.supportRequestDetailPage.actions.title")}>
           <Stack gap={4}>
             <ResponseForm flow={flow} viewerRole={viewerRole} />
-            {flow.allowedResponses.includes("request-support-review") ? <RequestSupportReviewForm /> : null}
+            {allows("escalate") ? <RequestSupportReviewForm /> : null}
           </Stack>
         </PageSection>
       ) : null}
 
-      {shouldShowBuyerReview ? (
+      {allows("escalate") && !allows("record-response") ? (
         <PageSection title={t("support.features.supportRequests.ui.supportRequestDetailPage.actions.title")}>
           <RequestSupportReviewForm />
         </PageSection>
       ) : null}
 
-      {viewerActsNext && canCancel ? (
+      {allows("cancel") ? (
         <PageSection title={t("support.features.supportRequests.ui.supportRequestDetailPage.cancel.sectionTitle")}>
           <CancelCaseForm />
         </PageSection>

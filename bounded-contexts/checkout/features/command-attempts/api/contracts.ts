@@ -31,6 +31,14 @@ export const CHECKOUT_CART_ATTEMPT_KINDS = [
 
 export type CheckoutCartAttemptKind = (typeof CHECKOUT_CART_ATTEMPT_KINDS)[number];
 
+/** The one kind a Checkout Session entry records; its result names the Session it opened. */
+export const CHECKOUT_ENTRY_ATTEMPT_KIND = "checkout-entry";
+
+/** The target every entry attempt names, so a reused key with any changed source addresses the same stream. */
+export const CHECKOUT_ENTRY_ATTEMPT_TARGET = "session";
+
+export type CheckoutCommandAttemptKind = CheckoutCartAttemptKind | typeof CHECKOUT_ENTRY_ATTEMPT_KIND;
+
 /** The target every cart-wide attempt names; line attempts name their cart line id instead. */
 export const CHECKOUT_CART_ATTEMPT_CART_TARGET = "cart";
 
@@ -50,7 +58,7 @@ export type CheckoutCommandAttemptOwnerStatus = "not-observed" | "committed" | "
 
 export type CheckoutCommandAttemptResult = Readonly<{
   schemaVersion: 1;
-  kind: CheckoutCartAttemptKind;
+  kind: CheckoutCommandAttemptKind;
   fingerprint: string;
   actorBinding: Readonly<{ kind: "account" | "anonymous"; digest: string }>;
   target: string;
@@ -58,6 +66,8 @@ export type CheckoutCommandAttemptResult = Readonly<{
   ownerStatus: CheckoutCommandAttemptOwnerStatus;
   reason?: "cart-changed" | "history-incomplete";
   vector?: readonly CheckoutCartLineOutcome[];
+  /** The Checkout Session a committed `checkout-entry` attempt opened; never present on a cart attempt. */
+  sessionId?: string;
   commitReceipt?: Readonly<{ eventId: string; globalPosition: string }>;
 }>;
 
@@ -83,6 +93,10 @@ export function isCheckoutCommandAttemptId(value: unknown): value is string {
 
 export function isCheckoutCartAttemptKind(value: unknown): value is CheckoutCartAttemptKind {
   return typeof value === "string" && (CHECKOUT_CART_ATTEMPT_KINDS as readonly string[]).includes(value);
+}
+
+export function isCheckoutCommandAttemptKind(value: unknown): value is CheckoutCommandAttemptKind {
+  return value === CHECKOUT_ENTRY_ATTEMPT_KIND || isCheckoutCartAttemptKind(value);
 }
 
 function base64Url(bytes: Uint8Array) {
@@ -134,6 +148,7 @@ export async function computeCheckoutCommandAttemptRequestHash(body: unknown): P
 }
 
 const HEX_DIGEST = /^[0-9a-f]{64}$/;
+const CHECKOUT_SESSION_ID = /^chk_[0-9A-Za-z_]{1,64}$/;
 const LINE_STATUSES = new Set(["added", "merged", "quantity-updated", "fulfillment-updated", "removed", "checked-out"]);
 const LINE_COMMANDS = new Set(["add", "quantity", "fulfillment", "remove", "checkout"]);
 const LINE_OUTCOMES = new Set(["succeeded", "conflict", "error"]);
@@ -180,10 +195,10 @@ export function parseCheckoutCommandAttemptResult(value: unknown): CheckoutComma
     !hasOnlyKeys(
       value,
       ["schemaVersion", "kind", "fingerprint", "actorBinding", "target", "requestHash", "ownerStatus"],
-      ["reason", "vector", "commitReceipt"],
+      ["reason", "vector", "sessionId", "commitReceipt"],
     ) ||
     value.schemaVersion !== 1 ||
-    !isCheckoutCartAttemptKind(value.kind) ||
+    !isCheckoutCommandAttemptKind(value.kind) ||
     typeof value.fingerprint !== "string" ||
     !HEX_DIGEST.test(value.fingerprint) ||
     typeof value.target !== "string" ||
@@ -233,7 +248,18 @@ export function parseCheckoutCommandAttemptResult(value: unknown): CheckoutComma
       return null;
     }
   }
-  if (value.ownerStatus === "committed" && !("vector" in value)) {
+  const isEntry = value.kind === CHECKOUT_ENTRY_ATTEMPT_KIND;
+  if (
+    "sessionId" in value &&
+    (!isEntry || typeof value.sessionId !== "string" || !CHECKOUT_SESSION_ID.test(value.sessionId))
+  ) {
+    return null;
+  }
+  if (isEntry && "vector" in value) {
+    return null;
+  }
+  // A committed cart attempt carries its line vector; a committed entry carries the Session it opened.
+  if (value.ownerStatus === "committed" && !(isEntry ? "sessionId" in value : "vector" in value)) {
     return null;
   }
   return value as CheckoutCommandAttemptResult;
@@ -249,6 +275,7 @@ export function checkoutCommandAttemptStateForResult(
 ): CheckoutCommandAttemptResolvedState {
   switch (result.ownerStatus) {
     case "committed": {
+      if (result.kind === CHECKOUT_ENTRY_ATTEMPT_KIND) return "succeeded";
       const succeeded = result.vector?.filter((line) => line.outcome === "succeeded").length ?? 0;
       return succeeded === (result.vector?.length ?? 0) ? "succeeded" : succeeded === 0 ? "failed-safe" : "partial";
     }

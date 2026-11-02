@@ -1057,7 +1057,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       const marketplaceApi = createMarketplaceRequestApiClient(request);
       const sellList = await api.getSellList();
       for (const offerId of offerIds) {
-        await marketplaceApi.declineOfferMatch(offerId);
+        await marketplaceApi.declineOfferMatch(offerId, { attemptId: `decline_${offerId}`.padEnd(22, "_") });
       }
       const declined = new Set(offerIds);
       for (const line of sellList.items) {

@@ -2,10 +2,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, useLocation, useNavigate } from "react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
 import { GoalPicker } from "../ui/goal-comparison";
 import { selectableGoalChoices, type GoalChoice } from "../api/goal-comparison";
+
+afterEach(cleanup);
 
 const goals = selectableGoalChoices(pricingGoalDefinitions(), [
   {

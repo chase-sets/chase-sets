@@ -134,6 +134,7 @@ export function CatalogWorkbenchShell({
   );
 }
 
+// Outcome banner for the workbench command the operator just submitted.
 export function CatalogCommandFeedbackBanner({
   feedback,
 }: Readonly<{ feedback: CatalogPrimaryWorkbenchCommandFeedback }>) {

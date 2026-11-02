@@ -1,13 +1,17 @@
 // @vitest-environment jsdom
 
 import { NumericValue } from "@chase-sets/design-system";
+import { formatDateTime } from "@chase-sets/localization";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
-import type { SettlementPayoutRow } from "../read-model/queries";
+import type { PayoutSetupAttention } from "../../payout-readiness/domain/setup-progress";
+import type { PayoutOperationsRow } from "../read-model/payout-operations";
 import { SettlementPayoutOperationsPage } from "./payout-operations-page";
 
-function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
+function readiness(
+  overrides: Partial<SettlementPayoutReadinessRow & PayoutSetupAttention> = {},
+): SettlementPayoutReadinessRow & Partial<PayoutSetupAttention> {
   return {
     account_id: "acc_test",
     status: "pending",
@@ -32,7 +36,7 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
   };
 }
 
-function payout(): SettlementPayoutRow {
+function payout(overrides: Partial<PayoutOperationsRow> = {}): PayoutOperationsRow {
   return {
     payout_id: "pyo_fee_reader",
     account_id: "acc_test",
@@ -61,6 +65,9 @@ function payout(): SettlementPayoutRow {
     retry_count: 0,
     next_retry_at: null,
     retry_reason: null,
+    operations_state: "ready-to-reconcile",
+    operations_severity: "normal",
+    ...overrides,
   };
 }
 
@@ -153,6 +160,105 @@ describe("payout operations page setup signals", () => {
     expect(html).toContain("$0.29");
     expect(html).toContain("$12.21");
   });
+
+  it("renders API-owned attention, operations, and setup fields instead of deriving them from raw rows", () => {
+    const root = parse(
+      renderToStaticMarkup(
+        <SettlementPayoutOperationsPage
+          canReconcile
+          payouts={[payout({ status: "failed", provider_payout_reference: null })]}
+          operationsAttention={{
+            failed: 7,
+            missing_provider_reference: 4,
+            retry_queued: 3,
+            stale_reconciliation: 2,
+            stale_reconciliation_after_minutes: 30,
+            stale_requested_after_minutes: 15,
+            basis: "returned-items",
+          }}
+          payoutReadiness={readiness({
+            status: "ready",
+            provider_reference: "acct_test",
+            setup_blocked: true,
+            setup_stale: true,
+          })}
+        />,
+      ),
+    );
+
+    expect(attentionCount(root, "Failed payouts")).toBe("7");
+    expect(attentionCount(root, "Missing provider references")).toBe("4");
+    expect(attentionCount(root, "Retry queued")).toBe("3");
+    expect(attentionCount(root, "Stale reconciliation")).toBe("2");
+    expect(attentionCount(root, "Payout setup blocked")).toBe("1");
+    expect(attentionCount(root, "Stale payout setup status")).toBe("1");
+    expect(attentionRow(root, "Setup status").querySelector("td:nth-child(2) span")?.className).toContain(
+      "bg-warning-soft",
+    );
+    expect(root.textContent).toContain("Older than 15 minutes");
+    expect(root.textContent).toContain("Ready to reconcile");
+    expect(badgeClassForText(root.innerHTML, "Ready to reconcile")).toContain("bg-accent-soft");
+  });
+
+  it("maps every operations state and severity to its API label and tone", () => {
+    const states = [
+      ["retry-queued", "Retry queued"],
+      ["needs-provider-reference", "Needs provider reference"],
+      ["ready-to-reconcile", "Ready to reconcile"],
+      ["review", "Review"],
+    ] as const;
+    const severities = [
+      ["critical", "bg-danger-soft"],
+      ["warning", "bg-warning-soft"],
+      ["normal", "bg-accent-soft"],
+    ] as const;
+
+    for (const [state, label] of states) {
+      for (const [severity, toneClass] of severities) {
+        const rendered = renderToStaticMarkup(
+          <SettlementPayoutOperationsPage
+            canReconcile
+            payouts={[{ ...payout(), operations_state: state, operations_severity: severity }]}
+            payoutReadiness={readiness()}
+          />,
+        );
+        expect(rendered).toContain(label);
+        expect(badgeClassForText(rendered, label)).toContain(toneClass);
+      }
+    }
+  });
+
+  it("localizes retry policy sentences for singular and plural attempts with and without a next retry", () => {
+    const root = parse(
+      renderToStaticMarkup(
+        <SettlementPayoutOperationsPage
+          canReconcile
+          payouts={[
+            payout({
+              payout_id: "pyo_one_next",
+              provider_status: "provider-one-next",
+              retry_count: 1,
+              next_retry_at: "2026-06-01T16:00:00.000Z",
+            }),
+            payout({
+              payout_id: "pyo_many_next",
+              provider_status: "provider-many-next",
+              retry_count: 2,
+              next_retry_at: "2026-06-01T17:00:00.000Z",
+            }),
+            payout({ payout_id: "pyo_one", provider_status: "provider-one", retry_count: 1 }),
+            payout({ payout_id: "pyo_many", provider_status: "provider-many", retry_count: 2 }),
+          ]}
+        />,
+      ),
+    );
+    expect(retryCell(root, "provider-one")).toBe("1 attempt");
+    expect(retryCell(root, "provider-many")).toBe("2 attempts");
+    expect(retryCell(root, "provider-one-next")).toBe(`1 attempt; next ${formatDateTime("2026-06-01T16:00:00.000Z")}`);
+    expect(retryCell(root, "provider-many-next")).toBe(
+      `2 attempts; next ${formatDateTime("2026-06-01T17:00:00.000Z")}`,
+    );
+  });
 });
 
 /**
@@ -166,6 +272,40 @@ function parse(html: string): HTMLDivElement {
   const rendered = document.createElement("div");
   rendered.innerHTML = html;
   return rendered;
+}
+
+function attentionRow(root: ParentNode, label: string): HTMLTableRowElement {
+  const row = [...root.querySelectorAll("tbody tr")].find(
+    (candidate) => candidate.querySelector("td")?.textContent?.trim() === label,
+  );
+  expect(row, `attention row ${label}`).toBeDefined();
+  return row as HTMLTableRowElement;
+}
+
+function attentionCount(root: ParentNode, label: string): string {
+  return attentionRow(root, label).querySelector("td:nth-child(2)")?.textContent?.trim() ?? "";
+}
+
+function retryCell(root: ParentNode, providerStatus: string): string {
+  const table = [...root.querySelectorAll("table")].find((candidate) =>
+    [...candidate.querySelectorAll("thead th")].some((header) => header.textContent?.trim() === "Retry policy"),
+  );
+  expect(table, "payout table").toBeDefined();
+  const headers = [...(table as HTMLTableElement).querySelectorAll("thead th")].map((header) =>
+    header.textContent?.trim(),
+  );
+  const retryColumn = headers.indexOf("Retry policy");
+  expect(retryColumn).toBeGreaterThanOrEqual(0);
+  const row = [...(table as HTMLTableElement).querySelectorAll("tbody tr")].find((candidate) =>
+    [...candidate.querySelectorAll("td")].some((cell) => cell.textContent?.trim() === providerStatus),
+  );
+  expect(row, `payout row ${providerStatus}`).toBeDefined();
+  return (row as HTMLTableRowElement).querySelectorAll("td")[retryColumn]?.textContent?.trim() ?? "";
+}
+
+function badgeClassForText(html: string, text: string): string {
+  const root = parse(html);
+  return [...root.querySelectorAll("span")].find((element) => element.textContent === text)?.className ?? "";
 }
 
 function numericValues(root: ParentNode): HTMLElement[] {
