@@ -15,6 +15,7 @@ import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { CountAcquisitionRefused } from "../domain/count-acquisition";
 import { countCaptureFields } from "../domain/count-capture-plan";
 import {
+  countCaptureCompleteInputSchema,
   countCaptureFreezeInputSchema,
   countCapturePlannerInputSchema,
   type CountCaptureLifecycle,
@@ -107,6 +108,10 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
   app.post(
     "/count-capture/freeze",
     captureStep(countCaptureFreezeInputSchema, (session, input) => capture!.freeze(session, input)),
+  );
+  app.post(
+    "/count-capture/complete",
+    captureStep(countCaptureCompleteInputSchema, (session, input) => capture!.complete(session, input)),
   );
   app.post(
     "/count-capture/pre-confirm",
@@ -258,7 +263,7 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
   return app;
 }
 
-function parsePreviewRequest(input: unknown): {
+export function parsePreviewRequest(input: unknown): {
   selection: ScopeSyncBatchSelection;
   budget?: Partial<ScopeSyncBatchBudget> | null;
 } {
@@ -269,7 +274,7 @@ function parsePreviewRequest(input: unknown): {
   };
 }
 
-function parseConfirmRequest(input: unknown) {
+export function parseConfirmRequest(input: unknown) {
   const request = parsePreviewRequest(input);
   const body = record(input, t("catalog.features.scopeSyncBatches.api.route.request.body.required"));
   const planFingerprint = stringValue(
@@ -279,7 +284,7 @@ function parseConfirmRequest(input: unknown) {
   return { ...request, planFingerprint };
 }
 
-function parseSelection(input: unknown): ScopeSyncBatchSelection {
+export function parseSelection(input: unknown): ScopeSyncBatchSelection {
   const selection = record(input, t("catalog.features.scopeSyncBatches.api.route.selection.required"));
   if (selection.mode === "ids") {
     if (!Array.isArray(selection.scopeRecordIds)) {

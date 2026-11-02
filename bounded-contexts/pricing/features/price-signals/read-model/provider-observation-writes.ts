@@ -1,4 +1,4 @@
-import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ProviderObservationCapture } from "../domain/provider-observation-mapper";
 
 export type MarketCaptureCursor = Readonly<{ afterExternalKey: string; generation: number }>;
@@ -90,53 +90,36 @@ export async function selectMarketCaptureSignalWork(
 }
 
 export async function commitProviderObservationCapture(
-  pool: PgTransactionalPool,
-  providerKey: string,
-  work: MarketCaptureWorkItem,
+  db: PgQueryable,
   capture: ProviderObservationCapture,
-): Promise<"committed" | "replayed" | "stale-worker"> {
-  return withPgTransaction(pool, async (db) => {
-    const cursorResult = await db.query<CursorRow>(
-      `SELECT after_external_key, generation
-       FROM pricing_external_market_capture_cursors
-       WHERE provider_key = $1
-       FOR UPDATE`,
-      [providerKey],
-    );
-    const current = cursorResult.rows[0];
-    const afterExternalKey = current?.after_external_key ?? "";
-    const generation = Number(current?.generation ?? 0);
-    if (afterExternalKey !== work.expectedCursor.afterExternalKey || generation !== work.expectedCursor.generation) {
-      return "stale-worker";
-    }
-
-    const headerDisposition = await insertCaptureHeader(db, capture);
-    if (headerDisposition === "existing") return "replayed";
-    for (const row of capture.sales) {
-      await db.query(
-        `INSERT INTO pricing_external_sale_observations (
+): Promise<"committed" | "replayed"> {
+  const headerDisposition = await insertCaptureHeader(db, capture);
+  if (headerDisposition === "existing") return "replayed";
+  for (const row of capture.sales) {
+    await db.query(
+      `INSERT INTO pricing_external_sale_observations (
            capture_id, sale_fingerprint, observed_occurrence_count, provider_condition, provider_variant,
            provider_language, listing_type, sold_at, quantity, unit_price, order_shipping
          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (capture_id, sale_fingerprint) DO NOTHING`,
-        [
-          row.captureId,
-          row.saleFingerprint,
-          row.observedOccurrenceCount,
-          row.providerCondition,
-          row.providerVariant,
-          row.providerLanguage,
-          row.listingType,
-          row.soldAt,
-          row.quantity,
-          row.unitPrice,
-          row.orderShipping,
-        ],
-      );
-    }
-    for (const row of capture.weekly) {
-      await db.query(
-        `INSERT INTO pricing_external_weekly_sale_buckets (
+      [
+        row.captureId,
+        row.saleFingerprint,
+        row.observedOccurrenceCount,
+        row.providerCondition,
+        row.providerVariant,
+        row.providerLanguage,
+        row.listingType,
+        row.soldAt,
+        row.quantity,
+        row.unitPrice,
+        row.orderShipping,
+      ],
+    );
+  }
+  for (const row of capture.weekly) {
+    await db.query(
+      `INSERT INTO pricing_external_weekly_sale_buckets (
            provider_key, external_key, catalog_item_id, catalog_product_key, week_start, provider_condition,
            provider_variant, provider_language, transaction_count, quantity_sold, low_sale_amount, high_sale_amount,
            low_delivered_amount, high_delivered_amount, provider_market_amount, last_capture_id, last_observed_at, updated_at
@@ -158,30 +141,30 @@ export async function commitProviderObservationCapture(
            last_observed_at = EXCLUDED.last_observed_at,
            updated_at = EXCLUDED.updated_at
          WHERE EXCLUDED.last_observed_at > pricing_external_weekly_sale_buckets.last_observed_at`,
-        [
-          row.providerKey,
-          row.externalKey,
-          row.catalogItemId,
-          row.catalogProductKey,
-          row.weekStart,
-          row.providerCondition,
-          row.providerVariant,
-          row.providerLanguage,
-          row.transactionCount,
-          row.quantitySold,
-          row.lowSaleAmount,
-          row.highSaleAmount,
-          row.lowDeliveredAmount,
-          row.highDeliveredAmount,
-          row.providerMarketAmount,
-          row.captureId,
-          row.observedAt,
-        ],
-      );
-    }
-    for (const row of capture.snapshots) {
-      await db.query(
-        `INSERT INTO pricing_external_listing_snapshots (
+      [
+        row.providerKey,
+        row.externalKey,
+        row.catalogItemId,
+        row.catalogProductKey,
+        row.weekStart,
+        row.providerCondition,
+        row.providerVariant,
+        row.providerLanguage,
+        row.transactionCount,
+        row.quantitySold,
+        row.lowSaleAmount,
+        row.highSaleAmount,
+        row.lowDeliveredAmount,
+        row.highDeliveredAmount,
+        row.providerMarketAmount,
+        row.captureId,
+        row.observedAt,
+      ],
+    );
+  }
+  for (const row of capture.snapshots) {
+    await db.query(
+      `INSERT INTO pricing_external_listing_snapshots (
            provider_key, catalog_item_id, provider_variant, provider_language, provider_condition, observed_on,
            distinct_seller_count, cheapest_delivered_amount, second_cheapest_delivered_amount,
            last_capture_id, last_observed_at, updated_at
@@ -195,41 +178,31 @@ export async function commitProviderObservationCapture(
            last_observed_at = EXCLUDED.last_observed_at,
            updated_at = EXCLUDED.updated_at
          WHERE EXCLUDED.last_observed_at > pricing_external_listing_snapshots.last_observed_at`,
-        [
-          row.providerKey,
-          row.catalogItemId,
-          row.providerVariant,
-          row.providerLanguage,
-          row.providerCondition,
-          row.observedOn,
-          row.distinctSellerCount,
-          row.cheapestDeliveredAmount,
-          row.secondCheapestDeliveredAmount,
-          row.captureId,
-          row.observedAt,
-        ],
-      );
-    }
-    for (const row of capture.askDepth) {
-      await db.query(
-        `INSERT INTO pricing_external_listing_ask_depth (
+      [
+        row.providerKey,
+        row.catalogItemId,
+        row.providerVariant,
+        row.providerLanguage,
+        row.providerCondition,
+        row.observedOn,
+        row.distinctSellerCount,
+        row.cheapestDeliveredAmount,
+        row.secondCheapestDeliveredAmount,
+        row.captureId,
+        row.observedAt,
+      ],
+    );
+  }
+  for (const row of capture.askDepth) {
+    await db.query(
+      `INSERT INTO pricing_external_listing_ask_depth (
            capture_id, anonymous_capture_seller_ordinal, provider_condition, delivered_amount, coverage
          ) VALUES ($1,$2,$3,$4,$5)
          ON CONFLICT (capture_id, anonymous_capture_seller_ordinal, provider_condition, delivered_amount) DO NOTHING`,
-        [row.captureId, row.anonymousCaptureSellerOrdinal, row.providerCondition, row.deliveredAmount, row.coverage],
-      );
-    }
-    await db.query(
-      `INSERT INTO pricing_external_market_capture_cursors (provider_key, after_external_key, generation, updated_at)
-       VALUES ($1,$2,$3,$4)
-       ON CONFLICT (provider_key) DO UPDATE SET
-         after_external_key = EXCLUDED.after_external_key,
-         generation = EXCLUDED.generation,
-         updated_at = EXCLUDED.updated_at`,
-      [providerKey, work.nextCursor.afterExternalKey, work.nextCursor.generation, capture.header.captureCompletedAt],
+      [row.captureId, row.anonymousCaptureSellerOrdinal, row.providerCondition, row.deliveredAmount, row.coverage],
     );
-    return "committed";
-  });
+  }
+  return "committed";
 }
 
 const CAPTURE_HEADER_COLUMNS = [
@@ -325,7 +298,7 @@ async function insertCaptureHeader(
     h.listings?.pagesFetched ?? 0,
     h.listings?.returnedCount ?? 0,
     h.listings?.reportedTotal ?? null,
-    h.listings?.ownSellerExclusionApplied ?? false,
+    false,
     h.history?.status ?? null,
     h.history?.requestedAt ?? null,
     h.history?.responseObservedAt ?? null,

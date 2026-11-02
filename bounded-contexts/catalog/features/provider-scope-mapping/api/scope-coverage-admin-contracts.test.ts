@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildScopeCoverageMatrix,
   buildUnmappedScopeInboxReadModel,
@@ -154,6 +154,177 @@ describe("computeScopeCoverageState", () => {
 });
 
 describe("buildScopeCoverageMatrix", () => {
+  const scope = {
+    scope_record_id: "ref_expansion_paldean_fates",
+    product_domain: "pokemon" as const,
+    scope_kind: "expansion" as const,
+    name: "Paldean Fates",
+    official_set_code: "PAF",
+    release_date: "2024-01-26",
+    lifecycle_status: "active" as const,
+  };
+
+  it("retains all accepted unit mappings on one scope record", async () => {
+    const set = candidateRow({
+      mapping_id: "map_set",
+      provider_key: "scrydex",
+      unit_key: "set",
+      review_status: "accepted",
+      product_line_id: "pokemon-sets",
+      series_id: "scarlet-violet",
+      set_id: "sv4pt5",
+      set_name: "Paldean Fates sets",
+      language_coordinates: { languageCode: "en", providerLocale: "en-US" },
+      updated_at: "2026-07-03T00:00:00.000Z",
+    });
+    const card = candidateRow({
+      mapping_id: "map_card",
+      provider_key: "scrydex",
+      unit_key: "card",
+      review_status: "auto-accepted",
+      product_line_id: "pokemon-cards",
+      series_id: "sv",
+      set_id: "paf",
+      set_name: "Paldean Fates cards",
+      language_coordinates: { languageCode: "ja", providerLanguageId: "jp" },
+      updated_at: "2026-07-02T00:00:00.000Z",
+    });
+    const sealed = candidateRow({
+      mapping_id: "map_sealed",
+      provider_key: "scrydex",
+      unit_key: "sealed",
+      review_status: "accepted",
+      product_line_id: "pokemon-sealed",
+      series_id: null,
+      set_id: null,
+      set_name: "Paldean Fates sealed",
+      language_coordinates: { providerLanguageCode: "EN", providerLanguageName: "English" },
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    const otherProvider = candidateRow({ mapping_id: "map_other", review_status: "accepted" });
+    const matrix = await buildScopeCoverageMatrix({
+      generatedAt: "2026-07-13T00:00:00.000Z",
+      scope,
+      mappingRows: [
+        set,
+        sealed,
+        card,
+        otherProvider,
+        ...(["proposed", "rejected", "revoked"] as const).map((status) =>
+          candidateRow({
+            mapping_id: `map_${status}`,
+            provider_key: "scrydex",
+            unit_key: status,
+            review_status: status,
+          }),
+        ),
+        candidateRow({ provider_key: "scryfall", review_status: "proposed" }),
+        candidateRow({ provider_key: "rejected-only", review_status: "rejected" }),
+        candidateRow({ provider_key: "revoked-only", review_status: "revoked" }),
+      ],
+      loadSyncStatus: async () => ({ totalObservations: 5, promotedObservations: 2 }),
+    });
+
+    expect(matrix.schemaVersion).toBe("catalog-scope-coverage-v1");
+    expect(matrix.providers).toEqual([
+      {
+        providerKey: "rejected-only",
+        state: "not-offered",
+        mapping: mapProviderScopeMappingCandidate(
+          candidateRow({ provider_key: "rejected-only", review_status: "rejected" }),
+        ),
+        acceptedMappings: [],
+        syncedObservations: 0,
+        promotedObservations: 0,
+      },
+      {
+        providerKey: "revoked-only",
+        state: "not-offered",
+        mapping: mapProviderScopeMappingCandidate(
+          candidateRow({ provider_key: "revoked-only", review_status: "revoked" }),
+        ),
+        acceptedMappings: [],
+        syncedObservations: 0,
+        promotedObservations: 0,
+      },
+      {
+        providerKey: "scrydex",
+        state: "settled",
+        mapping: mapProviderScopeMappingCandidate(set),
+        acceptedMappings: [card, sealed, set].map(mapProviderScopeMappingCandidate),
+        syncedObservations: 5,
+        promotedObservations: 2,
+      },
+      {
+        providerKey: "scryfall",
+        state: "available",
+        mapping: mapProviderScopeMappingCandidate(
+          candidateRow({ provider_key: "scryfall", review_status: "proposed" }),
+        ),
+        acceptedMappings: [],
+        syncedObservations: 0,
+        promotedObservations: 0,
+      },
+      {
+        providerKey: "tcgdex",
+        state: "settled",
+        mapping: mapProviderScopeMappingCandidate(otherProvider),
+        acceptedMappings: [mapProviderScopeMappingCandidate(otherProvider)],
+        syncedObservations: 5,
+        promotedObservations: 2,
+      },
+    ]);
+  });
+
+  it("calls loadSyncStatus once for a three-unit accepted provider and never for non-accepted providers", async () => {
+    const mappingRows = ["set", "sealed", "card"].map((unit, index) =>
+      candidateRow({
+        mapping_id: `map_${unit}`,
+        provider_key: "scrydex",
+        unit_key: unit,
+        review_status: index === 0 ? "auto-accepted" : "accepted",
+      }),
+    );
+    const loadSyncStatus = vi.fn().mockResolvedValue({ totalObservations: 17, promotedObservations: 4 });
+    const matrix = await buildScopeCoverageMatrix({
+      generatedAt: "2026-07-13T00:00:00.000Z",
+      scope,
+      mappingRows: [...mappingRows, candidateRow({ review_status: "proposed" })],
+      loadSyncStatus,
+    });
+
+    expect(loadSyncStatus).toHaveBeenCalledTimes(1);
+    expect(loadSyncStatus).toHaveBeenCalledWith(mappingRows[0]);
+    expect(matrix.providers[0]).toMatchObject({
+      providerKey: "scrydex",
+      state: "settled",
+      mapping: mapProviderScopeMappingCandidate(mappingRows[0]),
+      syncedObservations: 17,
+      promotedObservations: 4,
+    });
+    expect(matrix.providers[0]?.acceptedMappings).toHaveLength(3);
+  });
+
+  it("orders accepted mappings by unitKey then mappingId without capping the result", async () => {
+    const mappingRows = Array.from({ length: 105 }, (_, index) =>
+      candidateRow({
+        mapping_id: `map_${String(104 - index).padStart(3, "0")}`,
+        review_status: "accepted",
+      }),
+    );
+    const matrix = await buildScopeCoverageMatrix({
+      generatedAt: "2026-07-13T00:00:00.000Z",
+      scope,
+      mappingRows,
+      loadSyncStatus: async () => ({ totalObservations: 0, promotedObservations: 0 }),
+    });
+
+    expect(matrix.providers[0]?.acceptedMappings).toEqual(
+      [...mappingRows].reverse().map(mapProviderScopeMappingCandidate),
+    );
+    expect(matrix.providers[0]?.mapping).toEqual(mapProviderScopeMappingCandidate(mappingRows[0]));
+  });
+
   it("computes one row per provider using the accepted mapping when one exists, else the latest", async () => {
     const scope = {
       scope_record_id: "ref_expansion_paldean_fates",

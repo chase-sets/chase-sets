@@ -84,6 +84,8 @@ export type RepricingPolicyListingTrace = Readonly<{
   /** Recorded at a target price read back by a goal. */
   forecasts?: RepricingPriceForecasts;
   shadow?: readonly ShadowGoalTrace[];
+  /** The round's Portfolio Plan the listing belongs to; absent when no portfolio goal anchors it. */
+  portfolioPlanId?: string;
   outcome: "changed" | "skipped" | "pause-requested" | "notify-only";
   skipReason: RepricingEvaluationSkipReason | null;
 }>;

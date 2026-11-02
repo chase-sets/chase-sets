@@ -201,7 +201,7 @@ export type ProjectionHandlerSet = Readonly<{
   batchSize?: number;
   checkpointBatchSize?: number;
   eventTypes?: readonly string[];
-  streamPrefixes?: readonly string[];
+  streamPrefixes?: readonly string[] | undefined;
   errorPolicy?: ProjectionErrorPolicy;
 }>;
 

@@ -50,6 +50,7 @@ export interface ProgressiveDisclosureProps extends Omit<
   onOpenChange?: (open: boolean) => void;
   tone?: ProgressiveDisclosureTone;
   icon?: IconName;
+  panelLabel?: string;
 }
 
 export interface ProgressiveDisclosureItem {
@@ -125,8 +126,13 @@ function DisclosureItem({
   content,
   tone,
   icon,
+  panelLabel,
   last,
-}: ProgressiveDisclosureItem & { last: boolean; headingLevel?: ProgressiveDisclosureProps["headingLevel"] }) {
+}: ProgressiveDisclosureItem & {
+  last: boolean;
+  headingLevel?: ProgressiveDisclosureProps["headingLevel"];
+  panelLabel?: string;
+}) {
   const Header = `h${headingLevel}` as const;
 
   return (
@@ -142,7 +148,12 @@ function DisclosureItem({
       <AccordionPrimitive.Panel
         keepMounted
         render={(props, state) => (
-          <AnimatedDisclosureContent {...props} open={state.open} className={cx("overflow-hidden", props.className)} />
+          <AnimatedDisclosureContent
+            {...props}
+            {...(panelLabel ? { "aria-label": panelLabel, "aria-labelledby": undefined } : {})}
+            open={state.open}
+            className={cx("overflow-hidden", props.className)}
+          />
         )}
       >
         <div className="px-4 pb-4 text-sm leading-6 text-secondary">{content}</div>
@@ -162,6 +173,7 @@ export function ProgressiveDisclosure({
   onOpenChange,
   tone = "neutral",
   icon,
+  panelLabel,
   ...rest
 }: ProgressiveDisclosureProps) {
   const value = open === undefined ? undefined : open ? [singleDisclosureValue] : [];
@@ -185,6 +197,7 @@ export function ProgressiveDisclosure({
         content={children}
         tone={tone}
         icon={icon}
+        panelLabel={panelLabel}
         last
       />
     </AccordionPrimitive.Root>

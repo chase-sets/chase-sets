@@ -1,4 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import type { BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 import { durableJobSchemaMigrations, durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
@@ -18,14 +19,6 @@ import {
   catalogOperatorSessionGrantSchemaSql,
   catalogOperatorSessionGrantSchemaMigrations,
 } from "../../features/operator-session/read-model/grant-schema";
-import {
-  catalogOperatorSessionSchemaSql,
-  catalogOperatorSessionSchemaMigrations,
-} from "../../features/operator-session/read-model/schema";
-import {
-  catalogOperatorSessionOutcomeSchemaSql,
-  catalogOperatorSessionOutcomeSchemaMigrations,
-} from "../../features/operator-session/read-model/outcome-schema";
 import { catalogProductContentsSchemaSql } from "../../features/product-contents/read-model/schema";
 import { catalogProductMeasureSchemaSql } from "../../features/product-measures/read-model/schema";
 import {
@@ -84,8 +77,6 @@ export const catalogAuthoringSchemaSql = [
   }),
   catalogSourceObservationSchemaSql,
   catalogAliasEquivalenceSchemaSql,
-  catalogOperatorSessionSchemaSql,
-  catalogOperatorSessionOutcomeSchemaSql,
   catalogAttentionDismissalSchemaSql,
   catalogOperatorSessionGrantSchemaSql,
   realtimeOutboxSchemaSql,
@@ -98,9 +89,19 @@ export const catalogAuthoringSchemaMigrations = [
     jobsTable: "catalog_authoring_bulk_jobs",
   }),
   ...catalogSourceObservationSchemaMigrations,
-  ...catalogOperatorSessionSchemaMigrations,
-  ...catalogOperatorSessionOutcomeSchemaMigrations,
   ...catalogOperatorSessionGrantSchemaMigrations,
+  {
+    migrationId: "20261018_catalog_remove_tcgplayer_server_custody",
+    description: "Remove TCGplayer server custody tables and clear retained pairing grants.",
+    dataStep: async (db: BcSchemaMigrationClient) => {
+      await db.query("DELETE FROM catalog_operator_session_grants");
+    },
+    statements: [
+      "SET LOCAL lock_timeout = '5s';",
+      "DROP TABLE IF EXISTS catalog_tcgplayer_operator_session_outcomes",
+      "DROP TABLE IF EXISTS catalog_tcgplayer_operator_sessions",
+    ],
+  },
   ...catalogCatalogItemSchemaMigrations,
   ...catalogProviderScopeDiscoverySchemaMigrations,
   ...catalogScopeSyncStateSchemaMigrations,

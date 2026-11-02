@@ -7,6 +7,11 @@ export type {
   PaymentsMarketplaceCheckoutFeePolicy,
   PaymentsPaymentDetail,
 } from "../ui/contracts";
+export {
+  paymentsCheckoutRecoveryOptionsSchema,
+  paymentsCheckoutStatusSchema,
+  paymentsPaymentDetailSchema,
+} from "../ui/contracts";
 
 /**
  * Boot-time effective classification of the platform payment provider configuration. The value is

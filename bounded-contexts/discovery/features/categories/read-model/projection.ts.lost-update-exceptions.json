@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-9bd592a6029939dd",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/categories/read-model/projection.ts",
+      "kind": "DELETE",
+      "table": "discovery_categories",
+      "digest": "3bc771a49ad149e886fedceb4222941abce5486d04eda9d5479ad9bbeb7cd788"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/discovery/features/categories/read-model/projection.ts:84 directly synchronizes discovery_categories from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

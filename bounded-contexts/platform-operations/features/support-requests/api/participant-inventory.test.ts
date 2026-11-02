@@ -29,6 +29,7 @@ function partition(source: string) {
     ...Object.values(participantActions).map((entry) => entry.path),
     "/:id/attachments",
     "/:id/resolve",
+    "/participant-attempts/:attemptId/attachments",
   ]);
   const participants = posts(source).filter(({ path }) => !path.startsWith("/ops/"));
   for (const { path, handler } of participants) {
@@ -58,16 +59,37 @@ const forms = readFileSync(new URL("../ui/support-request-detail-page.tsx", impo
 const context = JSON.parse(readFileSync(new URL("../../../context.json", import.meta.url), "utf8"));
 
 describe("support participant mutation inventory", () => {
+  it("keeps offer derivation participant-only and after the v1 hash check", () => {
+    const runtime = readFileSync(new URL("./participant-runtime.ts", import.meta.url), "utf8");
+    const domain = readFileSync(new URL("../domain/domain.ts", import.meta.url), "utf8");
+    const operations = readFileSync(new URL("./runtime.ts", import.meta.url), "utf8");
+    const derivation = "offerResolutionType: b.offerResolutionType ?? expectedOfferResolution(b.responseType)";
+    expect(runtime.indexOf(derivation)).toBeGreaterThan(runtime.indexOf("digest(canonical) !== attempt.requestHash"));
+    expect(runtime).toContain("canonicalParticipantRequest(input.actionKind, input.body)");
+    expect(domain.match(/function expectedOfferResolution\(/g)).toHaveLength(1);
+    expect(domain).toContain(
+      'assert(expectedResolution === resolutionType, "Offer resolution does not match the response type.")',
+    );
+    expect(operations).not.toContain("expectedOfferResolution");
+    expect(route).toContain('typeof body.offerResolutionType === "string" ? body.offerResolutionType : null');
+  });
   it("derives nine routes, client commands, form intents and the owning context row", () => {
     expect(
       partition(route)
-        .filter((path) => path !== "/:id/attachments" && path !== "/:id/resolve")
+        .filter(
+          (path) =>
+            path !== "/:id/attachments" &&
+            path !== "/:id/resolve" &&
+            path !== "/participant-attempts/:attemptId/attachments",
+        )
         .sort(),
     ).toEqual(
       Object.values(participantActions)
         .map((entry) => entry.path)
         .sort(),
     );
+    const stagingRoutes = partition(route).filter((path) => path.startsWith("/participant-attempts/"));
+    expect(stagingRoutes).toEqual(["/participant-attempts/:attemptId/attachments"]);
     const tree = ts.createSourceFile("client.ts", client, ts.ScriptTarget.Latest, true);
     const kinds = new Set<string>();
     function walk(node: ts.Node) {
@@ -116,6 +138,9 @@ describe("support participant mutation inventory", () => {
   });
   it("new and unknown-shape mutations refuse INDETERMINATE, including a tenth executable participant", () => {
     expect(() => partition(`${route}\napp.post('/new-mutation', handler);`)).toThrow("INDETERMINATE");
+    expect(() => partition(`${route}\napp.post('/participant-attempts/:attemptId/other', handler);`)).toThrow(
+      "INDETERMINATE",
+    );
     expect(() => partition(`${route}\napp.post(dynamicPath, handler);`)).toThrow("INDETERMINATE");
     expect(partition(route)).toContain("/:id/resolve");
   });

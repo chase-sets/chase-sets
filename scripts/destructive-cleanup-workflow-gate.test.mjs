@@ -22,6 +22,201 @@ const temporaryDirectories = [];
 const ambientPath = process.env.PATH ?? process.env.Path ?? "";
 const shellPath = process.platform === "win32" ? `${dirname(bashLauncher)}${delimiter}${ambientPath}` : ambientPath;
 
+function workflowRunBlocks(source) {
+  return Object.entries(parseYaml(source).jobs).flatMap(([jobId, job]) =>
+    (job.steps ?? []).flatMap((step, index) =>
+      typeof step.run === "string"
+        ? [{ name: step.name ?? `${jobId} unnamed step ${index}`, text: step.run, step }]
+        : [],
+    ),
+  );
+}
+
+function assertWriterGates(source, writers) {
+  const blocks = workflowRunBlocks(source);
+  for (const { name, writer } of writers) {
+    const block = blocks.find((entry) => entry.name === name);
+    expect(block, `missing writer step ${name}`).toBeDefined();
+    const lines = block.text.split(/\r?\n/);
+    const writerIndex = writer(lines);
+    expect(writerIndex, `missing writer in ${name}`).toBeGreaterThanOrEqual(0);
+    const gateIndices = lines
+      .map((line, index) => ({ line, index }))
+      .filter(
+        ({ line, index }) => index < writerIndex && line.includes("digitalocean-registry-gc-gate.mjs assert-writable"),
+      );
+    expect(gateIndices, `missing gate before ${name}`).not.toHaveLength(0);
+    const gate = gateIndices.at(-1);
+    expect(block.step["continue-on-error"]).not.toBe(true);
+    expect(block.text).not.toMatch(/\bset\s+\+e\b/);
+    expect(gate.line).toMatch(/^\s*node\s/);
+    expect(lines.slice(gate.index, writerIndex).join("\n")).toContain("--registry=");
+    expect(lines.slice(gate.index, writerIndex).join("\n")).not.toMatch(/assert-writable[\s\S]*\|\|\s*(?:true|:)/);
+  }
+}
+
+function writerBlock(block) {
+  return block.text
+    .replace(/\\\r?\n/g, " ")
+    .split(/\r?\n/)
+    .some(
+      (command) =>
+        /docker\s+push\b/.test(command) ||
+        /docker\s+buildx\s+imagetools\s+create\b/.test(command) ||
+        (/docker\s+buildx\s+build\b/.test(command) && /--push\b/.test(command)),
+    );
+}
+
+function writerStepNames(source) {
+  return workflowRunBlocks(source)
+    .filter(writerBlock)
+    .map(({ name }) => name)
+    .sort();
+}
+
+function assertWriterSet(source, expected) {
+  expect(writerStepNames(source)).toEqual([...expected].sort());
+}
+
+function gateInvocations(source) {
+  const lines = source.split(/\r?\n/);
+  const invocations = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!lines[index].includes("digitalocean-registry-gc-gate.mjs assert-writable")) continue;
+    const command = [lines[index]];
+    while (command.at(-1).trim().endsWith("\\") && index + 1 < lines.length) {
+      index += 1;
+      command.push(lines[index]);
+    }
+    invocations.push(command.join("\n"));
+  }
+  return invocations;
+}
+
+function assertGateOutputs(source) {
+  const invocations = gateInvocations(source);
+  expect(invocations.length).toBeGreaterThan(0);
+  for (const invocation of invocations) {
+    expect(invocation).toMatch(/--out=\S+/);
+    expect(invocation).not.toMatch(/--out\s/);
+  }
+}
+
+function assertProbeDiagnostics(source, stepName, probePath) {
+  const block = workflowRunBlocks(source).find(({ name }) => name === stepName);
+  expect(block).toBeDefined();
+  expect(block.text).toContain(`--out=${probePath} || true`);
+  expect(block.text).not.toContain("--out=artifacts/release-health/registry-gc-gate.json");
+  expect(block.text).toContain("--diagnostics artifacts/release-health/registry-gc-gate.json");
+  expect(block.text).toContain(`--diagnostics ${probePath}`);
+}
+
+const lineContaining = (pattern) => (lines) => lines.findIndex((line) => pattern.test(line));
+const buildPushWriter = (lines) => {
+  const start = lines.findIndex((line) => /docker buildx build/.test(line));
+  return start >= 0 && lines.slice(start).some((line) => /--push/.test(line)) ? start : -1;
+};
+
+it("census enumerates every DOCR writer and kills the m4 sibling-writer mutant", () => {
+  const production = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+  const pullRequest = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
+  const marker = readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8");
+  expect(registrySource).toContain("timeout-minutes: 135");
+  assertWriterSet(production, ["Build release image", "Push release image"]);
+  assertWriterSet(pullRequest, ["Push boot-smoked merge-group image", "Build and push platform image"]);
+  for (const source of [production, pullRequest]) {
+    const blocks = workflowRunBlocks(source);
+    const createBlocks = blocks.filter(({ text }) => /doctl\s+registry\s+create\b/.test(text));
+    const inspectBlocks = blocks.filter(({ text }) => /docker\s+buildx\s+imagetools\s+inspect\b/.test(text));
+    expect(createBlocks.length).toBeGreaterThan(0);
+    expect(inspectBlocks.length).toBeGreaterThan(0);
+    for (const block of [...createBlocks, ...inspectBlocks]) {
+      const nonWriterCommands = block.text
+        .replace(/\\\r?\n/g, " ")
+        .split(/\r?\n/)
+        .filter((command) => /doctl\s+registry\s+create\b|docker\s+buildx\s+imagetools\s+inspect\b/.test(command));
+      for (const text of nonWriterCommands) expect(writerBlock({ text })).toBe(false);
+      if (!writerBlock(block)) expect(writerStepNames(source)).not.toContain(block.name);
+    }
+  }
+  const productionWriters = [
+    { name: "Build release image", writer: lineContaining(/docker buildx imagetools create/) },
+    { name: "Push release image", writer: lineContaining(/docker push "\$RELEASE_IMAGE"/) },
+  ];
+  const pullRequestWriters = [
+    { name: "Push boot-smoked merge-group image", writer: lineContaining(/docker push "\$image"/) },
+    { name: "Build and push platform image", writer: buildPushWriter },
+  ];
+  for (const [source, writers] of [
+    [production, productionWriters],
+    [pullRequest, pullRequestWriters],
+  ]) {
+    const discovered = writerStepNames(source);
+    assertWriterGates(
+      source,
+      discovered.map((name) => writers.find((writer) => writer.name === name)),
+    );
+  }
+  expect(production).toContain("doctl registry create");
+  expect(pullRequest).toContain("doctl registry create");
+  expect(marker).toContain("assertRegistryWritable");
+  expect(marker).toContain("registry-gc-read-only");
+
+  const syntheticNonWriters = `jobs:\n  synthetic:\n    steps:\n      - run: |\n          doctl registry create "$registry"\n      - run: |\n          docker buildx imagetools inspect "$image"\n`;
+  expect(writerStepNames(syntheticNonWriters)).toEqual([]);
+  for (const source of [production, pullRequest]) {
+    for (const command of ['docker push "$OTHER_IMAGE"', "docker buildx build \\\n            --push ."]) {
+      const mutant = `${source}\n  synthetic-sibling:\n    steps:\n      - run: |\n          ${command}\n`;
+      expect(() => assertWriterSet(mutant, writerStepNames(source))).toThrow();
+    }
+  }
+});
+
+it("rejects the F1 split-out mutant and binds a separate deploy-production probe as extra diagnostics", () => {
+  const production = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+  const pullRequest = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
+  for (const source of [production, pullRequest]) assertGateOutputs(source);
+  const splitOutMutant = production.replace(
+    "--out=artifacts/release-health/registry-gc-probe.json",
+    "--out artifacts/release-health/registry-gc-probe.json",
+  );
+  expect(() => assertGateOutputs(splitOutMutant)).toThrow();
+  assertProbeDiagnostics(
+    production,
+    "Classify production deployment failure",
+    "artifacts/release-health/registry-gc-probe.json",
+  );
+});
+
+it("rejects the N4 overwrite mutant and preserves W1/W2 refusal diagnostics beside the build-image probe", () => {
+  const production = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+  const overwriteMutant = production.replace(
+    "--out=artifacts/release-health/registry-gc-build-image-probe.json",
+    "--out=artifacts/release-health/registry-gc-gate.json",
+  );
+  expect(() =>
+    assertProbeDiagnostics(
+      overwriteMutant,
+      "Classify build-image failure",
+      "artifacts/release-health/registry-gc-build-image-probe.json",
+    ),
+  ).toThrow();
+  assertProbeDiagnostics(
+    production,
+    "Classify build-image failure",
+    "artifacts/release-health/registry-gc-build-image-probe.json",
+  );
+});
+
+it("rejects a synthetic ungated writer as the negative census control", () => {
+  expect(() =>
+    assertWriterGates(
+      'jobs:\n  synthetic:\n    steps:\n      - name: Synthetic writer\n        run: |\n          docker push "$image"\n',
+      [{ name: "Synthetic writer", writer: lineContaining(/docker push/) }],
+    ),
+  ).toThrow();
+});
+
 afterEach(() => {
   while (temporaryDirectories.length > 0) {
     rmSync(temporaryDirectories.pop(), { recursive: true, force: true });
@@ -206,7 +401,7 @@ function assertRegistryStepTopology(workflow) {
     deployLane: names.indexOf("Check deploy lane"),
     cleanup: names.indexOf("Cleanup registry tags"),
   };
-  expect(indices).toEqual({ resolver: 0, deployLane: 5, cleanup: 6 });
+  expect(indices).toEqual({ resolver: 0, deployLane: 6, cleanup: 7 });
   expect(indices.resolver).toBeLessThan(indices.deployLane);
   expect(indices.resolver).toBeLessThan(indices.cleanup);
 
@@ -214,8 +409,9 @@ function assertRegistryStepTopology(workflow) {
     .map((step, index) => ({ index, name: step.name, source: JSON.stringify(step) }))
     .filter(({ index, source }) => index !== indices.resolver && source.includes(registryResolvedName));
   expect(resolvedConsumers.map(({ index, name }) => ({ index, name }))).toEqual([
-    { index: 5, name: "Check deploy lane" },
-    { index: 6, name: "Cleanup registry tags" },
+    { index: 6, name: "Check deploy lane" },
+    { index: 7, name: "Cleanup registry tags" },
+    { index: 8, name: "Record cancelled registry cleanup" },
   ]);
   for (const consumer of resolvedConsumers) expect(indices.resolver).toBeLessThan(consumer.index);
   return indices;
@@ -708,21 +904,22 @@ describe("cleanup workflow bounded footprint pins", () => {
     expect(destructive).not.toContain("--retention-days");
   });
 
-  it("pins exactly the three declared managed-authority step-anchor shifts", () => {
+  it("pins exactly the four declared managed-authority step-anchor shifts", () => {
     const manifest = JSON.parse(readFileSync(resolve("scripts/managed-postgres-authority-manifest.json"), "utf8"));
     const anchors = manifest.grants.map(
       (entry) => `${entry.file}|${entry.jobId}|${entry.stepAnchor}|${entry.secretName}`,
     );
     const expected = [
-      ".github/workflows/platform-registry-cleanup.yml|cleanup|name:Cleanup registry tags#7|DIGITALOCEAN_REGISTRY_TOKEN",
+      ".github/workflows/platform-registry-cleanup.yml|cleanup|name:Resolve registry identity#5|DIGITALOCEAN_REGISTRY_TOKEN",
+      ".github/workflows/platform-registry-cleanup.yml|cleanup|name:Cleanup registry tags#8|DIGITALOCEAN_REGISTRY_TOKEN",
       ".github/workflows/platform-production-restore-point-cleanup.yml|cleanup|name:Cleanup restore-point forks#4|DIGITALOCEAN_ACCESS_TOKEN",
       ".github/workflows/platform-production-restore-point-cleanup.yml|cleanup|name:Summarize cleanup#5|DIGITALOCEAN_ACCESS_TOKEN",
     ];
     for (const anchor of expected) expect(anchors.filter((candidate) => candidate === anchor)).toHaveLength(1);
     for (const predecessor of [
-      expected[0].replace("#7", "#6"),
-      expected[1].replace("#4", "#3"),
-      expected[2].replace("#5", "#4"),
+      expected[1].replace("#8", "#7"),
+      expected[2].replace("#4", "#3"),
+      expected[3].replace("#5", "#4"),
     ]) {
       expect(anchors).not.toContain(predecessor);
     }

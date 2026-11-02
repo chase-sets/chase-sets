@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import { heavySlotScriptBatteryGlobalSetupPath } from "./scripts/lib/heavy-slot-script-battery.mjs";
+import { scriptBatteryTempCensusGlobalSetupPath } from "./scripts/lib/script-battery-temp-census.mjs";
 import { resolveVitestLaneProfile } from "./vitest.shared.mjs";
 
 // Single vitest configuration for every script-level test under scripts/.
@@ -11,7 +12,7 @@ export function defineScriptsTestConfig(env = process.env) {
   return defineConfig({
     test: {
       ...resolveVitestLaneProfile(env),
-      globalSetup: [heavySlotScriptBatteryGlobalSetupPath],
+      globalSetup: [heavySlotScriptBatteryGlobalSetupPath, scriptBatteryTempCensusGlobalSetupPath],
       setupFiles: ["./scripts/lib/tracked-checkout-write-guard.mjs"],
       include: ["scripts/**/*.test.mjs"],
     },

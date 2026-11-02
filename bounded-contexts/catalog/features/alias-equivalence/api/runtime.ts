@@ -41,9 +41,11 @@ import {
   getReferenceRecordAlias,
   getSourceObservationAliasCandidate,
   listCatalogItemAliases,
+  listCatalogItemAliasesForTargets,
   listPublishableCatalogItemAliases,
   listPublishableReferenceRecordAliases,
   listReferenceRecordAliases,
+  listReferenceRecordAliasesForTargets,
   listSourceObservationAliasCandidates,
 } from "../read-model/queries";
 import {
@@ -80,6 +82,7 @@ export type CatalogAliasServices = Readonly<{
     catalogItemId: string,
     options?: Parameters<typeof listCatalogItemAliases>[2],
   ) => ReturnType<typeof listCatalogItemAliases>;
+  listCatalogItemAliasesForTargets: (ids: readonly string[]) => ReturnType<typeof listCatalogItemAliasesForTargets>;
   listPublishableCatalogItemAliases: (catalogItemId: string) => ReturnType<typeof listPublishableCatalogItemAliases>;
   getCatalogItemAlias: (aliasHash: string) => ReturnType<typeof getCatalogItemAlias>;
   countCatalogItemsForAliasText: (normalizedAliasText: string, aliasLanguageCode: string) => Promise<number>;
@@ -87,6 +90,9 @@ export type CatalogAliasServices = Readonly<{
     referenceRecordId: string,
     options?: Parameters<typeof listReferenceRecordAliases>[2],
   ) => ReturnType<typeof listReferenceRecordAliases>;
+  listReferenceRecordAliasesForTargets: (
+    ids: readonly string[],
+  ) => ReturnType<typeof listReferenceRecordAliasesForTargets>;
   listPublishableReferenceRecordAliases: (
     referenceRecordId: string,
   ) => ReturnType<typeof listPublishableReferenceRecordAliases>;
@@ -152,12 +158,14 @@ export function createCatalogAliasRuntime(
     countSourceObservationAliasCandidatesByProfileVersion: (providerKey, sourceProfileVersion) =>
       countSourceObservationAliasCandidatesByProfileVersion(deps.db, providerKey, sourceProfileVersion),
     listCatalogItemAliases: (catalogItemId, options) => listCatalogItemAliases(deps.db, catalogItemId, options),
+    listCatalogItemAliasesForTargets: (ids) => listCatalogItemAliasesForTargets(deps.db, ids),
     listPublishableCatalogItemAliases: (catalogItemId) => listPublishableCatalogItemAliases(deps.db, catalogItemId),
     getCatalogItemAlias: (aliasHash) => getCatalogItemAlias(deps.db, aliasHash),
     countCatalogItemsForAliasText: (normalizedAliasText, aliasLanguageCode) =>
       countCatalogItemsForAliasText(deps.db, normalizedAliasText, aliasLanguageCode),
     listReferenceRecordAliases: (referenceRecordId, options) =>
       listReferenceRecordAliases(deps.db, referenceRecordId, options),
+    listReferenceRecordAliasesForTargets: (ids) => listReferenceRecordAliasesForTargets(deps.db, ids),
     listPublishableReferenceRecordAliases: (referenceRecordId) =>
       listPublishableReferenceRecordAliases(deps.db, referenceRecordId),
     getReferenceRecordAlias: (aliasHash) => getReferenceRecordAlias(deps.db, aliasHash),
@@ -166,8 +174,10 @@ export function createCatalogAliasRuntime(
         {
           listSourceObservationAliasCandidates: (filter) => listSourceObservationAliasCandidates(deps.db, filter),
           listCatalogItemAliases: (catalogItemId, options) => listCatalogItemAliases(deps.db, catalogItemId, options),
+          listCatalogItemAliasesForTargets: (ids) => listCatalogItemAliasesForTargets(deps.db, ids),
           listReferenceRecordAliases: (referenceRecordId, options) =>
             listReferenceRecordAliases(deps.db, referenceRecordId, options),
+          listReferenceRecordAliasesForTargets: (ids) => listReferenceRecordAliasesForTargets(deps.db, ids),
         },
         input,
       ),

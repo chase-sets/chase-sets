@@ -22,6 +22,49 @@ import {
 } from "./primary-workbench-read-model-test-support";
 
 describe("Catalog primary workbench read model - core composition", () => {
+  it("fails closed when the active-job snapshot is incomplete", () => {
+    const baseOverview = controlPlaneOverview({ activeJobs: { items: [], completeness: "incomplete" } });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: baseOverview,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.readiness.blockers).toContain("read-model-unavailable");
+    expect(readModel.actions.find((action) => action.key === "scope.import")?.state).toBe("blocked");
+  });
+
+  it("does not derive an active blocker from terminal history when the snapshot is complete", () => {
+    const baseOverview = controlPlaneOverview({
+      activeJobs: { items: [], completeness: "complete" },
+      unitActivity: {
+        ...controlPlaneOverview().unitActivity,
+        units: controlPlaneOverview().unitActivity.units.map((unit) => ({
+          ...unit,
+          recentJobs: unit.recentJobs.map((job) => ({
+            ...job,
+            operatorStatus: "completed" as const,
+            phase: "completed" as const,
+          })),
+        })),
+      },
+    });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: baseOverview,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.importJobs.activeJobCount).toBe(0);
+    expect(readModel.actions.find((action) => action.key === "scope.import")?.blockers).not.toContain(
+      "active-job-conflict",
+    );
+  });
+
   it("builds a validated #1060 read model from typed Catalog admin data", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&filter.status=changed",

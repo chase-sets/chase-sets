@@ -63,7 +63,8 @@
     "bulk-reprice-ingestion",
     "own-sale-observations",
     "economics",
-    "forecast-ledger"
+    "forecast-ledger",
+    "pricing-health"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server", "./integration/link-intents"],
@@ -392,16 +393,6 @@
       "portName": "channelConnectionIdentityReader",
       "providedBy": "channels",
       "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
-    },
-    {
-      "portName": "tcgplayerMarketTransport",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Supply Pricing's concrete TCGplayer price-point and market-evidence transport; non-worker hosts mount not-mounted."
-    },
-    {
-      "portName": "tcgplayerMarketCaptureReceiptSink",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Retain privacy-safe TCGplayer market-capture receipts whose field summaries are captured before decoding; non-worker hosts mount not-mounted."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -514,6 +505,32 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "pricing.health-compute-durable-snapshot",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/pricing/features/pricing-health/api/route.ts:POST /:policyId/compute",
+        "api-route:bounded-contexts/pricing/features/pricing-health/api/route.ts:POST /:policyId/compare",
+        "api-route:bounded-contexts/pricing/features/pricing-health/api/route.ts:POST /:policyId/apply-goal",
+        "route-action:bounded-contexts/pricing/support/route-support/pricing-health.tsx",
+        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:H52c9743ac335#1",
+        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:Hb08a81ecfd73#2"
+      ],
+      "visibleDestination": {
+        "description": "Compute verdict returns the persisted dry-run snapshot and redirects to direct durable request/summary reads; queued work is visibly pending and revalidated without waiting for an event projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The existing enqueueDryRun atomically persists the request and job; GET never enqueues and reads completed summaries by current body hash.",
+        "tests": [
+          "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
+          "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-loader.db.test.ts",
+          "bounded-contexts/pricing/features/pricing-health/tests/apply-goal.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "pricing.repricing-policy-control-snapshots",
       "owner": "pricing",
@@ -706,6 +723,24 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "account-desk-pricing-health",
+          "routePath": "account/desk/pricing-health",
+          "fileExport": "./routes/marketplace/account-desk-pricing-health",
+          "routeType": "route",
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["pricing.view"] },
+          "canonicalLink": { "kind": "route-derived" },
+          "availability": { "web": true, "mobile": false },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": { "query": { "policyId": { "kind": "value", "maxLength": 256 } } }
+        },
+        {
           "routeId": "account-repricing",
           "routePath": "account/repricing",
           "fileExport": "./routes/marketplace/account-repricing",
@@ -841,6 +876,11 @@
     }
   ],
   "directoryIntent": {
+    "pricing-health": {
+      "classification": "slice",
+      "purpose": "Read current-policy stored Pricing Health summaries and disclosed platform Forecast Grades for the Seller Desk.",
+      "expectedConsumers": ["Internal pricing module composition", "routes"]
+    },
     "economics": {
       "classification": "slice",
       "purpose": "Resolve replayable native-marketplace or Channel Connection Economics facts, evidence, and overrides for Pricing consumers.",
@@ -912,7 +952,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
-      "expectedConsumers": ["economics", "recommendations"]
+      "expectedConsumers": ["economics", "pricing-health", "recommendations"]
     },
     "realtime-support": {
       "classification": "support",
@@ -922,7 +962,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Pricing request HTTP client composition for route loaders and composition seams.",
-      "expectedConsumers": ["repricing-policies"],
+      "expectedConsumers": ["pricing-health", "repricing-policies"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {

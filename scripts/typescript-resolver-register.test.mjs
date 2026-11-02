@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = path.resolve(".");
@@ -161,7 +162,11 @@ console.log(readFileSync(${JSON.stringify(harness.counterPath)}, "utf8").trim().
 }
 
 async function trackedMjsSources() {
-  const files = execFileSync("git", ["ls-files", "*.mjs"], { cwd: repositoryRoot, encoding: "utf8" })
+  const files = execFileSync("git", ["ls-files", "*.mjs"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split(/\r?\n/u)
     .filter(Boolean);
   return new Map(

@@ -10,6 +10,7 @@ describe("pricing.forecast-ledger policy", () => {
       graceDays: 2,
       adoptedForecastKind: "curve",
       adoptionHorizonDays: 21,
+      gradeDisclosureMinimumCount: 30,
     });
     expect(
       decodeForecastLedgerPolicyValue({
@@ -17,7 +18,13 @@ describe("pricing.forecast-ledger policy", () => {
         adoptionHorizonDays: 30,
         adoptedForecastKind: "buyer-choice",
       }),
-    ).toEqual({ horizonsDays: [7, 30], graceDays: 2, adoptedForecastKind: "buyer-choice", adoptionHorizonDays: 30 });
+    ).toEqual({
+      horizonsDays: [7, 30],
+      graceDays: 2,
+      adoptedForecastKind: "buyer-choice",
+      adoptionHorizonDays: 30,
+      gradeDisclosureMinimumCount: 30,
+    });
   });
 
   it.each([
@@ -32,7 +39,16 @@ describe("pricing.forecast-ledger policy", () => {
     [{ graceDays: -1 }, /below the shortest horizon/],
     [{ adoptedForecastKind: "Curve" }, /name a Forecast Kind/],
     [{ adoptionHorizonDays: 30 }, /one of horizonsDays/],
+    [{ gradeDisclosureMinimumCount: 0 }, /gradeDisclosureMinimumCount/],
+    [{ gradeDisclosureMinimumCount: 1.5 }, /gradeDisclosureMinimumCount/],
+    [{ gradeDisclosureMinimumCount: null }, /gradeDisclosureMinimumCount/],
   ])("rejects %j", (raw, message) => {
     expect(() => decodeForecastLedgerPolicyValue(raw as never)).toThrow(message);
+  });
+
+  it("accepts the additive disclosure key and defaults old revisions to 30", () => {
+    expect(decodeForecastLedgerPolicyValue({ graceDays: 1 }).gradeDisclosureMinimumCount).toBe(30);
+    expect(decodeForecastLedgerPolicyValue({ gradeDisclosureMinimumCount: 40 }).gradeDisclosureMinimumCount).toBe(40);
+    expect(forecastLedgerPolicy.schemaSummary).toContain("gradeDisclosureMinimumCount");
   });
 });

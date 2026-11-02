@@ -15,7 +15,6 @@ function batch(overrides: Partial<InventoryImportBatch> = {}): InventoryImportBa
     adapter_version: 1,
     quantity_mode: "add",
     default_storage_location_id: "loc_1",
-    source_filename: "stock.csv",
     total_count: 1,
     accepted_count: 0,
     rejected_count: 1,
@@ -37,7 +36,7 @@ describe("InventoryImportBatchPage recent imports", () => {
     );
 
     expect(html).toContain("Recent imports");
-    expect(html).toContain("stock.csv");
+    expect(html).toMatch(/>imb_1</);
     expect(html).toContain("uploaded");
     expect(html).toContain("Rejected");
     expect(html).toContain("/account/inventory/imports/imb_1");

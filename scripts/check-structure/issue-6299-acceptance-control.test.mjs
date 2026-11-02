@@ -7,16 +7,15 @@ import { describe, expect, it } from "vitest";
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 
 const expectedInventory = [
-  ["bounded-contexts/settlement/features/payouts/api/runtime.ts", "getCommittedPayoutLedgerEntry"],
-  ["bounded-contexts/checkout/features/sessions/api/runtime.ts", "cleanupCommitMetadata"],
-  ["bounded-contexts/checkout/features/sessions/api/runtime.ts", "existingStartedSession"],
+  ["bounded-contexts/checkout/features/sessions/api/session-cleanup.ts", "readCleanupCommitMetadata"],
+  ["bounded-contexts/checkout/features/sessions/api/session-entry.ts", "existingStartedSession"],
+  ["bounded-contexts/settlement/features/payouts/api/payout-primitives.ts", "getCommittedPayoutLedgerEntry"],
   [
     "bounded-contexts/inventory/support/runtime-support/inventory-adjustment-idempotency.ts",
     "recoverInventoryAdjustmentIdempotency",
   ],
   ["bounded-contexts/catalog/features/product-measures/api/publication.ts", "publishProductMeasures"],
   ["bounded-contexts/catalog/features/product-contents/api/runtime.ts", "replaceProductContents"],
-  ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "findReplayedListingMutation"],
   ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "listSellerListingFeeHistory"],
   ["bounded-contexts/customer-feedback/features/csat/api/runtime.ts", "loadCooldownClaim"],
   [

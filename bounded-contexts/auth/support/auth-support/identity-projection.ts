@@ -11,12 +11,8 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import { type AccountId, type UserId, type TenantId } from "@chase-sets/primitives/typed-ids";
-import {
-  AUTH_BOOTSTRAP_ACCOUNT_ID,
-  AUTH_BOOTSTRAP_TENANT_ID,
-  AUTH_BOOTSTRAP_USER_ID,
-  AUTH_ROLE_PERMISSIONS,
-} from "./constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
+import { AUTH_BOOTSTRAP_ACCOUNT_ID, AUTH_BOOTSTRAP_TENANT_ID, AUTH_BOOTSTRAP_USER_ID } from "./constants";
 
 export const authIdentityProjectionSchemaSql = `
 CREATE TABLE IF NOT EXISTS auth_identity_users (
@@ -539,7 +535,7 @@ async function upsertMembershipMirror(
   membershipId: string,
   userId: string,
   accountId: string,
-  roleKey: keyof typeof AUTH_ROLE_PERMISSIONS,
+  roleKey: keyof typeof ROLE_PERMISSIONS,
   status: string,
   updatedAt: string,
 ) {
@@ -552,7 +548,7 @@ async function upsertMembershipMirror(
       user_id: userId,
       account_id: accountId,
       role_key: roleKey,
-      role_permissions: AUTH_ROLE_PERMISSIONS[roleKey],
+      role_permissions: ROLE_PERMISSIONS[roleKey],
       status,
       updated_at: updatedAt,
     },
@@ -566,7 +562,7 @@ export async function upsertActiveAuthIdentityMembershipMirror(
     membershipId: string;
     userId: string;
     accountId: string;
-    roleKey: keyof typeof AUTH_ROLE_PERMISSIONS;
+    roleKey: keyof typeof ROLE_PERMISSIONS;
     updatedAt: string;
   }>,
 ) {
@@ -824,7 +820,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
         membershipId: string;
         userId: string;
         accountId: string;
-        roleKey: keyof typeof AUTH_ROLE_PERMISSIONS;
+        roleKey: keyof typeof ROLE_PERMISSIONS;
       };
       await upsertRow(db, {
         table: "auth_identity_memberships",
@@ -843,7 +839,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
           user_id: userId,
           account_id: accountId,
           role_key: roleKey,
-          role_permissions: AUTH_ROLE_PERMISSIONS[roleKey],
+          role_permissions: ROLE_PERMISSIONS[roleKey],
           status: "active",
           updated_at: event.timing.recordedAt,
         },
@@ -853,7 +849,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
     },
     "identity.membership.role-changed": async (event) => {
       const membershipId = extractIdFromStreamId(event.streamId, "identity.membership-");
-      const roleKey = (event.data as { roleKey: keyof typeof AUTH_ROLE_PERMISSIONS }).roleKey;
+      const roleKey = (event.data as { roleKey: keyof typeof ROLE_PERMISSIONS }).roleKey;
       const existing = await db.query<{ user_id: string; account_id: string; status: string }>(
         `SELECT user_id, account_id, status
          FROM auth_identity_memberships
@@ -867,7 +863,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
         setColumns: ["role_key", "role_permissions", "updated_at"],
         values: {
           role_key: roleKey,
-          role_permissions: AUTH_ROLE_PERMISSIONS[roleKey],
+          role_permissions: ROLE_PERMISSIONS[roleKey],
           updated_at: event.timing.recordedAt,
         },
         casts: { role_permissions: "jsonb" },
@@ -894,7 +890,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
       const existing = await db.query<{
         user_id: string;
         account_id: string;
-        role_key: keyof typeof AUTH_ROLE_PERMISSIONS;
+        role_key: keyof typeof ROLE_PERMISSIONS;
       }>(
         `SELECT user_id, account_id, role_key
          FROM auth_identity_memberships
@@ -928,7 +924,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
       const existing = await db.query<{
         user_id: string;
         account_id: string;
-        role_key: keyof typeof AUTH_ROLE_PERMISSIONS;
+        role_key: keyof typeof ROLE_PERMISSIONS;
       }>(
         `SELECT user_id, account_id, role_key
          FROM auth_identity_memberships

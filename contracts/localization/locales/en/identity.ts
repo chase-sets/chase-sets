@@ -13,6 +13,8 @@ export const identityEnglishTranslations = {
   "identity.accountManagement.secretUnrecoverable":
     "The key was saved, but its secret cannot be recovered. Explicitly rotate it to create a new secret.",
   "identity.accountManagement.acknowledgeSecret": "I have stored this secret",
+  "identity.accountManagement.anotherChangeInProgress":
+    "Another account change is in progress. Wait for it to finish before trying again.",
   "identity.preferences.recovery.submitting": "Saving preferences",
   "identity.preferences.recovery.submitting.description": "Your theme is a pending preview until confirmed.",
   "identity.preferences.recovery.confirming": "Checking preferences",

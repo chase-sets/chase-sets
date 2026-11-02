@@ -38,6 +38,10 @@ function maxLevel(levels) {
   return levels.reduce((worst, level) => (LEVELS.indexOf(level) > LEVELS.indexOf(worst) ? level : worst), "success");
 }
 
+function levelCounts(rows) {
+  return Object.fromEntries(LEVELS.map((level) => [level, rows.filter((row) => row.level === level).length]));
+}
+
 function sha256Hex(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -300,6 +304,15 @@ function isoDate(ms) {
   return ms === null ? null : new Date(ms).toISOString().slice(0, 10);
 }
 
+// The `assisted` provider-expiry rule, shared by value groups and agent token
+// accounts. Returns `[level, reason]`, or null outside 21 days or with no expiry.
+function assistedExpiryReason(remainingDays) {
+  if (remainingDays === null) return null;
+  if (remainingDays <= 7) return ["failure", "provider-expiry-within-7-days"];
+  if (remainingDays <= 21) return ["warning", "provider-expiry-within-21-days"];
+  return null;
+}
+
 function ageReasons(entry, ageDays, remainingDays) {
   const reasons = [];
   const max = entry.maxAgeDays;
@@ -309,14 +322,25 @@ function ageReasons(entry, ageDays, remainingDays) {
     if (remainingDays !== null && remainingDays <= 7) reasons.push(["failure", "provider-expiry-within-7-days"]);
     return reasons;
   }
-  if (remainingDays !== null && remainingDays <= 7) reasons.push(["failure", "provider-expiry-within-7-days"]);
-  else if (remainingDays !== null && remainingDays <= 21) reasons.push(["warning", "provider-expiry-within-21-days"]);
+  const expiry = assistedExpiryReason(remainingDays);
+  if (expiry) reasons.push(expiry);
   if (ageDays > max) reasons.push(["failure", "older-than-max-age"]);
   else if (max - ageDays <= 30) reasons.push(["warning", "max-age-within-30-days"]);
   return reasons;
 }
 
 const LIVENESS_LEVELS = { live: null, dead: "failure", unknown: "warning", absent: "warning" };
+
+// One row per agentTier account from its recorded tokenExpiresOn alone, in
+// whole UTC calendar days; nothing is collected for it. A token not yet
+// issued (null) is success.
+function classifyAgentTokenAccounts(inventory, now) {
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return (inventory.agentTier?.accounts ?? []).map(({ name, tokenExpiresOn }) => {
+    const daysRemaining = tokenExpiresOn === null ? null : (Date.parse(tokenExpiresOn) - today) / DAY_MS;
+    return { name, tokenExpiresOn, daysRemaining, level: assistedExpiryReason(daysRemaining)?.[0] ?? "success" };
+  });
+}
 
 // The level classifier (runbook "Levels"). `metadata` is a
 // collectSecretMetadata document (or null), `liveness` maps scope ->
@@ -483,17 +507,16 @@ export function classifyCredentialHealth({
   table.sort(
     (left, right) => scopes.indexOf(left.scope) - scopes.indexOf(right.scope) || left.name.localeCompare(right.name),
   );
-  const status = maxLevel([...groups.map(({ level }) => level), ...findings.map(({ level }) => level)]);
-  const counts = Object.fromEntries(
-    LEVELS.map((level) => [level, groups.filter((group) => group.level === level).length]),
-  );
+  const accounts = classifyAgentTokenAccounts(inventory, now);
+  const status = maxLevel([...groups, ...findings, ...accounts].map(({ level }) => level));
   return {
     schemaVersion: "credential-health/v1",
     generatedAt: now.toISOString(),
     status,
-    counts,
+    counts: levelCounts(groups),
     scopes,
     findings,
+    accounts,
     groups,
     table,
   };
@@ -504,17 +527,28 @@ function cell(value) {
 }
 
 export function renderCredentialHealthSummary(report) {
+  const accountCounts = levelCounts(report.accounts);
   const lines = [
     "## Platform credential health",
     "",
     `- Status: ${report.status}`,
     `- Generated: ${report.generatedAt}`,
     `- Value groups: ${report.counts.failure} failure, ${report.counts.warning} warning, ${report.counts.success} success`,
+    `- Agent token accounts: ${accountCounts.failure} failure, ${accountCounts.warning} warning, ${accountCounts.success} success`,
   ];
   for (const finding of report.findings) {
     lines.push(
       `- Collection ${finding.level}: ${finding.part}${finding.scope ? ` (${finding.scope})` : ""} ${finding.reason}`,
     );
+  }
+  if (report.accounts.length > 0) {
+    lines.push("", "### Agent token accounts", "");
+    lines.push("| Account | Token expires | Days remaining | Level |", "| --- | --- | --- | --- |");
+    for (const account of report.accounts) {
+      lines.push(
+        `| ${account.name} | ${account.tokenExpiresOn ?? "not issued"} | ${cell(account.daysRemaining)} | ${account.level} |`,
+      );
+    }
   }
   for (const scope of report.scopes) {
     const rows = report.table.filter((row) => row.scope === scope && row.state !== "unset");
@@ -541,10 +575,16 @@ export function renderCredentialHealthSummary(report) {
 }
 
 export function credentialHealthAlert(report, { maxLines = 30 } = {}) {
-  const summary = `Credential health ${report.status}: ${report.counts.failure} failure and ${report.counts.warning} warning value groups; ${report.findings.length} collection findings.`;
+  const accountCounts = levelCounts(report.accounts);
+  const summary = `Credential health ${report.status}: ${report.counts.failure} failure and ${report.counts.warning} warning value groups; ${accountCounts.failure} failure and ${accountCounts.warning} warning agent token accounts; ${report.findings.length} collection findings.`;
+  // Account rows come before value groups, so truncation keeps them.
   const lines = [
     ...report.findings.map(
       (finding) => `- ${finding.level}: ${finding.part}${finding.scope ? ` (${finding.scope})` : ""} ${finding.reason}`,
+    ),
+    ...report.accounts.map(
+      (account) =>
+        `- ${account.level}: agent token ${account.name} ${account.tokenExpiresOn === null ? "not issued" : `expires ${account.tokenExpiresOn} (${account.daysRemaining} days)`}`,
     ),
     ...report.groups
       .filter((group) => group.level !== "success")

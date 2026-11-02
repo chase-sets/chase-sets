@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import ts from "@chase-sets/typescript-compiler-api";
 import { DEFAULT_SIGN_IN_METHODS, type SignInMethod } from "../support/route-support/auth-host";
 
 const authRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -47,7 +48,94 @@ const REQUIRED_ANONYMOUS_SIGN_IN_ROUTES = {
   passkey: ["/api/auth/passkeys/sign-in"],
 } as const satisfies Readonly<Record<SignInMethod, readonly string[]>>;
 
+const MIGRATED_COMPONENTS = new Set([
+  "SignInPage",
+  "RegisterPage",
+  "AccountSelectionPage",
+  "SessionDetailPage",
+  "AgentGrantDetailPage",
+]);
+
+type SourceImport = Readonly<{ source: string; imported: string }>;
+
+function routeFiles() {
+  return readdirSync(join(authRoot, "routes"), { recursive: true })
+    .filter((file): file is string => typeof file === "string")
+    .filter((file) => /\.(?:ts|tsx)$/u.test(file) && !/\.test\./u.test(file));
+}
+
+function mountedComponents(file: string, seen = new Set<string>()): string[] {
+  const absolute = join(authRoot, file);
+  if (seen.has(absolute)) return [];
+  seen.add(absolute);
+  const source = ts.createSourceFile(file, readFileSync(absolute, "utf8"), ts.ScriptTarget.Latest, true);
+  const imports = new Map<string, SourceImport>();
+  const components = new Set<string>();
+
+  function visit(node: ts.Node) {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && node.importClause) {
+      const modulePath = node.moduleSpecifier.text;
+      const named = node.importClause.namedBindings;
+      if (node.importClause.name) imports.set(node.importClause.name.text, { source: modulePath, imported: "default" });
+      if (named && ts.isNamedImports(named)) {
+        for (const specifier of named.elements) {
+          imports.set(specifier.name.text, {
+            source: modulePath,
+            imported: specifier.propertyName?.text ?? specifier.name.text,
+          });
+        }
+      }
+    }
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      if (ts.isIdentifier(node.tagName)) {
+        const imported = imports.get(node.tagName.text);
+        if (imported && MIGRATED_COMPONENTS.has(imported.imported)) components.add(imported.imported);
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+
+  const exportDefault = source.statements.find(
+    (statement): statement is ts.ExportAssignment => ts.isExportAssignment(statement) && !statement.isExportEquals,
+  );
+  if (exportDefault && ts.isIdentifier(exportDefault.expression)) {
+    const target = imports.get(exportDefault.expression.text);
+    if (target?.imported === "default" && target.source.startsWith(".")) {
+      const targetFile = join(dirname(file), `${target.source}.tsx`);
+      for (const component of mountedComponents(targetFile, seen)) components.add(component);
+    }
+  }
+  return [...components];
+}
+
+function migratedRouteMounts() {
+  const mounts = new Map<string, string[]>();
+  for (const file of routeFiles()) {
+    for (const component of mountedComponents(join("routes", file))) {
+      const files = mounts.get(component) ?? [];
+      files.push(join("routes", file).replaceAll("\\", "/"));
+      mounts.set(component, files);
+    }
+  }
+  return Object.fromEntries([...mounts].map(([component, files]) => [component, files.sort()]));
+}
+
 describe("Auth marketplace route contributions", () => {
+  it("enumerates every route mount of the migrated auth page components", () => {
+    expect(migratedRouteMounts()).toEqual({
+      SignInPage: [
+        "routes/access-admin/sign-in.tsx",
+        "routes/catalog-admin/sign-in.tsx",
+        "routes/marketplace/sign-in.tsx",
+      ],
+      RegisterPage: ["routes/marketplace/register.tsx"],
+      AccountSelectionPage: ["routes/access-admin/account-select.tsx", "routes/marketplace/account-select.tsx"],
+      SessionDetailPage: ["routes/access-admin/sessions-detail.tsx", "routes/marketplace/account-sessions-detail.tsx"],
+      AgentGrantDetailPage: ["routes/marketplace/account-agents-detail.tsx"],
+    });
+  });
+
   it("declares the Auth-owned guest checkout exit route", () => {
     expect(marketplaceRoutes()).toEqual(
       expect.arrayContaining([

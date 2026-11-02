@@ -19,6 +19,7 @@ export const DEFAULT_REPOSITORY = "chase-sets/chase-sets";
 export const EXCLUSION_REASONS = Object.freeze([
   "EPIC",
   "TRACKING_ONLY",
+  "PLATFORM_HELD",
   "NO_MILESTONE",
   "NOT_COMMITTED_OUTCOME",
   "EXCLUDED_MILESTONE",
@@ -121,6 +122,7 @@ function exclusionReason(issue, milestone, excluded) {
   const labels = labelNames(issue);
   if (issue.issueType === "Epic") return "EPIC";
   if (labels.includes("status:tracking-only")) return "TRACKING_ONLY";
+  if (labels.includes("dispatch:platform") || labels.includes("dispatch:platform-return")) return "PLATFORM_HELD";
   if (issue.milestone === null) return "NO_MILESTONE";
   if (milestone === null || !isExecutableOutcome(milestone)) return "NOT_COMMITTED_OUTCOME";
   if (excluded.has(milestone.number)) return "EXCLUDED_MILESTONE";

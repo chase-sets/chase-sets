@@ -133,10 +133,8 @@ function normalizedStateReason(issue) {
 }
 
 // Total over every open issue: closed terminal -> Epic -> Tracking -> Blocked ->
-// Refined/Backlog. The form of the work outranks its continuity marker, so a
-// pathological untyped legacy epic also carrying `status:tracking-only` is an
-// `Epic`. Native type outranks the legacy `kind:epic` label inside
-// backlog-classify.mjs, which owns that decision.
+// Refined/Backlog. The native issue type is the sole authority for Epic; the
+// form of the work outranks its continuity marker.
 export function deriveStatus(issue) {
   const input = toBacklogInput(issue);
   if (input.state === "closed") {

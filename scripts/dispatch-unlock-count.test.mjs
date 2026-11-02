@@ -633,7 +633,7 @@ describe("dispatch dependency snapshot", () => {
   it("classifies query-shaped nodes with local native-type and tracking predicates", () => {
     expect(isLocalEpic({ issueTypeName: "Epic", labels: [] })).toBe(true);
     expect(isLocalEpic({ issueTypeName: "Slice", labels: ["kind:epic"] })).toBe(false);
-    expect(isLocalEpic({ issueTypeName: null, labels: ["kind:epic"] })).toBe(true);
+    expect(isLocalEpic({ issueTypeName: null, labels: ["kind:epic"] })).toBe(false);
     expect(isLocalEpic({ issueTypeName: null, labels: [] })).toBe(false);
     expect(isLocalTrackingOnly({ labels: ["status:tracking-only"] })).toBe(true);
     expect(isLocalTrackingOnly({ labels: [] })).toBe(false);

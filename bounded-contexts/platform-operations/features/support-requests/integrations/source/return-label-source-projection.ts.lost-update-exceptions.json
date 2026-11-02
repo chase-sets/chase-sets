@@ -1,0 +1,46 @@
+[
+  {
+    "id": "exception-34cab159d02282f4",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "support_return_label_sources",
+      "digest": "0bf4cf5c4df830874d2ca8fc7281994ffe9c1d81bc924702da454a29f17fa4a1"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts:38 directly synchronizes support_return_label_sources from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-a31c1795afbcfeda",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "support_return_label_sources",
+      "digest": "f1f49a440c4f014cdcbd275e0e8ed6fc3dff75076272b62322eadcc43a7384ce"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts:57 directly synchronizes support_return_label_sources from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-c9b47f223cba8fcd",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "support_return_label_sources",
+      "digest": "6480046fe5963c46bd3ae53f9f1b3e89e1eed75dfa7720a39d4323e261fb1c87"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts:75 directly synchronizes support_return_label_sources from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-b6b7d0a45f730257",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "support_return_label_sources",
+      "digest": "68cf162dfe37c074c7dd8fd0a329a884c4422c1d832fe88e6064ed55d3b184b7"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts:84 directly synchronizes support_return_label_sources from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

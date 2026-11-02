@@ -1,16 +1,15 @@
 import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import type { ChannelConnectionServices } from "../domain/contracts";
-import { AUTH_ROLE_PERMISSIONS } from "../../../../auth/support/auth-support/constants";
-import { ROLE_PERMISSIONS } from "../../../../identity/features/memberships/read-model/constants";
 import { testContext } from "./test-support";
 import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import { createUnavailableListingCompositionServices } from "../../listing-composition/tests/service-stub";
 
-describe("channel-connection-authorization-isolation and channel-connection-grant-parity", () => {
-  it("uses shared 403 behavior and keeps the Identity/Auth grant mirrors exact", async () => {
+describe("channel-connection-authorization-isolation and channel-connection-grants", () => {
+  it("uses shared 403 behavior and grants Channel Connection authority from the one role table", async () => {
     const app = new Hono<ChannelsApiEnv>();
     app.use("*", async (c, next) => {
       c.set("actor", { accountId: "acc_owner", permissions: [] });
@@ -33,11 +32,20 @@ describe("channel-connection-authorization-isolation and channel-connection-gran
       error: { code: "authorization_forbidden", message: "authorization_forbidden" },
     });
 
-    for (const role of ["platform-admin", "owner", "manager", "fulfillment", "viewer"] as const) {
-      expect(AUTH_ROLE_PERMISSIONS[role].filter((permission) => permission.startsWith("channels."))).toEqual(
-        ROLE_PERMISSIONS[role].filter((permission) => permission.startsWith("channels.")),
-      );
-    }
+    expect(
+      Object.fromEntries(
+        Object.entries(ROLE_PERMISSIONS).map(([role, permissions]) => [
+          role,
+          permissions.filter((permission) => permission.startsWith("channels.")),
+        ]),
+      ),
+    ).toEqual({
+      "platform-admin": [],
+      owner: ["channels.manage", "channels.view"],
+      manager: ["channels.manage", "channels.view"],
+      fulfillment: ["channels.view"],
+      viewer: ["channels.view"],
+    });
   });
 });
 

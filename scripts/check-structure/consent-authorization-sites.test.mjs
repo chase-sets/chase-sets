@@ -4,6 +4,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   ConsentAuthorizationGuardError,
@@ -63,15 +64,6 @@ import {
 } from "./consent-authorization-sites.mjs";
 import { deriveGuardCandidateProvenance } from "./guard-candidate-provenance.mjs";
 import {
-  ConsentAuthorizationEvidenceError,
-  collectConsentAuthorizationEvidenceWorkUnitViolations,
-  consentAuthorizationEvidenceFailureCodes,
-  consentAuthorizationEvidenceWorkUnitCeilings,
-  deriveConsentAuthorizationEvidenceInventory,
-  executeConsentAuthorizationMutationEvidence,
-  mutationEvidenceCases,
-} from "./consent-authorization-mutation-evidence.mjs";
-import {
   compareTypeScriptOwnerContexts,
   deriveTypeScriptOwnerContexts,
   loadTypeScriptOwnerContextArtifact,
@@ -129,8 +121,8 @@ const batteryWorkUnitCeilings = Object.freeze({
   executedGuardNodeSubprocesses: 0,
   totalChildProcessSpawns: 408,
   reconciliationGitLsFilesSpawns: 3,
-  compilerSurfaceSourceParses: 7,
-  trackedFilesDigested: 111,
+  compilerSurfaceSourceParses: 8,
+  trackedFilesDigested: 112,
 });
 
 const committedTotalChildProcessSpawnsByEnvironment = Object.freeze({
@@ -166,6 +158,7 @@ function trackedRepositoryFiles() {
     cwd: repoRoot,
     encoding: "buffer",
     stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   })
     .toString("utf8")
     .split("\0")
@@ -319,7 +312,29 @@ const enumeration = loadConsentAuthorizationCaseEnumeration();
 const enumerationSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-case-enumeration-v1.schema.json`);
 const receiptSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-v1.schema.json`);
 const aggregateSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-aggregate-v1.schema.json`);
-const liveMutationEvidence = await executeConsentAuthorizationMutationEvidence();
+const mutationEvidenceRoot = mkdtempSync(path.join(tmpdir(), "consent-mutation-evidence-"));
+const previousTemporaryEnvironment = new Map(["TEMP", "TMP", "TMPDIR"].map((key) => [key, process.env[key]]));
+for (const key of previousTemporaryEnvironment.keys()) process.env[key] = mutationEvidenceRoot;
+afterAll(() => {
+  try {
+    rmSync(mutationEvidenceRoot, { recursive: true, force: true });
+  } finally {
+    for (const [key, value] of previousTemporaryEnvironment) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+const mutationEvidenceModule = await import("./consent-authorization-mutation-evidence.mjs");
+const liveMutationEvidence = await mutationEvidenceModule.executeConsentAuthorizationMutationEvidence();
+const {
+  ConsentAuthorizationEvidenceError,
+  collectConsentAuthorizationEvidenceWorkUnitViolations,
+  consentAuthorizationEvidenceFailureCodes,
+  consentAuthorizationEvidenceWorkUnitCeilings,
+  deriveConsentAuthorizationEvidenceInventory,
+  mutationEvidenceCases,
+} = mutationEvidenceModule;
 const {
   receipts: liveMutationReceipts,
   aggregate: liveMutationAggregate,
@@ -1022,10 +1037,6 @@ const arbitraryPathResult = buildPlantedSiteEvidence(
   `${fixtureRoot}/reconciliation/unregistered-seventh-with-six-safe.ts`,
 );
 
-afterAll(() => {
-  for (const scratch of retainedScratchRepos) rmSync(scratch, { recursive: true, force: true });
-});
-
 /* -------------------------------------------------------------------------- */
 /* Scripted provenance -- the shipped ordered resolver, never a merge-base call */
 /* -------------------------------------------------------------------------- */
@@ -1261,6 +1272,7 @@ function footprintFiles() {
   const listed = runCountedChildProcess("git", args, {
     cwd: repoRoot,
     encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   });
   directExecFileSyncSpawnEvidence = {
     args,
@@ -1282,7 +1294,7 @@ function deriveLockfileOnlyArtifactPair() {
       writeFileSync(lockfilePath, repoFile(`${ownerContextFixtureRoot}/${fixture}`));
       return deriveTypeScriptOwnerContexts({ resolutionRoot: repoRoot, lockfilePath });
     };
-    return { a: derive("lockfile-a.yaml"), b: derive("lockfile-b.yaml") };
+    return { a: derive("lockfile-a.yaml"), b: derive("lockfile-c.yaml") };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -1417,6 +1429,10 @@ function registerAnalyzerModuleImport(kind, counter = batteryWorkUnits) {
 
 /* Suite                                                                      */
 /* -------------------------------------------------------------------------- */
+
+afterAll(() => {
+  for (const scratch of retainedScratchRepos) rmSync(scratch, { recursive: true, force: true });
+});
 
 describe("Consent authorization sites", () => {
   it("compares no resolved provenance value against a committed sha literal", () => {
@@ -1653,7 +1669,7 @@ describe("Consent authorization sites", () => {
       (key) => JSON.stringify(pair.a.resolution[key]) !== JSON.stringify(pair.b.resolution[key]),
     );
     process.stdout.write(`lockfile-only-delta=${JSON.stringify(differing)}\n`);
-    expect(differing).toEqual(["lockfileSha256"]);
+    expect(differing).toEqual(["lockfileKeys"]);
     const comparison = compareTypeScriptOwnerContexts(pair.a, pair.b, {
       partition: ownerContextPartition,
       schema: ownerContextSchema,
@@ -3247,7 +3263,7 @@ describe("Consent authorization sites", () => {
     );
   });
 
-  it("derives and fail-closes the complete 111-member governing-input inventory", () => {
+  it("derives and fail-closes the complete 112-member governing-input inventory", () => {
     const paths = liveMutationInventory.inventory.map(({ path: relativePath }) => relativePath);
     expect(liveMutationInventory.importClosure).toEqual([
       "packages/typescript-compiler-api/index.mjs",
@@ -3256,9 +3272,10 @@ describe("Consent authorization sites", () => {
       "scripts/check-structure/guard-candidate-provenance.mjs",
       "scripts/check-structure/identity-creation-path-registry.mjs",
       "scripts/check-structure/typescript-owner-context-derivation.mjs",
+      "scripts/lib/git-listing.mjs",
       "scripts/lib/repo.mjs",
     ]);
-    expect(liveMutationInventory.inventory).toHaveLength(111);
+    expect(liveMutationInventory.inventory).toHaveLength(112);
     expect(paths).not.toContain(suitePath);
     expect(liveMutationInventory.reconciliation).toEqual({
       derivedOutsideTracked: [],
@@ -3326,8 +3343,8 @@ describe("Consent authorization sites", () => {
 
     expect(liveMutationInventory.workUnits).toEqual({
       reconciliationGitLsFilesSpawns: 1,
-      compilerSurfaceSourceParses: 7,
-      trackedFilesDigested: 111,
+      compilerSurfaceSourceParses: 8,
+      trackedFilesDigested: 112,
     });
     expect(collectConsentAuthorizationEvidenceWorkUnitViolations(liveMutationInventory.workUnits)).toEqual([]);
     const ceilingMutantRefusals = {};

@@ -117,7 +117,7 @@ export function normalizeLocaleCode(locale: string): string {
     language.toLowerCase(),
     ...rest.map((part, index) =>
       index === 0 && part.length === 4
-        ? part[0].toUpperCase() + part.slice(1).toLowerCase()
+        ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
         : part.length === 2
           ? part.toUpperCase()
           : part.toLowerCase(),

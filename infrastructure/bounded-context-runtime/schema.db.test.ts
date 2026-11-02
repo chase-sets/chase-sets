@@ -77,6 +77,28 @@ describeDb("applies a migration data step atomically", () => {
     expect(await ledgerRows()).toEqual([migrationId]);
   });
 
+  it("upgrades the prior configuration-epoch schema and ledgers it exactly once", async () => {
+    await pool.query(
+      "DROP TABLE event_configuration_guard_history, event_configuration_journal_heads, event_configuration_store_identity",
+    );
+    await pool.query(`DELETE FROM ${SCHEMA_MIGRATIONS_TABLE} WHERE migration_id = $1`, [
+      "20261022_configuration_epoch_closure",
+    ]);
+    await pool.query("INSERT INTO data_step_writes (source) VALUES ('prior-schema-business-row')");
+    await bootstrap([], pool);
+    await bootstrap([], pool);
+    const tables = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM information_schema.tables WHERE table_schema = current_schema() AND table_name IN ('event_configuration_guard_history', 'event_configuration_journal_heads', 'event_configuration_store_identity')",
+    );
+    expect(tables.rows[0]?.count).toBe("3");
+    const ledger = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM ${SCHEMA_MIGRATIONS_TABLE} WHERE migration_id = $1`,
+      ["20261022_configuration_epoch_closure"],
+    );
+    expect(ledger.rows[0]?.count).toBe("1");
+    expect(await writes()).toEqual(["prior-schema-business-row"]);
+  });
+
   it("leaves no write or ledger row when the step throws after writing, then applies once", async () => {
     let failStep = true;
     const migration = dataStepMigration(async (db) => {

@@ -220,7 +220,7 @@ describe("payments terms artifact", () => {
     );
     const refs = section?.reviewManifest.productTruthRefs.join(" ") ?? "";
     expect(refs).not.toContain("runtime.ts:493-511");
-    expect(refs).toContain("runtime.ts:2051-2071");
+    expect(refs).toContain("runtime.ts:2429-2449");
   });
 
   it("distinguishes Order creation, payment requests and recorded capture without promising statement display", () => {
@@ -463,7 +463,9 @@ describe("payments terms artifact", () => {
         expect.stringContaining(
           "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee",
         ),
-        expect.stringMatching(/^bounded-contexts\/settlement\/features\/payouts\/api\/runtime\.ts:.*posting/),
+        expect.stringMatching(
+          /^bounded-contexts\/settlement\/features\/payouts\/api\/payout-request-lifecycle\.ts:.*posting/,
+        ),
         expect.stringContaining("bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx"),
       ]),
     );

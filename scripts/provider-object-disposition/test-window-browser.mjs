@@ -2,6 +2,7 @@ import { readFile, lstat, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { errors } from "@playwright/test";
 import { acquireHeavySlot } from "../lib/heavy-slot.mjs";
 import { admissionProof, mediationFailure } from "./browser-boundary/protocol.mjs";
 
@@ -18,6 +19,17 @@ export const SOURCE_FILES = Object.freeze([
   "test-window-browser.mjs",
 ]);
 const CHILD_ENVIRONMENT = Object.freeze({ PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" });
+
+export function confinedBrowserLaunchOptions(sourceDigest) {
+  return {
+    executablePath: BROWSER_LAUNCHER,
+    ignoreDefaultArgs: true,
+    args: ["browser", sourceDigest],
+    env: CHILD_ENVIRONMENT,
+    chromiumSandbox: true,
+    timeout: 5000,
+  };
+}
 
 export async function assertBrowserAdmission({ operator = false } = {}) {
   // Operator-host authority is separate. Never run a probe for that entry.
@@ -75,16 +87,9 @@ export async function openConfinedBrowser() {
   const { chromium } = await import("@playwright/test");
   let browser;
   try {
-    browser = await chromium.launch({
-      executablePath: BROWSER_LAUNCHER,
-      ignoreDefaultArgs: true,
-      args: ["browser", sourceDigest],
-      env: CHILD_ENVIRONMENT,
-      chromiumSandbox: true,
-      timeout: 5000,
-    });
+    browser = await chromium.launch(confinedBrowserLaunchOptions(sourceDigest));
   } catch (error) {
-    throw mediationFailure("sandboxed-chromium", error, userNamespaceRestriction);
+    throw mediationFailure("sandboxed-chromium", error, userNamespaceRestriction, error instanceof errors.TimeoutError);
   }
   let closing;
   return {

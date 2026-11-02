@@ -86,12 +86,12 @@ branches; select implementations in composition or the registry. Provider-specif
 translation and internal strategy selection belong inside the adapter, including
 ADR 0014's Accounts API strategy.
 
-Current Merchant [client](../../deployables/platform-worker/src/google-merchant-client.ts)
-and [auth](../../deployables/platform-worker/src/google-merchant-auth.ts) remain in
-`platform-worker`. This tolerated placement is corrective work owned by
-[#3489](https://github.com/chase-sets/chase-sets/issues/3489), not the preferred
-rule and not evidence of a shipped infrastructure extraction. ADR 0007's
-Discovery ownership and deployable scheduling/composition remain intact.
+The Merchant [port](../../contracts/google-shopping-export/index.ts),
+[client](../../infrastructure/google-merchant/index.ts), [auth](../../infrastructure/google-merchant/auth.ts),
+and [config](../../infrastructure/google-merchant/config.ts) now follow this
+boundary. Discovery owns the export behavior and the worker remains the thin
+scheduling/composition root. ADR 0007's Discovery ownership and deployable
+scheduling/composition remain intact.
 
 ### 4. Sub-Capabilities
 

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { parseStartedGarbageCollection, waitForRegistryGarbageCollection } from "./digitalocean-registry-gc-gate.mjs";
 
 export const DIGITALOCEAN_REGISTRY_CLEANUP_VERSION = "digitalocean-registry-cleanup/v1";
 const DEFAULT_RETAIN_RECENT_SHA_TREE_TAGS = 25;
@@ -124,6 +125,7 @@ export function parseDigitalOceanRegistryCleanupArgs(argv, env = process.env) {
   const requestedDryRunInput = env.DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN;
   return {
     repository: readOption(argv, "--repository", env.PLATFORM_IMAGE_REPOSITORY ?? "chase-sets-platform"),
+    registry: readOption(argv, "--registry", env.DIGITALOCEAN_REGISTRY_NAME),
     retentionDays: Number.parseInt(
       readOption(argv, "--retention-days", env.DIGITALOCEAN_REGISTRY_CLEANUP_RETENTION_DAYS ?? "30"),
       10,
@@ -171,6 +173,7 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
     requestedMode:
       options.requestedDryRun === true ? "dry-run" : options.requestedDryRun === false ? "apply" : "unknown",
     repository: options.repository,
+    registry: options.registry,
     retentionDays: options.retentionDays,
     retainRecentShaTreeTags: options.retainRecentShaTreeTags,
     protectedTags: [],
@@ -251,10 +254,39 @@ export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
   }
 
   try {
-    await output("doctl", ["registry", "garbage-collection", "start", "--force"]);
+    const startedOutput = await output("doctl", [
+      "registry",
+      "garbage-collection",
+      "start",
+      "--force",
+      "--output",
+      "json",
+    ]);
+    const garbageCollectionUuid = parseStartedGarbageCollection(startedOutput, options.registry);
     record.garbageCollection = {
       status: "started",
       reason: selectedTags.length > 0 ? "cleanup-applied" : "no-deletions",
+      uuid: garbageCollectionUuid,
+    };
+    const wait = await waitForRegistryGarbageCollection(
+      { registry: options.registry, uuid: garbageCollectionUuid },
+      dependencies,
+    );
+    if (wait.result !== "succeeded") {
+      record.result = "failure";
+      record.errors = [`Registry garbage collection did not reach terminal success (${wait.reason}).`];
+      record.garbageCollection = {
+        status: wait.reason === "cancelled" ? "cancelled" : wait.reason === "wait-timeout" ? "wait-timeout" : "failed",
+        reason: wait.reason,
+        uuid: garbageCollectionUuid,
+        errors: wait.detail ? [wait.detail] : [],
+      };
+      return { record, passesCleanupGate: false };
+    }
+    record.garbageCollection = {
+      status: "succeeded",
+      reason: wait.reason,
+      uuid: garbageCollectionUuid,
     };
   } catch (error) {
     if (isProviderManagedGarbageCollectionRefusal(error)) {
@@ -289,6 +321,9 @@ function validateCleanupOptions(options) {
     errors.push(
       `Resolved cleanup mode ${options.dryRun ? "dry-run" : "apply"} does not match requested mode ${options.requestedDryRun ? "dry-run" : "apply"}.`,
     );
+  }
+  if (options.dryRun === false && (!options.registry || typeof options.registry !== "string")) {
+    errors.push("--registry=<name> is required for apply cleanup.");
   }
   if (!isNonEmptyString(options.repository)) {
     errors.push("--repository is required.");
@@ -407,7 +442,11 @@ export function validateDigitalOceanRegistryCleanupRecord(record) {
   ) {
     errors.push("garbageCollection must be an object");
   } else {
-    if (!["failed", "skipped", "started"].includes(record.garbageCollection.status)) {
+    if (
+      !["failed", "skipped", "started", "succeeded", "cancelled", "wait-timeout"].includes(
+        record.garbageCollection.status,
+      )
+    ) {
       errors.push("garbageCollection.status is invalid");
     }
     if (!isNonEmptyString(record.garbageCollection.reason)) errors.push("garbageCollection.reason is required");
@@ -461,7 +500,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--retain-recent-sha-tree-tags=<count>] [--protect-tag=<tag>] --dry-run=<true|false> [--out=<path>|--out <path>]",
+    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--registry=<name>] [--retain-recent-sha-tree-tags=<count>] [--protect-tag=<tag>] --dry-run=<true|false> [--out=<path>|--out <path>]",
   );
 }
 

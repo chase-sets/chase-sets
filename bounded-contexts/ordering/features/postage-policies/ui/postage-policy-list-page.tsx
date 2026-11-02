@@ -84,7 +84,7 @@ export function PostagePolicyListPage({
     const searchParams = new URLSearchParams(location.search);
     searchParams.delete("policy");
     const search = searchParams.toString();
-    navigate(`${location.pathname}${search ? `?${search}` : ""}${location.hash}`);
+    void navigate(`${location.pathname}${search ? `?${search}` : ""}${location.hash}`);
   }
 
   function navigateToPage(page: number) {
@@ -95,7 +95,7 @@ export function PostagePolicyListPage({
     const searchParams = new URLSearchParams(location.search);
     searchParams.set("limit", String(pageSize));
     searchParams.set("offset", String((page - 1) * pageSize));
-    navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`);
+    void navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`);
   }
 
   return (

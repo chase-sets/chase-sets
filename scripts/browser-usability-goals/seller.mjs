@@ -7,7 +7,7 @@ export default {
     "^bounded-contexts/ordering/routes/account-sales?\\.tsx$",
     "^bounded-contexts/fulfillment/routes/marketplace/account-sale-",
     "^bounded-contexts/inventory/routes/marketplace/",
-    "^bounded-contexts/pricing/routes/marketplace/(account-desk-repricing|account-desk-repricing-policy|account-repricing|bulk-reprice)\\.tsx$",
+    "^bounded-contexts/pricing/routes/marketplace/(account-desk-pricing-health|account-desk-repricing|account-desk-repricing-policy|account-repricing|bulk-reprice)\\.tsx$",
     "^bounded-contexts/settlement/routes/marketplace/",
     "^bounded-contexts/channels/routes/marketplace/",
     "^bounded-contexts/identity/routes/marketplace/account-team\\.tsx$",
@@ -396,6 +396,11 @@ export default {
     },
   ],
   excludedRoutes: [
+    {
+      path: "bounded-contexts/pricing/routes/marketplace/account-desk-pricing-health.tsx",
+      reason:
+        "fixture-gap: the goal-only demo fixture has no active policy or stored health run; the isolated seeded Playwright spec owns populated coverage",
+    },
     {
       path: "bounded-contexts/checkout/routes/sell-checkout-session.tsx",
       reason:

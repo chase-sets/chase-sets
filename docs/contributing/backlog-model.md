@@ -41,9 +41,8 @@ authority. Explicit performer-specific acceptance needs prospective repair and
 independent validation before agent execution; never relabel agent evidence as
 human evidence. This grants no provider or production authorization.
 `kind:*` remains the *nature* of the work (`product`, `tech-debt`, `security`,
-`test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The legacy
-`kind:epic` label is kept only as a fallback for tooling that predates types;
-where the two disagree, the type wins.
+`test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The native
+Epic issue type is the only Epic signal.
 
 Deliberately **not** adopted: *story*, *story points*, *velocity*, *sprints*.
 A slice already carries scope fence, acceptance criteria with evidence methods,
@@ -270,9 +269,9 @@ battery can fail when the documentation, issue forms, or labeler drift.
 
 | Family | Purpose | Rule |
 |---|---|---|
-| **Control** | drives workflow, issue routing, or orchestrator behavior | `ci-circuit-repair`, `decision`, `dispatch:flush-window`, `full-ci`, `preview`. Load-bearing; never prune without changing the consumer. |
+| **Control** | drives workflow, issue routing, or orchestrator behavior | `ci-circuit-repair`, `decision`, `dispatch:flush-window`, `dispatch:platform`, `dispatch:platform-return`, `full-ci`, `preview`. Load-bearing; never prune without changing the consumer. |
 | `area:*` | owning bounded context | `area:auth`, `area:catalog`, `area:checkout`, `area:channels`, `area:collections`, `area:commercial-terms`, `area:design-system`, `area:discovery`, `area:fulfillment`, `area:identity`, `area:infrastructure`, `area:inventory`, `area:marketplace`, `area:marketplace-web`, `area:notifications`, `area:ops`, `area:ordering`, `area:payments`, `area:platform-runtime`, `area:pricing`, `area:public-presence`, `area:settlement`, `area:support`, `area:tax`. Operational ownership is advisory coverage, not a 1:1 context-directory map. |
-| `kind:*` | nature of the work | `kind:epic`, `kind:ops`, `kind:product`, `kind:security`, `kind:tech-debt`, `kind:test`. `kind:epic` remains only as the compatibility fallback for existing untyped issues; new epics use the native **Epic** type. |
+| `kind:*` | nature of the work | `kind:ops`, `kind:product`, `kind:security`, `kind:tech-debt`, `kind:test`. Epics use the native **Epic** type. |
 | `priority:*` | dispatch rank | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3`. On slices only. |
 | `risk:*` | a named risk to call out | `risk:data-quality`, `risk:policy`, `risk:provider`, `risk:semantic-authority`. |
 | `status:*` | lifecycle exceptions | `status:follow-up-after-first-slice`, `status:needs-operator`, `status:needs-replan`, `status:tracking-only`. |
@@ -301,8 +300,7 @@ definition used by the roadmap and delivery-board status jobs. An issue is
 classified only when all of these hold:
 
 - state is open;
-- native issue type is not `Epic` (an untyped legacy `kind:epic` label is the
-  fallback; a native type always wins);
+- native issue type is not `Epic`;
 - it has none of `status:tracking-only`;
 - it has an executable committed outcome milestone (not a candidate,
   `Deferred / Incubation`, or `Operations`); and
@@ -340,17 +338,15 @@ Precedence, first match wins:
 |---|---|---|
 | 1 | closed as completed | `Landed` |
 | 2 | closed as not planned or duplicate | `Canceled` |
-| 3 | native type **Epic** (or `kind:epic` on an untyped legacy issue) | `Epic` |
+| 3 | native type **Epic** | `Epic` |
 | 4 | non-Epic carrying `status:tracking-only` | `Tracking` |
 | 5 | open native blocking dependency | `Blocked` |
 | 6 | classified (`refined ≡ classified`) | `Refined` |
 | 7 | otherwise | `Backlog` |
 
 Any other closure reason fails closed rather than guessing. Row 3 outranks row
-4: the *form* of the work is authoritative, so a pathological untyped legacy
-epic that also carries `status:tracking-only` is an `Epic`. Because the native
-type wins over the legacy label, a native **Slice** carrying `kind:epic` takes
-the ordinary rows 5–7.
+4: the *form* of the work is authoritative. Labels never make an issue an
+Epic, so a native **Slice** takes rows 4–7 like any other non-Epic.
 
 `Epic` and `Tracking` are **non-executable** statuses. They are never dispatch
 candidates, and a normal slice wrongly placed in either is corrected back to
@@ -469,7 +465,7 @@ request against the file being split.
 `scripts/next-work.mjs` is the computed Selection. It reads live GitHub facts
 in one paced, read-only pass and reports the ranked runnable frontier as
 `next-work/v1` (text, or JSON with `--json <path>`). Every open issue is either ranked once or counted
-once under its first exclusion reason (`EPIC`, `TRACKING_ONLY`, `NO_MILESTONE`,
+once under its first exclusion reason (`EPIC`, `TRACKING_ONLY`, `PLATFORM_HELD`, `NO_MILESTONE`,
 `NOT_COMMITTED_OUTCOME`, `EXCLUDED_MILESTONE`, `BLOCKED`). Each ranked issue
 carries one action (`operator-wait`, `replan`, `planning-repair`, `decide`,
 `pr-open` or `implement`) and belongs to one **lane class**: `product` is
@@ -478,7 +474,8 @@ is everything else. `--exclude-milestone` takes the platform-owned milestones.
 `--check` exits 1 when the report has defects, such as an `OUTCOME_ORDER_TIE`;
 incomplete facts exit 2 and write no file.
 
-1. Exclude Epics, tracking-only records, candidates, Deferred / Incubation and
+1. Exclude Epics, tracking-only records, platform-held or platform-return issues
+   (`PLATFORM_HELD`), candidates, Deferred / Incubation and
    Operations. Preserve existing ownership for active lanes.
 2. Apply current Todd steering from each milestone's steering marker, then take
    the computed Selection: each lane class is ranked by marked outcomes first,

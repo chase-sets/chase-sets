@@ -576,7 +576,7 @@ function payoutDestinationFingerprint(account: StripeAccountResponse) {
     });
   const destination = destinations[0];
   const id = destination?.id?.trim();
-  if (!id) {
+  if (!destination || !id) {
     return null;
   }
 
@@ -891,7 +891,7 @@ export function createStripeConnectMoneyMovementGateway(
     providerReference: string,
     component: "account_onboarding" | "account_management" | "notification_banner",
     idempotencyKey: string,
-    governance: Readonly<{ accountId: string; window?: ProviderWriteWindow; slot: 1 | 2 | 3 }>,
+    governance: Readonly<{ accountId: string; window?: ProviderWriteWindow | undefined; slot: 1 | 2 | 3 }>,
     readiness?: ProviderPayoutReadiness,
   ) {
     const disableStripeUserAuthentication = readiness?.requirementsCollector === "application";
@@ -1175,7 +1175,7 @@ export function createStripeConnectMoneyMovementGateway(
         {
           method: "GET",
           stripeAccount: input.providerReference,
-          signal: options.signal,
+          ...(options.signal ? { signal: options.signal } : {}),
         },
       );
 

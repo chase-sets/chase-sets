@@ -58,9 +58,9 @@ function closedObject<const F extends Fields>(fields: F, validate?: (value: NoIn
         throw new Error(`Order Group contract requires exactly: ${requiredFields.join(", ")}.`);
       }
       const parsed = Object.fromEntries(
-        requiredFields.map((key) => {
+        Object.entries(fields).map(([key, parseField]) => {
           try {
-            return [key, fields[key](input[key])];
+            return [key, parseField(input[key])];
           } catch (error) {
             throw new Error(`Invalid ${key}: ${error instanceof Error ? error.message : String(error)}`);
           }

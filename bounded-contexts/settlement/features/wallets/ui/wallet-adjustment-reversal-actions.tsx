@@ -91,7 +91,7 @@ export function WalletAdjustmentReversalActions({
           cancelLabel={t("settlement.features.wallets.ui.walletAdjustmentReversalActions.cancel")}
           onConfirm={() => {
             if (formRef.current) {
-              submit(formRef.current);
+              void submit(formRef.current);
             }
           }}
           trigger={

@@ -8,6 +8,15 @@ import {
   readCountCaptureWorkflowCapabilities,
 } from "./catalog-count-capture-deployment.mjs";
 import { collectCaptureDeployment } from "./catalog-staging-count-lifecycle.mjs";
+import { runCountCaptureJourney } from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-runner.ts";
+import {
+  classifyCountLifecycleReceipt,
+  validateCountLifecycleReceipt,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/domain/count-lifecycle-receipt.ts";
+import {
+  syntheticCountCaptureAuthority,
+  syntheticCountLifecycleReceipt,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/tests/count-lifecycle-receipt-fixture.ts";
 
 // Recorded evidence of Platform Deploy run 38349636491 (FINAL packet E/deploy.run.json,
 // E/deploy.jobs.json, E/deploy-staging.log:5205-5239) and a reduced copy of its exact
@@ -1106,5 +1115,123 @@ describe("count capture runner collector wiring", () => {
       reason: "authority-invalid",
     });
     expect(mutantReader.json).not.toHaveBeenCalled();
+  });
+
+  // RUN-G1 through the production collector: the server seals at its own later clock
+  // read, and the runner's final collection, supplied its post-seal instant, searches
+  // runs up to that instant. The authority below is the synthetic control rebound to
+  // the recorded deploy; every other fact is labeled synthetic. A double of both
+  // closing protocols assembles the receipt from the collection it is handed.
+  function boundaryJourney(serverNow, admission) {
+    const image = `registry.example.invalid/synthetic/platform:${sha}@${digest}`;
+    const authority = {
+      ...syntheticCountCaptureAuthority(),
+      runnerSha: sha,
+      review: { head: sha, receiptHash: "d".repeat(64), dispatchId: "synthetic-review" },
+      deployment,
+      collection: admission,
+      pods: {
+        observedAt: "2026-10-13T08:01:00.000Z",
+        adminReplicas: 1,
+        apiReplicas: 1,
+        ready: [
+          { component: "admin", image, imageId: `docker-pullable://${image}` },
+          { component: "api", image, imageId: `docker-pullable://${image}` },
+        ],
+      },
+    };
+    const receipt = syntheticCountLifecycleReceipt();
+    receipt.attribution.runnerSha = sha;
+    const record = { frozenAt: null, collection: null };
+    const assemble = (collection) => {
+      const assembled = structuredClone({ ...receipt, authority, freezeCollection: collection });
+      assembled.frozenAt = record.frozenAt;
+      assembled.effects.final.at = record.frozenAt;
+      assembled.attribution.phases.at(-1).endedAt = record.frozenAt;
+      record.collection = collection;
+      return { receipt: { ...assembled, classification: classifyCountLifecycleReceipt(assembled) } };
+    };
+    const quote = {
+      quoteId: receipt.quote.quoteId,
+      fingerprint: receipt.quote.fingerprint,
+      membershipFingerprint: receipt.quote.membershipFingerprint,
+      selection: receipt.selection,
+      authority: { fingerprint: receipt.quote.authorityFingerprint, headroom: 30, allowed: true },
+      targets: receipt.quote.queries.map((query) => ({
+        scopeRecordId: receipt.selection.scopeRecordId,
+        query,
+        source: null,
+        blocked: false,
+      })),
+      plannedCredits: 2,
+      cap: 2,
+      expiresAt: receipt.quote.expiresAt,
+      state: "quoted",
+    };
+    const intents = [];
+    const action = async (intent, fields = {}) => {
+      intents.push(intent);
+      if (intent === "capture-baseline")
+        return {
+          authority,
+          baseline: {
+            selection: { ...receipt.selection, scopeRecordVersion: "2026-10-13T07:00:00.000Z" },
+            units: receipt.units,
+            countAuthority: { fingerprint: "a".repeat(64), headroom: 30, allowed: true },
+            effects: { ...receipt.effects.baseline, batches: 0, reservations: 0, jobs: 0, enqueues: 0, imports: 0 },
+          },
+          providerSends: 0,
+        };
+      if (intent === "count-quote") return quote;
+      if (intent === "capture-quote-readback") return { quote };
+      if (intent === "preview") return { planFingerprint: receipt.preConfirm.currentFingerprint };
+      if (intent === "capture-freeze") {
+        record.frozenAt = serverNow();
+        if (fields.collection) return assemble(JSON.parse(fields.collection));
+        return { runId: "00000000-0000-4000-8000-0000000000aa", frozenAt: record.frozenAt };
+      }
+      if (intent === "capture-complete") return assemble(JSON.parse(fields.collection));
+      return { retained: true };
+    };
+    return {
+      action,
+      record,
+      intents,
+      identity: { sha, dispatchId: authority.dispatchId, scopeRecordId: "synthetic-scope" },
+    };
+  }
+
+  it("RUN-G1 qualifies the production collector's genuine post-seal inventory under an advancing clock", async () => {
+    let at = Date.parse("2026-10-13T08:05:59.900Z");
+    const advancing = () => new Date((at += 7)).toISOString();
+    const reader = fakeReader(positiveFixture());
+    const supplied = [];
+    // The admission collection is itself the production collector's, before dispatch.
+    const admission = await collectCaptureDeployment(
+      fakeReader(positiveFixture()),
+      deployment,
+      "2026-10-13T08:01:30.000Z",
+    );
+    const journey = boundaryJourney(advancing, admission);
+    const result = await runCountCaptureJourney(journey.identity, journey.action, advancing, (input, suppliedAt) => {
+      supplied.push(suppliedAt);
+      return collectCaptureDeployment(reader, input, suppliedAt);
+    });
+    expect(validateCountLifecycleReceipt(result).classification).toEqual({
+      verdict: "CONFORMING",
+      reasons: [],
+      acceptance: {
+        "9431-ac7": { verdict: "CONFORMING", reasons: [] },
+        "9424-ac5": { verdict: "CONFORMING", reasons: [] },
+      },
+    });
+    expect(journey.intents.slice(-2)).toEqual(["capture-freeze", "capture-complete"]);
+    const { frozenAt, collection } = journey.record;
+    expect(collection).toMatchObject({ outcome: "bound", binding: bound, collectedAt: supplied[1] });
+    expect(Date.parse(collection.collectedAt)).toBeGreaterThan(Date.parse(frozenAt));
+    // The final run search ends at the post-seal instant, so it covers the seal.
+    const searches = reader.json.mock.calls.map(([path]) => /created=\S+\.\.(\S+)$/.exec(path)?.[1]).filter(Boolean);
+    expect(Date.parse(searches.at(-1)) + 999).toBeGreaterThanOrEqual(Date.parse(frozenAt));
+    expect(reader.jobLog).toHaveBeenCalledTimes(2);
   });
 });

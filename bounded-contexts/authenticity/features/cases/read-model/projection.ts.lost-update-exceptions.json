@@ -1,0 +1,68 @@
+[
+  {
+    "id": "exception-e330804f43dfb30a",
+    "binding": {
+      "module": "bounded-contexts/authenticity/features/cases/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "authenticity_cases",
+      "digest": "b4ab992c785831512b824abb114a5ff93e049858f393e53f92c517199ac548a7"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/authenticity/features/cases/read-model/projection.ts:60 directly synchronizes authenticity_cases from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-44a9671c7b888789",
+    "binding": {
+      "module": "bounded-contexts/authenticity/features/cases/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "authenticity_cases",
+      "digest": "f3ea6f82335fd97925b70265a7b31d6001673a832095c49b44f5d8dc33bc08e1"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/authenticity/features/cases/read-model/projection.ts:73 directly synchronizes authenticity_cases from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-46d7cfb1876b07aa",
+    "binding": {
+      "module": "bounded-contexts/authenticity/features/cases/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "authenticity_cases",
+      "digest": "76fca6f4683bf45fc7438390ae1bacfc3354ed8340c882c5457e12eb042fc060"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/authenticity/features/cases/read-model/projection.ts:87 directly synchronizes authenticity_cases from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0fc7abc77909aff9",
+    "binding": {
+      "module": "bounded-contexts/authenticity/features/cases/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "authenticity_cases",
+      "digest": "bc8fb4335eb487fb1fe8bd4f8c0b6b4bc769d408d114294713793e50aff21a09"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/authenticity/features/cases/read-model/projection.ts:111 directly synchronizes authenticity_cases from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-7313ca32a6f2e000",
+    "binding": {
+      "module": "bounded-contexts/authenticity/features/cases/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "authenticity_cases",
+      "digest": "3ed5faf48ef4abb335bee1eec89fa98d4c3535812805dc638f2d696460c481d9"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/authenticity/features/cases/read-model/projection.ts:142 directly synchronizes authenticity_cases from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-423c704b27466622",
+    "binding": {
+      "module": "bounded-contexts/authenticity/features/cases/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "authenticity_cases",
+      "digest": "15e33749dced6bc1fce09bb34d4efe8c6cc6daf7fdc4556de6d4095487a4f618"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/authenticity/features/cases/read-model/projection.ts:157 directly synchronizes authenticity_cases from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

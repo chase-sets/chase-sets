@@ -32,7 +32,7 @@ export const YGOPRODECK_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY = defineCatalogIntegr
   ingestionPurpose: "reference-data",
 });
 
-export const YGOPRODECK_PRODUCTION_PROFILE_VERSION = "2026.06.21";
+export const YGOPRODECK_PRODUCTION_PROFILE_VERSION = "2026.10.18";
 export const YGOPRODECK_VALIDATION_PROFILE_VERSION = "ygoprodeck-validation-2026.06.21";
 
 export type YgoprodeckProviderPayload =

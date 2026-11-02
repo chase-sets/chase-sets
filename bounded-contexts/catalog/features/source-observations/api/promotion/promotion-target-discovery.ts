@@ -268,8 +268,9 @@ export function foldPromotionTargetSource(id: string, history: readonly StoredEv
     if (index === 0 && stored.eventType !== "catalog.source-observation.recorded")
       throw new Error("promotion-target-invalid-source-history");
     if (
-      state.pendingSourcePayloadChunks &&
-      stored.eventType !== "catalog.source-observation.source-payload-chunk-recorded"
+      (state.pendingSourcePayloadChunks || state.pendingNormalizedEvidenceChunks) &&
+      stored.eventType !== "catalog.source-observation.source-payload-chunk-recorded" &&
+      stored.eventType !== "catalog.source-observation.normalized-evidence-chunk-recorded"
     )
       throw new Error("promotion-target-incomplete-source");
     const previous = state;
@@ -284,12 +285,12 @@ export function foldPromotionTargetSource(id: string, history: readonly StoredEv
       (previous.id && (previous.providerKey !== state.providerKey || previous.externalKey !== state.externalKey))
     )
       throw new Error("promotion-target-conflicting-source-identity");
-    if (!state.pendingSourcePayloadChunks) {
+    if (!state.pendingSourcePayloadChunks && !state.pendingNormalizedEvidenceChunks) {
       sourceObservationTargetKeys(state);
       revisions.push(state);
     }
   }
-  if (!state.id || !state.normalized || state.pendingSourcePayloadChunks)
+  if (!state.id || !state.normalized || state.pendingSourcePayloadChunks || state.pendingNormalizedEvidenceChunks)
     throw new Error("promotion-target-incomplete-source");
   return { state, revisions };
 }

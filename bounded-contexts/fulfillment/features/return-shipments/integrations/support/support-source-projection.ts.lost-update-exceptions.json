@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-731d804c89f823af",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/integrations/support/support-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_support_return_sources",
+      "digest": "79862bf38de9a8b1aa93b5e042bec547990e6c91c6c8a4ee2cc45a1cd2da824d"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/integrations/support/support-source-projection.ts:53 directly synchronizes fulfillment_support_return_sources from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

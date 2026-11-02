@@ -4,7 +4,6 @@ import type { SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useMemo, useState } from "react";
 import { ParticipantForm as RouterForm } from "./participant-form";
-import { useNavigation } from "react-router";
 import {
   Badge,
   Banner,
@@ -27,14 +26,14 @@ import {
   Text,
   type DataColumn,
 } from "@chase-sets/design-system";
-import type { SupportFlowSummary, SupportOrderLookup, SupportRequestListItem } from "./contracts";
+import type { CustomerSupportRequestListItem, SupportFlowSummary, SupportOrderLookup } from "./contracts";
 import { CustomerRemedyStatus, type CustomerRemedyRole } from "./customer-remedy-status";
 import { ReturnShippingStatus } from "./return-shipping-status";
 import { SupportEvidenceAttachmentInput } from "./support-evidence-attachments";
 
 type SupportRequestListPageProps = Readonly<{
-  buyerRequests: readonly SupportRequestListItem[];
-  sellerRequests: readonly SupportRequestListItem[];
+  buyerRequests: readonly CustomerSupportRequestListItem[];
+  sellerRequests: readonly CustomerSupportRequestListItem[];
   flows: readonly SupportFlowSummary[];
   actionError?: string | null;
   lookupError?: string | null;
@@ -65,11 +64,7 @@ function formatRequestDateTime(value: string | null) {
     : t("support.features.supportRequests.ui.supportRequestListPage.not.applicable");
 }
 
-function nextDeadline(request: SupportRequestListItem) {
-  return request.seller_response_due_at ?? request.support_review_due_at ?? request.seller_condition_attestation_due_at;
-}
-
-function checklistSummary(request: SupportRequestListItem) {
+function checklistSummary(request: CustomerSupportRequestListItem) {
   const required = request.checklist.filter((item) => item.required);
   const satisfied = required.filter((item) => item.satisfiedAt !== null);
   return t("support.features.supportRequests.ui.supportRequestListPage.checklist.summary", {
@@ -100,8 +95,8 @@ function resolutionLabel(resolution: SupportFlowSummary["defaultResolution"]) {
 function SupportRequestTable({
   requests,
   role,
-}: Readonly<{ requests: readonly SupportRequestListItem[]; role: CustomerRemedyRole }>) {
-  const columns: DataColumn<SupportRequestListItem>[] = [
+}: Readonly<{ requests: readonly CustomerSupportRequestListItem[]; role: CustomerRemedyRole }>) {
+  const columns: DataColumn<CustomerSupportRequestListItem>[] = [
     {
       key: "reference",
       header: t("support.features.supportRequests.ui.supportRequestListPage.reference"),
@@ -135,7 +130,7 @@ function SupportRequestTable({
       key: "nextDeadline",
       header: t("support.features.supportRequests.ui.supportRequestListPage.next.deadline"),
       mobileLabel: t("support.features.supportRequests.ui.supportRequestListPage.next.deadline"),
-      cell: (request) => formatRequestDateTime(nextDeadline(request)),
+      cell: (request) => formatRequestDateTime(request.nextDeadline),
     },
     {
       key: "checklist",
@@ -148,7 +143,7 @@ function SupportRequestTable({
       mobileLabel: t("support.features.supportRequests.ui.supportRequestListPage.resolution"),
       cell: (request) => (
         <Stack gap={2}>
-          <CustomerRemedyStatus request={request} role={role} />
+          <CustomerRemedyStatus request={request} />
           <ReturnShippingStatus request={request} role={role} />
         </Stack>
       ),
@@ -231,7 +226,6 @@ function SupportRequestOpenPanel({
   attachmentOperationId?: string;
   uploadUncertain?: boolean;
 }>) {
-  const navigation = useNavigation();
   const [newBatchId, setNewBatchId] = useState(() => createId("sao"));
   const [abandonedOperationId, setAbandonedOperationId] = useState<string | null>(null);
   const recoveredBatch = attachmentOperationId && attachmentOperationId !== abandonedOperationId;
@@ -305,12 +299,11 @@ function SupportRequestOpenPanel({
 
   return (
     <Surface elevation="tinted" data-elevation-role="furniture">
-      <RouterForm method="post" encType="multipart/form-data" spacing="md" submitting={navigation.state !== "idle"}>
+      <RouterForm method="post" encType="multipart/form-data" spacing="md">
         <HiddenInput name="attachmentOperationId" value={operationId} readOnly />
         <HiddenInput name="uploadUncertain" value={String(uncertain)} readOnly />
         <HiddenInput type="hidden" name="orderId" value={supportOrder.orderId} readOnly />
         <HiddenInput type="hidden" name="flowType" value={selectedFlowType} readOnly />
-        <HiddenInput type="hidden" name="photoRequired" value={String(photoRequired)} readOnly />
         {recoverySupportRequestId ? (
           <HiddenInput type="hidden" name="supportRequestId" value={recoverySupportRequestId} readOnly />
         ) : null}

@@ -8,10 +8,19 @@ import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import type { DiscoveryBulkCartPreview } from "../support/request-support/api-client";
 import SearchRoute, { action } from "./search";
 
-const { previewQuery, addCartLines, addGuestCartLines, resolveActor } = vi.hoisted(() => ({
+const {
+  previewQuery,
+  addCartLines,
+  addGuestCartLines,
+  getCartCommandAttempt,
+  getGuestCartCommandAttempt,
+  resolveActor,
+} = vi.hoisted(() => ({
   previewQuery: vi.fn(),
   addCartLines: vi.fn(),
   addGuestCartLines: vi.fn(),
+  getCartCommandAttempt: vi.fn(),
+  getGuestCartCommandAttempt: vi.fn(),
   resolveActor: vi.fn(),
 }));
 vi.mock("../support/request-support/api-client", () => ({
@@ -19,7 +28,12 @@ vi.mock("../support/request-support/api-client", () => ({
 }));
 vi.mock("@chase-sets/checkout/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@chase-sets/checkout/server")>()),
-  createCheckoutRequestApiClient: () => ({ addCartLines, addGuestCartLines }),
+  createCheckoutRequestApiClient: () => ({
+    addCartLines,
+    addGuestCartLines,
+    getCartCommandAttempt,
+    getGuestCartCommandAttempt,
+  }),
 }));
 vi.mock("@chase-sets/platform-runtime/auth", () => ({ resolveActorFromAuthApi: resolveActor }));
 vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
@@ -32,6 +46,50 @@ const COMMIT = "Add eligible products";
 const ERROR = "We could not add matching products to Buy Cart. Try again, or open a product to add it individually.";
 const SENTINEL = "PRIVATE_DATABASE_FAILURE_SENTINEL";
 const counts = { addedLineCount: 1, mergedLineCount: 0, failedLineCount: 0, requestedLineCount: 1 };
+const RESEND = "Send the same add again";
+const AMBIGUOUS = "We couldn't confirm this bulk add";
+
+type BulkLineFixture = Readonly<{
+  outcome: "succeeded" | "conflict" | "error";
+  status: "added" | "merged" | null;
+  message?: string;
+}>;
+
+/** The owner's closed attempt result for one bulk add; digests are synthetic fixed hex. */
+function bulkAttempt(
+  ownerStatus: "committed" | "not-observed",
+  lines: readonly BulkLineFixture[] = [{ outcome: "succeeded", status: "added" }],
+) {
+  return {
+    schemaVersion: 1,
+    kind: "cart.add-lines",
+    fingerprint: "a".repeat(64),
+    actorBinding: { kind: "account", digest: "b".repeat(64) },
+    target: "cart",
+    requestHash: "c".repeat(64),
+    ownerStatus,
+    ...(ownerStatus === "committed"
+      ? {
+          vector: lines.map((line, index) => ({
+            index,
+            command: "add",
+            outcome: line.outcome,
+            lineId: line.outcome === "succeeded" ? `cli_bulk_${index}` : null,
+            status: line.status,
+            version: 1,
+            message: line.message ?? null,
+          })),
+        }
+      : {}),
+  };
+}
+
+/** The Checkout bulk response: counts plus the attempt result that decides them. */
+function bulkCommitted(lines?: readonly BulkLineFixture[]) {
+  return { status: "completed", ...counts, lines: [], attempt: bulkAttempt("committed", lines) };
+}
+
+const bulkAdded = { status: "bulk-added", preview: preview(), ...counts, failedLines: [] };
 
 function preview(): DiscoveryBulkCartPreview {
   return {
@@ -207,8 +265,8 @@ const cartDelta = vi.fn<(event: Event) => void>();
 beforeEach(() => {
   vi.resetAllMocks();
   previewQuery.mockResolvedValue(preview());
-  addCartLines.mockResolvedValue(counts);
-  addGuestCartLines.mockResolvedValue(counts);
+  addCartLines.mockResolvedValue(bulkCommitted());
+  addGuestCartLines.mockResolvedValue(bulkCommitted());
   resolveActor.mockResolvedValue({ accountId: "acc_buyer" });
   fetchSentinel = vi.fn(async () => new Response("<!doctype html><title>document POST</title>"));
   vi.stubGlobal("fetch", fetchSentinel);
@@ -277,8 +335,13 @@ describe("Search bulk route data transport", () => {
     await settleRouter(test.router);
     expect(await screen.findByRole("link", { name: "Review Buy Cart" })).toBeTruthy();
     expect(test.requests).toHaveLength(2);
-    expect([...(await test.requests[1].formData())]).toEqual([["intent", "commit-bulk-add"]]);
+    const commitForm = [...(await test.requests[1].formData())];
+    expect(commitForm).toEqual([
+      ["intent", "commit-bulk-add"],
+      ["attemptId", expect.stringMatching(/^[A-Za-z0-9_-]{22,128}$/)],
+    ]);
     const expected = {
+      attemptId: commitForm[1]![1],
       lines: [
         {
           catalogItemId: "cat_pikachu",
@@ -315,8 +378,9 @@ describe("Search bulk route data transport", () => {
   it.each(["preview", "commit"])("recovers inline after a bulk action dependency rejects: %s", async (phase) => {
     const test = await setup();
     if (phase === "commit") await openPreview();
-    const dependency = phase === "preview" ? previewQuery : addCartLines;
-    dependency.mockRejectedValueOnce(new Error(SENTINEL));
+    // A commit re-reads the preview before it sends; that read failing is a
+    // dependency failure before any cart write, so it stays an inline error.
+    previewQuery.mockRejectedValueOnce(new Error(SENTINEL));
     fireEvent.click(await screen.findByRole("button", { name: phase === "preview" ? PREVIEW : COMMIT }));
     await settleRouter(test.router);
     const active = phase === "commit" ? within(screen.getByRole("dialog")) : screen;
@@ -365,7 +429,7 @@ describe("Search bulk route data transport", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("set-cookie")).toContain(addGuestCartLines.mock.calls[0][0]);
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
-    expect(await response.json()).toEqual({ status: "bulk-added", preview: preview(), ...counts });
+    expect(await response.json()).toEqual(bulkAdded);
   });
 
   it.each([
@@ -481,10 +545,10 @@ describe("Search bulk route data transport", () => {
     await settleRouter(test.router);
     await screen.findByRole("dialog");
     expect(y).toBe(427);
-    const pendingCommit = deferred<typeof counts>();
-    addCartLines.mockReturnValueOnce(pendingCommit.promise);
+    const pendingCommit = deferred<DiscoveryBulkCartPreview>();
+    previewQuery.mockReturnValueOnce(pendingCommit.promise);
     fireEvent.click(screen.getByRole("button", { name: COMMIT }));
-    await waitFor(() => expect(addCartLines).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(test.runAction).toHaveBeenCalledTimes(2));
     expect(y).toBe(427);
     await act(async () => pendingCommit.reject(new Error(SENTINEL)));
     await settleRouter(test.router);
@@ -513,7 +577,7 @@ describe("Search bulk route data transport", () => {
     "admits one intent and ignores old results after reset: %s",
     async (scenario) => {
       const committing = scenario.startsWith("commit");
-      const old = deferred<DiscoveryBulkCartPreview | typeof counts>();
+      const old = deferred<DiscoveryBulkCartPreview | ReturnType<typeof bulkCommitted>>();
       const test = await setup();
       if (committing) await openPreview();
       (committing ? addCartLines : previewQuery).mockReturnValueOnce(old.promise);
@@ -533,7 +597,7 @@ describe("Search bulk route data transport", () => {
       fireEvent.click(screen.getByRole("button", { name: PREVIEW }));
       await waitFor(() => expect(test.runAction).toHaveBeenCalledTimes(oldCount + 1));
       await act(async () => {
-        if (scenario.endsWith("success")) old.resolve(committing ? counts : preview());
+        if (scenario.endsWith("success")) old.resolve(committing ? bulkCommitted() : preview());
         else old.reject(new Error(SENTINEL));
       });
       expect(screen.queryByRole("dialog")).toBeNull();
@@ -556,7 +620,7 @@ describe("Search bulk route data transport", () => {
     await act(async () => pending.resolve(preview()));
     await settleRouter(test.router);
     const dialog = await screen.findByRole("dialog");
-    const commit = deferred<typeof counts>();
+    const commit = deferred<ReturnType<typeof bulkCommitted>>();
     addCartLines.mockReturnValueOnce(commit.promise);
     const button = within(dialog).getByRole("button", { name: COMMIT });
     act(() => {
@@ -565,7 +629,7 @@ describe("Search bulk route data transport", () => {
     });
     await waitFor(() => expect(addCartLines).toHaveBeenCalledTimes(1));
     expect((button as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => commit.resolve(counts));
+    await act(async () => commit.resolve(bulkCommitted()));
     await settleRouter(test.router);
     await screen.findByRole("link", { name: "Review Buy Cart" });
     expect(cartDelta).toHaveBeenCalledTimes(1);
@@ -592,6 +656,85 @@ describe("Search bulk route data transport", () => {
     expect(screen.queryByText(ERROR)).toBeNull();
     await openPreview();
     expect(cartDelta).not.toHaveBeenCalled();
+  });
+
+  it("holds a lost bulk commit as ambiguous after one lookup and resends the same attempt only on request", async () => {
+    addCartLines.mockRejectedValueOnce(new TypeError("fetch failed"));
+    getCartCommandAttempt.mockResolvedValueOnce(bulkAttempt("not-observed"));
+    const test = await setup();
+    await openPreview();
+    fireEvent.click(screen.getByRole("button", { name: COMMIT }));
+    await settleRouter(test.router);
+
+    const heading = await screen.findByRole("heading", { name: AMBIGUOUS });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(addCartLines).toHaveBeenCalledTimes(1);
+    expect(getCartCommandAttempt).toHaveBeenCalledTimes(1);
+    const sentAttemptId = (addCartLines.mock.calls[0]![0] as { attemptId: string }).attemptId;
+    expect(getCartCommandAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptId: sentAttemptId, kind: "cart.add-lines", target: "cart" }),
+    );
+    expect(await test.responses.at(-1)?.json()).toEqual({
+      status: "bulk-ambiguous",
+      preview: preview(),
+      attemptId: sentAttemptId,
+    });
+    expect((screen.getByRole("button", { name: COMMIT }) as HTMLButtonElement).disabled).toBe(true);
+    expect(cartDelta).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: RESEND }));
+    await settleRouter(test.router);
+
+    expect(await screen.findByText("1 added, 0 merged")).toBeTruthy();
+    expect(addCartLines).toHaveBeenCalledTimes(2);
+    expect((addCartLines.mock.calls[1]![0] as { attemptId: string }).attemptId).toBe(sentAttemptId);
+    expect(addCartLines.mock.calls[1]![0]).toEqual(addCartLines.mock.calls[0]![0]);
+    expect(getCartCommandAttempt).toHaveBeenCalledTimes(1);
+    expect(cartDelta).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves a lost bulk commit the owner recorded by lookup without sending it again", async () => {
+    addCartLines.mockRejectedValueOnce(Object.assign(new Error("gateway"), { status: 503 }));
+    getCartCommandAttempt.mockResolvedValueOnce(bulkAttempt("committed"));
+    const test = await setup();
+    await openPreview();
+    fireEvent.click(screen.getByRole("button", { name: COMMIT }));
+    await settleRouter(test.router);
+
+    expect(await screen.findByText("1 added, 0 merged")).toBeTruthy();
+    expect(addCartLines).toHaveBeenCalledTimes(1);
+    expect(getCartCommandAttempt).toHaveBeenCalledTimes(1);
+    expect(cartDelta).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("heading", { name: AMBIGUOUS })).toBeNull();
+  });
+
+  it("names every line a partial bulk commit could not add", async () => {
+    const eevee = {
+      ...preview().lines[0]!,
+      catalog_item_id: "cat_eevee",
+      slug: "eevee",
+      title: "Eevee",
+      product_id: "prd_eevee",
+    };
+    previewQuery.mockResolvedValue({ ...preview(), eligibleCount: 2, lines: [preview().lines[0]!, eevee] });
+    addCartLines.mockResolvedValue({
+      ...bulkCommitted([
+        { outcome: "succeeded", status: "added" },
+        { outcome: "error", status: null, message: "Product unavailable." },
+      ]),
+      failedLineCount: 1,
+      requestedLineCount: 2,
+    });
+    const test = await setup();
+    await openPreview();
+    fireEvent.click(screen.getByRole("button", { name: COMMIT }));
+    await settleRouter(test.router);
+
+    expect(await screen.findByText("Eevee: Product unavailable.")).toBeTruthy();
+    expect(screen.getByText("1 added, 0 merged")).toBeTruthy();
+    expect(screen.getByText("1 products could not be added.")).toBeTruthy();
+    expect(addCartLines).toHaveBeenCalledTimes(1);
+    expect(getCartCommandAttempt).not.toHaveBeenCalled();
   });
 
   it("renders on the server without submission", () => {

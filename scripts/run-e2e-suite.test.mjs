@@ -1,7 +1,8 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import * as channelsClient from "../bounded-contexts/channels/client.ts";
 import {
@@ -10,6 +11,7 @@ import {
   e2eNoSuiteExclusionForChangedFile,
   e2eSuiteIdsForChangedFile,
   e2eSuites,
+  estimatedE2eSuiteDurationSeconds,
   isE2eSpecFile,
   isRouteFile,
 } from "./e2e-suites.mjs";
@@ -213,6 +215,157 @@ function walkFiles(dir) {
   });
 }
 
+// Planner at the implementation base; expectations never come from the planner under test.
+const PINNED_PLANNER_SHA = "4024691b0120fe169f79fa1f6dbbe3e0e314a07f";
+
+async function importPinnedPlanner() {
+  const source = execFileSync("git", ["show", `${PINNED_PLANNER_SHA}:scripts/e2e-suites.mjs`], {
+    encoding: "utf8",
+    timeout: 30_000,
+  }).replace('"./lib/risk-policy-v1.mjs"', JSON.stringify(new URL("./lib/risk-policy-v1.mjs", import.meta.url).href));
+  const directory = mkdtempSync(join(tmpdir(), "e2e-planner-baseline-"));
+  try {
+    const file = join(directory, "e2e-suites.mjs");
+    writeFileSync(file, source);
+    return await import(pathToFileURL(file).href);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+describe("unpaired connector extension batching", () => {
+  const extension = "tcgplayer_connector_extension";
+  const suitesIn = (batches) => batches.flatMap((batch) => batch.split(","));
+
+  it("declares isolation on the registry entry and honors it without a suite literal in the planner", () => {
+    expect(e2eSuites.filter((suite) => suite.unpaired === true).map(({ id }) => id)).toEqual([extension]);
+    expect(estimatedE2eSuiteDurationSeconds(extension)).toBeGreaterThanOrEqual(1002);
+    for (const { id } of e2eSuites) expect(batchE2eSuiteIds.toString()).not.toContain(id);
+  });
+
+  it.each([
+    { name: "empty input", input: [], expected: [] },
+    { name: "the extension only", input: [extension], expected: [extension] },
+    { name: "a duplicated extension", input: [extension, extension], expected: [extension] },
+    {
+      name: "the reversed account pair",
+      input: [extension, "marketplace_account"],
+      expected: ["marketplace_account", extension],
+    },
+    {
+      name: "a duplicated account pair",
+      input: ["marketplace_account", extension, "marketplace_account", extension],
+      expected: ["marketplace_account", extension],
+    },
+    {
+      name: "the reversed account and seller selection",
+      input: [extension, "marketplace_account", "marketplace_seller"],
+      expected: ["marketplace_account,marketplace_seller", extension],
+    },
+    {
+      name: "the other command suites",
+      input: ["tcgplayer_operator_extension", extension, "platform_mcp_sdk"],
+      expected: ["platform_mcp_sdk,tcgplayer_operator_extension", extension],
+    },
+  ])("batches $name", ({ input, expected }) => {
+    expect(batchE2eSuiteIds(input)).toEqual(expected);
+  });
+
+  it.each(e2eSuites.map(({ id }) => id).filter((id) => id !== extension))(
+    "keeps the connector extension alone beside %s in either order",
+    (companion) => {
+      for (const input of [
+        [companion, extension],
+        [extension, companion],
+        [extension, companion, companion, extension],
+      ]) {
+        expect(batchE2eSuiteIds(input)).toEqual([companion, extension]);
+      }
+    },
+  );
+
+  it("keeps the connector extension alone in the full registered roster, reversed and duplicated", () => {
+    const roster = [
+      "marketplace_browse",
+      "marketplace_account",
+      "marketplace_checkout",
+      "marketplace_seller",
+      "catalog_admin_integrations",
+      "catalog_admin_modeling",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+      "admin_platform",
+      "admin_auth",
+      "admin_access",
+      "platform_mcp_sdk",
+      extension,
+      "tcgplayer_operator_extension",
+      "rendered_copy",
+    ];
+    for (const input of [roster, [...roster].reverse(), [...roster, ...roster]]) {
+      expect(batchE2eSuiteIds(input)).toEqual([
+        "rendered_copy",
+        "catalog_admin_integrations,tcgplayer_operator_extension",
+        "catalog_admin_modeling,platform_mcp_sdk",
+        "marketplace_checkout,admin_auth",
+        "marketplace_browse,admin_support",
+        "admin_commerce,admin_platform",
+        "marketplace_account,marketplace_seller",
+        "admin_growth,admin_access",
+        extension,
+      ]);
+    }
+  });
+
+  it.each([1, 2, 3, 8, 15, 16, 100])("never pairs the connector extension at batch size %i", (batchSize) => {
+    const roster = e2eSuites.map(({ id }) => id);
+    const batches = batchE2eSuiteIds([...roster].reverse(), batchSize);
+    expect(batches.filter((batch) => batch.split(",").includes(extension))).toEqual([extension]);
+    expect(suitesIn(batches).sort()).toEqual([...roster].sort());
+    expect(batchE2eSuiteIds(roster, batchSize)).toEqual(batches);
+  });
+
+  it("inherits isolation through the browser dispatch wrapper", () => {
+    expect(suiteRegistry.batchBrowserE2eSuiteIds([extension])).toEqual([extension]);
+    expect(suiteRegistry.batchBrowserE2eSuiteIds(["marketplace_account", extension])).toEqual([
+      "marketplace_account",
+      extension,
+      "rendered_copy",
+    ]);
+    expect(suiteRegistry.batchBrowserE2eSuiteIds(["rendered_copy", extension, "platform_mcp_sdk"])).toEqual([
+      "platform_mcp_sdk",
+      extension,
+      "rendered_copy",
+    ]);
+  });
+
+  it("matches the pinned planner for small and near-complete selections and appends the extension alone", async () => {
+    const pinned = await importPinnedPlanner();
+    const companions = pinned.e2eSuites.map(({ id }) => id).filter((id) => id !== extension);
+    expect(companions).toHaveLength(15);
+    const mismatches = [];
+    let checked = 0;
+    for (let mask = 0; mask < 2 ** companions.length; mask++) {
+      const selected = companions.filter((_id, index) => (mask & (2 ** index)) !== 0);
+      if (selected.length > 3 && selected.length < companions.length - 3) continue;
+      checked++;
+      const expected = pinned.batchE2eSuiteIds(selected);
+      for (const [input, output] of [
+        [selected, expected],
+        [
+          [...selected, extension],
+          [...expected, extension],
+        ],
+      ]) {
+        if (JSON.stringify(batchE2eSuiteIds(input)) !== JSON.stringify(output)) mismatches.push({ input, output });
+      }
+    }
+    expect(checked).toBe(1152);
+    expect(mismatches).toEqual([]);
+  });
+});
+
 describe("run e2e suite", () => {
   it("claims one playwright root before dispatching registered suites through the production entrypoint", async () => {
     const events = [];
@@ -410,6 +563,17 @@ describe("run e2e suite", () => {
       "marketplace_browse,marketplace_account",
       "admin_commerce,admin_access",
       "marketplace_seller,admin_growth",
+    ]);
+  });
+
+  it("runs the connector extension alone for the observed account pair and seller selection", () => {
+    expect(batchE2eSuiteIds(["marketplace_account", "tcgplayer_connector_extension"])).toEqual([
+      "marketplace_account",
+      "tcgplayer_connector_extension",
+    ]);
+    expect(batchE2eSuiteIds(["marketplace_seller", "marketplace_account", "tcgplayer_connector_extension"])).toEqual([
+      "marketplace_account,marketplace_seller",
+      "tcgplayer_connector_extension",
     ]);
   });
 

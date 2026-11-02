@@ -1,0 +1,167 @@
+[
+  {
+    "id": "exception-d7df3f2a69c37256",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_pages",
+      "digest": "bab6b8365956400c85482aeab016506926001092762f9ee05b4dea585b524ff8"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:39 directly synchronizes collections_saved_list_shared_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-c7c43aa6ee8797b9",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_pages",
+      "digest": "bbd27bf9dd8a6bfd8f3f79b34c8302300fcf2908a4491c5535fa001291074114"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:47 directly synchronizes collections_saved_list_shared_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-32450d5586274f9f",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_pages",
+      "digest": "f2408791573ef8296a25baa0dea62fb24dc1fcbe551008ac0db25e6f51f5493a"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:55 directly synchronizes collections_saved_list_shared_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0018a8150684a803",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_pages",
+      "digest": "1fccf459408c59e07bb9a58c103651832eb27f36e83acc124500b222c10f6e30"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:63 directly synchronizes collections_saved_list_shared_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-62c250ac2588d08a",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_pages",
+      "digest": "0b0e154bf4d2ff7a8245a63e77177fa1de0861c11eadc29e1fb4252a70387ede"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:80 directly synchronizes collections_saved_list_shared_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-e14261453440357b",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_lines",
+      "digest": "66d2bd7f27bfa69f149d6cad5db37f7a77dc0f13239e3f62d6321fa0a758294e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:95 directly synchronizes collections_saved_list_shared_lines from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0c5e9f681d45ecfb",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_pages",
+      "digest": "7c7ae92aa8f49dbe37715b87fc40c11f4286fef7a04bbf4fe086f32683d2d2f9"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:100 directly synchronizes collections_saved_list_shared_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-a661779046bd3e7f",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "DELETE",
+      "table": "collections_saved_list_shared_lines",
+      "digest": "9ccfeda2e6c03b70b72e16552e82ee1b787f9b5483514be46baba618c66547d4"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:108 directly synchronizes collections_saved_list_shared_lines from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-42b2758ebe3aeab9",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_pages",
+      "digest": "f3149918f9b50d69adefddffda92cb1c53c92c14cbfcccad581e8852a1286447"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:115 directly synchronizes collections_saved_list_shared_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-5055ad3be803191f",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_pages",
+      "digest": "62f15a4ce5a2052718640ded32bbad597941d22bfb049dfa6db3bfa59a7106e4"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:134 directly synchronizes collections_saved_list_shared_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-ae7e761ec8101c0e",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_access_policies",
+      "digest": "2705dc3e82cbfa2be37d8b8efb9a50431b309d7a3b7cf1fca6296eff1a3406a8"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:174 directly synchronizes collections_saved_list_access_policies from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-f4014dc5eb2acf5a",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_access_policies",
+      "digest": "16211c38ec249b53711adc022737ed4946e66617304b4d3a3b400a23e5d04fef"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:184 directly synchronizes collections_saved_list_access_policies from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-942f9aa41da2c68e",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_pages",
+      "digest": "cd87c94b7787296a61e81ac807f3d5bd3db75692b68be55061fc958c7887d27c"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:202 directly synchronizes collections_saved_list_shared_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-da5e3ea1e23130c2",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_access_policies",
+      "digest": "da2b16df79813fdd4f11fd439fce8f4f9481714d2161642f391b8235c220eb3c"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:213 directly synchronizes collections_saved_list_access_policies from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-8d0a22cebd84a6be",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_shared_pages",
+      "digest": "cf73156fa8a672d134eb316f3b527ccb15865160a48328b6ca28f7e4e6d0760b"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts:219 directly synchronizes collections_saved_list_shared_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

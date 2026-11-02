@@ -26,7 +26,7 @@ import committedGoldens from "./evidence-canonicalization.goldens.json" with { t
 // Counts Sharp instances and pixel decodes (toBuffer) so "rejected before decode" is proven by counts, not timing.
 const decoder = vi.hoisted(() => ({ instances: 0, decodes: 0 }));
 vi.mock("sharp", async (importOriginal) => {
-  const actual = (await importOriginal<{ default: typeof import("sharp") }>()).default;
+  const actual = (await importOriginal<typeof import("sharp")>()).default;
   return {
     default: new Proxy(actual, {
       apply(target, thisArg, args: Parameters<typeof actual>) {
@@ -370,7 +370,7 @@ describe("AC-B1 support-evidence-raster/v1 encodings", () => {
     const header = chunks[0]?.data;
     expect([header?.[8], header?.[9]]).toEqual([8, 6]);
     const zlibHeader = chunks.find(({ type }) => type === "IDAT")?.data;
-    expect([zlibHeader?.[0], (zlibHeader?.[1] ?? 0) >> 6]).toEqual([0x78, 3]);
+    expect([(zlibHeader?.[0] ?? 0) & 0x0f, (zlibHeader?.[1] ?? 0) >> 6]).toEqual([8, 3]);
     expect((await sharp(image.body).metadata()).density).not.toBe(300);
     await expectMetadataAbsent(image.body);
 

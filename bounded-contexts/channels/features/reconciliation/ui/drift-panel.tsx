@@ -54,7 +54,7 @@ export function ChannelDriftPanel({
     const query = new URLSearchParams(location.search);
     if (cursor) query.set("driftCursor", cursor);
     else query.delete("driftCursor");
-    navigate(`${location.pathname}?${query}`);
+    void navigate(`${location.pathname}?${query}`);
   }
   return (
     <Card data-testid="channel-drift-panel" data-load-identity={loadIdentity} elevation="flush">

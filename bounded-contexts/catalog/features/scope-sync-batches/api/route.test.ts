@@ -8,6 +8,7 @@ import { heldSetExportContract } from "../domain/held-set-export";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { CountCaptureStopped } from "../../source-observations/api/providers/count-capture-transport";
 import type { CountCaptureLifecycle } from "./count-capture-lifecycle";
+import { syntheticCountCaptureCollection } from "../tests/count-lifecycle-receipt-fixture";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test",
@@ -356,6 +357,7 @@ describe("count-capture steps", () => {
     preview: vi.fn(),
     preConfirm: vi.fn(),
     freeze: vi.fn(),
+    complete: vi.fn(),
   });
   const post = (
     root: ReturnType<typeof captureApp>,
@@ -369,6 +371,27 @@ describe("count-capture steps", () => {
       body: JSON.stringify(body),
     });
   const baselineBody = { scopeRecordId: "scope-synthetic-op01", authority: { dispatchId: "synthetic-dispatch" } };
+  const seal = { dispatchId: "synthetic-dispatch", runnerRunId: "300", runnerRunAttempt: 1 };
+  const captureRunId = "00000000-0000-4000-8000-0000000000aa";
+  const collection = syntheticCountCaptureCollection("2026-10-13T08:06:00.000Z");
+
+  it("refuses the superseded seal-and-assemble freeze and a completion without its collection", async () => {
+    const capture = lifecycle();
+    const root = captureApp(capture);
+    for (const [path, body] of [
+      ["/count-capture/freeze", { ...seal, collection }],
+      ["/count-capture/freeze", { runnerRunId: "300", runnerRunAttempt: 1 }],
+      ["/count-capture/complete", { ...seal, runId: captureRunId }],
+      ["/count-capture/complete", { ...seal, runId: captureRunId, collection: { ...collection, pageCount: -1 } }],
+    ] as const) {
+      const response = await post(root, path, body);
+      expect(response.status).toBe(409);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      await expect(response.json()).resolves.toEqual({ error: { code: "capture-stopped" } });
+    }
+    expect(capture.freeze).not.toHaveBeenCalled();
+    expect(capture.complete).not.toHaveBeenCalled();
+  });
 
   it("reaches each handler with the authenticated session, uncacheable", async () => {
     const capture = lifecycle();
@@ -404,7 +427,7 @@ describe("count-capture steps", () => {
     expect(Object.values(capture).every((handler) => handler.mock.calls.length === 0)).toBe(true);
   });
 
-  it("routes the seven marked spend/read/freeze steps and refuses effectful commands", async () => {
+  it("routes the eight marked spend/read/seal/complete steps and refuses effectful commands", async () => {
     const capture = lifecycle();
     for (const handler of Object.values(capture)) handler.mockResolvedValue({ retained: true } as never);
     const root = captureApp(capture);
@@ -420,7 +443,8 @@ describe("count-capture steps", () => {
       ["/counts/acquire", "acquire", acquisition],
       ["/preview", "preview", planner],
       ["/count-capture/pre-confirm", "preConfirm", { ...planner, planFingerprint: "b".repeat(64) }],
-      ["/count-capture/freeze", "freeze", { runnerRunId: "300", runnerRunAttempt: 1 }],
+      ["/count-capture/freeze", "freeze", seal],
+      ["/count-capture/complete", "complete", { ...seal, runId: captureRunId, collection }],
     ] as const;
     for (const [path, method, body] of steps) {
       const response = await post(root, path, body);

@@ -62,6 +62,62 @@
       "sourceWakePosture": "poll-only",
       "issue": "#4307",
       "migration": "Same posture as the getProductRollupSeries entry above: this snapshot read (last-sold, 30/90-day median+volume, current market-state) stays request-path alongside the range series it is fetched together with. A future Discovery mirror should carry both facts from the same source event if/when this read is migrated, rather than splitting them across a mirror and a request-path call."
+    },
+    {
+      "id": "bounded-contexts/discovery/routes/search.tsx:checkout:createCheckoutRequestApiClient.getGuestCartCommandAttempt#1",
+      "consumerContextName": "discovery",
+      "sourceContextName": "checkout",
+      "file": "bounded-contexts/discovery/routes/search.tsx",
+      "line": 578,
+      "clientFactory": "createCheckoutRequestApiClient",
+      "methodName": "getGuestCartCommandAttempt",
+      "classification": "genuinely-synchronous",
+      "sourceWakePosture": "wave-1-listened",
+      "issue": "#9993",
+      "migration": "None: the Checkout Command Attempt lookup stays a synchronous read of the owner's record.",
+      "justification": "Called only by submitCheckoutCartAttempt after the response to this action's own bulk add was lost. Only the owner's committed attempt record, read under the presenter's own cart binding, resolves the attempt; a projection that lagged the commit would report a committed add as unobserved. It reads one attempt event and writes nothing."
+    },
+    {
+      "id": "bounded-contexts/discovery/routes/search.tsx:checkout:createCheckoutRequestApiClient.getCartCommandAttempt#1",
+      "consumerContextName": "discovery",
+      "sourceContextName": "checkout",
+      "file": "bounded-contexts/discovery/routes/search.tsx",
+      "line": 579,
+      "clientFactory": "createCheckoutRequestApiClient",
+      "methodName": "getCartCommandAttempt",
+      "classification": "genuinely-synchronous",
+      "sourceWakePosture": "wave-1-listened",
+      "issue": "#9993",
+      "migration": "None: the Checkout Command Attempt lookup stays a synchronous read of the owner's record.",
+      "justification": "Called only by submitCheckoutCartAttempt after the response to this action's own bulk add was lost. Only the owner's committed attempt record, read under the presenter's own Account binding, resolves the attempt; a projection that lagged the commit would report a committed add as unobserved. It reads one attempt event and writes nothing."
+    },
+    {
+      "id": "bounded-contexts/discovery/support/route-support/item-detail/action.ts:checkout:createCheckoutRequestApiClient.getGuestCartCommandAttempt#1",
+      "consumerContextName": "discovery",
+      "sourceContextName": "checkout",
+      "file": "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
+      "line": 334,
+      "clientFactory": "createCheckoutRequestApiClient",
+      "methodName": "getGuestCartCommandAttempt",
+      "classification": "genuinely-synchronous",
+      "sourceWakePosture": "wave-1-listened",
+      "issue": "#9993",
+      "migration": "None: the Checkout Command Attempt lookup stays a synchronous read of the owner's record.",
+      "justification": "Called only by submitCheckoutCartAttempt after the response to this action's own add-to-cart was lost. Only the owner's committed attempt record, read under the presenter's own cart binding, resolves the attempt; a projection that lagged the commit would report a committed add as unobserved. It reads one attempt event and writes nothing."
+    },
+    {
+      "id": "bounded-contexts/discovery/support/route-support/item-detail/action.ts:checkout:createCheckoutRequestApiClient.getCartCommandAttempt#1",
+      "consumerContextName": "discovery",
+      "sourceContextName": "checkout",
+      "file": "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
+      "line": 335,
+      "clientFactory": "createCheckoutRequestApiClient",
+      "methodName": "getCartCommandAttempt",
+      "classification": "genuinely-synchronous",
+      "sourceWakePosture": "wave-1-listened",
+      "issue": "#9993",
+      "migration": "None: the Checkout Command Attempt lookup stays a synchronous read of the owner's record.",
+      "justification": "Called only by submitCheckoutCartAttempt after the response to this action's own add-to-cart was lost. Only the owner's committed attempt record, read under the presenter's own Account binding, resolves the attempt; a projection that lagged the commit would report a committed add as unobserved. It reads one attempt event and writes nothing."
     }
   ]
 }

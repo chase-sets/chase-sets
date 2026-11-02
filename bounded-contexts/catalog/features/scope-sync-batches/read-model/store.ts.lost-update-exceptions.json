@@ -1,0 +1,57 @@
+[
+  {
+    "id": "exception-507d4da46276f5e9",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts",
+      "kind": "UPDATE",
+      "table": "catalog_scope_sync_batches",
+      "digest": "c4ac58665c1466111036f8370839bb8965ee99818f7a78dbe17791d3fe1d84e1"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts:284 directly synchronizes catalog_scope_sync_batches from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-4e8d96e49ffc5487",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts",
+      "kind": "UPDATE",
+      "table": "catalog_scope_sync_batches",
+      "digest": "117f6cdd58c93bc4c720546a8fb36772d8347ba344d15b39ea798afcb2bb9194"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts:303 directly synchronizes catalog_scope_sync_batches from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-df47dabc7ff2763d",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts",
+      "kind": "UPDATE",
+      "table": "catalog_scope_sync_batches",
+      "digest": "beb7635de5692f4807c0849edde77e28a5974b22c6fa415c09c892d92567c144"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts:327 directly synchronizes catalog_scope_sync_batches from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-53054464e0cc4988",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts",
+      "kind": "UPDATE",
+      "table": "catalog_scope_sync_batches",
+      "digest": "e0c8cc603f51de13b69e2913140eb165480c3031c7f4b4c5b254beec4857d1f6"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts:348 directly synchronizes catalog_scope_sync_batches from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-bfc5f04e1cdff7be",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts",
+      "kind": "UPDATE",
+      "table": "catalog_scope_sync_batch_units",
+      "digest": "79505df728b89890768c74b84307bf926dff1b70b24539ae20b6519f7d385cf8"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts:374 directly synchronizes catalog_scope_sync_batch_units from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

@@ -173,6 +173,17 @@ Readiness states:
 - `setup-required`: The provider method exists in history but needs buyer action, mandate repair, or provider reconciliation before reuse.
 - `removed`: The buyer or provider detached the credential; Checkout must not offer it, but historical Payments keep their Saved Checkout Instrument reference.
 
+## Saved Checkout Instrument Attempt
+
+A **Saved Checkout Instrument Attempt** is one caller's single request to set up, default or remove a Saved Checkout Instrument, identified by a canonical UUIDv4 the caller mints before its first dispatch (one per methods-page form, or the MCP owner `idempotencyKey`).
+
+Notes:
+
+- Payments records a private stream per account and attempt id: a closed `started` fact before any processor call or write, then a closed `completed` fact with the first receipt. The raw attempt id is never stored.
+- Repeating the same attempt replays: it returns the first receipt, or finishes a local write that needs no processor call, and never re-sends a processor write. Remove never detaches twice; a locally removed instrument completes with no detach or audit.
+- The attempt's fingerprint covers kind, account, actor (Agent Grant or account), target instrument, effective setup UI mode and normalized return URL. Reusing an id with a different fingerprint is `attempt_conflict`; a history that cannot be confirmed, including a malformed one, is `attempt_unconfirmed`.
+- Only a response, an exact replay or one owner read resolves an attempt; connectivity alone proves nothing.
+
 ## Evidence Window Registration
 
 An **Evidence Window Registration** is a bounded, self-expiring control-plane statement that one governed evidence window is current. It records neither ownership nor liveness.

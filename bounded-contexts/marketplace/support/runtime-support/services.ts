@@ -13,6 +13,10 @@ import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-po
 import type { ListingPhotoStorage } from "./index";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
+import {
+  createInventoryDraftListingConsumer,
+  type InventoryDraftListingConsumer,
+} from "../../features/listings/api/inventory-draft-consumer";
 import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime";
 import { createMarketplaceReportRuntime } from "../../features/reports/api/runtime";
 import { createReviewRuntime } from "../../features/reviews/api/runtime";
@@ -25,6 +29,7 @@ import { createListingActionAttentionSourceFromReadModel } from "../../features/
 import { createOfferResponseAttentionSourceFromReadModel } from "../../features/offers/read-model/seller-attention-source";
 import { createMarketplaceChannelInboundClampRuntime } from "../../features/channel-inbound-clamp/api/runtime";
 import { createBuyerOfferPolicyRuntime } from "../../features/offer-policy/api/runtime";
+import { createMarketplaceMutationLookup } from "../../features/mutation-recovery/api/lookup";
 import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
 import type { MarketplaceOfferLifecycleAdmission } from "../../features/offers/api/lifecycle-admission";
 import { createManagedOfferWork } from "../../features/offers/integrations/managed-work";
@@ -43,6 +48,8 @@ export type MarketplaceServiceOptions = Readonly<{
 }>;
 
 export type MarketplaceServices = Readonly<{
+  mutationRecovery: ReturnType<typeof createMarketplaceMutationLookup>;
+  inventoryDraftListingConsumer: InventoryDraftListingConsumer;
   reviewOpportunityPublication: ReturnType<typeof createReviewOpportunityPublication>;
   managedOfferWork: ReturnType<typeof createManagedOfferWork>;
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
@@ -124,6 +131,12 @@ export function createMarketplaceServices(
   ]);
   const channelInboundClamp = createMarketplaceChannelInboundClampRuntime(pool, listings);
   return {
+    mutationRecovery: createMarketplaceMutationLookup(eventStore),
+    inventoryDraftListingConsumer: createInventoryDraftListingConsumer({
+      pool,
+      eventStore,
+      createListings: (db, eventStore) => createMarketplaceListingRuntime({ ...deps, db, eventStore }),
+    }),
     managedOfferWork,
     listings,
     offers,

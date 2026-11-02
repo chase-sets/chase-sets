@@ -92,7 +92,7 @@ import {
   defineBoundedContextModule,
   type BcContextManifest,
 } from "@chase-sets/bounded-context-module";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import contextManifest from "./context.json" with { type: "json" };
 import { buildChannelsApi } from "./api";
@@ -224,6 +224,7 @@ import {
 } from "./features/order-fulfillment-observations/read-model/schema";
 
 import { createEbayAccountDeletionRoutes } from "./features/ebay-account-deletion/api/route";
+import { createEbayDeletionKeyAuthority } from "./features/ebay-account-deletion/api/signature";
 import type { EbayAccountDeletionConfiguration } from "./features/ebay-account-deletion/domain/configuration";
 import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
 
@@ -399,15 +400,21 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       policies,
       marketplaceClamp: ports?.marketplaceChannelInboundClamp ?? { kind: "not-mounted" },
     });
+    const ebayAccountDeletionReceipts = createEbayAccountDeletionRuntime(pool, ports.channelCredentialKeyring);
     return {
       connections,
       ebayAccountDeletion: {
         config: ports.ebayAccountDeletionConfiguration ?? null,
         telemetry: ports.webhookTelemetry,
+        keyAuthority: createEbayDeletionKeyAuthority(
+          ports.ebayAccountDeletionConfiguration?.applicationAuthority ?? null,
+        ),
+        recordReceipt: (notice) =>
+          withPgTransaction(pool, (tx) => ebayAccountDeletionReceipts.recordEbayAccountDeletionReceipt(tx, notice)),
       },
       storageLocationAuthority,
       credentials: createChannelCredentialRuntime(ports.channelCredentialKeyring, ports.channelCredentialCapabilities),
-      ebayAccountDeletionReceipts: createEbayAccountDeletionRuntime(pool, ports.channelCredentialKeyring),
+      ebayAccountDeletionReceipts,
       ebayReceiptExpiry: createEbayReceiptExpiryStore(pool),
       connectionHealth,
       connectionAttention: createConnectionAttentionRuntime({ db: pool, eventStore, connectionHealth }),

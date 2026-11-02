@@ -23,7 +23,7 @@ import {
 } from "../../source-observations/api/providers/scrydex/adapter";
 import { countCaptureSchemaMigrations, countCaptureSchemaSql } from "./count-capture-schema";
 import { beginCapturePhase, captureBaseline, captureHost, captureScope } from "../tests/count-capture-session-fixture";
-import { createCountCaptureStore, type CountCaptureStore } from "./count-capture-store";
+import { createCountCaptureStore, type CountCaptureRun, type CountCaptureStore } from "./count-capture-store";
 
 const base = process.env.TEST_DATABASE_URL;
 if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for count-capture DB proof.");
@@ -143,6 +143,113 @@ describeDb("count-capture possible-send ledger", () => {
         )
       ).rows[0]?.sends,
     );
+
+  describe("seals once and appends one terminal receipt", () => {
+    const seal = { dispatchId: "synthetic-dispatch-a", runnerRunId: "300", runnerRunAttempt: 1 };
+    // The one terminal stop of a sealed run, bound to its own boundary and runner.
+    const stopFor = (run: CountCaptureRun, change: Partial<{ frozenAt: string; runnerRunAttempt: number }> = {}) =>
+      ({
+        schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+        attribution: {
+          dispatchId: run.host.dispatchId,
+          runnerRunId: run.seal!.runnerRunId,
+          runnerRunAttempt: change.runnerRunAttempt ?? run.seal!.runnerRunAttempt,
+          runnerSha: run.host.runnerSha,
+          packetHash: run.host.packetHash,
+          reviewReceiptHash: null,
+          phases: [],
+        },
+        stoppedAt: change.frozenAt ?? run.frozenAt!,
+        phase: "freeze",
+        reason: "missing-observation",
+        evidence: { startedAt: run.admittedAt, frozenAt: change.frozenAt ?? run.frozenAt! },
+        classification: {
+          verdict: "INCOMPLETE",
+          reasons: ["missing-observation"],
+          acceptance: {
+            "9431-ac7": { verdict: "INCOMPLETE", reasons: ["missing-observation"] },
+            "9424-ac5": { verdict: "INCOMPLETE", reasons: ["missing-observation"] },
+          },
+        },
+      }) as Parameters<CountCaptureStore["retainReceipt"]>[1];
+    const rows = async (runId: string) =>
+      (
+        await primary.catalog.query<{ payload: CountCaptureRun }>(
+          "SELECT payload FROM catalog_scope_sync_count_capture_history WHERE run_id = $1 ORDER BY position",
+          [runId],
+        )
+      ).rows.map((row) => row.payload);
+
+    it("seals only the owner's own dispatch, once, and keeps the boundary immutable", async () => {
+      const store = createCountCaptureStore(primary.catalog, clock);
+      const run = await store.admit(admission("a"));
+      const admitted = await rows(run.runId);
+      for (const attempt of [
+        () => store.seal(owner("b"), seal),
+        () => store.seal(owner("a"), { ...seal, dispatchId: "synthetic-dispatch-b" }),
+      ])
+        await expect(attempt()).rejects.toThrow();
+      expect(await rows(run.runId)).toEqual(admitted);
+      const sealed = await store.seal(owner("a"), seal);
+      expect(sealed).toMatchObject({
+        status: "frozen",
+        frozenAt: now,
+        seal: { from: "open", runnerRunId: "300", runnerRunAttempt: 1 },
+      });
+      now = new Date(Date.parse(now) + 1_000).toISOString();
+      await expect(store.seal(owner("a"), seal)).rejects.toThrow();
+      expect((await rows(run.runId)).slice(0, -1)).toEqual(admitted);
+      expect((await store.read(run.runId)).frozenAt).toBe(sealed.frozenAt);
+    });
+
+    it("refuses a receipt for another boundary, runner or a replaced seal, without any append", async () => {
+      const store = createCountCaptureStore(primary.catalog, clock);
+      const run = await store.admit(admission("a"));
+      const sealed = await store.seal(owner("a"), seal);
+      const before = await rows(run.runId);
+      const refusals: [CountCaptureRun, Parameters<CountCaptureStore["retainReceipt"]>[1]][] = [
+        [sealed, stopFor(sealed, { frozenAt: new Date(Date.parse(sealed.frozenAt!) + 1).toISOString() })],
+        [sealed, stopFor(sealed, { runnerRunAttempt: 2 })],
+        [{ ...sealed, frozenAt: new Date(Date.parse(sealed.frozenAt!) - 1).toISOString() }, stopFor(sealed)],
+        [{ ...sealed, ownerHash: owner("b") }, stopFor(sealed)],
+        [{ ...sealed, seal: { ...sealed.seal!, runnerRunAttempt: 2 } }, stopFor(sealed)],
+      ];
+      for (const [snapshot, receipt] of refusals)
+        await expect(store.retainReceipt(snapshot, receipt)).rejects.toThrow();
+      expect(await rows(run.runId)).toEqual(before);
+      const retained = await store.retainReceipt(sealed, stopFor(sealed));
+      await expect(store.retainReceipt(sealed, stopFor(sealed))).rejects.toThrow();
+      const after = await rows(run.runId);
+      expect(after.slice(0, -1)).toEqual(before);
+      expect(after.at(-1)).toMatchObject({ status: "frozen", frozenAt: sealed.frozenAt, receipt: retained });
+    });
+
+    it("two cold replicas racing one completion append exactly one receipt", async () => {
+      const first = createCountCaptureStore(primary.catalog, clock);
+      const second = createCountCaptureStore(replica.catalog, clock);
+      const run = await first.admit(admission("a"));
+      const sealed = await first.seal(owner("a"), seal);
+      const outcomes = await Promise.allSettled(
+        Array.from({ length: 6 }, (_, index) => (index % 2 ? second : first).retainReceipt(sealed, stopFor(sealed))),
+      );
+      expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+      expect((await rows(run.runId)).filter((row) => row.receipt !== null)).toHaveLength(1);
+    });
+
+    it("the advisory-lock-deleted control appends two receipts for the same race", async () => {
+      const store = createCountCaptureStore(primary.catalog, clock);
+      const run = await store.admit(admission("a"));
+      const sealed = await store.seal(owner("a"), seal);
+      const [first, second] = lockStrippedPools([primary.catalog, replica.catalog]).map((pool) =>
+        createCountCaptureStore(pool, clock),
+      );
+      const outcomes = await Promise.allSettled(
+        [first!, second!].map((contender) => contender.retainReceipt(sealed, stopFor(sealed))),
+      );
+      expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(2);
+      expect((await rows(run.runId)).filter((row) => row.receipt !== null)).toHaveLength(2);
+    });
+  });
 
   describe("caps actual sends", () => {
     it("two cold replicas racing one acquisition kind commit exactly one debit", async () => {

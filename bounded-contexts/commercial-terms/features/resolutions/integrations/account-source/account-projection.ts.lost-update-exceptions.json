@@ -1,0 +1,57 @@
+[
+  {
+    "id": "exception-a179377d73516aec",
+    "binding": {
+      "module": "bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts",
+      "kind": "UPDATE",
+      "table": "commercial_terms_account_pages",
+      "digest": "d2c1b1979216a1fd0dac447cb50760daa450a2681b80844fa9c556da377e4ad1"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts:40 directly synchronizes commercial_terms_account_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-f85f5c3a9ad3e64a",
+    "binding": {
+      "module": "bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts",
+      "kind": "UPDATE",
+      "table": "commercial_terms_account_pages",
+      "digest": "452fb26fef17d996fabae3fb972ca8b2ff7d8e93f83c99c520270c8dfc54adaa"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts:52 directly synchronizes commercial_terms_account_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-8868d090e710dde6",
+    "binding": {
+      "module": "bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts",
+      "kind": "UPDATE",
+      "table": "commercial_terms_account_pages",
+      "digest": "16f530f4ceaf0e4edc9b2b43a0a64dc702e0bd0ec8498803dfb6a110934f2648"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts:63 directly synchronizes commercial_terms_account_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0a5e777d738aa908",
+    "binding": {
+      "module": "bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts",
+      "kind": "UPDATE",
+      "table": "commercial_terms_account_pages",
+      "digest": "3f46815f22475c5977bb3c44d96468ad16c55e9dfbd65feb8d0319e8e7f7c47a"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts:73 directly synchronizes commercial_terms_account_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-c6da3cf25d080b9e",
+    "binding": {
+      "module": "bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts",
+      "kind": "UPDATE",
+      "table": "commercial_terms_account_pages",
+      "digest": "50f510b8eb4c73117c0389f8f6df7292318801edb660325aa50c0d19a3f7e15b"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts:83 directly synchronizes commercial_terms_account_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

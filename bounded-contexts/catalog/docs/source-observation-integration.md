@@ -23,7 +23,7 @@ The integration imports one configured Pokemon TCG expansion in one language fro
 
 The Catalog Integrations admin import flow preloads Catalog-facing language and optional Series choices through the provider-neutral Integration Options query before provider pull jobs. Operators choose a language and may narrow to one Series; leaving Series as `All Series` imports every TCGdex Expansion for that language. Row-level resync imports one provider, language, and Expansion scope from the existing integration summary. Import jobs are enqueued through the typed Integration Jobs route.
 
-Catalog exposes provider-specific import lookup data through a provider-neutral Integration Options query. The query is scoped by provider and option kind, then accepts provider-specific parent inputs such as language or Series. Provider profiles declare supported query aliases, parent requirements, named transport operations, and option DTO output selectors. TCGdex currently supports `providers`, `languages`, `series`, and `expansions`; the live language/Series/Expansion calls run through the TCGdex ProviderAdapter rather than direct runtime fetch branches. TCGplayer supports `product-lines` and `set-names` through the same resolver. Future providers should add new profile-backed option kinds behind the same Source Observations API instead of adding deployable-owned lookup routes. Option values may remain provider IDs, but visible labels should use Catalog-facing language such as Language, Series, and Expansion.
+Catalog exposes provider-specific import lookup data through a provider-neutral Integration Options query. The query is scoped by provider and option kind, then accepts provider-specific parent inputs such as language or Series. Provider profiles declare supported query aliases, parent requirements, named transport operations, and option DTO output selectors. TCGdex currently supports `providers`, `languages`, `series`, and `expansions`; the live language/Series/Expansion calls run through the TCGdex ProviderAdapter rather than direct runtime fetch branches. TCGplayer declares `product-lines` and `set-names` option kinds in profile data, but its retired adapter serves no option query. Future providers should add new profile-backed option kinds behind the same Source Observations API instead of adding deployable-owned lookup routes. Option values may remain provider IDs, but visible labels should use Catalog-facing language such as Language, Series, and Expansion.
 
 When a provider has multiple active profile units, Integration Options queries must select the active profile by profile key or ingestion-unit key, or by the unique active profile that declares the requested query kind. The option-query cache key includes profile key and ingestion-unit key so same-provider units cannot shadow each other's lookup results.
 
@@ -70,16 +70,15 @@ product line, expansion/set, card number, normalized name, and variant. A single
 match refreshes the existing Catalog Item; multiple matches block promotion for
 review so an import cannot create another plausible duplicate.
 
-The direct TCGplayer integration uses the automation-app client contract in
+The TCGplayer server transport is retired: Chase Sets never contacts TCGplayer
+servers and never stores or uses a TCGplayer cookie, session, or credential.
+Its historical vocabulary and hosts stay in
 [TCGplayer Automation Client Contract](./tcgplayer-automation-client-contract.md).
 Its fixture-backed executable `test` profile maps provider product and SKU
-evidence as Source Observations while the registered TCGplayer ProviderAdapter
-owns option and import transport. The adapter serves product-line, set-name,
-product, and SKU options, plans Product and Set Name import scopes, fetches
-automation-app Product Detail payloads, attaches source provenance, and reports
-credential/session, domain, retry, and rate-limit diagnostics without exposing
-production cookies. Credential readiness is reported separately from profile
-semantic readiness according to
+evidence as Source Observations. The registered TCGplayer ProviderAdapter
+refuses option queries, import planning, and payload fetches as retired,
+reports transport diagnostic `provider-retired`, and reports credential
+readiness `not-required` with diagnostic `provider-retired` according to
 [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md).
 It must not use official TCGplayer API documentation as the
 provider contract for this workstream, and it must not store price, latest sale,
@@ -123,7 +122,7 @@ interface-only staging UAT passes.
 
 Promotion creates a draft Catalog Item for the observed Pokemon card print variant unless the active provider profile's ordered duplicate-prevention rules resolve a reusable Catalog Item. Existing source-linked Catalog Items are refreshed in place so repeated promotion cannot create duplicates. TCGdex duplicate prevention evaluates exact external Catalog Item references first, then source observation links, deterministic Pokemon card fields, and partial-draft retry evidence. Promotion then builds a reviewed Catalog Item command plan from the active provider profile's Catalog field, category, Reference Record, and external-reference mappings, and the runtime executes those commands against the Catalog Item aggregate. The TCGdex Pokemon plan assigns the Pokemon card blueprint, sets card identity fields, assigns the Singles category for newly created drafts, records TCGdex source mapping, generates and attaches the Catalog Item-owned Product Asset Set when provider imagery exists, and keeps Chase Sets-owned image URLs as a migration compatibility projection.
 
-Provider-product Source Observations, including current TCGplayer automation imports, remain review evidence and are not promotable until their active profile declares Catalog Item promotion capability and a valid promotion command plan. The current TCGplayer executable profile is a `test` profile for mapping validation, not an active promotion profile. A blocked or ambiguous promotion plan returns diagnostics before any Catalog Item commands are written.
+Provider-product Source Observations, including retained TCGplayer observations, remain review evidence and are not promotable until their active profile declares Catalog Item promotion capability and a valid promotion command plan. The current TCGplayer executable profile is a `test` profile for mapping validation, not an active promotion profile. A blocked or ambiguous promotion plan returns diagnostics before any Catalog Item commands are written.
 
 Promoted Catalog Items remain drafts so operators can verify blueprint fields, product resolution, and downstream display before publishing.
 

@@ -54,6 +54,7 @@ export const captureLifecycleMutant = (replacements: Replacements, overrides: Re
       ...receipt,
       countCaptureSendCap: store.countCaptureSendCap,
       countCapturePhaseCaps: store.countCapturePhaseCaps,
+      countCaptureSealSchema: store.countCaptureSealSchema,
       normalizeScopeSyncBatchBudget,
       collectCountCapturePlannerRead,
       ...overrides,

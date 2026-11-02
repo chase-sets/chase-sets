@@ -953,11 +953,11 @@ export function classifyFreshWriteReadError(
   options: Readonly<{
     request: Request | string | URL;
     error: unknown;
-    nowMs?: number;
-    maxAgeMs?: number;
-    getStatus?: (error: unknown) => number | null;
-    getErrorCode?: (error: unknown) => string | null;
-    getBody?: (error: unknown) => unknown;
+    nowMs?: number | undefined;
+    maxAgeMs?: number | undefined;
+    getStatus?: ((error: unknown) => number | null) | undefined;
+    getErrorCode?: ((error: unknown) => string | null) | undefined;
+    getBody?: ((error: unknown) => unknown) | undefined;
   }>,
 ): FreshWriteReadErrorClassification {
   const receipt = readFreshWriteToken(options.request, options.nowMs, options.maxAgeMs);
@@ -1115,9 +1115,9 @@ export function evaluatePostWriteHandoff<T>(
     request: Request | string | URL;
     data: T;
     isSatisfied: (data: T, handoff: PostWriteHandoff) => boolean;
-    nowMs?: number;
-    maxAgeMs?: number;
-    clockSkewMs?: number;
+    nowMs?: number | undefined;
+    maxAgeMs?: number | undefined;
+    clockSkewMs?: number | undefined;
   }>,
 ): PostWriteHandoffEvaluation<T> {
   const state = readPostWriteHandoffState(options.request, options.nowMs, options.maxAgeMs, options.clockSkewMs);
@@ -1276,10 +1276,10 @@ export async function loadFreshlyWrittenResource<T>(
     request: Request;
     load: () => Promise<T>;
     isNotFound: (error: unknown) => boolean;
-    waitForFreshness?: (receipt: FreshWriteReceipt) => Promise<void>;
-    retryDelaysMs?: readonly number[];
-    nowMs?: () => number;
-    maxAgeMs?: number;
+    waitForFreshness?: ((receipt: FreshWriteReceipt) => Promise<void>) | undefined;
+    retryDelaysMs?: readonly number[] | undefined;
+    nowMs?: (() => number) | undefined;
+    maxAgeMs?: number | undefined;
   }>,
 ): Promise<T> {
   const nowMs = options.nowMs ?? Date.now;

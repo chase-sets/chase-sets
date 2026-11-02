@@ -32,6 +32,7 @@ change the route.
 | Surface | Kind | Route (`/account/desk`) | The seller job it completes |
 | --- | --- | --- | --- |
 | Seller Desk | page | `/` | See everything that needs you, most important first, with the KPIs; open the entity that needs work. |
+| Pricing Health | page | `/pricing-health` | Inspect one active policy's stored S1-S9 verdict and disclosed platform-wide Forecast Grades, never seller performance. |
 | Inventory item | page | `/inventory/:itemId` | Run one item's whole life — stock, locations, restock, holds, list-from-inventory. |
 | Listing | page | `/listings/:listingId` | Price and repricing, evidence and photos, availability and order capacity, pause/withdraw/publish. |
 | Sale | page | `/sales/:orderId` | Follow one sold order from payment through fulfillment to review. |

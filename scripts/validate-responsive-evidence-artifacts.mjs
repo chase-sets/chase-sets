@@ -109,7 +109,16 @@ export async function validateResponsiveEvidenceArtifacts({
     seenAssociations.add(association);
 
     requireEqual(runtime.route.name, claim.route.name, relativeFile, "route.name", violations);
-    requireEqual(runtime.route.observed, claim.route.path, relativeFile, "route.observed", violations);
+    if (runtime.route.path !== runtime.route.observed) {
+      violations.push(
+        `${relativeFile}: route.path must equal route.observed (expected ${JSON.stringify(runtime.route.path)}, got ${JSON.stringify(runtime.route.observed)}).`,
+      );
+    }
+    if (runtime.route.path !== claim.route.path && !runtime.route.path.startsWith(`${claim.route.path}?`)) {
+      violations.push(
+        `${relativeFile}: route.path is stale or substituted (expected ${JSON.stringify(claim.route.path)} or its query, got ${JSON.stringify(runtime.route.path)}).`,
+      );
+    }
     requireEqual(runtime.fixture.identity, claim.fixture.identity, relativeFile, "fixture.identity", violations);
     requireEqual(runtime.viewport.width, claim.viewport.width, relativeFile, "viewport.width", violations);
     requireEqual(runtime.viewport.height, claim.viewport.height, relativeFile, "viewport.height", violations);

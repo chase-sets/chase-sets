@@ -275,8 +275,48 @@ export type StoredForecastGrade = Readonly<{
 /** One scope's grades of a Forecast Kind at a horizon under one set of grading rules, newest closed day first. */
 export async function listForecastGrades(
   db: PgQueryable,
-  input: ForecastGradeScope & Readonly<{ forecastKind: string; horizonDays: number; rulesVersion: string }>,
+  input: ForecastGradeScope &
+    Readonly<{ rulesVersion: string }> &
+    (
+      | Readonly<{ forecastKind: string; horizonDays: number; latest?: never }>
+      | Readonly<{ latest: Readonly<{ closedOnOrBefore: string; horizonsDays: readonly number[]; limit: number }> }>
+    ),
 ): Promise<readonly StoredForecastGrade[]> {
+  if (input.latest) {
+    if (!Number.isInteger(input.latest.limit) || input.latest.limit < 1 || input.latest.limit > 100) {
+      throw new Error("Latest Forecast Grade limit must be between 1 and 100.");
+    }
+    const result = await db.query<{
+      closed_on: string;
+      forecast_kind: string;
+      model: string;
+      horizon_days: number;
+      grade: ForecastGrade;
+    }>(
+      `SELECT DISTINCT ON (forecast_kind, horizon_days, model)
+         closed_on::text, forecast_kind, model, horizon_days, grade
+       FROM pricing_forecast_grades
+       WHERE goal_id = $1 AND goal_version = $2 AND role = $3 AND rules_version = $4
+         AND closed_on <= $5::date AND horizon_days = ANY($6::integer[])
+       ORDER BY forecast_kind, horizon_days, model, closed_on DESC LIMIT $7`,
+      [
+        input.goalId,
+        input.goalVersion,
+        input.role,
+        input.rulesVersion,
+        input.latest.closedOnOrBefore,
+        input.latest.horizonsDays,
+        input.latest.limit,
+      ],
+    );
+    return result.rows.map((row) => ({
+      closedOn: row.closed_on,
+      forecastKind: row.forecast_kind,
+      model: row.model,
+      horizonDays: row.horizon_days,
+      grade: row.grade,
+    }));
+  }
   const result = await db.query<{ closed_on: string; model: string; grade: ForecastGrade }>(
     `SELECT closed_on::text, model, grade FROM pricing_forecast_grades
      WHERE goal_id = $1 AND goal_version = $2 AND role = $3 AND forecast_kind = $4 AND horizon_days = $5

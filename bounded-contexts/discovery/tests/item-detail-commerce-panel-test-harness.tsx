@@ -10,6 +10,7 @@ import type {
   ProductSchema,
 } from "../support/client-support/contracts";
 import DiscoveryItemDetailRoute from "../routes/item-detail";
+import { EntryAttemptKeyScope } from "../support/ui-support/entry-attempt-key";
 
 export const baseListing: DiscoveryMarketListing = {
   listing_id: "listing_charizard",
@@ -157,11 +158,14 @@ export function captureItemDetailRailAnalytics() {
   };
 }
 
+/** A page-view entry key, as the item-detail loader mints one. */
+export const PAGE_VIEW_ENTRY_KEY = "chkentry_01JD2K3M4N5P6Q7R8S9T0V1W2X";
+
 export function renderWithDataRouter(element: ReactElement) {
   const router = createMemoryRouter([
     {
       path: "/",
-      element,
+      element: <EntryAttemptKeyScope loaderKey={PAGE_VIEW_ENTRY_KEY}>{element}</EntryAttemptKeyScope>,
       action: async () => ({ status: "ok" }),
     },
   ]);
@@ -174,7 +178,7 @@ export function renderItemDetailRoute(loaderData: Record<string, unknown>) {
     {
       path: "/",
       element: <DiscoveryItemDetailRoute />,
-      loader: async () => loaderData,
+      loader: async () => ({ entryAttemptKey: PAGE_VIEW_ENTRY_KEY, ...loaderData }),
       action: async () => ({ status: "ok" }),
     },
   ]);

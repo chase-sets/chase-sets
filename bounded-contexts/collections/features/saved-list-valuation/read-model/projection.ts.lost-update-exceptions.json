@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-ab8881e7df3f0068",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-list-valuation/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_valuation_lines",
+      "digest": "27a0cbd7febe8ca264b4775b905f552504cbd7c25296a5c34d577c8d9661ab55"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-list-valuation/read-model/projection.ts:51 directly synchronizes collections_saved_list_valuation_lines from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-cef906af7c654d83",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-list-valuation/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_valuation_lines",
+      "digest": "bdd131b9a1ce20213b8984827119f2116a6d07e5d06d3b020433b33da6c8293d"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-list-valuation/read-model/projection.ts:60 directly synchronizes collections_saved_list_valuation_lines from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-a06a43534ed211bd",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-list-valuation/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_valuation_lists",
+      "digest": "a179be8407423ed1105dfbe3ca4736adc8362578b81f95905b130cee53a1cc91"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-list-valuation/read-model/projection.ts:142 directly synchronizes collections_saved_list_valuation_lists from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

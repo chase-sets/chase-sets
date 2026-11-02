@@ -22,6 +22,7 @@ function matrix(): ScopeCoverageMatrix {
         providerKey: "tcgdex",
         state: "mapped",
         mapping: null,
+        acceptedMappings: [],
         syncedObservations: 0,
         promotedObservations: 0,
       },
@@ -29,12 +30,14 @@ function matrix(): ScopeCoverageMatrix {
         providerKey: "tcgplayer",
         state: "settled",
         mapping: null,
+        acceptedMappings: [],
         syncedObservations: 130,
         promotedObservations: 128,
       },
       {
         providerKey: "scrydex",
         state: "available",
+        acceptedMappings: [],
         mapping: {
           mappingId: "mapping_scrydex_paf",
           scopeRecordId: "scope_expansion_paldean_fates",

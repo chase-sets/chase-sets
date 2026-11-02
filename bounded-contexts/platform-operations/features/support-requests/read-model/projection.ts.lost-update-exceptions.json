@@ -1,0 +1,167 @@
+[
+  {
+    "id": "exception-e93ffa0e6df84180",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "3303238b5343cb696efbf054ac537e4c2cad69d72ab1e0a52f21ab7d2212cdfa"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:109 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-59c1920eeb29964b",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "a779654a58b41066427897b6f5947649dfe4edc5d364ec944fe52e1fa25f2f15"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:236 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-3eba03968e745036",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "649e98231c5f8dae03f551a38da23263cc0436848f52daeeb5272b65ae635f94"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:264 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-3aedbca5fe14b76f",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "e15688995b8bd533239285f1663687be5b66342d63131c2a692f0458be92a003"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:279 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-f6f5658f41f33eb6",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "9711b3000ad26b8a6ec8d6f7309958204900d4dbe448329dda06cfad4061edab"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:302 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-cfac9f7554264cc7",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "d6bd0091509b08da87b5378a969f71fd2d4200c3a4571fd09a5f846582d874e7"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:324 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-3727d148b478fd4d",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "83f11103a9f63f21243cd1d8205a65df5463e83e39e69a8271dab416ac62c9b7"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:349 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-8ea07d6a7446743f",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "d469fa15249cee11f58efb2de7bbc4d16b6510b050dca57fc702215e0d970995"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:372 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-18c94fd644fc78fc",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "99345e48dfc7a916efeda20ea3e4ef7b3348c88722bb5425db13ad3a28a7cbb5"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:398 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-bc139e99c826da0b",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "25275314038d9007875dd338062a440a689d6249e5102ba5dcd6830a27e6d772"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:416 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0a5a89440e06e4c3",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "cf5df36ddb8e5644bfd12c2e55b90de126ad9157ed6d67d1e2458b4c771a8cdf"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:432 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-82410dd9ce4d6485",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "b56f0ec4ecaeda99fdd1b56eee4367864ec6fc4e66473710acfde1766530b8a4"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:445 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-c7bd7a85e4f948df",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "57ae0fe375a80a69636ea4067ebb395281d7389d0d9a9d4bab55ce1f912e1d16"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:459 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0c09649568ffaa05",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "dcb6881b95fa8e04298b883d73e23a486c4519716e683a3624ffc599a0746749"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:474 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-151ad2395e6fddf6",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "support_request_pages",
+      "digest": "6dd65340baa49c9651634d6d4e0d84a398fa862b17f3ac521b8656f9847b2067"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:487 directly synchronizes support_request_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

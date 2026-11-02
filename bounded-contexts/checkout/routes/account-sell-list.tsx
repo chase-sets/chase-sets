@@ -31,6 +31,7 @@ import {
   type CheckoutSellListConfirmationRow,
   type CheckoutSellListCompositeReview,
   type CheckoutSellListLineRow,
+  type CheckoutSellListOfferReview,
   type CheckoutSellOfferMatch,
   type CheckoutSellPayoutReadinessRow,
   type SellListReadinessDecisionInput,
@@ -510,13 +511,31 @@ async function loadSellListCompositeReviewFromCheckout(
 async function loadGuestSellListOfferReviewsFromCheckout(
   api: ReturnType<typeof createCheckoutRequestApiClient>,
   anonymousSellListId: string | null,
-): Promise<readonly SellListOfferReview[]> {
+): Promise<readonly CheckoutSellListOfferReview[]> {
   const client = api as Partial<ReturnType<typeof createCheckoutRequestApiClient>>;
   if (typeof client.getGuestSellListOfferReviews !== "function") {
     return [];
   }
 
   return (await client.getGuestSellListOfferReviews(anonymousSellListId)).offerReviews;
+}
+
+async function loadGuestSellListOfferReviewsWithRecovery(
+  api: ReturnType<typeof createCheckoutRequestApiClient>,
+  anonymousSellListId: string | null,
+  request: Request,
+  actorMode: AccountSellListActorMode,
+) {
+  try {
+    return {
+      offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
+      recovery: null,
+    };
+  } catch (error) {
+    const recovery = recoverSellListFreshWriteReadError(request, error, actorMode, "guest-sell-list-offer-reviews");
+    if (!recovery) throw error;
+    return { offerReviews: [], recovery };
+  }
 }
 
 function pendingFreshWriteTimingForRequest(request: Request): PendingFreshWriteTiming | null {
@@ -544,6 +563,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "guest",
     );
 
+    const guestOfferReviews = await loadGuestSellListOfferReviewsWithRecovery(
+      api,
+      anonymousSellListId,
+      resolvedRequest,
+      "guest",
+    );
     return {
       isSignedIn: false,
       registrationReturn: null,
@@ -551,11 +576,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
       mergeError: null,
       sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
       sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
-      freshnessError,
-      sellListRecovery,
+      freshnessError: freshnessError ?? guestOfferReviews.recovery?.freshnessError ?? null,
+      sellListRecovery: sellListRecovery ?? guestOfferReviews.recovery?.sellListRecovery ?? null,
       pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(resolvedRequest),
       sellList,
-      offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
+      offerReviews: guestOfferReviews.offerReviews,
     };
   }
 
@@ -571,6 +596,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
         "account",
       );
       if (guestSource.sellListRecovery) {
+        const guestOfferReviews = await loadGuestSellListOfferReviewsWithRecovery(
+          api,
+          anonymousSellListId,
+          resolvedRequest,
+          "account",
+        );
         return {
           isSignedIn: true,
           registrationReturn,
@@ -578,11 +609,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
           mergeError,
           sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
           sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
-          freshnessError: guestSource.freshnessError,
-          sellListRecovery: guestSource.sellListRecovery,
+          freshnessError: guestSource.freshnessError ?? guestOfferReviews.recovery?.freshnessError ?? null,
+          sellListRecovery: guestSource.sellListRecovery ?? guestOfferReviews.recovery?.sellListRecovery ?? null,
           pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(resolvedRequest),
           sellList: guestSource.sellList,
-          offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
+          offerReviews: guestOfferReviews.offerReviews,
           productOfferReviews: [],
           inventoryItems: [],
           payoutReadiness: await loadPayoutReadiness(resolvedRequest, api),
@@ -1026,7 +1057,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       const marketplaceApi = createMarketplaceRequestApiClient(request);
       const sellList = await api.getSellList();
       for (const offerId of offerIds) {
-        await marketplaceApi.declineOfferMatch(offerId);
+        await marketplaceApi.declineOfferMatch(offerId, { attemptId: `decline_${offerId}`.padEnd(22, "_") });
       }
       const declined = new Set(offerIds);
       for (const line of sellList.items) {

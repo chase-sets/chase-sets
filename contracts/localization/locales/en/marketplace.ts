@@ -1,4 +1,42 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.recovery.receiptMismatch": "Attempt receipt does not match the first result.",
+  "marketplace.recovery.acceptanceBindingInvalid": "Invalid Offer acceptance binding.",
+  "marketplace.recovery.acceptanceBindingUnexpected": "Unexpected acceptance binding.",
+  "marketplace.recovery.submitting": "Sending your Offer action...",
+  "marketplace.recovery.confirming": "Confirming your first result. Do not submit this action again.",
+  "marketplace.recovery.succeeded": "Your Offer action is confirmed.",
+  "marketplace.recovery.failedSafe": "The action was not sent. Review your inputs before trying again.",
+  "marketplace.recovery.ambiguous":
+    "We could not confirm the result. This action is disabled to avoid duplicating your work.",
+  "marketplace.listingRecovery.submitting": "Sending your Listing change...",
+  "marketplace.listingRecovery.confirming": "Confirming your first result. Do not submit this change again.",
+  "marketplace.listingRecovery.succeeded": "Your Listing change is confirmed.",
+  "marketplace.listingRecovery.failedSafe": "The change was not sent. Review your inputs before trying again.",
+  "marketplace.listingRecovery.ambiguous":
+    "We could not confirm the result. Changes are disabled to avoid duplicating your work.",
+  "marketplace.listingRecovery.partial":
+    "{succeeded} of {total} Listings changed. Retry sends only the Listings whose result is unknown.",
+  "marketplace.listingRecovery.retryUnknown": "Retry unknown Listings",
+  "marketplace.listingRecovery.attemptInvalid": "This change is missing its attempt identity. Reload and try again.",
+  "marketplace.listingRecovery.attemptConflict":
+    "This change was already sent with different details. Reload to see the first result.",
+  "marketplace.features.listings.capacityRecovery.title": "Paused for inventory capacity",
+  "marketplace.features.listings.capacityRecovery.waiting":
+    "This system pause protects held stock. The Listing will resume when enough inventory is available and publication checks pass.",
+  "marketplace.features.listings.capacityRecovery.summary":
+    "Listing {reference} could not resume after inventory capacity returned. {action}",
+  "marketplace.features.listings.capacityRecovery.evidence":
+    "Review the Listing evidence checklist, correct unmet requirements, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.away":
+    "Turn Seller Listing Availability back on, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.visibility":
+    "Review the Listing's native visibility and fee enrollment before publishing.",
+  "marketplace.features.listings.capacityRecovery.measure":
+    "Resolve the Product's shipping measure, then publish this Listing.",
+  "marketplace.features.listings.capacityRecovery.price":
+    "Set a complete price and currency before publishing this Listing.",
+  "marketplace.features.listings.capacityRecovery.unavailable":
+    "Publication checks are unavailable. Open this Listing and retry publication when checks are available.",
   "marketplace.marketFollowing.title": "Market-following Offers",
   "marketplace.marketFollowing.toggle": "Follow the market for selected Offers",
   "marketplace.marketFollowing.itemOnly":
@@ -94,7 +132,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.app.root.marketplace.error": "Marketplace error",
   "marketplace.app.root.page.not.found": "Page not found",
   "marketplace.app.root.page.not.found.description": "This marketplace page does not exist or is no longer available.",
-  "marketplace.app.root.unknown.error": "Unknown error",
+  "marketplace.app.root.unknown.error": "Something went wrong. Please try again.",
   "marketplace.app.routes.layout.exit.guest.checkout": "Exit guest checkout",
   "marketplace.app.routes.layout.sign.out": "Sign Out",
   "marketplace.app.routes.layout.add.passkey": "Add a passkey to secure your account",
@@ -146,6 +184,22 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.request.failed": "Request failed.",
   "marketplace.features.reports.api.reporter.required": "Start a new report session before reporting this listing.",
   "marketplace.features.reports.api.request.failed": "Report request failed.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.controlCharacter":
+    "Remove hidden control characters from your text, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.directionOverride":
+    "Remove hidden text-direction characters from your text, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.unsafeLink":
+    "Links must start with https://. Remove other kinds of links, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.duplicateLink": "Include each link only once, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.rateLimited":
+    "You have sent several of these recently. Wait a few minutes, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.title": "Your text was not posted",
+  "marketplace.features.reviews.ui.authoredTextRecovery.draftKept":
+    "Your text is still here so you can edit it and try again.",
+  "marketplace.features.reviews.ui.authoredTextGuidance.description":
+    "What you post here is public and must follow the community guidelines.",
+  "marketplace.features.reviews.ui.authoredTextGuidance.communityGuidelines": "Community guidelines",
+  "marketplace.features.reviews.ui.authoredTextGuidance.contactSupport": "Contact support",
   "marketplace.features.listings.domain.domain.greater.than.zero": "greater than zero",
   "marketplace.features.listings.domain.domain.price.amount": "Price amount",
   "marketplace.features.listings.domain.domain.zero.or.greater": "zero or greater",
@@ -513,6 +567,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.bulk.action.results": "{succeeded} succeeded, {failed} failed",
   "marketplace.features.listings.ui.listingListPage.bulk.action.succeeded": "Succeeded",
   "marketplace.features.listings.ui.listingListPage.bulk.action.failed": "Failed",
+  "marketplace.features.listings.ui.listingListPage.bulk.action.conflict": "Changed elsewhere",
+  "marketplace.features.listings.ui.listingListPage.bulk.action.unknown": "Unconfirmed",
   "marketplace.features.listings.ui.listingCreatePage.seller": "Seller",
   "marketplace.features.listings.ui.listingCreatePage.create.listing": "Create Listing",
   "marketplace.features.listings.ui.listingCreatePage.back.to.listings": "Back to listings",

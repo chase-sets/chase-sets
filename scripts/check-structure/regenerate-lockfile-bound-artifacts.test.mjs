@@ -66,6 +66,27 @@ async function run(tree, options = {}) {
   return { exitCode, stdout, stderr };
 }
 
+async function runAgainstScratchLockfile(tree, lockfileBytes) {
+  const scratch = mkdtempSync(path.join(tmpdir(), "lockfile-bound-regeneration-"));
+  const scratchLockfile = path.join(scratch, "pnpm-lock.yaml");
+  const committedLockfilePath = repoJson(typeScriptOwnerContextArtifactPath).resolution.lockfilePath;
+  try {
+    writeFileSync(scratchLockfile, lockfileBytes);
+    const deriveFromScratchLockfile = ({ resolutionRoot, lockfilePath }) => {
+      const derived = deriveTypeScriptOwnerContexts({ resolutionRoot, lockfilePath });
+      derived.resolution.lockfilePath = committedLockfilePath;
+      return derived;
+    };
+    return await run(tree, { lockfilePath: scratchLockfile, deriveArtifact: deriveFromScratchLockfile });
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+function committedArtifactBytes(artifact) {
+  return Buffer.from(`${JSON.stringify(artifact, null, 2)}\n`);
+}
+
 describe("lockfile-bound artifact regeneration", () => {
   it("is byte-idempotent on a clean tree", async () => {
     const tree = memoryTree();
@@ -90,52 +111,105 @@ describe("lockfile-bound artifact regeneration", () => {
     console.log("CLEAN IDEMPOTENCE", JSON.stringify({ clean: clean.stdout.trim().split("\n") }));
   });
 
+  it("stays byte-idempotent across two independent dependency branches and their merge", async () => {
+    const lockfile = repoBytes("pnpm-lock.yaml");
+    const branchA = Buffer.from("\n  dependency-branch-a@1.0.0: {}\n");
+    const branchB = Buffer.from("\n  dependency-branch-b@2.0.0: {}\n");
+    const lockfiles = {
+      branchA: Buffer.concat([lockfile, branchA]),
+      branchB: Buffer.concat([lockfile, branchB]),
+      merged: Buffer.concat([lockfile, branchA, branchB]),
+    };
+    const receipts = [];
+    for (const [name, bytes] of Object.entries(lockfiles)) {
+      const tree = memoryTree();
+      const committedOwnerSha = sha256(tree.readBytes(typeScriptOwnerContextArtifactPath));
+      const result = await runAgainstScratchLockfile(tree, bytes);
+
+      expect(sha256(bytes)).not.toBe(sha256(lockfile));
+      expect(result.exitCode).toBe(regenerateLockfileBoundArtifactExitCodes.success);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain("lockfile-bound-artifact-moved-leaves=[]");
+      expect(result.stdout).toContain(`${typeScriptOwnerContextArtifactPath}: unchanged`);
+      expect(tree.writes).toEqual([]);
+      expect(sha256(tree.readBytes(typeScriptOwnerContextArtifactPath))).toBe(committedOwnerSha);
+      receipts.push({ lockfile: name, lockfileSha256: sha256(bytes), ownerSha256: committedOwnerSha });
+    }
+    expect(new Set(receipts.map(({ lockfileSha256 }) => lockfileSha256)).size).toBe(3);
+    expect(new Set(receipts.map(({ ownerSha256 }) => ownerSha256)).size).toBe(1);
+    console.log("INDEPENDENT DEPENDENCY BRANCHES", JSON.stringify(receipts));
+  });
+
   it("regenerates exactly the lockfile provenance chain through production builders", async () => {
     const tree = memoryTree();
     const committedOwner = JSON.parse(tree.readBytes(typeScriptOwnerContextArtifactPath).toString("utf8"));
-    const scratch = mkdtempSync(path.join(tmpdir(), "lockfile-bound-regeneration-"));
-    const scratchLockfile = path.join(scratch, "pnpm-lock.yaml");
-    try {
-      writeFileSync(
-        scratchLockfile,
-        Buffer.concat([repoBytes("pnpm-lock.yaml"), Buffer.from("\n# dependency-only provenance perturbation\n")]),
-      );
-      const deriveFromScratchLockfile = ({ resolutionRoot, lockfilePath }) => {
-        const derived = deriveTypeScriptOwnerContexts({ resolutionRoot, lockfilePath });
-        derived.resolution.lockfilePath = committedOwner.resolution.lockfilePath;
-        return derived;
-      };
-      const result = await run(tree, {
-        lockfilePath: scratchLockfile,
-        deriveArtifact: deriveFromScratchLockfile,
-      });
+    const aliasConsumer =
+      "\n  alias-consumer@1.0.0:\n    dependencies:\n      typescript-api: '@typescript/typescript6@6.0.2'\n";
+    const perturbed = Buffer.concat([repoBytes("pnpm-lock.yaml"), Buffer.from(aliasConsumer)]);
+    const result = await runAgainstScratchLockfile(tree, perturbed);
 
-      expect(result.exitCode).toBe(regenerateLockfileBoundArtifactExitCodes.success);
-      expect(result.stderr).toBe("");
-      expect(tree.writes).toEqual(lockfileBoundArtifactPaths);
-      const generatedOwner = JSON.parse(tree.readBytes(typeScriptOwnerContextArtifactPath).toString("utf8"));
-      const ownerLeafDiff = collectLeafDiffPaths(committedOwner, generatedOwner);
-      expect(ownerLeafDiff).toEqual(["resolution.lockfileSha256"]);
-      expect(generatedOwner.resolution.lockfileSha256).toBe(sha256(readFileSync(scratchLockfile)));
+    expect(result.exitCode).toBe(regenerateLockfileBoundArtifactExitCodes.success);
+    expect(result.stderr).toBe("");
+    expect(tree.writes).toEqual(lockfileBoundArtifactPaths);
+    const generatedOwner = JSON.parse(tree.readBytes(typeScriptOwnerContextArtifactPath).toString("utf8"));
+    const ownerLeafDiff = collectLeafDiffPaths(committedOwner, generatedOwner);
+    expect(ownerLeafDiff).toEqual(["resolution.lockfileKeys"]);
+    expect(generatedOwner.resolution.lockfileKeys).toEqual(
+      committedOwner.resolution.lockfileKeys.map((entry) =>
+        entry.key === "typescript-api:" ? { ...entry, occurrences: entry.occurrences + 1 } : entry,
+      ),
+    );
 
-      const writesAfterFirstRun = tree.writes.length;
-      const second = await run(tree, {
-        lockfilePath: scratchLockfile,
-        deriveArtifact: deriveFromScratchLockfile,
-      });
-      expect(second.exitCode).toBe(regenerateLockfileBoundArtifactExitCodes.success);
-      expect(tree.writes).toHaveLength(writesAfterFirstRun);
-      expect(second.stdout).toContain(`${typeScriptOwnerContextArtifactPath}: unchanged`);
-      console.log(
-        "LOCKFILE PROVENANCE CHAIN",
-        JSON.stringify({
-          ownerLeafDiff,
-          lockfileSha256: generatedOwner.resolution.lockfileSha256,
-        }),
-      );
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
+    const writesAfterFirstRun = tree.writes.length;
+    const second = await runAgainstScratchLockfile(tree, perturbed);
+    expect(second.exitCode).toBe(regenerateLockfileBoundArtifactExitCodes.success);
+    expect(tree.writes).toHaveLength(writesAfterFirstRun);
+    expect(second.stdout).toContain(`${typeScriptOwnerContextArtifactPath}: unchanged`);
+    console.log(
+      "LOCKFILE PROVENANCE CHAIN",
+      JSON.stringify({ ownerLeafDiff, lockfileKeys: generatedOwner.resolution.lockfileKeys }),
+    );
+  });
+
+  it("refuses forged, modified, malformed, and incomplete committed artifacts with zero writes", async () => {
+    const forged = repoJson(typeScriptOwnerContextArtifactPath);
+    forged.resolution.lockfileSha256 = sha256(repoBytes("pnpm-lock.yaml"));
+    const modified = repoJson(typeScriptOwnerContextArtifactPath);
+    modified.resolution.implementationSourceSha256 = "0".repeat(64);
+    const malformed = repoJson(typeScriptOwnerContextArtifactPath);
+    malformed.workspace.packageSha256 = "not-a-hash";
+    const incomplete = repoJson(typeScriptOwnerContextArtifactPath);
+    delete incomplete.resolution.lockfileKeys;
+    const controls = [
+      {
+        name: "forged superseded whole-lockfile pin",
+        artifact: forged,
+        named: ["resolution.lockfileSha256", "derivation-artifact-field-unclassified"],
+      },
+      { name: "modified semantic leaf", artifact: modified, named: ["resolution.implementationSourceSha256"] },
+      { name: "malformed member", artifact: malformed, named: ["derivation-artifact-schema-invalid"] },
+      { name: "incomplete member set", artifact: incomplete, named: ["derivation-artifact-schema-invalid"] },
+    ];
+
+    const receipts = [];
+    for (const control of controls) {
+      const committedBytes = committedArtifactBytes(control.artifact);
+      const tree = memoryTree({ [typeScriptOwnerContextArtifactPath]: committedBytes });
+      const result = await run(tree);
+
+      expect(result.exitCode, control.name).toBe(regenerateLockfileBoundArtifactExitCodes.semanticMovement);
+      expect(result.stdout, control.name).toBe("");
+      expect(result.stderr, control.name).toContain(regenerateLockfileBoundArtifactFailureCodes.semanticMovement);
+      for (const named of control.named) expect(result.stderr, control.name).toContain(named);
+      expect(tree.writes, control.name).toEqual([]);
+      expect(tree.readBytes(typeScriptOwnerContextArtifactPath), control.name).toEqual(committedBytes);
+      receipts.push({ control: control.name, observedExit: result.exitCode, transcript: result.stderr.trim() });
     }
+
+    const unparseable = memoryTree({ [typeScriptOwnerContextArtifactPath]: Buffer.from('{ "contractVersion": ') });
+    await expect(run(unparseable)).rejects.toThrow(SyntaxError);
+    expect(unparseable.writes).toEqual([]);
+    console.log("COMMITTED ARTIFACT REFUSALS", JSON.stringify(receipts));
   });
 
   it("refuses semantic movement with a named exit and zero writes", async () => {

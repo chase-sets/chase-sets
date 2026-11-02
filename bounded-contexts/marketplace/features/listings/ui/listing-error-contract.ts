@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { authoredTextRecoveryCopy } from "../../reviews/ui/authored-text-recovery";
 
 export const listingErrorContract = {
   "unknown-field": {
@@ -90,6 +91,41 @@ export const listingErrorContract = {
     status: 409,
     code: "fee_quote_stale",
     copy: "marketplace.features.listings.api.route.error.feeQuoteStale",
+  },
+  "attempt-invalid": {
+    status: 400,
+    code: "invalid_attempt",
+    copy: "marketplace.listingRecovery.attemptInvalid",
+  },
+  "attempt-conflict": {
+    status: 409,
+    code: "attempt_conflict",
+    copy: "marketplace.listingRecovery.attemptConflict",
+  },
+  "attempt-history-incomplete": {
+    status: 409,
+    code: "history_incomplete",
+    copy: "marketplace.listingRecovery.ambiguous",
+  },
+  "text-control-character": {
+    status: 400,
+    code: "text_control_character",
+    copy: authoredTextRecoveryCopy.text_control_character,
+  },
+  "text-direction-override": {
+    status: 400,
+    code: "text_direction_override",
+    copy: authoredTextRecoveryCopy.text_direction_override,
+  },
+  "text-unsafe-link": {
+    status: 400,
+    code: "text_unsafe_link",
+    copy: authoredTextRecoveryCopy.text_unsafe_link,
+  },
+  "text-duplicate-link": {
+    status: 400,
+    code: "text_duplicate_link",
+    copy: authoredTextRecoveryCopy.text_duplicate_link,
   },
 } as const;
 

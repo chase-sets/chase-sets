@@ -283,6 +283,9 @@ function readinessBlockersFor(
   if (!input.canManageCatalog) {
     blockers.add("permission-denied");
   }
+  if (input.controlPlaneOverview?.activeJobs?.completeness === "incomplete") {
+    blockers.add("read-model-unavailable");
+  }
   if (!activeProfile) {
     blockers.add("missing-active-profile");
   }

@@ -1,0 +1,14 @@
+lockfileVersion: "9.0"
+packages:
+  typescript-api:
+    version: "@typescript/typescript6@6.0.2"
+  alias-consumer@1.0.0:
+    dependencies:
+      typescript-api: "@typescript/typescript6@6.0.2"
+  "@typescript/typescript6@6.0.2":
+    dependencies:
+      "@typescript/old": typescript@6.0.3
+snapshots:
+  "@typescript/typescript6@6.0.2": {}
+  alias-consumer@1.0.0: {}
+  typescript@6.0.3: {}

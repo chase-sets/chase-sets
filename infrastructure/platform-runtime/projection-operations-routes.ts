@@ -49,12 +49,35 @@ export type ProjectionWakeStatusWorkSignalStore = Pick<
 export type ProjectionOperationsRouteOptions = Readonly<{
   controlPlane?: PlatformControlPlane;
   workSignalStore?: ProjectionWakeStatusWorkSignalStore;
+  deriveProjectionTriage: (body: unknown) => Readonly<{
+    attentionItems: readonly unknown[];
+    repairQueue: readonly unknown[];
+    activeWorkerCount: number;
+    staleWorkerCount: number;
+  }>;
+  deriveWakeAttentionItems: (body: unknown) => readonly unknown[];
 }>;
 
-export function createProjectionOperationsRoutes(
+export async function loadBlockedProjectionState(
   runtime: ApiHostRuntime,
-  options: ProjectionOperationsRouteOptions = {},
+  controlPlane: PlatformControlPlane | undefined,
 ) {
+  const snapshots = controlPlane ? await controlPlane.listProjectionStatusSnapshots() : [];
+  const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
+  return {
+    projectionGroups: snapshotOverlay.projectionGroups,
+    blockedProjections: summarizeBlockedProjectionKeys(snapshotOverlay.projectionGroups),
+    projectionStatusSource: snapshotOverlay.source,
+  } as const;
+}
+
+export async function loadWakeStatus(workSignalStore: ProjectionWakeStatusWorkSignalStore | undefined) {
+  const wakeStore = await readWakeStoreStatus(workSignalStore);
+  const generatedAt = new Date().toISOString();
+  return { generatedAt, wakeStore } as const;
+}
+
+export function createProjectionOperationsRoutes(runtime: ApiHostRuntime, options: ProjectionOperationsRouteOptions) {
   const app = new Hono<ProjectionOperationsRouteEnv>();
   const refreshProjectionStatuses = createProjectionStatusRefresher(runtime);
 
@@ -64,9 +87,8 @@ export function createProjectionOperationsRoutes(
       return actorResponse;
     }
 
-    const snapshots = options.controlPlane ? await options.controlPlane.listProjectionStatusSnapshots() : [];
-    const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
-    const projectionGroups = snapshotOverlay.projectionGroups;
+    const projectionState = await loadBlockedProjectionState(runtime, options.controlPlane);
+    const projectionGroups = projectionState.projectionGroups;
 
     const workerHeartbeatHistory = options.controlPlane
       ? await options.controlPlane.readWorkerHeartbeatHistory()
@@ -76,17 +98,18 @@ export function createProjectionOperationsRoutes(
       Date.parse(workerHeartbeatHistory.snapshotAt),
     );
 
-    return c.json({
+    const body = {
       summary: summarizeProjectionReplayStatuses(projectionGroups),
       projectionGroups,
-      blockedProjections: summarizeBlockedProjectionKeys(projectionGroups),
-      projectionStatusSource: snapshotOverlay.source,
+      blockedProjections: projectionState.blockedProjections,
+      projectionStatusSource: projectionState.projectionStatusSource,
       workers: classifiedWorkers,
       workerHeartbeatHistory: workerHeartbeatHistory.summary,
       runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
       operations: options.controlPlane ? await options.controlPlane.listProjectionOperations({ limit: 25 }) : [],
       operationSummary: options.controlPlane ? await options.controlPlane.summarizeProjectionOperations() : null,
-    });
+    };
+    return c.json({ ...body, ...options.deriveProjectionTriage(body) });
   });
 
   app.post("/refresh", async (c) => {
@@ -146,15 +169,14 @@ export function createProjectionOperationsRoutes(
       return actorResponse;
     }
 
-    const [wakeStore, relay, schedulers] = await Promise.all([
-      readWakeStoreStatus(options.workSignalStore),
+    const [wakeStatus, relay, schedulers] = await Promise.all([
+      loadWakeStatus(options.workSignalStore),
       readWakeRelayStatus(options.controlPlane),
       readWakeSchedulerStatus(options.controlPlane),
     ]);
 
-    return c.json({
-      generatedAt: new Date().toISOString(),
-      wakeStore,
+    const body = {
+      ...wakeStatus,
       relay,
       schedulers,
       rollout: readWakeRolloutStatus(),
@@ -166,7 +188,8 @@ export function createProjectionOperationsRoutes(
       // wake families ride the work-signal composite versus documented
       // exceptions. Structural metadata only.
       origins: listWorkSignalOriginDispositions(),
-    });
+    };
+    return c.json({ ...body, attentionItems: options.deriveWakeAttentionItems(body) });
   });
 
   app.get("/:projectionKey/blocked-streams", async (c) => {

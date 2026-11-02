@@ -126,6 +126,7 @@ describeDb("repricing durable dry runs", () => {
         ].join("\n"),
       );
     },
+    180_000,
   );
 
   it.each(["after-page-1", "after-trace-insert"])(

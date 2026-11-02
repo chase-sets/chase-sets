@@ -16,6 +16,12 @@ import { catalogUnloggedProjectionSchemaMigrations } from "./support/runtime-sup
 import { seedCatalogDatabase } from "./support/authoring-support";
 import { inspectCatalogSeedState } from "./support/seed-support/catalog-integration-state";
 import { operatorSessionPublicRoutes } from "./features/operator-session/api/route";
+import { createProviderScopeDiscoveryMcpHandlers } from "./features/provider-scope-discovery/api/mcp";
+import { createProviderScopeMappingMcpHandlers } from "./features/provider-scope-mapping/api/mcp";
+import { createReferenceDataMcpHandlers } from "./features/reference-data/api/mcp";
+import { createScopeRegistryMcpHandlers } from "./features/scope-registry/api/mcp";
+import { createScopeSyncBatchMcpHandlers } from "./features/scope-sync-batches/api/mcp";
+import { createSourceObservationsMcpHandlers } from "./features/source-observations/api/mcp";
 
 const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
   manifest: contextManifest,
@@ -31,6 +37,25 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
       router: operatorSessionPublicRoutes(services.operatorSession),
     },
   ],
+  buildMcpHandlers: (services) => {
+    const discovery = createProviderScopeDiscoveryMcpHandlers(services.providerScopeDiscovery);
+    const mappings = createProviderScopeMappingMcpHandlers(services.providerScopeMappings);
+    const references = createReferenceDataMcpHandlers(services.referenceData);
+    const registry = createScopeRegistryMcpHandlers(services.scopeRegistry);
+    const batches = createScopeSyncBatchMcpHandlers(services.scopeSyncBatches);
+    const observations = createSourceObservationsMcpHandlers(services.sourceObservations);
+    return {
+      toolHandlers: {
+        ...discovery.toolHandlers,
+        ...mappings.toolHandlers,
+        ...references.toolHandlers,
+        ...registry.toolHandlers,
+        ...batches.toolHandlers,
+        ...observations.toolHandlers,
+      },
+      resourceHandlers: {},
+    };
+  },
   projectionHandlerSets: (services) => services.projectors,
   seedProfiles: [
     "catalog-integration-bootstrap",

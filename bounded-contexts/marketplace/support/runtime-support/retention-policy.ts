@@ -13,6 +13,12 @@ export const marketplaceRetentionSweeps: readonly BcRetentionSweep[] = [
 
 export const marketplaceRetentionExemptions: readonly BcRetentionExemption[] = [
   {
+    tableName: "marketplace_inventory_draft_receipts",
+    owner: "marketplace",
+    reason:
+      "Immutable message dedupe and possible-send reconciliation survive rollback, staging cleanup and day-after replay.",
+  },
+  {
     tableName: "marketplace_review_opportunity_work",
     owner: "marketplace",
     reason:

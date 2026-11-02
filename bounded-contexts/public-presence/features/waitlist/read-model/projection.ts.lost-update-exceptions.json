@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-fbfd84511ddf97d4",
+    "binding": {
+      "module": "bounded-contexts/public-presence/features/waitlist/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "public_presence_waitlist_signups",
+      "digest": "3eba4b7f715c00848beaf31d57a3bb653a5569fbec39a19433184fb7d8e0413f"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:94 directly synchronizes public_presence_waitlist_signups from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-2a386421c8d7632b",
+    "binding": {
+      "module": "bounded-contexts/public-presence/features/waitlist/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "public_presence_waitlist_signups",
+      "digest": "d1d6227b449333eb2c7aa47f963b516ea15fbdc400ffca75ea777cb18c87847e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:114 directly synchronizes public_presence_waitlist_signups from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-6739d06a967343d2",
+    "binding": {
+      "module": "bounded-contexts/public-presence/features/waitlist/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "public_presence_waitlist_signups",
+      "digest": "9848cfddc9f1c0cbb747f2a87181f63d7a49f876f39c29b456d206e60ab2ec43"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:136 is not key-only: it carries the read-state predicate public_referral_code IS NULL OR public_referral_code = $2 for an immutable single-writer column, which this guard's token vocabulary does not model, and GREATEST keeps updated_at monotonic."
+  }
+]

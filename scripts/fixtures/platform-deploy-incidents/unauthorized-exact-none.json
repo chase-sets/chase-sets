@@ -1,0 +1,9 @@
+{
+  "name": "unauthorized write with exact none evidence remains unknown",
+  "input": {
+    "phase": "build-image",
+    "message": "unauthorized:",
+    "diagnostics": [{ "rootCauseCode": "unknown", "active": false, "reason": "no-active-garbage-collection" }]
+  },
+  "expected": { "rootCauseCode": "unknown" }
+}

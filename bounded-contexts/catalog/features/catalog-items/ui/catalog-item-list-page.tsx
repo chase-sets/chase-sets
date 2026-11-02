@@ -377,7 +377,7 @@ export function CatalogItemListPage({
     setShowCreate(false);
     setDescription("");
     setLanguageCode("en");
-    revalidator.revalidate();
+    void revalidator.revalidate();
   }
 
   async function handlePreviewBulkPublish(selection: unknown, scopeLabel: string) {
@@ -415,7 +415,7 @@ export function CatalogItemListPage({
           : t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.partial"),
         result.published_count === result.total ? "success" : "warning",
       );
-      revalidator.revalidate();
+      void revalidator.revalidate();
     } catch {
       addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.partial"), "danger");
     } finally {
@@ -449,7 +449,7 @@ export function CatalogItemListPage({
       );
       setSelectedKeys(new Set());
       setShowRemoveDrafts(false);
-      revalidator.revalidate();
+      void revalidator.revalidate();
     } catch (error) {
       addToast(error instanceof Error ? error.message : String(error), "danger");
     } finally {
@@ -505,7 +505,7 @@ export function CatalogItemListPage({
       setBulkEditResult(result);
       addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.completed"), "success");
       setSelectedKeys(new Set());
-      revalidator.revalidate();
+      void revalidator.revalidate();
     } catch (error) {
       addToast(error instanceof Error ? error.message : String(error), "danger");
     } finally {
@@ -550,7 +550,7 @@ export function CatalogItemListPage({
       });
       setBulkLifecycleResult(result);
       setSelectedKeys(new Set());
-      revalidator.revalidate();
+      void revalidator.revalidate();
     } catch (error) {
       addToast(error instanceof Error ? error.message : String(error), "danger");
     } finally {

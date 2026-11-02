@@ -15,8 +15,8 @@ import {
   PaymentsRateLimitExceededError,
   createPaymentRuntime as createRuntime,
 } from "./runtime";
-import { createPaymentWebhookRunner } from "./webhook-transaction";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPaymentTransactionRunner, createPaymentWebhookRunner } from "./webhook-transaction";
+import type { PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import { ProviderWebhookError, type ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { readFileSync } from "node:fs";
@@ -223,24 +223,29 @@ describe("payments money consolidation", () => {
 });
 
 function createPaymentRuntime(
-  deps: Omit<Parameters<typeof createRuntime>[0], "runWebhookTransaction" | "cardDeclineStore"> &
+  deps: Omit<
+    Parameters<typeof createRuntime>[0],
+    "runWebhookTransaction" | "runPaymentTransaction" | "cardDeclineStore"
+  > &
     Partial<Pick<Parameters<typeof createRuntime>[0], "cardDeclineStore">>,
 ) {
   const pool: PgTransactionalPool = {
     query: deps.db.query,
     connect: async () => ({ query: deps.db.query, release: () => undefined }),
   };
+  const store: PostgresEventStore = {
+    ...deps.eventStore,
+    readStreamInTransaction: (_client, input) => deps.eventStore.readStream(input),
+    appendToStreamInTransaction: (_client, input) => deps.eventStore.appendToStream(input),
+    appendToStreamsInTransaction: async () => {
+      throw new Error("Synthetic payment runtime does not use transaction-local multi-stream appends.");
+    },
+  };
   return createRuntime({
     cardDeclineStore: { check: vi.fn(async () => null), record: vi.fn(async () => undefined) },
     ...deps,
-    runWebhookTransaction: createPaymentWebhookRunner(pool, {
-      ...deps.eventStore,
-      readStreamInTransaction: (_client, input) => deps.eventStore.readStream(input),
-      appendToStreamInTransaction: (_client, input) => deps.eventStore.appendToStream(input),
-      appendToStreamsInTransaction: async () => {
-        throw new Error("Synthetic payment runtime does not use transaction-local multi-stream appends.");
-      },
-    }),
+    runWebhookTransaction: createPaymentWebhookRunner(pool, store),
+    runPaymentTransaction: createPaymentTransactionRunner(pool, store),
   });
 }
 
@@ -2482,7 +2487,14 @@ describe("payment runtime", () => {
       db: db as never,
       processorGateway,
     });
-    const setupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+    const setupSession = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c61",
+        returnUrlBase: "https://app.test",
+      },
+      context,
+    );
 
     const instrument = await services.reconcileSavedCheckoutSetupSession(
       {
@@ -2544,7 +2556,14 @@ describe("payment runtime", () => {
       db: db as never,
       processorGateway,
     });
-    const firstSetupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+    const firstSetupSession = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c62",
+        returnUrlBase: "https://app.test",
+      },
+      context,
+    );
     await services.reconcileSavedCheckoutSetupSession(
       {
         accountId: "acc_buyer" as never,
@@ -2552,7 +2571,14 @@ describe("payment runtime", () => {
       },
       context,
     );
-    const secondSetupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+    const secondSetupSession = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c63",
+        returnUrlBase: "https://app.test",
+      },
+      context,
+    );
 
     const secondInstrument = await services.reconcileSavedCheckoutSetupSession(
       {
@@ -2795,10 +2821,15 @@ describe("payment runtime", () => {
       processorGateway,
     });
 
-    const setup = await services.createSavedCheckoutSetupSession({
-      accountId: "acc_buyer" as never,
-      agentGrantId: "lpa_1",
-    });
+    const setup = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c64",
+        returnUrlBase: "https://app.test",
+        agentGrantId: "lpa_1",
+      },
+      context,
+    );
     await services.revokeSavedCheckoutInstrumentsForAgentGrant(
       {
         accountId: "acc_buyer" as never,
@@ -2861,6 +2892,7 @@ describe("payment runtime", () => {
       {
         accountId: "acc_buyer" as never,
         instrumentId: "sci_card_1",
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c65",
       },
       context,
     );
