@@ -260,7 +260,7 @@ const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quot
 type Citation = readonly [ref: string, ...patterns: RegExp[]];
 const quoteChain: Citation[] = [
   [
-    `${listingRuntime}:1140-1163`,
+    `${listingRuntime}:1232-1249`,
     /async function quoteListingTerms\(accountId: string, priceAmount: string\)\s*\{\s*return quoteMarketplaceTerms\(deps.commercialTermsResolver,/,
     /providedFingerprint !== currentQuote.fee_quote_fingerprint/,
   ],
@@ -289,7 +289,7 @@ const creationChain: Citation[] = [
     /feeLocks: event.data.feeLocks/,
   ],
   [
-    `${listingRuntime}:1615-1670`,
+    `${listingRuntime}:1764-1818`,
     /params.publicationScope === "channel-only" \? null : await quoteListingTerms\(params.accountId, params.priceAmount\)/,
     /type: "CreateListing"/,
     /feeLock: quote \? feeLockFromMarketplaceTermsQuote\(params.quantityCap, quote\) : null/,
@@ -380,13 +380,13 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:1997-2013`,
+        `${listingRuntime}:2141-2172`,
         /updateListingPrice: async/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, params.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
       ],
       [
-        `${listingRuntime}:2015-2123`,
+        `${listingRuntime}:2174-2293`,
         /applyBulkListingPriceUpdates: async/,
         /assertConfirmedFeeQuote\(update.feeQuoteFingerprint, quote\)/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, update.priceAmount\)\)/,
@@ -460,7 +460,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /const latest = resized.pop\(\)/,
       ],
       [
-        `${listingRuntime}:2121-2149`,
+        `${listingRuntime}:2295-2335`,
         /addedUnitCount = Math.max\(0, params.quantityCap - listing.quantityCap\)/,
         /addedUnitCount > 0 \? await quoteListingTerms\(params.accountId, listing.priceAmount\) : null/,
         /assertConfirmedFeeQuote\(params.feeQuoteFingerprint, quote\)/,
@@ -641,10 +641,10 @@ describe("founders clause-level source authority", () => {
         /method: "POST"/,
       ],
       [
-        "bounded-contexts/marketplace/features/listings/api/route.ts:1399-1428",
+        "bounded-contexts/marketplace/features/listings/api/route.ts:1470-1502",
         /"\/listings\/prices\/bulk"/,
         /services.applyBulkListingPriceUpdates/,
-        /updates: parseBulkListingPriceUpdates\(body\)/,
+        /updates: parseBulkListingPriceUpdates\(body, c\.req\.header\("Idempotency-Key"\)\)/,
       ],
     ];
     for (const [ref, ...patterns] of callers) {
