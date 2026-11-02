@@ -777,16 +777,19 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       const command = { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId: freshAttemptId() };
       const streamId = streamIdFor(command.attemptId);
       const firstStartedCommit = deferred();
+      const replicaLockObserved = deferred();
       const releaseReplicaLock = deferred();
       const appended: Runtime[] = [];
       const trace: Array<{ event: string; runtime?: Runtime; detail?: unknown }> = [];
       const readAbsent: Record<Runtime, boolean> = { primary: false, replica: false };
       let lateSecondRead = false;
       let firstStarted: Runtime | undefined;
-      let firstReadRuntime: Runtime | undefined;
       let readReleased = false;
+      let primaryEffectClient: number | undefined;
+      let primaryAttemptLockAcquired = false;
       let primaryEffectFinished = false;
       let replicaLockHeld = false;
+      const opened: Partial<Record<"read" | "default" | "replicaLock" | "copies" | "cleanup", boolean>> = {};
 
       intercept = async (statement, run) => {
         const readsAttemptStream =
@@ -794,10 +797,10 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
           /\bFROM\s+event_store_events\b/i.test(statement.sql) &&
           statement.params[0] === streamId;
         if (readsAttemptStream) {
-          if (firstReadRuntime === undefined) firstReadRuntime = statement.runtime;
-          if (statement.runtime !== firstReadRuntime && !readReleased) {
-            await firstStartedCommit.promise;
+          if (statement.runtime === "replica" && !readReleased) {
             readReleased = true;
+            opened.read = await bounded(firstStartedCommit.promise);
+            trace.push({ event: "replicaReadReleased", runtime: "replica" });
           }
           const result = await run();
           const rows = (result as { rows?: readonly unknown[] }).rows;
@@ -816,24 +819,35 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
           firstStartedCommit.resolve();
           return result;
         }
-        if (statement.runtime === "replica" && isAttemptLock(statement, command.attemptId) && !primaryEffectFinished) {
+        if (isAttemptLock(statement, command.attemptId)) {
+          if (statement.runtime === "primary") {
+            primaryEffectClient = statement.client;
+            trace.push({ event: "primaryAttemptLockObserved", runtime: "primary" });
+            const result = await run();
+            primaryAttemptLockAcquired = true;
+            trace.push({ event: "primaryAttemptLockAcquired", runtime: "primary" });
+            return result;
+          }
           replicaLockHeld = true;
-          trace.push({ event: "replicaLockHeld", runtime: "replica" });
-          await releaseReplicaLock.promise;
-          trace.push({ event: "replicaLockReleased", runtime: "replica" });
+          trace.push({ event: "replicaAttemptLockObserved", runtime: "replica" });
+          replicaLockObserved.resolve();
+          opened.replicaLock = await bounded(releaseReplicaLock.promise);
+          trace.push({ event: "replicaAttemptLockRun", runtime: "replica" });
         }
         if (streamUpsert(statement, streamId) && !appended.includes(statement.runtime)) {
           appended.push(statement.runtime);
           trace.push({ event: "appended", runtime: statement.runtime });
         }
         if (statement.runtime === "primary" && isDefaultWrite(statement.sql)) {
-          try {
-            return await run();
-          } finally {
-            primaryEffectFinished = true;
-            trace.push({ event: "primaryEffectFinished", runtime: "primary" });
-            releaseReplicaLock.resolve();
-          }
+          opened.default = await bounded(replicaLockObserved.promise);
+          trace.push({ event: "primaryDefaultWriteRun", runtime: "primary" });
+        }
+        if (statement.runtime === "primary" && statement.client === primaryEffectClient && statement.sql === "COMMIT") {
+          const result = await run();
+          primaryEffectFinished = true;
+          trace.push({ event: "primaryEffectFinished", runtime: "primary" });
+          releaseReplicaLock.resolve();
+          return result;
         }
         return run();
       };
@@ -843,29 +857,58 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       const copiesSettled = Promise.allSettled([first, duplicate]);
       onTestFinished(async () => {
         firstStartedCommit.resolve();
+        replicaLockObserved.resolve();
         releaseReplicaLock.resolve();
-        await copiesSettled;
+        opened.cleanup = await bounded(copiesSettled.then(() => {}));
+        trace.push({ event: "cleanup", detail: opened.cleanup });
         console.info(
           "saved-instrument-race-control",
           JSON.stringify({
             trace,
+            opened,
             appended,
-            assertions: { readAbsent, firstStarted, lateSecondRead, primaryEffectFinished, replicaLockHeld },
-            bounds: { cleanup: true },
+            assertions: {
+              readAbsent,
+              firstStarted,
+              lateSecondRead,
+              primaryAttemptLockAcquired,
+              primaryEffectFinished,
+              replicaLockHeld,
+            },
+            bounds: opened,
           }),
         );
+        expect(opened.cleanup).toBe(true);
       });
 
-      await copiesSettled;
+      opened.copies = await bounded(copiesSettled.then(() => {}));
+      expect(opened).toEqual({ read: true, default: true, replicaLock: true, copies: true });
       expect(firstStarted).toBeDefined();
       expect(lateSecondRead).toBe(true);
       const other: Runtime = firstStarted === "primary" ? "replica" : "primary";
       expect(readAbsent[other]).toBe(false);
+      expect(primaryAttemptLockAcquired).toBe(true);
       expect(primaryEffectFinished).toBe(true);
       expect(replicaLockHeld).toBe(true);
+      const events = trace.map(({ event }) => event);
+      expect(events.indexOf("replicaAttemptLockObserved")).toBeLessThan(events.indexOf("primaryDefaultWriteRun"));
+      expect(events.indexOf("primaryEffectFinished")).toBeLessThan(events.indexOf("replicaAttemptLockRun"));
       expect(appended).toHaveLength(1);
+      await expect(first).resolves.toMatchObject({ instrument_id: "sci_SYNTHETIC_B", is_default: true });
+      await expect(duplicate).resolves.toMatchObject({ instrument_id: "sci_SYNTHETIC_B", is_default: true });
       expect(writes.filter(isDefaultWrite)).toHaveLength(1);
       expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
+      expect(await publications()).toBe(1);
+      expect(await defaults()).toEqual(["sci_SYNTHETIC_B"]);
+      const attemptEventTypes = await eventTypes(primary.eventStore, command.attemptId);
+      expect(attemptEventTypes).toEqual([
+        SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_STARTED,
+        SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_COMPLETED,
+      ]);
+      trace.push({
+        event: "assertions",
+        detail: { attemptEventTypes, defaultWrites: 1, auditRows: 1, publications: 1 },
+      });
     });
 
     it.each<Runtime>(["replica", "primary"])(
