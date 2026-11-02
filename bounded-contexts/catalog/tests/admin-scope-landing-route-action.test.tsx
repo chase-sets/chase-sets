@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Hono } from "hono";
 import type { LoaderFunctionArgs } from "react-router";
-import { MemoryRouter } from "react-router";
+import { RouterProvider, createMemoryRouter } from "react-router";
 import { ApiError as CatalogApiError, createCatalogApiClient } from "../support/shell-support/api/client";
 import type { CatalogAuthoringEnv } from "../support/authoring-support/api";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -165,17 +165,24 @@ async function expectHomeQueue(visible: boolean, feedback?: Awaited<ReturnType<t
   if (data.attentionQueue.status !== "ready") throw new Error("Expected a validated queue response");
   expect(data.attentionQueue.readModel.items.map((item) => item.itemKey)).toEqual(visible ? [queueItem.itemKey] : []);
   cleanup();
-  render(
-    <MemoryRouter>
-      <CatalogScopeLandingPage
-        {...data}
-        loading={false}
-        actionHref="/catalog/scopes"
-        commandFeedback={feedback?.feedback}
-        attentionItemKey={feedback?.attentionItemKey}
-      />
-    </MemoryRouter>,
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/catalog/scopes",
+        Component: () => (
+          <CatalogScopeLandingPage
+            {...data}
+            loading={false}
+            actionHref="/catalog/scopes"
+            commandFeedback={feedback?.feedback}
+            attentionItemKey={feedback?.attentionItemKey}
+          />
+        ),
+      },
+    ],
+    { initialEntries: ["/catalog/scopes?page=2"] },
   );
+  render(<RouterProvider router={router} />);
   expect(screen.queryAllByText(/Unblock .* on tcgplayer/i).length > 0).toBe(visible);
   if (!visible) expect(screen.getByText(/running itself/i)).toBeTruthy();
   if (feedback?.attentionItemKey) {

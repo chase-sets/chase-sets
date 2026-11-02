@@ -214,6 +214,10 @@ function generalAliasReview(
         alias_type: "set-equivalent",
         review_status: statuses["alias-reference"] ?? "auto-accepted",
       }),
+      aliasCandidate({
+        alias_hash: "alias-accepted-item",
+        review_status: statuses["alias-accepted-item"] ?? "accepted",
+      }),
     ],
     catalogItemAliasRows: [acceptedItemAlias({ review_status: statuses["alias-accepted-item"] ?? "accepted" })],
     referenceRecordAliasRows: [acceptedReferenceAlias()],

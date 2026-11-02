@@ -304,7 +304,7 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
       .getAllByRole("group")
       .filter((group) => group.getAttribute("data-catalog-provider-job-disclosure") === jobId);
     const triggers = disclosures.map((group) =>
-      within(group).getByRole("button", { name: new RegExp(`^${jobId}Import`) }),
+      within(group).getByRole("button", { name: new RegExp(`^${jobId}\\s*Import`, "i") }),
     );
     expect(triggers).toHaveLength(2);
     return triggers;
@@ -423,6 +423,7 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
       jobId: "tcgdex-job",
       providerKey: "tcgdex",
       unitKey,
+      summary: "Import tcgdex-job",
       operatorStatus: "completed",
       phase: "completed",
       result: jobResult(),
@@ -506,7 +507,11 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
     expect(forms).toHaveLength(6);
     for (const form of forms) expect(form.querySelector("button")?.disabled).toBe(true);
     cleanup();
-    render(<CatalogProviderDetailPage readModel={providerJobsReadModel([], "tcgdex", {}, "&unitKey=deleted-unit")} />);
+    render(
+      <CatalogProviderDetailPage
+        readModel={providerJobsReadModel([], "tcgdex", {}, "&unitKey=tcgdex:pokemon:deleted:import")}
+      />,
+    );
     expect(screen.getByText(/Resolution unavailable/i)).toBeTruthy();
     expect(document.querySelector('[data-provider-unit-selected="true"]')).toBeNull();
   });
