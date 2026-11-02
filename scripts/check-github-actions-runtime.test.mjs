@@ -70,6 +70,7 @@ jobs:
       - uses: docker://rhysd/actionlint:1.7.12
       - uses: actions/checkout@${checkoutSha} # v6.0.0
       - uses: actions/github-script@${githubScriptSha} # v8.0.0
+      - uses: actions/cache/restore@${cacheSha} # v5.1.0
       - uses: digitalocean/action-doctl@${doctlSha} # v2.5.2
 `);
 
@@ -84,6 +85,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/cache@${cacheSha} # v4.2.4
+`);
+
+    const result = checkGithubActionsRuntime({ rootDir });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([
+      expect.stringContaining("is documented as v4.2.4; keep the release comment on v5.0.0 or newer"),
+    ]);
+  });
+
+  it("rejects cache restore documented below the Node 24-compatible version", () => {
+    const rootDir = workflowRootWith(`
+name: Test
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@${cacheSha} # v4.2.4
 `);
 
     const result = checkGithubActionsRuntime({ rootDir });

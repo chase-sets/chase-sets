@@ -8,6 +8,7 @@ const workflowRoot = path.join(repoRoot, ".github");
 
 const minimumNode24ActionVersions = new Map([
   ["actions/cache", "v5.0.0"],
+  ["actions/cache/restore", "v5.0.0"],
   ["actions/checkout", "v6.0.0"],
   ["actions/create-github-app-token", "v3.0.0"],
   ["actions/download-artifact", "v7.0.0"],

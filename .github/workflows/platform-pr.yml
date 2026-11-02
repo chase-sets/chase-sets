@@ -197,6 +197,26 @@ jobs:
       - name: Check generated metadata
         run: pnpm run verify:metadata
 
+      - name: Resolve Playwright Chromium version
+        id: playwright-version
+        run: |
+          set -euo pipefail
+          version="$(pnpm exec playwright --version | awk '{print $2}')"
+          if [ -z "$version" ]; then
+            echo "Could not resolve Playwright version from pnpm-lock.yaml." >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright Chromium cache
+        id: playwright-chromium-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
+        with:
+          path: /home/runner/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Install provider browser boundary
         env:
           INSTALLER_TIMEOUT_SECONDS: "600"
