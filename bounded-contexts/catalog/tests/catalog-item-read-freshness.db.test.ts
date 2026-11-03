@@ -1,11 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { Hono } from "hono";
 import {
+  attachReadConsistencyMiddleware,
   bootstrapContextDatabase,
   drainContextProcesses,
+  mountApiRouters,
+  resolveModuleApiMounts,
   resolveModuleSubscriptions,
+  type ReadConsistencyProjectionGroup,
 } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
+  createMountedContextTestRuntime,
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
@@ -15,7 +21,9 @@ import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as catalogModule } from "../index";
-import { createCatalogServices, type CatalogServices } from "../support/authoring-support";
+import { type CatalogAuthoringEnv } from "../support/authoring-support/api";
+import type { CatalogServices } from "../support/authoring-support";
+import { CHASE_SETS_READ_AFTER_WRITE_HEADER, encodeFreshWriteReceipt } from "@chase-sets/http/responses";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
@@ -29,6 +37,7 @@ describeDb("Catalog item read freshness DB proof", () => {
   let pool: PgTransactionalPool;
   let services: CatalogServices;
   let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
+  let projectionGroups: readonly ReadConsistencyProjectionGroup[];
 
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, contextNames, "catalog_item_read_freshness");
@@ -39,16 +48,12 @@ describeDb("Catalog item read freshness DB proof", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ catalog: pool });
     await bootstrapContextDatabase(catalogModule, pool);
-    services = createCatalogServices(pool);
-    subscriptionRunners = resolveModuleSubscriptions([
-      {
-        contextName: "catalog",
-        module: catalogModule,
-        services,
-        pool,
-        projectionHandlerSets: catalogModule.projectionHandlerSets?.(services) ?? [],
-      },
+    const runtime = createMountedContextTestRuntime([
+      { contextName: "catalog", module: catalogModule, pool, ports: {} },
     ]);
+    services = runtime.services.catalog as CatalogServices;
+    subscriptionRunners = runtime.subscriptionRunners;
+    projectionGroups = runtime.projectionGroups;
   });
 
   afterAll(async () => {
@@ -77,17 +82,80 @@ describeDb("Catalog item read freshness DB proof", () => {
     await services.items.commandHandler({
       streamId,
       expectedVersion: 1,
+      command: { type: "SetCatalogItemImageUrls", imageUrls: ["https://assets.example/old-image.webp"] },
+      context,
+    });
+    await drainContextProcesses({ subscriptionRunners });
+
+    await services.items.commandHandler({
+      streamId,
+      expectedVersion: 2,
       command: { type: "SetCatalogItemImageUrls", imageUrls: ["https://assets.example/fresh-image.webp"] },
       context,
     });
-    const stored = await eventStore.readStream({ streamId, fromVersion: 2, limit: 1 });
+    const stored = await eventStore.readStream({ streamId, fromVersion: 3, limit: 1 });
     const committedEvent = stored[0];
     expect(committedEvent).toBeDefined();
 
-    await drainContextProcesses({ subscriptionRunners });
+    const mounts = resolveModuleApiMounts(catalogModule, services);
+    const audits: unknown[] = [];
+    const app = new Hono<CatalogAuthoringEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", { permissions: ["catalog.view", "catalog.manage"] });
+      c.set("context", context);
+      await next();
+    });
+    attachReadConsistencyMiddleware(app, mounts, projectionGroups, {
+      timeoutMs: 0,
+      pollIntervalMs: 1,
+      recordReadConsistencyAudit: (audit) => audits.push(audit),
+    });
+    mountApiRouters(app, mounts);
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [
+        {
+          sourceContextName: "catalog",
+          maxGlobalPosition: String(committedEvent!.globalPosition),
+          eventIds: [committedEvent!.eventId],
+        },
+      ],
+    });
+    const read = () =>
+      app.request(`http://catalog.test/api/catalog/items/${itemId}`, {
+        headers: { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt },
+      });
 
-    const detail = await services.items.getCatalogItemDetail(itemId);
-    expect(detail?.image_urls).toEqual(["https://assets.example/fresh-image.webp"]);
+    const beforeDrain = await read();
+    expect(beforeDrain.status).toBe(503);
+    expect(await beforeDrain.json()).toMatchObject({ error: { code: "projection_freshness_timeout" } });
+    expect(await services.items.getCatalogItemDetail(itemId)).toMatchObject({
+      image_urls: ["https://assets.example/old-image.webp"],
+    });
+
+    const detailRoute = mounts
+      .find((mount) => mount.mountPath === "/api/catalog")
+      ?.readFreshnessRoutes?.find((route) => route.routePath === "/items/:id");
+    expect(detailRoute).toBeDefined();
+    const detailProjectionNames = new Set(
+      detailRoute!.dependencies.flatMap((dependency) =>
+        "projectionName" in dependency
+          ? [dependency.projectionName]
+          : projectionGroups
+              .filter((group) => group.ownedTables?.includes(dependency.readModelTable))
+              .map((group) => group.projectionName),
+      ),
+    );
+    await drainContextProcesses({
+      subscriptionRunners: projectionGroups
+        .filter((group) => detailProjectionNames.has(group.projectionName))
+        .flatMap((group) => group.subscriptionRunners),
+    });
+
+    const afterDrain = await read();
+    expect(afterDrain.status).toBe(200);
+    expect(await afterDrain.json()).toMatchObject({ image_urls: ["https://assets.example/fresh-image.webp"] });
+    expect(audits.at(-1)).toMatchObject({ outcome: "fresh", waitMode: "exact-dependency" });
     const applications = await pool.query<{ status: string }>(
       `SELECT status
        FROM event_subscription_applications

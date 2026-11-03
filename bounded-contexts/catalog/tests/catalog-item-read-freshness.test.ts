@@ -95,12 +95,13 @@ function manifestMount(manifest: CatalogManifest) {
   return mount;
 }
 
-function groupsForManifest(manifest: CatalogManifest, status: ReadonlyMap<string, "caught-up" | "behind">) {
+function groupsForManifest(manifest: CatalogManifest, status: ReadonlyMap<string, "caught-up" | "behind" | "error">) {
   return manifest.projectionGroups.map<ReadConsistencyProjectionGroup>((group) => {
+    const state = status.get(group.projectionName) ?? "caught-up";
     const refreshStatus = vi.fn(async () => ({
-      lastGlobalPosition: status.get(group.projectionName) === "behind" ? "9" : "10",
-      state: status.get(group.projectionName) ?? "caught-up",
-      lastError: null,
+      lastGlobalPosition: state === "caught-up" ? "10" : "9",
+      state,
+      lastError: state === "error" ? "projection failed" : null,
     }));
     return {
       targetContextName: "catalog",
@@ -241,8 +242,82 @@ describe("Catalog item read freshness", () => {
     }
   });
 
-  it("receipted catalog reads bind freshness to committed application not row presence", () => {
+  it("receipted catalog reads bind freshness to committed application not row presence", async () => {
     const manifest = catalogManifest();
+    const mount = manifestMount(manifest);
+    const exercisedRoutes = ["/items/:id", "/product-contents/containers/:id", "/product-contents/contained/:id"];
+
+    for (const routePath of exercisedRoutes) {
+      const route = mount.readFreshnessRoutes!.find((candidate) => candidate.routePath === routePath);
+      expect(route).toBeDefined();
+      const required = new Set(
+        route!.dependencies.map((dependency) =>
+          "projectionName" in dependency
+            ? dependency.projectionName
+            : manifest.projectionGroups.find((group) => group.ownedTables?.includes(dependency.readModelTable))
+                ?.projectionName,
+        ),
+      );
+      expect(required).not.toContain(undefined);
+
+      const invoke = async (
+        states: ReadonlyMap<string, "caught-up" | "behind" | "error">,
+        maxGlobalPosition = "10",
+      ) => {
+        const receipt = encodeFreshWriteReceipt({
+          observedAtMs: Date.now(),
+          sources: [{ sourceContextName: "catalog", maxGlobalPosition, eventIds: ["evt_catalog_10"] }],
+        });
+        const groups = groupsForManifest(manifest, states);
+        const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+        const audits: unknown[] = [];
+        attachReadConsistencyMiddleware(
+          { use: (_path, middleware) => void middlewares.push(middleware) },
+          [{ contextName: "catalog", mountPath: mount.mountPath, readFreshnessRoutes: mount.readFreshnessRoutes }],
+          groups,
+          { timeoutMs: 0, pollIntervalMs: 1, recordReadConsistencyAudit: (audit) => audits.push(audit) },
+        );
+        let handlerCalls = 0;
+        const result = await middlewares[0]!(requestFor(routeRequestPath(routePath), "GET", receipt), async () => {
+          handlerCalls += 1;
+        });
+        return { groups, audits, handlerCalls, result };
+      };
+
+      const behind = new Map(manifest.projectionGroups.map((group) => [group.projectionName, "caught-up" as const]));
+      behind.set([...required][0]!, "behind");
+      const behindResult = await invoke(behind);
+      expect(behindResult.handlerCalls).toBe(0);
+      expect(behindResult.result).toMatchObject({
+        status: 503,
+        body: { error: { code: "projection_freshness_timeout", waitMode: "exact-dependency" } },
+      });
+
+      const failed = new Map(behind).set([...required][0]!, "error" as const);
+      const failedResult = await invoke(failed);
+      expect(failedResult.handlerCalls).toBe(0);
+      expect(failedResult.result).toMatchObject({
+        status: 503,
+        body: { error: { code: "projection_freshness_timeout", waitMode: "exact-dependency" } },
+      });
+
+      const partialReceiptResult = await invoke(
+        new Map(manifest.projectionGroups.map((group) => [group.projectionName, "caught-up" as const])),
+        "11",
+      );
+      expect(partialReceiptResult.handlerCalls).toBe(0);
+      expect(partialReceiptResult.audits[0]).toMatchObject({ outcome: "timeout", waitMode: "exact-dependency" });
+
+      const unrelatedLag = new Map(
+        manifest.projectionGroups.map((group) => [group.projectionName, "caught-up" as const]),
+      );
+      unrelatedLag.set("catalog-source-observation-projection", "behind");
+      const freshResult = await invoke(unrelatedLag);
+      expect(freshResult.result).toBeUndefined();
+      expect(freshResult.handlerCalls).toBe(1);
+      expect(freshResult.audits[0]).toMatchObject({ outcome: "fresh", waitMode: "exact-dependency" });
+    }
+
     const detail = manifest.readAfterWriteRouteInventory?.find(
       (entry) => entry.id === "catalog.item-detail-self-refresh",
     );
