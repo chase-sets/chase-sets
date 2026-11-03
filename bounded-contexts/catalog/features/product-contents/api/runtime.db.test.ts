@@ -6,6 +6,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { module as catalogModule } from "../../../index";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;

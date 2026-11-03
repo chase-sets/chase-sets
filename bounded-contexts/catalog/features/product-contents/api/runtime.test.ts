@@ -231,7 +231,7 @@ function createEventStore(existingEvents: readonly StoredEvent[] = []) {
     }),
     readStream: async (input: ReadStreamInput): Promise<StoredEvent[]> => {
       reads.push(input);
-      return originalRead(input);
+      return [...(await originalRead(input))];
     },
   };
   return { eventStore, appended, reads };
