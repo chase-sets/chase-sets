@@ -146,8 +146,8 @@ describe("CheckoutSessionRecoveryPage", () => {
         expect(recoverableErrors).toEqual([]);
         expect(container.querySelector("section")).toBe(parsedSection);
         expect(container.querySelector('[role="status"]')).toBe(parsedStatus);
-        expect(parsedStatus).toHaveAttribute("aria-live", "polite");
-        expect(parsedStatus).toHaveAttribute("aria-atomic", "true");
+        expect(parsedStatus?.getAttribute("aria-live")).toBe("polite");
+        expect(parsedStatus?.getAttribute("aria-atomic")).toBe("true");
         expect(container.querySelector("h2")?.textContent).toBe(kind === null ? "Checkout recovery" : recovery.title);
         expect(container.querySelector("a")?.textContent).toBe(recovery.primaryAction.label);
         root?.unmount();
