@@ -28,7 +28,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     Sent,
-    api::{AliasReview, AttentionItem, AttentionKind, Catalog, Kind},
+    api::{AttentionItem, AttentionKind, Catalog, Kind},
     command, receipt,
     scopes::{self, ScopeBack, url::ScopeQuery},
     views::{self, Draft},
@@ -317,8 +317,8 @@ async fn alias(req: Req, config: Shared, headers: HeaderMap, query: ScopeQuery, 
 /// reject or revoke post the alias review's command; defer writes nothing (the candidate stays
 /// pending) and says queued, as admin-web's does. A reject or revoke with no reason, or no
 /// candidate, is the failed banner. The bulk bar posts its checked boxes as `picked`, and its
-/// Auto-accept eligible (`alias.accept-eligible`) accepts only those the review marks eligible,
-/// read again here: admin-web's sends every picked candidate (chase-sets/chase-sets#11024).
+/// Auto-accept eligible (`alias.accept-eligible`) asks Catalog to accept only those it marks
+/// eligible.
 async fn alias_review(
     req: Req,
     _: corten::Caller<Staff<CatalogAccess>>,
@@ -328,11 +328,10 @@ async fn alias_review(
     Form(input): Form<crate::catalog::scope::url::AliasCommand>,
 ) -> HtmlResult {
     let query = route.query;
-    let caller = config.platform.caller(&headers, config.proto, None);
     let Some(done) = AliasDone::of(&input.intent) else {
         return failed(&req, query);
     };
-    match alias_command_body(&caller, &input, "?limit=200").await {
+    match alias_command_body(&input) {
         Ok(Some(body)) => queued(&req, &config, &headers, query, Kind::AliasReview, &body, done.attention()).await,
         Ok(None) => {
             let notice = scopes::url::ScopeNotice { done: Some(done.attention()), ..Default::default() };
@@ -344,14 +343,10 @@ async fn alias_review(
 
 /// What an alias review command sends (`handleAliasReviewCommand`): the alias review's command
 /// body, `None` for a defer (it writes nothing), or `Err` for one it cannot send: no candidate, a
-/// reject or revoke without its reason, an intent it does not offer, or an Auto-accept eligible
-/// with none eligible. Auto-accept eligible keeps the picked candidates the review read with
-/// `review_query` marks eligible: admin-web's sends every picked one (chase-sets/chase-sets#11024).
-pub(crate) async fn alias_command_body(
-    caller: &crate::api::Caller<'_>,
-    input: &crate::catalog::scope::url::AliasCommand,
-    review_query: &str,
-) -> Result<Option<Value>, ()> {
+/// reject or revoke without its reason, or an intent it does not offer. Auto-accept eligible is an
+/// accept with `eligibleOnly`, so Catalog applies it to the picked candidates it marks eligible
+/// and skips the rest.
+pub(crate) fn alias_command_body(input: &crate::catalog::scope::url::AliasCommand) -> Result<Option<Value>, ()> {
     let mut hashes: Vec<&str> = Vec::new();
     let named = input.alias_hashes.split(',').chain(input.picked.iter().map(String::as_str));
     for hash in named.map(str::trim).filter(|h| !h.is_empty()) {
@@ -374,22 +369,12 @@ pub(crate) async fn alias_command_body(
     if intent == "defer" {
         return Ok(None);
     }
-    if eligible_only {
-        // Workaround for chase-sets/chase-sets#11024: remove once the API's command takes the rule.
-        match caller.read_at::<AliasReview>(Kind::AliasReview, review_query).await {
-            Ok(review) => hashes.retain(|hash| review.candidates.iter().any(|c| c.alias_hash == *hash && c.auto_accept.eligible)),
-            Err(error) => {
-                tracing::warn!("the alias review could not be read for Auto-accept eligible: {error}");
-                return Err(());
-            }
-        }
-        if hashes.is_empty() {
-            return Err(());
-        }
-    }
     let mut body = json!({ "intent": intent, "aliasHashes": hashes.join(",") });
     if !reason.is_empty() {
         body["reason"] = json!(reason);
+    }
+    if eligible_only {
+        body["eligibleOnly"] = json!(true);
     }
     Ok(Some(body))
 }
@@ -466,7 +451,7 @@ async fn queued(
     }
 }
 
-/// The bulk bar's Auto-accept eligible: an accept of the picked candidates the review marks eligible.
+/// The bulk bar's Auto-accept eligible: an accept of the picked candidates Catalog marks eligible.
 pub const ACCEPT_ELIGIBLE: &str = "alias.accept-eligible";
 
 fn failed(req: &Req, query: ScopeQuery) -> HtmlResult {

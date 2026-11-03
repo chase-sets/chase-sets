@@ -4478,14 +4478,14 @@ async fn the_alias_reviews_bulk_bar_posts_the_checked_candidates_and_auto_accept
         bodies,
         [
             json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu" }),
-            json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }),
+            json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu", "eligibleOnly": true }),
             json!({ "intent": "reject", "aliasHashes": "ah_glurak", "reason": "Machine translation" })
         ],
-        "Auto-accept eligible sends only the eligible one (chase-sets/chase-sets#11024)"
+        "Auto-accept eligible sends the picked candidates and leaves the rule to Catalog"
     );
 
-    // None eligible, none checked, or a reject without its reason: the failed banner, nothing sent.
-    for body in ["intent=alias.accept-eligible&picked=ah_glurak", "intent=alias.accept", "intent=alias.reject&picked=ah_glurak"] {
+    // None checked, or a reject without its reason: the failed banner, nothing sent.
+    for body in ["intent=alias.accept", "intent=alias.reject&picked=ah_glurak"] {
         let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", body, false)).await;
         assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=failed", "{body}");
     }
@@ -10596,11 +10596,14 @@ async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land
     };
     assert_eq!(sent(&pilot), [json!({ "intent": "accept", "aliasHashes": "ah_glurak" })]);
 
-    // Auto-accept eligible keeps the eligible ones (chase-sets/chase-sets#11024); defer writes nothing.
+    // Auto-accept eligible leaves the rule to Catalog; defer writes nothing.
     let picked = "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu";
     let (status, _, _) = pilot.send(post(&format!("/catalog/integrations/aliases?{at}"), picked, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(sent(&pilot).last().unwrap(), &json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }));
+    assert_eq!(
+        sent(&pilot).last().unwrap(),
+        &json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu", "eligibleOnly": true })
+    );
     let (status, headers, _) = pilot
         .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.defer&alias_hashes=ah_glurak", false))
         .await;
