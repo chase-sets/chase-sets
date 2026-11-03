@@ -211,4 +211,121 @@ $migration$`,
       }
     },
   },
+  {
+    migrationId: "20261102_inventory_hold_consumption_handoff",
+    description: "Reconcile retained consumed-hold audit rows so stock movement is represented exactly once.",
+    statements: [],
+    dataStep: async (db: BcSchemaMigrationClient) => {
+      const deadline = Date.now() + 60_000;
+      async function query<Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new Error("60-second deadline exceeded");
+        await db.query("SELECT set_config('statement_timeout', $1, true)", [`${remaining}ms`]);
+        const result = await db.query<Row>(sql, values);
+        if (Date.now() >= deadline) throw new Error("60-second deadline exceeded");
+        return result;
+      }
+
+      try {
+        await query("SET LOCAL lock_timeout = '5s'");
+        await query("LOCK TABLE event_store_streams IN EXCLUSIVE MODE");
+        await query("LOCK TABLE inventory_item_ledger IN ACCESS EXCLUSIVE MODE");
+        type RetainedConsumption = {
+          hold_stream_id: string;
+          hold_stream_version: number;
+          tenant_id: string;
+          performed_by_user_id: string;
+          for_account_id: string;
+          occurred_at: string;
+          payload: Record<string, unknown>;
+          item_id: string;
+          quantity: number;
+          item_stream_version: number;
+        };
+        const retained = await query<RetainedConsumption>(
+          `SELECT consumed.stream_id AS hold_stream_id,
+                  consumed.stream_version AS hold_stream_version,
+                  consumed.tenant_id,
+                  consumed.performed_by_user_id,
+                  consumed.for_account_id,
+                  consumed.occurred_at,
+                  consumed.payload,
+                  placement.payload ->> 'itemId' AS item_id,
+                  (placement.payload ->> 'quantity')::integer AS quantity,
+                  item_stream.current_version AS item_stream_version
+           FROM event_store_events AS consumed
+           JOIN LATERAL (
+             SELECT payload FROM event_store_events
+             WHERE stream_id = consumed.stream_id AND event_type = 'inventory.hold.placed'
+             ORDER BY stream_version ASC LIMIT 1
+           ) AS placement ON true
+           JOIN event_store_streams AS item_stream
+             ON item_stream.stream_id = 'inventory.item-' || (placement.payload ->> 'itemId')
+           WHERE consumed.event_type = 'inventory.hold.consumed'
+             AND NOT EXISTS (
+               SELECT 1 FROM event_store_events AS companion
+               WHERE companion.stream_id = item_stream.stream_id
+                 AND companion.event_type = 'inventory.item.adjusted'
+                 AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = consumed.stream_id
+                 AND (companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint = consumed.stream_version
+             )
+           LIMIT 100001`,
+        );
+        const ledger = await query(
+          "SELECT ledger_entry_id FROM inventory_item_ledger WHERE kind = 'hold-consumed' LIMIT 100001",
+        );
+        if (retained.rows.length > 100_000 || ledger.rows.length > 100_000) {
+          throw new Error("consumed-hold handoff exceeds the 100000-row bound");
+        }
+        if (retained.rows.length > 0 && !db.appendToStreamsInTransaction) {
+          throw new Error("transaction-bound event-store append is unavailable");
+        }
+        for (const row of retained.rows) {
+          const pairId = `inventory-consumption:${row.hold_stream_id}:${row.hold_stream_version}:handoff`;
+          await db.appendToStreamsInTransaction?.([
+            {
+              streamId: `inventory.item-${row.item_id}`,
+              expectedVersion: Number(row.item_stream_version),
+              context: {
+                tenantId: row.tenant_id as never,
+                audit: {
+                  performedByUserId: row.performed_by_user_id as never,
+                  forAccountId: row.for_account_id as never,
+                },
+              },
+              events: [
+                {
+                  eventType: "inventory.item.adjusted",
+                  payload: {
+                    itemId: row.item_id,
+                    quantityDelta: -Math.abs(Number(row.quantity)),
+                    reason: "Stock consumed",
+                    reasonCode: "sale-consumed",
+                    sourceRef: row.payload.sourceRef ?? null,
+                  },
+                  metadata: {
+                    inventoryConsumptionPair: {
+                      pairId,
+                      pairedStreamId: row.hold_stream_id,
+                      pairedStreamVersion: Number(row.hold_stream_version),
+                    },
+                  },
+                  occurredAt: row.occurred_at as never,
+                },
+              ],
+            },
+          ]);
+        }
+        await query(
+          "UPDATE inventory_item_ledger SET quantity_delta = NULL WHERE kind = 'hold-consumed' AND event_type = 'inventory.hold.consumed' AND quantity_delta IS NOT NULL",
+        );
+        await query(
+          "ALTER TABLE inventory_item_ledger ADD CONSTRAINT inventory_item_ledger_consumed_null_delta CHECK (NOT (kind = 'hold-consumed' AND event_type = 'inventory.hold.consumed' AND quantity_delta IS NOT NULL)) NOT VALID",
+        );
+        await query("ALTER TABLE inventory_item_ledger VALIDATE CONSTRAINT inventory_item_ledger_consumed_null_delta");
+      } catch (cause) {
+        throw new Error("Inventory consumed-hold handoff incomplete", { cause });
+      }
+    },
+  },
 ];

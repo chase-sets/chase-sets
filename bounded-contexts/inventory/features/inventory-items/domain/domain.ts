@@ -2,6 +2,7 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import type {
   InventoryAdjustmentReason,
   InventoryAdjustmentSourceRef,
+  InventoryProducerAdjustmentReason,
   AcquisitionOccurrence,
   InventoryItemCreatedPayload,
   InventoryItemOfflineSaleRecordedPayload,
@@ -144,7 +145,7 @@ export type InventoryItemAdjustedEvent = DomainEvent<
     itemId: InventoryItemId;
     quantityDelta: number;
     reason: string;
-    reasonCode?: InventoryAdjustmentReason;
+    reasonCode?: InventoryAdjustmentReason | InventoryProducerAdjustmentReason;
     note?: string | null;
     sourceRef?: InventoryAdjustmentSourceRef;
     acquisitionOccurrence?: AcquisitionOccurrence;

@@ -460,7 +460,7 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
     await assertFullHistory();
   });
 
-  it("consumed hold remains outside sale repair: stock and consumed detail retain the known mismatch", async () => {
+  it("consumed hold reduces on hand once and leaves a null-delta audit detail", async () => {
     await retainedBoot();
     const itemId = await sale("sale-beside-consumption");
     await settle();
@@ -488,7 +488,9 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
     await settle();
     const stock = await pools.inventory.query("SELECT * FROM inventory_items ORDER BY item_id");
     const consumed = await pools.inventory.query("SELECT * FROM inventory_item_ledger WHERE kind = 'hold-consumed'");
-    expect(consumed.rows).toEqual([expect.objectContaining({ item_id: itemId, quantity_delta: -1 })]);
+    expect(consumed.rows).toEqual([
+      expect.objectContaining({ item_id: itemId, quantity_delta: null, reason: "Stock consumed" }),
+    ]);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     expect((await pools.inventory.query("SELECT * FROM inventory_items ORDER BY item_id")).rows).toEqual(stock.rows);
     expect(
@@ -500,7 +502,7 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       WHERE i.item_id = $1 GROUP BY i.item_id`,
       [itemId],
     );
-    expect(sums.rows).toEqual([{ total_quantity: 9, ledger_quantity: 8 }]);
+    expect(sums.rows).toEqual([{ total_quantity: 8, ledger_quantity: 8 }]);
   });
 
   it("old writer across sale handoff is locked out, quarantined and restored by the corrected runner", async () => {

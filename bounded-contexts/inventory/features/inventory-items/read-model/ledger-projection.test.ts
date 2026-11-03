@@ -81,7 +81,7 @@ describe("offline-sale handoff query contract", () => {
 });
 
 describe("inventory item ledger projection", () => {
-  it("consumed hold remains outside sale repair with its unchanged stock mismatch", async () => {
+  it("consumed hold records an audit row while its paired adjustment reduces stock once", async () => {
     const hold = {
       hold_id: "hld_1",
       account_id: "acc_seller",
@@ -120,6 +120,17 @@ describe("inventory item ledger projection", () => {
         sourceRef: orderSourceRef,
       }),
       event(
+        "inventory.item.adjusted",
+        {
+          itemId: "inv_1",
+          quantityDelta: -1,
+          reason: "Stock consumed",
+          reasonCode: "sale-consumed",
+          sourceRef: orderSourceRef,
+        },
+        2,
+      ),
+      event(
         "inventory.hold.consumed",
         {
           holdId: "hld_1",
@@ -141,8 +152,8 @@ describe("inventory item ledger projection", () => {
     const movements = db.query.mock.calls.filter(([sql]) => sql.includes("INSERT INTO inventory_item_ledger"));
     const ledgerQuantity = movements.reduce((sum, [, values]) => sum + Number(values?.[5]), 0);
     expect(movements.at(-1)?.[1]?.[4]).toBe("hold-consumed");
-    expect(movements.at(-1)?.[1]?.[5]).toBe(-1);
-    expect({ ledgerQuantity, onHand }).toEqual({ ledgerQuantity: 4, onHand: 5 });
+    expect(movements.at(-1)?.[1]?.[5]).toBeNull();
+    expect({ ledgerQuantity, onHand }).toEqual({ ledgerQuantity: 4, onHand: 4 });
   });
 
   it("projects item creation and adjustment rows with on-hand deltas", async () => {
@@ -272,10 +283,10 @@ describe("inventory item ledger projection", () => {
       "acc_seller",
       "2026-07-06T01:00:00.000Z",
       "hold-consumed",
-      -1,
+      null,
       1,
       "order",
-      "Fulfillment dispatched",
+      "Stock consumed",
       null,
       null,
       null,

@@ -155,7 +155,7 @@ export type InventoryHoldServices = Readonly<{
 export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): InventoryHoldServices {
   const codec = createPassthroughDomainEventCodec<InventoryHoldEvent>();
   const itemCodec = createPassthroughDomainEventCodec<InventoryItemEvent>();
-  const { commandHandler, repository } = createAggregateCommandHandler({
+  const { commandHandler: rawCommandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec,
     initialState: () => initialInventoryHoldState,
@@ -169,6 +169,27 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
     evolve: evolveInventoryItem,
     decide: decideInventoryItem,
   });
+
+  // Consumption is the one Hold command that changes two aggregate streams.
+  // Keep the public command shape, but replace the single-stream handler with
+  // an all-or-nothing pair append so a consumed hold can never leave on-hand
+  // quantity unchanged.
+  const commandHandler: CommandHandler<InventoryHoldCommand, InventoryHoldState, InventoryHoldEvent> = async (
+    input,
+  ) => {
+    if (input.command.type !== "ConsumeInventoryHold") {
+      return rawCommandHandler(input);
+    }
+
+    return consumeInventoryHoldAtomically({
+      deps,
+      input,
+      repository,
+      itemRepository,
+      codec,
+      itemCodec,
+    });
+  };
 
   const planCreateHold = async (
     params: InventoryHoldPlacementParams,
@@ -462,6 +483,140 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
 
 function hasSystemHoldReleaseAuthority(context: EventStoreContext) {
   return (context as Partial<InventorySystemHoldReleaseContext>)[inventorySystemHoldReleaseAuthority] === true;
+}
+
+async function consumeInventoryHoldAtomically(
+  input: Readonly<{
+    deps: InventoryRuntimeDeps;
+    input: Parameters<CommandHandler<InventoryHoldCommand, InventoryHoldState, InventoryHoldEvent>>[0];
+    repository: Readonly<{
+      load: (streamId: string) => Promise<Readonly<{ state: InventoryHoldState; version: number }>>;
+    }>;
+    itemRepository: Readonly<{
+      load: (streamId: string) => Promise<Readonly<{ state: InventoryItemState; version: number }>>;
+    }>;
+    codec: ReturnType<typeof createPassthroughDomainEventCodec<InventoryHoldEvent>>;
+    itemCodec: ReturnType<typeof createPassthroughDomainEventCodec<InventoryItemEvent>>;
+  }>,
+): Promise<Awaited<ReturnType<CommandHandler<InventoryHoldCommand, InventoryHoldState, InventoryHoldEvent>>>> {
+  const { input: commandInput } = input;
+  const holdId = commandInput.streamId.replace(/^inventory\.hold-/, "");
+  if (!holdId || commandInput.streamId !== `inventory.hold-${holdId}`) {
+    throw new InventoryDomainError("Consumed inventory hold stream is invalid.");
+  }
+
+  const holdAggregate = await input.repository.load(commandInput.streamId);
+  if (holdAggregate.state.id === null) {
+    throw new InventoryDomainError("Inventory hold not found.");
+  }
+
+  // A retry of the same terminal command is a no-op. A different terminal
+  // command remains a domain conflict and is rejected by the normal decider.
+  if (holdAggregate.state.status === "consumed") {
+    const history = await readCompleteStream(input.deps.eventStore, { streamId: commandInput.streamId });
+    const consumed = history.find((event) => event.eventType === "inventory.hold.consumed");
+    const payload = consumed?.payload as { consumedAt?: unknown; consumptionReason?: unknown } | undefined;
+    if (
+      payload?.consumedAt !== commandInput.command.consumedAt ||
+      payload?.consumptionReason !== commandInput.command.consumptionReason
+    ) {
+      throw new InventoryDomainError("Inventory hold consumption conflicts with the retained terminal identity.");
+    }
+    return {
+      state: holdAggregate.state,
+      version: holdAggregate.version,
+      newEvents: [],
+      storedEvents: [],
+    };
+  }
+
+  const holdEvents = decideInventoryHold(holdAggregate.state, commandInput.command);
+  const itemId = holdAggregate.state.itemId;
+  const accountId = holdAggregate.state.accountId;
+  const quantity = holdAggregate.state.quantity;
+  if (!itemId || !accountId || !quantity || holdAggregate.state.purpose !== "order") {
+    throw new InventoryDomainError("Only active order holds with complete provenance can be consumed.");
+  }
+
+  const itemStreamId = `inventory.item-${itemId}`;
+  const itemAggregate = await input.itemRepository.load(itemStreamId);
+  const stock = await loadAuthoritativeInventoryStockSnapshot({
+    db: input.deps.db,
+    eventStore: input.deps.eventStore,
+    itemRepository: input.itemRepository,
+    itemId,
+    accountId: accountId as AccountId,
+    context: commandInput.context,
+    itemAggregate,
+  });
+  if (stock.heldQuantity < quantity) {
+    throw new InventoryDomainError("Inventory hold history is unavailable; reconciliation is required.");
+  }
+
+  if (itemAggregate.state.totalQuantity < quantity) {
+    throw new InventoryDomainError("Inventory quantity cannot fall below zero.");
+  }
+  const itemEvents: readonly InventoryItemEvent[] = [
+    {
+      type: "inventory.item.adjusted",
+      data: {
+        itemId: itemAggregate.state.id!,
+        quantityDelta: -quantity,
+        reason: "Stock consumed",
+        reasonCode: "sale-consumed",
+        sourceRef: holdAggregate.state.sourceRef,
+      },
+    },
+  ];
+  const holdVersion = holdAggregate.version + 1;
+  const itemVersion = itemAggregate.version + 1;
+  const pairId = `inventory-consumption:${holdId}:${holdVersion}:${itemVersion}`;
+  const holdRecords = holdEvents.map((event) => ({
+    ...input.codec.encode(event),
+    metadata: {
+      inventoryConsumptionPair: {
+        pairId,
+        pairedStreamId: itemStreamId,
+        pairedStreamVersion: itemVersion,
+      },
+    },
+  }));
+  const itemRecords = itemEvents.map((event) => ({
+    ...input.itemCodec.encode(event),
+    metadata: {
+      inventoryConsumptionPair: {
+        pairId,
+        pairedStreamId: commandInput.streamId,
+        pairedStreamVersion: holdVersion,
+      },
+    },
+  }));
+  const appendToStreams = input.deps.eventStore.appendToStreams;
+  if (!appendToStreams) {
+    throw new InventoryDomainError("Consumed inventory holds require atomic stock authority.");
+  }
+  const results = await appendToStreams([
+    {
+      streamId: itemStreamId,
+      expectedVersion: itemAggregate.version,
+      events: itemRecords,
+      context: commandInput.context,
+    },
+    {
+      streamId: commandInput.streamId,
+      expectedVersion: commandInput.expectedVersion ?? holdAggregate.version,
+      events: holdRecords,
+      context: commandInput.context,
+    },
+  ]);
+  const storedEvents = results.find((result) => result.streamId === commandInput.streamId)?.storedEvents ?? [];
+  recordCommittedEvents(results.flatMap((result) => result.storedEvents));
+  return {
+    state: evolveInventoryHold(holdAggregate.state, holdEvents[0]!),
+    version: storedEvents.at(-1)?.streamVersion ?? holdAggregate.version,
+    newEvents: holdEvents,
+    storedEvents,
+  };
 }
 
 function isConcurrencyConflict(error: unknown) {
