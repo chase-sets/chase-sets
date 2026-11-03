@@ -9,6 +9,8 @@ import {
 } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
+import type { BulkSelection } from "../../../support/runtime-support/bulk-lifecycle";
+import type { CatalogItemListParams } from "../read-model/queries";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -499,7 +501,7 @@ describe("catalog item routes", () => {
   });
 
   it("previews and confirms bulk draft removal with the normalized selection", async () => {
-    const previewBulkRemoveDrafts = vi.fn(async (selection: { mode: "ids"; ids: string[] }) => ({
+    const previewBulkRemoveDrafts = vi.fn(async (selection: BulkSelection<CatalogItemListParams>) => ({
       mode: selection.mode,
       item_ids: ["cat_1", "cat_2"],
       total: 2,
