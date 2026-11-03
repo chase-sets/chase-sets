@@ -1964,8 +1964,8 @@ async fn the_top_bar_is_the_kits_with_the_pages_section_current() {
     let (status, _, html) = pilot.send(get("/catalog/dimensions", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let bar = &html[html.find("<header").unwrap()..html.find("</header>").unwrap()];
-    // The kit's bar, with the pilot's phone rule (todd-skelton/corten 673).
-    assert!(bar.starts_with(r#"<header class="nav-bar__bar admin-nav__phone">"#), "{bar}");
+    // The kit's bar, which gives its links a row of their own on a phone.
+    assert!(bar.starts_with(r#"<header class="nav-bar__bar">"#), "{bar}");
     assert!(bar.contains(r#"<nav class="nav-bar__sections""#), "{bar}");
     // The catalog's section is current (the kit draws it from `aria-current="page"`), marked by
     // Corten so the runtime moves the mark after a client navigation; the others are not.

@@ -64,8 +64,7 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
         let top: HashMap<&str, NavLink<'_>> = top_marks.links().map(|(link, key)| (*key, link)).collect();
         let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
         let side: HashMap<&str, NavLink<'_>> = side_marks.links().map(|(link, key)| (*key, link)).collect();
-        // `Phone`: the section links take their own row on a phone (todd-skelton/corten 673).
-        <header class={(NavBar {}, Phone)}>
+        <header class={NavBar {}}>
             <a class={NavBrand {}} href={admin_web("/").map(|u| u.to_string()).unwrap_or_default()}>
                 {p.shell_admin()}
                 <span class={Tag}>{p.shell_pilot()}</span>

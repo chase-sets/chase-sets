@@ -1,18 +1,5 @@
-/* The bar, its brand and its section links are the kit's NavBar (platform/src/ui/nav_bar.css). */
-/* On a phone the kit keeps the name, the links and the account on one row, which leaves the links
-   26px at 390px: they take a row of their own under the other two instead. A workaround until
-   https://github.com/todd-skelton/corten/issues/673 is fixed. */
-@media (max-width: 40rem) {
-  .phone {
-    flex-wrap: wrap;
-    row-gap: 0;
-  }
-  .phone > nav {
-    order: 1;
-    flex-basis: 100%;
-    min-height: 2.75rem;
-  }
-}
+/* The bar, its brand and its section links are the kit's NavBar (platform/src/ui/nav_bar.css),
+   which gives the links a row of their own on a phone. */
 .tag {
   padding: 0.125rem 0.5rem;
   border-radius: var(--radius-full);
