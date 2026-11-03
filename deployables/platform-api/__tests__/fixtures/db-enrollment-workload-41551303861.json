@@ -1,19 +1,18 @@
 {
   "schema": "db-enrollment-workload/v1",
   "capture": {
-    "fileName": "bootstrap-db-capture-41325439841.json",
-    "fixtureSha256": "f62663e085f1f44cce3f7b83ed81a91dcabf2d335f81a2a005a66efa19bf5149",
-    "runId": "41325439841",
-    "checkoutSha": "d4ae6bc4cb8e1b42a106282a3badc974b549ec75",
-    "sourceBase": "24d001b97aea84601558c9b3ce0b0fdd11ebd59c",
-    "captureParent": "24d001b97aea84601558c9b3ce0b0fdd11ebd59c"
+    "fileName": "bootstrap-db-capture-41551303861.json",
+    "fixtureSha256": "730ed95091193a3079ff0d217ef96b880e8de27f983c90857161849f64235eac",
+    "runId": "41551303861",
+    "checkoutSha": "cdeccfdd84009b458022116812db6d6aeb477b96",
+    "sourceBase": "5a67def48f7a8e96ce8880e4c048cd9c15af0d9f",
+    "captureParent": "5a67def48f7a8e96ce8880e4c048cd9c15af0d9f"
   },
   "source": {
-    "commit": "24d001b97aea84601558c9b3ce0b0fdd11ebd59c",
-    "ref": "24d001b9"
+    "commit": "5a67def48f7a8e96ce8880e4c048cd9c15af0d9f"
   },
   "selectorsSha256": "bcf6348282ba58d198791e0ef64aa71b3f2c961837a3fadc8ded98610bdf4da0",
-  "bindingsSha256": "599787f2d7e0e4ac3ba3cf70ddb0a0e1f9a58fbbc25336fd13dd639c316c8615",
+  "bindingsSha256": "3352c935d07e6bbbd8ee8c2fae935d4c48e5f04c6b57025c6c29dc2f9bde603d",
   "bindings": [
     [
       "W1 case identities",
@@ -796,7 +795,7 @@
     [
       "W3 file",
       "bounded-contexts/catalog/features/source-observations/api/seeding/seed.db.test.ts",
-      "626a78410e04fb928e28dc6dafff8c633a2c327275c9f82620c5b17b83193451"
+      "f6565bf269b64950b8b4a5fda68fe30c9ed8ed01f8cf5b0d6acb62cbd7676738"
     ],
     [
       "W3 file",
@@ -2033,7 +2032,11 @@
     ["W4 alias", "^@chase-sets\\/settlement\\/server$", "bounded-contexts/settlement/server.ts"],
     ["W4 alias", "^@chase-sets\\/stripe-connect$", "infrastructure/stripe-connect/index.ts"],
     ["W4 alias", "^@chase-sets\\/stripe-payments$", "infrastructure/stripe-payments/index.ts"],
-    ["W4 postgres", "image", "pgvector/pgvector:pg16"],
+    [
+      "W4 postgres",
+      "image",
+      "ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a"
+    ],
     ["W4 postgres", "maxConnections", "300"],
     ["W4 postgres", "maxLocksPerTransaction", "512"],
     ["W4 postgres", "workspaceConcurrency", "2"],
