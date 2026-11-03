@@ -663,7 +663,7 @@ fn ApiAccess<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, hub: &'a Hub, secret: Opt
                 <p class={Muted}>{t.secret_full_secret()}</p>
                 <pre class={Code}><code id={SecretId}>{&secret.secret}</code></pre>
                 <div class={Actions}>
-                    <CopyButton text={SecretId} label={t.secret_copy()} copied={t.secret_copied()} />
+                    <CopyButton text={SecretId} label={t.secret_copy()} copied={t.secret_copied()} class={()} />
                 </div>
             </section>
         }
