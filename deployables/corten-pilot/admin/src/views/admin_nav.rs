@@ -104,7 +104,7 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
         <nav class={Side} aria-label={p.shell_section_navigation(section_label(p, here))}>
             <ul>
                 for (item, children) in &items {
-                    let away = side.get(item.key.as_str()).is_none().then(|| link(req, here, item)).flatten();
+                    let away = (!side.contains_key(item.key.as_str())).then(|| link(req, here, item)).flatten();
                     <li>
                         if let Some(marked) = side.get(item.key.as_str()) {
                             <a class={Item} {..marked}>{&item.label}</a>
