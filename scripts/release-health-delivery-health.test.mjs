@@ -1343,6 +1343,62 @@ describe("GitHub collection conventions", () => {
     await expect(client.paginate("/issues?per_page=1", (payload) => payload.items)).resolves.toHaveLength(2);
   });
 
+  it("refuses a provider repository-id Link that changes identity between pages", async () => {
+    const client = createGitHubClient(
+      {
+        repository: "chase-sets/chase-sets",
+        fetchImpl: async (url) => {
+          const parsed = new URL(url);
+          const page = Number(parsed.searchParams.get("page"));
+          const headers = {};
+          if (page === 1) {
+            const next = new URL(parsed);
+            next.pathname = "/repositories/100/issues";
+            next.searchParams.set("page", "2");
+            headers.link = `<${next.href}>; rel="next"`;
+          } else if (page === 2) {
+            const next = new URL(parsed);
+            next.pathname = "/repositories/200/issues";
+            next.searchParams.set("page", "3");
+            headers.link = `<${next.href}>; rel="next"`;
+          }
+          return new Response(JSON.stringify({ items: page < 3 ? [{ id: page }] : [] }), { headers });
+        },
+        sleep: async () => {},
+      },
+      { maxPages: 3, retries: 0 },
+    );
+    await expect(
+      client.paginate("https://api.github.com/repositories/100/issues?per_page=1", (payload) => payload.items),
+    ).rejects.toThrow("collection_incomplete");
+  });
+
+  it("refuses a repository-id Link whose suffix changes", async () => {
+    const client = createGitHubClient(
+      {
+        repository: "chase-sets/chase-sets",
+        fetchImpl: async (url) => {
+          const parsed = new URL(url);
+          const page = Number(parsed.searchParams.get("page"));
+          if (page === 1) {
+            const next = new URL(parsed);
+            next.pathname = "/repositories/100/pulls";
+            next.searchParams.set("page", "2");
+            return new Response(JSON.stringify({ items: [{ id: 1 }] }), {
+              headers: { link: `<${next.href}>; rel="next"` },
+            });
+          }
+          return new Response(JSON.stringify({ items: [] }));
+        },
+        sleep: async () => {},
+      },
+      { maxPages: 2, retries: 0 },
+    );
+    await expect(
+      client.paginate("https://api.github.com/repositories/100/issues?per_page=1", (payload) => payload.items),
+    ).rejects.toThrow("collection_incomplete");
+  });
+
   it("retries an empty successful body inside the request budget", async () => {
     let calls = 0;
     const client = createGitHubClient(
@@ -1354,6 +1410,23 @@ describe("GitHub collection conventions", () => {
       { retries: 1 },
     );
     await expect(client.json("/synthetic-empty-body")).resolves.toEqual({ ok: true });
+    expect(calls).toBe(2);
+  });
+
+  it("refuses a persistent empty successful body", async () => {
+    let calls = 0;
+    const client = createGitHubClient(
+      {
+        repository: "chase-sets/chase-sets",
+        fetchImpl: async () => {
+          calls += 1;
+          return new Response("");
+        },
+        sleep: async () => {},
+      },
+      { retries: 1 },
+    );
+    await expect(client.json("/synthetic-empty-body")).rejects.toThrow("github-response-invalid");
     expect(calls).toBe(2);
   });
 
