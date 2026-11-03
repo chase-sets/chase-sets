@@ -141,7 +141,9 @@ describe("quoted payout and readiness copy", () => {
     render(
       <CheckoutSellListPage
         sellListLines={[line]}
-        offerReviews={[{ ...quote, terms: { ...quote.terms!, marketplace_sales_fee_unit_amount: fee, seller_net_unit_amount: net } }]}
+        offerReviews={[
+          { ...quote, terms: { ...quote.terms!, marketplace_sales_fee_unit_amount: fee, seller_net_unit_amount: net } },
+        ]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
       />,
     );
@@ -178,7 +180,11 @@ describe("quoted payout and readiness copy", () => {
           quantity_requested: 1,
           offer_to_listing_price_bps: 10000,
         },
-        terms: { seller_net_unit_amount: "90.00", marketplace_sales_fee_unit_amount: "10.00", fee_quote_fingerprint: "one" },
+        terms: {
+          seller_net_unit_amount: "90.00",
+          marketplace_sales_fee_unit_amount: "10.00",
+          fee_quote_fingerprint: "one",
+        },
       },
       {
         offer: {
@@ -189,7 +195,11 @@ describe("quoted payout and readiness copy", () => {
           quantity_requested: 2,
           offer_to_listing_price_bps: 9000,
         },
-        terms: { seller_net_unit_amount: "80.00", marketplace_sales_fee_unit_amount: "10.00", fee_quote_fingerprint: "two" },
+        terms: {
+          seller_net_unit_amount: "80.00",
+          marketplace_sales_fee_unit_amount: "10.00",
+          fee_quote_fingerprint: "two",
+        },
       },
     ];
     render(
@@ -223,7 +233,9 @@ describe("quoted payout and readiness copy", () => {
         "/account/payouts/setup?returnTo=%2Faccount%2Fdesk%2Foffers",
       );
     }
-    expect(document.body.textContent).not.toMatch(/provider-onboarding|seller-agreement|future\.unknown_requirement|line\(s\)/);
+    expect(document.body.textContent).not.toMatch(
+      /provider-onboarding|seller-agreement|future\.unknown_requirement|line\(s\)/,
+    );
   });
 });
 
