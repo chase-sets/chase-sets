@@ -3056,11 +3056,12 @@ async fn a_guests_check_out_is_checkout_starts_continue_with_the_offers_decision
 
     // A guest cart with lines: a guest checkout starts, from a readiness read with the decision.
     let (status, headers, html) = pilot.send(visitor_post(CHECK_OUT, Some(GUEST_LINES), DECLINED)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{html}");
+    let (status, headers, html) = pilot.send(followed_post(&headers, CHECK_OUT, Some(GUEST_LINES), DECLINED)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/checkout/buy/session/chk_1?"), "{to}");
     let set = cookies_set(&headers);
-    assert!(set["chase_sets_guest_checkout"].starts_with("chase_sets_guest_checkout=gst_new;"), "{set:?}");
     assert!(set["chase_sets_anonymous_cart"].contains("Max-Age=0"), "the guest cart moved into the checkout: {set:?}");
     let calls = checkout_calls(&pilot);
     let readiness = calls.iter().find(|c| c.path == "/api/marketplace/account/cart/readiness").expect("a readiness read");
@@ -3068,7 +3069,8 @@ async fn a_guests_check_out_is_checkout_starts_continue_with_the_offers_decision
     assert_eq!(decisions["optimization"]["decision"], "declined", "{decisions}");
     assert_eq!(readiness.headers["x-checkout-anonymous-cart-id"], "anon_lines");
     let started = calls.iter().find(|c| c.path == "/api/marketplace/account/checkout-sessions").expect("a session");
-    assert_eq!(started.headers[header::COOKIE], "chase_sets_guest_checkout=gst_new", "under the new guest");
+    let as_guest = started.headers[header::COOKIE].to_str().unwrap();
+    assert!(as_guest.contains("chase_sets_guest_checkout=gst_new"), "under the new guest: {as_guest}");
 }
 
 /// The cart writes the stand-in received, each as the JSON it was sent.
@@ -3990,12 +3992,10 @@ async fn buy_this_listing_starts_a_checkout_session_once_per_form() {
     assert!(text(&html).contains("Your selection changed after you chose Buy now."), "{html}");
     // A visitor's is checkout start's Continue: a guest checkout under a new guest identity, with
     // the form's key, then the guest's checkout, the pilot's page.
-    let req = Request::post(ITEM_BUY)
-        .header(header::HOST, "localhost:7791")
-        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-        .body(Body::from(buy_body("", "1", VAULT, "lst_vault", "")))
-        .unwrap();
-    let (status, headers, html) = pilot.send(req).await;
+    let body = buy_body("", "1", VAULT, "lst_vault", "");
+    let (status, headers, html) = pilot.send(visitor_post(ITEM_BUY, None, &body)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "the Buy is sent again to itself as a new guest: {html}");
+    let (status, headers, html) = pilot.send(followed_post(&headers, ITEM_BUY, None, &body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1"), "{headers:?}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
@@ -17655,6 +17655,21 @@ fn visitor_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
     req.body(Body::from(body.to_owned())).unwrap()
 }
 
+/// A guest entry's answer, checked: a 307 to `at` with `guestEntry=1` that carries only the new
+/// guest's token. Then the same form sent on as a browser follows it, presenting that guest and the
+/// browser's other cookies (`cookie`).
+fn followed_post(headers: &HeaderMap, at: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
+    let to = headers[header::LOCATION].to_str().unwrap();
+    let sep = if at.contains('?') { '&' } else { '?' };
+    assert_eq!(to, format!("{at}{sep}guestEntry=1"), "the same address, marked");
+    let set = cookies_set(headers);
+    assert_eq!(set.len(), 1, "only the guest's token: {set:?}");
+    let token = set["chase_sets_guest_checkout"].split(';').next().unwrap().to_owned();
+    assert_eq!(token, "chase_sets_guest_checkout=gst_new");
+    let cookie = cookie.map_or(token.clone(), |c| format!("{c}; {token}"));
+    visitor_post(to, Some(&cookie), body)
+}
+
 #[tokio::test]
 async fn checkout_start_shows_the_listing_and_continue_for_an_account_and_sign_in_for_a_visitor() {
     let pilot = Pilot::new().await;
@@ -17717,18 +17732,30 @@ async fn checkout_start_for_the_cart_reads_its_readiness_and_a_refusal_shows_its
 async fn checkout_start_for_a_visitor_starts_a_guest_checkout_and_keeps_its_token() {
     let pilot = Pilot::new().await;
     let cookie = "chase_sets_anonymous_cart=anon_full";
-    let (status, headers, html) =
-        pilot.send(visitor_post(START_LISTING, Some(cookie), "entryAttemptKey=chkentry_01JBXQ5V7Z3N4M8K2R6T9GUEST")).await;
+    let body = "entryAttemptKey=chkentry_01JBXQ5V7Z3N4M8K2R6T9GUEST";
+    // The visitor's Continue starts a guest and writes nothing more: a 307 with the guest's token.
+    let (status, headers, html) = pilot.send(visitor_post(START_LISTING, Some(cookie), body)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{html}");
+    assert!(cookies_set(&headers)["chase_sets_guest_checkout"].contains("Max-Age="), "{headers:?}");
+    assert!(pilot.stand.calls.lock().unwrap().iter().all(|c| !c.path.ends_with("/checkout-sessions")), "no session yet");
+    // The browser sends the form on as the guest: the session starts as that guest, the guest cart forgotten.
+    let (status, headers, html) = pilot.send(followed_post(&headers, START_LISTING, Some(cookie), body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1"), "{headers:?}");
-    let set: Vec<_> = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
-    assert!(set.iter().any(|c| c.starts_with("chase_sets_guest_checkout=gst_new;") && c.contains("Max-Age=")), "{set:?}");
-    assert!(set.iter().any(|c| c.starts_with("chase_sets_anonymous_cart=;")), "the guest cart is forgotten: {set:?}");
+    assert!(cookies_set(&headers)["chase_sets_anonymous_cart"].contains("Max-Age=0"), "the guest cart is forgotten: {headers:?}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     assert_eq!(calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
     let started = calls.iter().find(|c| c.path.ends_with("/checkout-sessions")).unwrap();
     let as_guest = started.headers[header::COOKIE].to_str().unwrap();
-    assert_eq!(as_guest, "chase_sets_guest_checkout=gst_new", "the session starts as the new guest");
+    assert!(as_guest.contains("chase_sets_guest_checkout=gst_new"), "the session starts as the new guest: {as_guest}");
+    assert_eq!(serde_json::from_str::<Value>(&started.body).unwrap()["entryAttemptKey"], "chkentry_01JBXQ5V7Z3N4M8K2R6T9GUEST");
+
+    // A followed form whose guest is not there (the cookie refused or expired): no second guest.
+    let to = format!("{START_LISTING}&guestEntry=1");
+    let (status, headers, html) = pilot.send(visitor_post(&to, None, body)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    assert!(headers.get(header::SET_COOKIE).is_none(), "{headers:?}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
 
     // An offer needs an account: nothing starts.
     let offer =
@@ -17816,18 +17843,21 @@ async fn checkout_start_for_a_visitor_whose_entry_is_ambiguous_keeps_the_one_gue
     let pilot = Pilot::new().await;
     let body = "entryAttemptKey=chkentry_unknown_000000000000000";
     let (status, headers, html) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{html}");
+    // The browser already keeps the guest, so the page and a later look are that guest's.
+    let (status, headers, html) = pilot.send(followed_post(&headers, START_LISTING, None, body)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("We could not confirm whether your checkout started."), "{html}");
-    let set: Vec<_> = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
-    assert!(set.iter().any(|c| c.starts_with("chase_sets_guest_checkout=gst_new;")), "{set:?}");
+    assert!(headers.get(header::SET_COOKIE).is_none(), "nothing more to keep: {headers:?}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     assert_eq!(calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
     let looked = calls.iter().find(|c| c.path.starts_with(CART_ATTEMPTS)).expect("one lookup");
     assert_eq!(looked.headers[header::COOKIE].to_str().unwrap(), "chase_sets_guest_checkout=gst_new", "as the new guest");
 
-    // A visitor's refusal is the page's, with no second guest started.
+    // A followed form's refusal is the page's, and a followed form never starts a second guest.
     let body = "entryAttemptKey=chkentry_closed_00000000000000000";
-    let (status, headers, html) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    let (_, headers, _) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    let (status, headers, html) = pilot.send(followed_post(&headers, START_LISTING, None, body)).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{html}");
     assert!(headers.get(header::SET_COOKIE).is_none(), "{headers:?}");
     assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 2);

@@ -19,7 +19,7 @@ use crate::recovery::{attempt_text, submit_key};
 use std::{collections::HashMap, time::Duration};
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, header},
+    axum::http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };
@@ -624,12 +624,13 @@ pub(crate) async fn checkout(
     Caller(buyer): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
+    uri: Uri,
     Form(input): Form<CheckoutInput>,
 ) -> HtmlResult {
     let decisions = input.decisions();
     if let Buyer::Guest(_) = buyer {
-        return crate::checkout_start::cart_as_guest(&req, buyer.session().as_ref(), &config, &headers, &decisions, &chrome)
-            .await;
+        let session = buyer.session();
+        return crate::checkout_start::cart_as_guest(&req, session.as_ref(), &config, &headers, &uri, &decisions, &chrome).await;
     }
     let caller = config.platform.caller(&headers, config.proto, None);
     let guest = anonymous_cart(&headers);
