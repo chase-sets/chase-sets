@@ -51,6 +51,7 @@ describe("CatalogItemDetailPage", () => {
     const fetch = stubCatalogFetches();
 
     render(<CatalogItemDetailPage id="cat_1" initialData={catalogItem} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Image URLs/ }));
     fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
 
     const dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
@@ -85,6 +86,7 @@ describe("CatalogItemDetailPage", () => {
     const fetch = stubCatalogFetches({ imageUrls: storedUrls });
 
     render(<CatalogItemDetailPage id="cat_1" initialData={{ ...catalogItem, image_urls: storedUrls }} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Image URLs/ }));
     fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
 
     let dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
