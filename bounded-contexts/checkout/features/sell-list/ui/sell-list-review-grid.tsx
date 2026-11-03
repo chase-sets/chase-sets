@@ -226,7 +226,7 @@ export function SellListReviewGrid({
     ) : null;
 
   return (
-    <div data-testid="sell-list-review-grid">
+    <Stack data-testid="sell-list-review-grid" gap={4}>
       <Stack gap={4}>
         <Grid columns={{ base: 1, sm: 2, xl: 3 }} gap={4}>
           {lines.map((line) => {
@@ -441,6 +441,6 @@ export function SellListReviewGrid({
 
         {activeLine === null ? bulkToolbar : null}
       </Stack>
-    </div>
+    </Stack>
   );
 }

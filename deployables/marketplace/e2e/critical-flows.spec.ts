@@ -815,8 +815,7 @@ test.describe("marketplace critical flows", () => {
     await expectPageOk(page, "/account/desk/offers");
     const initial = await page.request.get("/api/marketplace/account/sell-list");
     expect(initial.status()).toBe(200);
-    const before = (await initial.json()) as { items: unknown[] };
-    expect(before.items).toEqual([]);
+    const before = (await initial.json()) as { items: Array<{ line_id: string }> };
 
     const itemPath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
     await expectPageOk(page, `${itemPath}&market=sell`);
@@ -826,6 +825,14 @@ test.describe("marketplace critical flows", () => {
     await page.getByRole("button", { name: "Add product to Sell List", exact: true }).click();
     await expect(page).toHaveURL(/\/account\/sell-list/);
     await expect(page.getByRole("button", { name: "Review Charizard offers and terms", exact: true })).toHaveCount(1);
+    const addedResponse = await page.request.get("/api/marketplace/account/sell-list");
+    expect(addedResponse.status()).toBe(200);
+    const addedItems = (await addedResponse.json()) as { items: Array<{ line_id: string }> };
+    expect(addedItems.items).toHaveLength(before.items.length + 1);
+    const addedLine = addedItems.items.find(
+      (item) => !before.items.some((existing) => existing.line_id === item.line_id),
+    );
+    expect(addedLine, "the public Add to Sell List journey must create one identifiable line").toBeDefined();
     await page.goto("/account/desk/offers");
     const review = page.getByRole("button", { name: "Review Charizard offers and terms", exact: true });
     await expect(review).toHaveCount(1);
@@ -853,6 +860,7 @@ test.describe("marketplace critical flows", () => {
     await expect(dialog.getByText(/Not quoted yet|\$\d+\.\d{2}/).first()).toBeVisible();
     await expect(dialog.getByText("Offers cannot be accepted yet.")).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "Continue to seller checkout" })).toBeDisabled();
+    await expect(page.getByText("Payout setup required", { exact: true })).toBeVisible();
     await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-sheet-1280" });
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await review.focus();
@@ -873,13 +881,13 @@ test.describe("marketplace critical flows", () => {
     const lineResponse = await page.request.get("/api/marketplace/account/sell-list");
     expect(lineResponse.status()).toBe(200);
     const lines = (await lineResponse.json()) as { items: Array<{ line_id: string }> };
-    expect(lines.items).toHaveLength(1);
+    expect(lines.items.some((item) => item.line_id === addedLine?.line_id)).toBe(true);
     await page.request.post("/account/desk/offers", {
-      form: { intent: "remove-sell-list-line", lineId: lines.items[0].line_id },
+      form: { intent: "remove-sell-list-line", lineId: addedLine!.line_id },
     });
     const after = await page.request.get("/api/marketplace/account/sell-list");
     expect(after.status()).toBe(200);
-    expect(((await after.json()) as { items: unknown[] }).items).toEqual([]);
+    expect(((await after.json()) as { items: Array<{ line_id: string }> }).items).toEqual(before.items);
   });
 
   test("compact Sell List recovery revalidates through the browser data router @marketplace-checkout", async ({

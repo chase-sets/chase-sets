@@ -90,6 +90,15 @@ describe("SellListReviewGrid hydration and controls", () => {
     fireEvent.click(trigger());
     expect(screen.getAllByRole("dialog", { name: "Charizard offers and terms" })).toHaveLength(1);
     assertDialogFormAssociations();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Charizard offers and terms" })).getByRole("checkbox"));
+    for (const name of ["Accept selected", "Decline selected"]) {
+      const button = within(screen.getByRole("dialog", { name: "Charizard offers and terms" })).getByRole("button", {
+        name,
+      });
+      expect(button).toBeVisible();
+      expect(button.getAttribute("form")).toBe("sell-list-checkout-form");
+    }
+    expect(screen.getByRole("button", { name: "Clear selection" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     fireEvent.keyDown(trigger(), { key: "Enter" });
