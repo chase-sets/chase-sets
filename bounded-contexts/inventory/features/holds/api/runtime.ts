@@ -13,7 +13,7 @@ import type {
   InventoryHoldSourceRef,
 } from "@chase-sets/event-core/public-event-payloads";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
-import { InventoryDomainError, type InventoryHoldId } from "../../../support/runtime-support/common";
+import { InventoryDomainError, normalizeLabel, type InventoryHoldId } from "../../../support/runtime-support/common";
 import { loadAuthoritativeInventoryStockSnapshot } from "../../../support/runtime-support/stock-snapshot";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { foldInventoryStockHold } from "../../../support/runtime-support/stock-history";
@@ -500,6 +500,10 @@ async function consumeInventoryHoldAtomically(
   }>,
 ): Promise<Awaited<ReturnType<CommandHandler<InventoryHoldCommand, InventoryHoldState, InventoryHoldEvent>>>> {
   const { input: commandInput } = input;
+  const { command } = commandInput;
+  if (command.type !== "ConsumeInventoryHold") {
+    throw new InventoryDomainError("Only hold consumption uses the atomic consumption path.");
+  }
   const holdId = commandInput.streamId.replace(/^inventory\.hold-/, "");
   if (!holdId || commandInput.streamId !== `inventory.hold-${holdId}`) {
     throw new InventoryDomainError("Consumed inventory hold stream is invalid.");
@@ -516,9 +520,10 @@ async function consumeInventoryHoldAtomically(
     const history = await readCompleteStream(input.deps.eventStore, { streamId: commandInput.streamId });
     const consumed = history.find((event) => event.eventType === "inventory.hold.consumed");
     const payload = consumed?.payload as { consumedAt?: unknown; consumptionReason?: unknown } | undefined;
+    // Compare with the identity the decider stored, which trims the reason.
     if (
-      payload?.consumedAt !== commandInput.command.consumedAt ||
-      payload?.consumptionReason !== commandInput.command.consumptionReason
+      payload?.consumedAt !== command.consumedAt ||
+      payload?.consumptionReason !== normalizeLabel(command.consumptionReason)
     ) {
       throw new InventoryDomainError("Inventory hold consumption conflicts with the retained terminal identity.");
     }

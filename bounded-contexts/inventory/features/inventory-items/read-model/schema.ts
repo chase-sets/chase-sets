@@ -237,7 +237,8 @@ $migration$`,
           performed_by_user_id: string;
           for_account_id: string;
           occurred_at: string;
-          payload: Record<string, unknown>;
+          // Order and checkout hold source refs are flat string records.
+          payload: { sourceRef?: { [key: string]: string } | null };
           item_id: string;
           quantity: number;
           item_stream_version: number;
