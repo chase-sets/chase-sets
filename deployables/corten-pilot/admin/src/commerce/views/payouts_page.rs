@@ -12,7 +12,7 @@ use platform::ui::{
     badge::{Badge as KitBadge, BadgeEmphasis, BadgeTone},
     button::{Button as KitButton, ButtonSize, ButtonVariant},
     card::{Card as KitCard, CardContent, CardHeader},
-    table::Table as KitTable,
+    table::{Table as KitTable, TableLayout},
 };
 
 use crate::{
@@ -153,7 +153,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
             <section class={KitCard {}} aria-labelledby="mh-provider">
                 <header class={CardHeader {}}><h2 id="mh-provider">{t.mh_provider_diagnostics()}</h2></header>
                 <div class={CardContent {}}>
-                    <KitTable>
+                    <KitTable layout={TableLayout::Scroll}>
                         <table>
                             <thead>
                                 <tr>
@@ -182,7 +182,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                             description={t.mh_accounts_with_negative_wallet_balances_appear()}
                         />
                     } else {
-                        <KitTable>
+                        <KitTable layout={TableLayout::Scroll}>
                             <table>
                                 <thead>
                                     <tr>
@@ -228,7 +228,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                             description={t.mh_payouts_that_need_reconciliation_or_review()}
                         />
                     } else {
-                        <KitTable>
+                        <KitTable layout={TableLayout::Scroll}>
                             <table>
                                 <thead>
                                     <tr>
@@ -274,7 +274,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                             description={t.mh_scheduled_and_manual_reconciliation_outcomes_appear()}
                         />
                     } else {
-                        <KitTable>
+                        <KitTable layout={TableLayout::Scroll}>
                             <table>
                                 <thead>
                                     <tr>
@@ -488,7 +488,7 @@ pub fn PayoutOperationsPage<'a>(
             <section class={KitCard {}} aria-labelledby="po-attention">
                 <header class={CardHeader {}}><h2 id="po-attention">{t.po_needs_attention()}</h2></header>
                 <div class={CardContent {}}>
-                    <KitTable>
+                    <KitTable layout={TableLayout::Scroll}>
                         <table>
                             <thead>
                                 <tr>
@@ -514,7 +514,7 @@ pub fn PayoutOperationsPage<'a>(
                         </table>
                     </KitTable>
                     if let Some(readiness) = screen.readiness.as_ref().filter(|_| screen.can_reconcile) {
-                        <KitTable>
+                        <KitTable layout={TableLayout::Scroll}>
                             <table>
                                 <thead>
                                     <tr>
@@ -565,7 +565,7 @@ pub fn PayoutOperationsPage<'a>(
                             description={t.po_provider_payout_reconciliation_is_clear()}
                         />
                     } else {
-                        <KitTable>
+                        <KitTable layout={TableLayout::Scroll}>
                             <table>
                                 <thead>
                                     <tr>
@@ -621,7 +621,7 @@ pub fn PayoutOperationsPage<'a>(
                                 description={t.po_provider_transfer_and_payout_submissions_appear()}
                             />
                         } else {
-                            <KitTable>
+                            <KitTable layout={TableLayout::Scroll}>
                                 <table>
                                     <thead>
                                         <tr>
