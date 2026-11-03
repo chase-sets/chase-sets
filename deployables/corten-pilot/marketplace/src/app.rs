@@ -1874,7 +1874,7 @@ pub fn app(config: Config) -> App {
             url::sell_list::area(area, shared.clone()).components(views::SELL_LIST).deadline(crate::listing_new::DEADLINE)
         })
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
-        .area(|area| url::payout::area(area, shared.clone()).components(views::MONEY))
+        .area(|area| url::payout::area(area, shared.clone()).components(views::PAYOUT))
         // Stripe's Connect sign-in reports back through a popup, which `same-origin` cuts off
         // (todd-skelton/corten#318); the rest of the app keeps `same-origin`.
         .area(|area| {

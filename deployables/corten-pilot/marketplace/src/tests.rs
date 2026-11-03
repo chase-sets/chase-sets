@@ -13748,7 +13748,9 @@ async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
     assert!(words.contains("$10.00") && words.contains("$0.27") && words.contains("Completed"), "{words}");
     assert!(words.contains("Last provider check"), "{words}");
     assert!(words.contains("The payout provider accepted the transfer."), "{words}");
-    assert_eq!(html.matches(r#"data-status="complete""#).count(), 5, "every step done: {html}");
+    // The kit's Steps as a timeline, an <ol> named by its label (no <nav>), every step done.
+    assert!(html.contains(r#"<div class="steps__steps steps__timeline"><ol aria-label="Status Timeline">"#), "{html}");
+    assert_eq!(words.matches("(done)").count(), 5, "every step done: {words}");
     assert!(!words.contains("Payout requested") && !words.contains("needs review"), "{words}");
     assert!(html.contains(r#"href="/account/desk/money""#), "Back to payouts: {html}");
 
@@ -13758,7 +13760,9 @@ async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
     assert!(words.contains("Payout account needs review"), "{words}");
     assert!(html.contains(r#"href="/account/desk/settings?mode=manage""#), "Review payout details is the pilot's: {html}");
     assert!(html.contains(r#"href="/account/support""#), "Contact support is the pilot's: {html}");
-    assert!(html.contains(r#"data-status="issue""#), "{html}");
+    // The last step failed, drawn with the kit's failed mark and read with its words.
+    assert!(html.contains(r#"<li class="steps__failed">"#), "{html}");
+    assert!(words.contains("Needs attention (failed) Bank account temporarily unavailable"), "{words}");
 
     let (_, _, html) = pilot.send(get("/account/desk/payouts/pyo_noted?requested=1", Some("banker"))).await;
     let words = text(&html);

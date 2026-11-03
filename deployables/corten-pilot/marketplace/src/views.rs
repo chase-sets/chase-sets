@@ -244,6 +244,8 @@ pub const DESK: &[Component] = &[DeskPage];
 /// The Seller Desk's money page (`/account/desk/money`). A payout's breakdown opens with
 /// `command="show-modal"`; a wallet adjustment's is drawn open (corten-ui's `dialog::modalClosedBy`).
 pub const MONEY: &[Component] = &[MoneyPage];
+/// A payout's page (`/account/desk/payouts/{id}`), with its status timeline in the kit's `Steps`.
+pub const PAYOUT: &[Component] = &[MoneyPage, platform::ui::steps::Steps];
 /// Payout setup (`/account/desk/settings`), with Stripe's Connect components and the Stripe.js
 /// module their appearance comes from.
 pub const PAYOUT_SETUP: &[Component] = &[PayoutSetupPage, payout_setup_page::ConnectSurface, payment_page::stripe::COMPONENT];
