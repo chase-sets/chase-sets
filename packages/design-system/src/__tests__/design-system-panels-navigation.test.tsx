@@ -126,7 +126,9 @@ describe("design system panels, navigation, and shells", () => {
           expect(container.querySelector('[role="status"]')).toBe(parsedStatus);
           expect(parsedStatus?.textContent).toBe(expectedStatus);
         }
-        root?.unmount();
+        await act(async () => {
+          root?.unmount();
+        });
       }
     } finally {
       expect(consoleError).not.toHaveBeenCalled();

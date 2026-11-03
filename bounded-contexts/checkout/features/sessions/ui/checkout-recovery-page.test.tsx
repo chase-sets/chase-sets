@@ -150,7 +150,9 @@ describe("CheckoutSessionRecoveryPage", () => {
         expect(parsedStatus?.getAttribute("aria-atomic")).toBe("true");
         expect(container.querySelector("h2")?.textContent).toBe(kind === null ? "Checkout recovery" : recovery.title);
         expect(container.querySelector("a")?.textContent).toBe(recovery.primaryAction.label);
-        root?.unmount();
+        await act(async () => {
+          root?.unmount();
+        });
       }
     } finally {
       expect(consoleError).not.toHaveBeenCalled();
