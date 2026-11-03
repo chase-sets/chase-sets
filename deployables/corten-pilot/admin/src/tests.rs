@@ -918,6 +918,16 @@ fn get(uri: &str, session: Option<&str>) -> Request<Body> {
     req.body(Body::empty()).unwrap()
 }
 
+/// Whether a link to `href` in `html` is marked the current page, whatever attributes sit between.
+fn marks_current(html: &str, href: &str) -> bool {
+    let needle = format!(r#"href="{href}""#);
+    html.match_indices(&needle).any(|(at, _)| {
+        let start = html[..at].rfind('<').unwrap_or(0);
+        let end = html[at..].find('>').map_or(html.len(), |n| at + n);
+        html[start..end].contains(r#"aria-current="page""#)
+    })
+}
+
 /// A form post as the runtime sends it (`corten: action`), or as a browser without JavaScript.
 fn post(uri: &str, body: &str, script: bool) -> Request<Body> {
     post_as("staff", uri, body, script)
@@ -1166,7 +1176,7 @@ async fn the_list_renders_for_staff_and_data_clients_get_the_screen() {
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("<h1>Postage Policies</h1>"), "{html}");
     assert!(html.contains("Default postage policy"), "{html}");
-    assert!(html.contains(r#"href="/commerce/postage-policies" aria-current="page""#), "{html}");
+    assert!(marks_current(&html, "/commerce/postage-policies"), "{html}");
 
     let mut req = get("/commerce/postage-policies?policy=opp_seed", Some("staff"));
     req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
@@ -1957,12 +1967,55 @@ async fn the_top_bar_is_the_kits_with_the_pages_section_current() {
     // The kit's bar, with the pilot's phone rule (todd-skelton/corten 673).
     assert!(bar.starts_with(r#"<header class="nav-bar__bar admin-nav__phone">"#), "{bar}");
     assert!(bar.contains(r#"<nav class="nav-bar__sections""#), "{bar}");
-    // The catalog's section is current (the kit draws it from `aria-current="page"`), marked for
-    // markNav after a client navigation; the others are not.
-    assert!(bar.contains(r#"aria-current="page" data-nav-path="/catalog""#), "{bar}");
-    assert_eq!(bar.matches(r#"aria-current"#).count(), 1, "{bar}");
-    assert!(bar.contains(r#"data-nav-path="/commerce""#), "{bar}");
+    // The catalog's section is current (the kit draws it from `aria-current="page"`), marked by
+    // Corten so the runtime moves the mark after a client navigation; the others are not.
+    assert!(bar.contains(r#"href="/catalog" data-nav="section" data-nav-group=""#), "{bar}");
+    assert_eq!(bar.matches(r#"aria-current="page""#).count(), 1, "{bar}");
+    assert!(
+        bar[bar.find(r#"href="/catalog""#).unwrap()..].split('>').next().unwrap().contains(r#"aria-current="page""#),
+        "{bar}"
+    );
+    assert!(bar.contains(r#"href="/commerce" data-nav="section""#), "{bar}");
+    assert!(!html.contains("data-nav-path"), "no hand marks left: {html}");
     assert!(bar.contains(r#"<div class="nav-bar__actions"><details class="admin-nav__account">"#), "{bar}");
+}
+
+#[tokio::test]
+async fn a_section_home_opens_its_first_page_the_viewer_may_see() {
+    let pilot = Pilot::new().await;
+    let location = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    // Commerce's first entry this viewer may see, in its nav's order.
+    let (status, headers, _) = pilot.send(get("/commerce", Some("staff"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/commerce/postage-policies"));
+    let (status, headers, _) = pilot.send(get("/commerce", Some("intake-viewer"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/commerce/return-intake"));
+    let (status, headers, _) = pilot.send(get("/support", Some("support-agent"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/support/requests"));
+    let (status, headers, _) = pilot.send(get("/platform", Some("ops"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/platform/operations-attention"));
+    let (status, headers, _) = pilot.send(get("/growth", Some("growth-viewer"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/growth/waitlist"));
+    // A section with nothing the viewer may see is refused, as admin-web's is.
+    let (status, _, _) = pilot.send(get("/growth", Some("staff"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // Someone not signed in signs in first.
+    let (status, headers, _) = pilot.send(get("/support", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(location(&headers).contains("sign-in"), "{headers:?}");
+}
+
+#[tokio::test]
+async fn the_section_nav_marks_the_entry_that_holds_the_page() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/dimensions/dim_seed", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let side = &html[html.find(r#"<nav class="admin-nav__side""#).unwrap()..];
+    let side = &side[..side.find("</nav>").unwrap()];
+    let tag = |href: &str| side[side.find(&format!(r#"href="{href}""#)).unwrap()..].split('>').next().unwrap().to_owned();
+    assert!(tag("/catalog/dimensions").contains(r#"aria-current="page""#), "{side}");
+    assert!(tag("/catalog/dimensions").contains(r#"data-nav-group=""#), "{side}");
+    assert!(!tag("/catalog/fields").contains("aria-current"), "{side}");
+    assert_eq!(side.matches(r#"aria-current="page""#).count(), 1, "{side}");
 }
 
 #[tokio::test]
@@ -1979,7 +2032,7 @@ async fn the_list_asks_the_api_as_admin_web_does_and_pages() {
     assert!(html.contains(r#"href="/catalog/dimensions?search=cond&amp;status=active&amp;page=3" rel="next""#), "{html}");
     assert!(html.contains("Page 2 of 3"), "{html}");
     assert!(html.contains(r#"<option value="active" selected>Active</option>"#), "the filter shows its value: {html}");
-    assert!(html.contains(r#"href="/catalog/dimensions" aria-current="page""#), "the catalog's own nav: {html}");
+    assert!(marks_current(&html, "/catalog/dimensions"), "the catalog's own nav: {html}");
     assert!(html.contains(r#"href="/catalog/fields""#), "{html}");
 }
 
@@ -3214,7 +3267,7 @@ async fn the_scopes_list_asks_the_api_and_shows_each_scopes_promotion_and_sync()
         html.contains(r#"<option value="pokemon" selected>pokemon</option>"#) && html.contains(r#"<option value="lorcana">"#),
         "{html}"
     );
-    assert!(html.contains(r#"href="/catalog/scopes" aria-current="page""#), "the nav's Scopes is the pilot's: {html}");
+    assert!(marks_current(&html, "/catalog/scopes"), "the nav's Scopes is the pilot's: {html}");
 }
 
 #[tokio::test]
@@ -4100,7 +4153,7 @@ async fn projection_operations_draws_the_apis_console_and_triage() {
             && html.contains("<title>Projection Operations | Chase Sets Admin</title>"),
         "{html}"
     );
-    assert!(html.contains(r#"href="/platform/projections" aria-current="page""#), "the nav entry is the pilot's: {html}");
+    assert!(marks_current(&html, "/platform/projections"), "the nav entry is the pilot's: {html}");
     assert!(html.contains("/sections/platform/projections.css"), "the area's own stylesheet: {html}");
     // The API's and the wake read's attention: a danger item makes the console Needs attention.
     for text in
@@ -4398,7 +4451,7 @@ async fn access_is_an_area_each_list_needs_its_nav_entrys_permission() {
     for path in ["/access/users", "/access/api-keys", "/access/memberships", "/access/invitations"] {
         let (status, _, html) = pilot.send(get(path, Some("access-staff"))).await;
         assert_eq!(status, StatusCode::OK, "{path}: {html}");
-        assert!(html.contains(&format!(r#"href="{path}" aria-current="page""#)), "the nav serves it: {html}");
+        assert!(marks_current(&html, path), "the nav serves it: {html}");
     }
 }
 
@@ -4553,7 +4606,7 @@ async fn sessions_list_and_page_read_auth_as_admin_web_does() {
     assert_eq!(paths, ["/api/auth/sessions?limit=50&offset=50&status=revoked&search=dana"]);
     assert!(html.contains("dana@example.test") && html.contains("Acme Cards") && html.contains("Magic link"), "{html}");
     assert!(html.contains(r#"href="/access/sessions/ses_1""#) && html.contains("Status: Revoked"), "{html}");
-    assert!(html.contains(r#"href="/access/sessions" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/access/sessions"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/access/sessions", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
     assert_eq!(pilot.send(get("/access/sessions/ses_1", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
 
@@ -4640,7 +4693,7 @@ async fn reported_content_reads_the_queue_and_its_counts_as_admin_web_does() {
     assert!(html.contains(r#"<option value="needs-review" selected>Needs review</option>"#), "{html}");
     assert!(html.contains(r#"<option value="all" selected>All targets</option>"#), "{html}");
     assert!(html.contains(r#"href="/support/reported-content/listing/lst_1""#), "{html}");
-    assert!(html.contains(r#"href="/support/reported-content" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/reported-content"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/support/reported-content", Some("staff"))).await.0, StatusCode::FORBIDDEN);
     let (status, _, _) = pilot.send(get("/support/reported-content/listing/lst_1", Some("staff"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
@@ -4742,7 +4795,7 @@ async fn risk_alerts_read_the_queue_and_an_alerts_page_as_admin_web_does() {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert!(html.contains(r#"<option value="review-velocity" selected>Review velocity</option>"#), "{html}");
-    assert!(html.contains(r#"href="/support/risk-alerts" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/risk-alerts"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/support/risk-alerts", Some("staff"))).await.0, StatusCode::FORBIDDEN);
 
     let (status, _, html) = pilot.send(get("/support/risk-alerts/ral_1", Some("moderator"))).await;
@@ -4784,7 +4837,7 @@ async fn reference_lookup_finds_the_record_a_reference_names_and_links_its_admin
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(pilot.calls_to(LOOKUP).is_empty(), "nothing is looked up before a search");
     assert!(!html.contains("No record found") && !html.contains("Result"), "{html}");
-    assert!(html.contains(r#"href="/support/reference-lookup" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/reference-lookup"), "the nav serves it: {html}");
 
     let (status, _, html) = pilot.send(get("/support/reference-lookup?reference=+ORD-A1B2C3D4+", Some("support-agent"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -4836,7 +4889,7 @@ async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_o
     assert!(html.contains(r#"value="2026-10-01""#), "{html}");
     assert!(html.contains("cursor=c2&amp;direction=next") && html.contains("cursor=c0&amp;direction=previous"), "{html}");
     assert!(!html.contains("Export safe CSV"), "Export is left out until it works: {html}");
-    assert!(html.contains(r#"href="/support/csat" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/csat"), "the nav serves it: {html}");
 
     pilot.send(get("/support/csat?cursor=c2&direction=next&ratings=4", Some("feedback-viewer"))).await;
     assert_eq!(pilot.calls_to(CSAT).last().unwrap().path, format!("{CSAT}?ratings=4&cursor=c2&direction=next"));
@@ -4887,7 +4940,7 @@ async fn platform_feedback_reads_the_queue_and_its_counts_with_the_filters_admin
     assert!(html.contains(r#"value="bulk-review""#) && html.contains(r#"value="bulk-archive""#), "{html}");
     assert!(html.contains(r#"action="/support/platform-feedback?status=new&amp;workflow=offer-submit""#), "{html}");
     assert!(html.contains(r#"href="/support/platform-feedback/export?status=new&amp;workflow=offer-submit""#), "{html}");
-    assert!(html.contains(r#"href="/support/platform-feedback" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/platform-feedback"), "the nav serves it: {html}");
 
     let (status, _, html) = pilot.send(get("/support/platform-feedback", Some("feedback-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -5020,7 +5073,7 @@ async fn support_requests_reads_the_queue_with_the_filters_admin_web_offers() {
         "{html}"
     );
     assert!(html.contains(r#"aria-current="page">Ready for support</a>"#), "the status tab: {html}");
-    assert!(html.contains(r#"href="/support/requests" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/requests"), "the nav serves it: {html}");
     assert!(!html.contains("<dialog"), "no sheet without a request: {html}");
     assert_eq!(pilot.send(get("/support/requests", Some("feedback-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
@@ -5170,7 +5223,7 @@ async fn the_ebay_lookup_shows_the_counts_and_a_user_ids_unexpired_receipts() {
     );
     assert!(html.contains(r#"name="userId""#) && html.contains(r#"maxlength="1024""#), "{html}");
     assert!(!html.contains("Unexpired receipts") && !html.contains(r#"role="alert""#), "{html}");
-    assert!(html.contains(r#"href="/support/ebay-account-deletion" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/ebay-account-deletion"), "the nav serves it: {html}");
 
     let at = "/support/ebay-account-deletion";
     let (status, headers, html) = pilot.send(post_as("support-agent", at, "userId=ebay-user-1", false)).await;
@@ -5224,7 +5277,7 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
     assert_eq!(html.matches("SLA breached").count(), 1, "only the case the API says is overdue: {html}");
     assert!(html.contains("May 8, 2026, 12:00 PM UTC"), "a case past its date by the clock is the API's not overdue: {html}");
     assert!(!html.contains("caseId="), "no link to the same queue (chase-sets/chase-sets#10854): {html}");
-    assert!(html.contains(r#"href="/support/customer-feedback/attention" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/customer-feedback/attention"), "the nav serves it: {html}");
     assert_eq!(pilot.calls_to("/api/customer-feedback/attention").len(), 1);
 
     assert_eq!(pilot.send(get(at, Some("attention-down"))).await.0, StatusCode::BAD_GATEWAY);
@@ -5639,7 +5692,7 @@ async fn the_return_intake_station_opens_a_facility_and_resolves_a_scan() {
     assert!(html.contains("Choose the assigned facility") && html.contains(r#"name="facilityId""#), "{html}");
     assert!(!html.contains("Record unidentified package"), "no unidentified form before a facility: {html}");
     assert!(pilot.calls_to(RETURN_INTAKE).is_empty(), "nothing is read before a facility is open");
-    assert!(html.contains(r#"href="/commerce/return-intake" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/commerce/return-intake"), "the nav serves it: {html}");
 
     let (status, _, html) = pilot.send(get("/commerce/return-intake?facilityId=fac_1", Some("intake-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -5927,7 +5980,7 @@ async fn recovered_returns_shows_the_figures_the_queue_and_the_action_form() {
     ] {
         assert!(html.contains(text), "{text}: {html}");
     }
-    assert!(html.contains(r#"href="/commerce/recovered-items" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/commerce/recovered-items"), "the nav serves it: {html}");
     assert_eq!(pilot.calls_to(RECOVERED).len(), 2, "the list and the figures");
     assert_eq!(pilot.send(get(RECOVERED_PAGE, Some("intake-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
@@ -6164,7 +6217,7 @@ async fn commercial_terms_lists_the_published_schedule_and_the_active_and_schedu
     let reads: Vec<_> = pilot.calls_to(TERMS_API).into_iter().map(|c| c.path).collect();
     assert!(reads.iter().any(|p| p == "/api/commercial-terms/home"), "{reads:?}");
     assert!(!reads.iter().any(|p| p.contains("/schedules?") || p.contains("/agreements?")), "no list reads: {reads:?}");
-    assert!(html.contains(r#"href="/commerce/terms" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/commerce/terms"), "the nav serves it: {html}");
     assert!(!html.contains("<dialog"), "no sheet: {html}");
     assert_eq!(pilot.send(get(TERMS, Some("recovery-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
@@ -6861,10 +6914,10 @@ async fn the_nav_links_every_page_the_pilot_serves_to_the_pilot() {
     for path in ["/growth/waitlist", "/growth/promo-bar"] {
         assert!(html.contains(&format!(r#"href="{path}""#)), "{path}: {html}");
     }
-    assert!(html.contains(r#"href="/growth/campaign-analytics" aria-current="page""#), "{html}");
+    assert!(marks_current(&html, "/growth/campaign-analytics"), "{html}");
     let (status, _, html) = pilot.send(get("/platform/insights/offer-economics", Some("insights-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"href="/platform/insights/offer-economics" aria-current="page""#), "{html}");
+    assert!(marks_current(&html, "/platform/insights/offer-economics"), "{html}");
     assert!(!html.contains("localhost:7752/platform/insights/offer-economics"), "{html}");
 }
 

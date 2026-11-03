@@ -1,4 +1,6 @@
-use corten::prelude::*;
+use std::collections::HashMap;
+
+use corten::{Local, NavLink, NavTo, prelude::*};
 use platform::ui::nav_bar::{NavActions, NavBar, NavBrand, NavSections};
 
 use super::{admin_web, link_to};
@@ -13,20 +15,15 @@ fn link(req: &Req, section: &str, item: &NavItem) -> Option<String> {
     link_to(req, &format!("/{section}{}", item.href.as_deref()?))
 }
 
+/// The pilot's page at `path`, when the pilot serves it.
+fn own(req: &Req, path: &str) -> Option<Local> {
+    Local::parse(path).filter(|to| req.serves(to))
+}
+
 /// The section a path is in (its first segment), commerce for any other.
 fn section_of(path: &str) -> &'static str {
     let first = path.trim_start_matches('/').split('/').next().unwrap_or("");
     auth::SECTIONS.into_iter().find(|s| *s == first).unwrap_or("commerce")
-}
-
-/// Where a section goes: the pilot's own home for it, or admin-web's.
-fn section_link(req: &Req, section: &str) -> String {
-    link_to(req, &format!("/{section}")).unwrap_or_default()
-}
-
-/// Whether the page at `path` is the entry's or under it.
-fn current(href: &str, path: &str) -> bool {
-    path == href || path.strip_prefix(href).is_some_and(|rest| rest.starts_with('/'))
 }
 
 fn section_label(p: Pilot, section: &str) -> &'static str {
@@ -45,17 +42,28 @@ fn section_label(p: Pilot, section: &str) -> &'static str {
 /// admin-web's otherwise.
 ///
 /// The top bar is the kit's `NavBar`, which draws the current section from `aria-current="page"`.
-/// Most section homes are admin-web's, which `req.nav_of` cannot mark, so the section links are
-/// marked here and, after a client navigation, by `markNav` (`data-nav-path`; the README's
-/// todd-skelton/corten 341 row).
+/// Every section home is the pilot's (`crate::sections`), so Corten marks both bars
+/// (`req.nav_of`, each entry current on the pages under it) and moves the marks after a client
+/// navigation. A page the pilot does not serve (Catalog's integrations) is a plain link to
+/// admin-web, never current.
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
-    let path = req.path();
     let sections = auth::sections(viewer);
-    let here = section_of(path);
+    let here = section_of(req.path());
     let items = auth::section_items(viewer, here);
     let m: SignInMsg = req.t();
+    // Each bar is one group: its entries the pilot serves, each current on the pages under it.
+    let top_entries: Vec<(Local, &str)> =
+        sections.iter().filter_map(|section| Some((own(req, &format!("/{section}"))?, *section))).collect();
+    let side_entries: Vec<(Local, &str)> = items
+        .iter()
+        .filter_map(|(item, _)| Some((own(req, &format!("/{here}{}", item.href.as_deref()?))?, item.key.as_str())))
+        .collect();
     html! {
+        let top_marks = req.nav_of(top_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
+        let top: HashMap<&str, NavLink<'_>> = top_marks.links().map(|(link, key)| (*key, link)).collect();
+        let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
+        let side: HashMap<&str, NavLink<'_>> = side_marks.links().map(|(link, key)| (*key, link)).collect();
         // `Phone`: the section links take their own row on a phone (todd-skelton/corten 673).
         <header class={(NavBar {}, Phone)}>
             <a class={NavBrand {}} href={admin_web("/").map(|u| u.to_string()).unwrap_or_default()}>
@@ -64,10 +72,11 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
             </a>
             <nav class={NavSections {}} aria-label={p.shell_navigation()}>
                 for section in &sections {
-                    let href = section_link(req, section);
-                    <a href={&href} aria-current={(*section == here).then_some("page")} data-nav-path={format!("/{section}")}>
-                        {section_label(p, section)}
-                    </a>
+                    if let Some(marked) = top.get(section) {
+                        <a {..marked}>{section_label(p, section)}</a>
+                    } else if let Some(href) = admin_web(&format!("/{section}")) {
+                        <a href={href.to_string()}>{section_label(p, section)}</a>
+                    }
                 }
             </nav>
             // admin-web's account menu (`AdminAccountMenu`): switch account, sessions and sign out.
@@ -95,12 +104,12 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
         <nav class={Side} aria-label={p.shell_section_navigation(section_label(p, here))}>
             <ul>
                 for (item, children) in &items {
-                    let href = link(req, here, item);
+                    let away = side.get(item.key.as_str()).is_none().then(|| link(req, here, item)).flatten();
                     <li>
-                        if let Some(href) = &href {
-                            <a class={Item} href={href} aria-current={current(href, path).then_some("page")} data-nav-path={href}>
-                                {&item.label}
-                            </a>
+                        if let Some(marked) = side.get(item.key.as_str()) {
+                            <a class={Item} {..marked}>{&item.label}</a>
+                        } else if let Some(href) = &away {
+                            <a class={Item} href={href}>{&item.label}</a>
                         } else {
                             <span class={Group}>{&item.label}</span>
                         }
