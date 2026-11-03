@@ -8,6 +8,7 @@ import {
   buildDeliveryHealth,
   collectDeliveryHealth,
   createGitHubClient,
+  fetchPullFiles,
   normalizeDeliveryConclusion,
   parseSliMarker,
   percentileSummary,
@@ -1172,6 +1173,124 @@ describe("delivery health conclusion normalization", () => {
 });
 
 describe("GitHub collection conventions", () => {
+  it("accepts provider-shaped multi-page search links but refuses a changed search path", async () => {
+    const execute = async (changed) => {
+      const client = createGitHubClient(
+        {
+          repository: "chase-sets/chase-sets",
+          fetchImpl: async (url) => {
+            const parsed = new URL(url);
+            const page = Number(parsed.searchParams.get("page"));
+            const headers = {};
+            if (page === 1) {
+              const next = new URL(parsed);
+              if (changed) next.pathname += "X";
+              next.searchParams.set("page", "2");
+              headers.link = `<${next.href}>; rel="next"`;
+            }
+            return new Response(JSON.stringify({ total_count: 2, items: [{ id: page }] }), { headers });
+          },
+          sleep: async () => {},
+        },
+        { maxPages: 2, retries: 0 },
+      );
+      return client.paginate(
+        "https://api.github.com/search/issues?q=repo%3Achase-sets%2Fchase-sets&per_page=1",
+        (payload) => payload.items,
+        {
+          source: "search",
+          requireTotal: true,
+        },
+      );
+    };
+    await expect(execute(false)).resolves.toHaveLength(2);
+    await expect(execute(true)).rejects.toThrow("collection_incomplete");
+  });
+
+  it("uses REST filename as pull-file identity when provider omits ids", async () => {
+    const client = createGitHubClient(
+      {
+        repository: qualificationRepository,
+        fetchImpl: async () =>
+          new Response(JSON.stringify([{ filename: "pnpm-lock.yaml" }, { filename: "src/feature.ts" }])),
+        sleep: async () => {},
+      },
+      { maxPages: 1, retries: 0 },
+    );
+    await expect(fetchPullFiles(client, 1, 1)).resolves.toHaveLength(2);
+  });
+
+  it("keeps selected PR enrichment bounded and partial per PR", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const queries = [];
+    const pulls = Array.from({ length: 8 }, (_, index) => ({
+      number: index + 1,
+      state: "MERGED",
+      isDraft: true,
+      createdAt: "2026-07-20T00:00:00Z",
+      updatedAt: "2026-07-20T02:00:00Z",
+      mergedAt: "2026-07-20T01:00:00Z",
+      timelineItems: { nodes: [{ createdAt: "2026-07-20T01:00:00Z" }] },
+    }));
+    const enter = async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active -= 1;
+    };
+    const client = {
+      json: async (path, request = {}) => {
+        if (path === "https://api.github.com/graphql") queries.push(request.body.query);
+        if (path === "https://api.github.com/graphql")
+          return {
+            data: {
+              search: { issueCount: pulls.length, pageInfo: { hasNextPage: false, endCursor: null }, nodes: pulls },
+            },
+          };
+        if (String(path).endsWith("/pulls/8")) throw new Error("GitHub API request failed: 403");
+        await enter();
+        if (String(path).includes("/workflows/")) return { total_count: 0, workflow_runs: [] };
+        return { changed_files: 2 };
+      },
+      paginate: async (path, _select, pagination = {}) => {
+        if (String(path).includes("/pulls/") && String(path).includes("/files")) {
+          const files = [
+            { filename: "pnpm-lock.yaml", additions: 500, deletions: 0 },
+            { filename: "src/feature.ts", additions: 10, deletions: 2 },
+          ];
+          for (const file of files) expect(() => pagination.identity(file)).not.toThrow();
+          await enter();
+          return files;
+        }
+        if (String(path).includes("/pulls/") && String(path).includes("/reviews")) {
+          await enter();
+          return [];
+        }
+        return [];
+      },
+      status: () => ({ truncated: [], errors: [] }),
+    };
+    const result = await collectDeliveryHealth(
+      {
+        repository: qualificationRepository,
+        checkedAt: qualificationCheckedAt,
+        publicationMode: "hourly",
+        updateIssues: false,
+        fetchImpl: async () => new Response("{}"),
+      },
+      { policy, client },
+    );
+    expect(maxActive).toBeLessThanOrEqual(policy.collection.concurrency);
+    expect(queries.every((query) => !query.includes("files(") && !query.includes("reviews("))).toBe(true);
+    expect(queries.some((query) => query.includes("READY_FOR_REVIEW_EVENT"))).toBe(true);
+    expect(result.record.completeness.reasons).toContain("truncated:pull-request-nested-data");
+    expect(result.record.completeness.reasons).not.toContain("source:pull-requests");
+    expect(result.record.windows.rolling7d.prs.created).toBe(8);
+    expect(result.record.windows.rolling7d.prs.nonGeneratedChurn.p50).toBe(12);
+    expect(result.record.windows.rolling7d.prs.creationToReadySeconds.p50).toBe(3600);
+  });
+
   it("paginates beyond one API page and reports the observed rate limit", async () => {
     const calls = [];
     const client = createGitHubClient(

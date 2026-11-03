@@ -89,7 +89,7 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
     ),
     client
       .paginate(`/rules/branches/main?per_page=100`, (payload) => payload, {
-        identity: (rule) => rule?.id ?? rule?.node_id ?? rule.type,
+        identity: (rule) => [rule?.id ?? rule?.node_id ?? "none", rule?.type ?? "none"].join(":"),
       })
       .catch((error) => {
         if (error.message === "github-not-found") return [];
@@ -112,9 +112,11 @@ function timelineIdentity(event) {
   return (
     event?.id ??
     event?.node_id ??
-    [event?.event, event?.created_at, event?.source?.issue?.number ?? event?.commit_id ?? event?.sha ?? "none"].join(
-      ":",
-    )
+    [
+      event?.event,
+      event?.created_at,
+      event?.source?.issue?.number ?? event?.commit_id ?? event?.sha ?? event?.comments?.[0]?.id ?? "none",
+    ].join(":")
   );
 }
 

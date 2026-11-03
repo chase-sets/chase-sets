@@ -170,7 +170,9 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     }
   };
   const [pulls, platformPrRuns, dispatchRuns, deployRuns, ephemeralRuns, circuitIssues] = await Promise.all([
-    safely("pull-requests", () => fetchPullRequests(client, options.repository, window, policy.collection.maxPages)),
+    safely("pull-requests", () =>
+      fetchPullRequests(client, options.repository, window, policy.collection.maxPages, policy.collection.concurrency),
+    ),
     safely("platform-pr-runs", () =>
       fetchWorkflowRuns(client, workflows.platformPr, window, policy.collection.maxPages),
     ),
@@ -959,7 +961,7 @@ function summarizePullRequests(pulls, runs, generatedPaths, window) {
     nonGeneratedChurn: percentileSummary(
       created.map((pull) =>
         (pull.files ?? [])
-          .filter((file) => !isGeneratedPath(file.path, generatedPaths))
+          .filter((file) => !isGeneratedPath(file.filename ?? file.path, generatedPaths))
           .reduce((sum, file) => sum + nonNegativeInteger(file.additions) + nonNegativeInteger(file.deletions), 0),
       ),
     ),
@@ -1782,8 +1784,10 @@ function selectCollectedWindow(values, window, series) {
 function sameRepositoryPath(actualPath, expectedPath, repositoryIds) {
   const actual = parseRepositoryPath(actualPath);
   const expected = parseRepositoryPath(expectedPath);
-  if (!actual || !expected || actual.suffix !== expected.suffix) return false;
+  if (!expected) return actualPath === expectedPath;
+  if (!actual || actual.suffix !== expected.suffix) return false;
   if (actual.kind === "id") {
+    if (expected.kind === "id") repositoryIds.add(expected.value);
     repositoryIds.add(actual.value);
     if (repositoryIds.size > 1) return false;
     return true;
@@ -1801,7 +1805,7 @@ function parseRepositoryPath(pathname) {
   };
 }
 
-async function fetchPullRequests(client, repository, window, maxPages) {
+async function fetchPullRequests(client, repository, window, maxPages, concurrency) {
   const pulls = await collectPartitionedHistory({
     end: window.end,
     maxPages,
@@ -1820,14 +1824,14 @@ async function fetchPullRequests(client, repository, window, maxPages) {
     [pulls, (pull) => pull.createdAt],
     [pulls.filter((pull) => pull.mergedAt), (pull) => pull.mergedAt],
   ]);
-  return enrichPullRequestWindow(client, selected, maxPages);
+  return enrichPullRequestWindow(client, selected, maxPages, concurrency);
 }
 
 async function fetchPullRequestPage(client, query, cursor) {
   const payload = await client.json(GRAPHQL_URL, {
     method: "POST",
     body: {
-      query: `query DeliveryHealthPulls($query:String!,$cursor:String){search(query:$query,type:ISSUE,first:100,after:$cursor){issueCount pageInfo{hasNextPage endCursor}nodes{... on PullRequest{number state isDraft createdAt updatedAt mergedAt}}}}`,
+      query: `query DeliveryHealthPulls($query:String!,$cursor:String){search(query:$query,type:ISSUE,first:100,after:$cursor){issueCount pageInfo{hasNextPage endCursor}nodes{... on PullRequest{number state isDraft createdAt updatedAt mergedAt timelineItems(first:1,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}}}}}}`,
       variables: { query, cursor },
     },
   });
@@ -1902,13 +1906,13 @@ async function fetchPullRequestPartition(client, query, first, maxPages) {
   throw new Error("pull_collection_incomplete");
 }
 
-async function enrichPullRequestWindow(client, pulls, maxPages) {
+async function enrichPullRequestWindow(client, pulls, maxPages, concurrency) {
   const missing = pulls.filter(
     (pull) =>
       !Number.isSafeInteger(pull.changedFiles) || !Array.isArray(pull.files) || !Number.isSafeInteger(pull.reviewCount),
   );
-  await Promise.all(
-    missing.map(async (pull) => {
+  await mapConcurrent(missing, concurrency, async (pull) => {
+    try {
       const detail = await client.json(`/pulls/${pull.number}`, { advisory: true });
       if (!Number.isSafeInteger(pull.changedFiles) && Number.isSafeInteger(detail?.changed_files))
         pull.changedFiles = detail.changed_files;
@@ -1921,8 +1925,13 @@ async function enrichPullRequestWindow(client, pulls, maxPages) {
       pull.reviewsTruncated = false;
       pull.filesTruncated = false;
       pull.nestedDataTruncated = false;
-    }),
-  );
+    } catch {
+      pull.nestedDataTruncated = true;
+      if (pull.files === null) pull.files = [];
+      if (!Number.isSafeInteger(pull.changedFiles)) pull.changedFiles = null;
+      if (!Number.isSafeInteger(pull.reviewCount)) pull.reviewCount = null;
+    }
+  });
   return pulls;
 }
 
@@ -1968,7 +1977,7 @@ async function fetchRunJobs(client, runId, maxPages) {
   });
 }
 
-async function fetchPullFiles(client, pullNumber, maxPages) {
+export async function fetchPullFiles(client, pullNumber, maxPages) {
   return client.paginate(`/pulls/${pullNumber}/files?per_page=100`, (payload) => payload, {
     source: `pull-files:${pullNumber}`,
     maxPages,

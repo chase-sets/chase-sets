@@ -107,6 +107,51 @@ describe("release health GitHub metadata", () => {
     });
   });
 
+  it("refuses a repository-id Link that changes identity between pages", async () => {
+    const responses = new Map([
+      [`/repos/chase-sets/chase-sets/commits/${releaseCommit}/pulls`, [{ id: 1, number: 1 }]],
+      ["/repos/chase-sets/chase-sets/pulls/1", { number: 1, created_at: "2026-06-01T03:16:21Z" }],
+      ["/repos/chase-sets/chase-sets/pulls/1/reviews?per_page=100", []],
+      ["/repos/chase-sets/chase-sets/issues/1/timeline?per_page=100", []],
+      [
+        `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=100`,
+        { workflow_runs: [] },
+      ],
+      ["/repos/chase-sets/chase-sets/rules/branches/main?per_page=100", []],
+    ]);
+    await expect(
+      collectReleaseHealthGithubMetadata(
+        { repository: "chase-sets/chase-sets", releaseCommit },
+        {
+          fetchImpl: async (url) => {
+            const parsed = new URL(url);
+            if (parsed.pathname.endsWith("/commits/" + releaseCommit + "/pulls")) {
+              const page = Number(parsed.searchParams.get("page"));
+              const headers = {};
+              if (page === 1) {
+                const next = new URL(parsed);
+                next.pathname = "/repositories/2/commits/" + releaseCommit + "/pulls";
+                next.searchParams.set("page", "2");
+                headers.link = `<${next.href}>; rel="next"`;
+              }
+              return new Response(
+                JSON.stringify({
+                  total_count: 200,
+                  items: Array.from({ length: 100 }, (_, id) => ({
+                    id: (page - 1) * 100 + id,
+                    number: (page - 1) * 100 + id + 1,
+                  })),
+                }),
+                { headers },
+              );
+            }
+            return metadataFixtureResponse(url, responses);
+          },
+        },
+      ),
+    ).rejects.toThrow("collection_incomplete");
+  });
+
   it("uses ready-for-review timeline evidence for draft PRs", () => {
     const metadata = buildReleaseHealthGithubMetadata({
       releaseCommit,
