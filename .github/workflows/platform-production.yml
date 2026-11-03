@@ -2171,19 +2171,40 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: /home/runner/.cache/ms-playwright
+          path: ${{ runner.temp }}/playwright-chromium
           key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}
           restore-keys: |
             playwright-chromium-${{ runner.os }}-
 
       - name: Install Playwright Chromium for staging critical flows
         if: env.SHOULD_DEPLOY != 'false'
+        timeout-minutes: 21
         env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
-        run: pnpm exec playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: platform-production-deploy-staging
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
+          PLAYWRIGHT_INSTALL_ATTEMPT: "1"
+        run: |
+          set +e
+          mkdir -p artifacts/release-health
+          attempts_log=artifacts/release-health/staging-browser-install-attempts.txt
+          classifier_log=artifacts/release-health/staging-browser-install.txt
+          : > "$attempts_log"
+          : > "$classifier_log"
+          node scripts/playwright-chromium-install.mjs 2>&1 | tee -a "$attempts_log"
+          status=${PIPESTATUS[0]}
+          reason="$(sed -n 's/.*\"reason\":\"\([^\"]*\)\".*/\1/p' "$attempts_log" | tail -n 1)"
+          case "$status:$reason" in
+            [1-9]*:timeout|[1-9]*:partial-download|[1-9]*:cache-restore-failure|[1-9]*:incomplete-cache)
+              sleep 5
+              PLAYWRIGHT_INSTALL_ATTEMPT="2" node scripts/playwright-chromium-install.mjs 2>&1 | tee -a "$attempts_log"
+              status=${PIPESTATUS[0]}
+              ;;
+          esac
+          if [ "$status" -ne 0 ]; then
+            grep -E 'Playwright Chromium install failed|provider-browser-install-timing/v1' "$attempts_log" | tail -n 1 > "$classifier_log"
+          fi
+          exit "$status"
 
       - name: Await staging projection convergence
         id: projection_convergence_gate
@@ -2351,7 +2372,7 @@ jobs:
           GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_POLL_INTERVAL_MS || '5000' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: |
           set -euo pipefail
           admin_domain="$(terraform output -raw admin_domain)"
@@ -2716,6 +2737,7 @@ jobs:
             --diagnostics artifacts/agent-grant-revocation/staging/replay-status.json \
             --diagnostics artifacts/release-health/staging-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/staging-kubernetes-deploy-diagnostics.json \
+            --diagnostics artifacts/release-health/staging-browser-install.txt \
             --diagnostics artifacts/release-health/staging-projection-convergence-gate.json \
             --diagnostics artifacts/release-health/guest-buy-now-freshness-probe.json \
             --diagnostics artifacts/release-health/account-buy-now-freshness-probe.json \

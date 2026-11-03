@@ -3741,7 +3741,9 @@ describe("DigitalOcean platform configuration", () => {
 
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
     expect(dbProfileJob).toContain("timeout-minutes: 30");
-    expect(dbProfileJob).toContain("image: pgvector/pgvector:pg16");
+    expect(dbProfileJob).toContain(
+      "image: ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a",
+    );
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
     expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
     expect(dbProfileJob).toContain("id: platform-api-selected");
@@ -4157,8 +4159,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(dockerfile.indexOf("RUN pnpm install --frozen-lockfile")).toBeLessThan(
       dockerfile.indexOf("COPY --chown=node:node bounded-contexts ./bounded-contexts"),
     );
-    expect(dockerfile).toContain("FROM node:24-bookworm-slim AS runtime");
-    const runtimeStage = dockerfile.slice(dockerfile.indexOf("FROM node:24-bookworm-slim AS runtime"));
+    expect(dockerfile).toContain(
+      "FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime",
+    );
+    const runtimeStage = dockerfile.slice(
+      dockerfile.indexOf(
+        "FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime",
+      ),
+    );
     expect(runtimeStage).toContain("RUN pnpm install --frozen-lockfile --prod");
     expect(runtimeStage.indexOf("RUN pnpm install --frozen-lockfile --prod")).toBeLessThan(
       runtimeStage.indexOf("COPY --chown=node:node bounded-contexts ./bounded-contexts"),
@@ -5548,14 +5556,15 @@ describe("DigitalOcean platform configuration", () => {
       "uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0",
     );
     expect(stagingPlaywrightCacheStep).toContain("id: staging-playwright-chromium-cache");
-    expect(stagingPlaywrightCacheStep).toContain("path: /home/runner/.cache/ms-playwright");
+    expect(stagingPlaywrightCacheStep).toContain("path: ${{ runner.temp }}/playwright-chromium");
     expect(stagingPlaywrightCacheStep).toContain(
       "key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}",
     );
     expect(stagingPlaywrightCacheStep).toContain("playwright-chromium-${{ runner.os }}-");
     expect(stagingPlaywrightInstallStep).not.toContain("cache-hit != 'true'");
-    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
-    expect(stagingPlaywrightInstallStep).toContain("pnpm exec playwright install --with-deps chromium");
+    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium");
+    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_INSTALL_SITE: platform-staging-advisory-evidence");
+    expect(stagingPlaywrightInstallStep).toContain("node scripts/playwright-chromium-install.mjs");
     expect(platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Resolve Playwright Chromium version")).toBeLessThan(
       platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Cache Playwright Chromium for staging critical flows"),
     );
@@ -5569,7 +5578,7 @@ describe("DigitalOcean platform configuration", () => {
     ).toBeLessThan(platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Staging marketplace critical flows"));
     expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
     expect(stagingCriticalFlowStep).toContain("continue-on-error: true");
-    expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
+    expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium");
     expect(stagingCriticalFlowStep).toContain('admin_domain="$(terraform output -raw admin_domain)"');
     expect(stagingCriticalFlowStep).toContain('ADMIN_WEB_URL="https://${admin_domain}"');
     expect(stagingCriticalFlowStep).toContain('MARKETPLACE_WEB_URL="https://${marketplace_domain}"');
@@ -5605,7 +5614,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).not.toContain("continue-on-error");
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("staging-advisory-evidence");
     expect(stagingBuyNowProbesStep).toContain("GUEST_BUY_NOW_PROBE_SEARCH_QUERY");
-    expect(stagingBuyNowProbesStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
+    expect(stagingBuyNowProbesStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium");
     expect(stagingBuyNowProbesStep).toContain("vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
     expect(stagingBuyNowProbesStep).toContain("'air balloon'");
     expect(stagingBuyNowProbesStep).not.toContain("vars.MARKETPLACE_E2E_SEARCH_QUERY");
@@ -6043,9 +6052,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(preflight["timeout-minutes"]).toBeGreaterThan(cap + postWaitReadMinutes);
     const later = job.steps.slice(preflightIndex + 1);
     for (const step of later) expect(step["timeout-minutes"], step.name).toBeGreaterThan(0);
-    expect(cap + later.reduce((total, step) => total + step["timeout-minutes"], 0)).toBeLessThanOrEqual(
-      job["timeout-minutes"],
-    );
+    const install = later.find((step) => step.name === "Install Playwright Chromium for staging critical flows");
+    const consumer = later.find((step) => step.id === "marketplace_e2e");
+    expect(later.find((step) => step.id === "staging-playwright-chromium")["timeout-minutes"]).toBe(2);
+    expect(install["timeout-minutes"]).toBe(11);
+    expect(consumer["timeout-minutes"]).toBe(10);
+    expect(605 + consumer["timeout-minutes"] * 60 + 55).toBeLessThanOrEqual(job["timeout-minutes"] * 60);
+    const laterTimeoutTotal = later.reduce((sum, step) => sum + step["timeout-minutes"], 0);
+    expect(cap + laterTimeoutTotal).toBeLessThanOrEqual(job["timeout-minutes"]);
     expect(job["timeout-minutes"]).toBe(90);
     const awaitStep = later.find((step) => step.id === "await_scenario_seed");
     const deadline = Number(awaitStep.run.match(/deadline=\$\(\( \$\(date \+%s\) \+ (\d+) \)\)/u)?.[1]);
