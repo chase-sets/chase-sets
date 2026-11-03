@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { act, type MouseEvent, useState } from "react";
+import { hydrateRoot } from "react-dom/client";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -21,6 +22,7 @@ import {
 } from "../patterns/app-shells/search-row-phase";
 import type { ReactNode } from "react";
 import { ThemeToggle } from "../theme/theme-toggle";
+import { LiveRegion } from "../primitives/layout";
 import {
   BottomSheet,
   BottomNav,
@@ -75,6 +77,44 @@ import {
 } from "../index";
 
 describe("design system panels, navigation, and shells", () => {
+  it("hydrates plain and flow-content empty-state descriptions without replacing parsed nodes", async () => {
+    const recoverableErrors: Error[] = [];
+    const element = (
+      <MarketplaceEmptyState
+        title="Nothing here yet"
+        description={
+          <LiveRegion politeness="polite" atomic>
+            We are preparing your checkout.
+          </LiveRegion>
+        }
+      />
+    );
+    const markup = renderToString(element);
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const parsedSection = container.querySelector("section");
+    const parsedStatus = container.querySelector('[role="status"]');
+    expect(parsedSection).not.toBeNull();
+    expect(parsedStatus).not.toBeNull();
+
+    const root = hydrateRoot(container, element, {
+      onRecoverableError: (error) => recoverableErrors.push(error),
+    });
+    await act(async () => undefined);
+
+    expect(recoverableErrors).toEqual([]);
+    expect(container.querySelector("section")).toBe(parsedSection);
+    expect(container.querySelector('[role="status"]')).toBe(parsedStatus);
+    expect(container.querySelector('[role="status"]')).toHaveTextContent("We are preparing your checkout.");
+    root.unmount();
+
+    const plainMarkup = renderToString(
+      <MarketplaceEmptyState title="No listings" description="There are no listings to show yet." />,
+    );
+    expect(plainMarkup).toContain("There are no listings to show yet.");
+    expect(plainMarkup).not.toContain('<p class="m-0 mx-auto max-w-xl text-sm leading-6 text-secondary"><div');
+  });
+
   it("keeps promoted survivors on the root surface and removed compat helpers off it", () => {
     const surface = DesignSystem as Record<string, unknown>;
 
