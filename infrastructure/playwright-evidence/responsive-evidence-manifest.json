@@ -6739,7 +6739,7 @@
           "selector": ":scope",
           "property": "height",
           "assertion": {
-            "minimum": 1
+            "minimum": 44
           }
         },
         {
@@ -6791,7 +6791,7 @@
           "selector": ":scope",
           "property": "height",
           "assertion": {
-            "minimum": 1
+            "minimum": 44
           }
         },
         {
@@ -6843,7 +6843,7 @@
           "selector": ":scope",
           "property": "height",
           "assertion": {
-            "minimum": 1
+            "minimum": 44
           }
         },
         {
@@ -6895,7 +6895,7 @@
           "selector": ":scope",
           "property": "height",
           "assertion": {
-            "minimum": 1
+            "minimum": 44
           }
         },
         {
