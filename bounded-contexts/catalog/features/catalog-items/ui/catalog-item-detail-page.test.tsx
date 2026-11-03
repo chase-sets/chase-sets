@@ -98,7 +98,13 @@ describe("CatalogItemDetailPage", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Set Image URLs" })).toBeNull());
     await waitFor(() =>
       expect(
-        fetch.mock.calls.filter(([request, init]) => String(request).endsWith("/items/cat_1") && !init?.method),
+        fetch.mock.calls.filter(([request, init]) => {
+          const url =
+            typeof request === "object" && request !== null && "url" in request
+              ? String((request as { url: unknown }).url)
+              : String(request);
+          return url.endsWith("/items/cat_1") && !init?.method;
+        }),
       ).toHaveLength(1),
     );
     fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
