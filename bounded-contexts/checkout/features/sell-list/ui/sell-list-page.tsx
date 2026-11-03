@@ -125,7 +125,10 @@ export function CheckoutSellListPage({
           },
           {
             label: t("checkout.features.sellList.ui.sellListPage.future.listing.gross"),
-            value: formatMoney(model.futureListingGross),
+            value:
+              model.futureListingGross === null
+                ? t("checkout.features.sellList.ui.sellListPage.not.quoted.yet")
+                : formatMoney(model.futureListingGross),
           },
           {
             label: t("checkout.features.sellList.ui.sellListPage.estimated.sales.fees"),

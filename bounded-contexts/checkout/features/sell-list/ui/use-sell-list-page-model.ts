@@ -71,7 +71,7 @@ export function useSellListPageModel({
       )
     );
   }, 0);
-  const futureListingGross = productLines.reduce((sum, line) => {
+  const quotedFutureListingGross = productLines.reduce((sum, line) => {
     const review = productOfferReviewsByLineId.get(line.line_id);
     const matchedQuantity = (review?.offers ?? []).reduce(
       (quantity, item) => quantity + item.offer.quantity_requested,
@@ -97,6 +97,7 @@ export function useSellListPageModel({
       );
     }, 0);
   const estimatedSalesFees = hasUnquotedOffers ? null : quotedSalesFees;
+  const futureListingGross = hasUnquotedOffers ? null : quotedFutureListingGross;
   const expectedSellerPayout = hasUnquotedOffers ? null : selectedOfferSellerNet + smartMatchSellerNet;
   const lineReadiness = sellListLines.map((line) =>
     line.line_type === "selected-offer"
