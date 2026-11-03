@@ -46,10 +46,12 @@ const catalogItem: CatalogItemDetail = {
   updated_at: "2026-05-13T00:00:00.000Z",
 };
 
-function imageUrlsPutRequests(fetch: { mock: { calls: ReadonlyArray<ReadonlyArray<unknown>> } }) {
+type CatalogFetchCall = readonly [RequestInfo | URL, RequestInit?];
+
+function imageUrlsPutRequests(fetch: { mock: { calls: ReadonlyArray<CatalogFetchCall> } }): CatalogFetchCall[] {
   return fetch.mock.calls.filter(([request, init]) => {
     const url = String(request);
-    return url.includes("/items/cat_1/image-urls") && (init as RequestInit | undefined)?.method === "PUT";
+    return url.includes("/items/cat_1/image-urls") && init?.method === "PUT";
   });
 }
 
