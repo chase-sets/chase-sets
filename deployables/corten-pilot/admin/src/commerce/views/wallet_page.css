@@ -1,0 +1,377 @@
+/* The Wallet Workbench: the balance's figures are one to a row on a phone, two from 40rem and four
+   from 64rem; the form's amount and reason sit side by side from 40rem; the tables scroll on their
+   own on a phone. Tones (good, warning, danger, info, neutral) colour a pill, a banner or a button,
+   each in its own way. */
+.page {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.raised {
+  background: var(--color-background);
+  box-shadow: var(--shadow-overlay);
+}
+.heading {
+  margin: 0;
+  font: 600 1.25rem/1.3 var(--font-display);
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+}
+.muted {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+.words {
+  overflow-wrap: anywhere;
+}
+.block {
+  display: block;
+}
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+.figures {
+  display: grid;
+  gap: var(--space-3);
+}
+.figure {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.amount {
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow-wrap: anywhere;
+}
+.banner p {
+  margin: 0;
+}
+.banner.warning {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.banner.danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.banner.info {
+  border-color: var(--color-info);
+  background: var(--color-info-soft);
+}
+.banner .button {
+  justify-self: start;
+}
+.fields {
+  margin: 0;
+  padding-inline-start: var(--space-4);
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  max-inline-size: 100%;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pill.good {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.pill.warning {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.pill.danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.pill.info {
+  border-color: var(--color-info);
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+.pill.neutral {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.button.primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+.button.secondary {
+  border-color: var(--color-border-strong);
+  background: var(--color-secondary);
+  color: var(--color-secondary-foreground);
+}
+.button.danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-danger-contrast);
+}
+.small {
+  min-height: 2.25rem;
+  padding: 0 var(--space-3);
+  font-size: 0.875rem;
+}
+.buttons,
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.steps {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+.step > span:last-child {
+  display: grid;
+  gap: 0.125rem;
+}
+.number {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.current .number {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+.complete .number {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.form {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+}
+.form > .button {
+  justify-self: start;
+}
+.tinted {
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+.grid {
+  display: grid;
+  gap: var(--space-3);
+}
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.choice legend {
+  margin-block-end: var(--space-2);
+  padding: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.choice label {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-background);
+  cursor: pointer;
+}
+.choice label:has(input:checked) {
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+  min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.field input,
+.field select,
+.field textarea {
+  min-height: 2.75rem;
+  max-inline-size: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-background);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 400;
+}
+.hint {
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+.pairs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: 0.875rem;
+}
+.pairs dt {
+  color: var(--color-text-secondary);
+}
+.pairs dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.empty {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-6) var(--space-4);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+.scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-background);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.table th,
+.table td {
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+.table th {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.table td {
+  min-inline-size: 7rem;
+}
+.table tr:last-child td {
+  border-bottom: 0;
+}
+.table .end {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.actions {
+  min-inline-size: 14rem;
+}
+.actions > * + * {
+  margin-block-start: var(--space-2);
+}
+.confirm {
+  width: min(30rem, calc(100vw - 2rem));
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-overlay);
+}
+.confirm::backdrop {
+  background: var(--color-overlay);
+}
+.confirm form {
+  display: grid;
+  gap: var(--space-3);
+}
+.confirm h3 {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.confirm .buttons {
+  justify-content: flex-end;
+}
+@media (min-width: 40rem) {
+  .figures,
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 64rem) {
+  .figures {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

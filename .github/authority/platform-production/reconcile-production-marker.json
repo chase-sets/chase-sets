@@ -38,9 +38,16 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "reconcile-production-marker",
-      "stepAnchor": "name:Reconcile retained production marker#8",
+      "stepAnchor": "name:Reconcile retained production marker#9",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-production-marker",
+      "stepAnchor": "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+      "secretName": "PRODUCTION_MARKER_APP_PRIVATE_KEY",
+      "purpose": "release-marker-publication"
     }
   ]
 }

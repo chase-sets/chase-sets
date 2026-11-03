@@ -6,7 +6,9 @@ import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   classifyChanges,
+  deriveStaticChangedFiles,
   listChangedFiles,
+  parseNameStatusZ,
   resolveChangeScope,
   toGithubOutputMap,
   toOutputMap,
@@ -15,7 +17,114 @@ import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
-import { selectVerifyStaticGuardTests } from "./verify-static-scoped.mjs";
+import { selectVerifyStaticGuardTests } from "./verify-static-surfaces.mjs";
+
+describe("changed-path parsing and derivation", () => {
+  it("parses added, deleted, and rename name-status records", () => {
+    expect(parseNameStatusZ("A\0added.ts\0D\0deleted.ts\0R100\0old.ts\0new.ts\0")).toEqual([
+      "added.ts",
+      "deleted.ts",
+      "old.ts",
+      "new.ts",
+    ]);
+  });
+
+  it("derives explicit changed paths without consulting git", () => {
+    expect(
+      deriveStaticChangedFiles({ repoRoot: process.cwd(), env: { CHANGED_FILES_JSON: '["contracts/added.ts"]' } }),
+    ).toEqual({ source: "CHANGED_FILES_JSON", files: ["contracts/added.ts"] });
+  });
+
+  it("derives the merge-base diff and fails closed on malformed records", () => {
+    const calls = [];
+    const execGit = (args) => {
+      calls.push(args);
+      if (args[0] === "rev-parse") return "true";
+      if (args[0] === "merge-base") return "base\n";
+      return "M\0scripts/changed.mjs\0";
+    };
+    expect(deriveStaticChangedFiles({ repoRoot: process.cwd(), env: {}, execGit })).toEqual({
+      source: "git merge-base",
+      files: ["scripts/changed.mjs"],
+    });
+    expect(calls.map(([command]) => command)).toEqual(["rev-parse", "merge-base", "diff"]);
+    expect(() => parseNameStatusZ("R100\0old.ts\0")).toThrow(/incomplete/);
+  });
+
+  it("uses the complete git argument contract and reports derivation error codes", () => {
+    const calls = [];
+    expect(
+      deriveStaticChangedFiles({
+        repoRoot: process.cwd(),
+        env: {},
+        execGit: (args) => {
+          calls.push(args);
+          if (args[0] === "rev-parse") return "true\n";
+          if (args[0] === "merge-base") return "base123\n";
+          return "R087\0old.ts\0new.ts\0";
+        },
+      }),
+    ).toEqual({ source: "git merge-base", files: ["old.ts", "new.ts"] });
+    expect(calls).toEqual([
+      ["rev-parse", "--is-inside-work-tree"],
+      ["merge-base", "refs/remotes/origin/main", "HEAD"],
+      ["diff", "--name-status", "-z", "--find-renames", "--diff-filter=ACMRTD", "base123...HEAD", "--"],
+    ]);
+    expect(() => deriveStaticChangedFiles({ repoRoot: process.cwd(), env: { CHANGED_FILES_JSON: "{" } })).toThrow(
+      expect.objectContaining({ code: "STATIC_SCOPE_CHANGED_FILES_INVALID" }),
+    );
+    expect(() =>
+      deriveStaticChangedFiles({ repoRoot: process.cwd(), env: { CHANGED_FILES_JSON: '["../outside"]' } }),
+    ).toThrow(expect.objectContaining({ code: "STATIC_SCOPE_CHANGED_FILES_INVALID" }));
+    expect(() =>
+      deriveStaticChangedFiles({
+        repoRoot: process.cwd(),
+        env: {},
+        execGit: () => {
+          throw new Error("not git");
+        },
+      }),
+    ).toThrow(expect.objectContaining({ code: "STATIC_SCOPE_NOT_GIT_REPOSITORY" }));
+    expect(() =>
+      deriveStaticChangedFiles({
+        repoRoot: process.cwd(),
+        env: {},
+        execGit: (args) =>
+          args[0] === "rev-parse"
+            ? "true\n"
+            : (() => {
+                throw new Error("no base");
+              })(),
+      }),
+    ).toThrow(expect.objectContaining({ code: "STATIC_SCOPE_MERGE_BASE_FAILED" }));
+  });
+
+  it("ignores a stray local origin/main and uses the remote-tracking ref", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "change-scope-remote-main-"));
+    try {
+      const git = (...args) =>
+        execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", ...args], {
+          cwd: directory,
+          encoding: "utf8",
+        }).trim();
+      git("init", "--quiet");
+      writeFileSync(path.join(directory, "base.txt"), "base\n");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "base");
+      git("update-ref", "refs/remotes/origin/main", "HEAD");
+      writeFileSync(path.join(directory, "changed.ts"), "changed\n");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "change");
+      git("update-ref", "refs/heads/origin/main", "HEAD");
+      expect(deriveStaticChangedFiles({ repoRoot: directory, env: {} })).toEqual({
+        source: "git merge-base",
+        files: ["changed.ts"],
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
 
 it("uses the synthetic merge commit first parent for a PR's own changed files", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "change-scope-pr-merge-"));
@@ -996,8 +1105,8 @@ const hostedDbConsumerInventory = [
   { name: "platform-pr/preview-deploy-smoke admission", changesAdmission: true },
   { name: "scripts/release-deployment-scope.mjs", changesAdmission: false },
   { name: "scripts/release-qualification-scope.mjs", changesAdmission: false },
-  { name: "scripts/verify-static-scoped.mjs", changesAdmission: false },
-  { name: "scripts/verify-static-scoped.test.mjs", changesAdmission: false },
+  { name: "scripts/verify-static-surfaces.mjs", changesAdmission: false },
+  { name: "scripts/verify-static-surfaces.test.mjs", changesAdmission: false },
   { name: "scripts/public-web-route-smoke-workflows.test.mjs", changesAdmission: false },
   { name: "scripts/change-scope.test.mjs", changesAdmission: false },
   { name: "scripts/lib/risk-policy-v1.test.mjs", changesAdmission: false },
@@ -2627,8 +2736,8 @@ describe("change-scope", () => {
       "platform-pr/preview-deploy-smoke admission",
       "scripts/release-deployment-scope.mjs",
       "scripts/release-qualification-scope.mjs",
-      "scripts/verify-static-scoped.mjs",
-      "scripts/verify-static-scoped.test.mjs",
+      "scripts/verify-static-surfaces.mjs",
+      "scripts/verify-static-surfaces.test.mjs",
       "scripts/public-web-route-smoke-workflows.test.mjs",
       "scripts/change-scope.test.mjs",
       "scripts/lib/risk-policy-v1.test.mjs",
@@ -2647,8 +2756,8 @@ describe("change-scope", () => {
         'import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";',
       ],
       ["scripts/release-qualification-scope.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
-      ["scripts/verify-static-scoped.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
-      ["scripts/verify-static-scoped.test.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
+      ["scripts/verify-static-surfaces.mjs", 'from "./change-scope.mjs";'],
+      ["scripts/verify-static-surfaces.test.mjs", 'from "./change-scope.mjs";'],
       ["scripts/public-web-route-smoke-workflows.test.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
       [
         "scripts/change-scope.test.mjs",
