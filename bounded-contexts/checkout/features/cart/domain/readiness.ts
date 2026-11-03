@@ -26,6 +26,10 @@ export type CartReadinessLine = Readonly<{
   quantity: number;
   fulfillment_mode: "optimize" | "locked-listing";
   locked_listing_id: string | null;
+  selected_listing_id?: string | null;
+  selected_listing_price_amount?: string | null;
+  selected_listing_price_currency_code?: string | null;
+  selected_listing_stream_version?: number | null;
   seller_preference_id: string | null;
   availability_state: CartReadinessAvailabilityState;
   seller_options: readonly CartReadinessSellerOption[];
@@ -43,6 +47,18 @@ export type CartReadinessOptimizationDecision = "none" | "accepted" | "declined"
 export type CartReadinessMoney = Readonly<{
   amount: string;
   currency: string;
+}>;
+
+export type CartReadinessLinePresentation = Readonly<{
+  lineId: string;
+  reason: CartReadinessSnapshot["lineOutcomes"][number]["reason"];
+  fulfillmentAvailable: boolean;
+  listingId: string | null;
+  price: Readonly<{
+    state: "exact" | "indicative" | "deferred";
+    amount: string;
+    currency: string;
+  }> | null;
 }>;
 
 export type CartReadinessFulfillmentGroup = Readonly<{
@@ -100,6 +116,8 @@ export type CartReadinessSnapshot = Readonly<{
   }>;
   fulfillmentGroups: readonly CartReadinessFulfillmentGroup[];
   customerSafeFacts: readonly string[];
+  /** Per-line presentation facts consumed by cart clients; no seller-option rules belong in the UI. */
+  linePresentations?: readonly CartReadinessLinePresentation[];
 }>;
 
 export type CartReadinessRead = Readonly<{
@@ -621,7 +639,7 @@ export function createCartReadinessSnapshot(
     fulfillmentGroups,
   };
 
-  return {
+  const snapshot: CartReadinessSnapshot = {
     schemaVersion: "checkout.cart-readiness.v1",
     source: "cart",
     sourceRevision,
@@ -655,6 +673,10 @@ export function createCartReadinessSnapshot(
         : []),
     ],
   };
+  return {
+    ...snapshot,
+    linePresentations: sortedLines.map((line) => linePresentationForReadiness(line, snapshot)),
+  };
 }
 
 function selectedMoneyForReadiness(
@@ -667,6 +689,14 @@ function selectedMoneyForReadiness(
       : line.fulfillment_mode === "locked-listing"
         ? selectedCartReadinessListing(line)
         : lowestCartReadinessListing(line);
+  if (!selected && line.fulfillment_mode === "locked-listing" && line.selected_listing_id === line.locked_listing_id) {
+    const amountMinor = trySignedMoneyToCents(line.selected_listing_price_amount ?? "");
+    return amountMinor !== null &&
+      amountMinor >= 0n &&
+      /^[A-Z]{3}$/.test(line.selected_listing_price_currency_code ?? "")
+      ? { amountMinor, currency: line.selected_listing_price_currency_code as string }
+      : null;
+  }
   if (!selected || !/^[A-Z]{3}$/.test(selected.price_currency_code ?? "")) {
     return null;
   }
@@ -674,6 +704,33 @@ function selectedMoneyForReadiness(
   return amountMinor !== null && amountMinor >= 0n
     ? { amountMinor, currency: selected.price_currency_code as string }
     : null;
+}
+
+function linePresentationForReadiness(
+  line: CartReadinessLine,
+  snapshot: CartReadinessSnapshot,
+): CartReadinessLinePresentation {
+  const outcome = snapshot.lineOutcomes.find((candidate) => candidate.lineId === line.line_id);
+  const listingId =
+    snapshot.optimization.decision === "accepted" && snapshot.optimization.proposedLineId === line.line_id
+      ? snapshot.optimization.proposedListingId
+      : line.fulfillment_mode === "locked-listing"
+        ? line.locked_listing_id
+        : (lowestCartReadinessListing(line)?.listing_id ?? null);
+  const money = selectedMoneyForReadiness(line, snapshot);
+  return {
+    lineId: line.line_id,
+    reason: outcome?.reason ?? "unassigned-fulfillment",
+    fulfillmentAvailable: cartReadinessLineHasFulfillment(line),
+    listingId,
+    price: money
+      ? {
+          state: line.fulfillment_mode === "locked-listing" ? "exact" : "indicative",
+          amount: centsToSignedMoneyAmount(money.amountMinor * BigInt(line.quantity)),
+          currency: money.currency,
+        }
+      : null,
+  };
 }
 
 export function estimateCartReadinessSubtotal(
