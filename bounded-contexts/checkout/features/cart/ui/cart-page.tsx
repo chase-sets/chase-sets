@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo } from "react";
 import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import { centsToSignedMoneyAmount, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
@@ -133,8 +133,8 @@ function groupCartLines(
       quantity: existing.quantity + line.quantity,
       sourceQuantity: existing.sourceQuantity + line.quantity,
       lineIds: [...existing.lineIds, line.line_id],
-      presentation: existing.presentation,
-      presentationQuantity: existing.presentationQuantity,
+      presentation: mergeLinePresentations(existing.presentation, presentation),
+      presentationQuantity: existing.presentationQuantity + line.quantity,
       seller_options: mergeSellerOptions(existing.seller_options, line.seller_options),
       ...selectedListingSnapshotFields(existing.selected_listing_id ? existing : line),
       updated_at:
@@ -149,6 +149,32 @@ function groupCartLines(
       new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime() ||
       left.line_id.localeCompare(right.line_id),
   );
+}
+
+function mergeLinePresentations(
+  left: CartReadinessLinePresentation | null,
+  right: CartReadinessLinePresentation | null,
+): CartReadinessLinePresentation | null {
+  if (!left || !right || !left.price || !right.price) {
+    return left ?? right;
+  }
+  const leftAmount = trySignedMoneyToCents(left.price.amount);
+  const rightAmount = trySignedMoneyToCents(right.price.amount);
+  if (
+    leftAmount === null ||
+    rightAmount === null ||
+    left.price.state !== right.price.state ||
+    left.price.currency !== right.price.currency
+  ) {
+    return left;
+  }
+  return {
+    ...left,
+    price: {
+      ...left.price,
+      amount: centsToSignedMoneyAmount(leftAmount + rightAmount),
+    },
+  };
 }
 
 function mergeSellerOptions(left: CheckoutCartLine["seller_options"], right: CheckoutCartLine["seller_options"]) {
@@ -195,9 +221,20 @@ function selectedListingSnapshotFields(
   };
 }
 
-function linePrice(line: CheckoutCartLineGroup): ReactNode {
+function optimisticLinePrice(line: CheckoutCartLineGroup): CartReadinessLinePresentation["price"] {
   const price = line.presentation?.price;
-  return price ? formatMoney(price.amount, price.currency) : null;
+  if (!price || price.state !== "indicative" || line.presentationQuantity < 1) {
+    return null;
+  }
+  const amountMinor = trySignedMoneyToCents(price.amount);
+  const sourceQuantity = BigInt(line.presentationQuantity);
+  if (amountMinor === null || amountMinor % sourceQuantity !== 0n) {
+    return null;
+  }
+  return {
+    ...price,
+    amount: centsToSignedMoneyAmount((amountMinor / sourceQuantity) * BigInt(line.quantity)),
+  };
 }
 
 function optimisticIndicativeSubtotal(
@@ -235,7 +272,10 @@ function marketRecoveryHref(itemTitle: string) {
   return `/search?q=${encodeURIComponent(itemTitle)}`;
 }
 
-function readinessLabel(line: CheckoutCartLineGroup) {
+function readinessLabel(line: CheckoutCartLineGroup, status: OptimisticCorrectionStatus) {
+  if (status === "pending") {
+    return t("checkout.features.cart.ui.cartPage.cart.update.pending");
+  }
   switch (line.presentation?.reason) {
     case "unavailable":
       return t("checkout.features.cart.ui.cartPage.unavailable");
@@ -251,11 +291,14 @@ function readinessLabel(line: CheckoutCartLineGroup) {
     case "ready":
       return t("checkout.features.cart.ui.cartPage.ready");
     default:
-      return t("checkout.features.cart.ui.cartPage.priced.at.checkout");
+      return t("checkout.features.cart.ui.cartPage.needs.review");
   }
 }
 
-function readinessTone(line: CheckoutCartLineGroup) {
+function readinessTone(line: CheckoutCartLineGroup, status: OptimisticCorrectionStatus) {
+  if (status === "pending") {
+    return "neutral";
+  }
   return line.presentation?.reason === "ready" && line.presentation.fulfillmentAvailable ? "success" : "warning";
 }
 
@@ -377,8 +420,9 @@ function ListingPreferenceStatus({ line }: { line: CheckoutCartLineGroup }) {
   );
 }
 
-function LinePrice({ line }: { line: CheckoutCartLineGroup }) {
-  const state = line.presentation?.price?.state ?? "deferred";
+function LinePrice({ line, status }: { line: CheckoutCartLineGroup; status: OptimisticCorrectionStatus }) {
+  const price = status === "pending" ? optimisticLinePrice(line) : line.presentation?.price;
+  const state = price?.state ?? "deferred";
 
   if (state === "deferred") {
     return (
@@ -395,7 +439,7 @@ function LinePrice({ line }: { line: CheckoutCartLineGroup }) {
           {t("checkout.features.cart.ui.cartPage.from")}
         </Text>
       ) : null}
-      <Text weight="semibold">{linePrice(line)}</Text>
+      <Text weight="semibold">{price ? formatMoney(price.amount, price.currency) : null}</Text>
     </Inline>
   );
 }
@@ -554,7 +598,7 @@ function CartLineRow({
           {line.item_language_code ? (
             <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
           ) : null}
-          <Badge tone={readinessTone(line)}>{readinessLabel(line)}</Badge>
+          <Badge tone={readinessTone(line, status)}>{readinessLabel(line, status)}</Badge>
         </Inline>
       }
       productSummary={
@@ -562,7 +606,7 @@ function CartLineRow({
           {renderLineOptions(line)}
           <ListingPreferenceStatus line={line} />
           <SellerReputation option={selectedListingSellerOption(line, line.presentation?.listingId ?? listingId)} />
-          <LinePrice line={line} />
+          <LinePrice line={line} status={status} />
         </Stack>
       }
       quantityControl={
@@ -742,7 +786,7 @@ export function CheckoutCartPage({
   attemptState?: CartAttemptState | null;
 }) {
   const sourceCartLineGroups = useMemo(
-    () => groupCartLines(cartLines, providedReadiness?.declined.linePresentations ?? []),
+    () => groupCartLines(cartLines, providedReadiness?.loaded.linePresentations ?? []),
     [cartLines, providedReadiness],
   );
   const cartMutations = useOptimisticCartMutationConsistency({ sourceCartLineGroups });
@@ -947,7 +991,7 @@ export function CheckoutCartPage({
                 {cartLineGroups.map((line) => (
                   <CartLineRow
                     key={line.line_id}
-                    line={readiness ? line : { ...line, presentation: null }}
+                    line={line}
                     listingId={
                       readiness
                         ? (line.presentation?.listingId ?? readiness.lineListingIds[line.line_id] ?? null)

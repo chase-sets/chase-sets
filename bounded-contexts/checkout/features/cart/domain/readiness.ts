@@ -117,7 +117,7 @@ export type CartReadinessSnapshot = Readonly<{
   fulfillmentGroups: readonly CartReadinessFulfillmentGroup[];
   customerSafeFacts: readonly string[];
   /** Per-line presentation facts consumed by cart clients; no seller-option rules belong in the UI. */
-  linePresentations?: readonly CartReadinessLinePresentation[];
+  linePresentations: readonly CartReadinessLinePresentation[];
 }>;
 
 export type CartReadinessRead = Readonly<{
@@ -639,7 +639,7 @@ export function createCartReadinessSnapshot(
     fulfillmentGroups,
   };
 
-  const snapshot: CartReadinessSnapshot = {
+  const snapshot: Omit<CartReadinessSnapshot, "linePresentations"> = {
     schemaVersion: "checkout.cart-readiness.v1",
     source: "cart",
     sourceRevision,
@@ -681,7 +681,7 @@ export function createCartReadinessSnapshot(
 
 function selectedMoneyForReadiness(
   line: CartReadinessLine,
-  snapshot: CartReadinessSnapshot,
+  snapshot: Pick<CartReadinessSnapshot, "optimization">,
 ): { amountMinor: bigint; currency: string } | null {
   const selected =
     snapshot.optimization.decision === "accepted" && snapshot.optimization.proposedLineId === line.line_id
@@ -693,6 +693,9 @@ function selectedMoneyForReadiness(
     const amountMinor = trySignedMoneyToCents(line.selected_listing_price_amount ?? "");
     return amountMinor !== null &&
       amountMinor >= 0n &&
+      Boolean(line.locked_listing_id) &&
+      Number.isInteger(line.selected_listing_stream_version) &&
+      Number(line.selected_listing_stream_version) > 0 &&
       /^[A-Z]{3}$/.test(line.selected_listing_price_currency_code ?? "")
       ? { amountMinor, currency: line.selected_listing_price_currency_code as string }
       : null;
@@ -701,14 +704,17 @@ function selectedMoneyForReadiness(
     return null;
   }
   const amountMinor = trySignedMoneyToCents(selected.price_amount);
-  return amountMinor !== null && amountMinor >= 0n
+  return amountMinor !== null &&
+    amountMinor >= 0n &&
+    Number.isInteger(selected.listing_stream_version) &&
+    Number(selected.listing_stream_version) > 0
     ? { amountMinor, currency: selected.price_currency_code as string }
     : null;
 }
 
 function linePresentationForReadiness(
   line: CartReadinessLine,
-  snapshot: CartReadinessSnapshot,
+  snapshot: Pick<CartReadinessSnapshot, "lineOutcomes" | "optimization">,
 ): CartReadinessLinePresentation {
   const outcome = snapshot.lineOutcomes.find((candidate) => candidate.lineId === line.line_id);
   const listingId =

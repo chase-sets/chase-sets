@@ -81,6 +81,46 @@ describe("cart readiness snapshots", () => {
     expect(cartReadinessLineHasFulfillment(readyLine)).toBe(true);
   });
 
+  it("keeps presentation prices deferred when a locked seller option has no valid stream version", () => {
+    const invalidOption = createCartReadinessSnapshot([
+      {
+        ...readyLine,
+        seller_options: [{ ...readyLine.seller_options[0]!, listing_stream_version: null }],
+      },
+    ]);
+    expect(invalidOption.linePresentations[0]?.price).toBeNull();
+
+    const invalidSnapshot = createCartReadinessSnapshot([
+      {
+        ...readyLine,
+        seller_options: [],
+        selected_listing_id: "lst_current",
+        selected_listing_price_amount: "25.00",
+        selected_listing_price_currency_code: "USD",
+        selected_listing_stream_version: null,
+      },
+    ]);
+    expect(invalidSnapshot.linePresentations[0]?.price).toBeNull();
+  });
+
+  it("uses a valid locked-listing snapshot stream version for exact presentation pricing", () => {
+    const snapshot = createCartReadinessSnapshot([
+      {
+        ...readyLine,
+        seller_options: [],
+        selected_listing_id: "lst_current",
+        selected_listing_price_amount: "25.00",
+        selected_listing_price_currency_code: "USD",
+        selected_listing_stream_version: 9,
+      },
+    ]);
+    expect(snapshot.linePresentations[0]?.price).toEqual({
+      state: "exact",
+      amount: "25.00",
+      currency: "USD",
+    });
+  });
+
   it("builds separate support-safe groups for multiple sellers before checkout", () => {
     const secondSellerLine: CartReadinessLine = {
       ...readyLine,

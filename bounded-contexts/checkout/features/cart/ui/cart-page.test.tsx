@@ -159,6 +159,29 @@ describe("checkout cart page", () => {
     expect(markup).toContain("4 items need fulfillment");
   });
 
+  it("renders the returned currency-mismatch answer even when raw seller options look ready", () => {
+    const apiRead = createCartReadinessRead([cartLine]);
+    const mismatchPresentation = {
+      lineId: cartLine.line_id,
+      reason: "currency-mismatch" as const,
+      fulfillmentAvailable: true,
+      listingId: "lst_card_vault",
+      price: { state: "indicative" as const, amount: "778.00", currency: "USD" },
+    };
+    const readiness = {
+      ...apiRead,
+      loaded: { ...apiRead.loaded, linePresentations: [mismatchPresentation] },
+      declined: { ...apiRead.declined, linePresentations: [mismatchPresentation], status: "needs-resolution" as const },
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} readiness={readiness} />);
+
+    expect(markup).toContain("Needs review");
+    expect(markup).not.toContain(">Ready</span>");
+    expect(markup).not.toContain("bg-success-soft");
+    expect(markup).toContain('href="/checkout/buy/readiness"');
+  });
+
   it("uses each API line listing even when readiness is unresolved, grouped, or mixed-currency", () => {
     const unavailableLine: CheckoutCartLine = {
       ...cartLine,
@@ -368,6 +391,20 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("cat_charizard");
   });
 
+  it("sums every grouped member's returned presentation price", () => {
+    const duplicateLines = [1, 3, 2].map((quantity, index) => ({
+      ...cartLine,
+      line_id: `cart_line_duplicate_${index}`,
+      quantity,
+      updated_at: `2026-04-${29 + index}T00:00:00.000Z`,
+    }));
+
+    const markup = renderToString(<TestCheckoutCartPage cartLines={duplicateLines} />);
+
+    expect(markup.match(/\$2,334\.00/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(markup).not.toContain("$389.00");
+  });
+
   it("updates quantity and estimated total optimistically before loader correction returns", async () => {
     const user = userEvent.setup();
     render(<TestCheckoutCartPage cartLines={[cartLine]} />);
@@ -376,6 +413,7 @@ describe("checkout cart page", () => {
 
     await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Updating cart").length).toBeGreaterThan(0);
     expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
 
     const formData = submittedFormData();
