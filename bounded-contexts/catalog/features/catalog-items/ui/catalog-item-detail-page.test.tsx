@@ -90,7 +90,7 @@ describe("CatalogItemDetailPage", () => {
     let dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
     const input = within(dialog).getByLabelText("Image URLs");
     expect(input.tagName).toBe("TEXTAREA");
-    expect(input).toHaveValue(storedUrls.join("\n"));
+    expect((input as HTMLTextAreaElement).value).toBe(storedUrls.join("\n"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Set Image URLs" })).toBeNull());
@@ -101,7 +101,7 @@ describe("CatalogItemDetailPage", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
     dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
-    expect(within(dialog).getByLabelText("Image URLs")).toHaveValue(storedUrls.join("\n"));
+    expect((within(dialog).getByLabelText("Image URLs") as HTMLTextAreaElement).value).toBe(storedUrls.join("\n"));
 
     const imageUrlsRequests = fetch.mock.calls.filter(([request, init]) => {
       const url = String(request);
