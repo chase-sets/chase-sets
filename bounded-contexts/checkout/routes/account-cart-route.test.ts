@@ -10,7 +10,7 @@ import {
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
 import { ACCOUNT_CART_ADD_LINE_HANDOFF } from "../support/request-support/account-cart-handoffs";
-import type { CartReadinessLinePresentation } from "../features/cart/domain/readiness";
+import type { CartReadinessLinePresentation } from "../features/cart/api/contracts";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
