@@ -15,7 +15,8 @@ const {
   mockPreviewBulkCatalogItemEdit,
   mockPreviewBulkCatalogItemLifecycle,
   mockPreviewBulkPublishCatalogItems,
-  mockRemoveDraftCatalogItem,
+  mockPreviewBulkRemoveDrafts,
+  mockConfirmBulkRemoveDrafts,
   mockUseNavigation,
   mockUseRevalidator,
   mockUseSearchParams,
@@ -27,7 +28,8 @@ const {
   mockPreviewBulkCatalogItemEdit: vi.fn(),
   mockPreviewBulkCatalogItemLifecycle: vi.fn(),
   mockPreviewBulkPublishCatalogItems: vi.fn(),
-  mockRemoveDraftCatalogItem: vi.fn(),
+  mockPreviewBulkRemoveDrafts: vi.fn(),
+  mockConfirmBulkRemoveDrafts: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseRevalidator: vi.fn(),
   mockUseSearchParams: vi.fn(),
@@ -49,7 +51,8 @@ vi.mock("./use-catalog-items", () => ({
   previewBulkCatalogItemEdit: mockPreviewBulkCatalogItemEdit,
   previewBulkCatalogItemLifecycle: mockPreviewBulkCatalogItemLifecycle,
   previewBulkPublishCatalogItems: mockPreviewBulkPublishCatalogItems,
-  removeDraftCatalogItem: mockRemoveDraftCatalogItem,
+  previewBulkRemoveDrafts: mockPreviewBulkRemoveDrafts,
+  confirmBulkRemoveDrafts: mockConfirmBulkRemoveDrafts,
 }));
 
 const catalogItem: CatalogItemListItem = {
@@ -794,7 +797,39 @@ describe("CatalogItemListPage", () => {
     const revalidate = vi.fn();
     mockUseRevalidator.mockReturnValue({ revalidate });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
-    mockRemoveDraftCatalogItem.mockResolvedValue({ id: "cat_1", version: 2, status: "removed" });
+    mockPreviewBulkRemoveDrafts.mockResolvedValue({
+      mode: "ids",
+      item_ids: ["cat_1"],
+      total: 1,
+      ready_count: 1,
+      blocked_count: 0,
+      candidates: [
+        {
+          catalog_item_id: "cat_1",
+          title: "Charizard",
+          status: "draft",
+          outcome: "ready",
+          reason: null,
+        },
+      ],
+    });
+    mockConfirmBulkRemoveDrafts.mockResolvedValue({
+      mode: "ids",
+      item_ids: ["cat_1"],
+      total: 1,
+      succeeded_count: 1,
+      skipped_count: 0,
+      failed_count: 0,
+      candidates: [
+        {
+          catalog_item_id: "cat_1",
+          title: "Charizard",
+          status: "removed",
+          outcome: "succeeded",
+          reason: null,
+        },
+      ],
+    });
 
     render(
       <CatalogItemListPage
@@ -811,7 +846,11 @@ describe("CatalogItemListPage", () => {
     fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
 
     await waitFor(() => {
-      expect(mockRemoveDraftCatalogItem).toHaveBeenCalledWith("cat_1");
+      expect(mockPreviewBulkRemoveDrafts).toHaveBeenCalledWith({ mode: "ids", ids: ["cat_1"] });
+      expect(mockConfirmBulkRemoveDrafts).toHaveBeenCalledWith(
+        { mode: "ids", ids: ["cat_1"] },
+        expect.objectContaining({ onProgress: expect.any(Function) }),
+      );
       expect(revalidate).toHaveBeenCalled();
     });
   });
