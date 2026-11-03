@@ -264,6 +264,51 @@ describe("fulfillment shipment routes", () => {
     });
   });
 
+  it("returns the seller's shipment detail with its action plan", async () => {
+    const services = createServices();
+    const [slip] = await services.listSellerPackingSlips({ sellerAccountId: "acc_seller", shipmentIds: ["shp_1"] });
+    vi.mocked(services.getSellerShipment).mockResolvedValueOnce({
+      ...slip!,
+      status: "label-attached",
+      label_status: "purchased",
+      conflicts: [
+        {
+          order_id: "ord_1",
+          conflict_kind: "cancellation",
+          origin: "order-cancelled",
+          reason: "buyer-cancelled",
+          shipment_status: "label-attached",
+          detected_at: "2026-04-02T00:16:00.000Z",
+        },
+      ],
+    } as never);
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(new Request("http://fulfillment.test/account/sales/shipments/shp_1"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.shipment_id).toBe("shp_1");
+    expect(body.action_plan).toEqual({
+      status: "label-attached",
+      primary: "void-label",
+      disclosed: ["raise-exception"],
+      terminal: false,
+    });
+    expect(services.getSellerShipment).toHaveBeenCalledWith("shp_1", "acc_seller");
+  });
+
   it("rejects seller package updates without fulfillment manage permission", async () => {
     const app = buildSellerApp({
       actor: {

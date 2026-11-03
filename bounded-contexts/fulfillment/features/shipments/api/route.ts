@@ -5,6 +5,8 @@ import type { FulfillmentApiEnv } from "../../../api";
 import type { FulfillmentShipmentServices } from "./runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { assertCanonicalFulfillmentMutationId } from "../domain/mutation-attempt";
+import type { PostageLabelStatus, ShipmentStatus } from "../domain/common";
+import { resolveShipmentActionPlan } from "../domain/shipment-action";
 
 const providerWebhookContext = {
   tenantId: "tnt_identity" as TenantId,
@@ -240,7 +242,16 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
       );
     }
 
-    return c.json(shipment);
+    // The seller's next and other legal actions, from the same resolver the command
+    // center and the MCP seller tools use, so no client restates the state machine.
+    return c.json({
+      ...shipment,
+      action_plan: resolveShipmentActionPlan({
+        status: shipment.status as ShipmentStatus,
+        labelStatus: shipment.label_status as PostageLabelStatus,
+        conflicts: shipment.conflicts,
+      }),
+    });
   });
 
   app.get("/sales/shipments/:id/mutation-recovery", async (c) => {

@@ -1,5 +1,8 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { PackagePlan } from "@chase-sets/product-measures";
+import type { ShipmentActionName, ShipmentActionPlan } from "../domain/shipment-action";
+
+export type { ShipmentActionName, ShipmentActionPlan };
 
 export interface FulfillmentLabelAddressOverrideAudit {
   recorded_at: string;
@@ -135,6 +138,8 @@ export interface FulfillmentShipmentException {
 }
 
 export interface FulfillmentShipmentDetail extends FulfillmentShipmentListItem {
+  /** The seller's action plan; only the seller's detail read carries it. */
+  action_plan?: ShipmentActionPlan;
   lines: readonly FulfillmentShipmentLine[];
   exceptions: readonly FulfillmentShipmentException[];
   address_override_audits: readonly FulfillmentLabelAddressOverrideAudit[];
