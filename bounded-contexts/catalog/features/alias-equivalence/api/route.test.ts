@@ -6,6 +6,7 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import { catalogAliasStreamId } from "../domain/domain";
 import { catalogAliasRoutes, type CatalogAliasRouteServices } from "./route";
 import type { CatalogAliasReviewReadModel } from "./alias-review-admin-contracts";
+import type { CatalogAliasCandidateRow } from "../read-model/queries";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as TenantId,
@@ -59,14 +60,48 @@ function emptyReadModel(): CatalogAliasReviewReadModel {
   };
 }
 
-function buildApp(services: CatalogAliasRouteServices, actor: CatalogAuthoringEnv["Variables"]["actor"] = manageActor) {
+/** A pending candidate; `curated-operator-mapping` is one governance auto-accepts, so it is eligible. */
+function candidateRow(overrides: Partial<CatalogAliasCandidateRow> = {}): CatalogAliasCandidateRow {
+  return {
+    alias_hash: "hash_a",
+    target_kind: "catalog-item",
+    target_id: "cat_charizard",
+    target_key: "name",
+    alias_text: "Sprigatito",
+    normalized_alias_text: "sprigatito",
+    alias_language_code: "en",
+    source_language_code: "ja",
+    alias_type: "official-equivalent",
+    confidence: "high",
+    review_status: "pending",
+    provider_key: "tcgdex",
+    observation_id: "obs_1",
+    source_category: "curated-operator-mapping",
+    source_profile_key: "pokemon-tcg",
+    source_profile_version: "2026.06.03",
+    mapping_fingerprint: "fp-1",
+    evidence: {},
+    first_observed_at: "2026-06-16T00:00:00.000Z",
+    updated_at: "2026-06-16T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function buildApp(
+  services: Omit<CatalogAliasRouteServices, "getSourceObservationAliasCandidate"> &
+    Partial<Pick<CatalogAliasRouteServices, "getSourceObservationAliasCandidate">>,
+  actor: CatalogAuthoringEnv["Variables"]["actor"] = manageActor,
+) {
   const app = new Hono<CatalogAuthoringEnv>();
   app.use("/alias-review/*", async (c, next) => {
     c.set("actor", actor);
     c.set("context", context);
     await next();
   });
-  app.route("/alias-review", catalogAliasRoutes(services));
+  app.route(
+    "/alias-review",
+    catalogAliasRoutes({ getSourceObservationAliasCandidate: vi.fn().mockResolvedValue(null), ...services }),
+  );
   return app;
 }
 
@@ -128,6 +163,84 @@ describe("Catalog alias review route", () => {
         context,
       }),
     );
+  });
+
+  it("accepts only the eligible candidates of an eligible-only accept and reports the rest as skipped", async () => {
+    const catalogAliasCommandHandler = commandHandlerStub("accepted");
+    const rows = new Map([
+      ["hash_eligible", candidateRow({ alias_hash: "hash_eligible" })],
+      ["hash_generated", candidateRow({ alias_hash: "hash_generated", source_category: "machine-translation" })],
+      ["hash_resolved", candidateRow({ alias_hash: "hash_resolved", review_status: "accepted" })],
+    ]);
+    const app = buildApp({
+      getCatalogAliasReviewReadModel: vi.fn(),
+      catalogAliasCommandHandler,
+      getSourceObservationAliasCandidate: vi.fn(async (aliasHash: string) => rows.get(aliasHash) ?? null),
+    });
+
+    const response = await app.request("/alias-review/commands", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        intent: "accept",
+        aliasHashes: "hash_generated,hash_eligible,hash_resolved,hash_gone",
+        eligibleOnly: true,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      intent: "accept",
+      applied: [{ aliasHash: "hash_eligible", reviewStatus: "accepted", version: 2 }],
+      count: 1,
+      skipped: [
+        { aliasHash: "hash_generated", reason: "not-eligible" },
+        { aliasHash: "hash_resolved", reason: "not-eligible" },
+        { aliasHash: "hash_gone", reason: "not-found" },
+      ],
+    });
+    expect(catalogAliasCommandHandler).toHaveBeenCalledTimes(1);
+    expect(catalogAliasCommandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ streamId: catalogAliasStreamId("hash_eligible") }),
+    );
+  });
+
+  it("accepts every named candidate when the accept is not eligible-only", async () => {
+    const catalogAliasCommandHandler = commandHandlerStub("accepted");
+    const getSourceObservationAliasCandidate = vi.fn();
+    const app = buildApp({
+      getCatalogAliasReviewReadModel: vi.fn(),
+      catalogAliasCommandHandler,
+      getSourceObservationAliasCandidate,
+    });
+
+    const response = await app.request("/alias-review/commands", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intent: "accept", aliasHashes: "hash_a,hash_b", eligibleOnly: "true" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { skipped: unknown[] }).skipped).toEqual([]);
+    expect(catalogAliasCommandHandler).toHaveBeenCalledTimes(2);
+    expect(getSourceObservationAliasCandidate).not.toHaveBeenCalled();
+  });
+
+  it("refuses eligibleOnly on anything but an accept", async () => {
+    const catalogAliasCommandHandler = commandHandlerStub("rejected");
+    const app = buildApp({ getCatalogAliasReviewReadModel: vi.fn(), catalogAliasCommandHandler });
+
+    const response = await app.request("/alias-review/commands", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intent: "reject", aliasHashes: "hash_a", reason: "Generated", eligibleOnly: true }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      "alias_review_eligible_only_accept",
+    );
+    expect(catalogAliasCommandHandler).not.toHaveBeenCalled();
   });
 
   it("dispatches RejectCatalogAlias with the operator reason", async () => {

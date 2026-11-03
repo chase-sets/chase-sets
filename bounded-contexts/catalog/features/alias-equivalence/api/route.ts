@@ -3,7 +3,11 @@ import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { requireCatalogIntegrationControlPlanePermission } from "../../source-observations/api/admin-control-plane-rbac";
 import { catalogAliasStreamId } from "../domain/domain";
-import type { CatalogAliasReviewFilter, CatalogAliasReviewReadModel } from "./alias-review-admin-contracts";
+import {
+  mapCatalogAliasReviewCandidate,
+  type CatalogAliasReviewFilter,
+  type CatalogAliasReviewReadModel,
+} from "./alias-review-admin-contracts";
 import type { CatalogAliasServices } from "./runtime";
 
 // ---------------------------------------------------------------------------
@@ -17,6 +21,10 @@ import type { CatalogAliasServices } from "./runtime";
 //   GET  /alias-review            → the operator review read model for a scope.
 //   POST /alias-review/commands   → accept / reject / revoke an alias candidate.
 //
+// An accept with `eligibleOnly: true` accepts only the named candidates the
+// review read model marks auto-accept eligible and reports the rest as skipped,
+// so a client posts its selection as it is and never restates the rule.
+//
 // Reads require catalog.view; writes require catalog.manage. Commands dispatch
 // the Catalog Alias aggregate keyed by alias hash with the operator as actor,
 // and return the committed aggregate snapshot so the workbench never reads a
@@ -25,8 +33,10 @@ import type { CatalogAliasServices } from "./runtime";
 
 export type CatalogAliasRouteServices = Pick<
   CatalogAliasServices,
-  "getCatalogAliasReviewReadModel" | "catalogAliasCommandHandler"
+  "getCatalogAliasReviewReadModel" | "catalogAliasCommandHandler" | "getSourceObservationAliasCandidate"
 >;
+
+type AliasReviewSkip = Readonly<{ aliasHash: string; reason: "not-found" | "not-eligible" }>;
 
 /** The review actions an operator may dispatch over HTTP against the aggregate. */
 const ALIAS_REVIEW_COMMAND_INTENTS = new Set(["accept", "reject", "revoke"]);
@@ -101,6 +111,7 @@ export function catalogAliasRoutes(services: CatalogAliasRouteServices) {
       intent?: unknown;
       aliasHashes?: unknown;
       reason?: unknown;
+      eligibleOnly?: unknown;
     };
     const intent = String(body.intent ?? "").trim();
     if (!isAliasReviewCommandIntent(intent)) {
@@ -128,6 +139,19 @@ export function catalogAliasRoutes(services: CatalogAliasRouteServices) {
       );
     }
 
+    const eligibleOnly = body.eligibleOnly === true;
+    if (eligibleOnly && intent !== "accept") {
+      return c.json(
+        {
+          error: {
+            code: "alias_review_eligible_only_accept",
+            message: t("catalog.features.aliasEquivalence.api.route.eligible.only.accept"),
+          },
+        },
+        400,
+      );
+    }
+
     const reason = String(body.reason ?? "").trim();
     if ((intent === "reject" || intent === "revoke") && !reason) {
       return c.json(
@@ -144,8 +168,16 @@ export function catalogAliasRoutes(services: CatalogAliasRouteServices) {
     const context = c.get("context");
     const actor = context.audit.performedByUserId;
     const applied: Array<{ aliasHash: string; reviewStatus: string | null; version: number }> = [];
+    const skipped: AliasReviewSkip[] = [];
 
     for (const aliasHash of aliasHashes) {
+      if (eligibleOnly) {
+        const skip = await eligibilitySkip(services, aliasHash);
+        if (skip) {
+          skipped.push(skip);
+          continue;
+        }
+      }
       const result = await services.catalogAliasCommandHandler({
         streamId: catalogAliasStreamId(aliasHash),
         command: aliasReviewCommand(intent, actor, reason),
@@ -154,10 +186,22 @@ export function catalogAliasRoutes(services: CatalogAliasRouteServices) {
       applied.push({ aliasHash, reviewStatus: result.state.reviewStatus, version: result.version });
     }
 
-    return c.json({ intent, applied, count: applied.length });
+    return c.json({ intent, applied, count: applied.length, skipped });
   });
 
   return app;
+}
+
+/** Why an eligible-only accept leaves this candidate alone, or null to accept it. */
+async function eligibilitySkip(
+  services: CatalogAliasRouteServices,
+  aliasHash: string,
+): Promise<AliasReviewSkip | null> {
+  const row = await services.getSourceObservationAliasCandidate(aliasHash);
+  if (!row) {
+    return { aliasHash, reason: "not-found" };
+  }
+  return mapCatalogAliasReviewCandidate(row).autoAccept.eligible ? null : { aliasHash, reason: "not-eligible" };
 }
 
 function aliasReviewCommand(intent: AliasReviewCommandIntent, actor: string, reason: string) {

@@ -2220,6 +2220,8 @@ export function createCatalogApiClient({
       intent: "accept" | "reject" | "revoke";
       aliasHashes: readonly string[];
       reason?: string;
+      /** Accept only the named candidates Catalog marks auto-accept eligible. */
+      eligibleOnly?: boolean;
     }): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/alias-review/commands`, {
         method: "POST",
@@ -2231,6 +2233,7 @@ export function createCatalogApiClient({
           intent: input.intent,
           aliasHashes: input.aliasHashes.join(","),
           ...(input.reason !== undefined ? { reason: input.reason } : {}),
+          ...(input.eligibleOnly ? { eligibleOnly: true } : {}),
         }),
       });
       return parseJsonResponse<T>(response);

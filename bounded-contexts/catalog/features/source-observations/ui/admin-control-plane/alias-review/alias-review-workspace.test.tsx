@@ -174,6 +174,29 @@ describe("CatalogIntegrationAliasReviewWorkspace", () => {
     expect((rejectForm?.querySelector('input[name="aliasHashes"]') as HTMLInputElement)?.value).toBe("hash_official");
   });
 
+  it("sends the selection as it is with eligibleOnly from Auto-accept eligible, and only from that form", () => {
+    const { container } = renderWorkspace({
+      candidateRows: [
+        candidateRow({ alias_hash: "hash_curated", source_category: "curated-operator-mapping" }),
+        candidateRow({ alias_hash: "hash_review" }),
+      ],
+    });
+    for (const checkbox of container.querySelectorAll('tbody input[type="checkbox"]')) {
+      fireEvent.click(checkbox);
+    }
+
+    const bulkPanel = container.querySelector('[data-alias-review-bulk-actions="true"]') as HTMLElement;
+    const eligibleButton = within(bulkPanel).getByRole("button", { name: "Auto-accept eligible (1)" });
+    const eligibleForm = eligibleButton.closest("form") as HTMLFormElement;
+    expect((eligibleForm.querySelector('input[name="aliasHashes"]') as HTMLInputElement).value).toBe(
+      "hash_curated,hash_review",
+    );
+    expect((eligibleForm.querySelector('input[name="eligibleOnly"]') as HTMLInputElement).value).toBe("true");
+
+    const acceptForm = within(bulkPanel).getByRole("button", { name: "Accept" }).closest("form") as HTMLFormElement;
+    expect(acceptForm.querySelector('input[name="eligibleOnly"]')).toBeNull();
+  });
+
   it("renders coverage counters for promotion/search readiness", () => {
     renderWorkspace({
       candidateRows: [candidateRow({ alias_hash: "pending", target_id: "cat_needs_review", review_status: "pending" })],

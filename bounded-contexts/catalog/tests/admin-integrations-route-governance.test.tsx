@@ -113,6 +113,29 @@ describe("Catalog integrations route", () => {
     expect(result.feedback.status).toBe("success");
   });
 
+  it("forwards the auto-accept eligible form's eligibleOnly to Catalog instead of filtering the selection", async () => {
+    const dispatchCatalogAliasReviewCommand = vi.fn().mockResolvedValue({
+      intent: "accept",
+      count: 1,
+      applied: [{ aliasHash: "hash_a", reviewStatus: "accepted", version: 2 }],
+      skipped: [{ aliasHash: "hash_b", reason: "not-eligible" }],
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
+
+    const result = await runDailyAction({
+      _intent: "alias.accept",
+      aliasHashes: "hash_a,hash_b",
+      eligibleOnly: "true",
+    });
+
+    expect(dispatchCatalogAliasReviewCommand).toHaveBeenCalledWith({
+      intent: "accept",
+      aliasHashes: ["hash_a", "hash_b"],
+      eligibleOnly: true,
+    });
+    expect(result.feedback.status).toBe("success");
+  });
+
   it("dispatches the #1905 reject command with the operator reason for the alias-review reject action", async () => {
     const dispatchCatalogAliasReviewCommand = vi.fn().mockResolvedValue({
       intent: "reject",
