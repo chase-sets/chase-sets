@@ -8352,6 +8352,9 @@ pub struct ImportRow {
     pub status: String,
     pub external_reference: Option<ExternalReference>,
     pub row_fingerprint: String,
+    /// The row's version as Inventory last wrote it (opaque): with `row_fingerprint`, the facts a
+    /// fix is sent against, so a row changed since it was read refuses the fix.
+    pub row_version: String,
     pub quantity_mode: String,
     pub quantity_delta: Option<i64>,
     pub set_quantity: Option<i64>,
@@ -8445,13 +8448,16 @@ pub struct NewImport {
     pub source_filename: Option<String>,
 }
 
-/// A row's fix (`resolveRow`'s body): the catalog item, its options and where the stock is.
+/// A row's fix (`resolveRow`'s body, exactly these five members): the catalog item, its options,
+/// where the stock is, and the row's version and fingerprint as the drawer read them.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RowFix {
     pub catalog_item_id: String,
     pub selected_options: Vec<Selected>,
     pub storage_location_id: String,
+    pub expected_row_version: String,
+    pub expected_row_fingerprint: String,
 }
 
 /// The import screen's calls.
@@ -8467,9 +8473,16 @@ pub trait Imports {
     /// Start committing a batch's accepted rows, as `attempt` (`Inventory-Mutation-Attempt`, which
     /// the API requires).
     async fn commit_import(&self, id: &str, attempt: &str) -> Result<ImportJob, ApiError>;
-    /// Resolve a rejected row to a catalog item, its options and a storage location: the batch
-    /// as it now is, or the API's refusal (400).
-    async fn resolve_import_row(&self, batch: &str, row: &str, body: &RowFix) -> Result<ImportResolution, ApiError>;
+    /// Resolve a rejected row to a catalog item, its options and a storage location, as `attempt`
+    /// (`Inventory-Mutation-Attempt`, which the API requires): the batch as it now is, or the API's
+    /// refusal (400, or 409 when the row changed since it was read).
+    async fn resolve_import_row(
+        &self,
+        batch: &str,
+        row: &str,
+        attempt: &str,
+        body: &RowFix,
+    ) -> Result<ImportResolution, ApiError>;
     /// The storage locations a row or a batch may name (`limit=100&offset=0`, not archived).
     async fn import_locations(&self) -> Result<LocationList, ApiError>;
     /// The native template or the account's inventory as CSV (`templates/native-csv`,
@@ -8505,9 +8518,16 @@ impl Imports for Caller<'_> {
         Ok(self.write(req).await?.0)
     }
 
-    async fn resolve_import_row(&self, batch: &str, row: &str, body: &RowFix) -> Result<ImportResolution, ApiError> {
+    async fn resolve_import_row(
+        &self,
+        batch: &str,
+        row: &str,
+        attempt: &str,
+        body: &RowFix,
+    ) -> Result<ImportResolution, ApiError> {
         let path = format!("{IMPORTS}/{}/rows/{}/resolve", segment(batch), segment(row));
-        Ok(self.write(self.request(Method::POST, &path, INVENTORY).json(body)).await?.0)
+        let req = self.request(Method::POST, &path, INVENTORY).header(ATTEMPT_HEADER, attempt).json(body);
+        Ok(self.write(req).await?.0)
     }
 
     async fn import_locations(&self) -> Result<LocationList, ApiError> {

@@ -16183,13 +16183,16 @@ fn import_batch(id: &str, status: &str, total: u64, accepted: u64, rejected: u64
 fn import_row(id: &str, number: u64, status: &str, resolution: &str, product: Option<&str>, errors: &[&str]) -> Value {
     json!({
         "row_id": id, "row_number": number, "status": status, "external_reference": null, "row_fingerprint": format!("fp_{id}"),
-        "quantity_mode": "add", "quantity_delta": 2, "set_quantity": null, "total_quantity": null,
+        "row_version": ROW_VERSION, "quantity_mode": "add", "quantity_delta": 2, "set_quantity": null, "total_quantity": null,
         "resolution_status": resolution, "catalog_item_id": product.map(|_| "cat_card"), "product_id": product,
         "listing_price_amount": null, "listing_price_currency_code": null, "listing_quantity_cap": null, "row_note": null,
         "validation_errors": errors, "committed_inventory_item_id": null, "committed_listing_id": null, "committed_at": null,
         "needs_seller": status == "rejected" && (resolution == "unresolved" || product.is_none()),
     })
 }
+
+/// Every stand-in import row's version (Inventory's opaque UTC microsecond text).
+const ROW_VERSION: &str = "2026-11-01T13:53:37.123456Z";
 
 /// A durable job's public snapshot.
 fn import_job(id: &str, status: &str) -> Value {
@@ -16202,7 +16205,8 @@ fn import_job(id: &str, status: &str) -> Value {
 /// yet), `imb_gone` unknown; a read that waits for 43 is
 /// still catching up. Jobs: `job_run` running, `job_done` finished with `imb_1` and a receipt at
 /// 42, `job_fail` failed, `job_other` another account's. A create needs its attempt and refuses
-/// rows that say `bad`; a commit needs its attempt and refuses `imb_done`.
+/// rows that say `bad`; a commit needs its attempt and refuses `imb_done`. A row's fix needs its
+/// attempt and exactly the five members, and is refused (409) when its version is not the row's.
 fn imports_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = uri.path().strip_prefix(IMPORT_BATCHES)?;
     let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default();
@@ -16294,6 +16298,24 @@ fn imports_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> O
         }
         ("POST", fix) if fix.starts_with("/imb_1/rows/") && fix.ends_with("/resolve") => {
             let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            let mut members: Vec<&str> = sent.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default();
+            members.sort_unstable();
+            let five = ["catalogItemId", "expectedRowFingerprint", "expectedRowVersion", "selectedOptions", "storageLocationId"];
+            if attempt.is_empty() || members != five {
+                return Some(refusal(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_resolve_request",
+                    "Import row fix request is invalid. Reload the batch and try again.",
+                ));
+            }
+            let row = fix.trim_start_matches("/imb_1/rows/").trim_end_matches("/resolve");
+            if sent["expectedRowVersion"] != ROW_VERSION || sent["expectedRowFingerprint"] != format!("fp_{row}") {
+                return Some(refusal(
+                    StatusCode::CONFLICT,
+                    "stale_row_facts",
+                    "Import row changed since it was loaded. Reload the batch and try again.",
+                ));
+            }
             if sent["storageLocationId"] == "loc_old" {
                 return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Storage location is archived."));
             }
@@ -16592,6 +16614,12 @@ async fn the_resolution_drawer_finds_an_item_sends_the_fix_and_moves_to_the_next
         "Apply alone posts: {html}"
     );
     assert!(html.contains(r#"href="/account/inventory/imports/imb_1">Close</a>"#), "Close goes back to the batch: {html}");
+    assert!(
+        html.contains(&format!(r#"<input type="hidden" name="expectedRowVersion" value="{ROW_VERSION}">"#))
+            && html.contains(r#"<input type="hidden" name="expectedRowFingerprint" value="fp_row_2">"#)
+            && html.contains(r#"name="attempt""#),
+        "the fix carries the row's facts as read and its attempt: {html}"
+    );
     // Resolve opens the drawer here, not on marketplace.
     assert!(html.contains(r#"href="/account/inventory/imports/imb_1?resolveRowId=row_2""#), "{html}");
 
@@ -16610,25 +16638,34 @@ async fn the_resolution_drawer_finds_an_item_sends_the_fix_and_moves_to_the_next
     assert!(html.contains(r#"<option value="loc_main" selected>"#), "the location kept: {html}");
     assert!(!html.contains("/rows/row_2/resolve\" disabled"), "every required option has its first: {html}");
 
-    // Apply: the API's body, then the next row that needs the seller.
-    let body = "catalogItemId=cat_card&option.dim_form=chc_raw&option.dim_condition=chc_lp&storageLocationId=loc_main&offset=0";
+    // Apply: the API's body with the row's facts, as the form's attempt, then the next row that needs the seller.
+    let attempt = new_attempt();
+    let body = format!(
+        "catalogItemId=cat_card&option.dim_form=chc_raw&option.dim_condition=chc_lp&storageLocationId=loc_main&offset=0\
+         &expectedRowVersion={ROW_VERSION}&expectedRowFingerprint=fp_row_2&attempt={attempt}"
+    );
     let (status, headers, _) =
-        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_2/resolve"), "seller", body, false)).await;
+        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_2/resolve"), "seller", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers["location"].to_str().unwrap(), "/account/inventory/imports/imb_1?resolveRowId=row_4");
     let sent = import_calls(&pilot).into_iter().find(|c| c.path.ends_with("/resolve")).unwrap();
     assert_eq!(sent.path, format!("{IMPORT_BATCHES}/imb_1/rows/row_2/resolve"));
+    assert_eq!(sent.headers["inventory-mutation-attempt"].to_str().unwrap(), attempt);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "catalogItemId": "cat_card", "storageLocationId": "loc_main", "selectedOptions": [
             { "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_lp" },
-        ] })
+        ], "expectedRowVersion": ROW_VERSION, "expectedRowFingerprint": "fp_row_2" })
     );
 
     // The last row fixed closes the drawer.
-    let body = "catalogItemId=cat_etb&storageLocationId=loc_main&offset=0";
+    let body = format!(
+        "catalogItemId=cat_etb&storageLocationId=loc_main&offset=0\
+         &expectedRowVersion={ROW_VERSION}&expectedRowFingerprint=fp_row_4&attempt={}",
+        new_attempt()
+    );
     let (status, headers, _) =
-        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_4/resolve"), "seller", body, false)).await;
+        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_4/resolve"), "seller", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers["location"].to_str().unwrap(), "/account/inventory/imports/imb_1");
 }
@@ -16642,13 +16679,35 @@ async fn a_fix_that_is_incomplete_or_refused_is_the_drawer_again_and_a_reader_ca
     assert!(html.contains("fix-dialog") && html.contains(r#"role="alert""#), "{html}");
     assert!(!import_calls(&pilot).iter().any(|c| c.path.ends_with("/resolve")), "not sent without an item");
 
-    let body = "catalogItemId=cat_etb&storageLocationId=loc_old&offset=0";
-    let (status, _, html) = pilot.send(post(&fix, "seller", body, false)).await;
+    let facts =
+        |version: &str, attempt: &str| format!("&expectedRowVersion={version}&expectedRowFingerprint=fp_row_2&attempt={attempt}");
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_old&offset=0{}", facts(ROW_VERSION, &new_attempt()));
+    let (status, _, html) = pilot.send(post(&fix, "seller", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Storage location is archived."), "{}", text(&html));
     assert!(html.contains(r#"<p class="#) && html.contains("Twilight Masquerade Elite Trainer Box"), "the item kept: {html}");
 
-    let (status, _, _) = pilot.send(post(&fix, "reader", "catalogItemId=cat_etb&storageLocationId=loc_main", false)).await;
+    // A row changed since the drawer read it: Inventory's refusal, and the drawer again with the row as it now is.
+    let stale = "2026-11-01T13:53:37.000001Z";
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_main&offset=0{}", facts(stale, &new_attempt()));
+    let (status, _, html) = pilot.send(post(&fix, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Import row changed since it was loaded. Reload the batch and try again."), "{}", text(&html));
+    assert!(
+        html.contains(&format!(r#"name="expectedRowVersion" value="{ROW_VERSION}""#)) && !html.contains(stale),
+        "the next Apply is sent against the row as read now: {html}"
+    );
+
+    // A form without its key is refused before the API.
+    let before = import_calls(&pilot).iter().filter(|c| c.path.ends_with("/resolve")).count();
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_main&offset=0{}", facts(ROW_VERSION, ""));
+    let (status, _, html) = pilot.send(post(&fix, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("fix-dialog") && html.contains(r#"role="alert""#), "{html}");
+    assert_eq!(import_calls(&pilot).iter().filter(|c| c.path.ends_with("/resolve")).count(), before, "not sent");
+
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_main{}", facts(ROW_VERSION, &new_attempt()));
+    let (status, _, _) = pilot.send(post(&fix, "reader", &body, false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
 

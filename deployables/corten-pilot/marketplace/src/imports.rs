@@ -7,9 +7,10 @@
 //! sends the page to its batch, with the job's receipt so the read waits for it.
 //!
 //! A new import is sent once per form: the form's `SubmitKey` is the `Inventory-Mutation-Attempt`,
-//! so the same form sent again is the same job. Resolving a row is not ported yet: Resolve opens
-//! marketplace's batch page at the row. Which rows need the seller, whether a batch can commit and
-//! the next row to resolve are Inventory's answers, read from the batch and from a resolve.
+//! so the same form sent again is the same job. A row's fix is sent the same way, with the row's
+//! version and fingerprint as the drawer read them, so Inventory refuses a fix to a row that
+//! changed since. Which rows need the seller, whether a batch can commit and the next row to
+//! resolve are Inventory's answers, read from the batch and from a resolve.
 //!
 //! | Route | Answers |
 //! |---|---|
@@ -95,7 +96,8 @@ pub fn resolve_href(batch: &str, offset: u64, row: Option<&str>) -> String {
 
 /// The drawer's fields (`ImportRowResolutionForm`): the picker's, which are Create listing's
 /// (`q`, `choose`, `change`, `redraw`, `catalogItemId` and `option.<dimension>`), the storage
-/// location, and the row page to come back to.
+/// location, the row page to come back to, the row's facts as the drawer read them, and the
+/// form's `SubmitKey` (the fix's attempt).
 #[derive(Deserialize, Fields)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -107,6 +109,9 @@ pub struct FixFields {
     pub catalog_item_id: String,
     pub storage_location_id: String,
     pub offset: String,
+    pub expected_row_version: String,
+    pub expected_row_fingerprint: String,
+    pub attempt: Option<SubmitKey>,
 }
 
 /// The resolution drawer, open on a row that still needs the seller (`activeResolutionRow`).
@@ -540,13 +545,19 @@ pub(crate) async fn resolve(
     let caller = config.platform.caller(&headers, config.proto, None);
     let catalog = listing_new::catalog(&caller, &Draft::read(&raw)).await;
     let location = first(&raw, f.storage_location_id.as_str());
+    let attempt = first(&raw, f.attempt.as_str());
     let fix = catalog.ready().filter(|_| !location.is_empty()).map(|(item, picks)| RowFix {
         catalog_item_id: item.catalog_item_id.clone(),
         selected_options: item.product_schema.as_ref().map(|s| listing_new::entries(s, picks)).unwrap_or_default(),
         storage_location_id: location.clone(),
+        expected_row_version: first(&raw, f.expected_row_version.as_str()),
+        expected_row_fingerprint: first(&raw, f.expected_row_fingerprint.as_str()),
     });
+    let p: crate::text::Pilot = req.t();
     let refused = match fix {
-        Some(fix) => match caller.resolve_import_row(&id, &row_id, &fix).await {
+        // A form without its key (drawn before the drawer carried one) is refused before the API.
+        Some(_) if !valid_attempt(&attempt) => p.check_attempt().to_owned(),
+        Some(fix) => match caller.resolve_import_row(&id, &row_id, &attempt, &fix).await {
             Ok(resolution) => {
                 let next = resolution.next_needs_seller_row_id;
                 let place = Place { offset: (offset > 0).then(|| offset.to_string()), resolve_row_id: next, ..Place::default() };
@@ -557,10 +568,7 @@ pub(crate) async fn resolve(
                 _ => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
             },
         },
-        None => {
-            let p: crate::text::Pilot = req.t();
-            p.listing_new_choose_options().to_owned()
-        }
+        None => p.listing_new_choose_options().to_owned(),
     };
     let (detail, lists) = tokio::join!(caller.import_batch(&id, offset), lists(&caller));
     let ((batches, locations), detail) = match (lists, detail) {
