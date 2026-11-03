@@ -47,6 +47,7 @@ pub fn scope_list<'a>(
         <AttentionPanel t={t} query={query} queue={screen.attention.as_ref()} manage={manage} />
         <AliasReviewPart
             t={t}
+            p={p}
             action={&aliases}
             review={screen.alias_review.as_ref()}
             failed={screen.alias_review_failed}

@@ -1654,6 +1654,12 @@ fn all_scopes_alias_review(cookie: &str) -> Response {
               "sourceCategory": "official-provider", "providerKey": "tcgplayer", "evidence": [], "warnings": [],
               "autoAccept": { "eligible": false, "reasons": [] },
               "reviewable": false, "availableActions": ["alias.revoke"] },
+            { "aliasHash": "ah_dracaufeu", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name",
+              "nativePrintedName": "Dracaufeu", "proposedAlias": "Charizard", "aliasLanguageCode": "en",
+              "aliasType": "provider-english-name", "confidence": "exact", "reviewStatus": "pending",
+              "sourceCategory": "official-provider", "providerKey": "tcgdex", "evidence": [], "warnings": [],
+              "autoAccept": { "eligible": true, "reasons": [] },
+              "reviewable": true, "availableActions": ["alias.accept", "alias.reject", "alias.defer"] },
         ],
     }))
     .into_response()
@@ -3606,6 +3612,61 @@ async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_
         .send(post_as("catalog-viewer", "/catalog/scopes/aliases", "intent=alias.accept&alias_hashes=ah_glurak", false))
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
+}
+
+#[tokio::test]
+async fn the_alias_reviews_bulk_bar_posts_the_checked_candidates_and_auto_accepts_only_the_eligible() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    let bar = &part[part.find("data-alias-review-bulk-actions").expect("a bulk bar while a candidate is pending")..];
+    assert!(part.find(r#"id="alias-bulk""#).unwrap() < part.find("ah_glurak").unwrap(), "the bar above the candidates: {part}");
+    assert!(bar.contains(r#"action="/catalog/scopes/aliases?status=active""#), "{bar}");
+    // The reason and Reject first, so Enter in the reason rejects; the other buttons skip its check.
+    let reject = bar.find(r#"value="alias.reject""#).unwrap();
+    assert!(
+        bar.find(r#"name="reason" required"#).unwrap() < reject && reject < bar.find(r#"value="alias.accept""#).unwrap(),
+        "{bar}"
+    );
+    assert!(
+        bar.contains(r#"value="alias.accept" formnovalidate"#) && bar.contains(r#"value="alias.defer" formnovalidate"#),
+        "{bar}"
+    );
+    assert!(bar.contains(r#"value="alias.accept-eligible" formnovalidate"#), "a pending candidate is eligible: {bar}");
+    assert!(bar.contains(r#"type="reset""#) && bar.contains("Clear selection"), "{bar}");
+    // A box for each pending candidate in the bar's form, none for the accepted one.
+    for hash in ["ah_glurak", "ah_dracaufeu"] {
+        assert!(part.contains(&format!(r#"name="picked" value="{hash}" form="alias-bulk""#)), "{hash}: {part}");
+    }
+    assert!(!part.contains(r#"name="picked" value="ah_pika""#), "{part}");
+
+    let at = "/catalog/scopes/aliases?status=active";
+    let (status, headers, _) = pilot.send(post(at, "intent=alias.accept&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=queued"), "{headers:?}");
+    pilot.send(post(at, "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
+    pilot.send(post(at, "intent=alias.reject&picked=ah_glurak&reason=Machine+translation", false)).await;
+    let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu" }),
+            json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }),
+            json!({ "intent": "reject", "aliasHashes": "ah_glurak", "reason": "Machine translation" })
+        ],
+        "Auto-accept eligible sends only the eligible one (chase-sets/chase-sets#11024)"
+    );
+
+    // None eligible, none checked, or a reject without its reason: the failed banner, nothing sent.
+    for body in ["intent=alias.accept-eligible&picked=ah_glurak", "intent=alias.accept", "intent=alias.reject&picked=ah_glurak"] {
+        let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", body, false)).await;
+        assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=failed", "{body}");
+    }
+    assert_eq!(pilot.catalog_writes().len(), 3);
+
+    let (_, _, html) = pilot.send(get("/catalog/scopes", Some("catalog-viewer"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    assert!(part.contains(r#"value="ah_glurak" form="alias-bulk" aria-label="Select row Charizard" disabled"#), "{part}");
 }
 
 #[tokio::test]

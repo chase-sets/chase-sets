@@ -9,6 +9,7 @@ use crate::{
     api::segment,
     catalog::{
         api::{AliasCandidate, AliasReview, Coverage, CoverageRow, ReviewJob},
+        attention::ACCEPT_ELIGIBLE,
         scope::{
             CONFIDENCES, Condition, Edition, Jobs, Journey, Link, ScopeBack, ScopeScreen, Stage, StageKey, StageStatus,
             url::{self, AliasCommand, MappingInput, ProposeInput, ScopeAt, Via},
@@ -727,8 +728,23 @@ fn EditionView<'a>(t: Cat, action: &'a str, edition: &'a Edition, manage: bool) 
 /// The all-scopes alias review on the scopes list (admin-web's `CatalogIntegrationAliasReviewWorkspace`
 /// in a `ProgressiveDisclosure`, closed at first): the counts, the coverage, and each candidate
 /// with its commands, posted to `action`; a banner when the review could not be read.
+///
+/// A reviewable (pending) candidate has a box in the bulk bar's form (`form="alias-bulk"`), so the
+/// bar posts the checked ones without JavaScript, and Clear selection is the form's reset. The
+/// bar is always drawn while a candidate is reviewable, where admin-web shows it once one is
+/// checked; with none checked the server answers the failed banner. Reject's reason is required
+/// and the other buttons skip that check (`formnovalidate`); the reason comes first in the form,
+/// so Enter in it rejects rather than accepting.
 #[component(css = ScopePage)]
-pub fn AliasReviewPart<'a>(t: Cat, action: &'a str, review: Option<&'a AliasReview>, failed: bool, manage: bool) -> impl Render {
+pub fn AliasReviewPart<'a>(
+    t: Cat,
+    p: Pilot,
+    action: &'a str,
+    review: Option<&'a AliasReview>,
+    failed: bool,
+    manage: bool,
+) -> impl Render {
+    let f = AliasCommand::FIELDS;
     html! {
         match review {
             None => {
@@ -781,11 +797,87 @@ pub fn AliasReviewPart<'a>(t: Cat, action: &'a str, review: Option<&'a AliasRevi
                         } else {
                             <p class={Muted}>{t.alias_coverage_empty()}</p>
                         }
+                        if review.candidates.iter().any(|c| c.reviewable) {
+                            <form
+                                id={ALIAS_BULK}
+                                class={BulkBar}
+                                method="post"
+                                action={action}
+                                aria-label={p.bulk_label()}
+                                data-alias-review-bulk-actions
+                            >
+                                <div class={(ReasonForm, BulkReject)}>
+                                    <label class={Field}>
+                                        <span class={Label}>{t.alias_bulk_reason()}</span>
+                                        <input type="text" name={f.reason} required disabled={!manage}>
+                                    </label>
+                                    <button
+                                        type="submit"
+                                        class={(Small, Secondary)}
+                                        name={f.intent}
+                                        value="alias.reject"
+                                        disabled={!manage}
+                                    >
+                                        {t.alias_action_reject()}
+                                    </button>
+                                </div>
+                                <div class={Actions}>
+                                    <button
+                                        type="submit"
+                                        class={Small}
+                                        name={f.intent}
+                                        value="alias.accept"
+                                        formnovalidate
+                                        disabled={!manage}
+                                    >
+                                        {t.alias_action_accept()}
+                                    </button>
+                                    if review.candidates.iter().any(|c| c.reviewable && c.auto_accept.eligible) {
+                                        <button
+                                            type="submit"
+                                            class={(Small, Secondary)}
+                                            name={f.intent}
+                                            value={ACCEPT_ELIGIBLE}
+                                            formnovalidate
+                                            disabled={!manage}
+                                        >
+                                            {t.alias_action_auto_accept()}
+                                        </button>
+                                    }
+                                    <button
+                                        type="submit"
+                                        class={(Small, Secondary)}
+                                        name={f.intent}
+                                        value="alias.defer"
+                                        formnovalidate
+                                        disabled={!manage}
+                                    >
+                                        {t.alias_action_defer()}
+                                    </button>
+                                    <button type="reset" class={(Small, Secondary)}>{t.alias_selection_clear()}</button>
+                                </div>
+                            </form>
+                        }
                         if review.candidates.is_empty() {
                             <Empty title={t.alias_empty_title()} description={t.alias_empty_description()} />
                         } else {
                             for candidate in &review.candidates {
-                                <CandidateView t={t} action={action} candidate={candidate} manage={manage} full={true} />
+                                if candidate.reviewable {
+                                    <div class={Picked}>
+                                        <input
+                                            type="checkbox"
+                                            class={PickBox}
+                                            name={f.picked}
+                                            value={&candidate.alias_hash}
+                                            form={ALIAS_BULK}
+                                            aria-label={&p.bulk_select_row(&candidate.proposed_alias).to_string()}
+                                            disabled={!manage}
+                                        >
+                                        <CandidateView t={t} action={action} candidate={candidate} manage={manage} full={true} />
+                                    </div>
+                                } else {
+                                    <CandidateView t={t} action={action} candidate={candidate} manage={manage} full={true} />
+                                }
                             }
                         }
                     </div>
@@ -899,6 +991,9 @@ pub fn CandidateView<'a>(t: Cat, action: &'a str, candidate: &'a AliasCandidate,
         </div>
     }
 }
+
+/// The all-scopes review's bulk bar, which the candidates' boxes join.
+const ALIAS_BULK: &str = "alias-bulk";
 
 /// A candidate's warning (`CatalogAliasReviewWarningKey`); one the pilot does not know is its key.
 fn warning_label(t: Cat, warning: &str) -> &str {

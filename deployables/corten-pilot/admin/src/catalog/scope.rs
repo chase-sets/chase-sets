@@ -152,13 +152,15 @@ pub mod url {
     }
 
     /// An alias candidate's command (`alias.accept`, `alias.reject`, `alias.revoke`,
-    /// `alias.defer`), its hash, and the reason a reject or revoke needs.
+    /// `alias.defer`), its hash, and the reason a reject or revoke needs. `picked` are the boxes
+    /// checked in the all-scopes review's bulk bar, one hash each, read with `alias_hashes`.
     #[derive(Clone, Debug, Default, Deserialize, Fields)]
     #[serde(default)]
     pub struct AliasCommand {
         pub intent: String,
         pub alias_hashes: String,
         pub reason: String,
+        pub picked: Vec<String>,
     }
 
     #[route("/catalog/scopes/{id}/aliases", post = crate::catalog::scope::aliases)]

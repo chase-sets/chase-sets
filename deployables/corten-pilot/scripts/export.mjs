@@ -818,6 +818,8 @@ const outputs = [
         ["catalog.features.sourceObservations.ui.aliasReview.empty.", "alias_empty"],
         ["catalog.features.sourceObservations.ui.aliasReview.warning.", "alias_warning"],
         ["catalog.features.sourceObservations.ui.aliasReview.evidence.", "alias_evidence"],
+        ["catalog.features.sourceObservations.ui.aliasReview.selection.", "alias_selection"],
+        ["catalog.features.sourceObservations.ui.aliasReview.bulk.", "alias_bulk"],
         ["catalog.features.sourceObservations.ui.aliasReview.title", "alias_review.title"],
         ["catalog.features.sourceObservations.ui.aliasReview.description", "alias_review.description"],
         ["catalog.features.sourceObservations.ui.aliasReview.status.count", "alias_review.count"],

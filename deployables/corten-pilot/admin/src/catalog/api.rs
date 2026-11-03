@@ -150,6 +150,9 @@ pub struct AliasCandidate {
     /// `alias.accept`, `alias.reject`, `alias.defer`, `alias.revoke`.
     #[serde(default)]
     pub available_actions: Vec<String>,
+    /// Pending, so it may be picked for a bulk command.
+    #[serde(default)]
+    pub reviewable: bool,
 }
 
 /// `CatalogAliasReviewEvidenceLine`.
