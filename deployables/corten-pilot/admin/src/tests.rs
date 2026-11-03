@@ -244,6 +244,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(rest) = uri.path().strip_prefix("/api/catalog/scope-sync-batches") {
         return sync_batches_api(&method, rest, &headers, &body);
     }
+    if uri.path() == "/api/catalog/alias-review" && uri.query() == Some("limit=200") {
+        return all_scopes_alias_review(cookie);
+    }
     if let Some(answer) = scope_api(&method, uri.path(), uri.query().unwrap_or_default(), &body) {
         return answer;
     }
@@ -1621,6 +1624,39 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         _ => return None,
     };
     Some(answer)
+}
+
+/// The all-scopes alias review (`alias-review?limit=200`): a pending, flagged candidate with its
+/// evidence, and an accepted one. It cannot be read for `queue-down`.
+fn all_scopes_alias_review(cookie: &str) -> Response {
+    if cookie.contains("queue-down") {
+        return refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Alias review is unavailable.");
+    }
+    Json(json!({
+        "schemaVersion": "catalog-alias-review-v1", "generatedAt": "2026-11-03T00:00:00.000Z",
+        "counts": { "total": 2, "pending": 1, "accepted": 1, "autoAccepted": 0, "rejected": 0, "revoked": 0,
+                    "needsReview": 1, "autoAcceptEligible": 0, "warned": 1 },
+        "coverage": { "cardsWithAcceptedEnglishAlias": 3, "cardsWithOnlySpeciesAliases": 1, "cardsNeedingReview": 2,
+                      "expansionsAndSeriesNeedingReview": 1, "cards": [], "referenceScopes": [] },
+        "groups": [],
+        "candidates": [
+            { "aliasHash": "ah_glurak", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name",
+              "nativePrintedName": "Glurak", "proposedAlias": "Charizard", "aliasLanguageCode": "en",
+              "aliasType": "generated-translation", "confidence": "generated", "reviewStatus": "pending",
+              "sourceCategory": "machine-translation", "providerKey": "cardmarket",
+              "evidence": [{ "key": "provider", "label": "Provider", "value": "cardmarket" }],
+              "warnings": ["generated-translation", "low-confidence-evidence"],
+              "autoAccept": { "eligible": false, "reasons": ["Machine translations are never official."] },
+              "reviewable": true, "availableActions": ["alias.accept", "alias.reject", "alias.defer"] },
+            { "aliasHash": "ah_pika", "targetKind": "catalog-item", "targetId": "cat_pikachu", "targetKey": "name",
+              "nativePrintedName": "ピカチュウ", "proposedAlias": "Pikachu", "aliasLanguageCode": "en",
+              "aliasType": "provider-english-name", "confidence": "exact", "reviewStatus": "accepted",
+              "sourceCategory": "official-provider", "providerKey": "tcgplayer", "evidence": [], "warnings": [],
+              "autoAccept": { "eligible": false, "reasons": [] },
+              "reviewable": false, "availableActions": ["alias.revoke"] },
+        ],
+    }))
+    .into_response()
 }
 
 const HEALTH: &str = "provider-health:tcgplayer:tcgplayer:mtg:single-card:source-observation-import";
@@ -3513,12 +3549,74 @@ async fn an_alias_candidates_accept_and_reject_post_the_alias_review() {
 }
 
 #[tokio::test]
+async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_post_the_alias_review() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(pilot.catalog_calls().iter().any(|c| c.path == "/api/catalog/alias-review?limit=200"), "read with the page");
+    let review = html.find(r#"data-alias-review="all-scopes""#).expect("the review is drawn");
+    assert!(html.find("data-attention-queue").unwrap() < review, "under the queue: {html}");
+    assert!(review < html.find("Paldean Fates").unwrap(), "above the list: {html}");
+    let part = &html[review..];
+    assert!(!part[..200].contains(" open"), "folded at first, as admin-web's is: {part}");
+    assert!(part.contains("All-scopes alias review") && part.contains("1 pending alias candidates"), "{part}");
+    assert!(part.contains("2 candidates") && part.contains("Cards with accepted English alias"), "{part}");
+    assert!(part.contains("<dd>3</dd>") && part.contains("<dd>2</dd>"), "the API's coverage counts: {part}");
+    assert!(part.contains("Generated translation") && part.contains("Low-confidence evidence"), "its warnings: {part}");
+    assert!(part.contains("cardmarket · machine-translation"), "its source: {part}");
+    assert!(part.contains("Evidence") && part.contains("<dt>Provider</dt><dd>cardmarket</dd>"), "its evidence: {part}");
+    assert!(
+        part.contains(r#"action="/catalog/scopes/aliases?status=active""#)
+            && part.contains(r#"<input type="hidden" name="intent" value="alias.accept"><input type="hidden" name="alias_hashes" value="ah_glurak">"#),
+        "each command keeps the list's filters: {part}"
+    );
+    assert!(part.contains(r#"value="alias.revoke"><input type="hidden" name="alias_hashes" value="ah_pika">"#), "{part}");
+
+    let (status, headers, _) = pilot
+        .send(post("/catalog/scopes/aliases?status=active", "intent=alias.accept&alias_hashes=ah_glurak,ah_glurak", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/catalog/scopes?status=active&after_write=") && to.ends_with("&done=queued"), "{to}");
+    pilot.send(post("/catalog/scopes/aliases", "intent=alias.revoke&alias_hashes=ah_pika&reason=Wrong+card", false)).await;
+    let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "intent": "accept", "aliasHashes": "ah_glurak" }),
+            json!({ "intent": "revoke", "aliasHashes": "ah_pika", "reason": "Wrong card" })
+        ]
+    );
+
+    // Defer writes nothing; a revoke with no reason and an unknown intent are the failed banner.
+    let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", "intent=alias.defer&alias_hashes=ah_glurak", false)).await;
+    assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=queued");
+    for body in
+        ["intent=alias.revoke&alias_hashes=ah_pika&reason=+", "intent=alias.forget&alias_hashes=ah_pika", "intent=alias.accept"]
+    {
+        let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", body, false)).await;
+        assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=failed", "{body}");
+    }
+    assert_eq!(pilot.catalog_writes().len(), 2, "none of those was sent");
+
+    let (_, _, html) = pilot.send(get("/catalog/scopes", Some("catalog-viewer"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    assert!(part.contains(r#"value="ah_glurak">"#) && part.contains("disabled"), "off for a viewer who may not write: {part}");
+    let (status, _, _) = pilot
+        .send(post_as("catalog-viewer", "/catalog/scopes/aliases", "intent=alias.accept&alias_hashes=ah_glurak", false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
+}
+
+#[tokio::test]
 async fn a_queue_the_api_cannot_read_is_its_banner_and_the_list_still_shows() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/scopes", Some("queue-down"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Attention queue unavailable") && html.contains("Paldean Fates"), "{html}");
     assert!(!html.contains("data-attention-queue"), "{html}");
+    let review = &html[html.find(r#"data-alias-review="all-scopes""#).expect("its banner")..];
+    assert!(review.contains("Alias review") && review.contains("Unavailable") && !review[..300].contains("<details"), "{review}");
 
     let (status, _, _) =
         pilot.send(get(&format!("/catalog/scopes?after_write={}&done=queued", fresh_receipt()), Some("queue-down"))).await;

@@ -407,7 +407,7 @@ async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>, now: Offset
         Some(Ok(review)) => (Some(editions(&scope, &review)), false),
         Some(Err(error)) => {
             tracing::warn!("a scope's alias review could not be read: {error}");
-            (Some(editions(&scope, &AliasReview { candidates: Vec::new() })), true)
+            (Some(editions(&scope, &AliasReview::default())), true)
         }
     };
     let journey = journey(&scope, editions.as_deref(), alias_review_failed, now);
@@ -712,6 +712,7 @@ mod tests {
             review_status: status.into(),
             auto_accept: AutoAccept::default(),
             available_actions: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -726,6 +727,7 @@ mod tests {
                 candidate("c", "fr", "pending", "ref_other"),
                 candidate("d", "ja", "rejected", "ref_1"),
             ],
+            ..Default::default()
         };
         let editions = editions(&scope(&["ja", "fr", "en", "de", "ja"], "active", NOW), &review);
         let shown: Vec<(&str, Link, usize, usize)> =
@@ -774,7 +776,7 @@ mod tests {
     fn the_screen_is_written_as_serde_writes_it() {
         let now = OffsetDateTime::parse(NOW, &Rfc3339).unwrap();
         let s = scope(&["en", "ja"], "active", NOW);
-        let review = AliasReview { candidates: vec![candidate("a", "ja", "pending", "ref_1")] };
+        let review = AliasReview { candidates: vec![candidate("a", "ja", "pending", "ref_1")], ..Default::default() };
         let editions = editions(&s, &review);
         let journey = journey(&s, Some(&editions), false, now);
         let screen = ScopeScreen {

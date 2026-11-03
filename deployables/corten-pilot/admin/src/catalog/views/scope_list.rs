@@ -2,8 +2,8 @@
 use corten::prelude::*;
 
 use super::{
-    AttentionBanner, AttentionPanel, AttentionSheet, Empty, Filters, ListPage, ListScreen, Pager, Pick, Search, Table, Tone,
-    TonePill, pages_around, value,
+    AliasReviewPart, AttentionBanner, AttentionPanel, AttentionSheet, Empty, Filters, ListPage, ListScreen, Pager, Pick, Search,
+    Table, Tone, TonePill, pages_around, value,
 };
 use crate::{
     catalog::{
@@ -17,8 +17,8 @@ use crate::{
 const STATUSES: [(&str, &str); 4] =
     [("draft", "draft"), ("active", "active"), ("deprecated", "deprecated"), ("archived", "archived")];
 
-/// The list, with the attention queue above it (after the banner of the queue command before, if
-/// any) and an item's sheet (`back`), open.
+/// The list, with the attention queue and the all-scopes alias review above it (after the banner of
+/// the command before, if any) and an item's sheet (`back`), open.
 pub fn scope_list<'a>(
     t: Cat,
     p: Pilot,
@@ -38,12 +38,20 @@ pub fn scope_list<'a>(
     let f = url::ScopeQuery::FIELDS;
     let domains: Vec<(&str, &str)> = scopes::product_domains().iter().map(|d| (d.as_str(), d.as_str())).collect();
     let languages: Vec<(&str, &str)> = screen.languages.iter().map(|l| (l.as_str(), l.as_str())).collect();
+    let aliases = crate::catalog::attention::url::AliasReviewCommand { query: query.clone() }.href();
     html! {
         <ListPage title={title}>{()}</ListPage>
         if let Some(done) = notice.done {
             <AttentionBanner t={t} query={query} done={done} parked={notice.parked.as_deref()} manage={manage} />
         }
         <AttentionPanel t={t} query={query} queue={screen.attention.as_ref()} manage={manage} />
+        <AliasReviewPart
+            t={t}
+            action={&aliases}
+            review={screen.alias_review.as_ref()}
+            failed={screen.alias_review_failed}
+            manage={manage}
+        />
         <Filters t={t} action={&filters}>
             <Search t={t} name={f.search} title={title} value={value(&query.search)} />
             <Pick

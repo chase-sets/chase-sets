@@ -77,7 +77,7 @@ pub use reference_records::{
 };
 pub use reference_types::{RefTypeForms, ref_type_actions, ref_type_list, ref_type_page, ref_type_rows, ref_type_transitions};
 pub use scope_list::{ScopeRowView, scope_list};
-pub use scope_page::{CoveragePart, InboxHeader, InboxRow, InboxTone, Refused, Rows, ScopePage, scope_page};
+pub use scope_page::{AliasReviewPart, CoveragePart, InboxHeader, InboxRow, InboxTone, Refused, Rows, ScopePage, scope_page};
 pub use status_pill::{StatusPill, Tone, TonePill};
 pub use sync_batches::{SyncBatchPage, sync_batch_page};
 

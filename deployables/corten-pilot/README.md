@@ -29,7 +29,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Commerce > Postage policies, `/commerce/postage-policies` |
 | `admin/` | Catalog > Dimensions and Fields, `/catalog/dimensions`, `/catalog/fields` |
 | `admin/` | Catalog > Catalog Items (the list), `/catalog/catalog-items` |
-| `admin/` | Catalog > Scopes (the list), `/catalog/scopes` |
+| `admin/` | Catalog > Scopes (the list) with the all-scopes alias review, `/catalog/scopes`. Each candidate has its own Accept, Reject, Revoke and Defer; admin-web's bulk selection of candidates is not served |
 | `admin/` | Catalog > a scope's page, `/catalog/scopes/{id}` |
 | `admin/` | Catalog > Scope Coverage (the Unmapped Scope Inbox), `/catalog/scope-coverage` (`?product_domain=`), and a scope's coverage, `/catalog/scope-coverage/{id}` (the scope page's coverage matrix, whose writes come back here) |
 | `admin/` | Catalog > a Source Observation, `/catalog/source-observations/{id}`: its image and values as admin-web lists them (a Pokemon card's and a provider product's own), and Promote (observed or changed) and Reject with its reason (observed), for `catalog.manage`; a refusal is the form's message |
@@ -311,7 +311,7 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10697 [auth] A user's session list shows other users' sessions whose name, email or account mentions the user's id](https://github.com/chase-sets/chase-sets/issues/10697) | [marketplace/src/api.rs](marketplace/src/api.rs) |
 | [chase-sets/chase-sets#10698 [auth] Session switch-account and revoke answer 500 for every refusal, so marketplace's Switch Account always fails for a one-account user](https://github.com/chase-sets/chase-sets/issues/10698) | [marketplace/src/api.rs](marketplace/src/api.rs), [marketplace/src/sessions.rs](marketplace/src/sessions.rs) |
 | [chase-sets/chase-sets#10699 [auth] Marketplace's sessions page ignores its status filter, search and pages, always showing the first 50](https://github.com/chase-sets/chase-sets/issues/10699) | [marketplace/src/sessions.rs](marketplace/src/sessions.rs) |
-| [chase-sets/chase-sets#10702 [catalog] Scope Detail's alias Accept, Reject, Revoke and Defer each say "Command queued", and Defer writes nothing](https://github.com/chase-sets/chase-sets/issues/10702) | [admin/src/catalog/scope.rs](admin/src/catalog/scope.rs) |
+| [chase-sets/chase-sets#10702 [catalog] Scope Detail's alias Accept, Reject, Revoke and Defer each say "Command queued", and Defer writes nothing](https://github.com/chase-sets/chase-sets/issues/10702) | [admin/src/catalog/scope.rs](admin/src/catalog/scope.rs), [admin/src/catalog/attention.rs](admin/src/catalog/attention.rs) |
 | [chase-sets/chase-sets#10703 [catalog] Return a scope's language-edition link states and journey from the Catalog API instead of deriving them in admin-web](https://github.com/chase-sets/chase-sets/issues/10703) | [admin/src/catalog/scope.rs](admin/src/catalog/scope.rs) |
 | [chase-sets/chase-sets#10704 [identity] An account's team lists other accounts' memberships and invitations whose names or emails mention the account's id](https://github.com/chase-sets/chase-sets/issues/10704) | [marketplace/src/api.rs](marketplace/src/api.rs) |
 | [chase-sets/chase-sets#10707 [identity] A security.manage owner can list another user's or account's consents by naming its ids, or every consent by naming neither](https://github.com/chase-sets/chase-sets/issues/10707) | [marketplace/src/api.rs](marketplace/src/api.rs) |

@@ -12,6 +12,7 @@
 //! | `POST /catalog/scopes/attention/dismiss?<filters>`, `.../defer` | parks the item (a reason; defer for 24 h) |
 //! | `POST /catalog/scopes/attention/restore?<filters>` | brings a parked item back |
 //! | `POST /catalog/scopes/attention/alias/accept?<filters>`, `.../reject` | an alias candidate's one-click command |
+//! | `POST /catalog/scopes/aliases?<filters>` | a candidate's command in the all-scopes alias review |
 //!
 //! The panel trusts the API's counts. admin-web recomputes them from the items and rejects a
 //! queue whose counts differ, which chase-sets/chase-sets#10507 removes.
@@ -90,6 +91,13 @@ pub mod url {
 
     #[route("/catalog/scopes/attention/alias/reject", post = alias_reject)]
     pub struct AliasReject {
+        #[route(query)]
+        pub query: ScopeQuery,
+    }
+
+    /// A candidate's command in the all-scopes alias review.
+    #[route("/catalog/scopes/aliases", post = alias_review)]
+    pub struct AliasReviewCommand {
         #[route(query)]
         pub query: ScopeQuery,
     }
@@ -294,6 +302,47 @@ async fn alias(req: Req, config: Shared, headers: HeaderMap, query: ScopeQuery, 
     let reason = input.reason.trim();
     if hashes.is_empty() || (intent == "reject" && reason.is_empty()) {
         return failed(&req, query);
+    }
+    let mut body = json!({ "intent": intent, "aliasHashes": hashes.join(",") });
+    if !reason.is_empty() {
+        body["reason"] = json!(reason);
+    }
+    queued(&req, &config, &headers, query, Kind::AliasReview, &body).await
+}
+
+/// A candidate's command in the all-scopes alias review (`handleAliasReviewCommand`): accept,
+/// reject or revoke post the alias review's command; defer writes nothing (the candidate stays
+/// pending) and says queued, as admin-web's does. A reject or revoke with no reason, or no
+/// candidate, is the failed banner.
+async fn alias_review(
+    req: Req,
+    _: corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    corten::Params(route): corten::Params<crate::catalog::attention::url::AliasReviewCommand>,
+    Form(input): Form<crate::catalog::scope::url::AliasCommand>,
+) -> HtmlResult {
+    let query = route.query;
+    let mut hashes: Vec<&str> = Vec::new();
+    for hash in input.alias_hashes.split(',').map(str::trim).filter(|h| !h.is_empty()) {
+        if !hashes.contains(&hash) {
+            hashes.push(hash);
+        }
+    }
+    let reason = input.reason.trim();
+    let intent = match input.intent.as_str() {
+        "alias.accept" => "accept",
+        "alias.reject" => "reject",
+        "alias.revoke" => "revoke",
+        "alias.defer" => "defer",
+        _ => return failed(&req, query),
+    };
+    if hashes.is_empty() || (matches!(intent, "reject" | "revoke") && reason.is_empty()) {
+        return failed(&req, query);
+    }
+    if intent == "defer" {
+        let notice = scopes::url::ScopeNotice { done: Some(scopes::url::AttentionDone::Queued), ..Default::default() };
+        return req.redirect(&scopes::url::Scopes { query, notice });
     }
     let mut body = json!({ "intent": intent, "aliasHashes": hashes.join(",") });
     if !reason.is_empty() {

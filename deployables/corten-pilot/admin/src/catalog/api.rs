@@ -86,15 +86,42 @@ pub struct CoverageMapping {
     pub confidence: String,
 }
 
-/// The alias review read model (`CatalogAliasReviewReadModel`), the candidates only.
-#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+/// The alias review read model (`CatalogAliasReviewReadModel`): the candidates, and the counts and
+/// coverage the all-scopes review on the scopes list shows (a scope's page reads only candidates).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AliasReview {
     pub candidates: Vec<AliasCandidate>,
+    #[serde(default)]
+    pub counts: AliasCounts,
+    #[serde(default)]
+    pub coverage: AliasCoverage,
+}
+
+/// `CatalogAliasReviewCounts`, the ones the review shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct AliasCounts {
+    pub total: u64,
+    pub accepted: u64,
+    pub auto_accepted: u64,
+    pub needs_review: u64,
+    pub auto_accept_eligible: u64,
+    pub warned: u64,
+}
+
+/// `CatalogAliasCoverageReadModel`'s counters.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct AliasCoverage {
+    pub cards_with_accepted_english_alias: u64,
+    pub cards_with_only_species_aliases: u64,
+    pub cards_needing_review: u64,
+    pub expansions_and_series_needing_review: u64,
 }
 
 /// `CatalogAliasReviewCandidateSummary`, the fields a scope's page shows.
-#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AliasCandidate {
     pub alias_hash: String,
@@ -105,6 +132,19 @@ pub struct AliasCandidate {
     pub proposed_alias: String,
     pub alias_language_code: String,
     pub confidence: String,
+    #[serde(default)]
+    pub alias_type: String,
+    #[serde(default)]
+    pub source_category: String,
+    #[serde(default)]
+    pub provider_key: String,
+    /// `generated-translation`, `low-confidence-evidence`, `never-official-source`,
+    /// `indonesian-id-not-english`.
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    /// Operator-readable evidence lines (never raw provider bodies).
+    #[serde(default)]
+    pub evidence: Vec<EvidenceLine>,
     pub review_status: String,
     pub auto_accept: AutoAccept,
     /// `alias.accept`, `alias.reject`, `alias.defer`, `alias.revoke`.
@@ -112,10 +152,21 @@ pub struct AliasCandidate {
     pub available_actions: Vec<String>,
 }
 
+/// `CatalogAliasReviewEvidenceLine`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceLine {
+    pub label: String,
+    pub value: String,
+}
+
 /// Why a pending candidate did not auto-accept (`CatalogAliasReviewAutoAcceptEligibility`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoAccept {
+    /// A pending candidate the governance policy would auto-accept.
+    #[serde(default)]
+    pub eligible: bool,
     #[serde(default)]
     pub reasons: Vec<String>,
 }
