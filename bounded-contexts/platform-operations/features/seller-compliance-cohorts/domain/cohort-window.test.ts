@@ -918,6 +918,51 @@ describe("seller compliance cohort window", () => {
         evaluationAt: "2025-01-02T00:00:00.000Z",
       }).state,
     ).toBe("member");
+
+    const grossBasisSales = [
+      sale("gross-a", "2025-01-02T00:00:00.000Z", "250000"),
+      sale("gross-b", "2025-01-03T00:00:00.000Z", "249999", { shippingChargeCents: "1" }),
+    ];
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: grossBasisSales,
+        policy: { ...policy, qualifyingGrossBasis: "item-gross" },
+        evaluationAt: "2025-01-04T00:00:00.000Z",
+      }),
+    ).toMatchObject({ state: "outside", qualifyingCount: 0, qualifyingGrossCents: "0" });
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: grossBasisSales,
+        policy: { ...policy, qualifyingGrossBasis: "item-gross-plus-shipping" },
+        evaluationAt: "2025-01-04T00:00:00.000Z",
+      }),
+    ).toMatchObject({ state: "member", qualifyingCount: 2, qualifyingGrossCents: "500000" });
+
+    const exactComparisonSales = [
+      sale("comparison-a", "2025-01-02T00:00:00.000Z", "250000"),
+      sale("comparison-b", "2025-01-03T00:00:00.000Z", "250000"),
+    ];
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: exactComparisonSales,
+        policy: { ...policy, comparisonIsInclusive: true },
+        evaluationAt: "2025-01-04T00:00:00.000Z",
+      }).state,
+    ).toBe("member");
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: exactComparisonSales,
+        policy: { ...policy, comparisonIsInclusive: false },
+        evaluationAt: "2025-01-04T00:00:00.000Z",
+      }).state,
+    ).toBe("outside");
+    expect(
+      evaluateSellerComplianceCohort({
+        sales: [...exactComparisonSales, sale("comparison-c", "2025-01-03T01:00:00.000Z", "1")],
+        policy: { ...policy, comparisonIsInclusive: false },
+        evaluationAt: "2025-01-04T00:00:00.000Z",
+      }),
+    ).toMatchObject({ state: "member", qualifyingCount: 3, qualifyingGrossCents: "500001" });
   });
 
   it("expires on the first inadmissible instant after the due chain", () => {
@@ -1033,7 +1078,7 @@ describe("seller compliance cohort window", () => {
       "2025-05-19T00:00:00.000Z",
       "none",
     ]);
-    // When that revision also lowers the disclosure threshold, the band rises at the same re-entry instant.
+    // With disclosure 700000, the earliest winning window [2025-04-10…, 2025-05-10…) stays below the threshold, so no band rises at re-entry.
     const reentryWithBand = evaluateSellerComplianceCohort({
       sales: later,
       policy: { ...policy, disclosureGrossCents: "700000" },

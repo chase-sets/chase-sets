@@ -1500,7 +1500,7 @@
     },
     "seller-compliance-cohorts": {
       "classification": "slice",
-      "purpose": "Own policy-configured rolling-window seller compliance cohort evaluation over seller-compliance sale facts; durable state and runtime scheduling are successor-owned.",
+      "purpose": "Own the pure seller-compliance-cohorts evaluator: decode the cohort policy and compute the rolling-window verdict over seller-compliance-sales facts.",
       "expectedConsumers": ["Internal platform-operations module composition"]
     }
   },
