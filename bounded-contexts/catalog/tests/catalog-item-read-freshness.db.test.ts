@@ -96,6 +96,6 @@ describeDb("Catalog item read freshness DB proof", () => {
       [committedEvent!.eventId],
     );
     expect(applications.rows.length).toBeGreaterThan(0);
-    expect(applications.rows.every((row) => row.status === "completed")).toBe(true);
+    expect(applications.rows.every((row) => row.status === "applied")).toBe(true);
   });
 });
