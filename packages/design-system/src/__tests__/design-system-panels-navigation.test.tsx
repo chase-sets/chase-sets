@@ -78,7 +78,7 @@ import {
 
 describe("design system panels, navigation, and shells", () => {
   it("hydrates plain and flow-content empty-state descriptions without replacing parsed nodes", async () => {
-    const recoverableErrors: Error[] = [];
+    const recoverableErrors: unknown[] = [];
     const element = (
       <MarketplaceEmptyState
         title="Nothing here yet"
