@@ -152,8 +152,9 @@ describeDb("Catalog item read freshness DB proof", () => {
     });
 
     const afterDrain = await read();
-    expect(afterDrain.status).toBe(200);
-    expect(await afterDrain.json()).toMatchObject({ image_urls: ["https://assets.example/fresh-image.webp"] });
+    const afterDrainBody = await afterDrain.clone().json();
+    expect(afterDrain.status, JSON.stringify({ body: afterDrainBody, audit: audits.at(-1) })).toBe(200);
+    expect(afterDrainBody).toMatchObject({ image_urls: ["https://assets.example/fresh-image.webp"] });
     expect(audits.at(-1)).toMatchObject({ outcome: "fresh", waitMode: "exact-dependency" });
     const applications = await pool.query<{ status: string }>(
       `SELECT status
