@@ -1083,17 +1083,34 @@ export function CatalogItemListPage({
         onOpenChange={(open) => {
           if (!open && !removeDraftBusy) resetRemoveDraftDialog();
         }}
-        title={removeDraftResult ? "Remove draft Catalog Items results" : "Preview removing draft Catalog Items"}
+        title={
+          removeDraftResult
+            ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.result.title", {
+                action: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.remove.drafts"),
+              })
+            : t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview.title", {
+                action: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.remove.drafts"),
+              })
+        }
         description={
           removeDraftResult
-            ? `${removeDraftResult.succeeded_count} removed, ${removeDraftResult.skipped_count} skipped, ${removeDraftResult.failed_count} failed.`
+            ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.result.description", {
+                succeeded: removeDraftResult.succeeded_count,
+                skipped: removeDraftResult.skipped_count,
+                failed: removeDraftResult.failed_count,
+              })
             : removeDraftPreview
-              ? `${removeDraftPreview.ready_count} ready, ${removeDraftPreview.blocked_count} blocked.`
+              ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview.description", {
+                  ready: removeDraftPreview.ready_count,
+                  blocked: removeDraftPreview.blocked_count,
+                })
               : undefined
         }
         footer={
           removeDraftResult ? (
-            <Button onClick={resetRemoveDraftDialog}>Close</Button>
+            <Button onClick={resetRemoveDraftDialog}>
+              {t("catalog.support.shellSupport.ui.bulkLifecycleActions.close")}
+            </Button>
           ) : (
             <Inline gap={2}>
               <Button
@@ -1102,10 +1119,10 @@ export function CatalogItemListPage({
                 loading={removeDraftBusy}
                 disabled={!removeDraftPreview || removeDraftPreview.ready_count === 0}
               >
-                Remove ready drafts
+                {t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts")}
               </Button>
               <Button tone="secondary" onClick={resetRemoveDraftDialog} disabled={removeDraftBusy}>
-                Cancel
+                {t("catalog.support.shellSupport.ui.bulkLifecycleActions.cancel")}
               </Button>
             </Inline>
           )
@@ -1116,14 +1133,30 @@ export function CatalogItemListPage({
           <DataTable
             rows={removeDraftResult?.candidates ?? removeDraftPreview?.candidates ?? []}
             columns={[
-              { key: "title", header: "Title", cell: (row: BulkRemoveDraftPreview["candidates"][number]) => row.title },
-              { key: "status", header: "Status", cell: (row) => row.status },
-              { key: "outcome", header: "Outcome", cell: (row) => <StatusPill>{row.outcome}</StatusPill> },
-              { key: "reason", header: "Reason", cell: (row) => row.reason ?? "—" },
+              {
+                key: "title",
+                header: t("catalog.features.catalogItems.ui.catalogItemListPage.title"),
+                cell: (row: BulkRemoveDraftPreview["candidates"][number]) => row.title,
+              },
+              {
+                key: "status",
+                header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"),
+                cell: (row) => row.status,
+              },
+              {
+                key: "outcome",
+                header: t("catalog.features.catalogItems.ui.catalogItemListPage.result"),
+                cell: (row) => <StatusPill>{row.outcome}</StatusPill>,
+              },
+              {
+                key: "reason",
+                header: t("catalog.features.catalogItems.ui.catalogItemListPage.reason"),
+                cell: (row) => row.reason ?? "",
+              },
             ]}
             getRowId={(row) => row.catalog_item_id}
             density="compact"
-            emptyTitle="No selected items"
+            emptyTitle={t("catalog.support.shellSupport.ui.bulkLifecycleActions.no.records")}
           />
         </Stack>
       </Dialog>

@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { t } from "@chase-sets/localization";
 import { CatalogRealtimeReloadActionBar } from "./realtime-reload-action-bar";
 import { CatalogItemListPage } from "./catalog-item-list-page";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
@@ -840,10 +841,17 @@ describe("CatalogItemListPage", () => {
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     fireEvent.click(selectRow!);
-    fireEvent.click(screen.getByRole("button", { name: "Remove drafts from selected" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected"),
+      }),
+    );
 
-    const confirmButtons = await screen.findAllByRole("button", { name: "Remove drafts from selected" });
-    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts"),
+      }),
+    );
 
     await waitFor(() => {
       expect(mockPreviewBulkRemoveDrafts).toHaveBeenCalledWith({ mode: "ids", ids: ["cat_1"] });
