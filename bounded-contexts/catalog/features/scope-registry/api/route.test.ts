@@ -148,6 +148,19 @@ describe("Catalog scope registry list route", () => {
     });
   });
 
+  it.each([
+    ["languageEdition=%20ja%20", "ja"],
+    ["languageEdition=", undefined],
+    ["languageEdition=%20%20", undefined],
+  ])("trims or omits the language edition filter for %s", async (search, expected) => {
+    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0, facets: { languageEditions: [] } });
+    const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
+
+    await app.request(`/scope-records?${search}`);
+
+    expect(listScopeRecords.mock.calls[0]?.[0].languageEdition).toBe(expected);
+  });
+
   it("ignores unknown enum filter values rather than forwarding them", async () => {
     const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0, facets: { languageEditions: [] } });
     const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);

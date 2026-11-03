@@ -93,6 +93,23 @@ describe("Catalog scope-landing route loader", () => {
     expect(query.get("languageEdition")).toBe("ja");
   });
 
+  it("forwards global facets and preserves the server total", async () => {
+    const listCatalogScopeRecords = vi.fn().mockResolvedValue({
+      items: [scopeRow()],
+      total: 21,
+      count: 1,
+      facets: { languageEditions: ["en", "fr", "ja"] },
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ listCatalogScopeRecords });
+
+    const routeData = await runLoader("https://admin.example/catalog/scopes?language=ja&page=2");
+
+    const query = new URLSearchParams(listCatalogScopeRecords.mock.calls[0]?.[0] ?? "");
+    expect(query.toString()).toBe("languageEdition=ja&limit=50&offset=50");
+    expect(routeData.readModel.facets.languageEditions).toEqual(["en", "fr", "ja"]);
+    expect(routeData.readModel.counts.total).toBe(21);
+  });
+
   it("degrades to an empty list with a blocked error string when the list fetch fails", async () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({
       listCatalogScopeRecords: vi.fn().mockRejectedValue(new CatalogApiError(503, { error: { code: "boom" } })),

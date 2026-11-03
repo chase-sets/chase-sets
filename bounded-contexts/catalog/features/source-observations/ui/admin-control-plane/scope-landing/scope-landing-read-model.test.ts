@@ -132,4 +132,16 @@ describe("buildCatalogScopeLandingReadModel", () => {
     // The active facet stays selectable even though only one edition remains on the page.
     expect(readModel.facets.languageEditions).toContain("ja");
   });
+
+  it("preserves global facets and total when the active page is empty", () => {
+    const readModel = buildCatalogScopeLandingReadModel({
+      scopes: list([], 1, ["en"]),
+      filters: { ...noFilters, languageEdition: "ja" },
+      generatedAt: GENERATED_AT,
+    });
+
+    expect(readModel.rows).toEqual([]);
+    expect(readModel.counts.total).toBe(1);
+    expect(readModel.facets.languageEditions).toEqual(["en", "ja"]);
+  });
 });
