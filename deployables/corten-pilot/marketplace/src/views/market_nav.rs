@@ -4,9 +4,8 @@
 //!
 //! The cart's count is the page's `Chrome` (`crate::chrome`), read beside the page for a full load
 //! and drawn here, with or without JavaScript; a visitor's cart entry is hidden while it is 0, as
-//! marketplace hides it. A write's redirect draws the header again, but the cart page read again
-//! while its write lands swaps only `<main>`, so the cart page tells the badge the count its own
-//! read found (`badge::known`; todd-skelton/corten#690).
+//! marketplace hides it. A write's redirect draws the header again, and so does the cart page
+//! reading itself again while its write lands, once the cart is found.
 use std::{collections::HashMap, sync::LazyLock};
 
 use corten::{Local, NavLink, NavLinks, NavTo, prelude::*};
@@ -17,8 +16,6 @@ use crate::{
     auth::{self, NavItem, Viewer},
     text::Pilot,
 };
-
-corten::script::script!(pub mod badge = "nav_badge.js");
 
 /// The badge value the cart's entry reads.
 const CART_COUNT: &str = "checkout.cart-count";

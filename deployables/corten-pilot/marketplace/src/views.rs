@@ -135,7 +135,7 @@ pub use support_page::SupportPage;
 pub use team_page::TeamPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, market_nav::badge::COMPONENT, Section];
+pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, Section];
 
 /// The inventory screens' components (`/account/inventory`), the import page's too.
 /// The inventory list uses Create listing's catalog picker script, and corten-ui's handler that
@@ -694,12 +694,7 @@ pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crat
     let check_out = readiness.map(|r| &r.declined).filter(|s| s.status == "ready");
     let lower_price = readiness.and_then(|r| r.accepted.as_ref()).filter(|_| screen.offer());
     let (search, resolve) = (cart_item::link("/search"), url::CheckoutStart.href());
-    // The nav's badge takes the count this read found: a read again keeps the layout.
-    let count = (!screen.pending).then(|| screen.item_count());
     html! {
-        if let Some(count) = count {
-            <span hidden on:connect={market_nav::badge::known(count)}></span>
-        }
         <PageHeader eyebrow={t.page_buy_cart()} title={t.page_your_cart()} description={t.page_simple_cart_description()} />
         <CartHeading title={t.page_items()} description={t.page_review_items_before_checkout()} />
         match notice {
