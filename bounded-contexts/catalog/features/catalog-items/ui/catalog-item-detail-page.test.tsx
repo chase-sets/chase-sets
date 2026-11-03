@@ -98,6 +98,7 @@ describe("CatalogItemDetailPage", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Set Image URLs" })).toBeNull());
     await waitFor(() => expect(refreshedItem).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: /^Image URLs/ }));
     fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
     dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
     expect((within(dialog).getByLabelText("Image URLs") as HTMLTextAreaElement).value).toBe(storedUrls.join("\n"));
