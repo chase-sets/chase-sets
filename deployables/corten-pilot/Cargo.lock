@@ -168,7 +168,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 [[package]]
 name = "corten"
 version = "0.1.0"
-source = "git+https://github.com/todd-skelton/corten?rev=e9cb241408fd9767c17f9f688e6cca78ebcd155e#e9cb241408fd9767c17f9f688e6cca78ebcd155e"
+source = "git+https://github.com/todd-skelton/corten?rev=788e782f659f8aabee05fe883f7450e05d8bd7dd#788e782f659f8aabee05fe883f7450e05d8bd7dd"
 dependencies = [
  "axum",
  "brotli",
@@ -194,7 +194,7 @@ dependencies = [
 [[package]]
 name = "corten-macros"
 version = "0.1.0"
-source = "git+https://github.com/todd-skelton/corten?rev=e9cb241408fd9767c17f9f688e6cca78ebcd155e#e9cb241408fd9767c17f9f688e6cca78ebcd155e"
+source = "git+https://github.com/todd-skelton/corten?rev=788e782f659f8aabee05fe883f7450e05d8bd7dd#788e782f659f8aabee05fe883f7450e05d8bd7dd"
 
 [[package]]
 name = "corten-pilot-admin"
@@ -278,7 +278,7 @@ dependencies = [
 [[package]]
 name = "corten-ui"
 version = "0.1.0"
-source = "git+https://github.com/todd-skelton/corten?rev=e9cb241408fd9767c17f9f688e6cca78ebcd155e#e9cb241408fd9767c17f9f688e6cca78ebcd155e"
+source = "git+https://github.com/todd-skelton/corten?rev=788e782f659f8aabee05fe883f7450e05d8bd7dd#788e782f659f8aabee05fe883f7450e05d8bd7dd"
 dependencies = [
  "corten",
 ]
