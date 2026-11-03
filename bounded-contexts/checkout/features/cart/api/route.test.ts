@@ -1877,6 +1877,10 @@ describe("post-claim cart reads through the real Cart runtime", () => {
     };
     expect(guestBody.items).toHaveLength(1);
     expect(guestBody.readiness).toEqual(createCartReadinessRead(guestBody.items));
+    expect(guestBody.readiness).toMatchObject({
+      loaded: { linePresentations: [{ lineId: guestBody.items[0]!.line_id, reason: expect.any(String) }] },
+      declined: { linePresentations: [{ lineId: guestBody.items[0]!.line_id, reason: expect.any(String) }] },
+    });
 
     const accountResponse = await harness
       .accountApp(OTHER)
@@ -1887,6 +1891,10 @@ describe("post-claim cart reads through the real Cart runtime", () => {
     };
     expect(accountBody.items).toHaveLength(1);
     expect(accountBody.readiness).toEqual(createCartReadinessRead(accountBody.items));
+    expect(accountBody.readiness).toMatchObject({
+      loaded: { linePresentations: [{ lineId: accountBody.items[0]!.line_id, reason: expect.any(String) }] },
+      declined: { linePresentations: [{ lineId: accountBody.items[0]!.line_id, reason: expect.any(String) }] },
+    });
   });
 
   it("keeps an indeterminate guest read on the same work and response, and re-decides on retry", async () => {

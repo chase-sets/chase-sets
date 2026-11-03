@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -180,6 +180,140 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain(">Ready</span>");
     expect(markup).not.toContain("bg-success-soft");
     expect(markup).toContain('href="/checkout/buy/readiness"');
+  });
+
+  it("renders each returned reason, eligibility, and price independently of seller options", () => {
+    const apiRead = createCartReadinessRead([cartLine]);
+    const withPresentation = (presentation: NonNullable<(typeof apiRead.loaded.linePresentations)[number]>) => ({
+      ...apiRead,
+      loaded: { ...apiRead.loaded, linePresentations: [presentation] },
+      declined: { ...apiRead.declined, linePresentations: [presentation] },
+    });
+
+    const readyWithoutPath = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        readiness={withPresentation({
+          lineId: cartLine.line_id,
+          reason: "ready",
+          fulfillmentAvailable: false,
+          listingId: "lst_card_vault",
+          price: { state: "exact", amount: "778.00", currency: "USD" },
+        })}
+      />,
+    );
+    expect(readyWithoutPath).toContain(">Ready</span>");
+    expect(readyWithoutPath).not.toContain("bg-success-soft");
+
+    const unpriced = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        readiness={withPresentation({
+          lineId: cartLine.line_id,
+          reason: "ready",
+          fulfillmentAvailable: true,
+          listingId: "lst_card_vault",
+          price: null,
+        })}
+      />,
+    );
+    expect(unpriced).toContain("Priced at checkout");
+
+    const indicative = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        readiness={withPresentation({
+          lineId: cartLine.line_id,
+          reason: "ready",
+          fulfillmentAvailable: true,
+          listingId: "lst_card_vault",
+          price: { state: "indicative", amount: "778.00", currency: "USD" },
+        })}
+      />,
+    );
+    expect(indicative).toContain(">from</p>");
+
+    const exact = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        readiness={withPresentation({
+          lineId: cartLine.line_id,
+          reason: "ready",
+          fulfillmentAvailable: true,
+          listingId: "lst_card_vault",
+          price: { state: "exact", amount: "778.00", currency: "USD" },
+        })}
+      />,
+    );
+    expect(exact).not.toContain(">from</p>");
+
+    const warning = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        readiness={withPresentation({
+          lineId: cartLine.line_id,
+          reason: "shipping-measure-missing",
+          fulfillmentAvailable: true,
+          listingId: "lst_card_vault",
+          price: { state: "exact", amount: "778.00", currency: "USD" },
+        })}
+      />,
+    );
+    expect(warning).toContain("Shipping measure missing");
+    expect(warning).not.toContain(">Ready</span>");
+  });
+
+  it.each([
+    ["ready-first", ["ready", "currency-mismatch"]],
+    ["warning-first", ["currency-mismatch", "ready"]],
+  ] as const)("keeps grouped member warnings visible in %s order", (_order, reasons) => {
+    const lines = [0, 1].map((index) => ({
+      ...cartLine,
+      line_id: `cart_line_warning_${index}`,
+      quantity: 1,
+      updated_at: `2026-05-0${index + 1}T00:00:00.000Z`,
+    }));
+    const base = createCartReadinessRead(lines);
+    const presentations = lines.map((line, index) => ({
+      lineId: line.line_id,
+      reason: reasons[index]!,
+      fulfillmentAvailable: true,
+      listingId: "lst_card_vault",
+      price: { state: "exact" as const, amount: "389.00", currency: "USD" },
+    }));
+    const readiness = {
+      ...base,
+      loaded: { ...base.loaded, linePresentations: presentations },
+      declined: { ...base.declined, linePresentations: presentations },
+    };
+    const markup = renderToString(<CheckoutCartPage cartLines={lines} readiness={readiness} />);
+    expect(markup).toContain("Needs review");
+    expect(markup).toContain("Ready");
+  });
+
+  it("fails closed for a partial presentation answer instead of copying another member", () => {
+    const lines = [0, 1].map((index) => ({
+      ...cartLine,
+      line_id: `cart_line_partial_${index}`,
+      quantity: 1,
+      updated_at: `2026-05-1${index}T00:00:00.000Z`,
+    }));
+    const base = createCartReadinessRead(lines);
+    const answer = {
+      lineId: lines[0]!.line_id,
+      reason: "ready" as const,
+      fulfillmentAvailable: true,
+      listingId: "lst_card_vault",
+      price: { state: "exact" as const, amount: "389.00", currency: "USD" },
+    };
+    const readiness = {
+      ...base,
+      loaded: { ...base.loaded, linePresentations: [answer] },
+      declined: { ...base.declined, linePresentations: [answer] },
+    };
+    const markup = renderToString(<CheckoutCartPage cartLines={lines} readiness={readiness} />);
+    expect(markup.match(/Priced at checkout/g)?.length).toBeGreaterThan(0);
+    expect(markup).toContain("Ready");
   });
 
   it("uses each API line listing even when readiness is unresolved, grouped, or mixed-currency", () => {
@@ -423,6 +557,46 @@ describe("checkout cart page", () => {
     expect(formData.get("correctionSource")).toBe("fresh-read:loader-revalidation");
     expect(formData.get("optimisticSequence")).toBe("1");
     expect(formData.getAll("lineId")).toEqual(["cart_line_1"]);
+  });
+
+  it("scopes pending indicative and exact-price assertions to their own rows", async () => {
+    const user = userEvent.setup();
+    render(<TestCheckoutCartPage cartLines={[cartLine]} />);
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+
+    await waitFor(() => expect(screen.getByText("Updating cart")).toBeTruthy());
+    const indicativeRow = screen.getByText("Updating cart").closest("[data-marketplace-cart-line]");
+    expect(indicativeRow).not.toBeNull();
+    expect(within(indicativeRow!).getByText("from")).toBeTruthy();
+    expect(within(indicativeRow!).getByText("$1,167.00")).toBeTruthy();
+    expect(within(indicativeRow!).queryByText("Ready")).toBeNull();
+
+    cleanup();
+    const lockedLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_hobby_shop",
+    };
+    render(<TestCheckoutCartPage cartLines={[lockedLine]} />);
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect(screen.getByText("Updating cart")).toBeTruthy());
+    const lockedRow = screen.getByText("Updating cart").closest("[data-marketplace-cart-line]");
+    expect(lockedRow).not.toBeNull();
+    expect(within(lockedRow!).getByText("Priced at checkout")).toBeTruthy();
+    expect(within(lockedRow!).queryByText("$1,185.00")).toBeNull();
+    expect(within(lockedRow!).queryByText("$790.00")).toBeNull();
+  });
+
+  it("defers a locked row whose returned stream version is invalid", () => {
+    const invalidLockedLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_card_vault",
+      seller_options: [{ ...cartLine.seller_options[0]!, listing_stream_version: null }],
+    };
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[invalidLockedLine]} />);
+    expect(markup).toContain("Priced at checkout");
+    expect(markup).not.toContain("$778.00");
   });
 
   it("coalesces rapid repeated quantity clicks for one line", async () => {

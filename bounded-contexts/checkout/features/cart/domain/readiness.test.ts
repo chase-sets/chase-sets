@@ -52,6 +52,101 @@ const readyLine: CartReadinessLine = {
 };
 
 describe("cart readiness snapshots", () => {
+  it("returns an authoritative presentation matrix for every line reason", () => {
+    const cases = [
+      { name: "ready", line: readyLine, reason: "ready", fulfillmentAvailable: true, price: "exact" },
+      {
+        name: "unavailable",
+        line: { ...readyLine, availability_state: "unavailable" as const, seller_options: [] },
+        reason: "unavailable",
+        fulfillmentAvailable: false,
+        price: "deferred",
+      },
+      {
+        name: "waiting-for-supply",
+        line: { ...readyLine, availability_state: "waiting-for-supply" as const, seller_options: [] },
+        reason: "waiting-for-supply",
+        fulfillmentAvailable: false,
+        price: "deferred",
+      },
+      {
+        name: "changed",
+        line: { ...readyLine, availability_state: "changed" as const },
+        reason: "changed",
+        fulfillmentAvailable: false,
+        price: "exact",
+      },
+      {
+        name: "shipping-measure-missing",
+        line: {
+          ...readyLine,
+          seller_options: [{ ...readyLine.seller_options[0]!, product_measure_snapshot: null }],
+        },
+        reason: "shipping-measure-missing",
+        fulfillmentAvailable: false,
+        price: "exact",
+      },
+      {
+        name: "unassigned-fulfillment",
+        line: { ...readyLine, fulfillment_mode: "optimize" as const, locked_listing_id: null, seller_options: [] },
+        reason: "unassigned-fulfillment",
+        fulfillmentAvailable: false,
+        price: "deferred",
+      },
+    ] as const;
+
+    for (const candidate of cases) {
+      const presentation = createCartReadinessSnapshot([candidate.line]).linePresentations[0];
+      expect(presentation, candidate.name).toMatchObject({
+        lineId: candidate.line.line_id,
+        reason: candidate.reason,
+        fulfillmentAvailable: candidate.fulfillmentAvailable,
+        price: candidate.price === "deferred" ? null : { state: candidate.price },
+      });
+    }
+
+    const usd = readyLine;
+    const eur = {
+      ...readyLine,
+      line_id: "cli_eur_matrix",
+      locked_listing_id: "lst_eur_matrix",
+      seller_options: [{ ...readyLine.seller_options[0]!, listing_id: "lst_eur_matrix", price_currency_code: "EUR" }],
+    };
+    const mixed = createCartReadinessSnapshot([usd, eur]);
+    expect(
+      mixed.linePresentations.map(({ lineId, reason, fulfillmentAvailable }) => ({
+        lineId,
+        reason,
+        fulfillmentAvailable,
+      })),
+    ).toEqual([
+      { lineId: "cli_eur_matrix", reason: "currency-mismatch", fulfillmentAvailable: true },
+      { lineId: "cli_ready", reason: "currency-mismatch", fulfillmentAvailable: true },
+    ]);
+  });
+
+  it("distinguishes priced Smart Match and unpriced controls in the presentation", () => {
+    const smartMatch = createCartReadinessSnapshot([
+      {
+        ...readyLine,
+        line_id: "cli_smart_matrix",
+        fulfillment_mode: "optimize",
+        locked_listing_id: null,
+        seller_options: [{ ...readyLine.seller_options[0]!, listing_id: "lst_smart_matrix", price_amount: "20.00" }],
+      },
+    ]).linePresentations[0];
+    expect(smartMatch).toMatchObject({ price: { state: "indicative", amount: "20.00", currency: "USD" } });
+
+    const unpriced = createCartReadinessSnapshot([
+      {
+        ...readyLine,
+        line_id: "cli_unpriced_matrix",
+        seller_options: [{ ...readyLine.seller_options[0]!, listing_stream_version: null }],
+      },
+    ]).linePresentations[0];
+    expect(unpriced).toMatchObject({ reason: "unassigned-fulfillment", fulfillmentAvailable: false, price: null });
+  });
+
   it("marks a fully assigned cart ready for checkout", () => {
     const snapshot = createCartReadinessSnapshot([readyLine]);
 

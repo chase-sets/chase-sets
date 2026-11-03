@@ -4,6 +4,66 @@
   "claims": [
     {
       "kind": "claim",
+      "id": "checkout-cart-lines-390",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "captures populated cart lines and actions at 390px @marketplace-checkout @browser-e2e-seed",
+      "route": { "name": "Marketplace account cart", "path": "/account/cart" },
+      "fixture": { "identity": "marketplace-browser-e2e-seed:populated-cart" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "populated-cart-main",
+        "selector": "main",
+        "populatedSelector": "[data-marketplace-cart-line]"
+      },
+      "measurements": [
+        {
+          "identity": "cart-main-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        },
+        {
+          "identity": "no-cart-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "checkout-cart-lines-390"
+    },
+    {
+      "kind": "claim",
+      "id": "checkout-cart-lines-1024",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "captures populated cart lines and actions at 1024px @marketplace-checkout @browser-e2e-seed",
+      "route": { "name": "Marketplace account cart", "path": "/account/cart" },
+      "fixture": { "identity": "marketplace-browser-e2e-seed:populated-cart" },
+      "viewport": { "width": 1024, "height": 900 },
+      "target": {
+        "identity": "populated-cart-main",
+        "selector": "main",
+        "populatedSelector": "[data-marketplace-cart-line]"
+      },
+      "measurements": [
+        {
+          "identity": "cart-main-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 1024 }
+        },
+        {
+          "identity": "no-cart-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "checkout-cart-lines-1024"
+    },
+    {
+      "kind": "claim",
       "id": "pricing-goal-comparison-360",
       "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
       "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",

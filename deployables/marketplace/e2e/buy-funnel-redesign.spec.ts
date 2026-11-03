@@ -1,5 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 import { logMarketplaceSeedContractGap } from "./support/seed-contract-gap";
@@ -312,6 +313,54 @@ test.describe("buy funnel redesign — defect verification", () => {
     await assertSingleNoticeAtATime(page, "cart with lines");
 
     await captureScreenshot(page, "cart-with-lines");
+  });
+
+  test("captures populated cart lines and actions at 390px @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }, testInfo) => {
+    await authenticateSeededBuyer(page);
+    await waitForAccountRoute(page, "/account/cart");
+    const cartLines = page.locator("[data-marketplace-cart-line]");
+    await expect(cartLines).toHaveCount(marketplaceBrowserE2eSeedContract.cart.lineCount);
+    for (const line of await cartLines.all()) {
+      await expect(line).toBeVisible();
+      await expect(line.getByRole("button", { name: "Increase" })).toBeVisible();
+      await expect(line.getByRole("button", { name: "Remove" })).toBeVisible();
+      expect((await line.innerText()).trim().length).toBeGreaterThan(0);
+    }
+    await captureResponsiveEvidence({ page, testInfo, claimId: "checkout-cart-lines-390" });
+  });
+
+  test("captures populated cart lines and actions at 1024px @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }, testInfo) => {
+    await authenticateSeededBuyer(page);
+    await waitForAccountRoute(page, "/account/cart");
+    const cartLines = page.locator("[data-marketplace-cart-line]");
+    await expect(cartLines).toHaveCount(marketplaceBrowserE2eSeedContract.cart.lineCount);
+    for (const line of await cartLines.all()) {
+      await expect(line).toBeVisible();
+      await expect(line.getByRole("button", { name: "Increase" })).toBeVisible();
+      await expect(line.getByRole("button", { name: "Remove" })).toBeVisible();
+      expect((await line.innerText()).trim().length).toBeGreaterThan(0);
+    }
+    await captureResponsiveEvidence({ page, testInfo, claimId: "checkout-cart-lines-1024" });
+  });
+
+  test("shows a pending quantity edit and corrected cart read @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }) => {
+    await authenticateSeededBuyer(page);
+    await waitForAccountRoute(page, "/account/cart");
+    const line = page.locator("[data-marketplace-cart-line]").first();
+    await expect(line).toBeVisible();
+    const quantity = line.getByRole("spinbutton", { name: "Quantity" });
+    const before = Number(await quantity.inputValue());
+    await line.getByRole("button", { name: "Increase" }).click();
+    await expect(line.getByText("Updating cart")).toBeVisible();
+    await expect(quantity).toHaveValue(String(before + 1));
+    await expect(line.getByText("Updating cart")).toHaveCount(0, { timeout: 30_000 });
+    await expect(quantity).toHaveValue(String(before + 1));
   });
 
   // ── 4. Checkout session surface (unauthenticated recovery) ────────────────

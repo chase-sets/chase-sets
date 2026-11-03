@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryRouter } from "react-router";
 import {
   appendFreshWriteToken,
   appendPostWriteHandoff,
@@ -152,9 +153,16 @@ describe("checkout web routes: account cart", () => {
   });
 
   it("passes the API readiness projection through for both account and guest loader branches", async () => {
+    const linePresentation = {
+      lineId: "cli_api",
+      reason: "currency-mismatch" as const,
+      fulfillmentAvailable: true,
+      listingId: "lst_api",
+      price: { state: "exact" as const, amount: "17.23", currency: "USD" },
+    };
     const readiness = {
-      loaded: { snapshotId: "loaded_api_value" },
-      declined: { snapshotId: "declined_api_value" },
+      loaded: { snapshotId: "loaded_api_value", linePresentations: [linePresentation] },
+      declined: { snapshotId: "declined_api_value", linePresentations: [linePresentation] },
       accepted: null,
       lineListingIds: { cli_api: "lst_api" },
       estimatedSubtotal: { amount: "17.23", currency: "USD" },
@@ -186,6 +194,54 @@ describe("checkout web routes: account cart", () => {
         context: undefined,
       } as never),
     ).resolves.toEqual({ cart: { items: [{ line_id: "cli_api" }], count: 1, readiness }, cartRecovery: null });
+  });
+
+  it("revalidates the real account loader and replaces stale line presentations", async () => {
+    const initialPresentation = {
+      lineId: "cli_api",
+      reason: "ready" as const,
+      fulfillmentAvailable: true,
+      listingId: "lst_api",
+      price: null,
+    };
+    const correctedPresentation = {
+      ...initialPresentation,
+      reason: "currency-mismatch" as const,
+      price: { state: "deferred" as const, amount: "0.00", currency: "USD" },
+    };
+    const readiness = (linePresentation: typeof initialPresentation) => ({
+      loaded: { linePresentations: [linePresentation] },
+      declined: { linePresentations: [linePresentation] },
+      accepted: null,
+      lineListingIds: { cli_api: "lst_api" },
+      estimatedSubtotal: null,
+      blockedLineCount: 0,
+      savings: null,
+    });
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockResolvedValueOnce({
+      items: [{ line_id: "cli_api" }],
+      count: 1,
+      readiness: readiness(initialPresentation),
+    });
+    mockGetCart.mockResolvedValueOnce({
+      items: [{ line_id: "cli_api" }],
+      count: 1,
+      readiness: readiness(correctedPresentation),
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    const router = createMemoryRouter([{ path: "/account/cart", loader: accountCartLoader }], {
+      initialEntries: ["/account/cart"],
+    });
+    await vi.waitFor(() => expect(router.state.initialized).toBe(true));
+    expect(router.state.loaderData["0"].cart.readiness.loaded.linePresentations).toEqual([initialPresentation]);
+    await router.revalidate();
+    await vi.waitFor(() =>
+      expect(router.state.loaderData["0"].cart.readiness.loaded.linePresentations).toEqual([correctedPresentation]),
+    );
+    expect(mockGetCart).toHaveBeenCalledTimes(2);
+    router.dispose();
   });
 
   it("recovers signed-in account cart self-refresh when a fresh receipt times out waiting for projection freshness", async () => {
