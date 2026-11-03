@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
-import { trySignedMoneyToCents } from "@chase-sets/primitives/money";
+import { centsToSignedMoneyAmount, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
   AccountReputationSummary,
   ActionStack,
@@ -50,6 +50,7 @@ type CheckoutCartLineGroup = CheckoutCartLine & {
   lineIds: readonly string[];
   sourceQuantity: number;
   presentation: CartReadinessLinePresentation | null;
+  presentationQuantity: number;
 };
 
 type CartRecoveryState = Readonly<
@@ -69,6 +70,29 @@ type CartRecoveryState = Readonly<
 const CART_ITEM_FALLBACK_IMAGE_URL = "/fake-cdn/assets/pokemon-card-back.png";
 const BUY_READINESS_ROUTE = "/checkout/buy/readiness";
 
+function cartLinePresentationKey(line: CheckoutCartLine, presentation: CartReadinessLinePresentation | null) {
+  if (!presentation) {
+    return "no-read";
+  }
+
+  const price = presentation.price;
+  const quantity = Math.max(1, Number(line.quantity) || 1);
+  const amountMinor = price ? trySignedMoneyToCents(price.amount) : null;
+  const normalizedPrice =
+    price && amountMinor !== null && amountMinor % BigInt(quantity) === 0n
+      ? { state: price.state, currency: price.currency, unitAmountMinor: String(amountMinor / BigInt(quantity)) }
+      : price
+        ? { state: price.state, currency: price.currency, amount: price.amount }
+        : null;
+
+  return JSON.stringify({
+    reason: presentation.reason,
+    fulfillmentAvailable: presentation.fulfillmentAvailable,
+    listingId: presentation.listingId,
+    price: normalizedPrice,
+  });
+}
+
 function cartLineGroupKey(line: CheckoutCartLine, presentation: CartReadinessLinePresentation | null) {
   return [
     line.catalog_catalog_item_id,
@@ -76,7 +100,7 @@ function cartLineGroupKey(line: CheckoutCartLine, presentation: CartReadinessLin
     line.fulfillment_mode,
     line.locked_listing_id ?? "",
     line.seller_preference_id ?? "",
-    presentation ? JSON.stringify(presentation) : "no-read",
+    cartLinePresentationKey(line, presentation),
   ].join(":");
 }
 
@@ -99,6 +123,7 @@ function groupCartLines(
         lineIds: [line.line_id],
         sourceQuantity: line.quantity,
         presentation,
+        presentationQuantity: line.quantity,
       });
       continue;
     }
@@ -109,6 +134,7 @@ function groupCartLines(
       sourceQuantity: existing.sourceQuantity + line.quantity,
       lineIds: [...existing.lineIds, line.line_id],
       presentation: existing.presentation,
+      presentationQuantity: existing.presentationQuantity,
       seller_options: mergeSellerOptions(existing.seller_options, line.seller_options),
       ...selectedListingSnapshotFields(existing.selected_listing_id ? existing : line),
       updated_at:
@@ -172,6 +198,37 @@ function selectedListingSnapshotFields(
 function linePrice(line: CheckoutCartLineGroup): ReactNode {
   const price = line.presentation?.price;
   return price ? formatMoney(price.amount, price.currency) : null;
+}
+
+function optimisticIndicativeSubtotal(
+  lines: readonly CheckoutCartLineGroup[],
+): { amount: string; currency: string } | null {
+  let currency: string | null = null;
+  let amountMinor = 0n;
+
+  for (const line of lines) {
+    const price = line.presentation?.price;
+    if (!price || price.state !== "indicative" || line.presentationQuantity < 1) {
+      return null;
+    }
+
+    const unitAmountMinor = trySignedMoneyToCents(price.amount);
+    if (unitAmountMinor === null || unitAmountMinor < 0n) {
+      return null;
+    }
+    const divisor = BigInt(line.presentationQuantity);
+    if (unitAmountMinor % divisor !== 0n) {
+      return null;
+    }
+    if (currency === null) {
+      currency = price.currency;
+    } else if (currency !== price.currency) {
+      return null;
+    }
+    amountMinor += (unitAmountMinor / divisor) * BigInt(line.quantity);
+  }
+
+  return currency === null ? null : { amount: centsToSignedMoneyAmount(amountMinor), currency };
 }
 
 function marketRecoveryHref(itemTitle: string) {
@@ -711,7 +768,9 @@ export function CheckoutCartPage({
         }
       : null;
   const blockedLineCount = readiness?.blockedLineCount ?? 0;
-  const estimatedSubtotal = readiness?.estimatedSubtotal ?? null;
+  const estimatedSubtotal =
+    readiness?.estimatedSubtotal ??
+    (hasPendingOptimisticMutation ? optimisticIndicativeSubtotal(cartLineGroups) : null);
   const hasKnownTotal = estimatedSubtotal !== null;
   const estimatedTotal = estimatedSubtotal
     ? formatMoney(estimatedSubtotal.amount, estimatedSubtotal.currency)
