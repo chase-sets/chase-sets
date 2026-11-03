@@ -117,9 +117,7 @@ describe("marketplace fake-cdn fallback asset correspondence (#10577)", () => {
       expect(bytes.byteLength, expected.path + " must fit the fallback transfer budget").toBeLessThanOrEqual(
         fallbackByteBudget,
       );
-      expect(width, expected.path + " must retain enough detail for the 2x 308px consumer").toBeGreaterThanOrEqual(
-        616,
-      );
+      expect(width, expected.path + " must retain enough detail for the 2x 308px consumer").toBeGreaterThanOrEqual(616);
       expect(height).toBe(Math.round((width * expected.originalHeight) / expected.originalWidth));
       decodedAssets.push(decoded.scanlines);
     }
