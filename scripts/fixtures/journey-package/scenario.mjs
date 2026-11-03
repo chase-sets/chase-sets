@@ -4,11 +4,14 @@ import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { expect, test } from "@playwright/test";
 
-export { expect };
+export { expect, test };
 
 // Synthetic, browserless test bodies for the journey package tests. The test
 // writes plan.json into the temporary root; the generated spec files there
 // import this module, so every title, attachment and ending comes from the plan.
+// The specs call test() themselves: when every test in a file is declared in a
+// module with another extension, Playwright moves the file suite's location to
+// that module, and the reporter would no longer see the target spec.
 const root = process.env.JOURNEY_PACKAGE_FIXTURE_ROOT;
 const plan = JSON.parse(readFileSync(path.join(root, "plan.json"), "utf8"));
 
@@ -40,19 +43,26 @@ async function runStep(step, testInfo, inlineAssertion) {
   }
 }
 
-export function defineJourneyFixtureTest({ inlineAssertion }) {
+// Returns [title, body] pairs for the generated target spec to declare.
+export function journeyFixtureTests({ inlineAssertion }) {
   const titles = plan.duplicate ? [plan.title, `${plan.title} duplicate`] : [plan.title];
-  for (const title of titles) {
-    test(title, async ({}, testInfo) => {
+  return titles.map((title) => [
+    title,
+    async ({}, testInfo) => {
       if (plan.expectFailure) test.fail();
       if (plan.timeoutMs) test.setTimeout(plan.timeoutMs);
       for (const step of plan.steps) await runStep(step, testInfo, inlineAssertion);
-    });
-  }
+    },
+  ]);
 }
 
-export function defineOtherFixtureTest() {
-  test("synthetic other test", async ({}, testInfo) => {
-    for (const step of plan.other ?? []) await runStep(step, testInfo, () => {});
-  });
+export function otherFixtureTests() {
+  return [
+    [
+      "synthetic other test",
+      async ({}, testInfo) => {
+        for (const step of plan.other ?? []) await runStep(step, testInfo, () => {});
+      },
+    ],
+  ];
 }

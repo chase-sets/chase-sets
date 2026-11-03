@@ -36,12 +36,19 @@ const scenarioUrl = pathToFileURL(path.join(repoRoot, "scripts/fixtures/journey-
 const fixtureTimeout = 300_000;
 const concurrency = 4;
 const title = "synthetic market-following journey @marketplace-account";
+// The specs declare their own tests so Playwright keeps each spec as its file
+// suite's location (see scenario.mjs).
 const targetSpec = [
-  `import { defineJourneyFixtureTest, expect } from ${JSON.stringify(scenarioUrl)};`,
-  'defineJourneyFixtureTest({ inlineAssertion: () => expect(1, "inline fixture assertion").toBe(2) });',
+  `import { expect, journeyFixtureTests, test } from ${JSON.stringify(scenarioUrl)};`,
+  'const inlineAssertion = () => expect(1, "inline fixture assertion").toBe(2);',
+  "for (const [name, body] of journeyFixtureTests({ inlineAssertion })) test(name, body);",
   "",
 ].join("\n");
-const otherSpec = `import { defineOtherFixtureTest } from ${JSON.stringify(scenarioUrl)};\ndefineOtherFixtureTest();\n`;
+const otherSpec = [
+  `import { otherFixtureTests, test } from ${JSON.stringify(scenarioUrl)};`,
+  "for (const [name, body] of otherFixtureTests()) test(name, body);",
+  "",
+].join("\n");
 // The inline assertion sits on line 2 of the generated target spec.
 const inlineLocationPrefix = `${journeyPackageTarget.file}:2:`;
 const roots = [];
@@ -265,6 +272,10 @@ describe("journey package reporter over real Playwright runs", () => {
       invalidDiagnostics: 1,
       unexpectedPass: 1,
     });
+    // Every run that selects the target leaves a reporter record.
+    for (const [name, run] of Object.entries(runs)) {
+      if (name !== "absent") expect(run.record, `${name}: no reporter record\n${outputTails(runs)}`).not.toBeNull();
+    }
 
     // Producer success, target success: the success package.
     const success = packageOf(runs.success);
@@ -421,6 +432,9 @@ describe("journey package reporter over real Playwright runs", () => {
 
     // The witnesses really reached Playwright: its own output carries the error text.
     expect(runs.safeFailure.status, outputTails(runs)).toBe(1);
+    for (const [name, run] of Object.entries(runs)) {
+      expect(run.record, `${name}: no reporter record\n${outputTails(runs)}`).not.toBeNull();
+    }
     expect(runs.safeFailure.output).toContain(witnesses.session);
 
     // Safe failure: diagnostics publish, with error text, error-context and
