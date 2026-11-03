@@ -105,7 +105,7 @@ describe("design system panels, navigation, and shells", () => {
     expect(recoverableErrors).toEqual([]);
     expect(container.querySelector("section")).toBe(parsedSection);
     expect(container.querySelector('[role="status"]')).toBe(parsedStatus);
-    expect(container.querySelector('[role="status"]')).toHaveTextContent("We are preparing your checkout.");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("We are preparing your checkout.");
     root.unmount();
 
     const plainMarkup = renderToString(
