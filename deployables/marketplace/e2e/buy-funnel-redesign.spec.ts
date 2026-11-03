@@ -262,6 +262,14 @@ test.describe("buy funnel redesign — defect verification", () => {
   }) => {
     test.setTimeout(120_000);
 
+    await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
+    const fallbackResponseBytes: Promise<number>[] = [];
+    page.on("response", (response) => {
+      if (response.url().includes("/fake-cdn/assets/pokemon-card-back.png")) {
+        fallbackResponseBytes.push(response.body().then((body) => body.byteLength));
+      }
+    });
+
     await authenticateSeededBuyer(page);
     await waitForAccountRoute(page, "/account/cart");
 
@@ -308,6 +316,24 @@ test.describe("buy funnel redesign — defect verification", () => {
         "every cart line image slot must render either an img or the designed placeholder",
       ).toBe(true);
     }
+
+    const fallbackImages = page.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']");
+    await expect(
+      fallbackImages.first(),
+      "the populated cart must visibly render its image-less line with the optimized fallback",
+    ).toBeVisible();
+    await expect
+      .poll(() => fallbackImages.first().evaluate((image) => (image as HTMLImageElement).naturalWidth), {
+        message: "the cart fallback must decode to a non-zero natural width",
+      })
+      .toBeGreaterThan(0);
+
+    const observedFallbackBytes = await Promise.all(fallbackResponseBytes);
+    expect(observedFallbackBytes.length, "the cart fallback must be requested over the network").toBeGreaterThan(0);
+    expect(
+      Math.max(...observedFallbackBytes),
+      "every uncached cart fallback response must fit the AC1 byte budget",
+    ).toBeLessThanOrEqual(65_536);
 
     await assertSingleNoticeAtATime(page, "cart with lines");
 
