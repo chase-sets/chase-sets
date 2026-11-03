@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CatalogAliasCandidateRow } from "../../alias-equivalence/read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
-import type { CatalogMergeCandidateListRow } from "../../source-observations/read-model/queries";
+import type { CatalogMergeCandidateAttentionRow } from "../../source-observations/read-model/queries";
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../../source-observations/api/runtime";
 import type { CatalogIntegrationUnitActivity } from "../../source-observations/api/admin-control-plane-overview";
 import {
@@ -61,24 +61,13 @@ describe("collectUnmappedScopeItems", () => {
   });
 });
 
-function mergeCandidate(overrides: Partial<CatalogMergeCandidateListRow>): CatalogMergeCandidateListRow {
+function mergeCandidate(overrides: Partial<CatalogMergeCandidateAttentionRow>): CatalogMergeCandidateAttentionRow {
   return {
     candidate_id: "cand-1",
-    identity_fingerprint: "fp",
-    sync_run_ids_json: [],
+    scope_record_id: null,
     status: "has-conflicts",
     status_reason: null,
-    identity_json: {} as CatalogMergeCandidateListRow["identity_json"],
-    matched_catalog_item_id: null,
-    matched_product_ids_json: [],
-    proposed_catalog_item_facts_json: {},
-    proposed_external_catalog_item_references_json: [],
-    proposed_external_product_references_json: [],
-    conflicts_json: [],
-    warnings_json: [],
-    field_provenance_json: [],
-    membership_json: [],
-    promotion_intent: "create" as CatalogMergeCandidateListRow["promotion_intent"],
+    blocking_conflict_count: 0,
     created_at: "2026-07-01T00:00:00.000Z",
     updated_at: "2026-07-02T00:00:00.000Z",
     stale_at: null,
@@ -93,7 +82,7 @@ describe("collectMergeConflictItems", () => {
       mergeCandidate({
         candidate_id: "c1",
         status: "has-conflicts",
-        conflicts_json: [{ severity: "blocking" } as CatalogMergeCandidateListRow["conflicts_json"][number]],
+        blocking_conflict_count: 1,
       }),
       mergeCandidate({ candidate_id: "c2", status: "stale", stale_at: "2026-07-03T00:00:00.000Z" }),
       mergeCandidate({ candidate_id: "c3", status: "ready" }),
@@ -101,6 +90,8 @@ describe("collectMergeConflictItems", () => {
     ]);
     expect(items.map((entry) => entry.itemKey)).toEqual(["merge-conflict:c1", "merge-conflict:c2"]);
     expect(items[0]!.severity).toBe("critical");
+    expect(items[0]!.titleParams).toEqual({ candidate: "c1", conflicts: 1 });
+    expect(items[0]!.detailParams).toEqual({ reason: "", observations: 3 });
     expect(items[1]!.severity).toBe("warning");
     expect(items[1]!.observedAt).toBe("2026-07-03T00:00:00.000Z");
   });
