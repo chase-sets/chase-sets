@@ -284,7 +284,9 @@ describe("Catalog item read freshness", () => {
         return { groups, audits, handlerCalls, result };
       };
 
-      const behind = new Map(manifest.projectionGroups.map((group) => [group.projectionName, "caught-up" as const]));
+      const behind = new Map<string, "caught-up" | "behind" | "error">(
+        manifest.projectionGroups.map((group) => [group.projectionName, "caught-up"]),
+      );
       behind.set([...required][0]!, "behind");
       const behindResult = await invoke(behind);
       expect(behindResult.handlerCalls).toBe(0);
@@ -302,14 +304,16 @@ describe("Catalog item read freshness", () => {
       });
 
       const partialReceiptResult = await invoke(
-        new Map(manifest.projectionGroups.map((group) => [group.projectionName, "caught-up" as const])),
+        new Map<string, "caught-up" | "behind" | "error">(
+          manifest.projectionGroups.map((group) => [group.projectionName, "caught-up"]),
+        ),
         "11",
       );
       expect(partialReceiptResult.handlerCalls).toBe(0);
       expect(partialReceiptResult.audits[0]).toMatchObject({ outcome: "timeout", waitMode: "exact-dependency" });
 
-      const unrelatedLag = new Map(
-        manifest.projectionGroups.map((group) => [group.projectionName, "caught-up" as const]),
+      const unrelatedLag = new Map<string, "caught-up" | "behind" | "error">(
+        manifest.projectionGroups.map((group) => [group.projectionName, "caught-up"]),
       );
       unrelatedLag.set("catalog-source-observation-projection", "behind");
       const freshResult = await invoke(unrelatedLag);

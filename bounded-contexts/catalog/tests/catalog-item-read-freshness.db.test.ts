@@ -7,7 +7,6 @@ import {
   mountApiRouters,
   resolveModuleApiMounts,
   resolveModuleSubscriptions,
-  type ReadConsistencyProjectionGroup,
 } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -37,7 +36,7 @@ describeDb("Catalog item read freshness DB proof", () => {
   let pool: PgTransactionalPool;
   let services: CatalogServices;
   let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
-  let projectionGroups: readonly ReadConsistencyProjectionGroup[];
+  let projectionGroups: ReturnType<typeof createMountedContextTestRuntime>["projectionGroups"];
 
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, contextNames, "catalog_item_read_freshness");
