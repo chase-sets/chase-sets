@@ -29,7 +29,8 @@ describe("Catalog scope registry queries", () => {
             updated_at: "2026-07-03T12:00:00.000Z",
           },
         ],
-      });
+      })
+      .mockResolvedValueOnce({ rows: [{ language_edition: "en" }, { language_edition: "ja" }] });
 
     const result = await listCatalogScopeRecords(
       { query },
@@ -45,6 +46,7 @@ describe("Catalog scope registry queries", () => {
 
     expect(result.total).toBe(1);
     expect(result.items[0]?.reference_record_key).toBe("paldean-fates");
+    expect(result.facets.languageEditions).toEqual(["en", "ja"]);
     const countSql = String(query.mock.calls[0]?.[0]);
     const listSql = String(query.mock.calls[1]?.[0]);
     expect(countSql).toContain("product_domain = $1");

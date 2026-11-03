@@ -82,7 +82,7 @@ describe("Catalog scope-landing route loader", () => {
     expect(query.get("offset")).toBe("50");
   });
 
-  it("does not send the language edition to the API (it is a client-side facet over the page)", async () => {
+  it("forwards the language edition to the API as the authoritative filter", async () => {
     const listCatalogScopeRecords = vi.fn().mockResolvedValue({ items: [scopeRow()], total: 1, count: 1 });
     mockCreateCatalogRequestApiClient.mockReturnValue({ listCatalogScopeRecords });
 
@@ -90,7 +90,7 @@ describe("Catalog scope-landing route loader", () => {
 
     const query = new URLSearchParams(listCatalogScopeRecords.mock.calls[0]?.[0] ?? "");
     expect(query.has("language")).toBe(false);
-    expect(query.has("languageEdition")).toBe(false);
+    expect(query.get("languageEdition")).toBe("ja");
   });
 
   it("degrades to an empty list with a blocked error string when the list fetch fails", async () => {
