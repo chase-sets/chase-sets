@@ -6720,7 +6720,7 @@
       },
       "target": {
         "identity": "optimized-fallback-image",
-        "selector": "[data-marketplace-cart-line]:first-child img[src*='/fake-cdn/assets/pokemon-card-back.png']",
+        "selector": "[data-fallback-evidence-target='cart']",
         "populatedSelector": ":scope"
       },
       "measurements": [
@@ -6772,7 +6772,7 @@
       },
       "target": {
         "identity": "optimized-fallback-image",
-        "selector": "[data-marketplace-cart-line]:first-child img[src*='/fake-cdn/assets/pokemon-card-back.png']",
+        "selector": "[data-fallback-evidence-target='cart']",
         "populatedSelector": ":scope"
       },
       "measurements": [
@@ -6824,7 +6824,7 @@
       },
       "target": {
         "identity": "optimized-fallback-image",
-        "selector": "img.relative[src*='/fake-cdn/assets/pokemon_tcg_back.png']",
+        "selector": "[data-fallback-evidence-target='discovery']",
         "populatedSelector": ":scope"
       },
       "measurements": [
@@ -6876,7 +6876,7 @@
       },
       "target": {
         "identity": "optimized-fallback-image",
-        "selector": "img.relative[src*='/fake-cdn/assets/pokemon_tcg_back.png']",
+        "selector": "[data-fallback-evidence-target='discovery']",
         "populatedSelector": ":scope"
       },
       "measurements": [

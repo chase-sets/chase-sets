@@ -379,6 +379,7 @@ test.describe("buy funnel redesign — defect verification", () => {
     expect(box, `cart fallback must have geometry at ${width}px`).not.toBeNull();
     expect(box!.width).toBeGreaterThan(0);
     expect(box!.height).toBeGreaterThan(0);
+    await fallbackImage.evaluate((image) => image.setAttribute("data-fallback-evidence-target", "cart"));
     const bytes = await Promise.all(fallbackResponseBytes);
     expect(bytes.length).toBeGreaterThan(0);
     expect(Math.max(...bytes)).toBeLessThanOrEqual(65_536);

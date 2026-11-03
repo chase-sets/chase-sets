@@ -219,6 +219,7 @@ test.describe("marketplace item detail", () => {
     expect(box, `Discovery fallback must have geometry at ${width}px`).not.toBeNull();
     expect(box!.width).toBeGreaterThan(0);
     expect(box!.height / box!.width).toBeCloseTo(1.4, 1);
+    await fallbackImage.evaluate((image) => image.setAttribute("data-fallback-evidence-target", "discovery"));
     const observedBytes = await Promise.all(fallbackResponseBytes);
     expect(observedBytes.length, "Discovery fallback must be requested over the network").toBeGreaterThan(0);
     expect(
