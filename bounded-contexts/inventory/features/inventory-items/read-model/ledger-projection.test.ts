@@ -28,6 +28,9 @@ const orderSourceRef = {
 const saleHandoff = inventoryItemSchemaMigrations.find(
   (migration) => migration.migrationId === "20261028_inventory_offline_sale_ledger_handoff",
 )!;
+const consumptionHandoff = inventoryItemSchemaMigrations.find(
+  (migration) => migration.migrationId === "20261102_inventory_hold_consumption_handoff",
+)!;
 
 describe("offline-sale handoff query contract", () => {
   it("retained sale handoff corrects only the exact audit predicate", async () => {
@@ -77,6 +80,42 @@ describe("offline-sale handoff query contract", () => {
       message: "Inventory offline-sale ledger handoff incomplete",
       cause: expect.objectContaining({ message: "ledger exceeds the 100000-row handoff bound" }),
     });
+  });
+});
+
+describe("retained consumption handoff query contract", () => {
+  it("takes the exclusive append fence, captures an event horizon, and validates the horizon", async () => {
+    const query = vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] }));
+    await consumptionHandoff.dataStep!({ query });
+    const statements = query.mock.calls.map(([sql]) => sql).filter((sql) => !sql.includes("set_config"));
+    expect(statements.slice(0, 4)).toEqual([
+      "SET LOCAL lock_timeout = '5s'",
+      "LOCK TABLE event_store_streams IN EXCLUSIVE MODE",
+      "SELECT pg_advisory_xact_lock(-8041932795057830931::bigint)",
+      expect.stringContaining("pg_sequence_last_value"),
+    ]);
+    expect(statements.some((sql) => sql.includes("consumed.global_position <= $1::bigint"))).toBe(true);
+    expect(statements.at(-1)).toContain("pairedStreamVersion");
+  });
+
+  it("refuses overflow and wraps injected failures without partial completion", async () => {
+    const overflow = {
+      query: async <Row = Record<string, unknown>>(sql: string) => ({
+        rows: (sql.includes("LIMIT 100001") ? Array.from({ length: 100001 }, () => ({})) : []) as Row[],
+      }),
+    };
+    await expect(consumptionHandoff.dataStep!(overflow)).rejects.toMatchObject({
+      message: "Inventory consumed-hold handoff incomplete",
+      cause: expect.objectContaining({ message: "consumed-hold handoff exceeds the 100000-row bound" }),
+    });
+    const failure = new Error("synthetic consumption handoff failure");
+    await expect(
+      consumptionHandoff.dataStep!({
+        query: async () => {
+          throw failure;
+        },
+      }),
+    ).rejects.toMatchObject({ message: "Inventory consumed-hold handoff incomplete", cause: failure });
   });
 });
 
