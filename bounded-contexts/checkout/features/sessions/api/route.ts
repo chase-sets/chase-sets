@@ -78,7 +78,7 @@ function requireCheckoutAccess(c: { get(key: "actor"): CheckoutApiEnv["Variables
 /**
  * Why this buyer cannot start a payment, or null when they can. Payments starts a payment only for
  * an actor with `orders.manage` or `guest-checkout.manage` (`paymentStartAccess`), so confirm refuses
- * before it reserves stock or creates orders that the buyer could not pay for (#10785).
+ * before it reserves stock or creates orders that the buyer could not pay for.
  */
 export function checkoutPaymentStartRefusal(actor: NonNullable<CheckoutApiEnv["Variables"]["actor"]>) {
   if (actor.permissions.includes("orders.manage") || actor.permissions.includes("guest-checkout.manage")) {

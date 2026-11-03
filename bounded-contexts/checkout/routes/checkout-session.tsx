@@ -856,7 +856,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     preparedPayment,
     paymentElementDefaultValues,
     expiredCheckout,
-    // Auth withholds payment until the buyer verifies their email; confirm would refuse (#10785).
+    // Auth withholds payment until the buyer verifies their email; confirm would refuse.
     paymentVerifyEmailHref:
       session.source_type !== "offer-intent" &&
       Array.isArray(actor?.permissions) &&

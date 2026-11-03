@@ -20,7 +20,7 @@ export type CheckoutCommitButtonProps = Readonly<{
   commitIcon: "refreshCcw" | "lock";
   isSubmitting: boolean;
   confirmationAmbiguous?: boolean;
-  /** Pay now becomes this verification link while Auth withholds payment (#10785). */
+  /** Pay now becomes this verification link while Auth withholds payment. */
   verifyEmailHref?: string | null;
   submittingCtaLabel: string;
   primaryCtaLabel: string;
