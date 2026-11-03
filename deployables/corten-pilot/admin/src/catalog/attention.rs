@@ -425,6 +425,7 @@ mod tests {
                 fields: Default::default(),
                 href: None,
                 requires_reason: false,
+                unavailable: false,
             },
             secondary_resolutions: vec![],
         }

@@ -234,6 +234,10 @@ pub struct Resolution {
     pub href: Option<String>,
     #[serde(default)]
     pub requires_reason: bool,
+    /// The API's word that the item's target is missing, so its command cannot run and its sheet
+    /// has no page to open.
+    #[serde(default)]
+    pub unavailable: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]

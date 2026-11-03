@@ -1626,8 +1626,9 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
 const HEALTH: &str = "provider-health:tcgplayer:tcgplayer:mtg:single-card:source-observation-import";
 
 /// The Catalog attention queue: a provider unit's health (critical, its sheet links to the
-/// provider's page) and an alias candidate (accept and reject in one click). It cannot be read
-/// for `queue-down`; a park whose reason is `refuse` is refused.
+/// provider's page), an alias candidate (accept and reject in one click), and one whose target is
+/// missing (the API marks both commands unavailable). It cannot be read for `queue-down`; a park
+/// whose reason is `refuse` is refused.
 fn attention_queue(method: Method, rest: &str, cookie: &str, headers: &HeaderMap, body: &str) -> Response {
     match (method, rest) {
         (Method::GET, _) if cookie.contains("queue-down") && headers.contains_key("chase-sets-read-after-write") => refusal(
@@ -1660,15 +1661,33 @@ fn attention_queue(method: Method, rest: &str, cookie: &str, headers: &HeaderMap
                 "detailParams": { "provider": "tcgdex", "type": "name", "confidence": 0.92 },
                 "providerKey": "tcgdex", "unitKey": null, "observedAt": "2026-10-24T04:09:09.701000Z",
                 "resolution": { "intent": "alias.accept", "mode": "command", "labelKey": format!("{q}.action.acceptAlias"),
-                    "fields": { "aliasHashes": "h1" }, "requiresReason": false },
+                    "fields": { "aliasHashes": "h1", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name" },
+                    "requiresReason": false },
                 "secondaryResolutions": [{ "intent": "alias.reject", "mode": "command", "labelKey": format!("{q}.action.rejectAlias"),
-                    "fields": { "aliasHashes": "h1" }, "requiresReason": true }],
+                    "fields": { "aliasHashes": "h1", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name" },
+                    "requiresReason": true }],
+            });
+            let orphan = |intent: &str, label: &str, reason: bool| {
+                json!({
+                    "intent": intent, "mode": "command", "labelKey": format!("{q}.action.{label}"),
+                    "fields": { "aliasHashes": "h2", "targetKind": "catalog-item", "targetId": "", "targetKey": "name" },
+                    "requiresReason": reason, "unavailable": true,
+                })
+            };
+            let missing = json!({
+                "itemKey": "alias-candidate:h2", "kind": "alias-candidate", "severity": "info",
+                "titleKey": format!("{q}.item.aliasCandidate.title"), "titleParams": { "alias": "Glurak", "type": "name" },
+                "detailKey": format!("{q}.item.aliasCandidate.detail"),
+                "detailParams": { "provider": "tcgdex", "type": "name", "confidence": 0.81 },
+                "providerKey": "tcgdex", "unitKey": null, "observedAt": "2026-10-24T04:09:09.701000Z",
+                "resolution": orphan("alias.accept", "acceptAlias", false),
+                "secondaryResolutions": [orphan("alias.reject", "rejectAlias", true)],
             });
             Json(json!({
-                "generatedAt": "2026-10-25T09:20:07.661Z", "empty": false, "items": [health, alias],
-                "counts": { "total": 2, "bySeverity": { "critical": 1, "warning": 0, "info": 1 },
+                "generatedAt": "2026-10-25T09:20:07.661Z", "empty": false, "items": [health, alias, missing],
+                "counts": { "total": 3, "bySeverity": { "critical": 1, "warning": 0, "info": 2 },
                     "byKind": { "unmapped-scope": 0, "merge-conflict": 0, "provider-health": 1, "import-job": 0,
-                        "alias-candidate": 1, "stale-scope-sync": 0 } },
+                        "alias-candidate": 2, "stale-scope-sync": 0 } },
                 "freshness": { "generatedAt": "2026-10-25T09:20:07.661Z", "oldestObservedAt": null, "newestObservedAt": null },
             }))
             .into_response()
@@ -3316,7 +3335,7 @@ async fn the_attention_queue_sits_above_the_scopes_with_its_counts_and_items() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let (queue, list) = (html.find("data-attention-queue").unwrap(), html.find("Paldean Fates").unwrap());
     assert!(queue < list, "the queue is above the list");
-    assert!(html.contains(">2 need you</span>") && html.contains("As of 2026-10-25T09:20:07.661Z"), "{html}");
+    assert!(html.contains(">3 need you</span>") && html.contains("As of 2026-10-25T09:20:07.661Z"), "{html}");
     assert!(
         html.contains("Unblock TCGplayer Magic Single Cards on tcgplayer")
             && html.contains("Blocked by credential · provider-retired"),
@@ -3333,6 +3352,15 @@ async fn the_attention_queue_sits_above_the_scopes_with_its_counts_and_items() {
         "a reject sends its label as the reason: {html}"
     );
     assert!(html.contains(r#"<dialog id="attention-sheet"></dialog>"#), "the sheet is drawn when opened: {html}");
+    assert!(
+        html.contains(r#"value="h1"><button type="submit" class="attention-panel__small">Accept</button>"#),
+        "a candidate with its target: {html}"
+    );
+    assert!(
+        html.contains(r#"value="h2"><button type="submit" class="attention-panel__small" disabled>Accept</button>"#)
+            && html.contains(r#"value="Reject"><button type="submit" class="attention-panel__small" disabled>Reject</button>"#),
+        "a candidate whose target is missing cannot be accepted or rejected: {html}"
+    );
 
     let mut req = get("/catalog/scopes", Some("staff"));
     req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
@@ -3374,6 +3402,14 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
 
     let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=gone")).await;
     assert_eq!(html, r#"<dialog id="attention-sheet"></dialog>"#, "an item no longer in the queue");
+
+    // A command resolves in its row: its sheet opens no page and says nothing is missing, unless the
+    // API says its target is.
+    let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=alias-candidate%3Ah1")).await;
+    assert!(html.contains("<dt>targetId</dt><dd>cat_charizard</dd>"), "its fields: {html}");
+    assert!(!html.contains("data-attention-destination") && !html.contains("Resolution unavailable"), "{html}");
+    let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=alias-candidate%3Ah2")).await;
+    assert!(html.contains("Resolution unavailable: the target is missing or deleted."), "{html}");
 
     let (status, _, html) = pilot.send(get(&format!("/catalog/scopes/attention/review?item={key}"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
