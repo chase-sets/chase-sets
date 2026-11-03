@@ -17,7 +17,6 @@ import {
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
-import { bootstrapDbWorkloadSelectors } from "../deployables/platform-api/scripts/db-enrollment-workload.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import { selectVerifyStaticGuardTests } from "./verify-static-surfaces.mjs";
 
@@ -3486,6 +3485,17 @@ describe("change-scope", () => {
   });
 
   it("keeps the carried selector projection aligned with the authority vocabulary", () => {
-    expect(platformApiEnrollmentSelectors).toEqual(bootstrapDbWorkloadSelectors);
+    const authority = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          'import { bootstrapDbWorkloadSelectors } from "./deployables/platform-api/scripts/db-enrollment-workload.mjs"; process.stdout.write(JSON.stringify(bootstrapDbWorkloadSelectors));',
+        ],
+        { cwd: repoRoot, encoding: "utf8" },
+      ),
+    );
+    expect(platformApiEnrollmentSelectors).toEqual(authority);
   });
 });
