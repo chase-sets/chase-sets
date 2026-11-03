@@ -47,6 +47,70 @@ const catalogItem: CatalogItemDetail = {
 };
 
 describe("CatalogItemDetailPage", () => {
+  it("saves multiline image URLs from the labelled textarea in order", async () => {
+    const fetch = stubCatalogFetches();
+
+    render(<CatalogItemDetailPage id="cat_1" initialData={catalogItem} />);
+    fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
+    const input = within(dialog).getByLabelText("Image URLs");
+    expect(input.tagName).toBe("TEXTAREA");
+    fireEvent.change(input, {
+      target: {
+        value: "  https://images.example/one.png\r\n\nhttps://images.example/two.png  \r\n",
+      },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(([request, init]) => {
+          const url = String(request);
+          return url.includes("/items/cat_1/image-urls") && init?.method === "PUT";
+        }),
+      ).toBe(true),
+    );
+    const imageUrlsRequest = fetch.mock.calls.find(([request, init]) => {
+      const url = String(request);
+      return url.includes("/items/cat_1/image-urls") && init?.method === "PUT";
+    });
+    expect(JSON.parse(String(imageUrlsRequest?.[1]?.body))).toEqual({
+      imageUrls: ["https://images.example/one.png", "https://images.example/two.png"],
+    });
+  });
+
+  it("opens stored image URLs on separate lines and refreshes them after save", async () => {
+    const storedUrls = ["https://images.example/one.png", "https://images.example/two.png"];
+    const fetch = stubCatalogFetches({ imageUrls: storedUrls });
+
+    render(<CatalogItemDetailPage id="cat_1" initialData={{ ...catalogItem, image_urls: storedUrls }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
+
+    let dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
+    const input = within(dialog).getByLabelText("Image URLs");
+    expect(input.tagName).toBe("TEXTAREA");
+    expect(input).toHaveValue(storedUrls.join("\n"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Set Image URLs" })).toBeNull());
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.filter(([request, init]) => String(request).endsWith("/items/cat_1") && !init?.method),
+      ).toHaveLength(1),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
+    dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
+    expect(within(dialog).getByLabelText("Image URLs")).toHaveValue(storedUrls.join("\n"));
+
+    const imageUrlsRequests = fetch.mock.calls.filter(([request, init]) => {
+      const url = String(request);
+      return url.includes("/items/cat_1/image-urls") && init?.method === "PUT";
+    });
+    expect(imageUrlsRequests).toHaveLength(1);
+    expect(JSON.parse(String(imageUrlsRequests[0]?.[1]?.body))).toEqual({ imageUrls: storedUrls });
+  });
+
   it("renders catalog item language codes as localized labels", () => {
     const html = renderToString(<CatalogItemDetailPage id="cat_1" initialData={catalogItem} />);
 
@@ -460,6 +524,7 @@ function stubCatalogFetches(
   input: {
     contentLines?: unknown[];
     containerLines?: unknown[];
+    imageUrls?: string[];
     productContentsSaveError?: string;
     publicationResponses?: Response[];
     recheckDetail?: CatalogItemDetail;
@@ -467,6 +532,7 @@ function stubCatalogFetches(
 ) {
   const contentLines = input.contentLines ?? [];
   const containerLines = input.containerLines ?? [];
+  let imageUrls = input.imageUrls ?? [];
   const jsonResponse = (body: unknown) =>
     Promise.resolve(
       new Response(JSON.stringify(body), {
@@ -492,7 +558,11 @@ function stubCatalogFetches(
         );
       }
       if (url.endsWith("/items/cat_1")) {
-        return jsonResponse(input.recheckDetail ?? catalogItem);
+        return jsonResponse({ ...(input.recheckDetail ?? catalogItem), image_urls: imageUrls });
+      }
+      if (url.includes("/items/cat_1/image-urls") && init?.method === "PUT") {
+        imageUrls = (JSON.parse(String(init.body)) as { imageUrls?: string[] }).imageUrls ?? [];
+        return jsonResponse({ status: "accepted" });
       }
       if (url.includes("/product-contents/content-types")) {
         return jsonResponse({
