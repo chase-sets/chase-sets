@@ -2,7 +2,8 @@
 // spawn a real CLI aborts the test (windows-posix-cli-shim-resolves-real-provider-binary).
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
+import { fileURLToPath } from "node:url";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 
 vi.mock("node:child_process", async (importOriginal) => {
@@ -26,19 +27,27 @@ import {
 import { anonymousOwnerActivationReadSql } from "../bounded-contexts/collections/support/runtime-support/anonymous-owner-activation.ts";
 import {
   admitCommand,
+  admitPooledStatement,
+  admitRequest,
   admitStatement,
   CaptureRefusal,
   captureProviderAuthority,
   commandFailure,
   execFileRunner,
+  githubReadRunner,
   HELM_HISTORY_MAX,
   jobPacket,
   KUBERNETES_LISTS,
   MAX_PAGES,
+  MAX_RUN_PAGES,
+  POOLED_READ_SQL,
   READ_ONLY_PROBE_SQL,
   RECOVERY_COMMIT,
   runCapture,
-  SESSION_ACTIVITY_SQL,
+  SESSION_ROW_CAP,
+  SESSION_ROWS_SQL,
+  SESSION_TOTAL_SQL,
+  workflowFiles,
 } from "./collections-cutover-authority-capture.mjs";
 import { applyProviderCapture, PROVIDER_CAPTURE_FIELDS } from "./collections-cutover-authority-packet.mjs";
 import { checkWorkflowProviderCredentials } from "./workflow-provider-credentials.mjs";
@@ -48,7 +57,7 @@ const RELEASE = "b".repeat(40);
 const PRIOR = "c".repeat(40);
 const SUB_FLOOR = "d".repeat(40);
 const HEAD = "e".repeat(40);
-const CONTAINS_FLOOR = new Set([FLOOR, PRIOR, RELEASE]);
+const CONTAINS_FLOOR = new Set([FLOOR, PRIOR, RELEASE, HEAD]);
 const MERGED_AT = "2020-01-01T00:00:00.000Z";
 const digest = (digit) => `sha256:${String(digit).repeat(64)}`;
 const REGISTRY = "registry.example.invalid/synthetic/chase-sets-platform";
@@ -59,6 +68,20 @@ const PASSWORD = "canary-password-7f3a";
 const PASSWORD_URL = `postgresql://canary-user:${PASSWORD}@db.canary.invalid:25060/collections?sslmode=require`;
 const PEM = "-----BEGIN PRIVATE KEY-----\nMIIcanaryPEMbody\n-----END PRIVATE KEY-----";
 const CANARIES = [TOKEN, PASSWORD, "canary-user", "db.canary.invalid", "BEGIN PRIVATE KEY", "MIIcanaryPEMbody"];
+// Raw session and pool identities: only their domain-separated digests may leave the capture.
+const POOL_USER = "synthetic_collections_role";
+const POOL_HOST = "pool.canary.invalid";
+const CLIENT_ADDRESS = "198.51.100.7";
+const RAW_IDENTITIES = [POOL_USER, POOL_HOST, CLIENT_ADDRESS, "synthetic-platform", "synthetic-worker"];
+const CA_PATH = "/synthetic/runner-temp/digitalocean-managed-postgres-ca.pem";
+const REPOSITORY = "synthetic-owner/synthetic-repo";
+const CAPTURE_RUN = { id: "9000000001", attempt: "1" };
+const SELF_PID = 4100;
+const POOLER_PID = 4242;
+const RUNNER_PID = 4300;
+const POOLER_START = new Date("2030-01-02T00:00:00.000Z");
+const sha256Hex = (value) => createHash("sha256").update(value).digest("hex");
+const roleDigest = (role) => sha256Hex(`collections-session-role/v1\u0000${role}`);
 const lastApplied = {
   "kubectl.kubernetes.io/last-applied-configuration": JSON.stringify({ PASSWORD_URL, TOKEN, PEM }),
 };
@@ -173,33 +196,178 @@ function world() {
       version: 4,
       serial: 42,
       lineage: "0f0f0f0f-0000-4000-8000-000000000001",
-      resources: [{ instances: [{ attributes: { uri: PASSWORD_URL, ca_certificate: PEM, token: TOKEN } }] }],
-    },
-    db: {
-      readOnly: "on",
-      sessions: [
+      resources: [
+        { instances: [{ attributes: { uri: PASSWORD_URL, ca_certificate: PEM, token: TOKEN } }] },
         {
-          state: "active",
-          role: "synthetic_collections_role",
-          application: "synthetic-platform",
-          backend_type: "client backend",
-          sessions: 3,
-          oldest_backend_start: new Date("2030-01-02T00:00:00.000Z"),
-          hidden: 0,
+          type: "digitalocean_database_user",
+          name: "contexts",
+          instances: [{ index_key: "collections", attributes: { name: POOL_USER, password: PASSWORD } }],
         },
         {
-          state: "idle",
-          role: "synthetic_collections_role",
-          application: "synthetic-worker",
-          backend_type: "client backend",
-          sessions: 1,
-          oldest_backend_start: new Date("2030-01-02T01:00:00.000Z"),
-          hidden: 0,
+          type: "digitalocean_database_connection_pool",
+          name: "contexts",
+          instances: [
+            {
+              index_key: "collections",
+              attributes: {
+                name: "collections-runtime",
+                mode: "transaction",
+                size: 1,
+                db_name: "collections",
+                host: POOL_HOST,
+                port: 25061,
+                user: POOL_USER,
+                password: PASSWORD,
+                uri: PASSWORD_URL,
+              },
+            },
+          ],
         },
       ],
     },
+    db: {
+      readOnly: "on",
+      self: SELF_PID,
+      // The pool's idle server backend and a same-role direct runner with a blank application of its own.
+      sessions: [
+        {
+          pid: POOLER_PID,
+          backend_start: POOLER_START,
+          state: "idle",
+          backend_type: "client backend",
+          role: POOL_USER,
+          application: "",
+          client_address: CLIENT_ADDRESS,
+          query: `SELECT '${PASSWORD_URL}'`,
+        },
+        {
+          pid: RUNNER_PID,
+          backend_start: new Date("2030-01-02T01:00:00.000Z"),
+          state: "active",
+          backend_type: "client backend",
+          role: POOL_USER,
+          application: "synthetic-worker",
+          client_address: "198.51.100.8",
+          query: `SELECT '${TOKEN}'`,
+        },
+      ],
+    },
+    pooled: { pid: POOLER_PID, backendStart: POOLER_START, readOnly: "on" },
+    workflows: { ...SYNTHETIC_WORKFLOWS },
+    github: {
+      runs: {
+        "synthetic-digest.yml": {
+          items: [
+            { id: 5001, run_attempt: 1, status: "completed", event: "schedule", head_sha: PRIOR },
+            {
+              id: 5002,
+              run_attempt: 1,
+              status: "in_progress",
+              event: "workflow_dispatch",
+              head_sha: RELEASE,
+              display_title: TOKEN,
+              head_commit: { message: PASSWORD_URL },
+            },
+          ],
+        },
+        "synthetic-deploy.yml": {
+          items: [{ id: 6001, run_attempt: 1, status: "completed", event: "workflow_dispatch", head_sha: RELEASE }],
+        },
+      },
+      jobs: {
+        "5002/1": [
+          { id: 7001, name: "Build Synthetic Digest", status: "in_progress", steps: [{ name: PASSWORD_URL }] },
+          { id: 7002, name: "Refuse Unconfirmed Synthetic Digest", status: "completed" },
+        ],
+      },
+    },
   };
 }
+
+// Synthetic workflows at capture head: a dispatch-selectable pooled holder (default staging), a staging deploy that
+// exports pooled Secret URLs, a catalog-only pooled consumer and a direct-mode Collections consumer.
+const SYNTHETIC_WORKFLOWS = Object.freeze({
+  ".github/workflows/synthetic-catalog.yml": `name: Synthetic Catalog
+on:
+  schedule:
+    - cron: "0 1 * * 1"
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/export-managed-postgres-authority
+        with:
+          environment: staging
+          contexts: catalog
+          connection-mode: pooled
+`,
+  ".github/workflows/synthetic-deploy.yml": `name: Synthetic Deploy
+on:
+  workflow_dispatch: {}
+jobs:
+  deploy-staging:
+    name: Deploy Synthetic Staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Export staging Kubernetes database URLs
+        env:
+          DEPLOYMENT_ENVIRONMENT: staging
+          SYNTHETIC_URL: ${PASSWORD_URL}
+        run: |
+          node ./scripts/platform-kubernetes-secret.mjs \\
+            --export-database-urls "$state_path" \\
+            --database-environment staging \\
+            --query-connection-mode pooled
+  deploy-production:
+    runs-on: ubuntu-latest
+    steps:
+      - run: node ./scripts/platform-kubernetes-secret.mjs --export-database-urls "$state_path" --database-environment production --query-connection-mode direct
+`,
+  ".github/workflows/synthetic-digest.yml": `name: Synthetic Digest
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        default: staging
+        options: [staging, production]
+jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Synthetic Digest
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 1
+  digest:
+    name: Build Synthetic Digest
+    runs-on: ubuntu-latest
+    environment: \${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+    env:
+      TARGET_ENVIRONMENT: \${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Export database URLs and TLS trust
+        uses: ./.github/actions/export-managed-postgres-authority
+        with:
+          environment: \${{ env.TARGET_ENVIRONMENT }}
+          connection-mode: pooled
+`,
+  ".github/workflows/synthetic-direct.yml": `name: Synthetic Direct
+on:
+  workflow_dispatch: {}
+jobs:
+  redact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/export-managed-postgres-authority
+        with:
+          environment: staging
+          contexts: collections
+          connection-mode: direct
+`,
+});
 
 function fakeRun(state, calls) {
   return async (program, args) => {
@@ -255,16 +423,72 @@ function fakeDatabase(state, statements) {
       if (sql.includes("FROM pg_trigger")) return { rows: [{ present: true }] };
       if (sql === legacyAnonymousOwnerCountSql) return { rows: [{ remaining: "35" }] };
       if (sql === `EXPLAIN (FORMAT JSON) ${legacyAnonymousOwnerCountSql}`) return { rows: [{ "QUERY PLAN": PLAN }] };
-      if (sql === SESSION_ACTIVITY_SQL) return { rows: state.db.sessions };
+      if (sql === SESSION_TOTAL_SQL) {
+        const total = state.db.totals ? state.db.totals.shift() : state.db.sessions.length;
+        return { rows: [{ self_pid: state.db.self, total }] };
+      }
+      if (sql === SESSION_ROWS_SQL) return { rows: state.db.rows ?? state.db.sessions };
       throw new Error("unexpected-statement");
     },
   };
 }
 
+function fakePooled(state, record) {
+  return async (url) => {
+    record.pooledUrls.push(url);
+    if (state.pooled.fail) throw new Error("synthetic-pooled-connect-failure");
+    return {
+      query: async (sql) => {
+        record.pooledStatements.push(sql);
+        if (sql === POOLED_READ_SQL[1]) {
+          return {
+            rows: [
+              { pid: state.pooled.pid, read_only: state.pooled.readOnly, backend_start: state.pooled.backendStart },
+            ],
+          };
+        }
+        if (sql === POOLED_READ_SQL[0] || sql === POOLED_READ_SQL[2]) return { rows: [] };
+        throw new Error("unexpected-pooled-statement");
+      },
+      end: async () => {
+        record.pooledEnds += 1;
+      },
+    };
+  };
+}
+
+function fakeRequest(state, record) {
+  return async (url) => {
+    record.requests.push(url);
+    const runs = /\/actions\/workflows\/([^/]+)\/runs\?per_page=100&created=%3E%3D[0-9-]+&page=([0-9]+)$/.exec(url);
+    if (runs) {
+      const list = state.github.runs[runs[1]] ?? { items: [] };
+      if (list.fail) return { ok: false, reason: list.fail };
+      const page = Number(runs[2]);
+      const items = (list.pages ? list.pages[page - 1] : list.items.slice((page - 1) * 100, page * 100)) ?? [];
+      const total = list.total ?? (list.pages ? list.pages.flat().length : list.items.length);
+      return { ok: true, stdout: JSON.stringify({ total_count: total, workflow_runs: items }) };
+    }
+    const jobs = /\/actions\/runs\/([0-9]+)\/attempts\/([0-9]+)\/jobs\?per_page=100$/.exec(url);
+    if (jobs) {
+      const list = state.github.jobs[`${jobs[1]}/${jobs[2]}`] ?? [];
+      return { ok: true, stdout: JSON.stringify({ total_count: list.length, jobs: list }) };
+    }
+    throw new Error("unexpected-request");
+  };
+}
+
 function dependencies(state, record) {
+  record.pooledStatements ??= [];
+  record.pooledUrls ??= [];
+  record.pooledEnds ??= 0;
+  record.requests ??= [];
   return {
     run: fakeRun(state, record.calls),
     database: fakeDatabase(state, record.statements),
+    openPooled: fakePooled(state, record),
+    request: fakeRequest(state, record),
+    readWorkflows: () => Object.entries(state.workflows).map(([path, text]) => ({ path, text })),
     redact: async (session, options) => {
       record.redactOptions.push(options);
       return redactLegacyAnonymousOwners(session, options);
@@ -272,6 +496,43 @@ function dependencies(state, record) {
     countSql: legacyAnonymousOwnerCountSql,
     observationSql: anonymousOwnerObservationSql,
     containsFloor: (floor, revision) => floor === FLOOR && CONTAINS_FLOOR.has(revision),
+  };
+}
+
+const CAPTURE_ENV = Object.freeze({
+  DATABASE_URL_COLLECTIONS: PASSWORD_URL,
+  PGSSLROOTCERT: CA_PATH,
+  GITHUB_SHA: HEAD,
+  GITHUB_REPOSITORY: REPOSITORY,
+  GITHUB_RUN_ID: CAPTURE_RUN.id,
+  GITHUB_RUN_ATTEMPT: CAPTURE_RUN.attempt,
+  GITHUB_STEP_SUMMARY: "summary.md",
+});
+
+// The real job entrypoint over injected doubles: the artifact, every emitted line and the recorded reads.
+async function throughEntrypoint(state = world(), env = {}) {
+  const record = { calls: [], statements: [], redactOptions: [] };
+  const files = new Map();
+  const logs = [];
+  const exitCode = await runCapture({
+    argv: ["--target", "staging", "--out", "artifacts/capture.json"],
+    env: { ...CAPTURE_ENV, ...env },
+    dependencies: { ...dependencies(state, record), deriveFloor: () => FLOOR, floorCommittedAt: () => MERGED_AT },
+    io: {
+      mkdir: async () => undefined,
+      writeFile: async (path, text) => files.set(path, text),
+      appendFile: async (path, text) => files.set(path, `${files.get(path) ?? ""}${text}`),
+      log: (line) => logs.push(line),
+      error: (line) => logs.push(line),
+    },
+  });
+  const artifact = files.get("artifacts/capture.json");
+  return {
+    exitCode,
+    record,
+    artifact,
+    capture: JSON.parse(artifact),
+    emitted: [...files.values(), ...logs].join("\n"),
   };
 }
 
@@ -289,7 +550,7 @@ const ephemeralWriterPod = (ephemeralContainerStatuses) => ({
   },
 });
 
-async function capture(state = world(), overrides = {}) {
+async function capture(state = world(), overrides = {}, options = {}) {
   const record = { calls: [], statements: [], redactOptions: [] };
   const result = await captureProviderAuthority(
     {
@@ -297,12 +558,21 @@ async function capture(state = world(), overrides = {}) {
       floor: FLOOR,
       databaseUrl: PASSWORD_URL,
       head: HEAD,
+      caPath: CA_PATH,
+      repository: REPOSITORY,
+      run: CAPTURE_RUN,
       now: () => new Date("2030-01-03T00:00:00.000Z"),
+      ...options,
     },
     { ...dependencies(state, record), ...overrides },
   );
   return { result, record, fields: result.fields };
 }
+
+const sessionItem = (fields, pid) => fields["writers.session"].items.find((item) => item.pid === pid);
+const holderIds = (fields) => fields["writers.session"].holders.items.map((item) => item.id);
+const exclusionIds = (fields) =>
+  fields["writers.session"].holders.exclusions.map((item) => `${item.id} ${item.reason}`);
 
 const ids = (set) => set.items.map((item) => item.id);
 const isGovernedUnknown = (value) =>
@@ -382,18 +652,24 @@ describe("AC1 capture field set", () => {
     expect(api).toMatchObject({ revisions: [RELEASE], containsFloor: true });
   });
 
-  it("records pods' imageID digests, state serial and lineage, and hashed session groups", async () => {
+  it("records pods' imageID digests, state serial and lineage, and one digested item per backend", async () => {
     const { fields } = await capture();
     expect(fields.imageDigests.value).toEqual([digest(1)]);
     expect(fields.terraformStateSerial.value).toBe(42);
     expect(fields.terraformStateLineage.value).toBe("0f0f0f0f-0000-4000-8000-000000000001");
-    expect(fields["writers.session"].items).toEqual([
-      expect.objectContaining({ state: "active", sessions: 3, oldestBackendStart: "2030-01-02T00:00:00.000Z" }),
-      expect.objectContaining({ state: "idle", sessions: 1, oldestBackendStart: "2030-01-02T01:00:00.000Z" }),
+    expect(fields["writers.session"].items.map((item) => item.id)).toEqual([
+      `backend:${POOLER_PID}`,
+      `backend:${RUNNER_PID}`,
     ]);
-    expect(fields["writers.session"].items[0].roleDigest).toMatch(/^[0-9a-f]{64}$/);
-    expect(JSON.stringify(fields)).not.toContain("synthetic_collections_role");
-    expect(JSON.stringify(fields)).not.toContain("synthetic-platform");
+    expect(sessionItem(fields, RUNNER_PID)).toMatchObject({
+      pid: RUNNER_PID,
+      state: "active",
+      backendType: "client backend",
+      backendStart: "2030-01-02T01:00:00.000Z",
+      roleDigest: roleDigest(POOL_USER),
+      clientAddressDigest: sha256Hex("collections-session-client-address/v1\u0000198.51.100.8"),
+    });
+    for (const raw of RAW_IDENTITIES) expect(JSON.stringify(fields)).not.toContain(raw);
     expect(fields.legacyRawRowCount.value).toBe(35);
   });
 
@@ -491,13 +767,13 @@ describe("AC2 no ungoverned zero", () => {
   it("a null backend_start is unknown for sessions and the session fence only", async () => {
     const state = world();
     state.db.sessions.push({
+      pid: 4400,
+      backend_start: null,
       state: null,
       role: "synthetic_other_role",
-      application: "",
+      application: null,
       backend_type: null,
-      sessions: 2,
-      oldest_backend_start: null,
-      hidden: 2,
+      client_address: null,
     });
     const { result, fields } = await capture(state);
     expect(isGovernedUnknown(fields["writers.session"])).toBe(true);
@@ -735,7 +1011,7 @@ describe("AC3 read-only and secret boundary", () => {
         { ...dependencies(world(), record), observationSql: undefined },
       ),
     ).rejects.toThrow(new CaptureRefusal("statement-refused"));
-    expect(record.statements).toEqual([READ_ONLY_PROBE_SQL, SESSION_ACTIVITY_SQL]);
+    expect(record.statements).toEqual([READ_ONLY_PROBE_SQL, SESSION_TOTAL_SQL, SESSION_ROWS_SQL, SESSION_TOTAL_SQL]);
   });
 
   it("runs the redaction dryRun: true path and a plain EXPLAIN of its exported count in the read-only session", async () => {
@@ -746,9 +1022,13 @@ describe("AC3 read-only and secret boundary", () => {
       READ_ONLY_PROBE_SQL,
       ...anonymousOwnerObservationSql,
       `EXPLAIN (FORMAT JSON) ${legacyAnonymousOwnerCountSql}`,
-      SESSION_ACTIVITY_SQL,
+      SESSION_TOTAL_SQL,
+      SESSION_ROWS_SQL,
+      SESSION_TOTAL_SQL,
       READ_ONLY_PROBE_SQL,
     ]);
+    expect(record.pooledStatements).toEqual([...POOLED_READ_SQL]);
+    expect(record.pooledEnds).toBe(1);
     expect(record.statements.some((sql) => /\bFOR\s+(SHARE|UPDATE)\b/i.test(sql))).toBe(false);
     expect(fields.legacyCountQueryPlan.value).toEqual({
       statementSha256: createHash("sha256").update(legacyAnonymousOwnerCountSql).digest("hex"),
@@ -774,38 +1054,22 @@ describe("AC3 read-only and secret boundary", () => {
   });
 
   it("keeps planted tokens, password URLs and PEM out of the capture, summary and logs", async () => {
-    const state = world();
-    const record = { calls: [], statements: [], redactOptions: [] };
-    const files = new Map();
-    const logs = [];
-    const env = {
-      DATABASE_URL_COLLECTIONS: PASSWORD_URL,
+    const {
+      exitCode,
+      capture: written,
+      emitted,
+      record,
+    } = await throughEntrypoint(world(), {
       DIGITALOCEAN_ACCESS_TOKEN: TOKEN,
       AWS_SECRET_ACCESS_KEY: TOKEN,
       MANAGED_POSTGRES_CA: PEM,
-      GITHUB_SHA: HEAD,
-      GITHUB_STEP_SUMMARY: "summary.md",
-    };
-    const exitCode = await runCapture({
-      argv: ["--target", "staging", "--out", "artifacts/capture.json"],
-      env,
-      dependencies: {
-        ...dependencies(state, record),
-        deriveFloor: () => FLOOR,
-        floorCommittedAt: () => MERGED_AT,
-      },
-      io: {
-        mkdir: async () => undefined,
-        writeFile: async (path, text) => files.set(path, text),
-        appendFile: async (path, text) => files.set(path, `${files.get(path) ?? ""}${text}`),
-        log: (line) => logs.push(line),
-        error: (line) => logs.push(line),
-      },
     });
     expect(exitCode).toBe(0);
-    const emitted = [...files.values(), ...logs].join("\n");
-    expect(JSON.parse(files.get("artifacts/capture.json")).codes).toEqual([]);
-    for (const canary of CANARIES) expect(emitted).not.toContain(canary);
+    expect(written.codes).toEqual([]);
+    // The pooled URL was built in memory from the pulled state and used, yet never emitted.
+    expect(record.pooledUrls).toHaveLength(1);
+    expect(record.pooledUrls[0]).toContain(PASSWORD);
+    for (const canary of [...CANARIES, ...RAW_IDENTITIES, CA_PATH]) expect(emitted).not.toContain(canary);
   });
 
   it("the default command runner aborts under test instead of reaching a real CLI", async () => {
@@ -878,7 +1142,7 @@ describe("AC4 job-side apply", () => {
 
   it("a governed capture summarizes verdict and missing count only and passes", async () => {
     const state = world();
-    state.db.sessions[0].hidden = 1;
+    state.db.sessions[0].backend_start = null;
     const record = { calls: [], statements: [], redactOptions: [] };
     const files = new Map();
     const exitCode = await runCapture({
@@ -1000,5 +1264,908 @@ describe("AC5 workflow contract", () => {
         "provider-touching step 'Configure Kubernetes context' invokes terraform/doctl but does not declare step env: AWS_ACCESS_KEY_ID",
       ),
     ]);
+  });
+});
+
+const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
+const DEPLOY_WORKFLOW = ".github/workflows/synthetic-deploy.yml";
+const DIGEST_WORKFLOW = ".github/workflows/synthetic-digest.yml";
+const KUBERNETES_HOLDERS = [
+  "deployments:chase-sets-platform/api",
+  "deployments:chase-sets-platform/worker",
+  "replicasets:chase-sets-platform/api-current",
+  "replicasets:chase-sets-platform/api-old",
+  "cronjobs:chase-sets-platform/sweeper",
+  "pods:ops/debug-shell",
+];
+const STAGING_HOLDERS = [
+  "capture:9000000001/1",
+  `workflow:${DEPLOY_WORKFLOW}#deploy-staging/2`,
+  `workflow:${DIGEST_WORKFLOW}#digest/2`,
+  "run:5002/1",
+  ...KUBERNETES_HOLDERS,
+];
+// capture() runs at 2030-01-03, so the 31-day rerun window opens on 2029-12-03.
+const runsUrl = (file, page = 1) =>
+  `https://api.github.com/repos/${REPOSITORY}/actions/workflows/${file}/runs?per_page=100&created=%3E%3D2029-12-03&page=${page}`;
+const jobsUrl = (id, attempt) =>
+  `https://api.github.com/repos/${REPOSITORY}/actions/runs/${id}/attempts/${attempt}/jobs?per_page=100`;
+const poolOf = (state) =>
+  state.terraform.resources.find((resource) => resource.type === "digitalocean_database_connection_pool").instances[0]
+    .attributes;
+const sessionRow = (pid, overrides = {}) => ({
+  pid,
+  backend_start: new Date("2030-01-02T02:00:00.000Z"),
+  state: "idle",
+  backend_type: "client backend",
+  role: "synthetic_other_role",
+  application: "synthetic-other",
+  client_address: "198.51.100.9",
+  ...overrides,
+});
+const SESSION_SOURCE = "pg_stat_activity per-backend census reconciled with its independent total";
+const POOLED_READ_SOURCE = "BEGIN READ ONLY pg_backend_pid() through the collections-runtime pool";
+// The pool's next server backend, ~3603.6 s after the first: the hourly recycle the historical captures showed.
+const RECYCLED_START = new Date(POOLER_START.getTime() + 3_603_600);
+const AGGREGATE_SESSION_SOURCE = "pg_stat_activity grouped by state, backend type, role and application";
+
+describe("AC1 per-backend session census through the capture entrypoint", () => {
+  it("excludes the capture's own backend from every census read and lists one item per other backend", async () => {
+    for (const sql of [SESSION_TOTAL_SQL, SESSION_ROWS_SQL]) expect(sql).toContain("pid <> pg_backend_pid()");
+    expect(SESSION_ROWS_SQL).toContain(`LIMIT ${SESSION_ROW_CAP + 1}`);
+    const { exitCode, capture: written, record } = await throughEntrypoint();
+    expect(exitCode).toBe(0);
+    const sessions = written.fields["writers.session"];
+    expect(sessions).toMatchObject({
+      collected: 2,
+      authoritativeTotal: 2,
+      coverage: { sessions: { status: "complete", listed: 2 } },
+      source: SESSION_SOURCE,
+    });
+    expect(sessions.items.map((item) => item.id)).toEqual([`backend:${POOLER_PID}`, `backend:${RUNNER_PID}`]);
+    expect(sessions.items.map((item) => item.pid)).not.toContain(SELF_PID);
+    expect(record.statements.filter((sql) => sql === SESSION_TOTAL_SQL)).toHaveLength(2);
+  });
+
+  it.each([
+    ["lists the capture's own backend", "census-self", (state) => state.db.sessions.push(sessionRow(SELF_PID))],
+    [
+      "is truncated below its independent total",
+      "census-mismatch",
+      (state) => {
+        state.db.totals = [3, 3];
+      },
+    ],
+    [
+      "overflows the row cap",
+      "session-cap",
+      (state) => {
+        state.db.rows = Array.from({ length: SESSION_ROW_CAP + 1 }, (_, index) => sessionRow(5000 + index));
+        state.db.totals = [SESSION_ROW_CAP + 1, SESSION_ROW_CAP + 1];
+      },
+    ],
+    [
+      "lists one backend twice",
+      "census-duplicate",
+      (state) => {
+        state.db.rows = [...state.db.sessions, state.db.sessions[1]];
+        state.db.totals = [3, 3];
+      },
+    ],
+    [
+      "moves between its two total reads",
+      "census-unstable",
+      (state) => {
+        state.db.totals = [2, 3];
+      },
+    ],
+  ])("a census that %s is a governed unknown, never a partial set", async (_, reason, mutate) => {
+    const state = world();
+    mutate(state);
+    const { exitCode, capture: written } = await throughEntrypoint(state);
+    expect(exitCode).toBe(0);
+    const sessions = written.fields["writers.session"];
+    expect(isGovernedUnknown(sessions)).toBe(true);
+    expect(sessions.missingAuthority).toBe(`${SESSION_SOURCE}: ${reason}`);
+    expect(sessions).not.toHaveProperty("items");
+    expect(isGovernedUnknown(written.fields["gates.credential-session-fence.observeAuthority"])).toBe(true);
+    const applied = applyProviderCapture(jobPacket(FLOOR, MERGED_AT), written);
+    expect(applied).toMatchObject({ verdict: "bounded-unknown", errors: [] });
+    expect(applied.missing.map((entry) => entry.field)).toEqual([
+      "writers.session",
+      "gates.credential-session-fence.observeAuthority",
+    ]);
+  });
+
+  it("digests a null client address as null and keeps every backend listed", async () => {
+    const state = world();
+    for (const session of state.db.sessions) session.client_address = null;
+    const { capture: written } = await throughEntrypoint(state);
+    const sessions = written.fields["writers.session"];
+    expect(sessions.collected).toBe(2);
+    expect(sessions.items.map((item) => item.clientAddressDigest)).toEqual([null, null]);
+    // An address was never proof, so its absence changes no classification.
+    expect(sessions.items.map((item) => item.classification)).toEqual(["pooler", "unknown"]);
+  });
+
+  it("serializes each backend as domain-separated digests and allowlisted metadata only", async () => {
+    const state = world();
+    state.db.sessions[1].state = TOKEN;
+    state.db.sessions[1].backend_type = PASSWORD_URL;
+    const { exitCode, capture: written, emitted } = await throughEntrypoint(state);
+    expect(exitCode).toBe(0);
+    const [pooler, runner] = written.fields["writers.session"].items;
+    expect(Object.keys(pooler)).toEqual([
+      "id",
+      "pid",
+      "backendStart",
+      "state",
+      "backendType",
+      "roleDigest",
+      "applicationDigest",
+      "clientAddressDigest",
+      "poolMatch",
+      "classification",
+      "revisions",
+      "containsFloor",
+    ]);
+    expect(runner).toMatchObject({ state: null, backendType: "unnamed" });
+    expect(pooler).toMatchObject({
+      backendStart: POOLER_START.toISOString(),
+      roleDigest: sha256Hex(`collections-session-role/v1\u0000${POOL_USER}`),
+      applicationDigest: sha256Hex("collections-session-application/v1\u0000"),
+      clientAddressDigest: sha256Hex(`collections-session-client-address/v1\u0000${CLIENT_ADDRESS}`),
+    });
+    expect(pooler.roleDigest).not.toBe(sha256Hex(POOL_USER));
+    expect(pooler.clientAddressDigest).not.toBe(sha256Hex(CLIENT_ADDRESS));
+    for (const raw of [...CANARIES, ...RAW_IDENTITIES, "198.51.100.8", CA_PATH, "SELECT '"]) {
+      expect(emitted).not.toContain(raw);
+    }
+  });
+});
+
+describe("pool-match", () => {
+  it("classifies the backend the same-run pooled read names, under the pool user's role, as pooler", async () => {
+    const { fields, record } = await capture();
+    const sessions = fields["writers.session"];
+    expect(sessions.pool).toEqual({
+      value: {
+        context: "collections",
+        name: "collections-runtime",
+        mode: "transaction",
+        size: 1,
+        hostDigest: sha256Hex(`collections-pool-host/v1\u0000${POOL_HOST}`),
+        userDigest: roleDigest(POOL_USER),
+      },
+      source: "terraform state pull digitalocean_database_connection_pool.contexts[collections]",
+    });
+    expect(sessions.pooledRead).toEqual({
+      value: { pid: POOLER_PID, backendStart: POOLER_START.toISOString() },
+      source: POOLED_READ_SOURCE,
+    });
+    expect(sessionItem(fields, POOLER_PID)).toMatchObject({
+      poolMatch: { pid: true, backendStart: true, role: true },
+      classification: "pooler",
+      applicationDigest: sha256Hex("collections-session-application/v1\u0000"),
+    });
+    // The pooled URL is built in memory from the pulled state's collections-runtime pool and sees only the closed read.
+    expect(record.pooledUrls).toEqual([
+      expect.stringMatching(
+        /^postgresql:\/\/synthetic_collections_role:canary-password-7f3a@pool\.canary\.invalid:25061\/collections-runtime\?sslmode=verify-full&/,
+      ),
+    ]);
+    expect(record.pooledStatements).toEqual([...POOLED_READ_SQL]);
+    expect(POOLED_READ_SQL[0]).toBe("BEGIN READ ONLY");
+    expect(record.pooledEnds).toBe(1);
+  });
+
+  it("leaves a same-role direct runner unknown", async () => {
+    const { fields } = await capture();
+    expect(sessionItem(fields, RUNNER_PID)).toMatchObject({
+      roleDigest: roleDigest(POOL_USER),
+      poolMatch: { pid: false, backendStart: false, role: true },
+      classification: "unknown",
+      revisions: [],
+      containsFloor: null,
+    });
+  });
+
+  it.each([
+    [
+      "a blank application under the pool role with no pooled read",
+      () => {},
+      { openPooled: undefined },
+      { pid: null, backendStart: null, role: true },
+    ],
+    [
+      "a pool other than collections-runtime",
+      (state) => {
+        poolOf(state).name = "collections-other";
+      },
+      {},
+      { pid: null, backendStart: null, role: null },
+    ],
+    [
+      "a session-mode pool",
+      (state) => {
+        poolOf(state).mode = "session";
+      },
+      {},
+      { pid: null, backendStart: null, role: null },
+    ],
+    [
+      "a pool user other than the backend's role",
+      (state) => {
+        poolOf(state).user = "synthetic_other_role";
+      },
+      {},
+      { pid: true, backendStart: true, role: false },
+    ],
+    [
+      "a pooled read naming another PID",
+      (state) => {
+        state.pooled.pid = 4999;
+      },
+      {},
+      { pid: false, backendStart: true, role: true },
+    ],
+    [
+      "a recycled PID whose listed backend started at another time",
+      (state) => {
+        state.pooled.backendStart = RECYCLED_START;
+      },
+      {},
+      { pid: true, backendStart: false, role: true },
+    ],
+    [
+      "a failed pooled connection",
+      (state) => {
+        state.pooled.fail = true;
+      },
+      {},
+      { pid: null, backendStart: null, role: true },
+    ],
+  ])("refuses pooler for %s", async (_, mutate, overrides, poolMatch) => {
+    const state = world();
+    mutate(state);
+    const { result, fields } = await capture(state, overrides);
+    const sessions = fields["writers.session"];
+    expect(sessionItem(fields, POOLER_PID)).toMatchObject({
+      poolMatch,
+      classification: "unknown",
+      revisions: [],
+      containsFloor: null,
+    });
+    expect(sessions.items.every((item) => item.classification === "unknown")).toBe(true);
+    // The census stays complete: an unattributed backend is listed as unknown, never dropped.
+    expect(sessions).toMatchObject({ collected: 2, authoritativeTotal: 2 });
+    expect(applyProviderCapture(jobPacket(FLOOR, MERGED_AT), result)).toMatchObject({
+      verdict: "complete",
+      errors: [],
+    });
+  });
+
+  it("refuses host-only inference: a pool endpoint equal to the backend's address proves nothing", async () => {
+    const state = world();
+    poolOf(state).host = CLIENT_ADDRESS;
+    const { fields, record } = await capture(state, {}, { caPath: undefined });
+    const sessions = fields["writers.session"];
+    expect(record.pooledUrls).toEqual([]);
+    expect(isGovernedUnknown(sessions.pooledRead)).toBe(true);
+    expect(sessions.pooledRead.missingAuthority).toBe(`${POOLED_READ_SOURCE}: ca-missing`);
+    expect(sessions.pooledRead.hostAction).toContain("export PGSSLROOTCERT");
+    const pooler = sessionItem(fields, POOLER_PID);
+    expect(pooler).toMatchObject({
+      classification: "unknown",
+      poolMatch: { pid: null, backendStart: null, role: true },
+    });
+    expect(sessions.pool.value.hostDigest).not.toBe(pooler.clientAddressDigest);
+  });
+
+  it("refuses the capture when the pooled transaction is writable", async () => {
+    const state = world();
+    state.pooled.readOnly = "off";
+    await expect(capture(state)).rejects.toThrow(new CaptureRefusal("database-session-writable"));
+  });
+
+  it("keeps the pool identity to its allowlist and never persists the pulled state", async () => {
+    const { result } = await capture();
+    expect(Object.keys(result.fields["writers.session"].pool.value)).toEqual([
+      "context",
+      "name",
+      "mode",
+      "size",
+      "hostDigest",
+      "userDigest",
+    ]);
+    const text = JSON.stringify(result);
+    for (const raw of [POOL_HOST, POOL_USER, PASSWORD, PASSWORD_URL, CA_PATH, "db_name", "verify-full"]) {
+      expect(text).not.toContain(raw);
+    }
+  });
+
+  it.each([
+    "BEGIN",
+    "BEGIN READ WRITE",
+    "COMMIT",
+    "SET TRANSACTION READ WRITE",
+    "SELECT pg_terminate_backend(4242)",
+    SESSION_ROWS_SQL,
+  ])("admits only the closed pooled read, refusing %s", (sql) => {
+    for (const admitted of POOLED_READ_SQL) expect(() => admitPooledStatement(admitted)).not.toThrow();
+    expect(() => admitPooledStatement(sql)).toThrow(new CaptureRefusal("statement-refused"));
+  });
+});
+
+describe("holder-census", () => {
+  it("reconciles every staging holder against independent totals, with explicit exclusions", async () => {
+    const { fields, record } = await capture();
+    const holders = fields["writers.session"].holders;
+    expect(holderIds(fields)).toEqual(STAGING_HOLDERS);
+    expect(holders).toMatchObject({ collected: 10, authoritativeTotal: 10 });
+    expect(holders.items).toHaveLength(holders.collected);
+    expect(exclusionIds(fields)).toEqual([
+      "workflow:.github/workflows/synthetic-catalog.yml#refresh/1 contexts-exclude-collections",
+      "jobs:chase-sets-platform/bootstrap direct-bootstrap-credential",
+    ]);
+    expect(holders.coverage).toEqual({
+      workflows: { status: "complete", listed: 4, pooledSteps: 3 },
+      runs: {
+        [DEPLOY_WORKFLOW]: { status: "complete", listed: 1, executing: 0 },
+        [DIGEST_WORKFLOW]: { status: "complete", listed: 2, executing: 1 },
+      },
+      kubernetes: { status: "complete", listed: 7 },
+    });
+    const credentialSource = "DATABASE_URL_COLLECTIONS";
+    const byId = Object.fromEntries(holders.items.map((item) => [item.id, item]));
+    expect(byId["capture:9000000001/1"]).toEqual({
+      id: "capture:9000000001/1",
+      source: "capture",
+      workflow: ".github/workflows/collections-cutover-authority-capture.yml",
+      credentialSource,
+      revisions: [HEAD],
+      containsFloor: true,
+    });
+    expect(byId[`workflow:${DEPLOY_WORKFLOW}#deploy-staging/2`]).toEqual({
+      id: `workflow:${DEPLOY_WORKFLOW}#deploy-staging/2`,
+      workflow: DEPLOY_WORKFLOW,
+      job: "deploy-staging",
+      step: 2,
+      acquisition: "platform-kubernetes-secret",
+      contexts: "all",
+      target: "staging",
+      source: "workflow-step",
+      mode: "pooled",
+      credentialSource,
+      revisions: [HEAD],
+      containsFloor: true,
+    });
+    expect(byId[`workflow:${DIGEST_WORKFLOW}#digest/2`]).toMatchObject({
+      acquisition: "export-managed-postgres-authority",
+      contexts: "all",
+      target: "selectable",
+    });
+    expect(byId["run:5002/1"]).toEqual({
+      id: "run:5002/1",
+      workflow: DIGEST_WORKFLOW,
+      runId: 5002,
+      attempt: 1,
+      event: "workflow_dispatch",
+      status: "in_progress",
+      target: "selectable",
+      source: "workflow-run",
+      jobIds: [7001],
+      credentialSource,
+      revisions: [RELEASE],
+      containsFloor: true,
+    });
+    expect(byId["replicasets:chase-sets-platform/api-old"]).toEqual({
+      id: "replicasets:chase-sets-platform/api-old",
+      source: "kubernetes",
+      kind: "rollback",
+      credentialSource,
+      references: ["secretKeyRef:chase-sets-platform/DATABASE_URL_COLLECTIONS"],
+      revisions: [SUB_FLOOR],
+      containsFloor: false,
+    });
+    // The pooler inherits every holder's revision and the census's floor ancestry.
+    expect(sessionItem(fields, POOLER_PID)).toMatchObject({
+      classification: "pooler",
+      revisions: [RELEASE, SUB_FLOOR, HEAD],
+      containsFloor: false,
+    });
+    expect(record.requests).toEqual([
+      runsUrl("synthetic-deploy.yml"),
+      runsUrl("synthetic-digest.yml"),
+      jobsUrl(5002, 1),
+    ]);
+    for (const url of record.requests) expect(() => admitRequest(url, REPOSITORY)).not.toThrow();
+  });
+
+  it("maps a scheduled run to the default staging target and a manually dispatched run to either target", async () => {
+    const state = world();
+    state.github.runs["synthetic-digest.yml"].items.push({
+      id: 5003,
+      run_attempt: 1,
+      status: "queued",
+      event: "schedule",
+      head_sha: RELEASE,
+    });
+    state.github.jobs["5003/1"] = [{ id: 7003, name: "Build Synthetic Digest" }];
+    const staging = await capture(state);
+    expect(holderIds(staging.fields)).toEqual(expect.arrayContaining(["run:5002/1", "run:5003/1"]));
+    expect(staging.fields["writers.session"].holders.items.find((item) => item.id === "run:5003/1")).toMatchObject({
+      event: "schedule",
+      target: "staging",
+      jobIds: [7003],
+    });
+    const production = await capture(state, {}, { target: "production" });
+    expect(holderIds(production.fields)).toEqual([
+      "capture:9000000001/1",
+      `workflow:${DIGEST_WORKFLOW}#digest/2`,
+      "run:5002/1",
+      ...KUBERNETES_HOLDERS,
+    ]);
+    expect(exclusionIds(production.fields)).toEqual([
+      "workflow:.github/workflows/synthetic-catalog.yml#refresh/1 contexts-exclude-collections",
+      `workflow:${DEPLOY_WORKFLOW}#deploy-staging/2 target-mismatch`,
+      "run:5003/1 target-mismatch",
+      "jobs:chase-sets-platform/bootstrap direct-bootstrap-credential",
+    ]);
+    expect(production.record.requests).toEqual([runsUrl("synthetic-digest.yml"), jobsUrl(5002, 1)]);
+  });
+
+  it("binds a stale rerun to the head and attempt it executes, never to current main", async () => {
+    const state = world();
+    state.kube.replicasets.pages = [state.kube.replicasets.pages[0]];
+    const fresh = await capture(state);
+    expect(sessionItem(fresh.fields, POOLER_PID)).toMatchObject({ classification: "pooler", containsFloor: true });
+    state.github.runs["synthetic-digest.yml"].items.push({
+      id: 5004,
+      run_attempt: 2,
+      status: "in_progress",
+      event: "schedule",
+      head_sha: SUB_FLOOR,
+    });
+    state.github.jobs["5004/1"] = [{ id: 7008, name: "Build Synthetic Digest" }];
+    state.github.jobs["5004/2"] = [{ id: 7009, name: "Build Synthetic Digest" }];
+    const { fields, record } = await capture(state);
+    const rerun = fields["writers.session"].holders.items.find((item) => item.id === "run:5004/2");
+    expect(rerun).toMatchObject({ attempt: 2, jobIds: [7009], revisions: [SUB_FLOOR], containsFloor: false });
+    expect(record.requests).toContain(jobsUrl(5004, 2));
+    expect(record.requests).not.toContain(jobsUrl(5004, 1));
+    expect(sessionItem(fields, POOLER_PID)).toMatchObject({
+      classification: "pooler",
+      revisions: [RELEASE, SUB_FLOOR, HEAD],
+      containsFloor: false,
+    });
+  });
+
+  it("lists a newly found pooled holder and an unresolved-context holder instead of omitting them", async () => {
+    const state = world();
+    state.workflows[".github/workflows/synthetic-new.yml"] = `name: Synthetic New
+on:
+  workflow_dispatch: {}
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    env:
+      TERRAFORM_STATE_DATABASE_URL_CONNECTION_MODE: pooled
+    steps:
+      - run: node scripts/terraform-state-database-urls.mjs --contexts collections --environment staging
+  widen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/export-managed-postgres-authority
+        with:
+          environment: staging
+          contexts: \${{ inputs.contexts }}
+          connection-mode: pooled
+`;
+    const { fields, record } = await capture(state);
+    const found = fields["writers.session"].holders.items.filter((item) =>
+      item.workflow?.endsWith("synthetic-new.yml"),
+    );
+    expect(found).toEqual([
+      expect.objectContaining({
+        id: "workflow:.github/workflows/synthetic-new.yml#export/1",
+        acquisition: "terraform-state-database-urls",
+        contexts: "collections",
+        target: "staging",
+      }),
+      expect.objectContaining({
+        id: "workflow:.github/workflows/synthetic-new.yml#widen/1",
+        acquisition: "export-managed-postgres-authority",
+        contexts: "unresolved",
+      }),
+    ]);
+    expect(record.requests).toContain(runsUrl("synthetic-new.yml"));
+    expect(fields["writers.session"].holders.coverage.runs).toHaveProperty([".github/workflows/synthetic-new.yml"]);
+  });
+
+  it.each([
+    [
+      "a run page missing one run",
+      "census-mismatch",
+      (state) => {
+        state.github.runs["synthetic-digest.yml"].total = 3;
+      },
+      {},
+    ],
+    [
+      "a run census past the page bound",
+      "run-page-bound",
+      (state) => {
+        state.github.runs["synthetic-digest.yml"].total = 100 * MAX_RUN_PAGES + 1;
+      },
+      {},
+    ],
+    [
+      "an unregistered holder workflow",
+      "workflow-unregistered",
+      (state) => {
+        state.github.runs["synthetic-deploy.yml"] = { fail: "not-found" };
+      },
+      {},
+    ],
+    [
+      "a rate-limited run list",
+      "rate-limited",
+      (state) => {
+        state.github.runs["synthetic-digest.yml"] = { fail: "rate-limited" };
+      },
+      {},
+    ],
+    [
+      "a reusable workflow holding the pooled credential",
+      "reusable-holder",
+      (state) => {
+        state.workflows[DIGEST_WORKFLOW] = state.workflows[DIGEST_WORKFLOW].replace(
+          "  workflow_dispatch:\n",
+          "  workflow_call: {}\n  workflow_dispatch:\n",
+        );
+      },
+      {},
+    ],
+    [
+      "an unparsed workflow",
+      "workflow-unparsed",
+      (state) => {
+        state.workflows[".github/workflows/synthetic-broken.yml"] = "jobs: [unclosed";
+      },
+      {},
+    ],
+    ["a capture outside GitHub Actions", "repository", () => {}, { repository: undefined }],
+  ])("%s leaves the holder census unknown and every backend unattributed", async (_, reason, mutate, options) => {
+    const state = world();
+    mutate(state);
+    const { result, fields } = await capture(state, {}, options);
+    const holders = fields["writers.session"].holders;
+    expect(isGovernedUnknown(holders)).toBe(true);
+    expect(holders.missingAuthority).toContain(reason);
+    expect(sessionItem(fields, POOLER_PID)).toMatchObject({
+      poolMatch: { pid: true, backendStart: true, role: true },
+      classification: "unknown",
+      revisions: [],
+      containsFloor: null,
+    });
+    expect(applyProviderCapture(jobPacket(FLOOR, MERGED_AT), result).errors).toEqual([]);
+  });
+
+  it("keeps holder evidence secret-free and limited to allowlisted run metadata", async () => {
+    const state = world();
+    state.github.runs["synthetic-digest.yml"].items.push({
+      id: 5005,
+      run_attempt: 1,
+      status: "waiting",
+      event: `push ${TOKEN}`,
+      head_sha: RELEASE,
+      name: PASSWORD_URL,
+      actor: { login: POOL_USER },
+    });
+    state.github.jobs["5005/1"] = [{ id: 7011, name: "Build Synthetic Digest", runner_name: TOKEN }];
+    const { exitCode, capture: written, emitted } = await throughEntrypoint(state, { GITHUB_RUN_ID: "" });
+    expect(exitCode).toBe(0);
+    const holders = written.fields["writers.session"].holders;
+    expect(holders.items[0]).toMatchObject({ id: "capture:unbound", revisions: [HEAD] });
+    const run = holders.items.find((item) => item.id === "run:5005/1");
+    expect(Object.keys(run).sort()).toEqual(
+      [
+        "attempt",
+        "containsFloor",
+        "credentialSource",
+        "event",
+        "id",
+        "jobIds",
+        "revisions",
+        "runId",
+        "source",
+        "status",
+        "target",
+        "workflow",
+      ].sort(),
+    );
+    expect(run).toMatchObject({ event: "unnamed", jobIds: [7011] });
+    for (const raw of [...CANARIES, ...RAW_IDENTITIES, CA_PATH]) expect(emitted).not.toContain(raw);
+  });
+
+  // One staging capture over every real workflow at head, shared by the assertions below; the production mapping of
+  // a fixed-staging step is the synthetic test above.
+  describe("over the real workflows at capture head", () => {
+    let real;
+    beforeAll(async () => {
+      const state = world();
+      state.workflows = Object.fromEntries(workflowFiles(REPO_ROOT).map(({ path, text }) => [path, text]));
+      real = await capture(state);
+    });
+
+    it("finds the slow-query digest, growth evidence and staging deploy holders with their targets", () => {
+      const steps = real.fields["writers.session"].holders.items.filter((item) => item.source === "workflow-step");
+      expect(steps.map((item) => item.id)).toEqual([
+        expect.stringMatching(
+          /^workflow:\.github\/workflows\/platform-postgres-growth-evidence\.yml#growth-evidence\/\d+$/,
+        ),
+        expect.stringMatching(
+          /^workflow:\.github\/workflows\/platform-postgres-slow-query-digest\.yml#slow-query-digest\/\d+$/,
+        ),
+        expect.stringMatching(/^workflow:\.github\/workflows\/platform-production\.yml#deploy-staging\/\d+$/),
+      ]);
+      expect(steps.map((item) => [item.workflow, item.target, item.contexts, item.mode])).toEqual([
+        [".github/workflows/platform-postgres-growth-evidence.yml", "selectable", "all", "pooled"],
+        [".github/workflows/platform-postgres-slow-query-digest.yml", "selectable", "all", "pooled"],
+        [".github/workflows/platform-production.yml", "staging", "all", "pooled"],
+      ]);
+      expect(sessionItem(real.fields, POOLER_PID).classification).toBe("pooler");
+    });
+
+    it("lists the catalog-only pooled consumers as explicit exclusions", () => {
+      expect(exclusionIds(real.fields).filter((id) => id.startsWith("workflow:"))).toEqual([
+        expect.stringMatching(
+          /^workflow:\.github\/workflows\/catalog-integration-staging-reset\.yml#[a-z0-9-]+\/\d+ contexts-exclude-collections$/,
+        ),
+        expect.stringMatching(
+          /^workflow:\.github\/workflows\/catalog-provider-refresh-watch\.yml#[a-z0-9-]+\/\d+ contexts-exclude-collections$/,
+        ),
+      ]);
+    });
+  });
+
+  it("reads GitHub with unauthenticated GETs and closed failure reasons", async () => {
+    const calls = [];
+    const respond = (status, headers = {}) => ({
+      ok: status >= 200 && status < 300,
+      status,
+      headers: new Headers(headers),
+      text: async () => `{"echo":"${TOKEN}"}`,
+    });
+    const outcomes = [
+      [respond(200), { ok: true, stdout: `{"echo":"${TOKEN}"}` }],
+      [respond(429), { ok: false, reason: "rate-limited" }],
+      [respond(403, { "x-ratelimit-remaining": "0" }), { ok: false, reason: "rate-limited" }],
+      [respond(403), { ok: false, reason: "github-forbidden" }],
+      [respond(404), { ok: false, reason: "not-found" }],
+      [respond(500), { ok: false, reason: "failed" }],
+      [Object.assign(new Error(TOKEN), { name: "TimeoutError" }), { ok: false, reason: "timeout" }],
+      [new Error(PASSWORD_URL), { ok: false, reason: "failed" }],
+    ];
+    for (const [response, expected] of outcomes) {
+      const read = githubReadRunner(async (url, init) => {
+        calls.push([url, init]);
+        if (response instanceof Error) throw response;
+        return response;
+      });
+      expect(await read(runsUrl("synthetic-digest.yml"))).toEqual(expected);
+    }
+    for (const [, init] of calls) {
+      expect(init).toMatchObject({ method: "GET", redirect: "error" });
+      expect(Object.keys(init.headers).map((key) => key.toLowerCase())).not.toContain("authorization");
+    }
+  });
+
+  it.each([
+    "https://api.github.com/repos/synthetic-owner/synthetic-repo/actions/runs/5002/cancel",
+    "https://api.github.com/repos/synthetic-owner/synthetic-repo/actions/runs/5002/force-cancel",
+    "https://api.github.com/repos/synthetic-owner/synthetic-repo/actions/runs/5002/rerun",
+    "https://api.github.com/repos/synthetic-owner/synthetic-repo/actions/workflows/synthetic-digest.yml/disable",
+    "https://api.github.com/repos/synthetic-owner/synthetic-repo/actions/secrets",
+    "https://api.github.com/repos/other-owner/other-repo/actions/runs/5002/attempts/1/jobs?per_page=100",
+    `https://api.github.com/repos/${REPOSITORY}/actions/workflows/synthetic-digest.yml/runs?per_page=100&created=%3E%3D2029-12-03&page=${MAX_RUN_PAGES + 1}`,
+    "https://api.example.invalid/repos/synthetic-owner/synthetic-repo/actions/runs/5002/attempts/1/jobs?per_page=100",
+  ])("refuses the off-allowlist GitHub request %s", (url) => {
+    expect(() => admitRequest(url, REPOSITORY)).toThrow(new CaptureRefusal("request-refused"));
+  });
+});
+
+describe("capture-consumers", () => {
+  it("traces the census query through the artifact and its session evidence into the packet consumer", async () => {
+    const { exitCode, capture: written, record } = await throughEntrypoint();
+    expect(exitCode).toBe(0);
+    expect(record.statements.filter((sql) => sql === SESSION_ROWS_SQL)).toHaveLength(1);
+    expect(record.pooledStatements).toEqual([...POOLED_READ_SQL]);
+    const sessions = written.fields["writers.session"];
+    expect(Object.keys(sessions)).toEqual([
+      "collected",
+      "authoritativeTotal",
+      "items",
+      "coverage",
+      "source",
+      "pool",
+      "pooledRead",
+      "holders",
+    ]);
+    expect(sessions.items.map((item) => [item.id, item.classification])).toEqual([
+      [`backend:${POOLER_PID}`, "pooler"],
+      [`backend:${RUNNER_PID}`, "unknown"],
+    ]);
+    expect(sessions.holders.items[0]).toMatchObject({ id: "capture:9000000001/1", revisions: [HEAD] });
+    const applied = applyProviderCapture(jobPacket(FLOOR, MERGED_AT), written);
+    expect(applied).toMatchObject({ verdict: "complete", errors: [], missing: [] });
+    expect(applied.packet.writerAuthority.targets.staging.writers.session).toEqual(sessions);
+  });
+
+  it("without the Collections database no session, pooled read or holder evidence is claimed", async () => {
+    const { exitCode, capture: written, record } = await throughEntrypoint(world(), { DATABASE_URL_COLLECTIONS: "" });
+    expect(exitCode).toBe(0);
+    const sessions = written.fields["writers.session"];
+    expect(isGovernedUnknown(sessions)).toBe(true);
+    expect(sessions.missingAuthority).toBe(`${SESSION_SOURCE}: connection-failed`);
+    expect(record.pooledUrls).toEqual([]);
+    expect(record.requests).toEqual([]);
+    const applied = applyProviderCapture(jobPacket(FLOOR, MERGED_AT), written);
+    expect(applied).toMatchObject({ verdict: "bounded-unknown", errors: [] });
+    expect(applied.missing.map((entry) => entry.field)).toContain("writers.session");
+  });
+
+  it.each([
+    ["PGSSLROOTCERT", { PGSSLROOTCERT: "" }, "pooledRead", "ca-missing"],
+    ["GITHUB_REPOSITORY", { GITHUB_REPOSITORY: "" }, "holders", "repository"],
+  ])("without %s the pooler stays unknown and the consumer keeps the governed gap", async (_, env, key, reason) => {
+    const { exitCode, capture: written } = await throughEntrypoint(world(), env);
+    expect(exitCode).toBe(0);
+    const sessions = written.fields["writers.session"];
+    expect(isGovernedUnknown(sessions[key])).toBe(true);
+    expect(sessions[key].missingAuthority).toContain(reason);
+    expect(sessions.items.every((item) => item.classification === "unknown")).toBe(true);
+    const applied = applyProviderCapture(jobPacket(FLOOR, MERGED_AT), written);
+    expect(applied.errors).toEqual([]);
+    expect(applied.packet.writerAuthority.targets.staging.writers.session[key]).toEqual(sessions[key]);
+  });
+
+  it("refuses a forged pooler and folds an aggregate-only capture as a governed unknown", async () => {
+    const { capture: written } = await throughEntrypoint();
+    const forged = structuredClone(written);
+    forged.fields["writers.session"].items[1].classification = "pooler";
+    expect(applyProviderCapture(jobPacket(FLOOR, MERGED_AT), forged)).toMatchObject({
+      verdict: "invalid",
+      errors: ["staging|writers.session|pooler-unproven"],
+    });
+    const aggregate = structuredClone(written);
+    aggregate.fields["writers.session"] = {
+      collected: 1,
+      authoritativeTotal: 1,
+      items: [
+        {
+          id: "session:1",
+          state: "idle",
+          backendType: "client backend",
+          roleDigest: roleDigest(POOL_USER),
+          applicationDigest: sha256Hex("collections-session-application/v1\u0000"),
+          sessions: 1,
+          oldestBackendStart: POOLER_START.toISOString(),
+        },
+      ],
+      coverage: { sessions: { status: "complete", listed: 1 } },
+      source: AGGREGATE_SESSION_SOURCE,
+    };
+    const folded = applyProviderCapture(jobPacket(FLOOR, MERGED_AT), aggregate);
+    expect(folded).toMatchObject({ verdict: "bounded-unknown", errors: [] });
+    expect(folded.missing).toEqual([
+      expect.objectContaining({ field: "writers.session", reason: "session-evidence-aggregate" }),
+    ]);
+    expect(folded.packet.writerAuthority.targets.staging.writers.session).toMatchObject({ status: "unknown" });
+  });
+
+  it("keeps the 22 capture fields, the envelope and every other writer category unchanged", async () => {
+    const { capture: written } = await throughEntrypoint();
+    expect(Object.keys(written)).toEqual(["schemaVersion", "target", "capturedAt", "head", "codes", "fields"]);
+    expect(PROVIDER_CAPTURE_FIELDS).toHaveLength(22);
+    expect(Object.keys(written.fields)).toEqual([...PROVIDER_CAPTURE_FIELDS]);
+    for (const kind of ["serving", "suspended", "dormant", "rollback", "job", "cronjob"]) {
+      expect(Object.keys(written.fields[`writers.${kind}`]), kind).toEqual([
+        "collected",
+        "authoritativeTotal",
+        "items",
+        "coverage",
+        "source",
+      ]);
+    }
+  });
+});
+
+describe("no-termination", () => {
+  it("corroborates an hourly recycle across two offline captures with a stable pool identity", async () => {
+    const first = await capture();
+    const recycled = world();
+    recycled.db.sessions[0] = { ...recycled.db.sessions[0], pid: 4243, backend_start: RECYCLED_START };
+    recycled.pooled = { pid: 4243, backendStart: RECYCLED_START, readOnly: "on" };
+    const second = await capture(recycled);
+    const [before, after] = [first, second].map(({ fields }) => fields["writers.session"]);
+    expect(after.pool).toEqual(before.pool);
+    const seconds =
+      (Date.parse(after.pooledRead.value.backendStart) - Date.parse(before.pooledRead.value.backendStart)) / 1000;
+    expect(seconds).toBeCloseTo(3603.6, 1);
+    // Each capture classifies only the backend its own same-run read names; neither inherits the other's.
+    expect(sessionItem(first.fields, POOLER_PID).classification).toBe("pooler");
+    expect(sessionItem(second.fields, 4243).classification).toBe("pooler");
+    expect(sessionItem(second.fields, POOLER_PID)).toBeUndefined();
+    // A historical aggregate capture stays unclassified however its backend starts line up.
+    const historical = structuredClone(first.result);
+    historical.fields["writers.session"] = {
+      collected: 1,
+      authoritativeTotal: 1,
+      items: [{ id: "session:1", sessions: 1, oldestBackendStart: POOLER_START.toISOString() }],
+      coverage: { sessions: { status: "complete", listed: 1 } },
+      source: AGGREGATE_SESSION_SOURCE,
+    };
+    expect(applyProviderCapture(jobPacket(FLOOR, MERGED_AT), historical).missing).toEqual([
+      expect.objectContaining({ field: "writers.session", reason: "session-evidence-aggregate" }),
+    ]);
+  });
+
+  it.each([
+    [
+      "role-only",
+      (state) => {
+        state.pooled.fail = true;
+      },
+    ],
+    [
+      "disappearance",
+      (state) => {
+        // The pooled read's backend is gone from the census taken after it; the same-role runner remains.
+        state.db.sessions = state.db.sessions.filter((session) => session.pid !== POOLER_PID);
+      },
+    ],
+    [
+      "recycle-only",
+      (state) => {
+        // A same-role backend that started one recycle after the old pooler, with no same-run read naming it.
+        state.db.sessions[0] = { ...state.db.sessions[0], pid: 4243, backend_start: RECYCLED_START };
+      },
+    ],
+  ])("refuses %s attribution and leaves every backend unknown", async (_, mutate) => {
+    const state = world();
+    mutate(state);
+    const { fields } = await capture(state);
+    const sessions = fields["writers.session"];
+    expect(sessions.items.length).toBeGreaterThan(0);
+    expect(sessions.items.every((item) => item.roleDigest === roleDigest(POOL_USER))).toBe(true);
+    expect(sessions.items.every((item) => item.classification === "unknown" && item.revisions.length === 0)).toBe(true);
+  });
+
+  it("has no termination, cancellation, signal or disablement path by source guard", () => {
+    const termination =
+      /pg_terminate_backend|pg_cancel_backend|process\.kill\s*\(|\.kill\s*\(|\bSIG(?:TERM|KILL|INT|HUP)\b|ALTER\s+(?:ROLE|USER)|NOLOGIN|REVOKE\s|DROP\s+(?:ROLE|USER)|\bdoctl\b|connection[-_]pool[\s\S]{0,40}delete|method:\s*"(?:POST|PUT|PATCH|DELETE)"/i;
+    for (const file of ["collections-cutover-authority-capture.mjs", "collections-cutover-authority-packet.mjs"]) {
+      const source = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+      expect(termination.exec(source)?.[0] ?? null, file).toBeNull();
+    }
+    expect(workflowSource).not.toMatch(
+      /pg_terminate_backend|pg_cancel_backend|doctl\s+databases|kubectl\s+(?:delete|scale|patch)/,
+    );
+    for (const sql of [
+      "SELECT pg_terminate_backend(4242)",
+      "SELECT pg_cancel_backend(4242)",
+      "ALTER ROLE synthetic_collections_role NOLOGIN",
+      "REVOKE CONNECT ON DATABASE collections FROM synthetic_collections_role",
+    ]) {
+      expect(() => admitStatement(sql, legacyAnonymousOwnerCountSql, anonymousOwnerObservationSql)).toThrow(
+        "statement-refused",
+      );
+      expect(() => admitPooledStatement(sql)).toThrow("statement-refused");
+    }
+    expect(() => admitCommand("doctl", ["databases", "pool", "delete", "cluster", "collections-runtime"])).toThrow(
+      "command-refused",
+    );
   });
 });

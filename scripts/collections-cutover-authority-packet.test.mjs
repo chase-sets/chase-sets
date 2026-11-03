@@ -383,9 +383,58 @@ describe("named verifier mutants", () => {
 });
 
 const ACTIVATION_MERGED_AT = "2030-01-01T00:00:00.000Z";
+const POOLER_START = "2030-01-02T00:00:00.000Z";
+const POOL_ROLE_DIGEST = "a".repeat(64);
+
+// Per-backend session evidence as the capture emits it: one proven pooler, one same-role unknown backend.
+function sessionSet() {
+  return {
+    collected: 2,
+    authoritativeTotal: 2,
+    items: [
+      {
+        id: "backend:4242",
+        pid: 4242,
+        backendStart: POOLER_START,
+        roleDigest: POOL_ROLE_DIGEST,
+        poolMatch: { pid: true, backendStart: true, role: true },
+        classification: "pooler",
+        revisions: [FLOOR],
+        containsFloor: true,
+      },
+      {
+        id: "backend:4300",
+        pid: 4300,
+        backendStart: "2030-01-02T01:00:00.000Z",
+        roleDigest: POOL_ROLE_DIGEST,
+        poolMatch: { pid: false, backendStart: false, role: true },
+        classification: "unknown",
+        revisions: [],
+        containsFloor: null,
+      },
+    ],
+    source: "synthetic-source",
+    pool: concrete({
+      context: "collections",
+      name: "collections-runtime",
+      mode: "transaction",
+      size: 1,
+      hostDigest: "b".repeat(64),
+      userDigest: POOL_ROLE_DIGEST,
+    }),
+    pooledRead: concrete({ pid: 4242, backendStart: POOLER_START }),
+    holders: {
+      collected: 1,
+      authoritativeTotal: 1,
+      items: [{ id: "capture:synthetic", source: "capture", revisions: [FLOOR], containsFloor: true }],
+      exclusions: [],
+      source: "synthetic-source",
+    },
+  };
+}
 
 function syntheticProviderCapture(target = "staging") {
-  const writers = ["serving", "suspended", "dormant", "rollback", "job", "cronjob", "session"];
+  const writers = ["serving", "suspended", "dormant", "rollback", "job", "cronjob"];
   const gates = ["rollout", "traffic", "job", "cronjob", "rollback-floor", "credential-session-fence"];
   return {
     schemaVersion: PROVIDER_CAPTURE_SCHEMA_VERSION,
@@ -401,6 +450,7 @@ function syntheticProviderCapture(target = "staging") {
       releaseCommit: concrete(FLOOR),
       imageDigests: concrete([`sha256:${"8".repeat(64)}`]),
       ...Object.fromEntries(writers.map((kind) => [`writers.${kind}`, writerSet(kind, `${target}-captured`)])),
+      "writers.session": sessionSet(),
       ...Object.fromEntries(gates.map((gate) => [`gates.${gate}.observeAuthority`, concrete("demonstrated")])),
       deployedCommitAncestry: concrete({
         floor: FLOOR,
@@ -557,5 +607,65 @@ describe("applyProviderCapture", () => {
         capture.schemaVersion = "collections-cutover-provider-capture/v0";
       }),
     ).toEqual(["*|capture|schema-version"]);
+  });
+});
+
+describe("applyProviderCapture session evidence", () => {
+  const packet = () => syntheticCompletePacket(packetModule);
+  const withSession = (mutate) => {
+    const capture = syntheticProviderCapture();
+    mutate(capture.fields["writers.session"], capture);
+    return { capture, result: applyProviderCapture(packet(), capture) };
+  };
+
+  it("keeps unknown backends complete when the pool, pooled read and holders are governed unknowns", () => {
+    const { capture, result } = withSession((session) => {
+      session.items = session.items.filter((item) => item.classification === "unknown");
+      session.collected = session.authoritativeTotal = 1;
+      for (const key of ["pool", "pooledRead", "holders"]) session[key] = unknown();
+    });
+    expect(result).toMatchObject({ verdict: "complete", errors: [], missing: [] });
+    expect(result.packet.writerAuthority.targets.staging.writers.session).toEqual(capture.fields["writers.session"]);
+  });
+
+  it.each([
+    [
+      "an aggregate session:N set",
+      (session, capture) => (capture.fields["writers.session"] = writerSet("session", "x")),
+    ],
+    ["a set without holder evidence", (session) => delete session.holders],
+    ["a set with an ungoverned pool unknown", (session) => (session.pool = { status: "unknown" })],
+    ["a backend item whose id is not its PID", (session) => (session.items[1].id = "backend:4301")],
+    ["an unclassified backend item", (session) => delete session.items[1].classification],
+  ])("folds %s in as a governed unknown, never a complete session set", (_, mutate) => {
+    const { result } = withSession(mutate);
+    expect(result).toMatchObject({ verdict: "bounded-unknown", errors: [] });
+    expect(reasons(result)).toEqual(["staging|writers.session|session-evidence-aggregate"]);
+    const session = result.packet.writerAuthority.targets.staging.writers.session;
+    expect(session).toEqual({
+      status: "unknown",
+      missingAuthority: "aggregate-only session attribution without per-backend pool and holder evidence",
+      hostAction: "re-dispatch the capture for staging at a head that records per-backend sessions",
+    });
+    expect(packetModule.verifyAuthorityPacket(result.packet).verdict).toBe("bounded-unknown");
+  });
+
+  it.each([
+    ["the pooled read names another PID", (session) => (session.pooledRead.value.pid = 4300)],
+    ["the pooled read's backend started at another time", (session) => (session.pooledRead.value.backendStart = "x")],
+    ["the pooled read is a governed unknown", (session) => (session.pooledRead = unknown())],
+    ["the pool user is another role", (session) => (session.pool.value.userDigest = "c".repeat(64))],
+    ["the holder census is a governed unknown", (session) => (session.holders = unknown())],
+    ["the holder census disagrees with its total", (session) => (session.holders.authoritativeTotal = 2)],
+    ["the holder items fall short of the count", (session) => (session.holders.items = [])],
+    ["the row's own pool match is not proven", (session) => (session.items[0].poolMatch.backendStart = false)],
+    ["a same-role backend claims pooler", (session) => (session.items[1].classification = "pooler")],
+  ])("refuses a pooler claim when %s", (_, mutate) => {
+    const capture = syntheticProviderCapture();
+    mutate(capture.fields["writers.session"]);
+    const original = packet();
+    const result = applyProviderCapture(original, capture);
+    expect(result.packet).toBe(original);
+    expect(result).toMatchObject({ verdict: "invalid", errors: ["staging|writers.session|pooler-unproven"] });
   });
 });
