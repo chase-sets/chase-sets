@@ -282,7 +282,7 @@ describe("UCP buy-now readiness AC1", () => {
       postalCode: "60201",
       country: "US",
     };
-    f.sessions.firstPreviewShippingAddress.mockResolvedValueOnce(saved);
+    vi.mocked(f.sessions.firstPreviewShippingAddress).mockResolvedValueOnce(saved);
     const request = input(dto());
     request.request.headers.set("Idempotency-Key", "retry_saved_address");
     expect((await f.restHandlers.create_checkout(request)).ucp.status).toBe("success");
