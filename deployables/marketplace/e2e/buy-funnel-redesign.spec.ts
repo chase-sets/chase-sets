@@ -1,5 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 import { logMarketplaceSeedContractGap } from "./support/seed-contract-gap";
@@ -259,13 +260,13 @@ test.describe("buy funnel redesign — defect verification", () => {
 
   test("buy cart with seeded items shows Estimated total and passes all redesign contracts @marketplace-checkout @browser-e2e-seed", async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(120_000);
 
     await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
     const fallbackResponseBytes: Promise<number>[] = [];
     page.on("response", (response) => {
-      if (response.url().includes("/fake-cdn/assets/pokemon-card-back.png")) {
+      if (response.url().includes("/fake-cdn/assets/pokemon-card-back.png") && response.status() === 200) {
         fallbackResponseBytes.push(response.body().then((body) => body.byteLength));
       }
     });
@@ -328,12 +329,47 @@ test.describe("buy funnel redesign — defect verification", () => {
       })
       .toBeGreaterThan(0);
 
+    const lineImageStates = await cartLines.evaluateAll((lines) =>
+      lines.map((line) => {
+        const images = Array.from(line.querySelectorAll<HTMLImageElement>("img"));
+        const fallbackPath = "/fake-cdn/assets/pokemon-card-back.png";
+        return {
+          fallbackCount: images.filter((image) => image.src.includes(fallbackPath)).length,
+          realImageCount: images.filter((image) => image.src && !image.src.includes(fallbackPath)).length,
+        };
+      }),
+    );
+    const imageLessLineCount = lineImageStates.filter(({ realImageCount }) => realImageCount === 0).length;
+    const fallbackLineCount = lineImageStates.filter(({ fallbackCount }) => fallbackCount > 0).length;
+    expect(fallbackLineCount, "every image-less seeded line must use the optimized fallback").toBe(imageLessLineCount);
+    expect(
+      lineImageStates.every(({ realImageCount, fallbackCount }) => realImageCount === 0 || fallbackCount === 0),
+      "real-image cart lines must not be replaced by the fallback URL",
+    ).toBe(true);
+
     const observedFallbackBytes = await Promise.all(fallbackResponseBytes);
     expect(observedFallbackBytes.length, "the cart fallback must be requested over the network").toBeGreaterThan(0);
     expect(
       Math.max(...observedFallbackBytes),
       "every uncached cart fallback response must fit the AC1 byte budget",
     ).toBeLessThanOrEqual(65_536);
+
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 1024, height: 768 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await expect(fallbackImages.first()).toBeVisible();
+      const fallbackBox = await fallbackImages.first().boundingBox();
+      expect(fallbackBox, `cart fallback must have geometry at ${viewport.width}px`).not.toBeNull();
+      expect(fallbackBox!.width, `cart fallback width at ${viewport.width}px`).toBeGreaterThan(0);
+      expect(fallbackBox!.height, `cart fallback height at ${viewport.width}px`).toBeGreaterThan(0);
+      await captureResponsiveEvidence({
+        page,
+        testInfo,
+        claimId: `cart-fallback-${viewport.width}`,
+      });
+    }
 
     await assertSingleNoticeAtATime(page, "cart with lines");
 

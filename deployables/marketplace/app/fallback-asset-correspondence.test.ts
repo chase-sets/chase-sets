@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { inflateSync } from "node:zlib";
 import { scenarioSeedFallbackAssetPaths } from "@chase-sets/catalog-seed";
@@ -8,8 +8,7 @@ vi.mock("@react-router/dev/vite", () => ({ reactRouter: () => [] }));
 vi.mock("@tailwindcss/vite", () => ({ default: () => [] }));
 
 /**
- * Static correspondence coverage for [#10577 Shrink the cart's 2.9 MB fallback
- * card-back thumbnail](https://github.com/chase-sets/chase-sets/issues/10577).
+ * Static correspondence coverage for the cart and Discovery fallback assets.
  * `contracts/catalog-seed` exports
  * the full `/fake-cdn/assets/` fallback-path list the scenario seed
  * references; this deployable owns `public/` and is the only place that can
@@ -22,7 +21,7 @@ vi.mock("@tailwindcss/vite", () => ({ default: () => [] }));
  * default) means this guard breaks the moment marketplace ever points
  * `publicDir` somewhere else, instead of silently checking the wrong folder.
  */
-describe("marketplace fake-cdn fallback asset correspondence (#10577)", () => {
+describe("marketplace fake-cdn fallback asset correspondence", () => {
   const fallbackAssetExpectations = [
     {
       path: "/fake-cdn/assets/pokemon-card-back.png",
@@ -65,11 +64,18 @@ describe("marketplace fake-cdn fallback asset correspondence (#10577)", () => {
     }
 
     expect(bitDepth).toBe(8);
+    // The optimized payloads intentionally use indexed PNG encoding to meet the
+    // transfer budget while retaining the original aspect and artwork identity.
     expect(colorType).toBe(3);
     expect(sawIend).toBe(true);
     const scanlines = inflateSync(idat);
     expect(scanlines.byteLength).toBe(height * (width + 1));
     return { width, height, scanlines };
+  }
+
+  function assertBudgetedDecodedPng(bytes: Buffer, path: string) {
+    expect(bytes.byteLength, `${path} must fit the fallback transfer budget`).toBeLessThanOrEqual(fallbackByteBudget);
+    return decodeIndexedPng(bytes);
   }
 
   async function resolvePublicAssetPath(urlPath: string): Promise<string> {
@@ -111,12 +117,9 @@ describe("marketplace fake-cdn fallback asset correspondence (#10577)", () => {
     for (const expected of fallbackAssetExpectations) {
       const resolved = await resolvePublicAssetPath(expected.path);
       const bytes = readFileSync(resolved);
-      const decoded = decodeIndexedPng(bytes);
+      const decoded = assertBudgetedDecodedPng(bytes, expected.path);
       const { width, height } = decoded;
 
-      expect(bytes.byteLength, expected.path + " must fit the fallback transfer budget").toBeLessThanOrEqual(
-        fallbackByteBudget,
-      );
       expect(width, expected.path + " must retain enough detail for the 2x 308px consumer").toBeGreaterThanOrEqual(616);
       expect(height).toBe(Math.round((width * expected.originalHeight) / expected.originalWidth));
       decodedAssets.push(decoded.scanlines);
@@ -126,25 +129,12 @@ describe("marketplace fake-cdn fallback asset correspondence (#10577)", () => {
   });
 
   it("rejects oversized and invalid-PNG controls instead of passing by presence", async () => {
-    const isBudgetedDecodedPng = async (bytes: Buffer) => {
-      if (bytes.byteLength > fallbackByteBudget) {
-        return false;
-      }
-
-      try {
-        decodeIndexedPng(bytes);
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    expect(await isBudgetedDecodedPng(Buffer.alloc(fallbackByteBudget + 1))).toBe(false);
-    expect(await isBudgetedDecodedPng(Buffer.from("not a PNG"))).toBe(false);
+    expect(() => assertBudgetedDecodedPng(Buffer.alloc(fallbackByteBudget + 1), "oversized control")).toThrow();
+    expect(() => assertBudgetedDecodedPng(Buffer.from("not a PNG"), "invalid PNG control")).toThrow();
 
     for (const expected of fallbackAssetExpectations) {
       const resolved = await resolvePublicAssetPath(expected.path);
-      expect(statSync(resolved).size).toBeLessThanOrEqual(fallbackByteBudget);
+      assertBudgetedDecodedPng(readFileSync(resolved), expected.path);
     }
   });
 });
