@@ -277,6 +277,15 @@ describe("collectAliasCandidateItems", () => {
     });
     expect(item.secondaryResolutions[0]!.fields).toEqual(item.resolution.fields);
   });
+
+  it("keeps alias and detail placeholders on their own message params", () => {
+    const item = collectAliasCandidateItems([
+      aliasCandidate({ alias_text: "Elsa", alias_type: "printed-name", provider_key: "tcgplayer" }),
+    ])[0]!;
+
+    expect(item.titleParams).toEqual({ alias: "Elsa" });
+    expect(item.detailParams).toEqual({ provider: "tcgplayer", type: "printed-name", confidence: "candidate" });
+  });
 });
 
 function scopeRecord(overrides: Partial<CatalogScopeRecordRow>): CatalogScopeRecordRow {
