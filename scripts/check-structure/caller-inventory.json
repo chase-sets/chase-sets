@@ -35,13 +35,13 @@
       "result": "hosted sanitized evidence preparation"
     },
     {
-      "path": ".orchestrator/logs/10050-impl-g14.precheckSCorpus-preflight.mjs",
+      "path": ".github/workflows/10062-bootstrap-db-input-capture.yml",
       "line": 18,
       "operation": "git rev-parse HEAD; git diff; git ls-tree",
       "deadline": 10000,
       "owner": "host-owned #10050 preflight replay",
       "result": "host extraction and repaired replay through the seam",
-      "artifactSha256": "240ee48cb0cc9d6d9b7e20b01cd67d143334361aa89dbbff0e4d610f611fe8ed"
+      "artifactSha256": "bc521a1c946a05a05c1177c4c418114578928b3d9025da027c3f195df4d04409"
     },
     {
       "path": "deployables/tcgplayer-operator-extension/tests/e2e/artifact-reporter.ts",
