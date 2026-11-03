@@ -652,12 +652,13 @@ describe("applyProviderCapture session evidence", () => {
 
   it.each([
     ["the pooled read names another PID", (session) => (session.pooledRead.value.pid = 4300)],
-    ["the pooled read's backend started at another time", (session) => (session.pooledRead.value.backendStart = "x")],
+    [
+      "the pooled read's backend started at another time",
+      (session) => (session.pooledRead.value.backendStart = "2030-01-02T00:00:01.000Z"),
+    ],
     ["the pooled read is a governed unknown", (session) => (session.pooledRead = unknown())],
     ["the pool user is another role", (session) => (session.pool.value.userDigest = "c".repeat(64))],
     ["the holder census is a governed unknown", (session) => (session.holders = unknown())],
-    ["the holder census disagrees with its total", (session) => (session.holders.authoritativeTotal = 2)],
-    ["the holder items fall short of the count", (session) => (session.holders.items = [])],
     ["the row's own pool match is not proven", (session) => (session.items[0].poolMatch.backendStart = false)],
     ["a same-role backend claims pooler", (session) => (session.items[1].classification = "pooler")],
   ])("refuses a pooler claim when %s", (_, mutate) => {
@@ -667,5 +668,55 @@ describe("applyProviderCapture session evidence", () => {
     const result = applyProviderCapture(original, capture);
     expect(result.packet).toBe(original);
     expect(result).toMatchObject({ verdict: "invalid", errors: ["staging|writers.session|pooler-unproven"] });
+  });
+
+  it.each([
+    [
+      "holder evidence carrying a value instead of items",
+      "holders",
+      (session) =>
+        (session.holders = { collected: 1, authoritativeTotal: 1, value: "not-items", source: "synthetic-source" }),
+    ],
+    ["holder evidence that disagrees with its total", "holders", (session) => (session.holders.authoritativeTotal = 2)],
+    ["holder items that fall short of the count", "holders", (session) => (session.holders.items = [])],
+    [
+      "holder evidence with a non-integer count",
+      "holders",
+      (session) => (session.holders.collected = session.holders.authoritativeTotal = "1"),
+    ],
+    ["pool evidence without a user digest", "pool", (session) => delete session.pool.value.userDigest],
+    ["pool evidence with a scalar value", "pool", (session) => (session.pool.value = "collections-runtime")],
+    ["pool evidence of another pool", "pool", (session) => (session.pool.value.name = "synthetic-other-pool")],
+    [
+      "pooled-read evidence carrying items instead of a value",
+      "pooledRead",
+      (session) => (session.pooledRead = { items: [], source: "synthetic-source" }),
+    ],
+    [
+      "pooled-read evidence whose backend start is not an instant",
+      "pooledRead",
+      (session) => (session.pooledRead.value.backendStart = "x"),
+    ],
+  ])("refuses %s as a structured error and never throws", (_, key, mutate) => {
+    const claimed = syntheticProviderCapture();
+    mutate(claimed.fields["writers.session"]);
+    const original = packet();
+    let result;
+    expect(() => (result = applyProviderCapture(original, claimed))).not.toThrow();
+    expect(result.packet).toBe(original);
+    expect(result).toMatchObject({
+      verdict: "invalid",
+      errors: [`staging|writers.session|${key}-malformed`, "staging|writers.session|pooler-unproven"],
+    });
+    // The same malformed evidence refuses a capture whose backends all stay unknown.
+    const unclaimed = syntheticProviderCapture();
+    const session = unclaimed.fields["writers.session"];
+    session.items = session.items.filter((item) => item.classification === "unknown");
+    session.collected = session.authoritativeTotal = 1;
+    mutate(session);
+    expect(applyProviderCapture(packet(), unclaimed)).toMatchObject({
+      verdict: "invalid",
+      errors: [`staging|writers.session|${key}-malformed`],
+    });
   });
 });

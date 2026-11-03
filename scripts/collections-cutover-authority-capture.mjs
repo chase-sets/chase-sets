@@ -877,9 +877,27 @@ async function listWorkflowRuns(request, repository, workflow, since) {
     typeof run.status === "string" &&
     typeof run.event === "string";
   if (!runs.every(valid)) return { status: "unknown", reason: "malformed" };
+  // A run binds its holder to the commit it executes; a run without one names no revision at all.
+  if (!runs.every((run) => typeof run.head_sha === "string" && SHA40.test(run.head_sha)))
+    return { status: "unknown", reason: "run-head-malformed" };
   if (new Set(runs.map((run) => run.id)).size !== runs.length) return { status: "unknown", reason: "census-duplicate" };
   return { status: "complete", runs };
 }
+
+const EXECUTING = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
+// A listed job is authority only for the run, attempt and head it was requested for, with a coherent result.
+const jobRecord = (job, run) =>
+  isObject(job) &&
+  Number.isSafeInteger(job.id) &&
+  job.id > 0 &&
+  job.run_id === run.id &&
+  job.run_attempt === run.run_attempt &&
+  job.head_sha === run.head_sha &&
+  typeof job.name === "string" &&
+  job.name.length > 0 &&
+  (job.status === "completed"
+    ? typeof job.conclusion === "string" && job.conclusion.length > 0
+    : EXECUTING.has(job.status) && job.conclusion === null);
 
 async function listAttemptJobs(request, repository, run) {
   const result = await request(
@@ -890,12 +908,34 @@ async function listAttemptJobs(request, repository, run) {
   if (!Number.isSafeInteger(body?.total_count) || !Array.isArray(body.jobs))
     return { status: "unknown", reason: "malformed" };
   if (body.total_count > RUN_PAGE_LIMIT) return { status: "unknown", reason: "jobs-page-bound" };
-  return body.jobs.length === body.total_count
-    ? { status: "complete", jobs: body.jobs }
-    : { status: "unknown", reason: "census-mismatch" };
+  if (body.jobs.length !== body.total_count) return { status: "unknown", reason: "census-mismatch" };
+  if (!body.jobs.every((job) => jobRecord(job, run))) return { status: "unknown", reason: "job-identity" };
+  if (new Set(body.jobs.map((job) => job.id)).size !== body.jobs.length)
+    return { status: "unknown", reason: "census-duplicate" };
+  return { status: "complete", jobs: body.jobs };
 }
 
-const EXECUTING = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
+/**
+ * Exactly one listed job owns each pooled step, matched by its declared name. A templated name cannot be matched,
+ * and a missing, duplicated, skipped or red owning job is not holder authority: the run stays unknown.
+ */
+function owningJobs(steps, jobs) {
+  const ids = new Set();
+  for (const step of steps) {
+    if (unresolvedText(step.jobName)) return { status: "unknown", reason: "job-name-unresolved" };
+    const matched = jobs.filter((job) => job.name === step.jobName);
+    if (matched.length === 0) return { status: "unknown", reason: "owning-job-missing" };
+    if (matched.length > 1) return { status: "unknown", reason: "owning-job-ambiguous" };
+    const [job] = matched;
+    if (job.status === "completed" && job.conclusion === "skipped")
+      return { status: "unknown", reason: "owning-job-skipped" };
+    if (job.status === "completed" && job.conclusion !== "success")
+      return { status: "unknown", reason: "owning-job-red" };
+    ids.add(job.id);
+  }
+  return { status: "complete", jobIds: [...ids].sort((left, right) => left - right) };
+}
+
 const SAFE_EVENT = /^[a-z_]{1,40}$/;
 const RUN_ID = /^[1-9][0-9]{0,19}$/;
 const RUN_ATTEMPT = /^[1-9][0-9]{0,3}$/;
@@ -989,12 +1029,10 @@ async function censusHolders({
       const jobs = await listAttemptJobs(request, repository, run);
       if (jobs.status !== "complete")
         return { status: "unknown", blocked: [["holders", jobs.reason, `${entry.id}: ${jobs.reason}`]] };
-      const names = new Set(owning.map((step) => step.jobName));
-      const jobIds = jobs.jobs
-        .filter((job) => names.has(job?.name) && Number.isSafeInteger(job.id))
-        .map((job) => job.id)
-        .sort((left, right) => left - right);
-      items.push({ ...entry, source: "workflow-run", jobIds, ...credential, ...bound(run.head_sha) });
+      const owned = owningJobs(owning, jobs.jobs);
+      if (owned.status !== "complete")
+        return { status: "unknown", blocked: [["holders", owned.reason, `${entry.id}: ${owned.reason}`]] };
+      items.push({ ...entry, source: "workflow-run", jobIds: owned.jobIds, ...credential, ...bound(run.head_sha) });
     }
   }
   items.push(...kubernetes.holders);
@@ -1090,6 +1128,13 @@ const HOST_ACTIONS = {
   "reusable-holder": "attribute the reusable workflow's pooled step to its callers' runs",
   "run-page-bound": `raise MAX_RUN_PAGES above ${MAX_RUN_PAGES} pages of ${RUN_PAGE_LIMIT}`,
   "jobs-page-bound": `page the attempt job list beyond ${RUN_PAGE_LIMIT} jobs`,
+  "run-head-malformed": "retry once every listed run reports its 40-hex head_sha",
+  "job-identity": "retry; the attempt job list named another run, attempt or head, or a job without a coherent result",
+  "job-name-unresolved": "give the holder job a literal name so its run's owning job can be matched",
+  "owning-job-missing": "retry once the executing run lists the job that owns each pooled step",
+  "owning-job-ambiguous": "give each holder job a unique literal name so exactly one listed job owns each pooled step",
+  "owning-job-skipped": "retry once the executing run settles; a skipped owning job is not holder authority",
+  "owning-job-red": "retry once the executing run settles; a red owning job is not holder authority",
   repository: "run the capture in GitHub Actions so GITHUB_REPOSITORY names the repository",
   unavailable: "wire the capture's read dependency",
 };

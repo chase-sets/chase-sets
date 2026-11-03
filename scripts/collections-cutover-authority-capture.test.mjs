@@ -471,8 +471,25 @@ function fakeRequest(state, record) {
     }
     const jobs = /\/actions\/runs\/([0-9]+)\/attempts\/([0-9]+)\/jobs\?per_page=100$/.exec(url);
     if (jobs) {
-      const list = state.github.jobs[`${jobs[1]}/${jobs[2]}`] ?? [];
-      return { ok: true, stdout: JSON.stringify({ total_count: list.length, jobs: list }) };
+      const entry = state.github.jobs[`${jobs[1]}/${jobs[2]}`] ?? [];
+      if (entry.fail) return { ok: false, reason: entry.fail };
+      const list = Array.isArray(entry) ? entry : entry.items;
+      // GitHub binds every job record to its run, attempt and head; a fixture's own fields override that binding.
+      const run = Object.values(state.github.runs)
+        .flatMap((runs) => runs.items ?? runs.pages?.flat() ?? [])
+        .find((candidate) => candidate.id === Number(jobs[1]));
+      const records = list.map((job) => {
+        const status = job.status ?? "in_progress";
+        return {
+          run_id: Number(jobs[1]),
+          run_attempt: Number(jobs[2]),
+          head_sha: run?.head_sha,
+          status,
+          conclusion: status === "completed" ? "success" : null,
+          ...job,
+        };
+      });
+      return { ok: true, stdout: JSON.stringify({ total_count: entry.total ?? records.length, jobs: records }) };
     }
     throw new Error("unexpected-request");
   };
@@ -1741,6 +1758,18 @@ describe("holder-census", () => {
     });
   });
 
+  it("binds an executing run whose owning job already succeeded to that job and its head", async () => {
+    const state = world();
+    Object.assign(state.github.jobs["5002/1"][0], { status: "completed", conclusion: "success" });
+    const { fields } = await capture(state);
+    expect(fields["writers.session"].holders.items.find((item) => item.id === "run:5002/1")).toMatchObject({
+      jobIds: [7001],
+      revisions: [RELEASE],
+      containsFloor: true,
+    });
+    expect(sessionItem(fields, POOLER_PID)).toMatchObject({ classification: "pooler" });
+  });
+
   it("lists a newly found pooled holder and an unresolved-context holder instead of omitting them", async () => {
     const state = world();
     state.workflows[".github/workflows/synthetic-new.yml"] = `name: Synthetic New
@@ -1836,6 +1865,138 @@ jobs:
       {},
     ],
     ["a capture outside GitHub Actions", "repository", () => {}, { repository: undefined }],
+    [
+      "an executing run without a head commit",
+      "run-head-malformed",
+      (state) => {
+        delete state.github.runs["synthetic-digest.yml"].items[1].head_sha;
+      },
+      {},
+    ],
+    [
+      "a settled run whose head is not a commit",
+      "run-head-malformed",
+      (state) => {
+        state.github.runs["synthetic-digest.yml"].items[0].head_sha = "not-a-commit";
+      },
+      {},
+    ],
+    [
+      "an attempt job list naming another run",
+      "run:5002/1: job-identity",
+      (state) => {
+        state.github.jobs["5002/1"][0].run_id = 5001;
+      },
+      {},
+    ],
+    [
+      "an attempt job list naming another attempt",
+      "run:5002/1: job-identity",
+      (state) => {
+        state.github.jobs["5002/1"][0].run_attempt = 2;
+      },
+      {},
+    ],
+    [
+      "an attempt job executing another head",
+      "run:5002/1: job-identity",
+      (state) => {
+        state.github.jobs["5002/1"][0].head_sha = PRIOR;
+      },
+      {},
+    ],
+    [
+      "an attempt job without an id",
+      "run:5002/1: job-identity",
+      (state) => {
+        delete state.github.jobs["5002/1"][0].id;
+      },
+      {},
+    ],
+    [
+      "a completed job without a conclusion",
+      "run:5002/1: job-identity",
+      (state) => {
+        state.github.jobs["5002/1"][1].conclusion = null;
+      },
+      {},
+    ],
+    [
+      "a truncated attempt job list",
+      "run:5002/1: census-mismatch",
+      (state) => {
+        state.github.jobs["5002/1"] = { total: 3, items: state.github.jobs["5002/1"] };
+      },
+      {},
+    ],
+    [
+      "an attempt job list past one page",
+      "run:5002/1: jobs-page-bound",
+      (state) => {
+        state.github.jobs["5002/1"] = { total: 101, items: state.github.jobs["5002/1"] };
+      },
+      {},
+    ],
+    [
+      "a forbidden attempt job list",
+      "run:5002/1: github-forbidden",
+      (state) => {
+        state.github.jobs["5002/1"] = { fail: "github-forbidden" };
+      },
+      {},
+    ],
+    [
+      "one job id listed twice",
+      "run:5002/1: census-duplicate",
+      (state) => {
+        state.github.jobs["5002/1"].push({ id: 7002, name: "Synthetic Other", status: "queued" });
+      },
+      {},
+    ],
+    [
+      "a templated owning-job name",
+      "run:5002/1: job-name-unresolved",
+      (state) => {
+        state.workflows[DIGEST_WORKFLOW] = state.workflows[DIGEST_WORKFLOW].replace(
+          "name: Build Synthetic Digest",
+          `name: Build \${{ inputs.environment }}`,
+        );
+        state.github.jobs["5002/1"][0].name = "Build staging";
+      },
+      {},
+    ],
+    [
+      "an executing run without its owning job",
+      "run:5002/1: owning-job-missing",
+      (state) => {
+        state.github.jobs["5002/1"][0].name = "Build linux";
+      },
+      {},
+    ],
+    [
+      "an owning job listed twice",
+      "run:5002/1: owning-job-ambiguous",
+      (state) => {
+        state.github.jobs["5002/1"].push({ id: 7012, name: "Build Synthetic Digest", status: "queued" });
+      },
+      {},
+    ],
+    [
+      "a skipped owning job",
+      "run:5002/1: owning-job-skipped",
+      (state) => {
+        Object.assign(state.github.jobs["5002/1"][0], { status: "completed", conclusion: "skipped" });
+      },
+      {},
+    ],
+    [
+      "a red owning job",
+      "run:5002/1: owning-job-red",
+      (state) => {
+        Object.assign(state.github.jobs["5002/1"][0], { status: "completed", conclusion: "failure" });
+      },
+      {},
+    ],
   ])("%s leaves the holder census unknown and every backend unattributed", async (_, reason, mutate, options) => {
     const state = world();
     mutate(state);

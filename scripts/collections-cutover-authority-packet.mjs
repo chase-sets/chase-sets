@@ -287,6 +287,26 @@ const evidenceShown = (value) =>
   value.status !== "unknown" &&
   text(value.source) &&
   ("value" in value || Array.isArray(value.items));
+const digest64 = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+// The exact shape each shown evidence key must carry before a pooler proof may read it.
+const EVIDENCE_SHAPE = Object.freeze({
+  pool: ({ value }) =>
+    isObject(value) &&
+    value.context === "collections" &&
+    value.name === "collections-runtime" &&
+    value.mode === "transaction" &&
+    integer(value.size) &&
+    value.size > 0 &&
+    digest64(value.hostDigest) &&
+    digest64(value.userDigest),
+  pooledRead: ({ value }) =>
+    isObject(value) && integer(value.pid) && value.pid > 0 && Number.isFinite(instant(value.backendStart)),
+  holders: (set) =>
+    Array.isArray(set.items) &&
+    integer(set.collected) &&
+    set.authoritativeTotal === set.collected &&
+    set.items.length === set.collected,
+});
 
 /**
  * Per-backend session evidence. A set without one `backend:<pid>` item per backend and its pool, pooled-read and
@@ -320,15 +340,15 @@ function sessionEvidence(state, target, value) {
     });
     return unknown;
   }
-  const holders = value.holders;
+  // Shown evidence of the wrong shape refuses the capture whether or not any backend claims pooler.
+  const malformed = SESSION_EVIDENCE.filter((key) => evidenceShown(value[key]) && !EVIDENCE_SHAPE[key](value[key]));
+  for (const key of malformed) state.errors.push(`${target}|writers.session|${key}-malformed`);
   const proven = (item) =>
+    malformed.length === 0 &&
     SESSION_EVIDENCE.every((key) => evidenceShown(value[key])) &&
-    integer(holders.collected) &&
-    holders.collected === holders.authoritativeTotal &&
-    holders.items.length === holders.collected &&
-    value.pooledRead.value?.pid === item.pid &&
-    value.pooledRead.value?.backendStart === item.backendStart &&
-    value.pool.value?.userDigest === item.roleDigest &&
+    value.pooledRead.value.pid === item.pid &&
+    value.pooledRead.value.backendStart === item.backendStart &&
+    value.pool.value.userDigest === item.roleDigest &&
     POOL_MATCH.every((key) => item.poolMatch?.[key] === true);
   if (value.items.some((item) => item.classification === "pooler" && !proven(item)))
     state.errors.push(`${target}|writers.session|pooler-unproven`);
@@ -359,7 +379,8 @@ function slot(parent, key) {
 /**
  * Folds one `collections-cutover-provider-capture/v1` into a copy of `packet`. A capture carrying a non-AC1
  * field or target, a capture taken at or before the activation merge, failure codes, a secret-shaped value,
- * a malformed field or an unproven `pooler` session is refused whole: `errors` is non-empty and `packet` is
+ * a malformed field, malformed pool, pooled-read or holder evidence or an unproven `pooler` session is refused
+ * whole, never thrown: `errors` is non-empty and `packet` is
  * returned untouched. An aggregate-only session set folds in as a governed unknown.
  */
 export function applyProviderCapture(packet, capture) {
