@@ -229,6 +229,7 @@ function createServices() {
       },
       fulfillmentGroups: [],
       customerSafeFacts: ["Ready for checkout."],
+      linePresentations: [],
     })),
     readCart: vi.fn<CheckoutCartServices["readCart"]>(async () => ({
       lines: [],
@@ -784,6 +785,7 @@ describe("checkout cart routes", () => {
       },
       fulfillmentGroups: [],
       customerSafeFacts: ["Some cart items need attention before checkout."],
+      linePresentations: [],
     });
     const { events, telemetry } = collectCheckoutObservabilityEvents();
     const app = buildApp({
@@ -876,6 +878,7 @@ describe("checkout cart routes", () => {
           },
         ],
         customerSafeFacts: ["Ready for checkout.", "Save $4.00 by changing fulfillment before checkout."],
+        linePresentations: [],
       });
       const { events, telemetry } = collectCheckoutObservabilityEvents();
       const app = buildApp({

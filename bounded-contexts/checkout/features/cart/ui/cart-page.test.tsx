@@ -243,7 +243,7 @@ describe("checkout cart page", () => {
     expect(mixedMarkup).toContain("€389.00");
   });
 
-  it("defers the API total while a removal is pending instead of showing the pre-removal total", async () => {
+  it("updates the indicative row and total while a removal is pending instead of showing the pre-removal total", async () => {
     const user = userEvent.setup();
     const secondLine: CheckoutCartLine = {
       ...cartLine,
@@ -258,7 +258,7 @@ describe("checkout cart page", () => {
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
     await user.click(screen.getAllByRole("button", { name: "Remove" })[1]!);
 
-    await waitFor(() => expect(screen.getAllByText("Priced at checkout").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("$778.00").length).toBeGreaterThan(0));
     expect(screen.queryByText("$1,167.00")).toBeNull();
   });
 
