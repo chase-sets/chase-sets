@@ -19,6 +19,7 @@ pub mod combobox;
 pub mod dialog;
 pub mod dropdown_menu;
 pub mod field;
+pub mod icon;
 pub mod input;
 pub mod nav_bar;
 pub mod pagination;
@@ -50,6 +51,7 @@ pub const COMPONENTS: &[Component] = &[
     dialog::Dialog,
     dropdown_menu::DropdownMenu,
     field::Field,
+    icon::Icon,
     input::Input,
     nav_bar::NavBar,
     pagination::Pagination,

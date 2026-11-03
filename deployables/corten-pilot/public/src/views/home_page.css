@@ -56,8 +56,11 @@
   padding: 0;
   margin: -1px;
 }
+/* The kit's Icon in its <span>, at the design system's small size (16px). */
 .icon {
+  display: inline-flex;
   flex: none;
+  font-size: 1rem;
 }
 
 /* Buttons and links that look like them: 44px tall, the design system's tones. */

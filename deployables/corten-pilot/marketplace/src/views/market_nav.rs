@@ -6,9 +6,10 @@
 //! and drawn here, with or without JavaScript; a visitor's cart entry is hidden while it is 0, as
 //! marketplace hides it. A write's redirect draws the header again, and so does the cart page
 //! reading itself again while its write lands, once the cart is found.
-use std::{collections::HashMap, sync::LazyLock};
+use std::collections::HashMap;
 
 use corten::{Local, NavLink, NavLinks, NavTo, prelude::*};
+use platform::ui::icon::{Icon as KitIcon, ds};
 
 use super::marketplace;
 use crate::{
@@ -19,10 +20,6 @@ use crate::{
 
 /// The badge value the cart's entry reads.
 const CART_COUNT: &str = "checkout.cart-count";
-
-/// The design system's glyphs the nav draws (`Icon`'s lucide markup, from scripts/export.mjs).
-static ICONS: LazyLock<HashMap<String, String>> =
-    LazyLock::new(|| serde_json::from_str(include_str!("../../nav-icons.json")).expect("nav-icons.json is the export's output"));
 
 /// An entry's page on the pilot, when the pilot serves it.
 fn own(req: &Req, item: &NavItem) -> Option<Local> {
@@ -195,28 +192,16 @@ fn Entry<'a, K: ClassList, C: Render>(class: K, link: Option<&'a NavLink<'a>>, i
     }
 }
 
-/// A design-system icon (`Icon` at its small size): the lucide glyph the export took, or nothing
-/// for an entry without one.
+/// A design-system icon (`Icon` at its small size, in its `<span>`): the kit's `Icon` with the
+/// glyph the export took, filled where the design system fills it (a rating's star), or nothing for
+/// an entry without one.
 #[component(css = MarketNav)]
 fn Glyph<'a>(name: Option<&'a str>) -> impl Render {
-    let inner = name.and_then(|name| ICONS.get(name));
+    let glyph = name.and_then(ds::named);
+    let filled = name.is_some_and(ds::filled).then_some("true");
     html! {
-        if let Some(inner) = inner {
-            <svg
-                class={Icon}
-                viewBox="0 0 24 24"
-                width="20"
-                height="20"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-                focusable="false"
-            >
-                {raw(inner)}
-            </svg>
+        if let Some(glyph) = glyph {
+            <span class={Icon} data-filled={filled}><KitIcon glyph={glyph} /></span>
         }
     }
 }
