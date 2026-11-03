@@ -354,26 +354,48 @@ test.describe("buy funnel redesign — defect verification", () => {
       "every uncached cart fallback response must fit the AC1 byte budget",
     ).toBeLessThanOrEqual(65_536);
 
-    for (const viewport of [
-      { width: 390, height: 844 },
-      { width: 1024, height: 768 },
-    ]) {
-      await page.setViewportSize(viewport);
-      await expect(fallbackImages.first()).toBeVisible();
-      const fallbackBox = await fallbackImages.first().boundingBox();
-      expect(fallbackBox, `cart fallback must have geometry at ${viewport.width}px`).not.toBeNull();
-      expect(fallbackBox!.width, `cart fallback width at ${viewport.width}px`).toBeGreaterThan(0);
-      expect(fallbackBox!.height, `cart fallback height at ${viewport.width}px`).toBeGreaterThan(0);
-      await captureResponsiveEvidence({
-        page,
-        testInfo,
-        claimId: `cart-fallback-${viewport.width}`,
-      });
-    }
-
     await assertSingleNoticeAtATime(page, "cart with lines");
 
     await captureScreenshot(page, "cart-with-lines");
+  });
+
+  async function assertCartFallbackResponsive(page: Page, width: number, height: number) {
+    await page.setViewportSize({ width, height });
+    await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
+    const fallbackResponseBytes: Promise<number>[] = [];
+    page.on("response", (response) => {
+      if (response.url().includes("/fake-cdn/assets/pokemon-card-back.png") && response.status() === 200) {
+        fallbackResponseBytes.push(response.body().then((body) => body.byteLength));
+      }
+    });
+    await authenticateSeededBuyer(page);
+    await waitForAccountRoute(page, "/account/cart");
+    const fallbackImage = page.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']").first();
+    await expect(fallbackImage).toBeVisible();
+    await expect
+      .poll(() => fallbackImage.evaluate((image) => (image as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+    const box = await fallbackImage.boundingBox();
+    expect(box, `cart fallback must have geometry at ${width}px`).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+    expect(box!.height).toBeGreaterThan(0);
+    const bytes = await Promise.all(fallbackResponseBytes);
+    expect(bytes.length).toBeGreaterThan(0);
+    expect(Math.max(...bytes)).toBeLessThanOrEqual(65_536);
+  }
+
+  test("cart fallback responsive evidence at 390px @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }, testInfo) => {
+    await assertCartFallbackResponsive(page, 390, 844);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "cart-fallback-390" });
+  });
+
+  test("cart fallback responsive evidence at 1024px @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }, testInfo) => {
+    await assertCartFallbackResponsive(page, 1024, 768);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "cart-fallback-1024" });
   });
 
   // ── 4. Checkout session surface (unauthenticated recovery) ────────────────
