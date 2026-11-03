@@ -210,7 +210,11 @@ describe("fulfillment packing slip UI", () => {
       },
     };
     const markup = renderToString(
-      <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={withPlan(letterShipment)} />,
+      <FulfillmentShipmentDetailPage
+        role="seller"
+        backHref="/account/sales/shipments"
+        shipment={withPlan(letterShipment)}
+      />,
     );
 
     expect(markup).toContain("Letter Mailpiece");
