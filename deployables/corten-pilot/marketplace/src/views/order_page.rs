@@ -272,6 +272,9 @@ struct Known<'a> {
     label: &'a str,
     fully_delivered: bool,
     can_cancel: bool,
+    /// Where a buyer whose cancel awaits email verification verifies it, when the order could be
+    /// cancelled (`showVerifyEmailToCancel`).
+    verify_email: Option<&'a str>,
 }
 
 impl<'a> Known<'a> {
@@ -289,6 +292,7 @@ impl<'a> Known<'a> {
             label,
             fully_delivered,
             can_cancel: !fully_delivered && (order.self_service_cancellation_available || pending),
+            verify_email: None,
         }
     }
 
@@ -373,6 +377,7 @@ pub fn OrderPage<'a>(t: OrdersMsg, p: Pilot, screen: &'a OrderScreen) -> impl Re
                 notice={screen.notice.as_deref()}
                 back={&back}
                 may_cancel={screen.may_cancel}
+                verify_email={screen.verify_email.as_deref()}
             />
         } else {
             <div class={Page}>
@@ -393,8 +398,10 @@ fn OrderView<'a>(
     notice: Option<&'a str>,
     back: &'a str,
     may_cancel: bool,
+    verify_email: Option<&'a str>,
 ) -> impl Render {
     let mut facts = Known::of(t, side, order);
+    facts.verify_email = verify_email.filter(|_| facts.can_cancel && !may_cancel);
     facts.can_cancel &= may_cancel;
     let eyebrow = match side {
         Side::Buyer => t.detail_buyer(),
@@ -559,6 +566,13 @@ fn OrderFacts<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
             }
             if let Some(window) = &window {
                 <p class={(Banner, Info)} role="note">{window}</p>
+            }
+            if let Some(verify) = facts.verify_email {
+                <div class={(Banner, Info)} role="note">
+                    <p class={Strong}>{&t.detail_verify_email_to_cancel_title(&lower).to_string()}</p>
+                    <p>{t.detail_verify_email_to_cancel_description()}</p>
+                    <p><a class={Secondary} href={verify}>{t.detail_verify_email()}</a></p>
+                </div>
             }
             <div class={Actions}>
                 if let Some(pay) = &pay {

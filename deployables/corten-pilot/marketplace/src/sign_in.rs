@@ -40,6 +40,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::chrome::Chrome;
+use crate::email_verification::{Purpose, RETURN_PARAMETER};
 use crate::{
     api::{ApiError, Caller, segment},
     app::{Config, Shared, url},
@@ -146,6 +147,10 @@ pub fn context(t: SignInMsg, return_to: &str) -> Option<(&'static str, &'static 
     }
     if path == "/account/listings/new" && has("claimListingIntent") {
         return Some((t.context_listing_draft_title(), t.context_listing_draft_description()));
+    }
+    let purchase = path.strip_prefix("/account/purchases/").is_some_and(|id| !id.is_empty() && !id.contains('/'));
+    if purchase && is(RETURN_PARAMETER, Purpose::CancelPurchase.key()) {
+        return Some((t.context_purchase_cancel_verify_title(), t.context_purchase_cancel_verify_description()));
     }
     None
 }

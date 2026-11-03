@@ -148,6 +148,15 @@ pub struct Actor {
     pub role_key: String,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// Whether an agent acts through an OAuth grant (`agentGrant`): Auth's email-verification
+    /// rule never asks an agent to verify.
+    #[serde(default, rename = "agentGrant", deserialize_with = "present")]
+    pub agent: bool,
+}
+
+/// Whether a field is there and not null, whatever it holds.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(Option::<serde::de::IgnoredAny>::deserialize(d)?.is_some())
 }
 
 impl Actor {

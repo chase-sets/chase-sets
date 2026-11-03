@@ -482,6 +482,15 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // Payout setup: `setter` has not started, `restricted_setter` is restricted with a
             // provider account (its management session asks it to sign in again).
             "setter" | "restricted_setter" => actor(&["payouts.view", "payouts.setup"]),
+            // An owner whose orders.manage Auth withholds until its email is verified, and an agent
+            // acting for an owner with the same permissions (never asked to verify).
+            "unverified" | "unverified_agent" => {
+                let mut actor = json!({ "userId": "usr_buyer", "accountId": "acc_buyer", "roleKey": "owner", "permissions": ["orders.view"] });
+                if session == "unverified_agent" {
+                    actor["agentGrant"] = json!({ "grantId": "agr_1" });
+                }
+                Json(json!({ "actor": actor })).into_response()
+            }
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -6045,6 +6054,53 @@ async fn the_orders_sign_in_and_need_their_permissions() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(!html.contains("/cancel\"") && !text(&html).contains("Cancel purchase"), "{html}");
     assert!(order_calls(&pilot).iter().all(|c| c.method == Method::GET), "nothing was cancelled");
+}
+
+#[tokio::test]
+async fn a_cancel_awaiting_email_verification_offers_the_sign_in_that_verifies_it() {
+    let pilot = Pilot::new().await;
+    let link = "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_open%3FverifyEmail%3Dcancel-purchase&amp;signInMethod=magic-link";
+    // An owner whose orders.manage Auth withheld: no Cancel, and Verify email in its place.
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to cancel this purchase"), "{shown}");
+    assert!(shown.contains("Cancelling needs a verified email."), "{shown}");
+    assert!(html.contains(&format!(r#"href="{link}""#)) && shown.contains("Verify email"), "{html}");
+    assert!(!html.contains("/cancel\"") && !shown.contains("Cancel purchase"), "{html}");
+    // Not when the order cannot be cancelled anyway, not for an agent, and not for a member whose
+    // role does not grant it.
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_packed", Some("unverified"))).await;
+    assert!(!text(&html).contains("Verify your email"), "being packed: {html}");
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified_agent"))).await;
+    assert!(!text(&html).contains("Verify your email"), "an agent: {html}");
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("looker"))).await;
+    assert!(!text(&html).contains("Verify your email"), "a role without it: {html}");
+    // Coming back verified, the purchase reads as it does without the marker.
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open?verifyEmail=cancel-purchase", Some("shopper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Cancel purchase") && !text(&html).contains("Verify your email"), "{html}");
+    assert!(order_calls(&pilot).iter().all(|c| c.method == Method::GET), "nothing was cancelled");
+}
+
+#[tokio::test]
+async fn the_sign_in_says_it_verifies_the_email_to_cancel_a_purchase() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(get(
+            "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_open%3FverifyEmail%3Dcancel-purchase&signInMethod=magic-link",
+            None,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to cancel this purchase"), "{shown}");
+    assert!(shown.contains("Opening the link we send verifies that email"), "{shown}");
+    // Only a purchase's page, and only with the marker.
+    for other in ["%2Faccount%2Fpurchases%2Ford_open", "%2Faccount%2Fsales%2Ford_open%3FverifyEmail%3Dcancel-purchase"] {
+        let (_, _, html) = pilot.send(get(&format!("/sign-in?returnTo={other}"), None)).await;
+        assert!(!text(&html).contains("Verify your email to cancel"), "{other}: {html}");
+    }
 }
 
 #[tokio::test]

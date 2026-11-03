@@ -24,6 +24,7 @@ mod checkout_start;
 mod chrome;
 mod consents;
 mod desk;
+mod email_verification;
 mod form;
 mod imports;
 mod inventory_item;

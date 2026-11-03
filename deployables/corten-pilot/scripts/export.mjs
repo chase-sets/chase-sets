@@ -145,6 +145,10 @@
 // - marketplace/agent-scopes.json: the scope families Auth recognizes (contracts/auth-context's
 //   AGENT_OAUTH_KNOWN_SCOPE_FAMILIES), each family's label and its scopes' labels and descriptions, which
 //   a grant's and a consent's scopes are listed by.
+// - marketplace/email-verification.json: each role's permissions Auth withholds until the member's email
+//   is verified (contracts/auth-context's ROLE_PERMISSIONS within EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS),
+//   which permissionAwaitsEmailVerification reads to offer Verify your email in place of an action. A
+//   workaround until Auth says what it withheld (https://github.com/chase-sets/chase-sets/issues/10987).
 // - marketplace/locales/listing-new.en.json: Create listing's English catalog
 // - marketplace/locales/seller-listing.en.json: the seller's listing page's English catalog
 //   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
@@ -737,7 +741,7 @@ const { platformOperationsReportedContentActionsByTargetType } = await import(
 const { defaultPostagePolicy } = await import(
   pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href
 );
-const { AGENT_OAUTH_KNOWN_SCOPE_FAMILIES } = await import(
+const { AGENT_OAUTH_KNOWN_SCOPE_FAMILIES, EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS, ROLE_PERMISSIONS } = await import(
   pathToFileURL(path.join(repo, "contracts/auth-context/index.ts")).href
 );
 const agentScopes = AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map(({ family, label, scopes }) => ({
@@ -745,6 +749,14 @@ const agentScopes = AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map(({ family, label, scope
   label,
   scopes: scopes.map(({ scope, label, description }) => ({ scope, label, description })),
 }));
+const emailVerification = Object.fromEntries(
+  Object.entries(ROLE_PERMISSIONS)
+    .map(([role, permissions]) => [
+      role,
+      EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS.filter((permission) => permissions.includes(permission)),
+    ])
+    .filter(([, withheld]) => withheld.length > 0),
+);
 const { adminAuthHostConfig } = await import(
   pathToFileURL(path.join(repo, "bounded-contexts/auth/support/route-support/host-config.ts")).href
 );
@@ -1410,6 +1422,7 @@ const outputs = [
     ),
   ],
   ["marketplace/agent-scopes.json", json(agentScopes)],
+  ["marketplace/email-verification.json", json(emailVerification)],
   [
     "marketplace/locales/listing-new.en.json",
     json(
