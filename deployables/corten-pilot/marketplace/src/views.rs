@@ -422,7 +422,7 @@ pub fn Frame<'a, H: Render, C: Render>(
             </head>
             <body data-shell={shell}>
                 if shell {
-                    <MarketNav p={p} viewer={viewer} cart={cart} path={req.path()} />
+                    <MarketNav p={p} req={req} viewer={viewer} cart={cart} />
                 }
                 <main>{children}</main>
             </body>

@@ -2834,6 +2834,51 @@ async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidde
     );
 }
 
+/// Each nav link in `shell` to `href`: whether it is marked current, and its Corten nav group.
+fn nav_links_to(shell: &str, href: &str) -> Vec<(bool, String)> {
+    let at = format!(r#" href="{href}" data-nav="section" data-nav-group=""#);
+    shell
+        .match_indices(&at)
+        .map(|(i, _)| {
+            let tag = &shell[i..i + shell[i..].find('>').unwrap()];
+            let group = tag[at.len()..].split('"').next().unwrap().to_owned();
+            (tag.contains(r#"aria-current="page""#), group)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_nav_marks_the_deepest_entry_that_holds_the_page_in_each_bar() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(!shell.contains("data-nav-path") && !shell.contains("data-nav-rule"), "Corten marks the nav: {shell}");
+    let shipping = nav_links_to(shell, "/account/sales/shipments");
+    assert!(!shipping.is_empty() && shipping.iter().all(|(current, _)| *current), "Shipping is current: {shipping:?} {shell}");
+    let sales = nav_links_to(shell, "/account/sales");
+    assert!(sales.iter().all(|(current, _)| !current), "Sales holds the page but is not the deepest: {sales:?}");
+    // Imports is under Inventory: on its page only Imports is current, on Inventory's only Inventory.
+    let (_, _, html) = pilot.send(get("/account/inventory/imports", Some("seller"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    let imports = nav_links_to(shell, "/account/inventory/imports");
+    assert!(!imports.is_empty() && imports.iter().all(|(current, _)| *current), "{imports:?} {shell}");
+    assert!(nav_links_to(shell, "/account/inventory").iter().all(|(current, _)| !current), "{shell}");
+    let (_, _, html) = pilot.send(get("/account/inventory", Some("seller"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    let inventory = nav_links_to(shell, "/account/inventory");
+    assert!(!inventory.is_empty() && inventory.iter().all(|(current, _)| *current), "{inventory:?} {shell}");
+    assert!(nav_links_to(shell, "/account/inventory/imports").iter().all(|(current, _)| !current), "{shell}");
+    // The top bar's links and the phone's are two groups, each with at most one current link.
+    let mut groups: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for tag in shell.split("<a ").skip(1).map(|rest| &rest[..rest.find('>').unwrap()]) {
+        if let Some((_, group)) = tag.split_once(r#"data-nav-group=""#) {
+            *groups.entry(group.split('"').next().unwrap()).or_default() += usize::from(tag.contains(r#"aria-current="page""#));
+        }
+    }
+    assert_eq!(groups.len(), 2, "{groups:?}");
+    assert!(groups.values().all(|current| *current <= 1), "{groups:?}");
+}
+
 /// The guest cart reads the stand-in received.
 fn guest_cart_reads(pilot: &Pilot) -> Vec<Call> {
     let calls = pilot.stand.calls.lock().unwrap();
