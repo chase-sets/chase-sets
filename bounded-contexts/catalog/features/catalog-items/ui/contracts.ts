@@ -147,6 +147,7 @@ export interface ProductContentsResolvedSnapshot {
   resolvedFactHash: string;
   resolverVersion: number;
   resolvedAt: string;
+  version: number;
 }
 
 export interface ProductContentLineInput {
@@ -161,6 +162,14 @@ export interface ProductContentLineInput {
 export interface ReplaceProductContentsInput {
   containerSelectedOptions?: ProductContentSelectedOption[];
   lines: ProductContentLineInput[];
+  expectedVersion: number;
+}
+
+export interface ProductContentsAuthoringSnapshot {
+  containerCatalogItemId: string;
+  containerSelectedOptions: ProductContentSelectedOption[] | null;
+  lines: ProductContentLineDetail[];
+  version: number;
 }
 
 type LocalizedTextLike = {

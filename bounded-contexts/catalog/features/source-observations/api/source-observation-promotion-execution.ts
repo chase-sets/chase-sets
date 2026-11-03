@@ -444,7 +444,15 @@ async function executeCatalogItemPromotionCommandPlan(input: {
     if (!input.productContents) {
       throw new Error("Product Contents services are required to promote reviewed Product Contents evidence.");
     }
-    await input.productContents.replaceProductContents(input.plan.plan.productContents.replacement, input.context);
+    const replacement = input.plan.plan.productContents.replacement;
+    const authoring = await input.productContents.readProductContentsAuthoringState(
+      replacement.containerCatalogItemId,
+      replacement.containerSelectedOptions,
+    );
+    await input.productContents.replaceProductContents(
+      { ...replacement, expectedVersion: authoring.version },
+      input.context,
+    );
   }
 }
 

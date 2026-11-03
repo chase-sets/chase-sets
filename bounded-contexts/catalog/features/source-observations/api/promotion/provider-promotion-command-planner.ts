@@ -82,7 +82,7 @@ export type CatalogProviderPromotionCommandPlanDiagnostic = Readonly<{
 
 export type CatalogProviderProductContentsPromotionPlan = Readonly<{
   planKind: "product-contents-promotion";
-  replacement: ReplaceProductContentsInput;
+  replacement: Omit<ReplaceProductContentsInput, "expectedVersion">;
   review: Readonly<{
     lineCount: number;
   }>;

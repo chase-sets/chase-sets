@@ -7,6 +7,7 @@ function createSeedServices() {
   const productContents = {
     upsertContentType: vi.fn(async () => undefined),
     upsertInclusionPolicy: vi.fn(async () => undefined),
+    readProductContentsAuthoringState: vi.fn(async () => ({ version: 0 })),
     replaceProductContents: vi.fn(async () => undefined),
   };
   const db = {
