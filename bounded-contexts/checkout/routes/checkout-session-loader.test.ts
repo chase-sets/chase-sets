@@ -262,6 +262,34 @@ describe("checkout web routes: checkout session loader", () => {
     },
   );
 
+  // #10785: Auth withholds orders.manage until the buyer verifies their email, and Payments will not
+  // start a payment without it, so Pay now becomes the verification link instead.
+  it.each([
+    ["an owner whose email is unverified", { roleKey: "owner", permissions: ["orders.view"] }, true],
+    ["an owner who may pay", { roleKey: "owner", permissions: ["orders.view", "orders.manage"] }, false],
+    ["a role that never pays", { roleKey: "fulfillment", permissions: ["orders.view", "fulfillment.view"] }, false],
+  ])("offers email verification instead of Pay now only to %s", async (_label, actor, expected) => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", ...actor });
+    mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_wallet"),
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
+    } as never);
+
+    expect(result.paymentVerifyEmailHref).toBe(
+      expected
+        ? `/sign-in?${new URLSearchParams({ returnTo: "/checkout/buy/session/chk_wallet?verifyEmail=pay-checkout", signInMethod: "magic-link" })}`
+        : null,
+    );
+  });
+
   it("keeps payment start available without fetching a wallet for an actor lacking payouts.view", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_fulfillment",
