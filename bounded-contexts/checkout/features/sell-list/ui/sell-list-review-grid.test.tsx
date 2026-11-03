@@ -60,12 +60,11 @@ function renderGrid() {
 
 function assertDialogFormAssociations() {
   const dialog = screen.getByRole("dialog", { name: "Charizard offers and terms" });
-  expect(within(dialog).getByRole("button", { name: "Continue to seller checkout" })).toHaveAttribute(
-    "form",
+  expect(within(dialog).getByRole("button", { name: "Continue to seller checkout" }).getAttribute("form")).toBe(
     "sell-list-checkout-form",
   );
   expect(within(dialog).getByRole("button", { name: "Remove" }).closest("form")).not.toBeNull();
-  for (const control of within(dialog).container.querySelectorAll<HTMLElement>("[form]")) {
+  for (const control of dialog.querySelectorAll<HTMLElement>("[form]")) {
     expect(document.getElementById(control.getAttribute("form") ?? "")).not.toBeNull();
   }
 }

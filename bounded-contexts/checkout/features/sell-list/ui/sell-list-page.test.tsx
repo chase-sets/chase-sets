@@ -216,7 +216,9 @@ describe("quoted payout and readiness copy", () => {
     );
     expect(screen.getByText("Resolve 3 lines before seller checkout starts.")).toBeTruthy();
     expect(screen.getByText("Offers cannot be accepted yet.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue to seller checkout" })).toBeDisabled();
+    expect((screen.getByRole("button", { name: "Continue to seller checkout" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
   it.each([{ payoutReadiness: { status: "pending", missing_requirements: [] } as const }, { payoutReadiness: null }])(
@@ -233,8 +235,10 @@ describe("quoted payout and readiness copy", () => {
       expect(screen.getByText("Offers cannot be accepted yet.")).toBeTruthy();
       const links = screen.getAllByRole("link", { name: "Review payout requirements" });
       expect(links).toHaveLength(1);
-      expect(links[0]).toHaveAttribute("href", "/account/payouts/setup?returnTo=%2Faccount%2Fdesk%2Foffers");
-      expect(screen.getByRole("button", { name: "Continue to seller checkout" })).toBeDisabled();
+      expect(links[0]?.getAttribute("href")).toBe("/account/payouts/setup?returnTo=%2Faccount%2Fdesk%2Foffers");
+      expect((screen.getByRole("button", { name: "Continue to seller checkout" }) as HTMLButtonElement).disabled).toBe(
+        true,
+      );
     },
   );
 
@@ -257,7 +261,9 @@ describe("quoted payout and readiness copy", () => {
       />,
     );
     expect(screen.getByText("Offers can be accepted after review.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue to seller checkout" })).toBeEnabled();
+    expect((screen.getByRole("button", { name: "Continue to seller checkout" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
   });
 
   it("labels the best offer separately from a multi-offer aggregate", () => {
