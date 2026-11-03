@@ -565,7 +565,7 @@ describe("checkout cart page", () => {
     await user.click(screen.getByRole("button", { name: "Increase" }));
 
     await waitFor(() => expect(screen.getByText("Updating cart")).toBeTruthy());
-    const indicativeRow = screen.getByText("Updating cart").closest("[data-marketplace-cart-line]");
+    const indicativeRow = screen.getByText("Updating cart").closest<HTMLElement>("[data-marketplace-cart-line]");
     expect(indicativeRow).not.toBeNull();
     expect(within(indicativeRow!).getByText("from")).toBeTruthy();
     expect(within(indicativeRow!).getByText("$1,167.00")).toBeTruthy();
@@ -580,7 +580,7 @@ describe("checkout cart page", () => {
     render(<TestCheckoutCartPage cartLines={[lockedLine]} />);
     await user.click(screen.getByRole("button", { name: "Increase" }));
     await waitFor(() => expect(screen.getByText("Updating cart")).toBeTruthy());
-    const lockedRow = screen.getByText("Updating cart").closest("[data-marketplace-cart-line]");
+    const lockedRow = screen.getByText("Updating cart").closest<HTMLElement>("[data-marketplace-cart-line]");
     expect(lockedRow).not.toBeNull();
     expect(within(lockedRow!).getByText("Priced at checkout")).toBeTruthy();
     expect(within(lockedRow!).queryByText("$1,185.00")).toBeNull();

@@ -10,6 +10,7 @@ import {
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
 import { ACCOUNT_CART_ADD_LINE_HANDOFF } from "../support/request-support/account-cart-handoffs";
+import type { CartReadinessLinePresentation } from "../features/cart/domain/readiness";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -209,7 +210,7 @@ describe("checkout web routes: account cart", () => {
       reason: "currency-mismatch" as const,
       price: { state: "deferred" as const, amount: "0.00", currency: "USD" },
     };
-    const readiness = (linePresentation: typeof initialPresentation) => ({
+    const readiness = (linePresentation: CartReadinessLinePresentation) => ({
       loaded: { linePresentations: [linePresentation] },
       declined: { linePresentations: [linePresentation] },
       accepted: null,
