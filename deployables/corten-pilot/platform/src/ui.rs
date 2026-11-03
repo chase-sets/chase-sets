@@ -20,6 +20,7 @@ pub mod dialog;
 pub mod dropdown_menu;
 pub mod field;
 pub mod input;
+pub mod nav_bar;
 pub mod pagination;
 pub mod popover;
 pub mod radio_group;
@@ -28,6 +29,7 @@ pub mod separator;
 pub mod sheet;
 pub mod skeleton;
 pub mod slider;
+pub mod steps;
 pub mod switch;
 pub mod table;
 pub mod tabs;
@@ -49,6 +51,7 @@ pub const COMPONENTS: &[Component] = &[
     dropdown_menu::DropdownMenu,
     field::Field,
     input::Input,
+    nav_bar::NavBar,
     pagination::Pagination,
     popover::Popover,
     radio_group::RadioGroup,
@@ -57,6 +60,7 @@ pub const COMPONENTS: &[Component] = &[
     sheet::Sheet,
     skeleton::Skeleton,
     slider::Slider,
+    steps::Steps,
     switch::Switch,
     table::Table,
     tabs::Tabs,

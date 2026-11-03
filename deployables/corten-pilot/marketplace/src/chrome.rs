@@ -3,9 +3,9 @@
 //!
 //! The count is started as the request arrives (`Chrome`, an extractor every page that draws the
 //! layout takes), so a full load reads it beside the page's own reads and waits for the longer of
-//! the two. It is read only when the layout is drawn: a client navigation or a `data-patch`
-//! answer keeps the header the full load drew, so they start nothing. A page without JavaScript
-//! has the count in its HTML.
+//! the two. It is read only when the layout is drawn: a full load, and the page a write redirects
+//! to, which the runtime fetches whole. A client navigation or a `data-patch` answer keeps the
+//! header, so they start nothing. A page without JavaScript has the count in its HTML.
 use std::{convert::Infallible, sync::Mutex};
 
 use corten::{
@@ -60,7 +60,8 @@ impl FromRequestParts<Shared> for Chrome {
     type Rejection = Infallible;
 
     async fn from_request_parts(parts: &mut Parts, config: &Shared) -> Result<Self, Infallible> {
-        // The runtime keeps the header for a navigation and a `data-patch` answer.
+        // The runtime keeps the header for a navigation and a `data-patch` answer (not for the page
+        // a write redirects to, which it fetches as a document).
         if Mode::of(&parts.headers).swaps() {
             return Ok(Chrome::new(Ahead::ready(None)));
         }

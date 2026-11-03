@@ -716,7 +716,7 @@ async fn render(
     let cart = chrome.cart().await;
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_checkout_marketplace()} head={head}>
-            <views::CheckoutPage t={t} screen={&screen} />
+            <views::CheckoutPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
     if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }

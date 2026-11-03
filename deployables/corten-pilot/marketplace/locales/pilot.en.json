@@ -282,5 +282,10 @@
     "mandate_unsupported": "Spending mandates are not available yet.",
     "activity_unavailable": "Activity is not available yet.",
     "failed": "The change could not be confirmed. The connection is shown as it is now."
+  },
+  "steps": {
+    "done": "(done)",
+    "not_started": "(not started)",
+    "blocked": "(blocked)"
   }
 }

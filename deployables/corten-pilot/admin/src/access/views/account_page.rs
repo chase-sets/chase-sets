@@ -28,6 +28,10 @@ use crate::{
 #[derive(Id)]
 pub struct SecretId;
 
+/// The workspace's tabs (corten-ui's `TabGroup`), whose tabs and panels are named from it.
+#[derive(Id)]
+struct AccountHubId;
+
 /// A form's confirm dialog's id, by its intent and what it acts on.
 fn dialog_id(intent: &str, target: &str) -> String {
     let safe: String = target.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '-' }).collect();
@@ -126,7 +130,7 @@ pub fn AccountPage<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, screen: &'a HubScre
             <p class={Note} role="status">{p.error_pending()}</p>
         }
         <div class={Tabs}>
-            <TabGroup id="account-hub" label={name} tabs={&tabs} selected={selected} />
+            <TabGroup id={AccountHubId} label={name} tabs={&tabs} selected={selected} />
         </div>
     }
 }

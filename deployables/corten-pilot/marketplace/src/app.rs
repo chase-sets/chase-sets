@@ -1772,17 +1772,17 @@ const NETWORK_ONLY: [&str; 10] = [
 
 /// marketplace-web's web app manifest (`routes/manifest.ts`), and its service worker as Corten's
 /// (`corten::pwa`): pages from the network, the offline page when there is none, and the static
-/// files from the cache. Marketplace's `orientation` (`any`, the default) and `categories`
-/// (`shopping`, `productivity`) are not written: Corten's manifest has neither
-/// (todd-skelton/corten#515). The description is in English, as marketplace's is.
+/// files from the cache. The description is in English, as marketplace's is.
 fn pwa() -> corten::pwa::Pwa {
     use corten::{
         i18n::Messages as _,
-        pwa::{Manifest, Pwa},
+        pwa::{Manifest, Orientation, Pwa},
     };
     let t = crate::text::SiteMsg::for_locale("en");
     let manifest = Manifest::new("Chase Sets", "Chase Sets")
         .description(t.manifest_description())
+        .orientation(Orientation::Any)
+        .categories(&["shopping", "productivity"])
         .theme_color("#4845c6")
         .background_color("#f7f5f1")
         .icon(Static::ICONS_CHASE_SETS_192_PNG, "192x192")

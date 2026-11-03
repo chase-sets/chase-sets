@@ -824,6 +824,12 @@ fn checkout_session(id: &str) -> Value {
         "chk_paid" => session["payment_id"] = json!("pay_1"),
         "chk_paydown" => session["payment_id"] = json!("pay_down"),
         "chk_cancelled" => session["cancelled_at"] = json!("2026-10-28T00:00:00.000Z"),
+        // Its one line can no longer be bought, so it cannot be confirmed.
+        "chk_blocked" => {
+            let line = json!(["lst_seed_lugia_neo_genesis_bgs_95"]);
+            session["fulfillment_preview_snapshot"]["readyLineKeys"] = json!([]);
+            session["fulfillment_preview_snapshot"]["unavailableLineKeys"] = line;
+        }
         _ => {}
     }
     session
@@ -835,7 +841,8 @@ const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions/";
 
 /// A buy checkout's reads and writes, as the stand-in answers them. `chk_gone` is not found,
 /// `chk_theirs` is another account's, `chk_down` fails and `chk_slow` has not caught up with
-/// any write; `chk_offer` is a purchase intent and `chk_paid`'s payment has started. Each review
+/// any write; `chk_offer` is a purchase intent, `chk_paid`'s payment has started and
+/// `chk_blocked`'s one line can no longer be bought. Each review
 /// write applies with a receipt (an address in 00000 is one the API cannot deliver to); Pay now
 /// starts `pay_1`, but `chk_stale`'s quote is stale, and `chk_offer`'s Submit offer becomes the
 /// offer `ofr_1` (`chk_offered` already did). Payments quotes $620.00 as the sandbox
@@ -11587,6 +11594,10 @@ async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_
     assert!(page.contains("Available balance $25.00 Payable total $638.83"), "Payments' quote, not one the page makes: {page}");
     assert!(page.contains("Ship to Demo Collector 42 Binder Lane, Evanston, IL 60201, US Ready"), "the saved default: {page}");
     assert!(page.contains("Standard insured: 2026-11-04 - 2026-11-09."), "{page}");
+    // The steps are the kit's: each says its state after its name, a description under it.
+    assert!(html.contains(r#"aria-label="Checkout steps""#), "{html}");
+    assert!(page.contains("Contact (done) Where receipts and updates go Delivery (done)"), "{page}");
+    assert!(page.contains("Payment How you pay Review (not started) Confirm and pay"), "{page}");
     assert!(
         html.contains(
             r#"<form id="checkout-form" class="checkout-page__form" method="post" action="/checkout/buy/session/chk_1""#
@@ -11628,6 +11639,16 @@ async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_
     let calls: Vec<String> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
     assert!(!calls.iter().any(|p| p == "/api/settlement/wallet" || p.ends_with("/ship-from-addresses")), "{calls:?}");
     assert!(calls.iter().any(|p| p.contains("requestedBalanceCreditAmount=0.00")), "{calls:?}");
+}
+
+#[tokio::test]
+async fn a_checkout_that_cannot_be_confirmed_draws_review_as_blocked() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_blocked", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Review (blocked) Confirm and pay"), "{page}");
+    assert!(!page.contains("Review (not started)"), "{page}");
 }
 
 #[tokio::test]
@@ -17029,13 +17050,15 @@ async fn a_connections_manual_sync_shows_channels_panel_and_its_writes() {
     assert_eq!(headers[header::CONTENT_DISPOSITION], "attachment; filename=\"tcgplayer-staged-run_1.csv\"");
     assert!(!headers.get_all(header::SET_COOKIE).iter().any(|c| c == "leak=1"), "{headers:?}");
     assert!(csv.starts_with("TCGplayer Id,Add to Quantity"), "{csv}");
-    // A refused download goes back to the connection, which says so.
-    let (status, headers, _) =
+    // A refused download is the connection, which says so, as the panel's other writes are.
+    let (status, headers, html) =
         pilot.send(post(&download, "channeler", "intent=download&runId=run_1&expectedRevision=1", false)).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers[header::LOCATION], "/account/channels/conn_active?manual=failed");
-    let (_, _, html) = pilot.send(get("/account/channels/conn_active?manual=failed", Some("channeler"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(headers[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/html"), "{headers:?}");
     assert!(text(&html).contains("Manual sync action failed Reload the current run state"), "{html}");
+    // Without a run there is nothing to download: the connection, saying the action was not valid.
+    let (status, _, html) = pilot.send(post(&download, "channeler", "intent=download", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
 
     // Compose without a newer Staged export says to ingest one; Release goes back to the connection.
     let write = format!("{CONNECTION}/manual-sync");
@@ -17594,6 +17617,7 @@ async fn the_site_files_are_marketplaces() {
     assert_eq!(manifest["description"], "Purchase and sell trading cards.");
     assert_eq!(manifest["theme_color"], "#4845c6");
     assert_eq!(manifest["background_color"], "#f7f5f1");
+    assert_eq!((&manifest["orientation"], &manifest["categories"]), (&json!("any"), &json!(["shopping", "productivity"])));
     let icons = manifest["icons"].as_array().unwrap();
     assert_eq!(icons.len(), 4);
     for icon in icons {

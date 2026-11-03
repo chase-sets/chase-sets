@@ -160,7 +160,7 @@ pub const OFFLINE: &[Component] = &[OfflinePage];
 
 /// The buy checkout page (`/checkout/buy/session/{id}`) and the script that says a changed field
 /// needs its totals updated.
-pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMPONENT];
+pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMPONENT, platform::ui::steps::Steps];
 
 /// Checkout start's components (`/checkout/buy/readiness`).
 pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
@@ -284,6 +284,7 @@ pub const SHIPMENTS: &[Component] = &[ShipmentPage];
 pub const SALE_SHIPMENTS: &[Component] = &[
     ShipmentPage,
     PackingPage,
+    platform::ui::steps::Steps,
     packing_page::handlers::COMPONENT,
     corten_ui::CopyButton,
     PackingSlipsPage,
@@ -688,7 +689,7 @@ pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crat
     let check_out = readiness.map(|r| &r.declined).filter(|s| s.status == "ready");
     let lower_price = readiness.and_then(|r| r.accepted.as_ref()).filter(|_| screen.offer());
     let (search, resolve) = (cart_item::link("/search"), url::CheckoutStart.href());
-    // The nav's badge keeps the count this read found (a client navigation keeps the layout).
+    // The nav's badge takes the count this read found: a read again keeps the layout.
     let count = (!screen.pending).then(|| screen.item_count());
     html! {
         if let Some(count) = count {

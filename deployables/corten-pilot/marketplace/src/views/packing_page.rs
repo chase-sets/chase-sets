@@ -21,6 +21,7 @@ use crate::{
     packing::{AttemptInput, LineInput, LineState, Outcome, PackInput, PackingScreen, ScanInput, Scanned, short_reference},
     text::{Pilot, ShipmentsMsg},
 };
+use platform::ui::steps::{Step as KitStep, StepState, Steps as KitSteps};
 
 corten::script::script!(pub mod handlers = "packing.js");
 
@@ -160,17 +161,32 @@ fn PackingView<'a>(
     let description = t.packing_description(&display_reference(&s.order_id), buyer).to_string();
     let step = |current: bool, done: bool| {
         if done {
-            "complete"
+            StepState::Done(p.steps_done())
         } else if current {
-            "current"
+            StepState::Current
         } else {
-            "upcoming"
+            StepState::Todo(p.steps_not_started())
         }
     };
     let steps = [
-        (t.packing_step_review(), t.packing_step_review_description(), step(at.awaiting, !at.awaiting)),
-        (t.packing_step_pack(), t.packing_step_pack_description(), step(at.packing, at.packed)),
-        (t.packing_step_finish(), t.packing_step_finish_description(), step(false, at.packed)),
+        KitStep {
+            label: t.packing_step_review(),
+            description: Some(t.packing_step_review_description()),
+            link: None,
+            state: step(at.awaiting, !at.awaiting),
+        },
+        KitStep {
+            label: t.packing_step_pack(),
+            description: Some(t.packing_step_pack_description()),
+            link: None,
+            state: step(at.packing, at.packed),
+        },
+        KitStep {
+            label: t.packing_step_finish(),
+            description: Some(t.packing_step_finish_description()),
+            link: None,
+            state: step(false, at.packed),
+        },
     ];
     let started = s.packing_started_at.as_deref().unwrap_or(&s.updated_at);
     let started = parse_timestamp(started).map_or_else(
@@ -190,14 +206,7 @@ fn PackingView<'a>(
                 </div>
                 <p class={Actions}><a class={Secondary} href={back}>{t.packing_back()}</a></p>
             </header>
-            <ol class={Steps} aria-label={t.packing_title()}>
-                for (name, detail, state) in steps {
-                    <li class={StepItem} data-state={state} aria-current={(state == "current").then_some("step")}>
-                        <p class={Strong}>{name}</p>
-                        <p class={Muted}>{detail}</p>
-                    </li>
-                }
-            </ol>
+            <KitSteps label={t.packing_title()} steps={&steps} />
             <PackingStatus t={t} p={p} viewer={viewer} id={id} outcome={&screen.outcome} />
             if at.awaiting {
                 <div class={(Banner, Info)}>

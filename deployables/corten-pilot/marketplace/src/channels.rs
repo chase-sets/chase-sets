@@ -19,10 +19,9 @@
 //! answer. Its writes post to `{id}/manual-sync` (an export's ingest, a file, to
 //! `{id}/manual-sync/ingest`) and go back to the connection, or draw it with what was refused; an
 //! ingest draws it with Channels' receipt. Clamp and download posts to `{id}/manual-sync/download`
-//! and answers Channels' CSV. A handler that answers a file cannot answer a page
-//! ([todd-skelton/corten#415](https://github.com/todd-skelton/corten/issues/415)), so a refused
-//! download is relayed as a redirect to the connection with `?manual=failed` (marketplace shows
-//! Channels' JSON instead, [chase-sets/chase-sets#10812](https://github.com/chase-sets/chase-sets/issues/10812)).
+//! and answers Channels' CSV, or, refused, the connection with what was refused, as the other
+//! writes do (`PageOr`; marketplace shows Channels' JSON instead,
+//! [chase-sets/chase-sets#10812](https://github.com/chase-sets/chase-sets/issues/10812)).
 //!
 //! A publication write is made at the configuration version the page was drawn with and answers
 //! the version it made, not a receipt: the page goes to its address with that version and reads
@@ -33,10 +32,10 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
-    Relay,
+    PageOr, Relay,
     axum::{
         body::Body,
-        http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+        http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     },
     prelude::*,
 };
@@ -128,8 +127,6 @@ impl ListPlace {
 #[route(query)]
 pub struct ConnectionPlace {
     pub after_write: Option<String>,
-    /// `failed`: a manual sync download Channels refused.
-    pub manual: Option<String>,
 }
 
 /// A manual sync write: its intent, the run and revision it was made at, and Upload attempt's
@@ -332,7 +329,7 @@ fn refusal_status(status: Option<StatusCode>) -> StatusCode {
 }
 
 fn connection_url<'a>(id: &'a str, receipt: Option<&Receipt>) -> url::ChannelConnection<'a> {
-    url::ChannelConnection { id, place: ConnectionPlace { after_write: receipt.map(Receipt::param), manual: None } }
+    url::ChannelConnection { id, place: ConnectionPlace { after_write: receipt.map(Receipt::param) } }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -348,8 +345,7 @@ async fn render_connection(
     status: StatusCode,
     chrome: &Chrome,
 ) -> HtmlResult {
-    let said = if place.manual.as_deref() == Some("failed") { ManualSaid::Failed } else { ManualSaid::Nothing };
-    render_connection_with(req, viewer, config, headers, id, place, written, error, said, status, chrome).await
+    render_connection_with(req, viewer, config, headers, id, place, written, error, ManualSaid::Nothing, status, chrome).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -654,39 +650,31 @@ pub(crate) async fn manual_sync_ingest(
 }
 
 /// Clamp and download CSV: Channels claims the composed run and sends its Staged batch, passed on
-/// with its type, file name and the run's new revision. A refused download goes back to the
-/// connection with `?manual=failed`: a handler that answers a file cannot answer a page
-/// (todd-skelton/corten#415).
+/// with its type, file name and the run's new revision. A refused download is the connection with
+/// what was refused, as the panel's other writes answer.
 pub(crate) async fn manual_sync_download(
-    _req: Req,
+    req: Req,
+    chrome: Chrome,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<url::channels::ChannelManualSyncDownload<'_>>,
     Form(form): Form<ManualSyncForm>,
-) -> corten::Result<Relay> {
+) -> corten::Result<PageOr<Relay>> {
     if !viewer.actor.can(CHANNELS_MANAGE) {
         return Err(corten::Error::status(StatusCode::FORBIDDEN));
     }
     let id: &str = &route.id;
-    let refused = || {
-        let place = ConnectionPlace { after_write: None, manual: Some("failed".to_owned()) };
-        let to = url::ChannelConnection { id, place }.href();
-        let mut kept = HeaderMap::new();
-        kept.insert(header::LOCATION, HeaderValue::from_str(&to).map_err(corten::Error::new)?);
-        Ok(Relay::new(StatusCode::SEE_OTHER, kept, Body::empty()))
+    let Some(run) = form.run() else {
+        let page =
+            manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Invalid, StatusCode::UNPROCESSABLE_ENTITY, &chrome)
+                .await?;
+        return Ok(page.into());
     };
-    let Some(run) = form.run() else { return refused() };
     let caller = config.platform.caller(&headers, config.proto, None);
     let res = match caller.download_manual_sync(id, run).await {
         Ok(res) => res,
-        Err(error) if matches!(error.status(), Some(StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED)) => {
-            return Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN));
-        }
-        Err(error) => {
-            tracing::warn!("a manual sync download was refused: {error}");
-            return refused();
-        }
+        Err(error) => return Ok(manual_refused(&req, &viewer, &config, &headers, id, error, &chrome).await?.into()),
     };
     let mut kept = HeaderMap::new();
     for name in ["content-type", "content-disposition", "x-channel-sync-run-revision"] {
@@ -695,7 +683,7 @@ pub(crate) async fn manual_sync_download(
         }
     }
     let bytes = res.bytes().await.map_err(|error| corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY))?;
-    Ok(Relay::new(StatusCode::OK, kept, Body::from(bytes)))
+    Ok(Relay::new(StatusCode::OK, kept, Body::from(bytes)).into())
 }
 
 /// The publication list: each connection's settings and mappings to review.
