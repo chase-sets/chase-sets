@@ -166,7 +166,98 @@ describe("quoted payout and readiness copy", () => {
     expect(screen.getByText("Expected payout before seller checkout").parentElement?.textContent).toContain(
       "Not quoted yet",
     );
-    expect(document.body.textContent).not.toContain("$0.00");
+    expectSummary("Future listing gross", "$0.00");
+  });
+
+  it("keeps future listing gross numeric when a create-listing line has no matches", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[productLine]}
+        productOfferReviews={[{ lineId: productLine.line_id, status: "ready", offers: [], message: null }]}
+      />,
+    );
+    expectSummary("Future listing gross", "$399.00");
+    expectSummary("Expected seller payout", "Not quoted yet");
+    expectSummary("Estimated sales fees", "Not quoted yet");
+  });
+
+  it("keeps mixed quoted and unquoted lines unknown everywhere payout is shown", () => {
+    const unquoted = { ...line, line_id: "sll_unquoted", item_title: "Unquoted card", offer_id: "off_unquoted" };
+    render(
+      <CheckoutSellListPage
+        sellListLines={[line, unquoted]}
+        offerReviews={[quote]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Review Charizard offers and terms" }).textContent).toContain(
+      "Best offer net $342.00",
+    );
+    expect(screen.getByRole("button", { name: "Review Unquoted card offers and terms" }).textContent).toContain(
+      "Best offer net Not quoted yet",
+    );
+    expectSummary("Expected seller payout", "Not quoted yet");
+    expectSummary("Estimated sales fees", "Not quoted yet");
+    expect(screen.getByText("Expected payout before seller checkout").parentElement?.textContent).toContain(
+      "Not quoted yet",
+    );
+  });
+
+  it("uses plural blocker copy for three lines without review", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[
+          line,
+          { ...line, line_id: "sll_two", item_title: "Blastoise" },
+          { ...line, line_id: "sll_three", item_title: "Venusaur" },
+        ]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+    expect(screen.getByText("Resolve 3 lines before seller checkout starts.")).toBeTruthy();
+    expect(screen.getByText("Offers cannot be accepted yet.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue to seller checkout" })).toBeDisabled();
+  });
+
+  it.each([{ payoutReadiness: { status: "pending", missing_requirements: [] } as const }, { payoutReadiness: null }])(
+    "shows one recovery link when payout readiness is $payoutReadiness",
+    ({ payoutReadiness }) => {
+      render(
+        <CheckoutSellListPage
+          sellListPath="/account/desk/offers"
+          sellListLines={[line]}
+          offerReviews={[quote]}
+          payoutReadiness={payoutReadiness}
+        />,
+      );
+      expect(screen.getByText("Offers cannot be accepted yet.")).toBeTruthy();
+      const links = screen.getAllByRole("link", { name: "Review payout requirements" });
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveAttribute("href", "/account/payouts/setup?returnTo=%2Faccount%2Fdesk%2Foffers");
+      expect(screen.getByRole("button", { name: "Continue to seller checkout" })).toBeDisabled();
+    },
+  );
+
+  it("shows blocked-line copy even when payout is ready", () => {
+    render(
+      <CheckoutSellListPage sellListLines={[line]} payoutReadiness={{ status: "ready", missing_requirements: [] }} />,
+    );
+    expect(screen.getByText("Some items need action")).toBeTruthy();
+    expect(screen.getByText("Resolve 1 line before seller checkout starts.")).toBeTruthy();
+    expect(screen.getByText("Offers cannot be accepted yet.")).toBeTruthy();
+    expect(screen.queryByText("Payout setup required")).toBeNull();
+  });
+
+  it("enables acceptance copy and Continue when payout and every line are ready", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[line]}
+        offerReviews={[quote]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+    expect(screen.getByText("Offers can be accepted after review.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue to seller checkout" })).toBeEnabled();
   });
 
   it("labels the best offer separately from a multi-offer aggregate", () => {

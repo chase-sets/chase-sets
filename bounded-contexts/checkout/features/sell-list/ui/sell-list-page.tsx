@@ -91,24 +91,6 @@ export function CheckoutSellListPage({
     model.expectedSellerPayout === null
       ? t("checkout.features.sellList.ui.sellListPage.not.quoted.yet")
       : formatMoney(model.expectedSellerPayout);
-  const payoutRequirements = [
-    ...new Set(
-      (payoutReadiness?.missing_requirements ?? []).map((requirement) => {
-        switch (requirement) {
-          case "provider-onboarding":
-            return t("checkout.features.sellList.ui.sellListPage.requirement.payout.setup");
-          case "seller-agreement":
-            return t("checkout.features.sellList.ui.sellListPage.requirement.seller.agreement");
-          case "external_account":
-          case "bank account":
-            return t("checkout.features.sellList.ui.sellListPage.requirement.payout.account");
-          default:
-            return t("checkout.features.sellList.ui.sellListPage.requirement.review");
-        }
-      }),
-    ),
-  ];
-
   const summary = (
     <Stack gap={4}>
       <PriceBreakdown
@@ -125,10 +107,7 @@ export function CheckoutSellListPage({
           },
           {
             label: t("checkout.features.sellList.ui.sellListPage.future.listing.gross"),
-            value:
-              model.futureListingGross === null
-                ? t("checkout.features.sellList.ui.sellListPage.not.quoted.yet")
-                : formatMoney(model.futureListingGross),
+            value: formatMoney(model.futureListingGross),
           },
           {
             label: t("checkout.features.sellList.ui.sellListPage.estimated.sales.fees"),
@@ -316,11 +295,7 @@ export function CheckoutSellListPage({
             <Stack gap={5}>
               <MarketplaceNotice
                 tone={model.canContinue ? "success" : "warning"}
-                title={
-                  !model.canContinue
-                    ? t("checkout.features.sellList.ui.sellListPage.some.items.need.action")
-                    : t("checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout")
-                }
+                title={model.readinessNoticeTitle}
                 description={
                   <Stack gap={2}>
                     {model.blockedLineCount > 0 ? (
@@ -333,13 +308,7 @@ export function CheckoutSellListPage({
                         )}
                       </Text>
                     ) : null}
-                    <Text>
-                      {t(
-                        model.canContinue && isSignedIn
-                          ? "checkout.features.sellList.ui.sellListPage.acceptance.ready"
-                          : "checkout.features.sellList.ui.sellListPage.acceptance.blocked",
-                      )}
-                    </Text>
+                    <Text>{model.acceptanceMessage}</Text>
                   </Stack>
                 }
               />
@@ -355,8 +324,8 @@ export function CheckoutSellListPage({
                   }
                   action={
                     <Inline gap={2}>
-                      {(payoutRequirements.length > 0
-                        ? payoutRequirements
+                      {(model.payoutRequirements.length > 0
+                        ? model.payoutRequirements
                         : [t("checkout.features.sellList.ui.sellListPage.requirement.review")]
                       ).map((requirement) => (
                         <LinkButton key={requirement} href={model.payoutSetupHref} tone="secondary" size="sm">

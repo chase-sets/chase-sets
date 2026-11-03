@@ -806,6 +806,82 @@ test.describe("marketplace critical flows", () => {
     }
   });
 
+  test("demo seller reviews populated Desk offers responsively without mutation @marketplace-checkout", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120_000);
+    await page.goto("/sign-in?returnTo=%2Faccount%2Fdesk%2Foffers");
+    await signInWithPassword(page, new URL(page.url()).origin, marketplaceBrowserE2eSellerCredentials());
+    await expectPageOk(page, "/account/desk/offers");
+    const initial = await page.request.get("/api/marketplace/account/sell-list");
+    expect(initial.status()).toBe(200);
+    const before = (await initial.json()) as { items: unknown[] };
+    expect(before.items).toEqual([]);
+
+    const itemPath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
+    await expectPageOk(page, `${itemPath}&market=sell`);
+    await page
+      .getByRole("button", { name: /Selected product.*Save the selected product for Sell List review/ })
+      .click();
+    await page.getByRole("button", { name: "Add product to Sell List", exact: true }).click();
+    await expect(page).toHaveURL(/\/account\/sell-list/);
+    await expect(page.getByRole("button", { name: "Review Charizard offers and terms", exact: true })).toHaveCount(1);
+    await page.goto("/account/desk/offers");
+    const review = page.getByRole("button", { name: "Review Charizard offers and terms", exact: true });
+    await expect(review).toHaveCount(1);
+    const grid = page.getByTestId("sell-list-review-grid");
+    const assertGrid = async () => {
+      await expect(grid).toBeVisible();
+      await expect(grid.getByRole("button", { name: "Review Charizard offers and terms", exact: true })).toBeVisible();
+      await expect(page.locator("html")).toHaveJSProperty("scrollWidth", expect.any(Number));
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(0);
+    };
+    await page.setViewportSize({ width: 390, height: 844 });
+    await assertGrid();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-grid-390" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await assertGrid();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-grid-1280" });
+
+    await review.click();
+    const dialog = page.getByRole("dialog", { name: "Charizard offers and terms", exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/Charizard/).first()).toBeVisible();
+    await expect(dialog.getByText(/Not quoted yet|\$\d+\.\d{2}/).first()).toBeVisible();
+    await expect(dialog.getByText("Offers cannot be accepted yet.")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Continue to seller checkout" })).toBeDisabled();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-sheet-1280" });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await review.focus();
+    await page.keyboard.press("Enter");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await review.focus();
+    await page.keyboard.press("Space");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await review.click();
+    await expect(dialog).toBeVisible();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-sheet-390" });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
+    const lineResponse = await page.request.get("/api/marketplace/account/sell-list");
+    expect(lineResponse.status()).toBe(200);
+    const lines = (await lineResponse.json()) as { items: Array<{ line_id: string }> };
+    expect(lines.items).toHaveLength(1);
+    await page.request.post("/account/desk/offers", {
+      form: { intent: "remove-sell-list-line", lineId: lines.items[0].line_id },
+    });
+    const after = await page.request.get("/api/marketplace/account/sell-list");
+    expect(after.status()).toBe(200);
+    expect(((await after.json()) as { items: unknown[] }).items).toEqual([]);
+  });
+
   test("compact Sell List recovery revalidates through the browser data router @marketplace-checkout", async ({
     page,
   }) => {

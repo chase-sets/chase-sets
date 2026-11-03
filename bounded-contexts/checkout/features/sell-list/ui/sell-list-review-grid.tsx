@@ -226,216 +226,221 @@ export function SellListReviewGrid({
     ) : null;
 
   return (
-    <Stack gap={4}>
-      <Grid columns={{ base: 1, sm: 2, xl: 3 }} gap={4}>
-        {lines.map((line) => {
-          const offers = offersByLineId.get(line.line_id) ?? [];
-          const bestOffer = offers.reduce<ReviewOffer | null>(
-            (best, offer) =>
-              !best ||
-              moneyNumber(offer.terms?.seller_net_unit_amount) > moneyNumber(best.terms?.seller_net_unit_amount)
-                ? offer
-                : best,
-            null,
-          );
-          const review =
-            line.line_type === "selected-offer"
-              ? offerReviewsByLineId.get(line.line_id)
-              : productOfferReviewsByLineId.get(line.line_id);
-          const bestOfferNet =
-            bestOffer?.terms && offers.every((offer) => offer.terms)
+    <div data-testid="sell-list-review-grid">
+      <Stack gap={4}>
+        <Grid columns={{ base: 1, sm: 2, xl: 3 }} gap={4}>
+          {lines.map((line) => {
+            const offers = offersByLineId.get(line.line_id) ?? [];
+            const bestOffer = offers.reduce<ReviewOffer | null>(
+              (best, offer) =>
+                !best ||
+                moneyNumber(offer.terms?.seller_net_unit_amount) > moneyNumber(best.terms?.seller_net_unit_amount)
+                  ? offer
+                  : best,
+              null,
+            );
+            const review =
+              line.line_type === "selected-offer"
+                ? offerReviewsByLineId.get(line.line_id)
+                : productOfferReviewsByLineId.get(line.line_id);
+            const bestOfferNet = bestOffer?.terms
               ? moneyNumber(bestOffer.terms.seller_net_unit_amount) * Math.min(line.quantity, bestOffer.quantity)
               : null;
-          return (
-            <ProductCard
-              key={line.line_id}
-              title={line.item_title}
-              subtitle={line.item_subtitle ?? line.product_summary ?? undefined}
-              imageSrc={evidenceThumbnail(review)}
-              imageAlt={line.item_title}
-              imageFit="contain"
-              status={
-                <Badge tone={offers.length > 0 ? "success" : "warning"}>
-                  {offers.length > 0
-                    ? t(
-                        offers.length === 1
-                          ? "checkout.features.sellList.ui.sellListPage.offer.count.one"
-                          : "checkout.features.sellList.ui.sellListPage.offer.count.many",
-                        { count: offers.length },
-                      )
-                    : t("checkout.features.sellList.ui.sellListPage.no.ready.matching.offers")}
-                </Badge>
-              }
-              price={t("checkout.features.sellList.ui.sellListPage.best.offer.net", {
-                amount:
-                  bestOfferNet === null
-                    ? t("checkout.features.sellList.ui.sellListPage.not.quoted.yet")
-                    : formatMoney(bestOfferNet),
-              })}
-              meta={t("checkout.features.sellList.ui.sellListPage.card.summary", {
-                quantity: line.quantity,
-                offer: bestOffer ? formatMoney(bestOffer.gross) : "-",
-              })}
-              actionLabel={t("checkout.features.sellList.ui.sellListPage.review.offers.and.terms")}
-              onSelect={() => setActiveLineId(line.line_id)}
-              selectLabel={t("checkout.features.sellList.ui.sellListPage.review.item.offers.and.terms", {
-                item: line.item_title,
-              })}
-            />
-          );
-        })}
-      </Grid>
-
-      {lines.flatMap((line) => {
-        const review = productOfferReviewsByLineId.get(line.line_id);
-        const defaultInventory = inventoryByProductId.get(line.product_id)?.[0] ?? null;
-        if (line.line_type === "selected-offer") {
-          const selectedReview = offerReviewsByLineId.get(line.line_id);
-          return selectedReview?.terms?.fee_quote_fingerprint
-            ? [
-                <HiddenInput
-                  key={`fee:${line.line_id}`}
-                  form="sell-list-checkout-form"
-                  type="hidden"
-                  name={`offerFeeQuoteFingerprint:${line.line_id}`}
-                  value={selectedReview.terms.fee_quote_fingerprint}
-                />,
-              ]
-            : [];
-        }
-        const fallbackFields =
-          activeLineId === line.line_id
-            ? []
-            : [
-                <HiddenInput
-                  key={`fallback:${line.line_id}`}
-                  form="sell-list-checkout-form"
-                  type="hidden"
-                  name={`fallbackMode:${line.line_id}`}
-                  value={
-                    (review?.offers.length ?? 0) >= line.quantity
-                      ? "none"
-                      : defaultInventory
-                        ? "create-listing"
-                        : "none"
-                  }
-                />,
-                <HiddenInput
-                  key={`inventory:${line.line_id}`}
-                  form="sell-list-checkout-form"
-                  type="hidden"
-                  name={`inventoryItemId:${line.line_id}`}
-                  value={defaultInventory?.item_id ?? ""}
-                />,
-                <HiddenInput
-                  key={`price:${line.line_id}`}
-                  form="sell-list-checkout-form"
-                  type="hidden"
-                  name={`priceAmount:${line.line_id}`}
-                  value={line.minimum_listing_price_amount ?? ""}
-                />,
-                <TextInput
-                  key={`price-currency:${line.line_id}`}
-                  form="sell-list-checkout-form"
-                  label={t("checkout.features.sellList.ui.sellListPage.listing.price.currency.code")}
-                  name={`priceCurrencyCode:${line.line_id}`}
-                  placeholder={t("checkout.features.sellList.ui.sellListPage.listing.price.currency.code.placeholder")}
-                  minLength={3}
-                  maxLength={3}
-                  autoCapitalize="characters"
-                  required={Boolean(defaultInventory)}
-                />,
-                <HiddenInput
-                  key={`quantity:${line.line_id}`}
-                  form="sell-list-checkout-form"
-                  type="hidden"
-                  name={`quantityCap:${line.line_id}`}
-                  value={Math.min(line.quantity, defaultInventory?.available_quantity ?? line.quantity)}
-                />,
-              ];
-        return [
-          ...(review?.offers ?? []).flatMap(({ offer, terms }) => [
-            <HiddenInput
-              key={`offer:${line.line_id}:${offer.offer_id}`}
-              form="sell-list-checkout-form"
-              type="hidden"
-              name={`productOfferId:${line.line_id}`}
-              value={offer.offer_id}
-            />,
-            <HiddenInput
-              key={`fee:${line.line_id}:${offer.offer_id}`}
-              form="sell-list-checkout-form"
-              type="hidden"
-              name={`productOfferFeeQuoteFingerprint:${line.line_id}:${offer.offer_id}`}
-              value={terms.fee_quote_fingerprint}
-            />,
-          ]),
-          ...fallbackFields,
-        ];
-      })}
-
-      {bulk.selectedIds.map((id) => (
-        <HiddenInput key={id} form="sell-list-checkout-form" type="hidden" name="bulkOfferId" value={id} />
-      ))}
-
-      <SideSheet
-        width="lg"
-        open={activeLine !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setActiveLineId(null);
-          }
-        }}
-        title={
-          activeLine
-            ? t("checkout.features.sellList.ui.sellListPage.item.offers.and.terms", { item: activeLine.item_title })
-            : t("checkout.features.sellList.ui.sellListPage.review.offers.and.terms")
-        }
-        description={t("checkout.features.sellList.ui.sellListPage.drawer.description")}
-      >
-        {activeLine ? (
-          <Stack gap={4}>
-            <Stack gap={3}>
-              {activeOffers.map((offer) => (
-                <OfferOption
-                  key={offer.id}
-                  offer={offer}
-                  checked={bulk.isSelected(offer.id)}
-                  onCheckedChange={(checked) => bulk.toggle(offer.id, checked)}
-                />
-              ))}
-            </Stack>
-            {activeLine.line_type === "selected-offer" ? (
-              <>
-                {offerReviewsByLineId.get(activeLine.line_id) ? (
-                  <TermsComparison review={offerReviewsByLineId.get(activeLine.line_id)!} />
-                ) : null}
-                <SelectedOfferRow line={activeLine} review={offerReviewsByLineId.get(activeLine.line_id)} />
-              </>
-            ) : (
-              <ProductLineRow
-                line={activeLine}
-                review={productOfferReviewsByLineId.get(activeLine.line_id)}
-                inventoryOptions={inventoryByProductId.get(activeLine.product_id) ?? []}
+            return (
+              <ProductCard
+                key={line.line_id}
+                title={line.item_title}
+                subtitle={line.item_subtitle ?? line.product_summary ?? undefined}
+                imageSrc={evidenceThumbnail(review)}
+                imageAlt={line.item_title}
+                imageFit="contain"
+                status={
+                  <Badge tone={offers.length > 0 ? "success" : "warning"}>
+                    {offers.length > 0
+                      ? t(
+                          offers.length === 1
+                            ? "checkout.features.sellList.ui.sellListPage.offer.count.one"
+                            : "checkout.features.sellList.ui.sellListPage.offer.count.many",
+                          { count: offers.length },
+                        )
+                      : t("checkout.features.sellList.ui.sellListPage.no.ready.matching.offers")}
+                  </Badge>
+                }
+                price={t("checkout.features.sellList.ui.sellListPage.best.offer.net", {
+                  amount:
+                    offers.length === 0
+                      ? "-"
+                      : bestOfferNet === null
+                        ? t("checkout.features.sellList.ui.sellListPage.not.quoted.yet")
+                        : formatMoney(bestOfferNet),
+                })}
+                meta={t("checkout.features.sellList.ui.sellListPage.card.summary", {
+                  quantity: line.quantity,
+                  offer: bestOffer ? formatMoney(bestOffer.gross) : "-",
+                })}
+                actionLabel={t("checkout.features.sellList.ui.sellListPage.review.offers.and.terms")}
+                onSelect={() => setActiveLineId(line.line_id)}
+                selectLabel={t("checkout.features.sellList.ui.sellListPage.review.item.offers.and.terms", {
+                  item: line.item_title,
+                })}
               />
-            )}
-            {bulk.selectedCount === 0 ? (
-              <Button
-                type="submit"
-                form="sell-list-checkout-form"
-                name="intent"
-                value="review-sell-list-checkout"
-                disabled={!canAccept}
-              >
-                {t("checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout")}
-              </Button>
-            ) : null}
-            {bulkToolbar}
-          </Stack>
-        ) : null}
-      </SideSheet>
+            );
+          })}
+        </Grid>
 
-      {activeLine === null ? bulkToolbar : null}
-    </Stack>
+        {lines.flatMap((line) => {
+          const review = productOfferReviewsByLineId.get(line.line_id);
+          const defaultInventory = inventoryByProductId.get(line.product_id)?.[0] ?? null;
+          if (line.line_type === "selected-offer") {
+            const selectedReview = offerReviewsByLineId.get(line.line_id);
+            return selectedReview?.terms?.fee_quote_fingerprint
+              ? [
+                  <HiddenInput
+                    key={`fee:${line.line_id}`}
+                    form="sell-list-checkout-form"
+                    type="hidden"
+                    name={`offerFeeQuoteFingerprint:${line.line_id}`}
+                    value={selectedReview.terms.fee_quote_fingerprint}
+                  />,
+                ]
+              : [];
+          }
+          const fallbackFields =
+            activeLineId === line.line_id
+              ? []
+              : [
+                  <HiddenInput
+                    key={`fallback:${line.line_id}`}
+                    form="sell-list-checkout-form"
+                    type="hidden"
+                    name={`fallbackMode:${line.line_id}`}
+                    value={
+                      (review?.offers.length ?? 0) >= line.quantity
+                        ? "none"
+                        : defaultInventory
+                          ? "create-listing"
+                          : "none"
+                    }
+                  />,
+                  <HiddenInput
+                    key={`inventory:${line.line_id}`}
+                    form="sell-list-checkout-form"
+                    type="hidden"
+                    name={`inventoryItemId:${line.line_id}`}
+                    value={defaultInventory?.item_id ?? ""}
+                  />,
+                  <HiddenInput
+                    key={`price:${line.line_id}`}
+                    form="sell-list-checkout-form"
+                    type="hidden"
+                    name={`priceAmount:${line.line_id}`}
+                    value={line.minimum_listing_price_amount ?? ""}
+                  />,
+                  <TextInput
+                    key={`price-currency:${line.line_id}`}
+                    form="sell-list-checkout-form"
+                    label={t("checkout.features.sellList.ui.sellListPage.listing.price.currency.code")}
+                    name={`priceCurrencyCode:${line.line_id}`}
+                    placeholder={t(
+                      "checkout.features.sellList.ui.sellListPage.listing.price.currency.code.placeholder",
+                    )}
+                    minLength={3}
+                    maxLength={3}
+                    autoCapitalize="characters"
+                    required={Boolean(defaultInventory)}
+                  />,
+                  <HiddenInput
+                    key={`quantity:${line.line_id}`}
+                    form="sell-list-checkout-form"
+                    type="hidden"
+                    name={`quantityCap:${line.line_id}`}
+                    value={Math.min(line.quantity, defaultInventory?.available_quantity ?? line.quantity)}
+                  />,
+                ];
+          return [
+            ...(review?.offers ?? []).flatMap(({ offer, terms }) => [
+              <HiddenInput
+                key={`offer:${line.line_id}:${offer.offer_id}`}
+                form="sell-list-checkout-form"
+                type="hidden"
+                name={`productOfferId:${line.line_id}`}
+                value={offer.offer_id}
+              />,
+              <HiddenInput
+                key={`fee:${line.line_id}:${offer.offer_id}`}
+                form="sell-list-checkout-form"
+                type="hidden"
+                name={`productOfferFeeQuoteFingerprint:${line.line_id}:${offer.offer_id}`}
+                value={terms.fee_quote_fingerprint}
+              />,
+            ]),
+            ...fallbackFields,
+          ];
+        })}
+
+        {bulk.selectedIds.map((id) => (
+          <HiddenInput key={id} form="sell-list-checkout-form" type="hidden" name="bulkOfferId" value={id} />
+        ))}
+
+        <SideSheet
+          width="lg"
+          open={activeLine !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setActiveLineId(null);
+            }
+          }}
+          title={
+            activeLine
+              ? t("checkout.features.sellList.ui.sellListPage.item.offers.and.terms", { item: activeLine.item_title })
+              : t("checkout.features.sellList.ui.sellListPage.review.offers.and.terms")
+          }
+          description={t("checkout.features.sellList.ui.sellListPage.drawer.description")}
+        >
+          {activeLine ? (
+            <Stack gap={4}>
+              <Stack gap={3}>
+                {activeOffers.map((offer) => (
+                  <OfferOption
+                    key={offer.id}
+                    offer={offer}
+                    checked={bulk.isSelected(offer.id)}
+                    onCheckedChange={(checked) => bulk.toggle(offer.id, checked)}
+                  />
+                ))}
+              </Stack>
+              {activeLine.line_type === "selected-offer" ? (
+                <>
+                  {offerReviewsByLineId.get(activeLine.line_id) ? (
+                    <TermsComparison review={offerReviewsByLineId.get(activeLine.line_id)!} />
+                  ) : null}
+                  <SelectedOfferRow line={activeLine} review={offerReviewsByLineId.get(activeLine.line_id)} />
+                </>
+              ) : (
+                <ProductLineRow
+                  line={activeLine}
+                  review={productOfferReviewsByLineId.get(activeLine.line_id)}
+                  inventoryOptions={inventoryByProductId.get(activeLine.product_id) ?? []}
+                />
+              )}
+              {bulk.selectedCount === 0 ? (
+                <Button
+                  type="submit"
+                  form="sell-list-checkout-form"
+                  name="intent"
+                  value="review-sell-list-checkout"
+                  disabled={!canAccept}
+                >
+                  {t("checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout")}
+                </Button>
+              ) : null}
+              {bulkToolbar}
+            </Stack>
+          ) : null}
+        </SideSheet>
+
+        {activeLine === null ? bulkToolbar : null}
+      </Stack>
+    </div>
   );
 }

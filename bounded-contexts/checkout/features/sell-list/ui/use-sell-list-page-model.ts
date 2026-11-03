@@ -71,7 +71,7 @@ export function useSellListPageModel({
       )
     );
   }, 0);
-  const quotedFutureListingGross = productLines.reduce((sum, line) => {
+  const futureListingGross = productLines.reduce((sum, line) => {
     const review = productOfferReviewsByLineId.get(line.line_id);
     const matchedQuantity = (review?.offers ?? []).reduce(
       (quantity, item) => quantity + item.offer.quantity_requested,
@@ -97,7 +97,6 @@ export function useSellListPageModel({
       );
     }, 0);
   const estimatedSalesFees = hasUnquotedOffers ? null : quotedSalesFees;
-  const futureListingGross = hasUnquotedOffers ? null : quotedFutureListingGross;
   const expectedSellerPayout = hasUnquotedOffers ? null : selectedOfferSellerNet + smartMatchSellerNet;
   const lineReadiness = sellListLines.map((line) =>
     line.line_type === "selected-offer"
@@ -142,6 +141,23 @@ export function useSellListPageModel({
     blockedLineCount > 0
       ? t("checkout.features.sellList.ui.sellListPage.readiness.needs.action", { count: blockedLineCount })
       : t("checkout.features.sellList.ui.sellListPage.readiness.ready", { count: readyLineCount });
+  const payoutRequirements = [
+    ...new Set(
+      (payoutReadiness?.missing_requirements ?? []).map((requirement) => {
+        switch (requirement) {
+          case "provider-onboarding":
+            return t("checkout.features.sellList.ui.sellListPage.requirement.payout.setup");
+          case "seller-agreement":
+            return t("checkout.features.sellList.ui.sellListPage.requirement.seller.agreement");
+          case "external_account":
+          case "bank account":
+            return t("checkout.features.sellList.ui.sellListPage.requirement.payout.account");
+          default:
+            return t("checkout.features.sellList.ui.sellListPage.requirement.review");
+        }
+      }),
+    ),
+  ];
 
   return {
     selectedOfferLines,
@@ -161,5 +177,17 @@ export function useSellListPageModel({
     primarySellerCheckoutLabel,
     readinessSummary,
     payoutSetupHref,
+    payoutIsReady,
+    payoutRequirements,
+    readinessNoticeTitle:
+      blockedLineCount > 0
+        ? t("checkout.features.sellList.ui.sellListPage.some.items.need.action")
+        : !payoutIsReady
+          ? t("checkout.features.sellList.ui.sellListPage.payout.setup.required")
+          : t("checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout"),
+    acceptanceMessage:
+      canContinue && isSignedIn
+        ? t("checkout.features.sellList.ui.sellListPage.acceptance.ready")
+        : t("checkout.features.sellList.ui.sellListPage.acceptance.blocked"),
   };
 }
