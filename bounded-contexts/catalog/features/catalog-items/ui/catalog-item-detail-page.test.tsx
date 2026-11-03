@@ -83,7 +83,8 @@ describe("CatalogItemDetailPage", () => {
 
   it("opens stored image URLs on separate lines and refreshes them after save", async () => {
     const storedUrls = ["https://images.example/one.png", "https://images.example/two.png"];
-    const fetch = stubCatalogFetches({ imageUrls: storedUrls });
+    const refreshedItem = vi.fn();
+    const fetch = stubCatalogFetches({ imageUrls: storedUrls, onCatalogItemRead: refreshedItem });
 
     render(<CatalogItemDetailPage id="cat_1" initialData={{ ...catalogItem, image_urls: storedUrls }} />);
     fireEvent.click(screen.getByRole("button", { name: /^Image URLs/ }));
@@ -96,17 +97,7 @@ describe("CatalogItemDetailPage", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Set Image URLs" })).toBeNull());
-    await waitFor(() =>
-      expect(
-        fetch.mock.calls.filter(([request, init]) => {
-          const url =
-            typeof request === "object" && request !== null && "url" in request
-              ? String((request as { url: unknown }).url)
-              : String(request);
-          return url.endsWith("/items/cat_1") && !init?.method;
-        }),
-      ).toHaveLength(1),
-    );
+    await waitFor(() => expect(refreshedItem).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
     dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
     expect((within(dialog).getByLabelText("Image URLs") as HTMLTextAreaElement).value).toBe(storedUrls.join("\n"));
@@ -533,6 +524,7 @@ function stubCatalogFetches(
     contentLines?: unknown[];
     containerLines?: unknown[];
     imageUrls?: string[];
+    onCatalogItemRead?: () => void;
     productContentsSaveError?: string;
     publicationResponses?: Response[];
     recheckDetail?: CatalogItemDetail;
@@ -566,6 +558,7 @@ function stubCatalogFetches(
         );
       }
       if (url.endsWith("/items/cat_1")) {
+        input.onCatalogItemRead?.();
         return jsonResponse({ ...(input.recheckDetail ?? catalogItem), image_urls: imageUrls });
       }
       if (url.includes("/items/cat_1/image-urls") && init?.method === "PUT") {
