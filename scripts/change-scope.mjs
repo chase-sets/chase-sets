@@ -9,6 +9,130 @@ import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
+export class StaticScopeDerivationError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "StaticScopeDerivationError";
+    this.code = code;
+  }
+}
+
+function normalizeStaticChangedPath(filePath, repoRoot) {
+  const absolutePath = path.resolve(repoRoot, filePath);
+  const relativePath = path.relative(repoRoot, absolutePath);
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
+    throw new StaticScopeDerivationError(
+      "STATIC_SCOPE_CHANGED_FILES_INVALID",
+      `changed path is outside the repository: ${filePath}`,
+    );
+  }
+  return relativePath.replaceAll("\\", "/");
+}
+
+function parseChangedFilesJson(value, repoRoot) {
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new StaticScopeDerivationError("STATIC_SCOPE_CHANGED_FILES_INVALID", "CHANGED_FILES_JSON must be valid JSON");
+  }
+  if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== "string" || entry.length === 0)) {
+    throw new StaticScopeDerivationError(
+      "STATIC_SCOPE_CHANGED_FILES_INVALID",
+      "CHANGED_FILES_JSON must be an array of non-empty paths",
+    );
+  }
+  return [...new Set(parsed.map((filePath) => normalizeStaticChangedPath(filePath, repoRoot)))];
+}
+
+export function parseNameStatusZ(output) {
+  const tokens = String(output).split("\0").filter(Boolean);
+  const files = [];
+  for (let index = 0; index < tokens.length; ) {
+    const status = tokens[index++];
+    if (/^[RC]\d*$/.test(status)) {
+      if (index + 1 >= tokens.length) {
+        throw new StaticScopeDerivationError(
+          "STATIC_SCOPE_DIFF_INVALID",
+          `git diff returned an incomplete ${status} record`,
+        );
+      }
+      files.push(tokens[index++], tokens[index++]);
+      continue;
+    }
+    if (!/^[AMDTUXB]$/.test(status) || index >= tokens.length) {
+      throw new StaticScopeDerivationError(
+        "STATIC_SCOPE_DIFF_INVALID",
+        `git diff returned an invalid name-status record near ${status}`,
+      );
+    }
+    files.push(tokens[index++]);
+  }
+  return [...new Set(files)];
+}
+
+export function deriveStaticChangedFiles({
+  repoRoot = rootDir,
+  env = process.env,
+  execGit = (args) => execFileSync("git", args, { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
+} = {}) {
+  if (Object.hasOwn(env, "CHANGED_FILES_JSON") && env.CHANGED_FILES_JSON !== undefined) {
+    return {
+      source: "CHANGED_FILES_JSON",
+      files: parseChangedFilesJson(env.CHANGED_FILES_JSON, repoRoot),
+    };
+  }
+  let insideWorkTree;
+  try {
+    insideWorkTree = execGit(["rev-parse", "--is-inside-work-tree"]).trim();
+  } catch {
+    throw new StaticScopeDerivationError(
+      "STATIC_SCOPE_NOT_GIT_REPOSITORY",
+      "could not confirm that changed-file derivation is running inside a Git worktree",
+    );
+  }
+  if (insideWorkTree !== "true") {
+    throw new StaticScopeDerivationError(
+      "STATIC_SCOPE_NOT_GIT_REPOSITORY",
+      "changed-file derivation is not running inside a Git worktree",
+    );
+  }
+  let mergeBase;
+  try {
+    mergeBase = execGit(["merge-base", "refs/remotes/origin/main", "HEAD"]).trim();
+  } catch {
+    throw new StaticScopeDerivationError(
+      "STATIC_SCOPE_MERGE_BASE_FAILED",
+      "could not derive the merge-base for refs/remotes/origin/main and HEAD",
+    );
+  }
+  if (!mergeBase) {
+    throw new StaticScopeDerivationError(
+      "STATIC_SCOPE_MERGE_BASE_FAILED",
+      "the merge-base for refs/remotes/origin/main and HEAD was empty",
+    );
+  }
+  try {
+    return {
+      source: "git merge-base",
+      files: parseNameStatusZ(
+        execGit(["diff", "--name-status", "-z", "--find-renames", "--diff-filter=ACMRTD", `${mergeBase}...HEAD`, "--"]),
+      ),
+    };
+  } catch (error) {
+    if (error instanceof StaticScopeDerivationError) throw error;
+    throw new StaticScopeDerivationError(
+      "STATIC_SCOPE_DIFF_FAILED",
+      "could not derive changed paths from the merge-base",
+    );
+  }
+}
+
 const docsOnlyPatterns = [/^docs\//, /^artifacts\//, /^\.codex\//, /^README\.md$/, /^AGENTS\.md$/, /^.*\.md$/];
 const platformApiParityDocPatterns = [/^docs\/api\/marketplace\.openapi\.json$/];
 // The source-context wake registry is a static aggregate over per-context
