@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import {
   createMemoryRouter,
   isRouteErrorResponse,
@@ -8,13 +10,18 @@ import {
   useLocation,
   useRouteError,
 } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendCompactPostWriteToken,
   appendFreshWriteToken,
   readFreshWriteTokenState,
 } from "@chase-sets/http/responses";
-import { checkoutRecoveryForKind, createCheckoutRecoveryResponse, isCheckoutRecovery } from "../api/checkout-recovery";
+import {
+  checkoutRecoveryForKind,
+  createCheckoutRecoveryResponse,
+  isCheckoutRecovery,
+  type CheckoutRecoveryKind,
+} from "../api/checkout-recovery";
 import { ErrorBoundary as CheckoutSessionRouteErrorBoundary } from "../../../routes/checkout-session";
 import { CheckoutSessionRecoveryPage, type CheckoutSessionRecoveryPageProps } from "./checkout-recovery-page";
 
@@ -90,6 +97,67 @@ function renderCheckoutSessionRoute(options: {
 }
 
 describe("CheckoutSessionRecoveryPage", () => {
+  it("hydrates every recovery kind and the null-kind fallback from parsed SSR markup", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const kinds: readonly CheckoutRecoveryKind[] = [
+      "access-required",
+      "attempt-changed",
+      "cart-empty",
+      "checkout-closed",
+      "checkout-handoff-expired",
+      "checkout-preparing",
+      "guest-access-expired",
+      "request-validation",
+      "session-not-found",
+      "wrong-account",
+    ];
+
+    try {
+      for (const kind of [...kinds, null] as const) {
+        const recovery = checkoutRecoveryForKind(kind ?? "session-not-found", "/checkout/buy/session/chk_ssr");
+        const element = (
+          <CheckoutSessionRecoveryPage
+            kind={kind}
+            title={kind === null ? "Checkout recovery" : recovery.title}
+            description={kind === null ? "The checkout needs attention." : recovery.description}
+            trustCue={recovery.trustCue}
+            primaryAction={recovery.primaryAction}
+            secondaryAction={recovery.secondaryAction ?? null}
+            currentPath="/checkout/buy/session/chk_ssr"
+            revalidationOptions={{ intervalMs: 60_000 }}
+          />
+        );
+        const container = document.createElement("div");
+        container.innerHTML = renderToString(element);
+        const parsedSection = container.querySelector("section");
+        const parsedStatus = container.querySelector('[role="status"]');
+        expect(parsedSection).not.toBeNull();
+        expect(parsedStatus).not.toBeNull();
+        expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+
+        const recoverableErrors: unknown[] = [];
+        let root: ReturnType<typeof hydrateRoot> | undefined;
+        await act(async () => {
+          root = hydrateRoot(container, element, {
+            onRecoverableError: (error) => recoverableErrors.push(error),
+          });
+        });
+
+        expect(recoverableErrors).toEqual([]);
+        expect(container.querySelector("section")).toBe(parsedSection);
+        expect(container.querySelector('[role="status"]')).toBe(parsedStatus);
+        expect(parsedStatus).toHaveAttribute("aria-live", "polite");
+        expect(parsedStatus).toHaveAttribute("aria-atomic", "true");
+        expect(container.querySelector("h2")?.textContent).toBe(kind === null ? "Checkout recovery" : recovery.title);
+        expect(container.querySelector("a")?.textContent).toBe(recovery.primaryAction.label);
+        root?.unmount();
+      }
+    } finally {
+      expect(consoleError).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    }
+  });
+
   it("revalidates the preparing recovery automatically until checkout becomes pay-ready", async () => {
     const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_happy", checkoutCommit());
     let loaderCalls = 0;

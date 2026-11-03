@@ -1,5 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 import { logMarketplaceSeedContractGap } from "./support/seed-contract-gap";
@@ -318,7 +319,14 @@ test.describe("buy funnel redesign — defect verification", () => {
 
   test("buy checkout session shows access-recovery surface for missing access — not root error @marketplace-checkout", async ({
     page,
-  }) => {
+  }, testInfo) => {
+    const diagnostics: string[] = [];
+    page.on("console", (message) => {
+      if (/hydration|cannot be a descendant|did not match/i.test(message.text())) diagnostics.push(message.text());
+    });
+    page.on("pageerror", (error) => {
+      if (/hydration|cannot be a descendant|did not match/i.test(error.message)) diagnostics.push(error.message);
+    });
     // This is the canonical composition seam test from critical-flows, extended
     // to also verify the redesign contracts hold on the recovery surface.
     const response = await page.goto("/checkout/buy/session/chk_e2e_missing_access", {
@@ -330,6 +338,24 @@ test.describe("buy funnel redesign — defect verification", () => {
     await expect(page.getByRole("heading", { name: /^Checkout access required$/i })).toBeVisible();
     await expect(page.getByText("Your payment has not started.").first()).toBeVisible();
     await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
+
+    expect(diagnostics).toEqual([]);
+    await expect(page.locator("[role='status']")).toHaveCount(1);
+    await expect(page.locator("section div.m-0.mx-auto.max-w-xl")).toBeVisible();
+    await expect(page.locator("section a").first()).toBeVisible();
+
+    await captureResponsiveEvidence({
+      page,
+      testInfo,
+      claimId: "checkout-recovery-390",
+      routePath: "/checkout/buy/session/chk_e2e_missing_access",
+    });
+    await captureResponsiveEvidence({
+      page,
+      testInfo,
+      claimId: "checkout-recovery-1024",
+      routePath: "/checkout/buy/session/chk_e2e_missing_access",
+    });
 
     // Redesign contract: no "Price at checkout" on the recovery surface.
     await assertNoPriceAtCheckoutText(page, "checkout session recovery");

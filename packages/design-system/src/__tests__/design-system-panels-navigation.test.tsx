@@ -78,41 +78,60 @@ import {
 
 describe("design system panels, navigation, and shells", () => {
   it("hydrates plain and flow-content empty-state descriptions without replacing parsed nodes", async () => {
-    const recoverableErrors: unknown[] = [];
-    const element = (
-      <MarketplaceEmptyState
-        title="Nothing here yet"
-        description={
-          <LiveRegion politeness="polite" atomic>
-            We are preparing your checkout.
-          </LiveRegion>
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const cases = [
+        {
+          element: <MarketplaceEmptyState title="No listings" description="There are no listings to show yet." />,
+          expectedStatus: null,
+        },
+        {
+          element: (
+            <MarketplaceEmptyState
+              title="Nothing here yet"
+              description={
+                <LiveRegion politeness="polite" atomic>
+                  We are preparing your checkout.
+                </LiveRegion>
+              }
+            />
+          ),
+          expectedStatus: "We are preparing your checkout.",
+        },
+      ];
+
+      for (const { element, expectedStatus } of cases) {
+        const recoverableErrors: unknown[] = [];
+        const container = document.createElement("div");
+        container.innerHTML = renderToString(element);
+        const parsedSection = container.querySelector("section");
+        const parsedDescription = container.querySelector("section div.m-0.mx-auto.max-w-xl");
+        const parsedStatus = container.querySelector('[role="status"]');
+        expect(parsedSection).not.toBeNull();
+        expect(parsedDescription).not.toBeNull();
+        expect(parsedDescription?.className).toContain("m-0 mx-auto max-w-xl text-sm leading-6 text-secondary");
+        if (expectedStatus) expect(parsedStatus).not.toBeNull();
+
+        let root: ReturnType<typeof hydrateRoot> | undefined;
+        await act(async () => {
+          root = hydrateRoot(container, element, {
+            onRecoverableError: (error) => recoverableErrors.push(error),
+          });
+        });
+
+        expect(recoverableErrors).toEqual([]);
+        expect(container.querySelector("section")).toBe(parsedSection);
+        expect(container.querySelector("section div.m-0.mx-auto.max-w-xl")).toBe(parsedDescription);
+        if (expectedStatus) {
+          expect(container.querySelector('[role="status"]')).toBe(parsedStatus);
+          expect(parsedStatus?.textContent).toBe(expectedStatus);
         }
-      />
-    );
-    const markup = renderToString(element);
-    const container = document.createElement("div");
-    container.innerHTML = markup;
-    const parsedSection = container.querySelector("section");
-    const parsedStatus = container.querySelector('[role="status"]');
-    expect(parsedSection).not.toBeNull();
-    expect(parsedStatus).not.toBeNull();
-
-    const root = hydrateRoot(container, element, {
-      onRecoverableError: (error) => recoverableErrors.push(error),
-    });
-    await act(async () => undefined);
-
-    expect(recoverableErrors).toEqual([]);
-    expect(container.querySelector("section")).toBe(parsedSection);
-    expect(container.querySelector('[role="status"]')).toBe(parsedStatus);
-    expect(container.querySelector('[role="status"]')?.textContent).toBe("We are preparing your checkout.");
-    root.unmount();
-
-    const plainMarkup = renderToString(
-      <MarketplaceEmptyState title="No listings" description="There are no listings to show yet." />,
-    );
-    expect(plainMarkup).toContain("There are no listings to show yet.");
-    expect(plainMarkup).not.toContain('<p class="m-0 mx-auto max-w-xl text-sm leading-6 text-secondary"><div');
+        root?.unmount();
+      }
+    } finally {
+      expect(consoleError).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    }
   });
 
   it("keeps promoted survivors on the root surface and removed compat helpers off it", () => {
