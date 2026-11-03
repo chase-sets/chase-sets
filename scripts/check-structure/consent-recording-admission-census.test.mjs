@@ -152,6 +152,48 @@ function isRecordConsentConstruction(node) {
   );
 }
 
+const argumentCarriers = [
+  ts.isPropertyAssignment,
+  ts.isShorthandPropertyAssignment,
+  ts.isObjectLiteralExpression,
+  ts.isArrayLiteralExpression,
+  ts.isParenthesizedExpression,
+  ts.isAsExpression,
+  ts.isSatisfiesExpression,
+];
+
+/**
+ * The calls a RecordConsent construction is handed to: the call that takes it
+ * as an argument, directly or inside an argument object or array, or, for a
+ * construction bound to a local, every call that local is handed to within its
+ * owning function.
+ */
+function constructionConsumers(node) {
+  let current = node;
+  for (let parent = node.parent; parent; current = parent, parent = parent.parent) {
+    if (ts.isCallExpression(parent)) return parent.arguments.includes(current) ? [parent.expression.getText()] : [];
+    if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+      let scope = parent;
+      while (scope.parent && !ts.isFunctionLike(scope)) scope = scope.parent;
+      const binding = parent.name;
+      const references = [];
+      const isMemberName = (child) =>
+        (ts.isPropertyAssignment(child.parent) || ts.isPropertyAccessExpression(child.parent)) &&
+        child.parent.name === child;
+      const visit = (child) => {
+        if (ts.isIdentifier(child) && child !== binding && child.text === binding.text && !isMemberName(child)) {
+          references.push(child);
+        }
+        ts.forEachChild(child, visit);
+      };
+      visit(scope);
+      return [...new Set(references.flatMap(constructionConsumers))].toSorted();
+    }
+    if (!argumentCarriers.some((carries) => carries(parent))) return [];
+  }
+  return [];
+}
+
 /**
  * Binding-aware recognisers over one program's checker. A Consent service is
  * the Identity services' `consents` member, a binding annotated with
@@ -324,10 +366,15 @@ function censusConsentRecordingAdmissions(overlay = new Map()) {
   const { isHandler } = createBindingRecognisers(program.getTypeChecker());
 
   const constructions = [];
+  const consumedConstructions = [];
   const handlerCalls = [];
   for (const file of scanned) {
     const visit = (node) => {
-      if (isRecordConsentConstruction(node)) constructions.push(`${file} :: ${ownerChain(node)}`);
+      if (isRecordConsentConstruction(node)) {
+        const construction = `${file} :: ${ownerChain(node)}`;
+        constructions.push(construction);
+        consumedConstructions.push({ construction, consumers: constructionConsumers(node) });
+      }
       if (ts.isCallExpression(node) && isHandler(node.expression)) handlerCalls.push(`${file} :: ${ownerChain(node)}`);
       ts.forEachChild(node, visit);
     };
@@ -337,8 +384,23 @@ function censusConsentRecordingAdmissions(overlay = new Map()) {
     surface: { scanned: scanned.size, total: files.size },
     scanned,
     constructions: constructions.toSorted(),
+    consumedConstructions: consumedConstructions.toSorted((left, right) =>
+      left.construction < right.construction ? -1 : left.construction > right.construction ? 1 : 0,
+    ),
     handlerCalls: handlerCalls.toSorted(),
   };
+}
+
+// A construction produces Consent events when a Consent decider folds it, and
+// is authorization-only when its sole consumer is the record-authorization check.
+function partitionConstructionsByConsumer(census) {
+  const partition = { appendProducing: [], authorizationOnly: [], unclassified: [] };
+  for (const { construction, consumers } of census.consumedConstructions) {
+    if (consumers.includes("decideAuthorizedConsent")) partition.appendProducing.push(construction);
+    else if (consumers.join() === "assertConsentRecordAuthorization") partition.authorizationOnly.push(construction);
+    else partition.unclassified.push(construction);
+  }
+  return partition;
 }
 
 function insertBefore(text, anchor, insertion) {
@@ -463,10 +525,23 @@ export function isRecord(command: { type: string }) {
   ["scripts/check-structure/fixtures/zz-restored-write.ts", restoredTestOnlyWrite],
 ]);
 
+// The authorization-only Terms command handed to the Consent decider as well.
+const decidedAuthorizationOnlyOverlay = new Map([
+  [
+    consentRuntimePath,
+    insertBefore(
+      diskText(consentRuntimePath),
+      "  if (input.streamId !== `identity.consent-${input.consentId}`) {",
+      "  void decideAuthorizedConsent(initialConsentState, {\n    command: authorizationOnlyCommand,\n    authorization: input.authorization,\n  });\n",
+    ),
+  ],
+]);
+
 const live = censusConsentRecordingAdmissions();
 const restored = censusConsentRecordingAdmissions(restoredOverlay);
 const planted = censusConsentRecordingAdmissions(plantedOverlay);
 const inert = censusConsentRecordingAdmissions(inertOverlay);
+const decidedAuthorizationOnly = censusConsentRecordingAdmissions(decidedAuthorizationOnlyOverlay);
 
 describe("Consent recording admission census", () => {
   it("leaves exactly runtime Terms and registration append constructions, one authorization-only construction, and withdrawal handler calls", () => {
@@ -481,6 +556,29 @@ describe("Consent recording admission census", () => {
     );
     expect(live.constructions).toEqual([...expectedConstructions, ...authorizationOnlyConstructions].toSorted());
     expect(live.handlerCalls).toEqual(expectedHandlerCalls);
+  });
+
+  it("separates the authorization-only construction from the append-producing ones by the call that consumes each", () => {
+    expect(live.consumedConstructions).toEqual(
+      [
+        { construction: expectedConstructions[0], consumers: ["decideAuthorizedConsent"] },
+        { construction: expectedConstructions[1], consumers: ["decideAuthorizedConsent"] },
+        { construction: authorizationOnlyConstructions[0], consumers: ["assertConsentRecordAuthorization"] },
+      ].toSorted((left, right) => (left.construction < right.construction ? -1 : 1)),
+    );
+    expect(partitionConstructionsByConsumer(live)).toEqual({
+      appendProducing: expectedConstructions.toSorted(),
+      authorizationOnly: authorizationOnlyConstructions,
+      unclassified: [],
+    });
+
+    // Folding the authorization-only command into Consent events moves it out of that class.
+    expect(decidedAuthorizationOnly.constructions).toEqual(live.constructions);
+    expect(partitionConstructionsByConsumer(decidedAuthorizationOnly)).toEqual({
+      appendProducing: [...expectedConstructions, ...authorizationOnlyConstructions].toSorted(),
+      authorizationOnly: [],
+      unclassified: [],
+    });
   });
 
   it("scans the fixture-named admin-QA production module and reports scanned/total candidate files", () => {
