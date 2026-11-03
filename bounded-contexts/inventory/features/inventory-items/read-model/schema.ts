@@ -1,5 +1,4 @@
 import type { BcSchemaMigration, BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
-import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import type { JsonObject } from "@chase-sets/primitives/json";
 
 export const inventoryItemSchemaSql = `
@@ -239,6 +238,18 @@ $migration$`,
            )::bigint::text AS head`,
         );
         const capturedHorizon = BigInt(horizon.rows[0]?.head ?? "0");
+        await query("ALTER TABLE event_store_events DROP CONSTRAINT IF EXISTS inventory_hold_consumed_pair_binding");
+        await query(`ALTER TABLE event_store_events
+          ADD CONSTRAINT inventory_hold_consumed_pair_binding
+          CHECK (
+            event_type <> 'inventory.hold.consumed'
+            OR global_position <= ${capturedHorizon.toString()}::bigint
+            OR (
+              metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NOT NULL
+              AND metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' LIKE 'inventory.item-%'
+              AND metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
+            )
+          ) NOT VALID`);
         await query("LOCK TABLE inventory_item_ledger IN ACCESS EXCLUSIVE MODE");
         type RetainedConsumption = {
           hold_stream_id: string;
@@ -274,6 +285,8 @@ $migration$`,
                SELECT 1 FROM event_store_events AS companion
                WHERE companion.event_type = 'inventory.item.adjusted'
                  AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = consumed.stream_id
+                 AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NOT NULL
+                 AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
                  AND (companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint = consumed.stream_version
              )
            ORDER BY consumed.global_position
@@ -324,11 +337,14 @@ $migration$`,
             (ledgerRow.account_id !== accountId ||
               ledgerRow.item_id !== itemId ||
               ledgerRow.hold_quantity !== Number(quantity) ||
-              ledgerRow.quantity_delta !== null)
+              (ledgerRow.quantity_delta !== null && ledgerRow.quantity_delta !== -Number(quantity)))
           ) {
             throw new Error("consumed-hold handoff failed retained compensation preflight");
           }
           const existing = groups.get(itemId);
+          if (existing && (existing.accountId !== accountId || existing.tenantId !== row.tenant_id)) {
+            throw new Error("consumed-hold handoff failed mixed account or tenant preflight");
+          }
           groups.set(itemId, {
             itemId,
             accountId,
@@ -339,13 +355,26 @@ $migration$`,
         }
         const itemIds = [...groups.keys()].map((itemId) => `inventory.item-${itemId}`);
         const itemRows = itemIds.length
-          ? await query<{ stream_id: string; current_version: number; total_quantity: number }>(
+          ? await query<{
+              stream_id: string;
+              current_version: number;
+              total_quantity: number;
+              account_id: string;
+              tenant_id: string | null;
+              held_quantity: number;
+            }>(
               `SELECT streams.stream_id,
                       streams.current_version,
-                      COALESCE(created.total_quantity, 0) + COALESCE(adjustments.quantity_delta, 0) AS total_quantity
+                      items.account_id,
+                      created.tenant_id,
+                      COALESCE(created.total_quantity, 0) + COALESCE(adjustments.quantity_delta, 0) AS total_quantity,
+                      COALESCE(active_holds.held_quantity, 0)::int AS held_quantity
                FROM event_store_streams AS streams
+               JOIN inventory_items AS items
+                 ON items.item_id = split_part(streams.stream_id, 'inventory.item-', 2)
                LEFT JOIN LATERAL (
-                 SELECT (payload ->> 'totalQuantity')::int AS total_quantity
+                 SELECT (payload ->> 'totalQuantity')::int AS total_quantity,
+                        tenant_id
                  FROM event_store_events
                  WHERE stream_id = streams.stream_id AND event_type = 'inventory.item.created'
                  ORDER BY stream_version LIMIT 1
@@ -355,13 +384,18 @@ $migration$`,
                  FROM event_store_events
                  WHERE stream_id = streams.stream_id AND event_type = 'inventory.item.adjusted'
                ) AS adjustments ON true
+               LEFT JOIN LATERAL (
+                 SELECT SUM(quantity)::int AS held_quantity
+                 FROM inventory_holds
+                 WHERE inventory_holds.item_id = items.item_id
+                   AND inventory_holds.status = 'active'
+               ) AS active_holds ON true
                WHERE streams.stream_id = ANY($1::text[])
                FOR UPDATE OF streams`,
               [itemIds],
             )
           : { rows: [] };
         const versions = new Map(itemRows.rows.map((entry) => [entry.stream_id, Number(entry.current_version)]));
-        const appends: AppendToStreamInput[] = [];
         for (const group of groups.values()) {
           const itemStreamId = `inventory.item-${group.itemId}`;
           const currentVersion = versions.get(itemStreamId);
@@ -371,57 +405,82 @@ $migration$`,
             (sum, row) => sum + Number((row.placements![0] as Record<string, unknown>).quantity),
             0,
           );
-          if (!item || !Number.isSafeInteger(item.total_quantity) || item.total_quantity < requiredQuantity) {
+          if (
+            !item ||
+            item.account_id !== group.accountId ||
+            item.tenant_id !== group.tenantId ||
+            !Number.isSafeInteger(item.total_quantity) ||
+            item.total_quantity < requiredQuantity ||
+            item.total_quantity - requiredQuantity < item.held_quantity
+          ) {
             throw new Error("consumed-hold handoff failed stock floor preflight");
           }
-          const ambiguous = await query<{ count: number }>(
-            `SELECT count(*)::int AS count
-             FROM event_store_events
-             WHERE stream_id = $1
-               AND event_type = 'inventory.item.adjusted'
-               AND global_position <= $2::bigint
-               AND payload ->> 'reasonCode' = 'sale-consumed'
-               AND NOT (metadata ? 'inventoryConsumptionPair')`,
-            [itemStreamId, capturedHorizon.toString()],
-          );
-          if ((ambiguous.rows[0]?.count ?? 0) > 0) {
-            throw new Error("consumed-hold handoff found an ambiguous unbound stock adjustment");
+          for (const row of group.rows) {
+            const placement = row.placements![0] as Record<string, unknown>;
+            const sourceRef = placement.sourceRef;
+            const orderId =
+              sourceRef &&
+              typeof sourceRef === "object" &&
+              "orderId" in sourceRef &&
+              typeof sourceRef.orderId === "string"
+                ? sourceRef.orderId
+                : null;
+            if (!orderId) continue;
+            const ambiguous = await query<{ count: number }>(
+              `SELECT count(*)::int AS count
+               FROM event_store_events
+               WHERE stream_id = $1
+                 AND event_type = 'inventory.item.adjusted'
+                 AND global_position <= $2::bigint
+                 AND (payload ->> 'quantityDelta')::int < 0
+                 AND payload -> 'sourceRef' ->> 'orderId' = $3
+                 AND NOT (metadata ? 'inventoryConsumptionPair')`,
+              [itemStreamId, capturedHorizon.toString(), orderId],
+            );
+            if ((ambiguous.rows[0]?.count ?? 0) > 0) {
+              throw new Error("consumed-hold handoff found an ambiguous unbound stock adjustment");
+            }
           }
-          const events = group.rows.map((row) => {
+          let nextVersion = currentVersion;
+          for (const row of group.rows) {
             const placement = row.placements![0] as Record<string, unknown>;
             const quantity = Number(placement.quantity);
             const pairId = `inventory-consumption:${row.hold_stream_id}:${row.hold_stream_version}:handoff`;
-            return {
-              eventType: "inventory.item.adjusted",
-              payload: {
-                itemId: group.itemId,
-                quantityDelta: -quantity,
-                reason: "Stock consumed",
-                reasonCode: "sale-consumed",
-                sourceRef: (placement.sourceRef as JsonObject | null | undefined) ?? null,
-              },
-              metadata: {
-                inventoryConsumptionPair: {
-                  pairId,
-                  pairedStreamId: row.hold_stream_id,
-                  pairedStreamVersion: Number(row.hold_stream_version),
+            const result = await db.appendToStreamsInTransaction!([
+              {
+                streamId: itemStreamId,
+                expectedVersion: nextVersion,
+                context: {
+                  tenantId: row.tenant_id as never,
+                  audit: {
+                    performedByUserId: row.performed_by_user_id as never,
+                    forAccountId: row.for_account_id as never,
+                  },
                 },
+                events: [
+                  {
+                    eventType: "inventory.item.adjusted",
+                    payload: {
+                      itemId: group.itemId,
+                      quantityDelta: -quantity,
+                      reason: "Stock consumed",
+                      reasonCode: "sale-consumed",
+                      sourceRef: (placement.sourceRef as JsonObject | null | undefined) ?? null,
+                    },
+                    metadata: {
+                      inventoryConsumptionPair: {
+                        pairId,
+                        pairedStreamId: row.hold_stream_id,
+                        pairedStreamVersion: Number(row.hold_stream_version),
+                      },
+                    },
+                    occurredAt: row.occurred_at as never,
+                  },
+                ],
               },
-              occurredAt: row.occurred_at as never,
-            };
-          });
-          appends.push({
-            streamId: itemStreamId,
-            expectedVersion: currentVersion,
-            context: {
-              tenantId: group.tenantId as never,
-              audit: { performedByUserId: group.actor as never, forAccountId: group.accountId as never },
-            },
-            events,
-          });
-        }
-        if (appends.length > 0) {
-          await db.appendToStreamsInTransaction!(appends);
+            ]);
+            nextVersion = result[0]?.storedEvents.at(-1)?.streamVersion ?? nextVersion;
+          }
         }
         await query(
           "UPDATE inventory_item_ledger SET quantity_delta = NULL WHERE kind = 'hold-consumed' AND event_type = 'inventory.hold.consumed' AND quantity_delta IS NOT NULL",
@@ -430,31 +489,42 @@ $migration$`,
           "ALTER TABLE inventory_item_ledger ADD CONSTRAINT inventory_item_ledger_consumed_null_delta CHECK (NOT (kind = 'hold-consumed' AND event_type = 'inventory.hold.consumed' AND quantity_delta IS NOT NULL)) NOT VALID",
         );
         await query("ALTER TABLE inventory_item_ledger VALIDATE CONSTRAINT inventory_item_ledger_consumed_null_delta");
-        const lateConsumed = await query<{ count: number }>(
-          "SELECT count(*)::int AS count FROM event_store_events WHERE event_type = 'inventory.hold.consumed' AND global_position > $1::bigint",
-          [capturedHorizon.toString()],
-        );
-        if ((lateConsumed.rows[0]?.count ?? 0) !== 0) {
-          throw new Error("consumed-hold handoff found a consumed event beyond the captured horizon");
-        }
         const horizonCheck = await query<{ missing: number }>(
           `SELECT count(*)::int AS missing
            FROM event_store_events AS consumed
            WHERE consumed.event_type = 'inventory.hold.consumed'
              AND consumed.global_position <= $1::bigint
-             AND NOT EXISTS (
-               SELECT 1 FROM event_store_events AS companion
-               WHERE companion.event_type = 'inventory.item.adjusted'
-                 AND companion.global_position > $1::bigint
-                 AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = consumed.stream_id
-                 AND (companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint = consumed.stream_version
-                 AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NOT NULL
+             AND (
+               NOT EXISTS (
+                 SELECT 1 FROM event_store_events AS companion
+                 WHERE companion.event_type = 'inventory.item.adjusted'
+                   AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = consumed.stream_id
+                   AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
+                   AND (companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint = consumed.stream_version
+                   AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NOT NULL
+               )
+               OR (
+                 consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' IS NOT NULL
+                 AND consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
+                 AND consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NOT NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM event_store_events AS companion
+                   WHERE companion.event_type = 'inventory.item.adjusted'
+                     AND companion.stream_id = consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId'
+                     AND companion.stream_version = (consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint
+                     AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = consumed.stream_id
+                     AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
+                     AND (companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint = consumed.stream_version
+                     AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' = consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairId'
+                 )
+               )
              )`,
           [capturedHorizon.toString()],
         );
         if ((horizonCheck.rows[0]?.missing ?? 0) !== 0) {
           throw new Error("consumed-hold handoff event horizon check failed");
         }
+        await query("ALTER TABLE event_store_events VALIDATE CONSTRAINT inventory_hold_consumed_pair_binding");
       } catch (cause) {
         throw new Error("Inventory consumed-hold handoff incomplete", { cause });
       }

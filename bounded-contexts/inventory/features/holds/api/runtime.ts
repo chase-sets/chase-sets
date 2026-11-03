@@ -544,6 +544,9 @@ async function consumeInventoryHoldAtomically(
   }
 
   const itemStreamId = `inventory.item-${itemId}`;
+  if (commandInput.expectedVersion !== undefined && commandInput.expectedVersion !== holdAggregate.version) {
+    throw new InventoryDomainError("Consumed inventory hold version is stale.");
+  }
   const itemAggregate = await input.itemRepository.load(itemStreamId);
   const stock = await loadAuthoritativeInventoryStockSnapshot({
     db: input.deps.db,

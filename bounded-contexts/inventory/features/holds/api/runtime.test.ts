@@ -321,6 +321,63 @@ describe("inventory hold runtime", () => {
     });
   });
 
+  it("refuses a consumed hold command with a stale expected version", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    await seedInventoryItem(eventStore);
+    const services = createInventoryHoldRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db: createInventoryDb({
+        holdRows: [
+          {
+            hold_id: "hld_consume_stale",
+            account_id: "acc_seller",
+            item_id: "inv_1",
+            quantity: 1,
+            status: "active",
+            purpose: "order",
+          },
+        ],
+        holdStreamRows: [{ stream_id: "inventory.hold-hld_consume_stale", total: "1", current_version: "1" }],
+      }),
+    });
+    const holdId = "hld_consume_stale" as InventoryHoldId;
+    await eventStore.appendToStream({
+      streamId: `inventory.hold-${holdId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "inventory.hold.placed",
+          payload: {
+            holdId,
+            accountId: "acc_seller",
+            itemId: "inv_1",
+            quantity: 1,
+            reason: "Ordering commitment",
+            notes: null,
+            purpose: "order",
+            sourceRef: { orderId: "ord_stale", reservationRequestId: "rsv_stale" },
+            expiresAt: null,
+          },
+        },
+      ],
+    });
+    await expect(
+      services.commandHandler({
+        streamId: `inventory.hold-${holdId}`,
+        expectedVersion: 0,
+        command: {
+          type: "ConsumeInventoryHold",
+          consumedAt: "2026-07-06T01:00:00.000Z",
+          consumptionReason: "dispatch",
+        },
+        context,
+      }),
+    ).rejects.toThrow("Consumed inventory hold version is stale");
+    expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.consumed")).toHaveLength(0);
+  });
+
   it("reports missing item aggregates with a typed hold placement failure", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const services = createInventoryHoldRuntime({

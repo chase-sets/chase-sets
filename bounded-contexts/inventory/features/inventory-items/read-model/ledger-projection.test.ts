@@ -95,7 +95,7 @@ describe("retained consumption handoff query contract", () => {
       expect.stringContaining("pg_sequence_last_value"),
     ]);
     expect(statements.some((sql) => sql.includes("consumed.global_position <= $1::bigint"))).toBe(true);
-    expect(statements.at(-1)).toContain("pairedStreamVersion");
+    expect(statements.some((sql) => sql.includes("pairedStreamVersion"))).toBe(true);
   });
 
   it("refuses overflow and wraps injected failures without partial completion", async () => {
