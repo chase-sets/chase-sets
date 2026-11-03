@@ -9,6 +9,7 @@ export type {
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceAnonymousListingDraftInput,
   MarketplaceCreateListingInput,
+  MarketplaceListingAttemptInput,
   MarketplaceListingListItem,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceSellerListingAvailability,

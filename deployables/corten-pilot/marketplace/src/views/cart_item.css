@@ -1,0 +1,410 @@
+.stack {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* MarketplaceCartLineItem: picture and item side by side, the quantity under both on a phone;
+   a third column for the quantity from 48rem. */
+.cart-item {
+  display: grid;
+  grid-template-columns: 4.75rem minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+@media (min-width: 40rem) {
+  .cart-item {
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    padding: var(--space-5);
+  }
+}
+@media (min-width: 48rem) {
+  .cart-item {
+    grid-template-columns: 5.5rem minmax(0, 1fr) minmax(13rem, 16rem);
+    gap: var(--space-4);
+  }
+}
+.thumb {
+  aspect-ratio: 2.5 / 3.5;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.375rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+.thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.heading {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.title {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.375;
+  overflow-wrap: anywhere;
+}
+.subtitle {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.badges,
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pill,
+.chip {
+  display: inline-flex;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.pill {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.success {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+.neutral,
+.chip {
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+}
+.chip {
+  color: var(--color-text);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.seller {
+  display: grid;
+  gap: 0.125rem;
+  margin: 0;
+  min-width: 0;
+}
+.name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.rating {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}
+.price {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.from {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+/* Under the picture and the item on a phone, with a rule; its own column from 48rem. */
+.foot {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--space-3);
+  min-width: 0;
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--color-border);
+}
+@media (min-width: 48rem) {
+  .foot {
+    grid-column: auto;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    padding: 0;
+    border: 0;
+  }
+}
+.quantity {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+.label {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.count {
+  font-variant-numeric: tabular-nums;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.controls > .button {
+  flex: 1 1 auto;
+}
+.stepper {
+  flex-wrap: nowrap;
+}
+.stepper > .button {
+  flex: 0 0 auto;
+}
+.stepper .count {
+  min-width: 2ch;
+  text-align: center;
+  font-weight: 600;
+}
+.step {
+  min-width: var(--control-height);
+  padding-inline: 0;
+  font-size: 1.125rem;
+  line-height: 1;
+}
+.button:disabled,
+.controls:disabled .button {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.actions {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.not-applied {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+.resend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+}
+button.button {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.post {
+  display: grid;
+  margin: 0;
+}
+.primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+.notice {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+.notice p {
+  margin: 0;
+}
+.notice .name {
+  color: var(--color-text);
+}
+.attention {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.notice-title {
+  margin: 0;
+  font-weight: 600;
+}
+.danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+  color: var(--color-text);
+}
+.danger .notice-title {
+  color: var(--color-danger);
+}
+.totals {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: 0.875rem;
+}
+.row dd,
+.total dd {
+  margin: 0;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.total {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0 var(--space-4);
+  margin-block-start: var(--space-2);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--color-border);
+  font-weight: 600;
+}
+.amount {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.quiet {
+  color: var(--color-text-secondary);
+  font-weight: 400;
+}
+.caption {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+/* StickyCtaBar: the total over the actions on a phone, the two buttons side by side; one row
+   from 40rem. */
+.bar {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+@media (min-width: 40rem) {
+  .bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+}
+.bar-total {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.bar-total p {
+  margin: 0;
+}
+.bar-amount {
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.secure {
+  color: var(--color-success);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+/* Use lower price over Keep shopping, beside Check out. */
+.bar-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+@media (min-width: 40rem) {
+  .bar-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+}
+.bar-secondary {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.empty {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+.empty p {
+  margin: 0;
+}
+.cue {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.section {
+  display: grid;
+  gap: var(--space-2);
+  margin-block: var(--space-6) var(--space-4);
+}
+.section-title {
+  margin: 0;
+  font: 600 1.5rem/1.3 var(--font-display);
+}
