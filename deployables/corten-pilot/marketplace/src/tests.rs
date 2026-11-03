@@ -952,6 +952,12 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
         "authenticity-check-opt-in" => committed(StatusCode::OK, "checkout", "13", json!({})),
         "fulfillment-preview" => committed(StatusCode::OK, "checkout", "14", json!({})),
         "confirm" if id == "chk_stale" => refusal(StatusCode::CONFLICT, "fee_quote_stale", "The checkout fee changed."),
+        // As Checkout refuses Pay now for a buyer whose orders.manage Auth withheld (chase-sets/chase-sets#10785).
+        "confirm" if id == "chk_verify" => refusal(
+            StatusCode::FORBIDDEN,
+            "email_verification_required",
+            "Verify your email before you pay. Nothing was reserved or ordered.",
+        ),
         "confirm" if id == "chk_lostpay" => {
             stand.kept.lock().unwrap().insert(format!("confirm:{id}"), json!({}));
             StatusCode::GATEWAY_TIMEOUT.into_response()
@@ -12169,6 +12175,50 @@ async fn pay_now_confirms_what_was_reviewed_and_the_page_shows_the_payment() {
     assert!(html.contains(r#"data-payment="pay_1""#), "{html}");
     assert!(html.contains(r#"href="/account/payments/pay_1""#), "the pilot's payment page: {html}");
     assert!(!html.contains(r#"value="confirm-checkout""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_buyer_whose_payment_awaits_email_verification_is_offered_the_sign_in_that_verifies_it() {
+    let pilot = Pilot::new().await;
+    let link = "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&amp;signInMethod=magic-link";
+    // An owner whose orders.manage Auth withheld: Verify your email to pay in place of Pay now.
+    let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(&format!(r#"href="{link}">Verify your email to pay</a>"#)), "{html}");
+    assert!(!html.contains(r#"data-commit="pay""#), "no Pay now: {html}");
+    // Not for an agent, nor for a buyer who may pay.
+    for session in ["unverified_agent", "payer"] {
+        let (_, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some(session))).await;
+        assert!(!text(&html).contains("Verify your email to pay"), "{session}: {html}");
+        assert!(html.contains(r#"data-commit="pay""#), "{session}: {html}");
+    }
+    // Checkout's refusal of Pay now is the page again, with its words and the link.
+    let (status, _, html) = pilot
+        .send(post("/checkout/buy/session/chk_verify", "unverified", &checkout_body("intent=confirm-checkout"), false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert!(text(&html).contains("Verify your email before you pay. Nothing was reserved or ordered."), "{html}");
+    assert!(html.contains("verifyEmail%3Dpay-checkout"), "{html}");
+}
+
+#[tokio::test]
+async fn the_sign_in_says_it_verifies_the_email_to_pay_for_a_checkout() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(get(
+            "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&signInMethod=magic-link",
+            None,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to pay for this checkout"), "{shown}");
+    assert!(shown.contains("brings you back to your checkout, where you can pay"), "{shown}");
+    // Only a checkout's page, and only with its marker.
+    for other in ["%2Fcheckout%2Fbuy%2Fsession%2Fchk_1", "%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dcancel-purchase"] {
+        let (_, _, html) = pilot.send(get(&format!("/sign-in?returnTo={other}"), None)).await;
+        assert!(!text(&html).contains("Verify your email to pay"), "{other}: {html}");
+    }
 }
 
 #[tokio::test]

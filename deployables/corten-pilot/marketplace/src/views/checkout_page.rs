@@ -782,8 +782,9 @@ fn SavedRow<'a>(
 }
 
 /// The one commit control (`checkoutCommitButton`): Review buy cart while a line cannot be
-/// bought, Update totals while there is no quote, else Pay now, which the page's script swaps for
-/// Update totals once a field changes.
+/// bought, Verify your email to pay while Auth withholds payment pending it, Update totals while
+/// there is no quote, else Pay now, which the page's script swaps for Update totals once a field
+/// changes.
 #[component(css = CheckoutPage)]
 fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render {
     let f = CheckoutForm::FIELDS;
@@ -809,6 +810,8 @@ fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render 
             </button>
         } else if !screen.can_confirm {
             <a class={(Button, Wide)} href={url::Cart::default()}>{t.page_review_buy_cart()}</a>
+        } else if let Some(verify) = &screen.verify_email {
+            <a class={(Button, Wide)} href={verify.as_str()}>{t.page_verify_email_to_pay()}</a>
         } else if screen.needs_quote {
             <button
                 type="submit"

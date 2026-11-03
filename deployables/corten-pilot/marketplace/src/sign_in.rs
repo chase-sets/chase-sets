@@ -152,6 +152,10 @@ pub fn context(t: SignInMsg, return_to: &str) -> Option<(&'static str, &'static 
     if purchase && is(RETURN_PARAMETER, Purpose::CancelPurchase.key()) {
         return Some((t.context_purchase_cancel_verify_title(), t.context_purchase_cancel_verify_description()));
     }
+    let checkout = path.strip_prefix("/checkout/buy/session/").is_some_and(|id| !id.is_empty() && !id.contains('/'));
+    if checkout && is(RETURN_PARAMETER, Purpose::PayCheckout.key()) {
+        return Some((t.context_checkout_pay_verify_title(), t.context_checkout_pay_verify_description()));
+    }
     None
 }
 
