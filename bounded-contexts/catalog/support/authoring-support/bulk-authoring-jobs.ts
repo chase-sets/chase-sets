@@ -34,6 +34,7 @@ export type CatalogAuthoringBulkJobKind =
   | "catalog.authoring.reference-records.lifecycle"
   | "catalog.authoring.items.lifecycle"
   | "catalog.authoring.items.publish"
+  | "catalog.authoring.items.remove-drafts"
   | "catalog.authoring.items.edit";
 
 export type CatalogAuthoringBulkJobPayload = Readonly<{
@@ -159,28 +160,34 @@ export function createCatalogAuthoringBulkJobServices(db: PgQueryable): CatalogA
 
   return {
     enqueue: async (input) => {
-      const publishItemIds = input.kind === "catalog.authoring.items.publish" ? uniqueStrings(input.itemIds ?? []) : [];
-      if (input.kind === "catalog.authoring.items.publish" && publishItemIds.length === 0) {
-        throw new Error("Catalog authoring item publish job requires at least one Catalog Item.");
+      const unitItemIds =
+        input.kind === "catalog.authoring.items.publish" || input.kind === "catalog.authoring.items.remove-drafts"
+          ? uniqueStrings(input.itemIds ?? [])
+          : [];
+      if (
+        (input.kind === "catalog.authoring.items.publish" || input.kind === "catalog.authoring.items.remove-drafts") &&
+        unitItemIds.length === 0
+      ) {
+        throw new Error("Catalog authoring item bulk job requires at least one Catalog Item.");
       }
       const payload: CatalogAuthoringBulkJobPayload = {
         kind: input.kind,
         action: input.action,
         selection: input.selection,
-        itemIds: input.kind === "catalog.authoring.items.publish" ? publishItemIds : input.itemIds,
+        itemIds: unitItemIds.length > 0 ? unitItemIds : input.itemIds,
         operation: input.operation,
       };
       const job = await store.enqueue({
         jobId: createId("job"),
         jobKind: input.kind,
         payload,
-        progress: progress("queued", 0, input.kind === "catalog.authoring.items.publish" ? publishItemIds.length : 1),
+        progress: progress("queued", 0, unitItemIds.length > 0 ? unitItemIds.length : 1),
         eventContext: input.context,
       });
-      if (input.kind === "catalog.authoring.items.publish") {
+      if (unitItemIds.length > 0) {
         await workUnitStore.enqueue({
           jobId: job.jobId,
-          units: publishItemIds.map((itemId) => ({
+          units: unitItemIds.map((itemId) => ({
             unitId: itemId,
             unitKind: input.kind,
             payload: { itemId },
@@ -306,6 +313,7 @@ const CATALOG_AUTHORING_PARENT_CLAIM_KINDS: readonly CatalogAuthoringBulkJobKind
   "catalog.authoring.reference-types.lifecycle",
   "catalog.authoring.reference-records.lifecycle",
   "catalog.authoring.items.lifecycle",
+  "catalog.authoring.items.remove-drafts",
   "catalog.authoring.items.edit",
 ];
 
@@ -343,7 +351,7 @@ async function processNextCatalogAuthoringWorkUnit(input: {
     claimTtlMs: input.claimTtlMs,
     workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
     jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
-    jobKinds: ["catalog.authoring.items.publish"],
+    jobKinds: ["catalog.authoring.items.publish", "catalog.authoring.items.remove-drafts"],
     laneName: input.laneName ?? null,
   });
   const claim = claimResult.claim;
@@ -357,9 +365,14 @@ async function processNextCatalogAuthoringWorkUnit(input: {
     if (!context) {
       throw new Error("Catalog authoring bulk job is missing event context.");
     }
-    const itemResult = await input.services.items.publishBulk([claim.unit.payload.itemId], context, {
-      throwIfCancelled: () => throwIfCatalogAuthoringBulkJobCancelled(input),
-    });
+    const itemResult =
+      claim.job.payload.kind === "catalog.authoring.items.remove-drafts"
+        ? await input.services.items.removeDraftsBulk([claim.unit.payload.itemId], context, {
+            throwIfCancelled: () => throwIfCatalogAuthoringBulkJobCancelled(input),
+          })
+        : await input.services.items.publishBulk([claim.unit.payload.itemId], context, {
+            throwIfCancelled: () => throwIfCatalogAuthoringBulkJobCancelled(input),
+          });
     await requireCatalogAuthoringBulkJobClaim(
       input.workUnitStore.recordTerminal({
         jobId: claim.job.jobId,
@@ -428,14 +441,24 @@ async function catalogAuthoringParentUpdateFromWorkUnits(
   const completeJob = total > 0 && terminalUnits.length >= total;
   const unitResults = terminalUnits.flatMap((unit) => (unit.result ? [unit.result] : []));
   const itemResults = unitResults.flatMap((unitResult) => readCatalogAuthoringPublishCandidates(unitResult.result));
-  const parentResult = {
-    item_ids: uniqueStrings(job.payload.itemIds ?? units.map((unit) => unit.unitId)),
-    total: itemResults.length,
-    published_count: itemResults.filter((candidate) => candidate.outcome === "published").length,
-    failed_count: itemResults.filter((candidate) => candidate.outcome === "failed").length,
-    skipped_count: itemResults.filter((candidate) => candidate.outcome === "skipped").length,
-    candidates: itemResults,
-  };
+  const isRemoval = job.payload.kind === "catalog.authoring.items.remove-drafts";
+  const parentResult = isRemoval
+    ? {
+        item_ids: uniqueStrings(job.payload.itemIds ?? units.map((unit) => unit.unitId)),
+        total: itemResults.length,
+        succeeded_count: itemResults.filter((candidate) => candidate.outcome === "succeeded").length,
+        failed_count: itemResults.filter((candidate) => candidate.outcome === "failed").length,
+        skipped_count: itemResults.filter((candidate) => candidate.outcome === "skipped").length,
+        candidates: itemResults,
+      }
+    : {
+        item_ids: uniqueStrings(job.payload.itemIds ?? units.map((unit) => unit.unitId)),
+        total: itemResults.length,
+        published_count: itemResults.filter((candidate) => candidate.outcome === "published").length,
+        failed_count: itemResults.filter((candidate) => candidate.outcome === "failed").length,
+        skipped_count: itemResults.filter((candidate) => candidate.outcome === "skipped").length,
+        candidates: itemResults,
+      };
 
   return {
     parentProgress: progress(completeJob ? "completed" : "running", terminalUnits.length, total),
@@ -603,6 +626,8 @@ async function executeCatalogAuthoringBulkJob(
       return services.items.bulkLifecycle.execute(requireSelection(payload), payload.action, context, progressOptions);
     case "catalog.authoring.items.publish":
       return services.items.publishBulk(payload.itemIds ?? [], context, progressOptions);
+    case "catalog.authoring.items.remove-drafts":
+      return services.items.removeDraftsBulk(payload.itemIds ?? [], context, progressOptions);
     case "catalog.authoring.items.edit":
       return services.items.editBulk(
         requireSelection(payload),

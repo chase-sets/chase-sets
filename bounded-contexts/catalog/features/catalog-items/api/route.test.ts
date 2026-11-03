@@ -110,6 +110,22 @@ function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogIt
       failed_count: 0,
       candidates: [],
     }),
+    previewBulkRemoveDrafts: async () => ({
+      mode: "ids",
+      item_ids: [],
+      total: 0,
+      ready_count: 0,
+      blocked_count: 0,
+      candidates: [],
+    }),
+    removeDraftsBulk: async () => ({
+      item_ids: [],
+      total: 0,
+      succeeded_count: 0,
+      skipped_count: 0,
+      failed_count: 0,
+      candidates: [],
+    }),
     processDisplayIdentityRecomputeBatch: async () => ({
       selected: 0,
       processed: 0,
@@ -478,6 +494,52 @@ describe("catalog item routes", () => {
       action: "mergeTags",
       selection: { mode: "ids", ids: ["cat_1", "cat_2"] },
       operation: { action: "mergeTags", tags: ["featured", "foil"] },
+      context,
+    });
+  });
+
+  it("previews and confirms bulk draft removal with the normalized selection", async () => {
+    const previewBulkRemoveDrafts = vi.fn(async (selection: { mode: "ids"; ids: string[] }) => ({
+      mode: selection.mode,
+      item_ids: ["cat_1", "cat_2"],
+      total: 2,
+      ready_count: 1,
+      blocked_count: 1,
+      candidates: [
+        { catalog_item_id: "cat_1", title: "Draft", status: "draft", outcome: "ready" as const, reason: null },
+        {
+          catalog_item_id: "cat_2",
+          title: "Active",
+          status: "active",
+          outcome: "blocked" as const,
+          reason: "Only draft items can be removed.",
+        },
+      ],
+    }));
+    const enqueue = vi.fn(createJobServices().enqueue);
+    const app = buildApp(createServices({ previewBulkRemoveDrafts }), createJobServices({ enqueue }));
+    const selection = { mode: "ids" as const, ids: ["cat_1", "cat_2", "cat_1"] };
+
+    const previewResponse = await app.fetch(
+      new Request("http://catalog.test/items/bulk-remove-drafts/preview", {
+        method: "POST",
+        body: JSON.stringify({ selection }),
+      }),
+    );
+    expect(previewResponse.status).toBe(200);
+
+    const confirmResponse = await app.fetch(
+      new Request("http://catalog.test/items/bulk-remove-drafts/confirm", {
+        method: "POST",
+        body: JSON.stringify({ selection }),
+      }),
+    );
+    expect(confirmResponse.status).toBe(202);
+    expect(enqueue).toHaveBeenCalledWith({
+      kind: "catalog.authoring.items.remove-drafts",
+      action: "remove-drafts",
+      itemIds: ["cat_1", "cat_2"],
+      selection,
       context,
     });
   });

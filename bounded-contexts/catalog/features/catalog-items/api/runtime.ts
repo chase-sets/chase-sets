@@ -212,6 +212,31 @@ export type BulkEditCatalogItemResult = Readonly<{
   candidates: readonly BulkEditCatalogItemCandidate[];
 }>;
 
+export type BulkRemoveDraftCandidateOutcome = "ready" | "blocked" | "succeeded" | "skipped" | "failed";
+export type BulkRemoveDraftCandidate = Readonly<{
+  catalog_item_id: string;
+  title: string;
+  status: string;
+  outcome: BulkRemoveDraftCandidateOutcome;
+  reason: string | null;
+}>;
+export type BulkRemoveDraftPreview = Readonly<{
+  mode: BulkSelection<CatalogItemListParams>["mode"];
+  item_ids: readonly string[];
+  total: number;
+  ready_count: number;
+  blocked_count: number;
+  candidates: readonly BulkRemoveDraftCandidate[];
+}>;
+export type BulkRemoveDraftResult = Readonly<{
+  item_ids: readonly string[];
+  total: number;
+  succeeded_count: number;
+  skipped_count: number;
+  failed_count: number;
+  candidates: readonly BulkRemoveDraftCandidate[];
+}>;
+
 export type CatalogItemServices = Readonly<{
   commandHandler: CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent>;
   listCatalogItems: (params?: Parameters<typeof listCatalogItems>[1]) => ReturnType<typeof listCatalogItems>;
@@ -233,6 +258,12 @@ export type CatalogItemServices = Readonly<{
     context: EventStoreContext,
     options?: BulkLifecycleExecutionOptions,
   ) => Promise<BulkEditCatalogItemResult>;
+  previewBulkRemoveDrafts: (selection: BulkSelection<CatalogItemListParams>) => Promise<BulkRemoveDraftPreview>;
+  removeDraftsBulk: (
+    itemIds: readonly string[],
+    context: EventStoreContext,
+    options?: BulkLifecycleExecutionOptions,
+  ) => Promise<BulkRemoveDraftResult>;
   processDisplayIdentityRecomputeBatch: (
     context: EventStoreContext,
     options?: Readonly<{ limit?: number }>,
@@ -301,6 +332,9 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
     previewBulkEdit: async (selection, operation) => previewBulkEdit(deps, selection, operation),
     editBulk: async (selection, operation, context, options) =>
       editBulk(deps, commandHandler, selection, operation, context, options),
+    previewBulkRemoveDrafts: async (selection) => previewBulkRemoveDrafts(deps, selection),
+    removeDraftsBulk: async (itemIds, context, options) =>
+      removeDraftsBulk(deps, commandHandler, itemIds, context, options),
     processDisplayIdentityRecomputeBatch: async (context, options) =>
       processCatalogItemDisplayIdentityRecomputeBatch(deps.db, commandHandler, context, {
         ...options,
@@ -840,6 +874,100 @@ async function previewBulkEdit(
     total: candidates.length,
     ready_count: readyCount,
     blocked_count: candidates.length - readyCount,
+    candidates,
+  };
+}
+
+async function previewBulkRemoveDrafts(
+  deps: CatalogRuntimeDeps,
+  selection: BulkSelection<CatalogItemListParams>,
+): Promise<BulkRemoveDraftPreview> {
+  const itemIds = normalizeRequestedItemIds(
+    selection.mode === "ids" ? selection.ids : await listCatalogItemIds(deps.db, selection.query),
+  );
+  const rows = await listCatalogItemBulkRows(deps.db, itemIds);
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const candidates = itemIds.map((itemId): BulkRemoveDraftCandidate => {
+    const row = byId.get(itemId);
+    if (!row) {
+      return {
+        catalog_item_id: itemId,
+        title: itemId,
+        status: "missing",
+        outcome: "blocked",
+        reason: "Catalog Item was not found.",
+      };
+    }
+    if (row.status !== "draft") {
+      return {
+        catalog_item_id: row.id,
+        title: row.label,
+        status: row.status,
+        outcome: "blocked",
+        reason: "Only draft items can be removed.",
+      };
+    }
+    return { catalog_item_id: row.id, title: row.label, status: row.status, outcome: "ready", reason: null };
+  });
+  const readyCount = candidates.filter((candidate) => candidate.outcome === "ready").length;
+  return {
+    mode: selection.mode,
+    item_ids: itemIds,
+    total: candidates.length,
+    ready_count: readyCount,
+    blocked_count: candidates.length - readyCount,
+    candidates,
+  };
+}
+
+async function removeDraftsBulk(
+  deps: CatalogRuntimeDeps,
+  commandHandler: CatalogItemServices["commandHandler"],
+  itemIds: readonly string[],
+  context: EventStoreContext,
+  options: BulkLifecycleExecutionOptions = {},
+): Promise<BulkRemoveDraftResult> {
+  const preview = await previewBulkRemoveDrafts(deps, { mode: "ids", ids: itemIds });
+  const candidates: BulkRemoveDraftCandidate[] = [];
+  let completed = 0;
+  for (const candidate of preview.candidates) {
+    options.throwIfCancelled?.();
+    if (candidate.outcome !== "ready") {
+      candidates.push({ ...candidate, outcome: "skipped" });
+      completed += 1;
+      await options.onProgress?.({ completed, total: preview.total, currentName: candidate.title, status: "skipped" });
+      continue;
+    }
+    try {
+      await commandHandler({
+        streamId: `catalog.item-${candidate.catalog_item_id}`,
+        command: { type: "RemoveDraftCatalogItem" },
+        context,
+      });
+      candidates.push({ ...candidate, outcome: "succeeded", reason: null });
+      completed += 1;
+      await options.onProgress?.({
+        completed,
+        total: preview.total,
+        currentName: candidate.title,
+        status: "succeeded",
+      });
+    } catch (error) {
+      candidates.push({
+        ...candidate,
+        outcome: "failed",
+        reason: error instanceof Error ? error.message : "Catalog Item removal failed.",
+      });
+      completed += 1;
+      await options.onProgress?.({ completed, total: preview.total, currentName: candidate.title, status: "failed" });
+    }
+  }
+  return {
+    item_ids: preview.item_ids,
+    total: candidates.length,
+    succeeded_count: candidates.filter((candidate) => candidate.outcome === "succeeded").length,
+    skipped_count: candidates.filter((candidate) => candidate.outcome === "skipped").length,
+    failed_count: candidates.filter((candidate) => candidate.outcome === "failed").length,
     candidates,
   };
 }
