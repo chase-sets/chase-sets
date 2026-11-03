@@ -49,6 +49,8 @@ import { inspectJourneyPackage, journeyPackageStep } from "./prepare-journey-pac
 const repoRoot = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
 const packagerPath = path.join(repoRoot, "scripts/prepare-journey-package.mjs");
 const title = "market-following consent, held evidence and permanent stop @marketplace-account";
+// A repository-shaped spec path that is never the contract target.
+const notTheTarget = "deployables/marketplace/e2e/not-the-journey-package-target.spec.ts";
 const timelineStart = Date.parse("2026-11-01T10:00:00.000Z");
 const attachedLater = "2026-11-01T10:01:00.000Z";
 const fixedNow = () => new Date("2026-11-03T12:00:00.000Z");
@@ -106,7 +108,7 @@ function attempt(retry, status, extra = {}) {
 const assertionFailure = {
   classification: "assertion",
   knownLocator: "authorize-reviewed-offers",
-  location: "deployables/marketplace/e2e/market-following-offers.spec.ts:120:7",
+  location: `${journeyPackageTarget.file}:120:7`,
 };
 
 function writeRecord(root, { items = completeItems(), attempts, target = {}, run, targets, raw } = {}) {
@@ -352,7 +354,7 @@ describe("journey package projection", () => {
     expectRefused(step(twoTargets), "target-conflict");
 
     const otherTarget = makeRoot();
-    writeRecord(otherTarget, { target: { file: "deployables/marketplace/e2e/journey-package-proof.spec.ts" } });
+    writeRecord(otherTarget, { target: { file: notTheTarget } });
     expectRefused(step(otherTarget), "target-conflict");
   });
 
@@ -803,7 +805,7 @@ describe("journey package identity, containment and caps", () => {
       ["--expect-job", "90002", "job"],
       ["--expect-job-index", "4", "jobIndex"],
       ["--expect-source-head", "e".repeat(40), "sourceHead"],
-      ["--expect-test", "deployables/marketplace/e2e/journey-package-proof.spec.ts", "test"],
+      ["--expect-test", notTheTarget, "test"],
     ]) {
       const mismatch = inspectCli(directory, { [flag]: value });
       expect(mismatch.status, flag).toBe(1);

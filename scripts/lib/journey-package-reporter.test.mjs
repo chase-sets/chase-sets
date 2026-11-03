@@ -42,7 +42,8 @@ const targetSpec = [
   "",
 ].join("\n");
 const otherSpec = `import { defineOtherFixtureTest } from ${JSON.stringify(scenarioUrl)};\ndefineOtherFixtureTest();\n`;
-const inlineLocation = /^deployables\/marketplace\/e2e\/market-following-offers\.spec\.ts:2:[1-9][0-9]*$/;
+// The inline assertion sits on line 2 of the generated target spec.
+const inlineLocationPrefix = `${journeyPackageTarget.file}:2:`;
 const roots = [];
 
 afterAll(() => {
@@ -345,7 +346,8 @@ describe("journey package reporter over real Playwright runs", () => {
       if (classification !== null) expect(diagnostics.result.classification, name).toBe(classification);
     }
     const failed = packageOf(runs.failed);
-    expect(failed.result.location).toMatch(inlineLocation);
+    expect(failed.result.location.startsWith(inlineLocationPrefix), failed.result.location).toBe(true);
+    expect(failed.result.location).toMatch(/:2:[1-9][0-9]*$/);
     expect(failed.files).toEqual([
       "captures/journey-review-1440.png",
       "captures/journey-review-390.png",
@@ -378,7 +380,7 @@ describe("journey package reporter over real Playwright runs", () => {
     const adversarialMessage = [
       `Error: ${witnesses.session} ${witnesses.password}`,
       `Locator: getByText('${witnesses.cookie}')`,
-      `    at deployables/marketplace/e2e/market-following-offers.spec.ts:1:1 ${witnesses.postgres}`,
+      `    at ${journeyPackageTarget.file}:1:1 ${witnesses.postgres}`,
       `${witnesses.bearer} ${witnesses.url}`,
     ].join("\n");
     const futureCapture = completeTimeline(Date.now() + 3_600_000);
