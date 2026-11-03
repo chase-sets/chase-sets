@@ -359,10 +359,3 @@ None of them leaves a workaround behind:
 
 | Issue | Cited in |
 |---|---|
-| [chase-sets/chase-sets#7905 Decision: the plain-language repricing preset catalog and the complete AST each preset compiles to](https://github.com/chase-sets/chase-sets/issues/7905) | [marketplace/src/repricing.rs](marketplace/src/repricing.rs) |
-| [chase-sets/chase-sets#10504 [checkout] Return Cart readiness, subtotal and savings from the cart read](https://github.com/chase-sets/chase-sets/issues/10504) | [marketplace/src/cart.rs](marketplace/src/cart.rs) |
-| [chase-sets/chase-sets#10520 Let the Catalog API reorder a dimension's options instead of refusing every reorder](https://github.com/chase-sets/chase-sets/issues/10520) | [scripts/smoke-catalog.mjs](scripts/smoke-catalog.mjs) |
-| [chase-sets/chase-sets#10558 [discovery] Return item-detail Listings and Offers in canonical order with each product's lowest Listing and best Offer](https://github.com/chase-sets/chase-sets/issues/10558) | [marketplace/src/items.rs](marketplace/src/items.rs) |
-| [chase-sets/chase-sets#10610 [discovery] Search says No items found when the search read fails](https://github.com/chase-sets/chase-sets/issues/10610) | [marketplace/src/views/search_page.rs](marketplace/src/views/search_page.rs) |
-| [chase-sets/chase-sets#10686 [auth] Password sign-in failures through the web hosts share one IP bucket: five wrong passwords lock everyone out for five minutes](https://github.com/chase-sets/chase-sets/issues/10686) | [marketplace/src/sign_in.rs](marketplace/src/sign_in.rs), [scripts/smoke-sign-in.mjs](scripts/smoke-sign-in.mjs) |
-| [chase-sets/chase-sets#10687 [auth] A return address or magic-link path starting with /\ passes Auth's same-site check and leads to another site after sign-in](https://github.com/chase-sets/chase-sets/issues/10687) | [marketplace/src/sign_in.rs](marketplace/src/sign_in.rs) |
