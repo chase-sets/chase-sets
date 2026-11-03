@@ -5,6 +5,20 @@ import { FulfillmentShipmentDetailPage } from "./shipment-detail-page";
 import { FulfillmentShipmentListPage } from "./shipment-list-page";
 import { FulfillmentShipmentPackingPage } from "./shipment-packing-page";
 import type { FulfillmentPackingSlip } from "./contracts";
+import type { PostageLabelStatus, ShipmentStatus } from "../domain/common";
+import { resolveShipmentActionPlan } from "../domain/shipment-action";
+
+/** The seller's detail read as the Fulfillment API returns it, with the shipment's action plan. */
+function withPlan(detail: FulfillmentPackingSlip): FulfillmentPackingSlip {
+  return {
+    ...detail,
+    action_plan: resolveShipmentActionPlan({
+      status: detail.status as ShipmentStatus,
+      labelStatus: detail.label_status as PostageLabelStatus,
+      conflicts: detail.conflicts,
+    }),
+  };
+}
 
 const slip: FulfillmentPackingSlip = {
   conflicts: [],
@@ -151,7 +165,7 @@ describe("fulfillment packing slip UI", () => {
 
   it("adds a seller detail print action for the current shipment", () => {
     const markup = renderToString(
-      <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={slip} />,
+      <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={withPlan(slip)} />,
     );
 
     expect(markup).toContain("Print packing slip");
@@ -196,7 +210,7 @@ describe("fulfillment packing slip UI", () => {
       },
     };
     const markup = renderToString(
-      <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={letterShipment} />,
+      <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={withPlan(letterShipment)} />,
     );
 
     expect(markup).toContain("Letter Mailpiece");
