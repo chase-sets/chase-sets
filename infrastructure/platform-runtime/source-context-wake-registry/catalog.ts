@@ -15,7 +15,11 @@ export const catalogWakeRegistryEntry = registryEntry({
   wakeStoreLoadEstimate: "high",
   affectedProjectionNames: [
     "catalog:catalog-admin-catalog-item-projection",
+    "catalog:catalog-alias-projection",
     "catalog:catalog-attention-dismissal-projection",
+    "catalog:catalog-blueprint-projection",
+    "catalog:catalog-display-template-projection",
+    "catalog:catalog-field-projection",
     "catalog:catalog-item-projection",
     "catalog:catalog-product-contents-projection",
     "catalog:catalog-provider-scope-mapping-projection",
@@ -37,5 +41,10 @@ export const catalogWakeRegistryEntry = registryEntry({
     "ordering:ordering-marketplace-supply-input-projection",
     "pricing:pricing-catalog-input-projection",
   ],
-  routeDependencyIds: [],
+  routeDependencyIds: [
+    "catalog.item-detail-self-refresh",
+    "catalog.item-list-self-refresh",
+    "catalog.product-contents-contained-self-refresh",
+    "catalog.product-contents-container-self-refresh",
+  ],
 });

@@ -77,7 +77,43 @@
     {
       "mountPath": "/api/catalog",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/items/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            { "readModelTable": "catalog_admin_catalog_item_detail_pages" },
+            { "projectionName": "catalog-admin-catalog-item-projection" },
+            { "readModelTable": "catalog_items" },
+            { "readModelTable": "catalog_fields" },
+            { "readModelTable": "catalog_display_templates" },
+            { "readModelTable": "catalog_item_aliases" },
+            { "readModelTable": "catalog_reference_record_aliases" }
+          ]
+        },
+        {
+          "routePath": "/items",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            { "readModelTable": "catalog_admin_catalog_item_list_pages" },
+            { "readModelTable": "catalog_external_product_references" },
+            { "readModelTable": "catalog_external_catalog_item_references" },
+            { "readModelTable": "catalog_admin_catalog_item_detail_pages" },
+            { "readModelTable": "catalog_blueprints" }
+          ]
+        },
+        {
+          "routePath": "/product-contents/containers/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "catalog_resolved_product_contents" }]
+        },
+        {
+          "routePath": "/product-contents/contained/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "catalog_resolved_product_contents" }]
+        }
+      ]
     },
     {
       "mountPath": "/api/public/catalog/operator-session",
@@ -145,6 +181,34 @@
       "ownedTables": ["catalog_attention_dismissals"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "catalog-field-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_fields"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "catalog-display-template-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_display_templates"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "catalog-alias-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_item_aliases", "catalog_reference_record_aliases"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "catalog-blueprint-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_blueprints"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "mcpCapabilities": {
@@ -872,6 +936,147 @@
       "crossCuttingRuntimeComposition": true
     }
   },
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "catalog.item-detail-self-refresh",
+      "owner": "catalog",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["catalog-items-detail", "catalog-items"],
+        "actions": [
+          "Revise Catalog Item metadata, fields, categories, tags, images and references",
+          "Publish, archive or bulk-edit Catalog Items"
+        ],
+        "command": "Catalog Item commands returning catalog.catalog-item-api-command-snapshots"
+      },
+      "destination": {
+        "routeId": "catalog-items-detail",
+        "apiContextName": "catalog",
+        "apiRoutePath": "/items/:id",
+        "readModelTables": [
+          "catalog_admin_catalog_item_detail_pages",
+          "catalog_items",
+          "catalog_fields",
+          "catalog_display_templates",
+          "catalog_item_aliases",
+          "catalog_reference_record_aliases"
+        ],
+        "projectionDependencies": ["catalog-admin-catalog-item-projection"],
+        "freshnessDependencyReason": "Publication readiness reads catalog_item_display_identities, which the admin Catalog Item projector persists but does not own as a truncated table, so the route names that projection group directly.",
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Catalog Item detail loader forwards a valid afterWrite receipt only through createCatalogRequestApiClient. Any loader failure, including a valid fresh-write projection_freshness_timeout, renders the page without initial data, and the page re-reads the item through the browser client with its loading state and refresh control. Browser reads carry no receipt, so the command snapshot stays the authoritative post-write view."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.test.ts",
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "catalog.item-list-self-refresh",
+      "owner": "catalog",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["catalog-items", "catalog-items-detail"],
+        "actions": ["Create, publish, archive or bulk-edit Catalog Items"],
+        "command": "Catalog Item commands returning catalog.catalog-item-api-command-snapshots"
+      },
+      "destination": {
+        "routeId": "catalog-items",
+        "apiContextName": "catalog",
+        "apiRoutePath": "/items",
+        "readModelTables": [
+          "catalog_admin_catalog_item_list_pages",
+          "catalog_external_product_references",
+          "catalog_external_catalog_item_references",
+          "catalog_admin_catalog_item_detail_pages",
+          "catalog_blueprints"
+        ],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Catalog Items list loader forwards a valid afterWrite receipt only through createCatalogRequestApiClient. A valid fresh-write projection_freshness_timeout reaches the route error boundary, and reloading the page repeats the same bounded read while the receipt is valid. Filter branches wait on the detail page and Blueprint tables they read; browser list refreshes carry no receipt."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/catalog/tests/catalog-item-read-freshness.test.ts"]
+      }
+    },
+    {
+      "id": "catalog.product-contents-container-self-refresh",
+      "owner": "catalog",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "catalog-items-detail",
+        "actions": ["Replace or remove Product Contents"],
+        "command": "Product Contents commands returning catalog.product-contents-api-command-snapshots"
+      },
+      "destination": {
+        "routeId": "catalog-items-detail",
+        "apiContextName": "catalog",
+        "apiRoutePath": "/product-contents/containers/:id",
+        "readModelTables": ["catalog_resolved_product_contents"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Catalog Item detail page shows the command-returned Product Contents snapshot and refreshes the forward list through the browser client, which carries no receipt. A receipted API read returns the bounded 503 projection_freshness_timeout until the Product Contents projection reaches the receipt, and the caller retries while its receipt is valid."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.test.ts",
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "catalog.product-contents-contained-self-refresh",
+      "owner": "catalog",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "catalog-items-detail",
+        "actions": ["Replace or remove Product Contents"],
+        "command": "Product Contents commands returning catalog.product-contents-api-command-snapshots"
+      },
+      "destination": {
+        "routeId": "catalog-items-detail",
+        "apiContextName": "catalog",
+        "apiRoutePath": "/product-contents/contained/:id",
+        "readModelTables": ["catalog_resolved_product_contents"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Catalog Item detail page refreshes the reverse Product Contents list through the browser client, which carries no receipt. A receipted API read returns the bounded 503 projection_freshness_timeout until the Product Contents projection reaches the receipt, and the caller retries while its receipt is valid."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.test.ts",
+          "bounded-contexts/catalog/tests/catalog-item-read-freshness.db.test.ts"
+        ]
+      }
+    }
+  ],
   "mutationConsistencyInventory": [
     {
       "id": "catalog.operator-session-acknowledged-mutations",
