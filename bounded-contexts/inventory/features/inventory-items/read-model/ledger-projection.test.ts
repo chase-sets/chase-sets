@@ -99,6 +99,13 @@ describe("retained consumption handoff query contract", () => {
     expect(statements.some((sql) => sql.includes("pairedStreamVersion"))).toBe(true);
     expect(statements.some((sql) => sql.includes("companion.stream_id = 'inventory.item-'"))).toBe(true);
     expect(statements.some((sql) => sql.includes("jsonb_each") && sql.includes("reservationRequestId"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("placement.tenant_id = consumed.tenant_id"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("placement.for_account_id = consumed.for_account_id"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("FROM inventory_items AS item"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("HAVING count(*) = 1"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("ORDER BY placement.stream_version") && sql.includes("LIMIT 1"))).toBe(
+      false,
+    );
     expect(statements.some((sql) => sql.includes("jsonb_object_length"))).toBe(false);
   });
 
@@ -193,6 +200,67 @@ describe("retained consumption handoff query contract", () => {
     await expect(consumptionHandoff.dataStep!({ query, appendToStreamsInTransaction })).resolves.toBeUndefined();
     expect(appendToStreamsInTransaction).toHaveBeenCalledTimes(1);
     expect(appendToStreamsInTransaction.mock.calls[0]?.[0]?.[0]?.events[0]?.payload?.sourceRef).toEqual(sourceRef);
+  });
+
+  it.each([
+    ["duplicate reciprocal companions", "exactly one reciprocal inventory companion"],
+    ["multiple placements", "placement identity preflight"],
+    ["missing placement account", "placement identity preflight"],
+    ["mismatched placement tenant", "placement identity preflight"],
+  ])("rejects %s before append", async (_label, expectedCause) => {
+    const appendToStreamsInTransaction = vi.fn<NonNullable<BcSchemaMigrationClient["appendToStreamsInTransaction"]>>();
+    const query: BcSchemaMigrationClient["query"] = async <Row = Record<string, unknown>>(
+      sql: string,
+      _values?: readonly unknown[],
+    ) => {
+      if (sql.includes("pg_sequence_last_value")) return { rows: [{ head: "10" }] as Row[] };
+      if (_label === "duplicate reciprocal companions" && sql.includes("reciprocal companion cardinality preflight")) {
+        return { rows: [{ count: 1 }] as Row[] };
+      }
+      if (_label !== "duplicate reciprocal companions" && sql.includes("consumed placement identity preflight")) {
+        return { rows: [{ count: 1 }] as Row[] };
+      }
+      if (sql.includes("consumed.stream_id AS hold_stream_id")) {
+        return {
+          rows: [
+            {
+              hold_stream_id: "inventory.hold-hld_1",
+              hold_stream_version: 2,
+              tenant_id: "tnt_1",
+              performed_by_user_id: "usr_1",
+              for_account_id: "acc_1",
+              occurred_at: "2026-07-06T01:00:00.000Z",
+              payload: { sourceRef: orderSourceRef },
+              placement_count: 1,
+              placements: [
+                { itemId: "item_1", accountId: "acc_1", quantity: 1, purpose: "order", sourceRef: orderSourceRef },
+              ],
+            },
+          ] as Row[],
+        };
+      }
+      return { rows: [] as Row[] };
+    };
+    await expect(consumptionHandoff.dataStep!({ query, appendToStreamsInTransaction })).rejects.toMatchObject({
+      message: "Inventory consumed-hold handoff incomplete",
+      cause: expect.objectContaining({ message: expect.stringContaining(expectedCause) }),
+    });
+    expect(appendToStreamsInTransaction).not.toHaveBeenCalled();
+  });
+
+  it("keeps a valid prepaired companion inert", async () => {
+    const appendToStreamsInTransaction = vi.fn<NonNullable<BcSchemaMigrationClient["appendToStreamsInTransaction"]>>();
+    const query: BcSchemaMigrationClient["query"] = async <Row = Record<string, unknown>>(
+      sql: string,
+      _values?: readonly unknown[],
+    ) => {
+      if (sql.includes("pg_sequence_last_value")) return { rows: [{ head: "10" }] as Row[] };
+      if (sql.includes("consumed.stream_id AS hold_stream_id")) return { rows: [] as Row[] };
+      if (sql.includes("missing")) return { rows: [{ missing: 0 }] as Row[] };
+      return { rows: [] as Row[] };
+    };
+    await expect(consumptionHandoff.dataStep!({ query, appendToStreamsInTransaction })).resolves.toBeUndefined();
+    expect(appendToStreamsInTransaction).not.toHaveBeenCalled();
   });
 
   it.each(["wrong item stream", "wrong reciprocal stream or version", "mismatched pair id"])(
