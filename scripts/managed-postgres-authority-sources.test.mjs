@@ -764,6 +764,26 @@ const registryCleanupResolverDelta = [
     purpose: "digitalocean-ops",
   },
 ];
+// #11006: the production marker App key reaches only its three mint steps. The retry and publication mints in
+// deploy-production (final positions 28 and 54) and the marker-only mint (position 8) shift later positional anchors.
+const productionMarkerAppKeyDelta = [
+  ["deploy-production", "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"],
+  ["deploy-production", "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1#2"],
+  ["reconcile-production-marker", "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"],
+].map(([jobId, stepAnchor]) => ({
+  file: ".github/workflows/platform-production.yml",
+  jobId,
+  stepAnchor,
+  secretName: "PRODUCTION_MARKER_APP_PRIVATE_KEY",
+  purpose: "release-marker-publication",
+}));
+function applyProductionMarkerMintInsertions(record) {
+  const positions = { "deploy-production": [28, 54], "reconcile-production-marker": [8] }[record.jobId];
+  const match = /^(name:.*#)(\d+)$/.exec(record.stepAnchor);
+  if (record.file !== ".github/workflows/platform-production.yml" || !positions || !match) return record;
+  const position = positions.reduce((index, inserted) => (index >= inserted ? index + 1 : index), Number(match[2]));
+  return { ...record, stepAnchor: `${match[1]}${position}` };
+}
 function applyRegistryCleanupStepInsertion(record) {
   return record.file === ".github/workflows/platform-registry-cleanup.yml" &&
     record.jobId === "cleanup" &&
@@ -1006,7 +1026,9 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta)
         .concat(registryGarbageCollectionGateCredentialDelta)
-        .concat(registryCleanupResolverDelta),
+        .concat(registryCleanupResolverDelta)
+        .map(applyProductionMarkerMintInsertions)
+        .concat(productionMarkerAppKeyDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
@@ -1075,6 +1097,15 @@ describe("managed Postgres authority source generator", () => {
     }
     await writeJson(root, fragmentPath, { grants: [grant()], dockerConsumers: [] });
     expect(await generateManagedPostgresAuthority(root)).not.toHaveProperty("dockerConsumers");
+  });
+
+  it("grants release-marker-publication only to the production marker App key at its mint steps", async () => {
+    const generated = await generateManagedPostgresAuthority(repositoryRoot);
+    const markerApp = ({ secretName, purpose }) =>
+      secretName === "PRODUCTION_MARKER_APP_PRIVATE_KEY" || purpose === "release-marker-publication";
+    expect(generated.grants.filter(markerApp)).toEqual(productionMarkerAppKeyDelta);
+    const schema = await readJson(repositoryRoot, schemaPath);
+    expect(schema.properties.grants.items.properties.purpose.enum).toContain("release-marker-publication");
   });
 
   it("missing authority fragment cannot authorize ingress", async () => {
