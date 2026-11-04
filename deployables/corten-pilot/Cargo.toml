@@ -10,8 +10,8 @@ publish = false
 [workspace.dependencies]
 # Pinned to a Corten revision on purpose (no release is tagged). Move the pin forward when a fix
 # the pilot needs lands; see README.md, "Corten pin".
-corten = { git = "https://github.com/todd-skelton/corten", rev = "fed98ad98e89dcc801e58efc5fc1bf00a441cb8f", features = ["compress", "json"] }
-corten-ui = { git = "https://github.com/todd-skelton/corten", rev = "fed98ad98e89dcc801e58efc5fc1bf00a441cb8f" }
+corten = { git = "https://github.com/todd-skelton/corten", rev = "881075717d0463c78759f2ebadcf1ba73306cdb8", features = ["compress", "json"] }
+corten-ui = { git = "https://github.com/todd-skelton/corten", rev = "881075717d0463c78759f2ebadcf1ba73306cdb8" }
 platform = { package = "corten-pilot-platform", path = "platform" }
 percent-encoding = "2"
 futures-util = { version = "0.3", default-features = false }
