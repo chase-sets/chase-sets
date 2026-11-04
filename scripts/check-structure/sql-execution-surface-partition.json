@@ -255,6 +255,7 @@
     "bounded-contexts/identity/features/preferences/read-model/queries.ts",
     "bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts",
     "bounded-contexts/identity/features/shipping-addresses/read-model/queries.ts",
+    "bounded-contexts/identity/features/users/api/social-login-ownership.ts",
     "bounded-contexts/identity/features/users/read-model/projection.ts",
     "bounded-contexts/identity/features/users/read-model/queries.ts",
     "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
