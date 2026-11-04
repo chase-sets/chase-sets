@@ -56,21 +56,21 @@ This glossary focuses on catalog truth and identity. Browsing, filtering, and li
 
 ## Operator Session
 
-A TCGplayer Operator Session is the pairing state for the operator extension: whether an Operator Session Push Grant is active, with its created, last-used, and idle-expiry times. Chase Sets never stores or uses TCGplayer cookies or credentials and never contacts TCGplayer servers.
+A TCGplayer Operator Session is the pairing status Admin shows for the TCGplayer Operator Extension: whether an Operator Session Push Grant is active, with its created, last-used and idle-expiry times. It holds no cookie, browser session, username/password or other TCGplayer credential; Catalog never stores or uses one, never contacts TCGplayer servers, and reports server credential custody as unavailable.
 
 ### Operator Session Push Grant
 
-An Operator Session Push Grant is a narrow bearer pairing grant minted by a recently authenticated platform administrator. Catalog stores only its hash. It permits an operator-extension relay and unpairing, not Admin access or provider credentials. Mint requires the live Identity Membership aggregate, not the projected actor role. Every observation post rechecks that same aggregate for the grant creator before reading the observation body; a missing, demoted, inactive, or unavailable authority commits `authority-lost` revocation and fails closed. A completed push renews its 30-day idle expiry using database time; expired or revoked grants cannot revive. Unpair revokes only the grant.
+An Operator Session Push Grant is an opaque bearer pairing grant that a platform administrator with `catalog.manage`, authenticated within the last ten minutes, mints in Admin for the TCGplayer Operator Extension. It carries no provider credential. Catalog shows it once and stores only its hash. Minting replaces the previous active grant. A grant expires 30 days after minting and nothing renews it; expired or revoked grants cannot revive. Its only authority is unpairing, which revokes that grant; it grants no Admin access. Disconnect in Admin revokes every active grant. Neither proves that TCGplayer accepted anything, and neither logs out the browser or provider.
 
 ## Core Model
 
 ### TCGplayer Operator Extension
 
-The TCGplayer Operator Extension relays an observation request to Catalog using
-a narrow Operator Session Push Grant. The relay carries no TCGplayer cookie or
-credential, and Catalog has no custody of either. It is separate from the
-seller connector. Pairing is per environment; unpairing revokes the grant. The
-popup cannot read stored grants.
+The TCGplayer Operator Extension holds one Operator Session Push Grant per
+environment in Todd's operator browser. It never reads, stores or forwards a
+TCGplayer session, cookie or credential. It is separate from the seller
+connector. Pairing is per environment; unpairing revokes the grant, not the
+browser/provider session. The popup cannot read stored grants or cookies.
 
 - `Admin pair handoff` is the primary pairing path: after a successful mint,
   the Admin TCGplayer provider page sends the grant once to the extension
