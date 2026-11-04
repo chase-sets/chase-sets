@@ -31,6 +31,11 @@
   border-bottom: 1px solid var(--color-border);
   vertical-align: top;
 }
+/* A stacked cell (the kit's TableLayout::Stack on a phone) stretches what follows its label to the
+   column's width (todd-skelton/corten#765): the pill and the link keep their own width. */
+.table td > * {
+  justify-self: start;
+}
 .table tr:last-child td {
   border-bottom: 0;
 }

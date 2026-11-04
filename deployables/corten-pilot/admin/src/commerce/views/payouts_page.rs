@@ -75,7 +75,7 @@ fn OpenPayout<'a>(column: &'a str, label: &'a str, href: Option<String>) -> impl
         if let Some(href) = &href {
             <CellLabel>{column}</CellLabel>
             <a
-                class={KitButton { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
+                class={(KitButton { variant: ButtonVariant::Outline, size: ButtonSize::Sm }, Open)}
                 href={href}
                 target="_blank"
                 rel="noreferrer"
