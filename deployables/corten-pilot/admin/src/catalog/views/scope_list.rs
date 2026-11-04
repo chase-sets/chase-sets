@@ -1,5 +1,6 @@
 //! The scopes list (admin-web's `CatalogScopeLandingPage`): its filters, the rows, and the pager.
 use corten::prelude::*;
+use platform::ui::table::{CellLabel, TableLayout};
 
 use super::{
     AliasReviewPart, AttentionBanner, AttentionPanel, AttentionSheet, Empty, Filters, ListPage, ListScreen, Pager, Pick, Search,
@@ -110,7 +111,7 @@ fn scope_rows<'a>(t: Cat, p: Pilot, query: &'a url::ScopeQuery, screen: &'a List
         if screen.items.is_empty() {
             <Empty title={&empty_title} description={&empty_description} />
         } else {
-            <Table label={title} head={&head} all={None}>
+            <Table label={title} head={&head} all={None} layout={TableLayout::Stack}>
                 for row in &screen.items {
                     <ScopeRowView t={t} row={row} />
                 }
@@ -152,6 +153,7 @@ pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRow) -> impl Render {
     html! {
         <tr>
             <td>
+                <CellLabel>{t.scopes_column_scope()}</CellLabel>
                 <span class={Scope}>
                     <strong>{&s.name}</strong>
                     if let Some(code) = &s.official_set_code {
@@ -159,15 +161,25 @@ pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRow) -> impl Render {
                     }
                 </span>
             </td>
-            <td>{&domain}</td>
             <td>
+                <CellLabel>{t.scopes_column_domain()}</CellLabel>
+                {&domain}
+            </td>
+            <td>
+                <CellLabel>{t.scopes_column_coverage()}</CellLabel>
                 match &coverage {
                     Some(text) => { {text} }
                     None => <span class={Muted}>{t.scopes_coverage_none()}</span>,
                 }
             </td>
-            <td><TonePill text={promotion} tone={promotion_tone} /></td>
-            <td><TonePill text={sync} tone={sync_tone} /></td>
+            <td>
+                <CellLabel>{t.scopes_column_promotion()}</CellLabel>
+                <TonePill text={promotion} tone={promotion_tone} />
+            </td>
+            <td>
+                <CellLabel>{t.scopes_column_sync()}</CellLabel>
+                <TonePill text={sync} tone={sync_tone} />
+            </td>
             <td><a class={View} href={&view}>{t.list_view()}</a></td>
         </tr>
     }

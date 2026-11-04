@@ -1,4 +1,5 @@
 use corten::prelude::*;
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use super::{SelectAll, SelectRow, StatusPill, dialog::format_target};
 use crate::{
@@ -96,24 +97,34 @@ pub fn MoreFilters<C: Render>(t: Cat, open: bool, children: C) -> impl Render {
 }
 
 /// A table with these column headings; with `all`, a first column whose head is the bulk
-/// form's select-all box (each row then starts with its own box).
+/// form's select-all box (each row then starts with its own box). With `TableLayout::Stack` each
+/// row is a block of labelled lines on a phone, as admin-web's `DataTable` stacks it, and each of
+/// its cells names its column with a `CellLabel`; `TableLayout::Scroll` scrolls sideways.
 #[component(css = ListPage)]
-pub fn Table<'a, C: Render>(label: &'a str, head: &'a [&'a str], all: Option<Pilot>, children: C) -> impl Render {
+pub fn Table<'a, C: Render>(
+    label: &'a str,
+    head: &'a [&'a str],
+    all: Option<Pilot>,
+    layout: TableLayout,
+    children: C,
+) -> impl Render {
     html! {
         <div class={Scroll}>
-            <table class={Table} aria-label={label}>
-                <thead>
-                    <tr>
-                        if let Some(p) = all {
-                            <th scope="col"><SelectAll p={p} /></th>
-                        }
-                        for heading in head {
-                            <th scope="col">{*heading}</th>
-                        }
-                    </tr>
-                </thead>
-                <tbody>{children}</tbody>
-            </table>
+            <KitTable layout={layout}>
+                <table class={Table} aria-label={label}>
+                    <thead>
+                        <tr>
+                            if let Some(p) = all {
+                                <th scope="col"><SelectAll p={p} /></th>
+                            }
+                            for heading in head {
+                                <th scope="col">{*heading}</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>{children}</tbody>
+                </table>
+            </KitTable>
         </div>
     }
 }
@@ -126,10 +137,22 @@ pub fn DimensionRow<'a>(t: Cat, row: &'a Dimension, select: Option<Pilot>) -> im
             if let Some(p) = select {
                 <td><SelectRow p={p} id={&row.dimension_id} status={None} /></td>
             }
-            <td>{&row.key}</td>
-            <td>{&row.name}</td>
-            <td>{&row.value_kind}</td>
-            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <CellLabel>{t.dimension_list_key()}</CellLabel>
+                {&row.key}
+            </td>
+            <td>
+                <CellLabel>{t.dimension_list_name()}</CellLabel>
+                {&row.name}
+            </td>
+            <td>
+                <CellLabel>{t.dimension_list_value_kind()}</CellLabel>
+                {&row.value_kind}
+            </td>
+            <td>
+                <CellLabel>{t.dimension_list_status()}</CellLabel>
+                <StatusPill status={&row.status} toned={false} />
+            </td>
             <td>
                 <a class={View} href={url::Dimension { id: &row.dimension_id, after_write: None, done: None }}>
                     {t.list_view()}
@@ -148,11 +171,26 @@ pub fn CategoryRow<'a>(t: Cat, row: &'a Category, select: Option<Pilot>) -> impl
             if let Some(p) = select {
                 <td><SelectRow p={p} id={&row.category_id} status={None} /></td>
             }
-            <td>{&row.key}</td>
-            <td>{&row.name}</td>
-            <td>{row.parent_category.as_ref().map_or("\u{2014}", |parent| parent.name.as_str())}</td>
-            <td class={Number}>{display_order(row.display_order)}</td>
-            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <CellLabel>{t.category_list_key()}</CellLabel>
+                {&row.key}
+            </td>
+            <td>
+                <CellLabel>{t.category_list_name()}</CellLabel>
+                {&row.name}
+            </td>
+            <td>
+                <CellLabel>{t.category_list_parent()}</CellLabel>
+                {row.parent_category.as_ref().map_or("\u{2014}", |parent| parent.name.as_str())}
+            </td>
+            <td class={Number}>
+                <CellLabel>{t.category_list_order()}</CellLabel>
+                {display_order(row.display_order)}
+            </td>
+            <td>
+                <CellLabel>{t.category_list_status()}</CellLabel>
+                <StatusPill status={&row.status} toned={false} />
+            </td>
             <td>
                 <a class={View} href={categories::Category { id: &row.category_id, after_write: None, done: None }}>
                     {t.list_view()}
@@ -170,9 +208,18 @@ pub fn ComponentRow<'a>(t: Cat, row: &'a Component, select: Option<Pilot>) -> im
             if let Some(p) = select {
                 <td><SelectRow p={p} id={&row.component_id} status={None} /></td>
             }
-            <td>{&row.key}</td>
-            <td>{&row.name}</td>
-            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <CellLabel>{t.component_list_key()}</CellLabel>
+                {&row.key}
+            </td>
+            <td>
+                <CellLabel>{t.component_list_name()}</CellLabel>
+                {&row.name}
+            </td>
+            <td>
+                <CellLabel>{t.component_list_status()}</CellLabel>
+                <StatusPill status={&row.status} toned={false} />
+            </td>
             <td>
                 <a class={View} href={components::Component { id: &row.component_id, after_write: None, done: None }}>
                     {t.list_view()}
@@ -191,10 +238,22 @@ pub fn RefTypeRow<'a>(t: Cat, row: &'a ReferenceType, select: Option<Pilot>) -> 
             if let Some(p) = select {
                 <td><SelectRow p={p} id={&row.reference_type_id} status={None} /></td>
             }
-            <td>{&row.key}</td>
-            <td>{&row.name}</td>
-            <td>{row.attribute_keys.len()}</td>
-            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <CellLabel>{t.ref_type_list_key()}</CellLabel>
+                {&row.key}
+            </td>
+            <td>
+                <CellLabel>{t.ref_type_list_name()}</CellLabel>
+                {&row.name}
+            </td>
+            <td>
+                <CellLabel>{t.ref_type_list_attributes()}</CellLabel>
+                {row.attribute_keys.len()}
+            </td>
+            <td>
+                <CellLabel>{t.ref_type_list_status()}</CellLabel>
+                <StatusPill status={&row.status} toned={false} />
+            </td>
             <td>
                 <a class={View} href={ref_types::RefType { id: &row.reference_type_id, after_write: None, done: None }}>
                     {t.list_view()}
@@ -213,10 +272,22 @@ pub fn RefRecordRow<'a>(t: Cat, row: &'a ReferenceRecord, select: Option<Pilot>)
             if let Some(p) = select {
                 <td><SelectRow p={p} id={&row.reference_record_id} status={None} /></td>
             }
-            <td>{&row.type_key}</td>
-            <td>{&row.key}</td>
-            <td>{&row.name}</td>
-            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <CellLabel>{t.ref_record_list_type()}</CellLabel>
+                {&row.type_key}
+            </td>
+            <td>
+                <CellLabel>{t.ref_record_list_key()}</CellLabel>
+                {&row.key}
+            </td>
+            <td>
+                <CellLabel>{t.ref_record_list_name()}</CellLabel>
+                {&row.name}
+            </td>
+            <td>
+                <CellLabel>{t.ref_record_list_status()}</CellLabel>
+                <StatusPill status={&row.status} toned={false} />
+            </td>
             <td>
                 <a class={View} href={ref_records::RefRecord { id: &row.reference_record_id, after_write: None, done: None }}>
                     {t.list_view()}
@@ -232,12 +303,30 @@ pub fn RefRecordRow<'a>(t: Cat, row: &'a ReferenceRecord, select: Option<Pilot>)
 pub fn TemplateRow<'a>(t: Cat, row: &'a DisplayTemplate) -> impl Render {
     html! {
         <tr>
-            <td>{&row.key}</td>
-            <td>{&row.name}</td>
-            <td>{format_target(t, &row.target_kind, row.target_id.as_deref())}</td>
-            <td>{display_order(row.priority)}</td>
-            <td>{&row.title_template}</td>
-            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <CellLabel>{t.template_list_key()}</CellLabel>
+                {&row.key}
+            </td>
+            <td>
+                <CellLabel>{t.template_list_name()}</CellLabel>
+                {&row.name}
+            </td>
+            <td>
+                <CellLabel>{t.template_list_target()}</CellLabel>
+                {format_target(t, &row.target_kind, row.target_id.as_deref())}
+            </td>
+            <td>
+                <CellLabel>{t.template_list_priority()}</CellLabel>
+                {display_order(row.priority)}
+            </td>
+            <td>
+                <CellLabel>{t.template_list_title_template()}</CellLabel>
+                {&row.title_template}
+            </td>
+            <td>
+                <CellLabel>{t.template_list_status()}</CellLabel>
+                <StatusPill status={&row.status} toned={false} />
+            </td>
             <td>
                 <a class={View} href={templates::Template { id: &row.display_template_id, after_write: None, done: None }}>
                     {t.list_view()}
@@ -255,9 +344,18 @@ pub fn BlueprintRow<'a>(t: Cat, row: &'a Blueprint, select: Option<Pilot>) -> im
             if let Some(p) = select {
                 <td><SelectRow p={p} id={&row.blueprint_id} status={None} /></td>
             }
-            <td>{&row.key}</td>
-            <td>{&row.name}</td>
-            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <CellLabel>{t.blueprint_list_key()}</CellLabel>
+                {&row.key}
+            </td>
+            <td>
+                <CellLabel>{t.blueprint_list_name()}</CellLabel>
+                {&row.name}
+            </td>
+            <td>
+                <CellLabel>{t.blueprint_list_status()}</CellLabel>
+                <StatusPill status={&row.status} toned={false} />
+            </td>
             <td>
                 <a class={View} href={blueprints::Blueprint { id: &row.blueprint_id, after_write: None, done: None }}>
                     {t.list_view()}
@@ -275,10 +373,22 @@ pub fn FieldRow<'a>(t: Cat, row: &'a Field, select: Option<Pilot>) -> impl Rende
             if let Some(p) = select {
                 <td><SelectRow p={p} id={&row.field_id} status={None} /></td>
             }
-            <td>{&row.key}</td>
-            <td>{&row.name}</td>
-            <td>{&row.value_type}</td>
-            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <CellLabel>{t.field_list_key()}</CellLabel>
+                {&row.key}
+            </td>
+            <td>
+                <CellLabel>{t.field_list_name()}</CellLabel>
+                {&row.name}
+            </td>
+            <td>
+                <CellLabel>{t.field_list_type()}</CellLabel>
+                {&row.value_type}
+            </td>
+            <td>
+                <CellLabel>{t.field_list_status()}</CellLabel>
+                <StatusPill status={&row.status} toned={false} />
+            </td>
             <td>
                 <a class={View} href={url::Field { id: &row.field_id, after_write: None, done: None }}>{t.list_view()}</a>
             </td>

@@ -922,6 +922,11 @@ fn get(uri: &str, session: Option<&str>) -> Request<Body> {
 }
 
 /// Whether a link to `href` in `html` is marked the current page, whatever attributes sit between.
+/// A stacked table's cell as the kit draws it: its column's label (shown on a phone), then its value.
+fn labelled_cell(label: &str, value: &str) -> String {
+    format!(r#"<td><span class="table__label" aria-hidden="true">{label}</span>{value}</td>"#)
+}
+
 fn marks_current(html: &str, href: &str) -> bool {
     let needle = format!(r#"href="{href}""#);
     html.match_indices(&needle).any(|(at, _)| {
@@ -2283,7 +2288,7 @@ async fn categories_are_created_revised_and_published_not_activated() {
         "/api/catalog/categories?parentCategoryId=ctg_root&hierarchy=child&limit=50&offset=0"
     );
     assert!(html.contains(r#"href="/catalog/categories/ctg_seed">View</a>"#), "{html}");
-    assert!(html.contains("<td>Energy types</td>"), "a child shows its parent's name: {html}");
+    assert!(html.contains(&labelled_cell("Parent", "Energy types")), "a child shows its parent's name: {html}");
     assert!(html.contains(r#"<option value="child" selected>Child Categories</option>"#), "{html}");
 
     // A create leaves an empty parent out; an edit sends it as null (a root category).
@@ -2573,7 +2578,11 @@ async fn display_templates_are_listed_created_and_revised_and_a_refused_publish_
     let (status, _, html) = pilot.send(get("/catalog/display-templates?target_kind=blueprint", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/display-templates?targetKind=blueprint&limit=50&offset=0");
-    assert!(html.contains("<td>Blueprint: bpr_seed</td>") && html.contains("<td>{field.card-name}</td>"), "{html}");
+    assert!(
+        html.contains(&labelled_cell("Target", "Blueprint: bpr_seed"))
+            && html.contains(&labelled_cell("Title Template", "{field.card-name}")),
+        "{html}"
+    );
     assert!(html.contains(r#"href="/catalog/display-templates/dtp_seed">View</a>"#), "{html}");
     // The create dialog opens on a blueprint target at priority 10, as admin-web's does.
     assert!(html.contains(r#"<option value="blueprint" selected>Blueprint</option>"#), "{html}");
@@ -2635,7 +2644,7 @@ async fn reference_types_are_listed_created_revised_and_bulk_published_and_a_ref
     let (status, _, html) = pilot.send(get("/catalog/reference-types?attribute_key=series", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/reference-types?attributeKey=series&limit=50&offset=0");
-    assert!(html.contains("<td>set</td>") && html.contains("<td>2</td>"), "{html}");
+    assert!(html.contains(&labelled_cell("Key", "set")) && html.contains(&labelled_cell("Attributes", "2")), "{html}");
     assert!(html.contains(r#"href="/catalog/reference-types/rft_seed">View</a>"#), "{html}");
 
     let posts = [
@@ -2691,7 +2700,10 @@ async fn reference_records_are_created_and_revised_with_attributes_and_relations
         "{:?}",
         calls.iter().map(|c| &c.path).collect::<Vec<_>>()
     );
-    assert!(html.contains("<td>product-line</td>") && html.contains("<td>Pokemon TCG</td>"), "{html}");
+    assert!(
+        html.contains(&labelled_cell("Type", "product-line")) && html.contains(&labelled_cell("Name", "Pokemon TCG")),
+        "{html}"
+    );
     assert!(html.contains(r#"href="/catalog/reference-records/ref_seed">View</a>"#), "{html}");
     // The list does not read the records a form picks from; opening the create dialog does,
     // and it keeps the list's filters.
@@ -3070,10 +3082,12 @@ async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_colum
     assert!(html.contains("<title>Catalog Items | Catalog Admin</title>"), "{html}");
     assert!(html.contains("75 matching Catalog Items") && html.contains("Page 2 of 2"), "{html}");
     assert!(
-        html.contains("<td>Title cat_a</td>") && html.contains("<td>Japanese</td>") && html.contains("<td>Card</td>"),
+        html.contains(&labelled_cell("Title", "Title cat_a"))
+            && html.contains(&labelled_cell("Language", "Japanese"))
+            && html.contains(&labelled_cell("Blueprint", "Card")),
         "{html}"
     );
-    assert!(html.contains("<td>tcgplayer, pokemon</td>"), "the sources: {html}");
+    assert!(html.contains(&labelled_cell("Source", "tcgplayer, pokemon")), "the sources: {html}");
     assert!(html.contains(r#"href="/catalog/catalog-items/cat_a""#), "the item's page is the pilot's: {html}");
     assert!(html.contains(r#"<details class="list-page__more" open>"#), "a folded filter that is set opens them: {html}");
     assert!(html.contains(r#"value="missing" selected"#), "{html}");
@@ -3313,7 +3327,7 @@ async fn the_scopes_list_asks_the_api_and_shows_each_scopes_promotion_and_sync()
         "{calls:?}"
     );
     assert!(html.contains("<strong>Paldean Fates</strong>") && html.contains(">PAF</span>"), "{html}");
-    assert!(html.contains("<td>pokemon · expansion</td>") && html.contains("2 edition(s): en, ja"), "{html}");
+    assert!(html.contains(&labelled_cell("Domain", "pokemon · expansion")) && html.contains("2 edition(s): en, ja"), "{html}");
     assert!(html.contains(">Live</span>") && html.contains(">Fresh</span>"), "an active scope, changed lately: {html}");
     assert!(
         html.contains("No editions yet") && html.contains(">Unpublished</span>") && html.contains(">Stale sync</span>"),

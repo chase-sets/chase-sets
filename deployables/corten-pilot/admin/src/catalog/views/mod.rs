@@ -6,6 +6,7 @@
 //! A bulk change is a form too: the rows' boxes join it, its preview is a dialog the server
 //! answers with, and its job's dialog follows the job's progress (`<corten-live>`).
 use corten::{Component, prelude::*};
+use platform::ui::table::TableLayout;
 
 use serde_json::Value;
 
@@ -618,7 +619,7 @@ pub fn dimension_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <DimensionRow t={t} row={row} select={select} />
                     }
@@ -675,7 +676,7 @@ pub fn field_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <FieldRow t={t} row={row} select={select} />
                     }

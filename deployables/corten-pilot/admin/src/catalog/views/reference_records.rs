@@ -7,6 +7,7 @@
 //! the active types and the records a relationship may name: the list and the page do not read
 //! those (up to 500 records each, as admin-web reads them) until the dialog is wanted.
 use corten::prelude::*;
+use platform::ui::table::TableLayout;
 
 use super::{
     ActionBar, Bar, Bulk, BulkRows, CatalogDialog, DetailPage, Draft, Empty, Filters, KeyValues, LifecycleForm, ListPage,
@@ -228,7 +229,7 @@ pub fn ref_record_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <RefRecordRow t={t} row={row} select={select} />
                     }
@@ -327,7 +328,7 @@ pub fn ref_record_page<'a>(
                 if record.relationships.is_empty() {
                     <Empty title={t.ref_record_no_relationships()} description="" />
                 } else {
-                    <Table label={t.ref_record_relationships()} head={&head} all={None}>
+                    <Table label={t.ref_record_relationships()} head={&head} all={None} layout={TableLayout::Scroll}>
                         for relationship in &record.relationships {
                             <tr>
                                 <td>{&relationship.relationship_type}</td>

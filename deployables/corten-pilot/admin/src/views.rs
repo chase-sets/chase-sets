@@ -39,8 +39,10 @@ pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};
 pub use status_badge::StatusBadge;
 
 /// The components every page renders (the frame and the shared parts), tokens first: their
-/// stylesheets are `components.css`. The kit's `NavBar` is the top bar's, before `AdminNav`'s own rules.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, platform::ui::nav_bar::NavBar, AdminNav, Section];
+/// stylesheets are `components.css`. The kit's `NavBar` is the top bar's, before `AdminNav`'s own rules,
+/// and its `Table` is every area's lists' (one stylesheet, so no area links another's).
+pub const COMPONENTS: &[Component] =
+    &[theme::TOKENS, platform::ui::nav_bar::NavBar, platform::ui::table::Table, AdminNav, Section];
 
 /// Signing in (`/access/sign-in`, its magic link and account selection): the page's stylesheet.
 pub const SIGN_IN: &[Component] = &[SignInPage];
@@ -53,8 +55,7 @@ pub const OFFLINE: &[Component] = &[OfflinePage];
 pub const LIVE: &[Component] = &[LiveStatus];
 
 /// The postage screen's components: its area's stylesheet.
-pub const POSTAGE: &[Component] =
-    &[platform::ui::table::Table, StatusBadge, PolicyTable, PolicyFields, PolicySheet, Lifecycle, corten_ui::dialog::COMPONENT];
+pub const POSTAGE: &[Component] = &[StatusBadge, PolicyTable, PolicyFields, PolicySheet, Lifecycle, corten_ui::dialog::COMPONENT];
 
 /// A form's typed values and what is wrong with them.
 #[derive(Clone, Debug)]

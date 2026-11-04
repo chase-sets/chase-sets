@@ -3,6 +3,7 @@
 //! attribute key), rows, bulk bar and create dialog, and the page's values, status change and
 //! edit dialog.
 use corten::prelude::*;
+use platform::ui::table::TableLayout;
 
 use super::{
     ActionBar, Bar, Bulk, BulkRows, CatalogDialog, DetailPage, Draft, Empty, Filters, KeyValues, LifecycleForm, ListPage,
@@ -117,7 +118,7 @@ pub fn ref_type_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <RefTypeRow t={t} row={row} select={select} />
                     }
