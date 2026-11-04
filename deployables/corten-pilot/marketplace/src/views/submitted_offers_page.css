@@ -301,7 +301,7 @@
   color: var(--color-text);
   border-color: var(--color-border-strong);
 }
-@media (--sm) {
+@media (--md) {
   .bar {
     grid-template-columns: auto minmax(0, 1fr);
     align-items: center;

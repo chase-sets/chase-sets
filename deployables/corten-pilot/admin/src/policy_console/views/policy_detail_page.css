@@ -191,7 +191,7 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
-@media (--sm) {
+@media (--md) {
   .panels {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -199,7 +199,7 @@
 
 /* Stacked on a phone, a row is one block: a line between rows, not under each of its cells, and a
    row header wraps as its cells do. */
-@media not (--sm) {
+@media not (--md) {
   .table tbody :is(th, td) {
     padding-block: var(--space-1);
     border-bottom: 0;

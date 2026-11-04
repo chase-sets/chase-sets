@@ -378,7 +378,7 @@
 .dialog > * + * {
   margin-block-start: var(--space-3);
 }
-@media (--sm) {
+@media (--md) {
   .cards,
   .photos,
   .grid {

@@ -196,7 +196,7 @@
 }
 
 /* A phone: each row a card, each cell under its heading. */
-@media not (--sm) {
+@media not (--md) {
   .table thead {
     position: absolute;
     width: 1px;

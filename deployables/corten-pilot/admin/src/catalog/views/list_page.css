@@ -65,7 +65,7 @@
   border-bottom: 0;
 }
 /* Stacked on a phone, a row is one block: a line between rows, not under each of its cells. */
-@media not (--sm) {
+@media not (--md) {
   .table td {
     padding-block: var(--space-1);
     border-bottom: 0;
@@ -80,7 +80,7 @@
   text-align: end;
   font-variant-numeric: tabular-nums;
 }
-@media not (--sm) {
+@media not (--md) {
   .table .number {
     text-align: start;
   }

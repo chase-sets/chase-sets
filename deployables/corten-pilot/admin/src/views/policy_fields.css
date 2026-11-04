@@ -10,7 +10,7 @@
   display: grid;
   gap: var(--space-3);
 }
-@media (--sm) {
+@media (--md) {
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

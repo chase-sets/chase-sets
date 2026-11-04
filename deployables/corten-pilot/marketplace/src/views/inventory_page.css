@@ -325,7 +325,7 @@
 .form:has(option[value="honor-offline"]:checked) .confirm {
   display: grid;
 }
-@media (--sm) {
+@media (--md) {
   .three {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }

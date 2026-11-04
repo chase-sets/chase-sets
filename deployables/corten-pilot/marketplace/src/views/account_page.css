@@ -445,7 +445,7 @@
   }
 }
 
-@media (--sm) {
+@media (--md) {
   .head-row {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;

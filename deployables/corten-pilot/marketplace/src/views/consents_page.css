@@ -134,7 +134,7 @@
   justify-content: flex-end;
   margin: 0;
 }
-@media (--sm) {
+@media (--md) {
   .row {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;

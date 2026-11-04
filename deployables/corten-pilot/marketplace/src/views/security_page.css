@@ -256,7 +256,7 @@
 .dialog > .links {
   justify-content: flex-end;
 }
-@media (--sm) {
+@media (--md) {
   .row {
     grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
     align-items: end;

@@ -130,14 +130,14 @@
   text-decoration: none;
 }
 
-@media (--sm) {
+@media (--md) {
   .stats {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
 /* A phone: each row a card, each cell beside its heading. */
-@media not (--sm) {
+@media not (--md) {
   .scroll {
     overflow: visible;
     border: 0;

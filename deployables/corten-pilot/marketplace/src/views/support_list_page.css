@@ -320,7 +320,7 @@
     align-items: baseline;
   }
 }
-@media (--sm) {
+@media (--md) {
   .table {
     display: table;
   }

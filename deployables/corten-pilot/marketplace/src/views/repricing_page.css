@@ -226,7 +226,7 @@
   font-size: 0.8125rem;
   font-weight: 400;
 }
-@media not (--sm) {
+@media not (--md) {
   .table thead {
     position: absolute;
     width: 1px;

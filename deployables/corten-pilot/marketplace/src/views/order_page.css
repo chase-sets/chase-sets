@@ -475,7 +475,7 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
-@media (--sm) {
+@media (--md) {
   .four {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
