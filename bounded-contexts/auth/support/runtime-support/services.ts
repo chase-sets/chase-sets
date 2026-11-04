@@ -32,7 +32,6 @@ import {
   getAuthIdentityUser,
   getAuthIdentityUserByEmail,
   getAuthIdentityUserByPhone,
-  getAuthIdentityUserBySocialLogin,
   getActiveAuthMembershipForUserAccount,
   listActiveAuthAccountIds,
   listActiveAuthMembershipsForUser,
@@ -70,9 +69,6 @@ type AuthIdentityReadServices = Readonly<{
   getUser: (userId: string) => ReturnType<typeof getAuthIdentityUser>;
   getUserByEmail: (email: string) => ReturnType<typeof getAuthIdentityUserByEmail>;
   getUserByPhone: (phone: string) => ReturnType<typeof getAuthIdentityUserByPhone>;
-  getUserBySocialLogin: (
-    params: Parameters<typeof getAuthIdentityUserBySocialLogin>[1],
-  ) => ReturnType<typeof getAuthIdentityUserBySocialLogin>;
   listActiveMembershipsForUser: (userId: string) => ReturnType<typeof listActiveAuthMembershipsForUser>;
   getActiveMembershipForUserAccount: (
     userId: string,
@@ -229,7 +225,6 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
       getUser: (userId) => getAuthIdentityUser(db, userId),
       getUserByEmail: (email) => getAuthIdentityUserByEmail(db, email),
       getUserByPhone: (phone) => getAuthIdentityUserByPhone(db, phone),
-      getUserBySocialLogin: (params) => getAuthIdentityUserBySocialLogin(db, params),
       listActiveMembershipsForUser: (userId) => listActiveAuthMembershipsForUser(db, userId),
       getActiveMembershipForUserAccount: (userId, accountId) =>
         getActiveAuthMembershipForUserAccount(db, userId, accountId),
