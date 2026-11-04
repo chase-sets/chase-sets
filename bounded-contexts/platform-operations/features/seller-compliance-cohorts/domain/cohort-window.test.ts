@@ -962,7 +962,13 @@ describe("seller compliance cohort window", () => {
         policy: { ...policy, comparisonIsInclusive: false },
         evaluationAt: "2025-01-04T00:00:00.000Z",
       }),
-    ).toMatchObject({ state: "member", qualifyingCount: 3, qualifyingGrossCents: "500001" });
+    ).toMatchObject({
+      state: "member",
+      qualifyingCount: 3,
+      qualifyingGrossCents: "500001",
+      entryEffectiveAt: "2025-01-03T01:00:00.000Z",
+      effectiveAt: "2025-01-03T01:00:00.000Z",
+    });
   });
 
   it("expires on the first inadmissible instant after the due chain", () => {
@@ -1078,7 +1084,7 @@ describe("seller compliance cohort window", () => {
       "2025-05-19T00:00:00.000Z",
       "none",
     ]);
-    // With disclosure 700000, the earliest winning window [2025-04-10…, 2025-05-10…) stays below the threshold, so no band rises at re-entry.
+    // With disclosure 700000, the earliest winning window [2025-04-10..., 2025-05-10...) stays below the threshold, so no band rises at re-entry.
     const reentryWithBand = evaluateSellerComplianceCohort({
       sales: later,
       policy: { ...policy, disclosureGrossCents: "700000" },
