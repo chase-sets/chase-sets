@@ -16,9 +16,9 @@ import { scopeContextToObservationFilterScope } from "../../../features/source-o
 
 const { mockCreateCatalogRequestApiClient } = vi.hoisted(() => ({ mockCreateCatalogRequestApiClient: vi.fn() }));
 vi.mock("../../request-support/api-client", async () => {
-  const { withCatalogSurfaceReads } = await vi.importActual<typeof import("../../../features/source-observations/tests/integrations-surface-read-test-client")>(
-    "../../../features/source-observations/tests/integrations-surface-read-test-client",
-  );
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../../../features/source-observations/tests/integrations-surface-read-test-client")
+  >("../../../features/source-observations/tests/integrations-surface-read-test-client");
   return {
     createCatalogRequestApiClient: (request: Request) =>
       withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
