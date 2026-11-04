@@ -324,6 +324,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if uri.path() == "/api/platform/provider-connections" {
         return provider_connections();
     }
+    if let Some(surface) = uri.path().strip_prefix("/api/catalog/source-observations/workbench-surfaces/") {
+        return workbench_surface(surface, uri.query().unwrap_or_default());
+    }
     if let Some(rest) = uri.path().strip_prefix(SHOPPING_API) {
         return shopping_api(&method, rest, uri.query().unwrap_or_default(), &body);
     }
@@ -7112,6 +7115,228 @@ fn provider_connections() -> Response {
             "destination": { "routeId": "x", "href": "/account/channels/chc_1" } }] },
     }))
     .into_response()
+}
+
+/// The Catalog API's composed integrations surface (`GET /api/catalog/source-observations/
+/// workbench-surfaces/{surface}?location=`): a TCGplayer context with a blocked unit, a degraded
+/// provider, a rollout stop, a failed job and a partial audit projection. A location naming
+/// `providerKey=down` is a read model built without the control-plane overview (its panels say
+/// they are unavailable); `providerKey=broken` fails the read.
+fn workbench_surface(surface: &str, query: &str) -> Response {
+    if !matches!(surface, "governance" | "health") {
+        return refusal(
+            StatusCode::NOT_FOUND,
+            "invalid_workbench_surface",
+            "The workbench surface must be daily, governance, or health.",
+        );
+    }
+    let location =
+        query.strip_prefix("location=").map(|l| percent_encoding::percent_decode_str(l).decode_utf8_lossy().into_owned());
+    let Some(location) = location.filter(|l| l.starts_with("/catalog/")) else {
+        return refusal(
+            StatusCode::BAD_REQUEST,
+            "invalid_workbench_location",
+            "The workbench location must be a Catalog admin path.",
+        );
+    };
+    if location.contains("providerKey=broken") {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "The read failed.");
+    }
+    let down = location.contains("providerKey=down");
+    let link = |key: &str, label: &str, href: &str, kind: &str| {
+        json!({ "key": key, "label": label, "href": href, "kind": kind, "summary": format!("{label} summary"),
+            "redactionState": "redacted", "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required" })
+    };
+    let observation = link("obs", "Observation obs_1", "/catalog/source-observations/obs_1", "audit-event");
+    let provider = link("provider", "Provider tcgplayer", "/catalog/providers/tcgplayer", "proof");
+    Json(json!({
+        "readModelFailures": if down { json!(["control-plane-overview"]) } else { json!([]) },
+        "catalogSyncScope": null,
+        "readModel": {
+            "sourceObservationReview": { "counts": { "observed": 12, "changed": 3, "promoted": 0, "rejected": 0, "blocked": 1, "eligible": 4 },
+                "promotionReadyCount": 4 },
+            "importJobs": { "freshness": "fresh", "activeJobCount": 2, "failedJobCount": 1 },
+            "promotionPreview": { "destructiveCount": 7 },
+            "healthTriage": {
+                "status": if down { "unavailable" } else { "degraded" },
+                "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+                "returnToPrimaryHref": "/catalog/integrations?providerKey=tcgplayer",
+                "summary": { "readyUnits": 1, "totalUnits": 2, "blockedUnits": 1, "degradedProviders": 1, "activeJobs": 2,
+                    "rolloutStops": 1, "auditEntries": 1 },
+                "readModels": [{ "queryKey": "provider-health", "freshness": "stale", "generatedAt": "2026-11-04T11:00:00.000Z",
+                    "statusMessage": "Provider adapter transport readiness is derived separately.", "ownerMetricKey": "catalog_provider_health" }],
+                "units": [{ "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer", "displayName": "Pokemon singles",
+                    "productDomain": "pokemon", "productForm": "card", "status": "blocked", "semanticReadiness": "blocked",
+                    "credentialReadiness": "ready", "credentialReadinessState": "configured", "transportReadiness": "ready",
+                    "fixtureValidationStatus": "blocked", "dryRunStatus": "blocked", "observationFacts": 12,
+                    "diagnosticCounts": { "error": 2, "warning": 1, "info": 0 }, "diagnosticCodes": ["fixture_missing"],
+                    "latestDiagnosticText": "Fixture coverage is missing for the set field.",
+                    "affectedPrimaryAction": "observation.promote", "ownerMetricKey": "catalog_unit_readiness",
+                    "nextAction": "Add fixture coverage for this ingestion unit before enabling provider pulls." }],
+                "providers": [{ "providerKey": "tcgplayer", "adapterKey": "tcgplayer-catalog", "status": "degraded", "readiness": "degraded",
+                    "credentialReadiness": "ready", "credentialReadinessState": "configured", "unitKeys": ["tcgplayer:pokemon:card"],
+                    "apiReachability": "ready", "optionQueryHealth": "degraded", "rateLimitStatus": "ready", "payloadAcquisition": "ready",
+                    "usageBudget": { "creditBalance": 40, "creditAllowance": 100, "creditUnit": "credits", "readiness": "degraded",
+                        "freshness": "stale", "observedAt": "2026-11-04T11:30:00.000Z", "lagCategory": "beyond-provider-window",
+                        "diagnosticCode": "usage_stale", "diagnostic": "Usage is older than its window.", "estimatedCalls": 12,
+                        "estimatedScope": "one set" },
+                    "countSpend": [{ "debitId": "d1", "quoteId": "q1", "kind": "cards", "credits": 1, "outcome": "complete",
+                        "debitedAt": "2026-11-04T10:00:00.000Z", "observedAt": "2026-11-04T10:05:00.000Z", "expiresAt": null }],
+                    "diagnosticCodes": [], "latestDiagnosticText": null, "ownerMetricKey": "catalog_provider_option_queries",
+                    "nextAction": "Refresh provider option queries." }],
+                "rolloutControls": [
+                    { "controlId": "import-kill-switch", "status": "blocked", "severity": "error", "metricKey": "catalog_import_kill_switch",
+                        "message": "Imports are stopped.", "providerKeys": ["tcgplayer"], "unitKeys": [], "nextAction": "Clear the stop." },
+                    { "controlId": "promotion", "status": "open", "severity": "info", "metricKey": "m", "message": "Open.",
+                        "providerKeys": [], "unitKeys": [], "nextAction": "None." }],
+                "recentJobs": [{ "jobId": "job_9", "providerKey": "tcgplayer", "unitKey": null, "operatorStatus": "Failed",
+                    "phase": "failed", "progressLabel": "3/10 work units", "summary": "Pull stopped at page 3.",
+                    "ownerMetricKey": "catalog_import_jobs", "nextAction": "Open the durable job evidence." }],
+                "auditPreview": { "generatedAt": null, "projectionStatus": "partial", "statusMessage": "Some lifecycle events are missing.",
+                    "entries": [{ "eventId": "evt_1", "occurredAt": "2026-11-04T09:00:00.000Z", "eventName": "profile-activated",
+                        "category": "activation", "providerKey": "tcgplayer", "unitKey": null, "summary": "Profile 3 activated." }] }
+            },
+            "governanceControls": {
+                "status": "blocked", "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+                "returnToPrimaryHref": "/catalog/integrations?providerKey=tcgplayer", "auditEvidenceUrl": "/catalog/integrations/health",
+                "summary": { "activeRolloutStops": 1, "deniedCommands": 2, "blockedCommands": 3, "degradedSignals": 1, "alertCount": 4,
+                    "deletionEvidenceCount": 1 },
+                "rolloutMode": { "label": "Staged rollout", "state": "stopped", "rolloutEnabled": true, "workerState": "paused",
+                    "providerEmergencyStopCount": 1, "importKillSwitchActive": true, "promotionKillSwitchActive": false,
+                    "reapplyKillSwitchActive": false },
+                "controls": [{ "controlId": "import-kill-switch", "kind": "import-kill-switch", "label": "Import kill switch",
+                    "status": "blocked", "metricKey": "catalog_import_kill_switch", "evidenceUrl": "/catalog/integrations/health",
+                    "commandKeys": [], "blockers": ["kill-switch-active", "kill-switch-active", "permission-denied"],
+                    "providerKeys": ["tcgplayer"], "unitKeys": [], "message": "Imports are stopped." }],
+                "rbacMatrix": [{ "actionKey": "provider-import.start", "requiredPermission": "catalog.manage",
+                    "routePattern": "/catalog/integrations", "state": "denied", "blockers": ["permission-denied"],
+                    "confirmationRequired": true, "destructive": false, "deniedCopy": "Ask for catalog.manage." }],
+                "observability": { "status": "degraded", "generatedAt": null, "signals": [{ "key": "job-failure-rate", "label": "Job failure rate",
+                    "status": "degraded", "value": "12%", "threshold": "5%", "ownerMetricKey": "catalog_job_failures",
+                    "evidenceUrl": "/catalog/integrations/health", "stale": true,
+                    "alertLinks": [{ "label": "Failure alert",
+                        "href": "https://grafana.chasesets.com/d/chase-sets-catalog-control-plane/jobs" }],
+                    "runbookLinks": [{ "label": "Runbook",
+                        "href": "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/catalog-jobs.md" }] }] },
+                "legacyRemovalEvidence": { "status": "removed", "requiredDisposition": "complete-removal",
+                    "removedSurfaces": ["raw-json"], "forbiddenSupportPaths": [], "launchBlockerIfPresent": ["raw-json"],
+                    "evidence": [{ "key": "raw-json", "label": "Raw JSON editor", "status": "removed",
+                        "evidenceUrl": "/catalog/integrations/health", "detail": "Deleted." }] }
+            },
+            "auditEvidence": {
+                "status": if down { "unavailable" } else { "partial" }, "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+                "returnToPrimaryHref": "/catalog/integrations?providerKey=tcgplayer",
+                "summary": { "timelineEvents": 1, "redactedEvidenceLinks": 2, "partialProjectionCount": 1 },
+                "filters": [{ "key": "provider", "label": "Provider", "value": "tcgplayer", "options": ["tcgplayer", "lorcast"], "active": true },
+                    { "key": "job", "label": "Job", "value": null, "options": [], "active": false }],
+                "projectionState": { "queryKey": "audit-evidence-timeline", "freshness": "fresh", "generatedAt": null,
+                    "statusMessage": "Audit evidence timeline projection is unavailable.", "missingProjection": down, "partialProjection": !down },
+                "redactionPolicy": { "sourcePayloadAccess": "not-required", "profileSnapshotAccess": "not-required",
+                    "unsafeEvidenceBlocked": true, "governedDataClasses": [], "forbiddenEvidenceRequests": ["raw-payload"],
+                    "summary": "Normal review uses redacted summaries." },
+                "timeline": [{ "eventId": "evt_1", "occurredAt": "2026-11-04T09:00:00.000Z", "eventName": "promotion-applied",
+                    "category": "promotion", "actorLabel": "operator scope", "targetType": "source-observation", "targetId": "obs_1",
+                    "providerKey": "tcgplayer", "unitKey": null, "profileVersion": null, "jobId": null, "observationId": "obs_1",
+                    "catalogItemId": null, "summary": "Promoted to the Catalog.", "diagnosticCodes": [], "redactionState": "redacted",
+                    "evidenceLinks": [observation.clone()] }],
+                "evidenceLinks": [observation, provider]
+            }
+        }
+    }))
+    .into_response()
+}
+
+fn integrations_calls(pilot: &Pilot) -> Vec<String> {
+    pilot.calls.lock().unwrap().iter().filter(|c| c.path.contains("/workbench-surfaces/")).map(|c| c.path.clone()).collect()
+}
+
+#[tokio::test]
+async fn integration_health_draws_the_apis_composed_surface_for_its_address() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/catalog/integrations/health?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(
+        integrations_calls(&pilot),
+        [
+            "/api/catalog/source-observations/workbench-surfaces/health?location=%2Fcatalog%2Fintegrations%2Fhealth%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon"
+        ],
+        "the page's own address is the surface's location, as the API reads it"
+    );
+    assert!(html.contains("<title>Integration Health | Catalog Integrations"), "{html}");
+    assert!(html.contains("Pull provider data, review Source Observations, promote Catalog facts"), "the shell: {html}");
+    assert!(
+        html.contains(">12<") && html.contains("3 changed") && html.contains("Draft Catalog Item updates"),
+        "its metrics: {html}"
+    );
+    assert!(
+        html.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer""#),
+        "back to the import workbench, on admin-web until the pilot serves it: {html}"
+    );
+    assert!(html.contains("Integration health triage") && html.contains("Audit timeline"), "both workspaces: {html}");
+    let audit = html.find("Audit timeline").unwrap();
+    assert!(audit < html.find("Integration health triage").unwrap(), "the audit timeline first, as admin-web: {html}");
+    assert!(html.contains(">1/2<") && html.contains("Pokemon singles") && html.contains("tcgplayer / pokemon/card"), "{html}");
+    assert!(html.contains("2 error(s), 1 warning(s), 0 info") && html.contains("12 Source Observation fact(s)"), "{html}");
+    assert!(html.contains(">Preview promotion<"), "the unit's primary action: {html}");
+    assert!(
+        html.contains("40 of 100 credits") && html.contains("Usage is older than its window."),
+        "a stale budget's reason: {html}"
+    );
+    assert!(html.contains("Beyond the provider") && html.contains("12 / one set"), "{html}");
+    assert!(html.contains("cards: 1 / complete / 2026-11-04T10:05:00.000Z / -"), "the count spend: {html}");
+    assert!(
+        html.contains("Imports are stopped.") && !html.contains(">promotion<"),
+        "only the rollout stops that are not open: {html}"
+    );
+    assert!(html.contains("Pull stopped at page 3.") && html.contains("Audit lifecycle partial"), "{html}");
+    assert!(html.contains(r#"href="/catalog/source-observations/obs_1""#), "the pilot's observation page: {html}");
+    assert!(
+        html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer""#),
+        "a page the pilot does not serve: {html}"
+    );
+    assert!(html.contains(r#"aria-hidden="true">Ingestion unit</span>"#), "a stacked row names its cells: {html}");
+}
+
+#[tokio::test]
+async fn settings_and_governance_draw_the_governance_controls_with_their_evidence() {
+    let pilot = Pilot::new().await;
+    for path in ["/catalog/integrations/settings", "/catalog/integrations/governance"] {
+        let (status, _, html) = pilot.send(get(path, Some("catalog-reader"))).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {html}");
+        assert!(
+            html.contains("Governance controls are blocking") && html.contains("Rollout and worker controls"),
+            "{path}: {html}"
+        );
+        assert_eq!(html.matches(">Kill switch active<").count(), 1, "each blocker once: {html}");
+        assert!(html.contains(">Permission denied<"), "a blocker's label: {html}");
+        assert!(html.contains("Import kill switch") && html.contains(">active<") && html.contains(">clear<"), "{html}");
+        assert!(html.contains("4 alert links") && html.contains(">1 actions<"), "{html}");
+        assert!(html.contains(r#"href="https://grafana.chasesets.com/d/chase-sets-catalog-control-plane/jobs""#), "{html}");
+        assert!(
+            html.contains(r#"href="https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/catalog-jobs.md""#),
+            "{html}"
+        );
+        assert!(html.contains("<details") && html.contains("Audit events"), "the evidence opens on the page: {html}");
+        assert!(!html.contains("Integration health triage"), "{path}: {html}");
+    }
+    let calls = integrations_calls(&pilot);
+    assert!(
+        calls.iter().all(|c| c.contains("/workbench-surfaces/governance?location=%2Fcatalog%2Fintegrations%2F")),
+        "{calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_unreadable_projection_says_so_in_its_panel_and_a_failed_read_is_the_error_page() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations/health?providerKey=down", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Health read model is unavailable") && html.contains("Audit projection is unavailable"), "{html}");
+    let (status, _, _) = pilot.send(get("/catalog/integrations/health?providerKey=broken", Some("catalog-reader"))).await;
+    assert_ne!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(get("/catalog/integrations/health", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view, as the API asks");
 }
 
 #[tokio::test]

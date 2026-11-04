@@ -52,6 +52,7 @@ pub mod components;
 pub mod coverage;
 pub mod display_templates;
 pub mod form;
+pub mod integrations;
 pub mod item;
 pub mod items;
 pub mod observation;
@@ -438,6 +439,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = scope::url::area(area, shared.clone());
     let area = coverage::url::area(area, shared.clone());
     let area = observation::url::area(area, shared.clone());
+    let area = integrations::url::area(area, shared.clone());
     let area = sync_batches::url::area(area, shared.clone());
     let area = attention::url::area(area, shared.clone());
     let area = categories::url::area(area, shared.clone());

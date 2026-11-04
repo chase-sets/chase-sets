@@ -16,8 +16,8 @@
 //! them. Every write is a form that works without JavaScript and answers with the page after it
 //! (its receipt and the toast), or the page again with the API's refusal (422).
 //!
-//! Not ported: the import-to-promotion workspace, which admin-web composes in its web server
-//! (chase-sets/chase-sets#10507); the section links to admin-web's page for it.
+//! Not ported: the import-to-promotion workspace (the integrations daily surface, which the Catalog
+//! API composes once chase-sets/chase-sets#10507 lands); the section links to admin-web's page for it.
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,

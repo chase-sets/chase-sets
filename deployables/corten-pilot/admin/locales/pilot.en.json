@@ -112,5 +112,22 @@
     "unsupported": "Scope Sync Batch command is not supported.",
     "file_required": "Choose a held-set export CSV.",
     "upload_too_large": "The held-set export is larger than 16 MiB."
+  },
+  "integrations": {
+    "rollout_mode": "Rollout mode",
+    "worker_state": "Worker state",
+    "emergency_stops": "Provider emergency stops",
+    "import_kill_switch": "Import kill switch",
+    "promotion_kill_switch": "Promotion kill switch",
+    "reapply_kill_switch": "Reapply/replay kill switch",
+    "switch_on": "active",
+    "switch_off": "clear",
+    "status": "Status",
+    "removed_surfaces": "Removed surfaces",
+    "launch_blocker": "Launch blocker if present",
+    "alert_links": "{count} alert links",
+    "deletion_evidence": "deletion evidence",
+    "all_providers": "all providers",
+    "all_units": "all units"
   }
 }

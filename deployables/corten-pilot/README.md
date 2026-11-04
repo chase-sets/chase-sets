@@ -131,14 +131,17 @@ What each screen covers and leaves out, screen by screen, is in the
 
 ### Not ported
 
-Every page route marketplace-web, admin-web and public-web declare is served here except admin-web's
-Catalog integrations: `/catalog/integrations` with its `governance`, `settings` and `health` tabs,
+Every page route marketplace-web, admin-web and public-web declare is served here except three of
+admin-web's Catalog integrations pages: the daily `/catalog/integrations` workbench,
 `/catalog/integrations/observation-evidence/{id}` and `/catalog/providers/{providerKey}` (compared
-with each host's route records on 2026-11-01). Their read model is composed in admin-web's loader,
-and these routes change before the API owns it:
-[chase-sets/chase-sets#10507 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/issues/10507)
-waits on [chase-sets/chase-sets#9074 Cut over Catalog routes and every live retired-URL caller to v2](https://github.com/chase-sets/chase-sets/issues/9074)
-and [chase-sets/chase-sets#9076 Delete the v1 Catalog module graph and migrate its surviving type consumers](https://github.com/chase-sets/chase-sets/issues/9076).
+with each host's route records on 2026-11-01). The Catalog API composes the integrations surfaces
+([chase-sets/chase-sets#11038 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/pull/11038)),
+and the pilot draws Integration health, Settings and Settings' older `governance` address from it
+([admin/src/catalog/integrations.rs](admin/src/catalog/integrations.rs)); those pages need that
+API to answer. The daily workbench is the large remaining piece: import, Source Observation
+review, promotion preview and outcome, about 4,000 lines of interactive TSX in admin-web, drawn
+from the same API read. Observation evidence and provider profile authoring follow it, and their
+links go to admin-web until then.
 marketplace-web's `/items/{id}/market-history` is a JSON resource for its client; the pilot draws
 the Sales tab's history on the server.
 
