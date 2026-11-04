@@ -1,10 +1,11 @@
 //! Provider Connections (`ProviderConnectionsPage`): the header, then Catalog's providers and
-//! Channels' connections, each a section with its table, which scrolls on its own on a phone. A
-//! section the API could not read says so instead of its table.
+//! Channels' connections, each a section with its table, which stacks on a phone (a row a block of
+//! labelled lines). A section the API could not read says so instead of its table.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use crate::{
     providers::{Connection, Section, Snapshot},
@@ -121,25 +122,27 @@ fn Part<'a>(o: Ops, which: &'static str, section: &'a Section) -> impl Render {
                     </div>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{o.pc_provider()}</th>
-                                    <th scope="col">{o.pc_capability()}</th>
-                                    <th scope="col">{o.pc_scope()}</th>
-                                    <th scope="col">{o.pc_credential()}</th>
-                                    <th scope="col">{o.pc_health()}</th>
-                                    <th scope="col">{o.pc_observation()}</th>
-                                    <th scope="col">{o.pc_owner()}</th>
-                                    <th scope="col">{o.pc_action()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &section.rows {
-                                    <Line o={o} row={row} />
-                                }
-                            </tbody>
-                        </table>
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">{o.pc_provider()}</th>
+                                        <th scope="col">{o.pc_capability()}</th>
+                                        <th scope="col">{o.pc_scope()}</th>
+                                        <th scope="col">{o.pc_credential()}</th>
+                                        <th scope="col">{o.pc_health()}</th>
+                                        <th scope="col">{o.pc_observation()}</th>
+                                        <th scope="col">{o.pc_owner()}</th>
+                                        <th scope="col">{o.pc_action()}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    for row in &section.rows {
+                                        <Line o={o} row={row} />
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             }
@@ -159,28 +162,42 @@ fn Line<'a>(o: Ops, row: &'a Connection) -> impl Render {
     html! {
         <tr>
             <td class={Words}>
+                <CellLabel>{o.pc_provider()}</CellLabel>
                 <p class={Strong}>{&row.provider}</p>
                 <p class={Muted}>{&row.id}</p>
             </td>
-            <td>{capability(o, &row.capability)}</td>
-            <td class={Words}>{scope}</td>
             <td>
+                <CellLabel>{o.pc_capability()}</CellLabel>
+                {capability(o, &row.capability)}
+            </td>
+            <td class={Words}>
+                <CellLabel>{o.pc_scope()}</CellLabel>
+                {scope}
+            </td>
+            <td>
+                <CellLabel>{o.pc_credential()}</CellLabel>
                 <span class={Pill} data-tone={tone(&row.credential_readiness)}>{credential(o, &row.credential_readiness)}</span>
             </td>
             <td>
+                <CellLabel>{o.pc_health()}</CellLabel>
                 <span class={Pill} data-tone={tone(&row.health)}>{health(o, &row.health)}</span>
                 if let Some(value) = &row.status {
                     <p class={Muted}>{status(o, value)}</p>
                 }
             </td>
             <td>
+                <CellLabel>{o.pc_observation()}</CellLabel>
                 <span class={Pill} data-tone={fresh_tone}>{fresh}</span>
                 if let Some(when) = when {
                     <p class={(Muted, Words)}>{when}</p>
                 }
             </td>
-            <td>{owner(o, &row.owner)}</td>
             <td>
+                <CellLabel>{o.pc_owner()}</CellLabel>
+                {owner(o, &row.owner)}
+            </td>
+            <td>
+                <CellLabel>{o.pc_action()}</CellLabel>
                 match open {
                     Some(href) => { <a class={Button} href={href}>{o.pc_open_provider()}</a> }
                     None => { <span class={Muted}>{o.pc_read_only()}</span> }

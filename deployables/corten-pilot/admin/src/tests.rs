@@ -6189,6 +6189,11 @@ async fn recovered_returns_shows_the_figures_the_queue_and_the_action_form() {
     ] {
         assert!(html.contains(text), "{text}: {html}");
     }
+    assert!(
+        html.contains(&labelled_cell("Condition grade", "near-mint"))
+            && html.contains(r#"<th scope="row"><span class="table__label" aria-hidden="true">Signal</span>Unidentified</th>"#),
+        "the figures and the queue stack on a phone, each cell named by its column: {html}"
+    );
     assert!(marks_current(&html, "/commerce/recovered-items"), "the nav serves it: {html}");
     assert_eq!(pilot.calls_to(RECOVERED).len(), 2, "the list and the figures");
     assert_eq!(pilot.send(get(RECOVERED_PAGE, Some("intake-viewer"))).await.0, StatusCode::FORBIDDEN);
@@ -6802,6 +6807,7 @@ async fn the_waitlist_forwards_admin_webs_filters_and_shows_the_figures_and_sign
     assert!(html.contains("Wave 1") && html.contains("3 of 100 admitted"), "{html}");
     assert!(html.contains("seller@example.test") && html.contains("Bulk listing") && html.contains(">discord<"), "{html}");
     assert!(html.contains(">Yes<") && html.contains("Showing 1 of 7"), "{html}");
+    assert!(html.contains(&labelled_cell("Referred", "Yes")), "the signups stack on a phone: {html}");
     assert!(html.contains(r#"href="/growth/waitlist/export?search=seller&amp;role=sell&amp;sort=referrals""#), "{html}");
 
     let (status, _, _) = pilot.send(get("/growth/waitlist?search=down", Some("growth-viewer"))).await;

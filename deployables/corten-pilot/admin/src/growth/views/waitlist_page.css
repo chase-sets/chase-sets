@@ -1,5 +1,5 @@
 /* Waitlist: the figures are one column on a phone; the filters are one column on a phone, two from
-   40rem and one row from 64rem; the signups scroll on their own on a phone. */
+   40rem and one row from 64rem; the signups stack on a phone. */
 .page {
   display: grid;
   gap: var(--space-4);
@@ -202,5 +202,23 @@
   }
   .four {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* A stacked cell (the kit's TableLayout::Stack on a phone) stretches what follows its label to the
+   column's width (todd-skelton/corten#765): a pill and a link keep their own width. */
+.table tbody :is(th, td) > * {
+  justify-self: start;
+}
+/* Stacked on a phone, a row is one block: a line between rows, not under each of its cells, and a
+   row header wraps as its cells do. */
+@media not (--sm) {
+  .table tbody :is(th, td) {
+    padding-block: var(--space-1);
+    border-bottom: 0;
+    white-space: normal;
+  }
+  .table tbody tr:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
   }
 }

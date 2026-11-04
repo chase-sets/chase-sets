@@ -156,12 +156,18 @@ pub fn AccessPage<'a>(t: Acc, screen: &'a access::HomeScreen) -> impl Render {
                                     for account in &screen.home.accounts {
                                         <tr>
                                             <Cell label={t.accounts_display_name()}>{account_label(account)}</Cell>
-                                            <Cell label={t.accounts_type()}>{access::account_type(t, &account.account_type)}</Cell>
+                                            <Cell label={t.accounts_type()}>
+                                                {access::account_type(t, &account.account_type)}
+                                            </Cell>
                                             <Cell label={t.accounts_status()}>
                                                 if account.status == "active" {
-                                                    <span class={(Pill, Success)}>{access::account_status(t, &account.status)}</span>
+                                                    <span class={(Pill, Success)}>
+                                                        {access::account_status(t, &account.status)}
+                                                    </span>
                                                 } else {
-                                                    <span class={(Pill, Warning)}>{access::account_status(t, &account.status)}</span>
+                                                    <span class={(Pill, Warning)}>
+                                                        {access::account_status(t, &account.status)}
+                                                    </span>
                                                 }
                                             </Cell>
                                             <td>
@@ -291,7 +297,12 @@ fn View<'a>(p: Pilot, href: &'a str) -> impl Render {
 /// `TableLayout::Stack`, as admin-web's `DataTable` stacks).
 #[component(css = AccessPage)]
 fn Cell<'a, C: Render>(label: &'a str, children: C) -> impl Render {
-    html! { <td><CellLabel>{label}</CellLabel>{children}</td> }
+    html! {
+        <td>
+            <CellLabel>{label}</CellLabel>
+            {children}
+        </td>
+    }
 }
 
 /// An account's name with its badges.
