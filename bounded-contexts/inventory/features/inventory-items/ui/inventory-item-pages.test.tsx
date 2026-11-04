@@ -254,6 +254,38 @@ describe("inventory item pages", () => {
     expect(html).toMatch(/<textarea[^>]*name="note"/);
   });
 
+  it("renders the localized Stock consumed label for the producer-only sale-consumed reason", () => {
+    const detail: InventoryItemDetail = {
+      ...inventoryItem,
+      holds: [],
+      ledger: [
+        {
+          ledger_entry_id: "entry_consumed",
+          item_id: inventoryItem.item_id,
+          account_id: inventoryItem.account_id,
+          occurred_at: "2026-07-06T01:00:00.000Z",
+          kind: "adjusted",
+          quantity_delta: -1,
+          hold_quantity: null,
+          purpose: null,
+          reason: "legacy raw reason",
+          reason_code: "sale-consumed",
+          note: null,
+          sale_price_amount: null,
+          channel: null,
+          source_ref: null,
+          actor: "system",
+          event_type: "inventory.item.adjusted",
+          stream_id: "inventory.item-inv_1",
+          stream_version: 2,
+          recorded_at: "2026-07-06T01:00:01.000Z",
+        },
+      ],
+    };
+    const html = renderToString(<InventoryItemDetailPage item={detail} />);
+    expect(html).toContain("Stock consumed");
+  });
+
   it("offers a list-from-inventory action when stock is available", () => {
     const detail: InventoryItemDetail = { ...inventoryItem, holds: [], ledger: [] };
     const html = renderToString(<InventoryItemDetailPage item={detail} />);
@@ -516,7 +548,7 @@ describe("inventory item pages", () => {
       "offline-sale": "Sold offline",
       "hold-placed": "Hold placed",
       "hold-converted": "Hold converted",
-      "hold-consumed": "Sale recorded",
+      "hold-consumed": "Stock consumed",
       "hold-released": "Hold released",
       "hold-expired": "Hold expired",
       "restock-decision": "Restock decision",
