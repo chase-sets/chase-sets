@@ -736,7 +736,7 @@ describeDb("issue-7168 PostgreSQL authority", () => {
   );
 
   it("issue-7168-ac5-history: an unapplied relevant membership event stays indeterminate with zero appends", async () => {
-    await services.eventStore!.appendToStream({
+    await raw.appendToStream({
       streamId: "identity.membership-mbr_second7168",
       expectedVersion: 1,
       context,

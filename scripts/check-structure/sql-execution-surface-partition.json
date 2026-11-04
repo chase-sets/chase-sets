@@ -250,6 +250,7 @@
     "bounded-contexts/identity/features/founders-cohort/read-model/queries.ts",
     "bounded-contexts/identity/features/invitations/read-model/projection.ts",
     "bounded-contexts/identity/features/invitations/read-model/queries.ts",
+    "bounded-contexts/identity/features/memberships/api/membership-set-cutover.ts",
     "bounded-contexts/identity/features/memberships/read-model/projection.ts",
     "bounded-contexts/identity/features/memberships/read-model/queries.ts",
     "bounded-contexts/identity/features/preferences/read-model/projection.ts",

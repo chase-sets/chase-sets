@@ -7,6 +7,8 @@
     "account",
     "account-capability",
     "membership",
+    "user-membership-set",
+    "user-membership-set-cutover",
     "invitation",
     "api-key",
     "consent",

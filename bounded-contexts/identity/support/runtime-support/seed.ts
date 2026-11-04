@@ -753,6 +753,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
   const shouldSeedAdminQaActorFixtures = profileEnabled(options, "admin-qa-actor-fixtures");
 
   if (!shouldSeedScenario && !shouldSeedRepresentative && !shouldSeedAdminQaActorFixtures) {
+    await services.membershipSets.reconcile(context);
     console.log("Identity seed skipped for selected data profiles.");
     return;
   }
@@ -766,6 +767,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
   if (shouldSeedAdminQaActorFixtures) {
     await provisionAdminQaActorFixtures(services);
   }
+  await services.membershipSets.reconcile(context);
 }
 
 function profileEnabled(options: BcSeedOptions | undefined, profile: EnvironmentDataProfile): boolean {
