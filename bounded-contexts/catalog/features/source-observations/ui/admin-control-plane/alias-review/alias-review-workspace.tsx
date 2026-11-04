@@ -316,6 +316,7 @@ function AliasBulkActionPanel({
               actionHref={actionHref}
               tone="secondary"
               disabled={!canManageAliases}
+              eligibleOnly
             >
               {t("catalog.features.sourceObservations.ui.aliasReview.bulk.acceptEligible", {
                 count: selectedAutoAcceptEligible,
@@ -360,6 +361,7 @@ function BulkAliasActionForm({
   actionHref,
   tone,
   disabled,
+  eligibleOnly = false,
   children,
 }: {
   action: Extract<CatalogAliasReviewActionKey, "alias.accept" | "alias.defer">;
@@ -367,12 +369,15 @@ function BulkAliasActionForm({
   actionHref: string;
   tone: "primary" | "secondary";
   disabled: boolean;
+  /** Catalog accepts only the selected candidates it marks auto-accept eligible. */
+  eligibleOnly?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <WorkbenchForm variant="button" method="post" action={actionHref} data-alias-review-command={action}>
       <HiddenInput name="_intent" value={action} />
       <HiddenInput name="aliasHashes" value={aliasHashes.join(",")} />
+      {eligibleOnly ? <HiddenInput name="eligibleOnly" value="true" /> : null}
       <Button type="submit" size="sm" tone={tone} disabled={disabled}>
         {children}
       </Button>

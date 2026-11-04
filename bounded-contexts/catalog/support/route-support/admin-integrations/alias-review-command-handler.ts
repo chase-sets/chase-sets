@@ -12,7 +12,9 @@ type RouteContext = CatalogIntegrationsCommandResult["context"];
 // endpoint:
 //
 //   alias.accept → AcceptCatalogAlias (collapses the former accept/auto-accept
-//                  split: the aggregate command is identical either way)
+//                  split: the aggregate command is identical either way; the
+//                  bulk "Auto-accept eligible" form adds eligibleOnly=true so
+//                  Catalog accepts only the candidates it marks eligible)
 //   alias.reject → RejectCatalogAlias (reason required)
 //   alias.revoke → RevokeCatalogAlias (reason required)
 //   alias.defer  → keeps the candidate pending (no aggregate write)
@@ -67,10 +69,12 @@ export async function handleAliasReviewCommand(input: {
     return aliasResult(intent, "error", "reason-required", context);
   }
 
+  const eligibleOnly = intent === "alias.accept" && formData.get("eligibleOnly") === "true";
   await api.dispatchCatalogAliasReviewCommand({
     intent: aliasReviewAggregateIntent(intent),
     aliasHashes,
     ...(reason ? { reason } : {}),
+    ...(eligibleOnly ? { eligibleOnly } : {}),
   });
 
   return aliasResult(intent, "success", "job-queued", context);
