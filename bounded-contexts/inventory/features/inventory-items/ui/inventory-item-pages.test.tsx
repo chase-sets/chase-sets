@@ -548,7 +548,7 @@ describe("inventory item pages", () => {
       "offline-sale": "Sold offline",
       "hold-placed": "Hold placed",
       "hold-converted": "Hold converted",
-      "hold-consumed": "Sale recorded",
+      "hold-consumed": "Stock consumed",
       "hold-released": "Hold released",
       "hold-expired": "Hold expired",
       "restock-decision": "Restock decision",
