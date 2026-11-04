@@ -19,3 +19,12 @@ export interface CatalogScopeRecordDetail {
   lifecycleStatus: string;
   updatedAt: string;
 }
+
+export interface CatalogScopeRecordListResponse {
+  items: readonly CatalogScopeRecordDetail[];
+  total: number;
+  count: number;
+  facets?: Readonly<{
+    languageEditions: readonly string[];
+  }>;
+}
