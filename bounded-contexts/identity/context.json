@@ -1593,7 +1593,25 @@
       "proof": {
         "authoritativeResponse": "buildIdentityApi now returns a scoped snapshots array from the command handler results for internal Auth mutations, and createIdentityAuthRequestClient forwards those response snapshots instead of swallowing credential/link results.",
         "tests": [
-          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves internal Auth mutation routes return committed aggregate snapshots with id, version, and status."
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves internal Auth mutation routes return committed aggregate snapshots with id, version, and status.",
+          "bounded-contexts/identity/features/users/api/social-login-ownership.db.test.ts proves the Social Login link route returns the committed User snapshot from its ownership-claim transaction."
+        ]
+      }
+    },
+    {
+      "id": "identity.social-login-subject-resolution",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/identity/api.ts:POST /internal/auth/social-login-subjects/resolve"],
+      "visibleDestination": {
+        "description": "Auth receives the Social Login Ownership Claim decision for one provider subject (unclaimed, owned with its User id, or repair-required) from Identity's claim stream after a bounded horizon catch-up; no projection is read and the response grants no Session authority."
+      },
+      "proof": {
+        "authoritativeResponse": "resolveSocialLoginSubject catches up event-store link history past the recorded horizon only when a lock-free probe finds any, then folds the subject's claim stream and returns only the claim decision.",
+        "tests": [
+          "bounded-contexts/identity/features/users/api/social-login-ownership.db.test.ts",
+          "bounded-contexts/auth/support/api-support/social-login-routes.test.ts"
         ]
       }
     },
