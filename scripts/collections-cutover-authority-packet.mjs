@@ -277,11 +277,98 @@ const CAPTURE_ENVELOPE = Object.freeze(["schemaVersion", "target", "capturedAt",
 // Names echoed into errors must never carry an untrusted value.
 const safeName = (name) => (/^[A-Za-z0-9_.-]{1,80}$/.test(name) ? name : "unnamed");
 
+const BACKEND_ID = /^backend:[1-9][0-9]*$/;
+const SESSION_EVIDENCE = Object.freeze(["pool", "pooledRead", "holders"]);
+const POOL_MATCH = Object.freeze(["pid", "backendStart", "role"]);
+const governedUnknown = (value) =>
+  isObject(value) && value.status === "unknown" && text(value.missingAuthority) && text(value.hostAction);
+const evidenceShown = (value) =>
+  isObject(value) &&
+  value.status !== "unknown" &&
+  text(value.source) &&
+  ("value" in value || Array.isArray(value.items));
+const digest64 = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+// The exact shape each shown evidence key must carry before a pooler proof may read it.
+const EVIDENCE_SHAPE = Object.freeze({
+  pool: ({ value }) =>
+    isObject(value) &&
+    value.context === "collections" &&
+    value.name === "collections-runtime" &&
+    value.mode === "transaction" &&
+    integer(value.size) &&
+    value.size > 0 &&
+    digest64(value.hostDigest) &&
+    digest64(value.userDigest),
+  pooledRead: ({ value }) =>
+    isObject(value) && integer(value.pid) && value.pid > 0 && Number.isFinite(instant(value.backendStart)),
+  holders: (set) =>
+    Array.isArray(set.items) &&
+    integer(set.collected) &&
+    set.authoritativeTotal === set.collected &&
+    set.items.length === set.collected,
+});
+
+/**
+ * Per-backend session evidence. A set without one `backend:<pid>` item per backend and its pool, pooled-read and
+ * holder evidence is aggregate-only attribution: it folds in as a governed unknown, never as a complete session set.
+ * A `pooler` item must carry its own proof (the pooled read's PID and backend_start, the pool user's role digest
+ * and a shown holder census); an unproven pooler claim refuses the capture.
+ */
+function sessionEvidence(state, target, value) {
+  if (!isObject(value) || value.status === "unknown" || !Array.isArray(value.items)) return value;
+  const perBackend =
+    value.items.every(
+      (item) =>
+        isObject(item) &&
+        BACKEND_ID.test(item.id ?? "") &&
+        item.id === `backend:${item.pid}` &&
+        ["pooler", "unknown"].includes(item.classification),
+    ) && SESSION_EVIDENCE.every((key) => governedUnknown(value[key]) || evidenceShown(value[key]));
+  if (!perBackend) {
+    const unknown = {
+      status: "unknown",
+      missingAuthority: "aggregate-only session attribution without per-backend pool and holder evidence",
+      hostAction: `re-dispatch the capture for ${target} at a head that records per-backend sessions`,
+    };
+    state.missing.push({
+      target,
+      file: "writerAuthority",
+      field: "writers.session",
+      reason: "session-evidence-aggregate",
+      missingAuthority: unknown.missingAuthority,
+      hostAction: unknown.hostAction,
+    });
+    return unknown;
+  }
+  // Shown evidence of the wrong shape refuses the capture whether or not any backend claims pooler.
+  const malformed = SESSION_EVIDENCE.filter((key) => evidenceShown(value[key]) && !EVIDENCE_SHAPE[key](value[key]));
+  for (const key of malformed) state.errors.push(`${target}|writers.session|${key}-malformed`);
+  const proven = (item) =>
+    malformed.length === 0 &&
+    SESSION_EVIDENCE.every((key) => evidenceShown(value[key])) &&
+    value.pooledRead.value.pid === item.pid &&
+    value.pooledRead.value.backendStart === item.backendStart &&
+    value.pool.value.userDigest === item.roleDigest &&
+    POOL_MATCH.every((key) => item.poolMatch?.[key] === true);
+  if (value.items.some((item) => item.classification === "pooler" && !proven(item)))
+    state.errors.push(`${target}|writers.session|pooler-unproven`);
+  return value;
+}
+
+// Returns the value to fold: the capture's own, or the governed unknown an aggregate-only session set becomes.
 function captureField(state, target, file, name, value) {
-  if (name.startsWith("writers.")) return writerSet(state, target, name.slice("writers.".length), value);
+  if (name === "writers.session") {
+    const folded = sessionEvidence(state, target, value);
+    if (folded !== value) return folded;
+  }
+  if (name.startsWith("writers.")) {
+    writerSet(state, target, name.slice("writers.".length), value);
+    return value;
+  }
   if (field(state, target, file, name, value) && name.startsWith("gates.") && value.value !== "demonstrated") {
     state.errors.push(`${target}|${name}|field-shape`);
   }
+  return value;
 }
 
 function slot(parent, key) {
@@ -291,8 +378,10 @@ function slot(parent, key) {
 
 /**
  * Folds one `collections-cutover-provider-capture/v1` into a copy of `packet`. A capture carrying a non-AC1
- * field or target, a capture taken at or before the activation merge, failure codes, a secret-shaped value
- * or a malformed field is refused whole: `errors` is non-empty and `packet` is returned untouched.
+ * field or target, a capture taken at or before the activation merge, failure codes, a secret-shaped value,
+ * a malformed field, malformed pool, pooled-read or holder evidence or an unproven `pooler` session is refused
+ * whole, never thrown: `errors` is non-empty and `packet` is
+ * returned untouched. An aggregate-only session set folds in as a governed unknown.
  */
 export function applyProviderCapture(packet, capture) {
   const state = { missing: [], errors: [] };
@@ -323,10 +412,11 @@ export function applyProviderCapture(packet, capture) {
   for (const name of Object.keys(fields)) {
     if (!PROVIDER_CAPTURE_FIELDS.includes(name)) state.errors.push(`${target}|${safeName(name)}|field-unexpected`);
   }
+  const folded = {};
   for (const [file, names] of Object.entries(PROVIDER_FIELDS)) {
     for (const name of names) {
       if (fields[name] === undefined) state.errors.push(`${target}|${name}|field-absent`);
-      else captureField(state, target, file, name, fields[name]);
+      else folded[name] = captureField(state, target, file, name, fields[name]);
     }
   }
   const floor = packet?.runnerBinding?.floor;
@@ -344,13 +434,13 @@ export function applyProviderCapture(packet, capture) {
   const applied = structuredClone(packet);
   const writer = slot(applied.writerAuthority.targets, target);
   for (const name of PROVIDER_FIELDS.writerAuthority) {
-    if (name.startsWith("writers.")) slot(writer, "writers")[name.slice("writers.".length)] = fields[name];
-    else writer[name] = fields[name];
+    if (name.startsWith("writers.")) slot(writer, "writers")[name.slice("writers.".length)] = folded[name];
+    else writer[name] = folded[name];
   }
   const gates = slot(slot(applied.authorityMatrix.targets, target), "gates");
-  for (const gate of PROVIDER_GATES) slot(gates, gate).observeAuthority = fields[`gates.${gate}.observeAuthority`];
+  for (const gate of PROVIDER_GATES) slot(gates, gate).observeAuthority = folded[`gates.${gate}.observeAuthority`];
   const binding = slot(applied.runnerBinding.targets, target);
-  for (const name of PROVIDER_FIELDS.runnerBinding) binding[name] = fields[name];
+  for (const name of PROVIDER_FIELDS.runnerBinding) binding[name] = folded[name];
   return captureResult(applied, state);
 }
 

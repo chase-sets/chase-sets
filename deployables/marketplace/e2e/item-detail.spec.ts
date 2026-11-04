@@ -19,6 +19,7 @@ import { marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
 const seededDetailPath = marketplaceBrowserE2eSeedContract.itemDetail.routePath;
+const seededFallbackDetailPath = marketplaceBrowserE2eSeedContract.itemDetailWithoutListings.routePath;
 
 async function expectPageOk(page: Page, path: string) {
   const response = await page.goto(path, { waitUntil: "domcontentloaded" });
@@ -198,6 +199,35 @@ async function assertBorderExcludedFocusInk(page: Page, detailLink: Locator, mod
 }
 
 test.describe("marketplace item detail", () => {
+  async function assertDiscoveryFallbackResponsive(page: Page, width: number, height: number) {
+    await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
+    const fallbackResponseBytes: Promise<number>[] = [];
+    page.on("response", (response) => {
+      if (response.url().includes("/fake-cdn/assets/pokemon_tcg_back.png") && response.status() === 200) {
+        fallbackResponseBytes.push(response.body().then((body) => body.byteLength));
+      }
+    });
+
+    await page.setViewportSize({ width, height });
+    await expectPageOk(page, seededFallbackDetailPath);
+    const fallbackImage = page.locator("img[src*='/fake-cdn/assets/pokemon_tcg_back.png']").first();
+    await expect(fallbackImage, "Discovery missing-image detail must render the canonical fallback").toBeVisible();
+    await expect
+      .poll(() => fallbackImage.evaluate((image) => (image as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+    const box = await fallbackImage.boundingBox();
+    expect(box, `Discovery fallback must have geometry at ${width}px`).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+    expect(box!.height / box!.width).toBeCloseTo(1.4, 1);
+    await fallbackImage.evaluate((image) => image.setAttribute("data-fallback-evidence-target", "discovery"));
+    const observedBytes = await Promise.all(fallbackResponseBytes);
+    expect(observedBytes.length, "Discovery fallback must be requested over the network").toBeGreaterThan(0);
+    expect(
+      Math.max(...observedBytes),
+      "every uncached Discovery fallback response must fit the AC1 byte budget",
+    ).toBeLessThanOrEqual(65_536);
+  }
+
   test("opens item detail from Search Result card media without an action intent @marketplace-browse", async ({
     page,
     context,
@@ -343,6 +373,20 @@ test.describe("marketplace item detail", () => {
     await expect(
       page.getByText(/Time range|Select a condition|No sales recorded yet|Sales history unavailable/i).first(),
     ).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("renders the optimized Discovery fallback with stable card geometry at 390px @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await assertDiscoveryFallbackResponsive(page, 390, 844);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "discovery-fallback-390" });
+  });
+
+  test("renders the optimized Discovery fallback with stable card geometry at 1024px @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await assertDiscoveryFallbackResponsive(page, 1024, 768);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "discovery-fallback-1024" });
   });
 });
 

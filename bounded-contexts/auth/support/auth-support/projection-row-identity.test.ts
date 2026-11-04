@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -354,6 +355,55 @@ describeDb("auth projection row identity", () => {
         },
       ],
     });
+  });
+
+  it("keeps the first Social Login Link row and signals once, subject-free, when a replay names a second User", async () => {
+    const handlers = buildAuthIdentityUserProjectionHandlers(pool);
+    const subject = "synthetic-auth-replay-subject-marker-10295";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const linked = (userId: string) =>
+      event("identity.user.social-login-linked", `identity.user-${userId}`, {
+        providerName: "google",
+        providerSubject: subject,
+        email: `${userId}@example.test`,
+        linkedAt: "2026-06-12T12:00:00.000Z",
+      });
+    try {
+      for (const userId of ["usr_first", "usr_second"]) {
+        await project(
+          handlers,
+          event("identity.user.created", `identity.user-${userId}`, {
+            userId,
+            displayName: userId,
+            givenName: "Synthetic",
+            familyName: "User",
+            primaryEmail: `${userId}@example.test`,
+          }),
+        );
+      }
+      await project(handlers, linked("usr_first"));
+      await project(handlers, linked("usr_second"));
+      await project(handlers, linked("usr_first"));
+
+      const rows = await pool.query(
+        `SELECT provider_subject, user_id, email FROM auth_identity_user_social_login_links`,
+      );
+      expect(rows.rows).toEqual([{ provider_subject: subject, user_id: "usr_first", email: "usr_first@example.test" }]);
+      const conflicts = warn.mock.calls.filter(([name]) => name === "social_login_link_conflict");
+      expect(conflicts).toEqual([
+        [
+          "social_login_link_conflict",
+          {
+            providerName: "google",
+            linkKey: createHash("sha256").update(`google:${subject}`).digest("hex"),
+            userIds: ["usr_first", "usr_second"],
+          },
+        ],
+      ]);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(subject);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("projects current pricing presets on membership grant and role change", async () => {
