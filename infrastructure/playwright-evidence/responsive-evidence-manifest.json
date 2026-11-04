@@ -12,8 +12,8 @@
       "viewport": { "width": 390, "height": 844 },
       "target": {
         "identity": "checkout-recovery-panel",
-        "selector": "section.grid.rounded-tokenLg:has(div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
-        "populatedSelector": ":scope h2, :scope [role='status'], :scope a"
+        "selector": "section.grid.rounded-tokenLg:has(> div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
+        "populatedSelector": ":scope h2, :scope > div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary, :scope a"
       },
       "measurements": [
         {
@@ -43,8 +43,8 @@
       "viewport": { "width": 1024, "height": 768 },
       "target": {
         "identity": "checkout-recovery-panel",
-        "selector": "section.grid.rounded-tokenLg:has(div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
-        "populatedSelector": ":scope h2, :scope [role='status'], :scope a"
+        "selector": "section.grid.rounded-tokenLg:has(> div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
+        "populatedSelector": ":scope h2, :scope > div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary, :scope a"
       },
       "measurements": [
         {
