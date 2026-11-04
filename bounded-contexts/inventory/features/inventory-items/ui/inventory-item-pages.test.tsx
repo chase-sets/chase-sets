@@ -19,7 +19,7 @@ import { InventoryMutationProvider } from "../../../support/request-support/muta
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import { InventoryItemDetailPage } from "./inventory-item-detail-page";
 import { InventoryItemListPage } from "./inventory-item-list-page";
-import type { InventoryItemDetail, InventoryItemListItem } from "./contracts";
+import type { InventoryItemDetail, InventoryItemLedgerEntry, InventoryItemListItem } from "./contracts";
 
 afterEach(() => {
   cleanup();
@@ -159,6 +159,47 @@ function markedRoleCount(markup: string, role: "entity" | "furniture") {
 function renderInventoryRoute(element: ReactNode) {
   const router = createMemoryRouter([{ path: "/", element }], { initialEntries: ["/"] });
   return renderToString(<RouterProvider router={router} />);
+}
+
+function ledgerEntryOfKind(
+  kind: InventoryItemLedgerEntry["kind"],
+  version: number,
+  reason = "Ledger movement",
+): InventoryItemLedgerEntry {
+  return {
+    ledger_entry_id: `led_${version}`,
+    item_id: "inv_1",
+    account_id: "acc_1",
+    occurred_at: "2026-05-13T00:00:00.000Z",
+    kind,
+    quantity_delta: null,
+    hold_quantity: null,
+    purpose: null,
+    reason,
+    reason_code: null,
+    note: null,
+    sale_price_amount: null,
+    channel: null,
+    source_ref: null,
+    actor: "seller",
+    event_type: "inventory.test.ledger-movement",
+    stream_id: "inventory-item-inv_1",
+    stream_version: version,
+    recorded_at: "2026-05-13T00:00:00.000Z",
+  };
+}
+
+function renderStockLedger(detail: InventoryItemDetail, currentPath: string) {
+  const router = createMemoryRouter(
+    [{ path: "/", element: <InventoryItemDetailPage item={detail} currentPath={currentPath} /> }],
+    { initialEntries: ["/"] },
+  );
+  render(<RouterProvider router={router} />);
+  const stockLedger = screen.getByRole("heading", { name: "Stock Ledger" }).closest("section");
+  if (!stockLedger) {
+    throw new Error("Stock Ledger section not rendered");
+  }
+  return stockLedger;
 }
 
 describe("inventory item pages", () => {
@@ -446,6 +487,62 @@ describe("inventory item pages", () => {
       buttons: (html.match(/<button\b/g) ?? []).length,
       definitionLists: (html.match(/<dl\b/g) ?? []).length,
     }).toEqual({ headings: 6, forms: 3, buttons: 8, definitionLists: 0 });
+  });
+
+  it("labels a filtered offline-sale Stock Ledger entry Sold offline without exposing the raw kind code", () => {
+    const detail: InventoryItemDetail = {
+      ...inventoryItem,
+      holds: [],
+      ledger: [ledgerEntryOfKind("offline-sale", 1, "Offline sale")],
+    };
+
+    const stockLedger = renderStockLedger(detail, "/account/inventory/items/inv_1?ledgerKind=offline-sale");
+
+    const [timelineStep, ...otherSteps] = within(stockLedger).getAllByRole("listitem");
+    expect(otherSteps).toHaveLength(0);
+    expect(within(timelineStep!).getByText("Sold offline")).toBeTruthy();
+    const selectedFilter = within(stockLedger).getByRole("link", { name: "Sold offline" });
+    expect(selectedFilter.getAttribute("href")).toBe("/account/inventory/items/inv_1?ledgerKind=offline-sale");
+    expect(within(stockLedger).getByRole("link", { name: "All movements" }).getAttribute("href")).toBe(
+      "/account/inventory/items/inv_1",
+    );
+    expect(document.body.textContent).not.toContain("offline-sale");
+  });
+
+  it("renders its own localized Stock Ledger label for every kind in the ledger contract", () => {
+    const expectedLabels = {
+      created: "Created",
+      adjusted: "Adjusted",
+      "offline-sale": "Sold offline",
+      "hold-placed": "Hold placed",
+      "hold-converted": "Hold converted",
+      "hold-consumed": "Sale recorded",
+      "hold-released": "Hold released",
+      "hold-expired": "Hold expired",
+      "restock-decision": "Restock decision",
+    } satisfies Record<InventoryItemLedgerEntry["kind"], string>;
+    const kinds = Object.keys(expectedLabels) as InventoryItemLedgerEntry["kind"][];
+    const detail: InventoryItemDetail = {
+      ...inventoryItem,
+      holds: [],
+      ledger: kinds.map((kind, index) => ledgerEntryOfKind(kind, index + 1)),
+    };
+
+    const stockLedger = renderStockLedger(detail, "/account/inventory/items/inv_1");
+
+    const timelineSteps = within(stockLedger).getAllByRole("listitem");
+    expect(timelineSteps).toHaveLength(kinds.length);
+    kinds.forEach((kind, index) => {
+      const label = expectedLabels[kind];
+      expect(within(timelineSteps[index]!).getByText(label)).toBeTruthy();
+      expect(within(stockLedger).getByRole("link", { name: label }).getAttribute("href")).toBe(
+        `/account/inventory/items/inv_1?ledgerKind=${kind}`,
+      );
+    });
+    const visibleText = stockLedger.textContent ?? "";
+    for (const kind of kinds) {
+      expect(visibleText).not.toContain(kind);
+    }
   });
 });
 
