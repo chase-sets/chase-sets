@@ -545,10 +545,7 @@ pub(crate) async fn consent(
     let view = html! { <views::AgentConsentPage t={t} screen={&screen} /> };
     let title = if screen.consent.is_some() { t.consent_title() } else { t.consent_invalid_title() };
     let cart = chrome.cart().await;
-    req.screen(
-        &screen,
-        html! { <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={title} head={()}>{view}</Layout> },
-    )
+    req.screen(&screen, html! { <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={title} head={()}>{view}</Layout> })
 }
 
 /// The sign-in, back to this consent (its token included).
