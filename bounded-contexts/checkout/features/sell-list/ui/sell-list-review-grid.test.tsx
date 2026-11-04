@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { act } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
@@ -44,12 +45,27 @@ const review: SellListOfferReview = {
   message: null,
 };
 
+const otherLine: CheckoutSellListLineRow = {
+  ...line,
+  line_id: "sll_review_pikachu",
+  offer_id: "off_review_pikachu",
+  catalog_catalog_item_id: "cat_pikachu",
+  product_id: "cat_pikachu::condition:raw",
+  item_title: "Pikachu",
+  item_subtitle: "Jungle",
+};
+
 function renderGrid() {
   return (
     <form id="sell-list-checkout-form">
       <SellListReviewGrid
-        lines={[line]}
-        offerReviewsByLineId={new Map([[line.line_id, review]])}
+        lines={[line, otherLine]}
+        offerReviewsByLineId={
+          new Map([
+            [line.line_id, review],
+            [otherLine.line_id, { ...review, lineId: otherLine.line_id }],
+          ])
+        }
         productOfferReviewsByLineId={new Map()}
         inventoryByProductId={new Map()}
         canAccept
@@ -75,6 +91,7 @@ describe("SellListReviewGrid hydration and controls", () => {
   });
 
   it("hydrates without recoverable errors and opens one sheet for pointer, Enter, and Space", async () => {
+    const user = userEvent.setup();
     const serverMarkup = renderToString(renderGrid());
     document.body.innerHTML = `<div id="root">${serverMarkup}</div>`;
     const errors: unknown[] = [];
@@ -101,14 +118,24 @@ describe("SellListReviewGrid hydration and controls", () => {
     expect(screen.getByRole("button", { name: "Clear selection" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    fireEvent.keyDown(trigger(), { key: "Enter" });
+    trigger().focus();
+    await user.keyboard("{Enter}");
     expect(screen.getAllByRole("dialog", { name: "Charizard offers and terms" })).toHaveLength(1);
     assertDialogFormAssociations();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    fireEvent.keyDown(trigger(), { key: " " });
+    trigger().focus();
+    await user.keyboard(" ");
     expect(screen.getAllByRole("dialog", { name: "Charizard offers and terms" })).toHaveLength(1);
     assertDialogFormAssociations();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Review Pikachu offers and terms" }));
+    const switched = screen.getAllByRole("dialog", { name: "Pikachu offers and terms" });
+    expect(switched).toHaveLength(1);
+    expect(screen.queryByRole("dialog", { name: "Charizard offers and terms" })).toBeNull();
+    expect(switched[0].querySelector('input[name="lineId"]')?.getAttribute("value")).toBe(otherLine.line_id);
+    expect(switched[0].textContent).not.toContain("Charizard");
+    expect(errors).toHaveLength(0);
     await act(async () => root.unmount());
   });
 });

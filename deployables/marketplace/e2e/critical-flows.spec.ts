@@ -1,4 +1,5 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expect, test as baseTest, type Page, type Request, type TestInfo } from "@playwright/test";
+import type { CheckoutSellListLineRow } from "../../../bounded-contexts/checkout/client";
 import {
   mountSellListRecoveryBrowserFixture,
   sellListRecoveryBrowserData,
@@ -22,6 +23,30 @@ const configuredMarketplaceAccount = {
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
 const browseSearchQuery = marketplaceBrowserE2eSeedContract.browse.searchQuery;
 const authProjectionTimeoutMs = 90_000;
+
+const test = baseTest.extend<{ restoreDeskReview: (restore: () => Promise<void>) => void }>({
+  restoreDeskReview: async ({ page }, use, testInfo) => {
+    let restore: (() => Promise<void>) | undefined;
+    // Fixture teardown has its own Playwright phase, including when the test times out.
+    // Depending on page keeps its authenticated request context alive until restoration.
+    void page;
+    await use((callback) => {
+      restore = callback;
+    });
+    if (restore) {
+      try {
+        await restore();
+      } catch (error) {
+        await testInfo.attach("desk-review-restoration-failure", {
+          body: error instanceof Error ? (error.stack ?? error.message) : String(error),
+          contentType: "text/plain",
+        });
+        // Playwright retains the original test error separately from this teardown error.
+        throw error;
+      }
+    }
+  },
+});
 
 const accountCriticalRoutes = [
   { path: "/account/cart", heading: /^Your cart$/i, flow: "buy cart" },
@@ -808,31 +833,202 @@ test.describe("marketplace critical flows", () => {
 
   test("demo seller reviews populated Desk offers responsively without mutation @marketplace-checkout", async ({
     page,
+    restoreDeskReview,
   }, testInfo) => {
     test.setTimeout(120_000);
+    expect(testInfo.config.workers, "the shared demo seller requires the isolated one-worker hosted journey").toBe(1);
     await page.goto("/sign-in?returnTo=%2Faccount%2Fdesk%2Foffers");
     await signInWithPassword(page, new URL(page.url()).origin, marketplaceBrowserE2eSellerCredentials());
     await expectPageOk(page, "/account/desk/offers");
-    const initial = await page.request.get("/api/marketplace/account/sell-list");
-    expect(initial.status()).toBe(200);
-    const before = (await initial.json()) as { items: Array<{ line_id: string }> };
-
+    const readJson = async (path: string) => {
+      const response = await page.request.get(path);
+      expect(response.status(), path).toBe(200);
+      return response.json();
+    };
+    const readSellList = async (): Promise<{
+      items: CheckoutSellListLineRow[];
+      count: number;
+      latestConfirmation: unknown;
+    }> => readJson("/api/marketplace/account/sell-list");
+    const before = await readSellList();
+    const offerPath = "/api/marketplace/account/sell-list/offer-matches/off_seed_charizard_base_set_high_roller";
+    const offerBefore = await readJson(offerPath);
+    expect(offerBefore.offer_id).toBe("off_seed_charizard_base_set_high_roller");
+    const payoutPath = "/api/marketplace/account/sell-list/payout-readiness";
+    const payoutBefore = await readJson(payoutPath);
+    expect(payoutBefore.status).toBe("not-started");
+    const salesPath = "/api/marketplace/account/sales";
+    const salesBefore = await readJson(salesPath);
     const itemPath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
+    const itemUrl = new URL(itemPath, page.url());
+    const mutations: Request[] = [];
+    const boundary: Array<{ event: string; path: string; detail?: string | number }> = [];
+    const errors: string[] = [];
+    page.on("request", (request) => {
+      const path = new URL(request.url()).pathname;
+      if (request.method() === "POST") mutations.push(request);
+      if (request.isNavigationRequest() || path === "/__manifest") {
+        boundary.push({ event: request.method(), path });
+      }
+    });
+    page.on("requestfailed", (request) => {
+      boundary.push({
+        event: "requestfailed",
+        path: new URL(request.url()).pathname,
+        detail: request.failure()?.errorText,
+      });
+    });
+    page.on("response", (response) => {
+      if (new URL(response.url()).pathname === "/__manifest") {
+        boundary.push({ event: "manifest-response", path: "/__manifest", detail: response.status() });
+      }
+    });
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    let productId: string | undefined;
+    let additionArmed = false;
+    const isAddedProduct = (line: CheckoutSellListLineRow) =>
+      line.line_type === "product" &&
+      line.product_id === productId &&
+      line.fallback_mode === "none" &&
+      line.minimum_listing_price_amount === null;
+    restoreDeskReview(async () => {
+      try {
+        if (additionArmed) {
+          const adds = mutations.filter(
+            (request) =>
+              new URL(request.url()).pathname.replace(/\.data$/, "") === itemUrl.pathname &&
+              new URLSearchParams(request.postData() ?? "").get("intent") === "add-product-to-sell-list",
+          );
+          expect(adds.length, "at most one public Add submission owns this fixture").toBeLessThanOrEqual(1);
+          if (adds.length === 1) {
+            // Settle the submitted command even when the test failed before assigning its line ID.
+            const response = await adds[0].response();
+            if (response) await response.finished();
+            let receiptFailure: unknown;
+            try {
+              if (response?.status() === 302) {
+                const destination = new URL(response.headers().location, response.url());
+                expect(destination.origin).toBe(itemUrl.origin);
+                expect(destination.pathname).toBe("/account/sell-list");
+                expect(destination.searchParams.get("postWriteToken")).not.toBeNull();
+                const settled = await page.request.get(destination.href);
+                expect(settled.status(), "settle the receipt before reading the added line").toBe(200);
+              }
+            } catch (error) {
+              receiptFailure = error;
+              throw error;
+            } finally {
+              // A failed destination must not prevent reconciliation of a uniquely owned committed line.
+              try {
+                const current = await readSellList();
+                const candidates = current.items.filter(
+                  (line) => isAddedProduct(line) && !before.items.some((old) => old.line_id === line.line_id),
+                );
+                expect(candidates.length, "never guess among multiple new lines").toBeLessThanOrEqual(1);
+                if (candidates.length === 1) {
+                  const owned = candidates[0];
+                  expect(owned.quantity, "do not remove a line changed by another writer").toBe(1);
+                  expect(owned.catalog_catalog_item_id).toBe(
+                    marketplaceBrowserE2eSeedContract.itemDetail.catalogItemId,
+                  );
+                  expect(current.items.filter((line) => line.line_id !== owned.line_id)).toEqual(before.items);
+                  const removed = await page.request.post("/account/desk/offers", {
+                    form: { intent: "remove-sell-list-line", lineId: owned.line_id },
+                  });
+                  expect(removed.status(), "remove only the new test-owned line").toBe(200);
+                } else {
+                  expect(
+                    response,
+                    "an aborted Add with no visible line has an unknown outcome, not proven restoration",
+                  ).not.toBeNull();
+                  expect(
+                    response!.status(),
+                    "a successful Add must have a visible owned line before restoration",
+                  ).toBeGreaterThanOrEqual(400);
+                }
+                expect(await readSellList(), "restore state even when receipt navigation failed").toEqual(before);
+              } catch (cleanupError) {
+                if (receiptFailure)
+                  throw new AggregateError(
+                    [receiptFailure, cleanupError],
+                    "Add receipt navigation and restoration both failed",
+                  );
+                throw cleanupError;
+              }
+            }
+          }
+        }
+        expect(await readSellList(), "restore every original field, quantity and confirmation").toEqual(before);
+        expect(await readJson(offerPath), "review must not change the Offer").toEqual(offerBefore);
+        expect(await readJson(payoutPath), "preserve the not-started payout oracle").toEqual(payoutBefore);
+        expect(await readJson(salesPath), "review must not create a sale").toEqual(salesBefore);
+        expect(
+          mutations.map((request) => ({
+            path: new URL(request.url()).pathname.replace(/\.data$/, ""),
+            intent: new URLSearchParams(request.postData() ?? "").get("intent"),
+          })),
+          "review must not submit Accept, Decline, seller checkout or a session-creating command",
+        ).toEqual(
+          additionArmed && mutations.length > 0 ? [{ path: itemUrl.pathname, intent: "add-product-to-sell-list" }] : [],
+        );
+        expect(
+          boundary.filter((entry) => entry.path.startsWith("/checkout/")),
+          "review must not enter a checkout session",
+        ).toEqual([]);
+        expect(errors).toEqual([]);
+      } finally {
+        await testInfo.attach("desk-review-request-boundary", {
+          body: JSON.stringify({ boundary, errors }),
+          contentType: "application/json",
+        });
+      }
+    });
     await expectPageOk(page, `${itemPath}&market=sell`);
-    await page
-      .getByRole("button", { name: /Selected product.*Save the selected product for Sell List review/ })
-      .click();
-    await page.getByRole("button", { name: "Add product to Sell List", exact: true }).click();
+    const selectedProduct = page.getByRole("button", {
+      name: /Selected product.*Save the selected product for Sell List review/,
+    });
+    await expect
+      .poll(
+        () =>
+          selectedProduct.evaluate((element) =>
+            Object.entries(element).some(
+              ([key, props]) =>
+                key.startsWith("__reactProps$") &&
+                typeof props === "object" &&
+                props !== null &&
+                "onClick" in props &&
+                typeof props.onClick === "function",
+            ),
+          ),
+        { message: "Selected product accordion must have its hydrated click handler before activation" },
+      )
+      .toBe(true);
+    await selectedProduct.click();
+    const add = page.getByRole("button", { name: "Add product to Sell List", exact: true });
+    await expect(add).toBeVisible();
+    const productForm = page.locator("form").filter({ has: add });
+    productId = await productForm.locator('input[name="productId"]').inputValue();
+    expect(productId).toBe(offerBefore.product_id);
+    expect(
+      before.items.filter(isAddedProduct),
+      "public Add must create a new line, never increment a pre-existing product",
+    ).toEqual([]);
+    expect(await readSellList(), "the fixture must remain unchanged before its only mutation").toEqual(before);
+    additionArmed = true;
+    await add.click();
     await expect(page).toHaveURL(/\/account\/sell-list/);
     await expect(page.getByRole("button", { name: "Review Charizard offers and terms", exact: true })).toHaveCount(1);
-    const addedResponse = await page.request.get("/api/marketplace/account/sell-list");
-    expect(addedResponse.status()).toBe(200);
-    const addedItems = (await addedResponse.json()) as { items: Array<{ line_id: string }> };
+    const addedItems = await readSellList();
     expect(addedItems.items).toHaveLength(before.items.length + 1);
     const addedLine = addedItems.items.find(
       (item) => !before.items.some((existing) => existing.line_id === item.line_id),
     );
     expect(addedLine, "the public Add to Sell List journey must create one identifiable line").toBeDefined();
+    expect(isAddedProduct(addedLine!)).toBe(true);
+    expect(addedLine!.quantity).toBe(1);
     await page.goto("/account/desk/offers");
     const review = page.getByRole("button", { name: "Review Charizard offers and terms", exact: true });
     await expect(review).toHaveCount(1);
@@ -840,7 +1036,9 @@ test.describe("marketplace critical flows", () => {
     const assertGrid = async () => {
       await expect(grid).toBeVisible();
       await expect(grid.getByRole("button", { name: "Review Charizard offers and terms", exact: true })).toBeVisible();
-      await expect(page.locator("html")).toHaveJSProperty("scrollWidth", expect.any(Number));
+      const scrollWidth = await page.locator("html").evaluate((element) => element.scrollWidth);
+      expect(typeof scrollWidth).toBe("number");
+      expect(Number.isFinite(scrollWidth)).toBe(true);
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
       );
@@ -878,16 +1076,9 @@ test.describe("marketplace critical flows", () => {
     await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-sheet-390" });
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
 
-    const lineResponse = await page.request.get("/api/marketplace/account/sell-list");
-    expect(lineResponse.status()).toBe(200);
-    const lines = (await lineResponse.json()) as { items: Array<{ line_id: string }> };
+    const lines = await readSellList();
     expect(lines.items.some((item) => item.line_id === addedLine?.line_id)).toBe(true);
-    await page.request.post("/account/desk/offers", {
-      form: { intent: "remove-sell-list-line", lineId: addedLine!.line_id },
-    });
-    const after = await page.request.get("/api/marketplace/account/sell-list");
-    expect(after.status()).toBe(200);
-    expect(((await after.json()) as { items: Array<{ line_id: string }> }).items).toEqual(before.items);
+    expect(errors).toEqual([]);
   });
 
   test("compact Sell List recovery revalidates through the browser data router @marketplace-checkout", async ({
