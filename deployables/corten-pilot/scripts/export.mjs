@@ -581,11 +581,11 @@ function tokens() {
     ...groups,
     $extensions: {
       "run.corten": {
-        // The kit's phone layouts (NavBar, Steps, Table) and the pilot's own switch at `sm`. The
-        // design system's switch at Tailwind's `md`, 48rem (DataTable stacks, the nav's bar and the
-        // sheets change), so `sm` is that width here and there is no `md`: the kit switches only at
-        // a breakpoint named `sm` (todd-skelton/corten#767).
-        breakpoints: { sm: dtcgDimension("48rem"), lg: dtcgDimension("64rem") },
+        // The kit's phone layouts (NavBar, Stats, Steps, Table) switch at `wide`, the pilot's own at
+        // `sm`. The design system's switch at Tailwind's `md`, 48rem (DataTable stacks, the nav's bar
+        // and the sheets change), so `sm` is that width here and there is no `md`
+        // (todd-skelton/corten#767, until the pilot names md again).
+        breakpoints: { sm: dtcgDimension("48rem"), lg: dtcgDimension("64rem"), wide: "{sm}" },
         utilities: { gap: { property: "gap", group: "space" } },
       },
     },
