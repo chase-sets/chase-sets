@@ -12387,11 +12387,14 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     assert!(csp.contains("https://js.stripe.com;") || csp.contains("https://js.stripe.com "), "Stripe.js may load: {csp}");
     assert!(csp.contains("frame-src https://js.stripe.com https://hooks.stripe.com;"), "{csp}");
     assert!(csp.contains("https://api.stripe.com"), "{csp}");
-    // Only the payment pages allow Stripe (todd-skelton/corten#275).
+    // stripe.js's `default` policy, which passes only Stripe's script URLs (todd-skelton/corten#768).
+    assert!(csp.contains("trusted-types corten default"), "{csp}");
+    // Only the payment pages allow Stripe (todd-skelton/corten#275), or its policy.
     let (status, headers, _) = pilot.send(get(SELL_LIST_PAGE, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK);
     let elsewhere = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
     assert!(!elsewhere.contains("stripe.com"), "{elsewhere}");
+    assert!(elsewhere.contains("trusted-types corten;") || elsewhere.ends_with("trusted-types corten"), "{elsewhere}");
     let page = text(&html);
     assert!(page.contains("Secure Checkout Payment pay_1"), "{page}");
     assert!(page.contains("Complete payment by deadline"), "the order's deadline: {page}");
@@ -13521,6 +13524,7 @@ async fn payout_setup_shows_the_status_what_it_needs_and_stripes_form() {
         csp.contains("https://connect-js.stripe.com") && csp.contains("'sha256-0hAheEzaMe6uXIKV4EehS9pu1am1lj/KnnzrOYqckXk='"),
         "{csp}"
     );
+    assert!(csp.contains("trusted-types corten default"), "Connect.js loads through stripe.js's policy: {csp}");
     assert_eq!(headers["cross-origin-opener-policy"], "unsafe-none");
     // Every other page keeps same-origin and no Connect.js.
     let (_, headers, _) = pilot.send(get(MONEY, Some("banker"))).await;
@@ -16029,6 +16033,7 @@ async fn saved_payment_methods_are_cards_each_with_its_own_writes() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
     assert!(csp.contains("https://js.stripe.com"), "Add's secure step may load Stripe.js: {csp}");
+    assert!(csp.contains("trusted-types corten default"), "{csp}");
     assert!(html.contains("Saved payment methods") && html.contains("Synthetic spm_card"), "{html}");
     assert!(
         html.contains(">Setup Required<") && html.contains("Bank account"),

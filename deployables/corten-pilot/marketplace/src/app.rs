@@ -1727,9 +1727,16 @@ pub fn sign_in_back_to(page: &str) -> Option<Uri> {
 /// Where Stripe.js loads from, and the origin of the payment fields' frames.
 pub const STRIPE_JS: &str = "https://js.stripe.com";
 
-/// What Stripe.js and its fields need: its script, its frames and the APIs they call.
+/// The Trusted Types policy `views/stripe.js` makes: `default`, as Stripe.js and Connect.js add
+/// scripts of their own from a string, and it passes only a script URL from Stripe's origins
+/// (todd-skelton/corten#768).
+pub const STRIPE_POLICY: &str = "default";
+
+/// What Stripe.js and its fields need: its script (through `STRIPE_POLICY`), its frames and the
+/// APIs they call.
 fn stripe(p: corten::security::Sources) -> corten::security::Sources {
     p.script_src(STRIPE_JS)
+        .trusted_types_policy(STRIPE_POLICY)
         .frame_src(STRIPE_JS)
         .frame_src("https://hooks.stripe.com")
         .connect_src("https://api.stripe.com")
@@ -1745,6 +1752,7 @@ pub const CONNECT_JS: &str = "https://connect-js.stripe.com";
 /// `'unsafe-inline'`. Images from Stripe are `https:`, which every page allows.
 fn stripe_connect(p: corten::security::Sources) -> corten::security::Sources {
     p.script_src(CONNECT_JS)
+        .trusted_types_policy(STRIPE_POLICY)
         .script_src(STRIPE_JS)
         .frame_src(CONNECT_JS)
         .frame_src(STRIPE_JS)
