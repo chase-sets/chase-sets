@@ -88,6 +88,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
     const listing = await committed(
       await page.request.post("/api/marketplace/account/listings", {
         data: {
+          idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
           inventoryItemId: stock.id,
           priceAmount: "150.00",
           priceCurrencyCode: "USD",
@@ -113,7 +114,10 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
     listingId = listing.id;
     await committed(
       await page.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
-        data: { feeQuoteFingerprint: listing.feeQuoteFingerprint },
+        data: {
+          idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
+          feeQuoteFingerprint: listing.feeQuoteFingerprint,
+        },
       }),
       200,
     );
@@ -164,7 +168,9 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
     expect(orders[0]).toMatchObject({ source_type: "offer-acceptance", source_reference_id: offer.id });
   } finally {
     if (listingId) {
-      const withdrawn = await page.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`);
+      const withdrawn = await page.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`, {
+        data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
+      });
       expect(withdrawn.status()).toBe(200);
     }
     await buyerContext.close();

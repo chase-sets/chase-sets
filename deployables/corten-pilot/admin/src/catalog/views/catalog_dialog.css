@@ -1,0 +1,178 @@
+.dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-overlay);
+}
+.dialog::backdrop {
+  background: var(--color-overlay);
+}
+.head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-block-end: var(--space-4);
+}
+.title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.description {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-secondary);
+}
+.form {
+  display: grid;
+  gap: var(--space-3);
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.check {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.checks {
+  display: grid;
+  gap: var(--space-2);
+}
+.labels {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.labels legend {
+  padding-inline: var(--space-1);
+  font-weight: 600;
+}
+.row {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  gap: var(--space-2);
+  align-items: end;
+}
+/* A Set dialog's rule row: the id takes the room, Required and Remove only what they need; on a
+   narrow screen the id has the row to itself and they go under it. */
+.rule-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+.rule-row > .field {
+  flex: 1 1 12rem;
+}
+/* A display template's Target ID: no id for a global target. */
+.template:has(select option[value="global"]:checked) .target-id {
+  display: none;
+}
+.hint {
+  margin: calc(-1 * var(--space-2)) 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+.field textarea {
+  resize: vertical;
+}
+/* A button that asks the server for its dialog: the form only carries it. */
+.opens {
+  display: contents;
+}
+/* corten-ui's combobox: its popup under the input (above it when there is no room), as wide as
+   the input, and its options. */
+.field [popover] {
+  inset: auto;
+  position-area: block-end span-inline-end;
+  position-try-fallbacks: flip-block;
+  min-width: anchor-size(width);
+  max-height: 14rem;
+  overflow: auto;
+  margin: var(--space-1) 0;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-overlay);
+}
+.field [role="option"] {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.field [role="option"][aria-selected="true"] {
+  font-weight: 600;
+}
+.field [role="option"][data-highlighted] {
+  background: var(--color-primary-soft);
+}
+.field [role="status"] {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-secondary);
+}
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+.default {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.small {
+  min-height: 2rem;
+  padding: 0 var(--space-3);
+  font-size: 0.875rem;
+}
+.secondary {
+  background: var(--color-secondary);
+  color: var(--color-secondary-foreground);
+  border-color: var(--color-border-strong);
+}
+.danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-danger-contrast);
+}
+.danger:hover:not(:disabled) {
+  background: var(--color-danger-hover);
+}
+.toasts {
+  position: fixed;
+  inset-block-end: var(--space-5);
+  inset-inline-end: var(--space-5);
+  z-index: 10;
+}
+.toasts #ui-toast {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-lg);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-weight: 600;
+  box-shadow: var(--shadow-overlay);
+}
+.toasts button {
+  margin-block-start: var(--space-2);
+}

@@ -9,8 +9,15 @@ import {
 import { parseOptionalTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
-import { normalizePresentedAnonymousCartId } from "../../cart/api/contracts";
-import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
+import {
+  checkoutEntryAttemptKey,
+  checkoutEntryPayload,
+  computeCheckoutEntryRequestHash,
+  parseCheckoutEntryOptimizationGoal,
+  type CheckoutEntryOptimizationGoal,
+  type CheckoutEntrySource,
+} from "../../command-attempts/api/entry-attempt-contracts";
+import type { CheckoutEntryAttempt } from "../../command-attempts/api/entry-attempt";
 import { OrderCartCleanupError, type CheckoutSessionCreateResult, type CheckoutSessionServices } from "./runtime";
 import type { CheckoutSessionRow } from "../read-model/queries";
 import {
@@ -29,6 +36,7 @@ import {
 } from "./checkout-economics-runtime";
 import { unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
 import { prepareBuyNowCheckout } from "./buy-now-preparation";
+import { changedCheckoutConfirmationBinding, checkoutConfirmationBinding } from "./confirmation-binding";
 import { cancelCheckout } from "./session-cancellation";
 import {
   recordAddressServiceabilityFailure,
@@ -347,19 +355,6 @@ function checkoutCommitMetadataFromSources(sources: readonly unknown[]): CommitM
   };
 }
 
-function parseSelectedOptions(value: unknown) {
-  return Array.isArray(value)
-    ? value
-        .filter((selection): selection is { dimensionId: string; optionId: string } =>
-          Boolean(selection && typeof selection === "object" && "dimensionId" in selection && "optionId" in selection),
-        )
-        .map((selection) => ({
-          dimensionId: String(selection.dimensionId ?? ""),
-          optionId: String(selection.optionId ?? ""),
-        }))
-    : [];
-}
-
 function parseShippingAddress(value: unknown) {
   const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   return {
@@ -456,39 +451,6 @@ async function recordCheckoutFulfillmentPreviewSnapshot(
   );
 }
 
-function parseOptimizationGoal(value: unknown) {
-  return value === "fewest-shipments" ? ("fewest-shipments" as const) : ("lowest-total" as const);
-}
-
-type CheckoutEntryIdempotencySource =
-  | Readonly<{
-      type: "cart";
-      readinessSnapshotId: string;
-      readinessSourceRevision: string;
-      readinessDecisions: ReturnType<typeof parseCartReadinessDecisionInput>;
-      presentedAnonymousCartId?: string;
-    }>
-  | Readonly<{
-      type: "buy-now";
-      listingId: string;
-      catalogItemId: string;
-      productId: string;
-      selectedOptions: ReturnType<typeof parseSelectedOptions>;
-      quantity: number;
-      fulfillmentMode: "locked-listing";
-      lockedListingId: string;
-      sellerPreferenceId: string | null;
-    }>
-  | Readonly<{
-      type: "offer-intent";
-      catalogItemId: string;
-      productId: string;
-      selectedOptions: ReturnType<typeof parseSelectedOptions>;
-      offerPriceAmount: string;
-      offerPriceCurrencyCode: string;
-      quantity: number;
-    }>;
-
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(",")}]`;
@@ -504,7 +466,7 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-function normalizeCheckoutEntryAttemptKey(...values: unknown[]) {
+function presentedCheckoutEntryAttemptKey(...values: unknown[]) {
   for (const value of values) {
     if (value === null || value === undefined) {
       continue;
@@ -519,12 +481,36 @@ function normalizeCheckoutEntryAttemptKey(...values: unknown[]) {
   return null;
 }
 
+function checkoutAttemptRequiredResponse() {
+  return {
+    error: {
+      code: "checkout_attempt_required",
+      message: t("checkout.features.sessions.api.route.entry.attempt.required"),
+    },
+  };
+}
+
+function checkoutAttemptConflictResponse() {
+  return {
+    error: {
+      code: "checkout_attempt_conflict",
+      message: t("checkout.features.sessions.api.route.entry.attempt.conflict"),
+    },
+  };
+}
+
+/**
+ * The deterministic Session id one keyed entry opens. Unchanged by the entry
+ * attempt, so a Session opened before attempts were recorded still
+ * replays through it; a keyless cart entry keeps its server-issued readiness
+ * snapshot scope.
+ */
 function checkoutEntrySessionId(params: {
   accountId: AccountId;
   entryAttemptKey: string | null;
-  source: CheckoutEntryIdempotencySource;
+  source: CheckoutEntrySource;
   shippingOption: string;
-  optimizationGoal: ReturnType<typeof parseOptimizationGoal>;
+  optimizationGoal: CheckoutEntryOptimizationGoal;
 }): CheckoutSessionId | undefined {
   const idempotencyScope =
     params.entryAttemptKey ?? (params.source.type === "cart" ? params.source.readinessSnapshotId : null);
@@ -550,9 +536,9 @@ function checkoutEntrySessionId(params: {
 
 function buyNowPreflightSessionId(params: {
   accountId: AccountId;
-  source: CheckoutEntryIdempotencySource;
+  source: CheckoutEntrySource;
   shippingOption: string;
-  optimizationGoal: ReturnType<typeof parseOptimizationGoal>;
+  optimizationGoal: CheckoutEntryOptimizationGoal;
 }) {
   const digest = createHash("sha256")
     .update(
@@ -595,30 +581,57 @@ export function createAccountCheckoutSessionRoutes(
     }
 
     const body = await c.req.json();
-    const entryAttemptKey = normalizeCheckoutEntryAttemptKey(
+    const entry = checkoutEntryPayload(body, c.req.header("x-checkout-anonymous-cart-id"));
+    const { shippingOption, optimizationGoal } = entry;
+    if (entry.source.type === "offer-intent" && access.actor.roleKey === "guest-buyer") {
+      return c.json(
+        {
+          error: {
+            code: "account_registration_required",
+            message: t("checkout.features.sessions.api.route.register.or.sign.in.before.placing.purchase.intent"),
+          },
+        },
+        403,
+      );
+    }
+
+    // Every entry caller sends one caller-created key per deliberate
+    // submission. A malformed key never opens a Session, and only a keyless
+    // cart entry keeps its server-issued readiness snapshot scope.
+    const presentedEntryAttemptKey = presentedCheckoutEntryAttemptKey(
       body.entryAttemptKey,
       c.req.header("idempotency-key"),
       c.req.header("x-idempotency-key"),
       c.req.header("x-checkout-entry-attempt-key"),
     );
+    const entryAttemptKey = checkoutEntryAttemptKey(presentedEntryAttemptKey);
+    if ((presentedEntryAttemptKey && !entryAttemptKey) || (!entryAttemptKey && entry.source.type !== "cart")) {
+      return c.json(checkoutAttemptRequiredResponse(), 400);
+    }
+    const entryAttempt: CheckoutEntryAttempt | undefined = entryAttemptKey
+      ? { attemptId: entryAttemptKey, requestHash: await computeCheckoutEntryRequestHash(entry) }
+      : undefined;
+    const sessionIdOverride = checkoutEntrySessionId({
+      accountId: access.actor.accountId as AccountId,
+      entryAttemptKey,
+      source: entry.source,
+      shippingOption,
+      optimizationGoal,
+    });
 
     try {
-      if (body.source?.type === "cart") {
-        const readinessSnapshotId = String(body.source.readinessSnapshotId ?? "");
-        const readinessSourceRevision = String(body.source.readinessSourceRevision ?? "");
-        const readinessDecisions = parseCartReadinessDecisionInput(body.source.readinessDecisions);
-        const presentedAnonymousCartId = normalizePresentedAnonymousCartId(
-          c.req.header("x-checkout-anonymous-cart-id"),
-        );
-        const shippingOption = String(body.shippingOption ?? "standard");
-        const optimizationGoal = parseOptimizationGoal(body.optimizationGoal);
-        const idempotencySource: CheckoutEntryIdempotencySource = {
-          type: "cart",
-          readinessSnapshotId,
-          readinessSourceRevision,
-          readinessDecisions,
-          ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
-        };
+      // The same key and payload returns the first Session before any read or
+      // owner call; a changed payload is a conflict. Neither appends.
+      const replayed = entryAttempt
+        ? await services.resolveEntryAttempt({ accountId: access.actor.accountId as AccountId, entryAttempt })
+        : null;
+      if (replayed) {
+        return c.json(checkoutSessionStartedResponse(replayed), 201);
+      }
+
+      if (entry.source.type === "cart") {
+        const { presentedAnonymousCartId, readinessSnapshotId, readinessSourceRevision, readinessDecisions } =
+          entry.source;
         const result = await services.createFromCart(
           {
             accountId: access.actor.accountId as AccountId,
@@ -628,13 +641,8 @@ export function createAccountCheckoutSessionRoutes(
             readinessSnapshotId,
             readinessSourceRevision,
             readinessDecisions,
-            sessionIdOverride: checkoutEntrySessionId({
-              accountId: access.actor.accountId as AccountId,
-              entryAttemptKey,
-              source: idempotencySource,
-              shippingOption,
-              optimizationGoal,
-            }),
+            sessionIdOverride,
+            entryAttempt,
           },
           context,
         );
@@ -667,27 +675,9 @@ export function createAccountCheckoutSessionRoutes(
         body.source && typeof body.source === "object"
           ? (body.source as Record<string, unknown>)
           : (body as Record<string, unknown>);
-      if (source.type === "offer-intent") {
-        if (access.actor.roleKey === "guest-buyer") {
-          return c.json(
-            {
-              error: {
-                code: "account_registration_required",
-                message: t("checkout.features.sessions.api.route.register.or.sign.in.before.placing.purchase.intent"),
-              },
-            },
-            403,
-          );
-        }
-
-        const selectedOptions = parseSelectedOptions(source.selectedOptions);
-        const shippingOption = String(body.shippingOption ?? "standard");
-        const optimizationGoal = parseOptimizationGoal(body.optimizationGoal);
-        const catalogItemId = String(source.catalogItemId ?? "");
-        const productId = String(source.productId ?? "");
-        const offerPriceAmount = String(source.offerPriceAmount ?? source.priceAmount ?? "");
-        const offerPriceCurrencyCode = String(source.offerPriceCurrencyCode ?? source.priceCurrencyCode ?? "");
-        const quantity = Number(source.quantity ?? source.quantityRequested ?? 0);
+      if (entry.source.type === "offer-intent") {
+        const { catalogItemId, productId, selectedOptions, offerPriceAmount, offerPriceCurrencyCode, quantity } =
+          entry.source;
         const result = await services.createOfferIntent(
           {
             accountId: access.actor.accountId as AccountId,
@@ -706,65 +696,21 @@ export function createAccountCheckoutSessionRoutes(
             quantity,
             optimizationGoal,
             shippingOption,
-            sessionIdOverride: checkoutEntrySessionId({
-              accountId: access.actor.accountId as AccountId,
-              entryAttemptKey,
-              source: {
-                type: "offer-intent",
-                catalogItemId,
-                productId,
-                selectedOptions,
-                offerPriceAmount,
-                offerPriceCurrencyCode,
-                quantity,
-              },
-              shippingOption,
-              optimizationGoal,
-            }),
+            sessionIdOverride,
+            entryAttempt,
           },
           context,
         );
         return c.json(checkoutSessionStartedResponse(result), 201);
       }
 
-      const lockedListingId = String(source.lockedListingId ?? source.listingId ?? "").trim();
+      const buyNowSource = entry.source;
+      const { listingId, catalogItemId, productId, selectedOptions, quantity, lockedListingId, sellerPreferenceId } =
+        buyNowSource;
       if (!lockedListingId) {
         throw unresolvedFulfillmentError();
       }
-
-      const selectedOptions = parseSelectedOptions(source.selectedOptions);
-      const requestedShippingOption = String(body.shippingOption ?? "standard");
-      const shippingOption =
-        requestedShippingOption === "expedited" || requestedShippingOption === "priority"
-          ? requestedShippingOption
-          : "standard";
-      const optimizationGoal = parseOptimizationGoal(body.optimizationGoal);
-      const listingId = String(source.listingId ?? "");
-      const catalogItemId = String(source.catalogItemId ?? "");
-      const productId = String(source.productId ?? "");
-      const quantity = Number(source.quantity ?? 0);
-      const sellerPreferenceId =
-        source.sellerPreferenceId === null || source.sellerPreferenceId === undefined
-          ? null
-          : String(source.sellerPreferenceId || "") || null;
-      const buyNowSource = {
-        type: "buy-now",
-        listingId,
-        catalogItemId,
-        productId,
-        selectedOptions,
-        quantity,
-        fulfillmentMode: "locked-listing" as const,
-        lockedListingId,
-        sellerPreferenceId,
-      } satisfies CheckoutEntryIdempotencySource;
-      const sessionIdOverride = checkoutEntrySessionId({
-        accountId: access.actor.accountId as AccountId,
-        entryAttemptKey,
-        source: buyNowSource,
-        shippingOption,
-        optimizationGoal,
-      });
+      const buyNowShippingOption = shippingOption as "standard" | "expedited" | "priority";
       const prepared = await prepareBuyNowCheckout({
         request: c.req.raw,
         services,
@@ -785,6 +731,7 @@ export function createAccountCheckoutSessionRoutes(
         quantity,
         context,
         sessionIdOverride,
+        entryAttempt,
         preflightSessionId: buyNowPreflightSessionId({
           accountId: access.actor.accountId as AccountId,
           source: buyNowSource,
@@ -793,7 +740,7 @@ export function createAccountCheckoutSessionRoutes(
         }),
         lockedListingId,
         sellerPreferenceId,
-        shippingOption,
+        shippingOption: buyNowShippingOption,
         optimizationGoal,
       });
       return c.json(
@@ -802,6 +749,9 @@ export function createAccountCheckoutSessionRoutes(
       );
     } catch (error) {
       const code = errorCode(error);
+      if (code === "checkout_attempt_conflict") {
+        return c.json(checkoutAttemptConflictResponse(), 409);
+      }
       recordUnassignedFulfillmentFailure(checkoutObservabilityTelemetry, access.actor, code);
       return c.json({ error: { code, message: errorMessage(error) } }, 400);
     }
@@ -1115,7 +1065,7 @@ export function createAccountCheckoutSessionRoutes(
         {
           sessionId: c.req.param("sessionId"),
           accountId: access.actor.accountId as AccountId,
-          optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
+          optimizationGoal: parseCheckoutEntryOptimizationGoal(body.optimizationGoal),
         },
         context,
       );
@@ -1215,6 +1165,19 @@ export function createAccountCheckoutSessionRoutes(
     const savePaymentMethodForFuture =
       body.savePaymentMethodForFuture === true && access.actor.roleKey !== "guest-buyer" && !savedCheckoutInstrumentId;
     const requestedSavePaymentMethodForFuture = body.savePaymentMethodForFuture === true;
+    const confirmationInput = {
+      shippingAddress:
+        body.shippingAddress === null || body.shippingAddress === undefined
+          ? null
+          : parseShippingAddress(body.shippingAddress),
+      fulfillmentPreviewRevision,
+      acknowledgedMaterialChanges,
+      paymentMethodCategory,
+      savedCheckoutInstrumentId,
+      requestedBalanceCreditAmount,
+      marketplaceCheckoutFeeQuoteFingerprint,
+      savePaymentMethodForFuture,
+    };
     const writeSources: unknown[] = [];
 
     try {
@@ -1234,6 +1197,25 @@ export function createAccountCheckoutSessionRoutes(
           },
           404,
         );
+      }
+
+      // A confirm that changes an input a recorded side effect was bound to is
+      // refused with the Session as it stands, before any owner call.
+      const binding = checkoutConfirmationBinding(confirmationInput, session);
+      if (session.order_ids.length > 0 || session.payment_id) {
+        const recorded = await services.getConfirmationBinding(sessionId, access.actor.accountId as AccountId);
+        if (recorded && changedCheckoutConfirmationBinding(session, recorded, binding)) {
+          return c.json(
+            {
+              error: {
+                code: "checkout_confirmation_changed",
+                message: t("checkout.features.sessions.api.route.confirmation.changed"),
+              },
+              session,
+            },
+            409,
+          );
+        }
       }
 
       if (session.order_ids.length > 0) {
@@ -1401,6 +1383,7 @@ export function createAccountCheckoutSessionRoutes(
               orderIds,
               fulfilledLineKeys: checkoutOrders.readyLineKeys,
               orderWriteCommitPositions: orderingCommitPositionsFromSource(orderCreationWriteResult),
+              orderHash: checkoutConfirmationBinding(confirmationInput, readySession).orderHash,
             },
             context,
           );
@@ -1434,6 +1417,7 @@ export function createAccountCheckoutSessionRoutes(
           sessionId,
           accountId: access.actor.accountId as AccountId,
           paymentId,
+          paymentHash: binding.paymentHash,
         },
         context,
       );

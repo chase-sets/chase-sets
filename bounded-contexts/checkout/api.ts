@@ -22,7 +22,13 @@ export function buildCheckoutApi(services: CheckoutServices) {
   const app = new Hono<CheckoutApiEnv>();
 
   app.route("/account", createAccountCartRoutes(services.cart, services.checkoutObservabilityTelemetry));
-  app.route("/account", createAccountCommandAttemptRoutes(services.cart));
+  app.route(
+    "/account",
+    createAccountCommandAttemptRoutes({
+      lookupCartAttempt: services.cart.lookupCartAttempt,
+      lookupEntryAttempt: services.sessions.lookupEntryAttempt,
+    }),
+  );
   app.route("/account", createAccountSellListRoutes(services.sellList, services.checkoutObservabilityTelemetry));
   app.route("/account", createAccountCheckoutSessionRoutes(services.sessions, services.checkoutObservabilityTelemetry));
   app.route(

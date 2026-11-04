@@ -1,6 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeGtin } from "@chase-sets/primitives/gtin";
-import type { InventoryProductSchema } from "./versioning";
+import type { InventoryProductSchema, InventorySelectedOptionEntry } from "./versioning";
 import { toInventoryItemProductSchema } from "./versioning";
 
 export type InventoryCatalogItemSnapshot = Readonly<{
@@ -12,6 +12,11 @@ export type InventoryCatalogItemSnapshot = Readonly<{
   status: string;
   product_schema: InventoryProductSchema | null;
   updated_at: string;
+  /**
+   * Option identities that make this product Graded (see `inventoryGradedSelections`), computed by the
+   * catalog-item HTTP read and never stored. Absent from servers that predate it.
+   */
+  graded_selections?: readonly InventorySelectedOptionEntry[];
 }>;
 
 export type InventoryExternalProductReference = Readonly<{

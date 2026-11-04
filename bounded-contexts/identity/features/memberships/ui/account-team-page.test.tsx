@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render as renderTesting, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderTesting, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import { AccountMutationBoundary } from "../../account-management/ui/controller";
 import {
@@ -59,6 +59,16 @@ function busy(button: HTMLElement) {
   return { disabled: button.matches(":disabled"), busy: button.getAttribute("aria-busy") };
 }
 
+/**
+ * Resolves once the canonical dialog's own deferred initial focus has landed on its unique header Close control,
+ * so it cannot overtake the explicit confirmation focus that follows. Observes focus only; never assigns it.
+ */
+function dialogInitialFocus(confirmation: HTMLElement) {
+  const close = within(confirmation.closest<HTMLElement>('[role="dialog"]')!).getByRole("button", { name: "Close" });
+  if (document.activeElement === close) return Promise.resolve();
+  return new Promise<void>((resolve) => close.addEventListener("focus", () => resolve(), { once: true }));
+}
+
 describe("TeamPage pending state", () => {
   it("per-row forms sharing one intent stay independent", async () => {
     const transport = stubHeldAccountManagementTransport();
@@ -108,6 +118,7 @@ describe("TeamPage pending state", () => {
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Revoke" })[0].matches(":disabled")).toBe(false));
     fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
     const confirm = await screen.findByRole("button", { name: "Confirm revoke" });
+    await dialogInitialFocus(confirm);
     confirm.focus();
     fireEvent.click(confirm);
     await waitFor(() => expect(transport.posts()).toHaveLength(1));
@@ -241,6 +252,7 @@ describe("TeamPage pending state", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" }).matches(":disabled")).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     const confirm = await screen.findByRole("button", { name: "Confirm cancellation" });
+    await dialogInitialFocus(confirm);
     confirm.focus();
     fireEvent.click(confirm);
     await waitFor(() => expect(transport.posts()).toHaveLength(1));

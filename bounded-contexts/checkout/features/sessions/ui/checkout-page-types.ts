@@ -96,6 +96,8 @@ export type CheckoutSessionPageProps = {
   reviewRefreshed?: boolean;
   paymentQuoteRequired?: boolean;
   isSubmitting?: boolean;
+  /** Confirm may have reached Checkout but one Session read showed neither payment nor Offer; Place order stays off. */
+  confirmationAmbiguous?: boolean;
   savedShippingAddresses?: readonly CheckoutSavedShippingAddress[];
   savedCheckoutInstruments?: readonly CheckoutSavedPaymentInstrument[];
   guestCheckoutContact?: GuestCheckoutContact | null;

@@ -151,6 +151,10 @@ function queryFromString(query: string) {
   return Object.fromEntries(params.entries());
 }
 
+function derivedListingAttemptKey() {
+  return `browser_${globalThis.crypto.randomUUID().replaceAll("-", "")}`;
+}
+
 function marketplaceApiErrorMessage(status: number, body: unknown) {
   if (!body || typeof body !== "object" || !("error" in body)) {
     return `API error ${status}`;
@@ -386,7 +390,7 @@ export function createMarketplaceApiClient({
     async disableSellerListingAvailability(body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.account["listing-availability"].disable.$post({
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -394,7 +398,7 @@ export function createMarketplaceApiClient({
     async enableSellerListingAvailability() {
       return parseJsonResponse(
         await client.account["listing-availability"].enable.$post({
-          json: {},
+          json: { idempotencyKey: derivedListingAttemptKey() },
           header: headers,
         }),
       );
@@ -402,7 +406,7 @@ export function createMarketplaceApiClient({
     async scheduleSellerAwayWindow(body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.account["listing-availability"]["away-window"].$post({
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -410,7 +414,7 @@ export function createMarketplaceApiClient({
     async cancelScheduledAwayWindow() {
       return parseJsonResponse(
         await client.account["listing-availability"]["away-window"].$delete({
-          header: headers,
+          header: { ...headersToRecord(headers), "Idempotency-Key": derivedListingAttemptKey() },
         }),
       );
     },
@@ -424,7 +428,7 @@ export function createMarketplaceApiClient({
     async setSellerOrderCapacity(maxOpenOrders: number) {
       return parseJsonResponse(
         await client.account["order-capacity"].$post({
-          json: { maxOpenOrders },
+          json: { maxOpenOrders, idempotencyKey: derivedListingAttemptKey() },
           header: headers,
         }),
       );
@@ -432,7 +436,7 @@ export function createMarketplaceApiClient({
     async clearSellerOrderCapacity() {
       return parseJsonResponse(
         await client.account["order-capacity"].$delete({
-          header: headers,
+          header: { ...headersToRecord(headers), "Idempotency-Key": derivedListingAttemptKey() },
         }),
       );
     },
@@ -498,12 +502,13 @@ export function createMarketplaceApiClient({
             "content-type": "application/json",
             ...headersToRecord(headers),
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ idempotencyKey: derivedListingAttemptKey(), ...body }),
           signal: options.signal,
         }),
       );
     },
     async createListingWithPhotos(formData: FormData) {
+      if (!formData.has("idempotencyKey")) formData.set("idempotencyKey", derivedListingAttemptKey());
       return parseJsonResponse(
         await configuredFetch(joinApiPath(baseUrl, "/account/listings"), {
           method: "POST",
@@ -612,7 +617,7 @@ export function createMarketplaceApiClient({
             "content-type": "application/json",
             ...headersToRecord(headers),
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ idempotencyKey: derivedListingAttemptKey(), ...body }),
           signal: options.signal,
         }),
       );
@@ -627,6 +632,7 @@ export function createMarketplaceApiClient({
           headers: {
             "content-type": "application/json",
             ...headersToRecord(headers),
+            "Idempotency-Key": derivedListingAttemptKey(),
           },
           body: JSON.stringify(body),
           signal: options.signal,
@@ -637,7 +643,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"]["quantity-cap"].$post({
           param: { id },
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -646,7 +652,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"]["purchase-limits"].$post({
           param: { id },
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -655,7 +661,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"].publish.$post({
           param: { id },
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -664,7 +670,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"].pause.$post({
           param: { id },
-          json: {},
+          json: { idempotencyKey: derivedListingAttemptKey() },
           header: headers,
         }),
       );
@@ -673,7 +679,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"].withdraw.$post({
           param: { id },
-          json: {},
+          json: { idempotencyKey: derivedListingAttemptKey() },
           header: headers,
         }),
       );

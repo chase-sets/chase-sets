@@ -612,7 +612,15 @@ describe("checkout cart MCP handlers", () => {
         protocol: legacyMcpProtocol,
       });
 
-      expect(result).toMatchObject({ status: "already-cancelled", releasedReservationIds: [] });
+      expect(result).toMatchObject({
+        accountId: "acc_1",
+        id: "chk_1",
+        sessionId: "chk_1",
+        status: "already-cancelled",
+        cancelledAt: "2026-07-08T00:00:00.000Z",
+        releasedReservationIds: [],
+        resourceUri: "chase-sets://checkout/acc_1/sessions/chk_1",
+      });
       expect(fetch).not.toHaveBeenCalled();
       expect(fakeServices.sessions.cancelSession).not.toHaveBeenCalled();
     } finally {

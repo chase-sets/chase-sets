@@ -328,7 +328,7 @@ function normalizeTolerance(tolerance: RepricingTolerance): RepricingTolerance {
     return { mode: "percent", percent: normalizePercentMagnitude(tolerance.percent, "Tolerance percent", { min: 0 }) };
   }
   const normalized = tolerance.amount.trim();
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Tolerance amount must be a valid non-negative decimal amount.");
+  assert(tryMoneyToCents(normalized) !== null, "Tolerance amount must be a valid non-negative decimal amount.");
   return { mode: "absolute", amount: normalized };
 }
 

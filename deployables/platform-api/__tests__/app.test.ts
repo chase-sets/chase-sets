@@ -1991,6 +1991,7 @@ describe("platform api app wiring", () => {
             commandHandler: vi.fn(),
             createFromCart: vi.fn(),
             createBuyNow,
+            resolveEntryAttempt: vi.fn(async () => null),
             createOfferIntent: vi.fn(),
             selectShippingOption: vi.fn(),
             selectOptimizationGoal: vi.fn(),
