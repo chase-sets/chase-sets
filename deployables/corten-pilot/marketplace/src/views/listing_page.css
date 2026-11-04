@@ -282,7 +282,7 @@
   background: var(--color-surface-2);
 }
 
-@media (min-width: 48rem) {
+@media (--sm) {
   .tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

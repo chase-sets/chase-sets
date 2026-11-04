@@ -207,12 +207,12 @@
 .slot:first-child .up {
   inset-inline: 0 auto;
 }
-@media (max-width: 47.99rem) {
+@media not (--sm) {
   .wide {
     display: none;
   }
 }
-@media (min-width: 48rem) {
+@media (--sm) {
   .phone {
     display: none;
   }

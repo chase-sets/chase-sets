@@ -531,7 +531,7 @@
   margin-top: auto;
 }
 
-@media (min-width: 48rem) {
+@media (--sm) {
   .card {
     grid-template-columns: 10.25rem minmax(0, 1fr);
   }

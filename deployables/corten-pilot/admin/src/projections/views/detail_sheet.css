@@ -160,7 +160,7 @@
 }
 
 /* A phone: the sheet is the screen, and each row's value goes under its name. */
-@media (max-width: 40rem) {
+@media not (--sm) {
   .sheet {
     padding: var(--space-4);
     border-inline-start: 0;

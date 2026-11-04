@@ -300,7 +300,7 @@
   white-space: nowrap;
 }
 
-@media (min-width: 48rem) {
+@media (--sm) {
   .page {
     padding-block-end: 0;
   }

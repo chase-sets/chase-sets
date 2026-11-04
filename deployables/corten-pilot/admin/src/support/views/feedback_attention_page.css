@@ -116,7 +116,7 @@
   color: var(--color-text-secondary);
   border-color: var(--color-border-strong);
 }
-@media (min-width: 48rem) {
+@media (--sm) {
   .stats {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }

@@ -369,7 +369,7 @@
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 40rem) {
+@media not (--sm) {
   .part {
     padding: var(--space-3);
   }

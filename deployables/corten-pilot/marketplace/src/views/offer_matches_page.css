@@ -237,7 +237,7 @@
   color: var(--color-text);
   border-color: var(--color-border-strong);
 }
-@media (min-width: 48rem) {
+@media (--sm) {
   .metrics {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
@@ -343,7 +343,7 @@
 .steps > [data-state="issue"] {
   border-color: var(--color-warning);
 }
-@media (min-width: 48rem) {
+@media (--sm) {
   .bar {
     position: static;
     margin-inline: 0;

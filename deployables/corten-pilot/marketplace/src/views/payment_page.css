@@ -360,7 +360,7 @@
   margin: 0;
 }
 
-@media (min-width: 48rem) {
+@media (--sm) {
   .page:has(.bar) {
     padding-block-end: 0;
   }

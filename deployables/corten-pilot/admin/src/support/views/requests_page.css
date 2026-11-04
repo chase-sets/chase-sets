@@ -429,7 +429,7 @@
   }
 }
 /* A phone: the sheet is the screen. */
-@media (max-width: 40rem) {
+@media not (--sm) {
   .sheet {
     padding: var(--space-4);
     border-inline-start: 0;
