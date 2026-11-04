@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { isTransientProjectionError } from "@chase-sets/event-core/projector";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -8,6 +11,9 @@ import {
   buildSettlementPaymentsAccountRiskSourceProjectionHandlers,
   buildSettlementReputationAccountRiskSourceProjectionHandlers,
 } from "./account-risk-source-projection";
+import authorityMatrix from "./authority-matrix.fixture.json" with { type: "json" };
+
+const repoRoot = fileURLToPath(new URL("../../../../../../", import.meta.url));
 
 function event(type: string, data: Record<string, unknown>, streamId = "identity.account-acc_seller"): TransportEvent {
   return buildTransportEvent(type, data, {
@@ -122,6 +128,21 @@ async function captureHandlerError(action: () => Promise<void>): Promise<unknown
 }
 
 describe("settlement account risk source projection", () => {
+  it("requires every account-risk writer to publish an atomic revision", () => {
+    for (const writer of authorityMatrix.writers) {
+      const source = readFileSync(path.join(repoRoot, writer.file), "utf8");
+      const writes = [...source.matchAll(/INSERT INTO settlement_account_risk_sources[\s\S]*?`/g)].map(
+        (match) => match[0],
+      );
+      expect(writes.length).toBeGreaterThanOrEqual(writer.minimumCount);
+      for (const sql of writes) {
+        expect(sql).toContain(authorityMatrix.revisionColumn);
+        expect(sql).toMatch(/(?:SELECT|VALUES)[\s\S]*\b1\b/);
+        expect(sql).toContain(authorityMatrix.conflictRevision);
+      }
+    }
+  });
+
   it("risk projection money consolidation preserves canonical cents and the absent-value default", async () => {
     for (const moneyCase of canonicalMoneyCases) {
       for (const caseIndex of [0, 1] as const) {

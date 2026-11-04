@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "settlement.seller-checkout-risk-authority-matrix.v1",
+  "authority": {
+    "contract": "bounded-contexts/settlement/features/seller-checkout-risk/domain/contract.ts",
+    "read": "bounded-contexts/settlement/features/seller-checkout-risk/read-model/queries.ts",
+    "contractSymbols": ["SellerCheckoutRiskOwner", "SellerCheckoutRiskResult", "SellerCheckoutRiskReader"],
+    "readSymbols": ["readSellerCheckoutRisk", "createSellerCheckoutRiskReader"]
+  },
+  "owners": [
+    { "kind": "account", "idField": "accountId", "idPrefix": "acc_" },
+    { "kind": "anonymous", "idField": "anonymousSellListId", "idPrefix": "anon_" }
+  ],
+  "policyRevision": "seller-checkout-risk-v1",
+  "rowStates": ["present", "absent", "unavailable"]
+}

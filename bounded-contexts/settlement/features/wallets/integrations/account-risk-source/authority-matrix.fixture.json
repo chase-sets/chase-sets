@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "settlement.account-risk-source-authority-matrix.v1",
+  "writers": [
+    {
+      "file": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts",
+      "minimumCount": 9
+    },
+    {
+      "file": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts",
+      "minimumCount": 1
+    }
+  ],
+  "revisionColumn": "revision",
+  "insertRevision": "1",
+  "conflictRevision": "revision = settlement_account_risk_sources.revision + 1"
+}

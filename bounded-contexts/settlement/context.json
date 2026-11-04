@@ -7,6 +7,7 @@
   "apiBasePath": "/api/settlement",
   "slices": [
     "wallets",
+    "seller-checkout-risk",
     "payout-readiness",
     "payouts",
     "money-dashboard",
@@ -729,6 +730,11 @@
     }
   ],
   "directoryIntent": {
+    "seller-checkout-risk": {
+      "classification": "slice",
+      "purpose": "Publish Settlement-owned seller checkout risk reads and their revision-backed authority contract.",
+      "expectedConsumers": ["Internal settlement module composition", "Checkout owner-read adapters"]
+    },
     "wallets": {
       "classification": "slice",
       "purpose": "Own wallets feature behavior, read models, and UI contracts for the settlement context.",

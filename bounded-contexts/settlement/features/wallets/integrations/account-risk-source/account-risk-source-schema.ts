@@ -3,6 +3,7 @@ import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 export const settlementAccountRiskSourceSchemaSql = `
 CREATE TABLE IF NOT EXISTS settlement_account_risk_sources (
   account_id text PRIMARY KEY,
+  revision bigint NOT NULL DEFAULT 0,
   account_created_at timestamptz NULL,
   trusted_seller boolean NOT NULL DEFAULT false,
   manual_payout_review boolean NOT NULL DEFAULT false,
@@ -26,6 +27,9 @@ CREATE TABLE IF NOT EXISTS settlement_account_risk_sources (
   average_rating numeric(4, 2) NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE settlement_account_risk_sources
+  ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0;
 
 ALTER TABLE settlement_account_risk_sources
   ADD COLUMN IF NOT EXISTS chargeback_7d_count integer NOT NULL DEFAULT 0;
@@ -173,6 +177,14 @@ CREATE INDEX IF NOT EXISTS settlement_account_velocity_sources_reviewer_idx
 `;
 
 export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261104_settlement_account_risk_source_revision",
+    description: "Add the Settlement account-risk publication revision with zero bootstrap parity.",
+    statements: [
+      `ALTER TABLE settlement_account_risk_sources
+  ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0`,
+    ],
+  },
   {
     migrationId: "20260907_settlement_listing_risk_currency",
     description:

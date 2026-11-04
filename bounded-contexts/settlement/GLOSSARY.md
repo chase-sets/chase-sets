@@ -2,6 +2,14 @@
 
 This glossary defines the canonical terminology for the Settlement bounded context.
 
+## Seller Checkout Risk Read
+
+A **Seller Checkout Risk Read** is Settlement's internal, versioned answer about whether seller checkout may continue. V1 is a clear permission read from the trusted account-risk source row; it does not activate fraud, velocity, linkage, manual-review, hold, or block predicates.
+
+## Seller Checkout Risk Source Revision
+
+A **Seller Checkout Risk Source Revision** is the monotonic publication counter on an account-risk source row. New rows publish revision 1, subsequent actual row writes increment it atomically, and an absent row is represented by revision 0.
+
 ## Wallet
 
 A **Wallet** is the balance container for an account within the marketplace ledger.
