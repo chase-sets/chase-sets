@@ -136,7 +136,7 @@ fn Module<'a, C: Render>(
                     <h2 id={id}>{title}</h2>
                     <p>{description}</p>
                 </div>
-                <div class={Status}><Pill text={&status} tone={tone} /></div>
+                <div class={Status}><Pill text={status} tone={tone} /></div>
             </header>
             <div class={(CardContent {}, Stack)}>{children}</div>
         </section>
@@ -278,10 +278,10 @@ fn capabilities(t: Cat, row: &HealthProvider) -> Vec<(&'static str, String)> {
             items.push((t.wb_health_capability_usage_freshness(), usage_freshness(t, budget)));
             items.push((t.wb_health_capability_usage_lag(), usage_lag(t, &budget.lag_category)));
             // A complete, fresh, ready budget stays quiet; any other budget shows its reason.
-            if budget.freshness != "fresh" || budget.readiness != "ready" {
-                if let Some(diagnostic) = &budget.diagnostic {
-                    items.push((t.wb_health_capability_usage_diagnostic(), diagnostic.clone()));
-                }
+            if (budget.freshness != "fresh" || budget.readiness != "ready")
+                && let Some(diagnostic) = &budget.diagnostic
+            {
+                items.push((t.wb_health_capability_usage_diagnostic(), diagnostic.clone()));
             }
             let calls = match budget.estimated_calls {
                 None => t.wb_not_selected().to_owned(),
@@ -1025,7 +1025,7 @@ fn Blockers<'a>(t: Cat, blockers: &'a [String]) -> impl Render {
                 for b in &seen {
                     match blocker(t, b) {
                         Some((label, group)) => { <Pill text={label} tone={blocker_tone(group)} /> }
-                        None => { <Pill text={*b} tone="warning" /> }
+                        None => { <Pill text={b} tone="warning" /> }
                     }
                 }
             </span>
