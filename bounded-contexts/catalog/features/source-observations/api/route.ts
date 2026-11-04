@@ -22,11 +22,9 @@ import { promotionReviewRoutes } from "./route-modules/promotion-review-routes";
 import { providerOptionRoutes } from "./route-modules/provider-options-routes";
 import { providerProfileRoutes } from "./route-modules/provider-profile-routes";
 import { sourceObservationReadReviewRoutes } from "./route-modules/source-observation-review-routes";
-import {
-  buildCatalogIntegrationControlPlaneOverview,
-  parseCatalogIntegrationControlPlaneOverviewAudience,
-} from "./admin/admin-control-plane-overview";
-import { listCatalogProviderProfileVersionReviews } from "./providers/provider-profile-review";
+import { primaryWorkbenchSurfaceRoutes } from "./route-modules/primary-workbench-surface-routes";
+import { parseCatalogIntegrationControlPlaneOverviewAudience } from "./admin/admin-control-plane-overview";
+import { loadCatalogIntegrationControlPlaneOverview } from "./route-modules/control-plane-overview-load";
 import { requireCatalogIntegrationControlPlanePermission } from "./admin/admin-control-plane-rbac";
 
 export type SourceObservationRouteServices = Partial<ProviderSendWindowServices> &
@@ -56,6 +54,7 @@ export function sourceObservationRoutes(
   app.route("/", integrationJobRoutes(services));
   app.route("/", catalogMergeCandidateRoutes(services));
   app.route("/", controlPlaneTelemetryRoutes(services));
+  app.route("/", primaryWorkbenchSurfaceRoutes({ services, profileVersions, readCountSpend }));
   app.route("/", sourceObservationReadReviewRoutes(services));
   app.get("/integration-control-plane/overview", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-control-plane-read");
@@ -72,31 +71,13 @@ export function sourceObservationRoutes(
       return c.json({ providerSendWindow }, providerSendWindow.state === "unavailable" ? 503 : 200);
     }
     const audience = parseCatalogIntegrationControlPlaneOverviewAudience(c.req.query("audience"));
-    const [readiness, profiles, recentJobs, activeJobs] = await Promise.all([
-      services.getCatalogIntegrationControlPlaneReadiness(),
-      profileVersions ? listCatalogProviderProfileVersionReviews(profileVersions) : Promise.resolve([]),
-      services.listRecentIntegrationJobs({ context: c.get("context") }),
-      services.listActiveIntegrationJobSnapshot
-        ? services.listActiveIntegrationJobSnapshot({ context: c.get("context") })
-        : (services.listActiveIntegrationJobs?.({ context: c.get("context") }) ?? Promise.resolve([])).then(
-            (items) => ({
-              items,
-              completeness: "incomplete" as const,
-            }),
-          ),
-    ]);
 
-    return c.json({
-      ...buildCatalogIntegrationControlPlaneOverview({
-        readiness,
-        profiles,
-        activeJobs,
-        recentJobs,
-        audience,
-        countSpend: await readCountSpend?.(),
-      }),
-      providerSendWindow,
-    });
+    return c.json(
+      await loadCatalogIntegrationControlPlaneOverview(
+        { services, profileVersions, readCountSpend },
+        { context: c.get("context"), audience, providerSendWindow },
+      ),
+    );
   });
 
   return app;

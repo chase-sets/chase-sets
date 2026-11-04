@@ -41,7 +41,6 @@ export type CatalogScopeLandingRouteData = Readonly<{
 export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogScopeLandingRouteData> {
   const query = readCatalogListQuery(request);
   const productDomain = new URL(request.url).searchParams.get("productDomain")?.trim() ?? "";
-  const generatedAt = new Date().toISOString();
   const api = createCatalogRequestApiClient(request);
 
   const [result, attentionQueue, generalAliasReview, actor] = await Promise.all([
@@ -60,7 +59,8 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogSc
         languageEdition: query.language,
         lifecycleStatus: query.status,
       },
-      generatedAt,
+      // The API's generation time, the clock its row freshness was measured against.
+      generatedAt: result.scopes.generatedAt ?? new Date().toISOString(),
     }),
     query,
     productDomain,
@@ -118,9 +118,9 @@ async function loadScopeRecords(
   api: ReturnType<typeof createCatalogRequestApiClient>,
   query: CatalogListQuery,
   productDomain: string,
-): Promise<{ scopes: ListResponse<CatalogScopeRecordDetail>; error: string | null }> {
+): Promise<{ scopes: CatalogScopeRecordPage; error: string | null }> {
   try {
-    const scopes = await api.listCatalogScopeRecords<ListResponse<CatalogScopeRecordDetail>>(
+    const scopes = await api.listCatalogScopeRecords<CatalogScopeRecordPage>(
       scopeRecordsApiQuery(query, productDomain),
     );
     return { scopes, error: null };
@@ -148,6 +148,8 @@ function scopeRecordsApiQuery(query: CatalogListQuery, productDomain: string): s
   return params.toString();
 }
 
-function emptyScopeList(): ListResponse<CatalogScopeRecordDetail> {
+type CatalogScopeRecordPage = ListResponse<CatalogScopeRecordDetail> & Readonly<{ generatedAt?: string }>;
+
+function emptyScopeList(): CatalogScopeRecordPage {
   return { items: [], total: 0, count: 0 };
 }

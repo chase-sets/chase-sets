@@ -23,9 +23,15 @@ vi.mock("@chase-sets/platform-runtime/auth", async (importOriginal) => ({
   resolveActorFromAuthApi: mockResolveActorFromAuthApi,
 }));
 
-vi.mock("../../request-support/api-client", () => ({
-  createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
-}));
+vi.mock("../../request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<typeof import("./integrations-surface-read-test-client")>(
+    "./integrations-surface-read-test-client",
+  );
+  return {
+    createCatalogRequestApiClient: (request: Request) =>
+      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+  };
+});
 
 vi.mock("./integrations-loader-support", () => ({
   loadHealthSurface: mockLoadHealthSurface,

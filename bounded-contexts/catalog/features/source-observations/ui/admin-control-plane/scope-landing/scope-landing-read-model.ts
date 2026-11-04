@@ -1,5 +1,9 @@
 import type { ListResponse } from "@chase-sets/http/responses";
-import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
+import type {
+  CatalogScopePromotionReadiness,
+  CatalogScopeRecordDetail,
+  CatalogScopeSyncFreshness,
+} from "../../../../scope-registry/ui/contracts";
 
 // ---------------------------------------------------------------------------
 // Scope-first landing read model (Catalog control-plane v2 `catalog-home`).
@@ -9,18 +13,12 @@ import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/con
 // entry point: every scope, its coverage breadth, promotion posture, and sync
 // freshness, filterable and each opening its own Scope Detail journey.
 //
-// Sync freshness and promotion readiness are honest proxies derived from the
-// canonical record itself (its language-edition coverage, lifecycle status, and
-// projection recency) — the same freshness proxy the attention queue uses —
-// until the dedicated scope-sync-state model lands. No per-scope
-// aggregate is fabricated here.
+// Sync freshness and promotion readiness come from the Catalog API
+// (`GET /scope-records`), which derives both once from the canonical record:
+// its lifecycle status and projection recency, the same freshness window the
+// attention queue uses. This read model passes them through unchanged. No
+// per-scope aggregate is fabricated here.
 // ---------------------------------------------------------------------------
-
-// Mirrors `CATALOG_ATTENTION_STALE_SCOPE_SYNC_MS` (attention-queue runtime): a
-// scope whose projection has not advanced in two weeks reads as a stale sync.
-// Kept as a local constant so this browser read model never imports the
-// DB-backed attention-queue runtime module.
-export const SCOPE_LANDING_STALE_SYNC_MS = 14 * 24 * 60 * 60 * 1000;
 
 export type CatalogScopeLandingFilters = Readonly<{
   search: string;
@@ -29,9 +27,7 @@ export type CatalogScopeLandingFilters = Readonly<{
   lifecycleStatus: string;
 }>;
 
-export type CatalogScopePromotionReadiness = "unpublished" | "live" | "deprecated" | "archived";
-
-export type CatalogScopeSyncFreshness = "fresh" | "stale";
+export type { CatalogScopePromotionReadiness, CatalogScopeSyncFreshness };
 
 export type CatalogScopeLandingRow = Readonly<{
   scopeRecordId: string;
@@ -81,10 +77,9 @@ export function buildCatalogScopeLandingReadModel(input: {
   filters: CatalogScopeLandingFilters;
   generatedAt: string;
 }): CatalogScopeLandingReadModel {
-  const generatedAtMs = Date.parse(input.generatedAt);
   const languageFilter = input.filters.languageEdition.trim();
 
-  const allRows = input.scopes.items.map((scope) => toLandingRow(scope, generatedAtMs));
+  const allRows = input.scopes.items.map(toLandingRow);
   const rows = languageFilter ? allRows.filter((row) => row.languageEditions.includes(languageFilter)) : allRows;
 
   const languageEditions = new Set<string>();
@@ -111,7 +106,7 @@ export function buildCatalogScopeLandingReadModel(input: {
   };
 }
 
-function toLandingRow(scope: CatalogScopeRecordDetail, generatedAtMs: number): CatalogScopeLandingRow {
+function toLandingRow(scope: CatalogScopeRecordDetail): CatalogScopeLandingRow {
   return {
     scopeRecordId: scope.scopeRecordId,
     name: scope.name,
@@ -121,34 +116,9 @@ function toLandingRow(scope: CatalogScopeRecordDetail, generatedAtMs: number): C
     languageEditions: scope.languageEditions,
     languageEditionCount: scope.languageEditions.length,
     lifecycleStatus: scope.lifecycleStatus,
-    promotionReadiness: promotionReadinessFromLifecycle(scope.lifecycleStatus),
-    syncFreshness: syncFreshnessFromUpdatedAt(scope.updatedAt, generatedAtMs),
+    promotionReadiness: scope.promotionReadiness,
+    syncFreshness: scope.syncFreshness,
     updatedAt: scope.updatedAt,
     detailHref: scopeDetailHref(scope.scopeRecordId),
   };
-}
-
-function promotionReadinessFromLifecycle(lifecycleStatus: string): CatalogScopePromotionReadiness {
-  switch (lifecycleStatus) {
-    case "active":
-      return "live";
-    case "deprecated":
-      return "deprecated";
-    case "archived":
-      return "archived";
-    default:
-      // draft (or any not-yet-published state): the canonical record still
-      // needs confirming before its scope can promote Catalog Items.
-      return "unpublished";
-  }
-}
-
-function syncFreshnessFromUpdatedAt(updatedAt: string, generatedAtMs: number): CatalogScopeSyncFreshness {
-  const updatedMs = Date.parse(updatedAt);
-  if (!Number.isFinite(updatedMs) || !Number.isFinite(generatedAtMs)) {
-    // An unparseable timestamp is treated as stale so it surfaces for review
-    // rather than falsely reading as fresh.
-    return "stale";
-  }
-  return generatedAtMs - updatedMs <= SCOPE_LANDING_STALE_SYNC_MS ? "fresh" : "stale";
 }

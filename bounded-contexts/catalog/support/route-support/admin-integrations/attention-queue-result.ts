@@ -4,7 +4,6 @@ import type {
 } from "../../../features/attention-queue/api/contracts";
 import {
   CATALOG_ATTENTION_ITEM_KINDS,
-  summarizeCatalogAttentionItems,
   type CatalogAttentionItem,
   type CatalogAttentionItemKind,
   type CatalogAttentionResolution,
@@ -35,9 +34,11 @@ export const CATALOG_ATTENTION_QUEUE_UNAVAILABLE: CatalogDeferredAttentionQueueR
 });
 
 // Accept a raw API response only when it matches the existing attention read
-// model exactly (closed key sets, closed enums, timezone-bearing timestamps) and
-// its derived facts agree with its items. Any mismatch is `unavailable`: a queue
-// the surface cannot trust must not be rendered as an empty or partial inbox.
+// model exactly (closed key sets, closed enums, timezone-bearing timestamps). Its
+// counts and freshness are the API's, computed once by the attention-queue
+// assembler; they are shape-checked here, never recomputed. Any mismatch is
+// `unavailable`: a queue the surface cannot trust must not be rendered as an
+// empty or partial inbox.
 export function resolveCatalogAttentionQueueResult(value: unknown): CatalogDeferredAttentionQueueResult {
   const readModel = parseCatalogAttentionQueueReadModel(value);
   return readModel ? { status: "ready", readModel } : CATALOG_ATTENTION_QUEUE_UNAVAILABLE;
@@ -91,8 +92,8 @@ export function parseCatalogAttentionQueueReadModel(value: unknown): CatalogAtte
     return null;
   }
 
-  const counts = parseCounts(value.counts, items);
-  const freshness = parseFreshness(value.freshness, generatedAt, items);
+  const counts = parseCounts(value.counts);
+  const freshness = parseFreshness(value.freshness, generatedAt);
   if (!counts || !freshness) {
     return null;
   }
@@ -183,55 +184,56 @@ function parseResolution(value: unknown): CatalogAttentionResolution | null {
   };
 }
 
-// Counts are re-derived from the accepted items; the response's own counts must
-// match that recomputation exactly or the queue is not trusted.
-function parseCounts(value: unknown, items: readonly CatalogAttentionItem[]) {
-  if (!hasExactKeys(value, COUNTS_KEYS)) {
+function parseCounts(value: unknown): CatalogAttentionQueueReadModel["counts"] | null {
+  if (!hasExactKeys(value, COUNTS_KEYS) || !isCount(value.total)) {
     return null;
   }
-  const expected = summarizeCatalogAttentionItems(items);
-  if (
-    value.total !== expected.total ||
-    !countRecordMatches(value.bySeverity, SEVERITIES, expected.bySeverity) ||
-    !countRecordMatches(value.byKind, CATALOG_ATTENTION_ITEM_KINDS, expected.byKind)
-  ) {
+  const bySeverity = countRecord(value.bySeverity, SEVERITIES);
+  const byKind = countRecord(value.byKind, CATALOG_ATTENTION_ITEM_KINDS);
+  if (!bySeverity || !byKind) {
     return null;
   }
-  return expected;
+  return { total: value.total, bySeverity, byKind };
 }
 
-function parseFreshness(value: unknown, generatedAt: string, items: readonly CatalogAttentionItem[]) {
+function parseFreshness(value: unknown, generatedAt: string): CatalogAttentionQueueReadModel["freshness"] | null {
   if (!hasExactKeys(value, FRESHNESS_KEYS) || value.generatedAt !== generatedAt) {
     return null;
   }
-  const expectedOldest = items.length > 0 ? extremeObservedAt(items, "oldest") : null;
-  const expectedNewest = items.length > 0 ? extremeObservedAt(items, "newest") : null;
-  if (value.oldestObservedAt !== expectedOldest || value.newestObservedAt !== expectedNewest) {
+  const oldestObservedAt = nullableTimestamp(value.oldestObservedAt);
+  const newestObservedAt = nullableTimestamp(value.newestObservedAt);
+  if (oldestObservedAt === undefined || newestObservedAt === undefined) {
     return null;
   }
-  return { generatedAt, oldestObservedAt: expectedOldest, newestObservedAt: expectedNewest };
+  return { generatedAt, oldestObservedAt, newestObservedAt };
 }
 
-// Same lexical comparison the assembler uses, so a queue it produced round-trips.
-function extremeObservedAt(items: readonly CatalogAttentionItem[], edge: "oldest" | "newest"): string {
-  return items.reduce((current, item) => {
-    const delta = item.observedAt.localeCompare(current);
-    return (edge === "oldest" ? delta < 0 : delta > 0) ? item.observedAt : current;
-  }, items[0]!.observedAt);
-}
-
-function countRecordMatches<K extends string>(
-  value: unknown,
-  keys: readonly K[],
-  expected: Readonly<Record<K, number>>,
-): boolean {
+// A closed record of non-negative integer counts, one per allowed key.
+function countRecord<K extends string>(value: unknown, keys: readonly K[]): Readonly<Record<K, number>> | null {
   if (!hasExactKeys(value, keys)) {
-    return false;
+    return null;
   }
-  return keys.every((key) => {
+  const record = {} as Record<K, number>;
+  for (const key of keys) {
     const count = value[key];
-    return typeof count === "number" && Number.isInteger(count) && count === expected[key];
-  });
+    if (!isCount(count)) {
+      return null;
+    }
+    record[key] = count;
+  }
+  return record;
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+// A timezone-bearing timestamp, null, or undefined when the value is neither.
+function nullableTimestamp(value: unknown): string | null | undefined {
+  if (value === null) {
+    return null;
+  }
+  return timestamp(value) ?? undefined;
 }
 
 function hasExactKeys<K extends string, O extends string = never>(
