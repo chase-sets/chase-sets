@@ -1,8 +1,9 @@
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { catalogScopeRegistryRoutes, scopeRecordDetailFromRow, type CatalogScopeRegistryRouteServices } from "./route";
 import type { CatalogScopeRecordRow } from "../read-model/queries";
+import { CATALOG_SCOPE_STALE_SYNC_MS } from "../domain/scope-row-status";
 
 const viewActor: CatalogAuthoringEnv["Variables"]["actor"] = { permissions: ["catalog.view"] };
 
@@ -45,7 +46,7 @@ function buildApp(
 
 describe("scopeRecordDetailFromRow", () => {
   it("maps the DB row to the camelCase client contract, including language editions", () => {
-    expect(scopeRecordDetailFromRow(paldeanFatesRow())).toEqual({
+    expect(scopeRecordDetailFromRow(paldeanFatesRow(), "2026-07-14T12:00:00.000Z")).toEqual({
       scopeRecordId: "ref_expansion_paldean_fates",
       productDomain: "pokemon",
       scopeKind: "expansion",
@@ -61,11 +62,16 @@ describe("scopeRecordDetailFromRow", () => {
       languageEditions: ["en", "ja"],
       lifecycleStatus: "active",
       updatedAt: "2026-07-03T12:00:00.000Z",
+      promotionReadiness: "live",
+      syncFreshness: "fresh",
     });
   });
 
   it("normalizes a non-array language_editions column to an empty list", () => {
-    expect(scopeRecordDetailFromRow(paldeanFatesRow({ language_editions: null })).languageEditions).toEqual([]);
+    expect(
+      scopeRecordDetailFromRow(paldeanFatesRow({ language_editions: null }), "2026-07-14T12:00:00.000Z")
+        .languageEditions,
+    ).toEqual([]);
   });
 });
 
@@ -181,5 +187,83 @@ describe("Catalog scope registry list route", () => {
 
     expect(response.status).toBe(403);
     expect(listScopeRecords).not.toHaveBeenCalled();
+  });
+});
+
+describe("Catalog scope registry row status", () => {
+  const GENERATED_AT = "2026-07-14T12:00:00.000Z";
+  const generatedMs = Date.parse(GENERATED_AT);
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function listRows(rows: CatalogScopeRecordRow[]) {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(GENERATED_AT));
+    const listScopeRecords = vi.fn().mockResolvedValue({ items: rows, total: rows.length });
+    const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
+    const response = await app.request("/scope-records");
+    expect(response.status).toBe(200);
+    return (await response.json()) as {
+      generatedAt: string;
+      items: { scopeRecordId: string; promotionReadiness: string; syncFreshness: string }[];
+    };
+  }
+
+  it("maps every lifecycle status to its promotion readiness over HTTP", async () => {
+    const body = await listRows(
+      (["draft", "active", "deprecated", "archived"] as const).map((status) =>
+        paldeanFatesRow({ scope_record_id: status, lifecycle_status: status, updated_at: GENERATED_AT }),
+      ),
+    );
+
+    expect(Object.fromEntries(body.items.map((item) => [item.scopeRecordId, item.promotionReadiness]))).toEqual({
+      draft: "unpublished",
+      active: "live",
+      deprecated: "deprecated",
+      archived: "archived",
+    });
+  });
+
+  it("measures sync freshness against the response's generatedAt at the 14-day boundary", async () => {
+    const at = (offsetMs: number) => new Date(generatedMs - offsetMs).toISOString();
+    const body = await listRows([
+      paldeanFatesRow({ scope_record_id: "inside", updated_at: at(CATALOG_SCOPE_STALE_SYNC_MS - 1) }),
+      paldeanFatesRow({ scope_record_id: "boundary", updated_at: at(CATALOG_SCOPE_STALE_SYNC_MS) }),
+      paldeanFatesRow({ scope_record_id: "outside", updated_at: at(CATALOG_SCOPE_STALE_SYNC_MS + 1) }),
+    ]);
+
+    expect(body.generatedAt).toBe(GENERATED_AT);
+    expect(CATALOG_SCOPE_STALE_SYNC_MS).toBe(14 * 24 * 60 * 60 * 1000);
+    expect(Object.fromEntries(body.items.map((item) => [item.scopeRecordId, item.syncFreshness]))).toEqual({
+      inside: "fresh",
+      boundary: "fresh",
+      outside: "stale",
+    });
+  });
+
+  it("reads a malformed updatedAt as a stale sync so it surfaces for review", async () => {
+    const body = await listRows([
+      paldeanFatesRow({ scope_record_id: "garbage", updated_at: "not-a-timestamp" }),
+      paldeanFatesRow({ scope_record_id: "empty", updated_at: "" }),
+    ]);
+
+    expect(body.items.map((item) => item.syncFreshness)).toEqual(["stale", "stale"]);
+  });
+
+  it("includes both row facts on the single-record read", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(GENERATED_AT));
+    const getScopeRecord = vi
+      .fn()
+      .mockResolvedValue(paldeanFatesRow({ lifecycle_status: "draft", updated_at: "2026-01-01T00:00:00.000Z" }));
+    const app = buildApp({ getScopeRecord, listScopeRecords: vi.fn() }, viewActor);
+
+    const response = await app.request("/scope-records/ref_expansion_paldean_fates");
+    const body = await response.json();
+
+    expect(body.promotionReadiness).toBe("unpublished");
+    expect(body.syncFreshness).toBe("stale");
   });
 });

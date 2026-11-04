@@ -8,6 +8,7 @@ export const SOCIAL_LOGIN_ERROR_MESSAGES = {
   provider_failed: "auth.support.apiSupport.socialLoginRoutes.provider.failed",
   workspace_domain_required: "auth.support.apiSupport.socialLoginRoutes.admin.workspace.domain.required",
   provider_already_linked: "auth.support.apiSupport.socialLoginRoutes.provider.already.linked",
+  provider_link_repair_required: "auth.support.apiSupport.socialLoginRoutes.provider.link.repair.required",
   verified_email_required: "auth.support.apiSupport.socialLoginRoutes.verified.email.required",
   admin_user_required: "auth.support.apiSupport.socialLoginRoutes.admin.user.required",
   registration_admission_required: "auth.support.apiSupport.registrationGates.registration.requires.an.invitation",

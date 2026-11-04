@@ -86,12 +86,12 @@ describe("Catalog attention queue deferred result", () => {
     ["generatedAt not a timestamp", (raw) => void (raw.generatedAt = "yesterday")],
     ["generatedAt a calendar date only", (raw) => void (raw.generatedAt = "2026-07-09")],
     ["generatedAt unparseable despite the shape", (raw) => void (raw.generatedAt = "2026-13-45T99:99:00Z")],
-    // Derived facts must agree with the items.
+    // Counts and freshness are the API's: shape-checked, never recomputed.
     ["empty flag contradicts items", (raw) => void (raw.empty = true)],
-    ["counts.total off by one", (raw) => void (counts(raw).total = 3)],
     ["counts.total a float", (raw) => void (counts(raw).total = 2.5)],
-    ["severity count mismatch", (raw) => void ((counts(raw).bySeverity as Mutable).critical = 0)],
-    ["kind count mismatch", (raw) => void ((counts(raw).byKind as Mutable)["import-job"] = 1)],
+    ["counts.total negative", (raw) => void (counts(raw).total = -1)],
+    ["severity count a float", (raw) => void ((counts(raw).bySeverity as Mutable).critical = 0.5)],
+    ["kind count a string", (raw) => void ((counts(raw).byKind as Mutable)["import-job"] = "1")],
     ["unknown severity count key", (raw) => void ((counts(raw).bySeverity as Mutable).fatal = 0)],
     ["missing kind count key", (raw) => void delete (counts(raw).byKind as Mutable)["stale-scope-sync"]],
     ["unknown counts key", (raw) => void (counts(raw).byProvider = {})],
@@ -99,15 +99,9 @@ describe("Catalog attention queue deferred result", () => {
       "freshness generatedAt disagrees with top level",
       (raw) => void (freshness(raw).generatedAt = "2026-07-09T12:00:01.000Z"),
     ],
-    [
-      "oldestObservedAt not the item minimum",
-      (raw) => void (freshness(raw).oldestObservedAt = "2026-07-05T00:00:00.000Z"),
-    ],
-    [
-      "newestObservedAt not the item maximum",
-      (raw) => void (freshness(raw).newestObservedAt = "2026-07-01T00:00:00.000Z"),
-    ],
-    ["nonempty queue with null extrema", (raw) => void (freshness(raw).oldestObservedAt = null)],
+    ["oldestObservedAt without a timezone", (raw) => void (freshness(raw).oldestObservedAt = "2026-07-05T00:00:00")],
+    ["newestObservedAt not a string", (raw) => void (freshness(raw).newestObservedAt = 1_720_000_000_000)],
+    ["missing freshness extremum", (raw) => void delete freshness(raw).oldestObservedAt],
     ["unknown freshness key", (raw) => void (freshness(raw).staleAfter = "2026-07-10T00:00:00.000Z")],
     // Items: closed fields, enums, params and timestamps.
     ["item with an unknown key", (raw) => void (item(raw).note = "x")],
@@ -155,12 +149,29 @@ describe("Catalog attention queue deferred result", () => {
     expect(parseCatalogAttentionQueueReadModel(raw)).toBeNull();
   });
 
-  it("marks an empty queue unavailable when its extrema are not null", () => {
-    const raw = serialized(catalogAttentionQueueReadModelFixture([]));
-    freshness(raw).oldestObservedAt = CATALOG_ATTENTION_FIXTURE_GENERATED_AT;
-    freshness(raw).newestObservedAt = CATALOG_ATTENTION_FIXTURE_GENERATED_AT;
+  it("renders the API's counts and freshness as given rather than recomputing them from the items", () => {
+    // The values deliberately disagree with the two fixture items: the Catalog
+    // API's attention-queue assembler owns these facts, and the loader passes
+    // a well-formed answer through unchanged.
+    const raw = serialized(catalogAttentionQueueReadModelFixture());
+    counts(raw).total = 7;
+    (counts(raw).bySeverity as Mutable).info = 5;
+    (counts(raw).byKind as Mutable)["import-job"] = 3;
+    freshness(raw).oldestObservedAt = "2026-06-01T00:00:00.000Z";
+    freshness(raw).newestObservedAt = null;
 
-    expect(resolveCatalogAttentionQueueResult(raw)).toBe(CATALOG_ATTENTION_QUEUE_UNAVAILABLE);
+    const result = resolveCatalogAttentionQueueResult(raw);
+
+    expect(result.status).toBe("ready");
+    const readModel = result.status === "ready" ? result.readModel : null;
+    expect(readModel?.counts.total).toBe(7);
+    expect(readModel?.counts.bySeverity.info).toBe(5);
+    expect(readModel?.counts.byKind["import-job"]).toBe(3);
+    expect(readModel?.freshness).toEqual({
+      generatedAt: CATALOG_ATTENTION_FIXTURE_GENERATED_AT,
+      oldestObservedAt: "2026-06-01T00:00:00.000Z",
+      newestObservedAt: null,
+    });
   });
 
   it("rejects a single malformed item even when every other item is valid", () => {

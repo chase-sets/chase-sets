@@ -44,6 +44,8 @@ function scopeRow(overrides: Record<string, unknown> = {}) {
     languageEditions: ["en", "ja"],
     lifecycleStatus: "active",
     updatedAt: "2026-07-03T12:00:00.000Z",
+    promotionReadiness: "live",
+    syncFreshness: "fresh",
     ...overrides,
   };
 }
@@ -80,6 +82,42 @@ describe("Catalog scope-landing route loader", () => {
     expect(query.get("limit")).toBe("50");
     // page 2 (1-based in the URL) → zero-based offset of one page.
     expect(query.get("offset")).toBe("50");
+  });
+
+  it("passes the API's promotion readiness, sync freshness and generation time through unchanged", async () => {
+    // The verdicts deliberately disagree with lifecycleStatus and updatedAt: the
+    // Catalog API derives both row facts, and the loader must not re-derive them.
+    const listCatalogScopeRecords = vi.fn().mockResolvedValue({
+      generatedAt: "2026-07-14T12:00:00.000Z",
+      items: [
+        scopeRow({
+          scopeRecordId: "a",
+          lifecycleStatus: "active",
+          promotionReadiness: "archived",
+          syncFreshness: "stale",
+        }),
+        scopeRow({
+          scopeRecordId: "b",
+          lifecycleStatus: "draft",
+          updatedAt: "2020-01-01T00:00:00.000Z",
+          promotionReadiness: "live",
+          syncFreshness: "fresh",
+        }),
+      ],
+      total: 2,
+      count: 2,
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ listCatalogScopeRecords });
+
+    const routeData = await runLoader("https://admin.example/catalog/scopes");
+
+    expect(
+      routeData.readModel.rows.map((row) => [row.scopeRecordId, row.promotionReadiness, row.syncFreshness]),
+    ).toEqual([
+      ["a", "archived", "stale"],
+      ["b", "live", "fresh"],
+    ]);
+    expect(routeData.readModel.generatedAt).toBe("2026-07-14T12:00:00.000Z");
   });
 
   it("does not send the language edition to the API (it is a client-side facet over the page)", async () => {

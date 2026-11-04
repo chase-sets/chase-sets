@@ -16,9 +16,15 @@ const { mockCreateCatalogRequestApiClient, mockIsTransientAuthResolutionError, m
     mockResolveActorFromAuthApi: vi.fn(),
   }));
 
-vi.mock("../support/request-support/api-client", () => ({
-  createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
-}));
+vi.mock("../support/request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../support/route-support/admin-integrations/integrations-surface-read-test-client")
+  >("../support/route-support/admin-integrations/integrations-surface-read-test-client");
+  return {
+    createCatalogRequestApiClient: (request: Request) =>
+      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+  };
+});
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   isTransientAuthResolutionError: mockIsTransientAuthResolutionError,
