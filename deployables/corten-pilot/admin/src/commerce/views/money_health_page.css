@@ -69,8 +69,3 @@
     align-items: start;
   }
 }
-/* A payout's Open link, which a stacked table (the kit's TableLayout::Stack on a phone) would
-   otherwise stretch to its column's width (todd-skelton/corten#765). */
-.open {
-  justify-self: start;
-}

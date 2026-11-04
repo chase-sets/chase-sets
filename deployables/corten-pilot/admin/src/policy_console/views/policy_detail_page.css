@@ -197,11 +197,6 @@
   }
 }
 
-/* A stacked cell (the kit's TableLayout::Stack on a phone) stretches what follows its label to the
-   column's width (todd-skelton/corten#765): a pill and a link keep their own width. */
-.table tbody :is(th, td) > * {
-  justify-self: start;
-}
 /* Stacked on a phone, a row is one block: a line between rows, not under each of its cells, and a
    row header wraps as its cells do. */
 @media not (--sm) {
