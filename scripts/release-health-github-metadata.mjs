@@ -2,6 +2,7 @@
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
+import { createGitHubClient } from "./release-health-delivery-health.mjs";
 
 const ISO_EVENT_NAMES = new Set(["added_to_merge_queue", "ready_for_review", "merged", "removed_from_merge_queue"]);
 
@@ -53,20 +54,47 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
     throw new Error("RELEASE_COMMIT or --release-commit is required.");
   }
 
-  const request = createGitHubRequest({
-    repository: options.repository,
-    token: options.token,
-    fetchImpl: dependencies.fetchImpl ?? globalThis.fetch,
-  });
+  const client = createGitHubClient(
+    {
+      repository: options.repository,
+      token: options.token,
+      fetchImpl: dependencies.fetchImpl ?? globalThis.fetch,
+      sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    },
+    { maxPages: 20 },
+  );
+  const request = client.json;
 
-  const pulls = await request(`/commits/${options.releaseCommit}/pulls`);
+  const pulls = await client.paginate(`/commits/${options.releaseCommit}/pulls?per_page=100`, (payload) => payload, {
+    identity: (entry) => entry?.id ?? entry?.node_id ?? entry?.number,
+  });
   const pull = Array.isArray(pulls) ? pulls[0] : null;
   const [pullDetails, reviews, timeline, runs, branchRules] = await Promise.all([
     pull?.number ? request(`/pulls/${pull.number}`) : null,
-    pull?.number ? request(`/pulls/${pull.number}/reviews?per_page=100`) : [],
-    pull?.number ? request(`/issues/${pull.number}/timeline?per_page=100`) : [],
-    request(`/actions/runs?head_sha=${encodeURIComponent(options.releaseCommit)}&event=merge_group&per_page=10`),
-    request(`/rules/branches/main?per_page=100`).catch(() => []),
+    pull?.number
+      ? client.paginate(`/pulls/${pull.number}/reviews?per_page=100`, (payload) => payload, {
+          identity: (entry) =>
+            entry?.id ?? entry?.node_id ?? [entry?.user?.id, entry?.submitted_at, entry?.state].join(":"),
+        })
+      : [],
+    pull?.number
+      ? client.paginate(`/issues/${pull.number}/timeline?per_page=100`, (payload) => payload, {
+          identity: timelineIdentity,
+        })
+      : [],
+    client.paginate(
+      `/actions/runs?head_sha=${encodeURIComponent(options.releaseCommit)}&event=merge_group&per_page=100`,
+      (payload) => payload?.workflow_runs,
+      { requireTotal: true, providerCap: 1000 },
+    ),
+    client
+      .paginate(`/rules/branches/main?per_page=100`, (payload) => payload, {
+        identity: (rule) => [rule?.id ?? rule?.node_id ?? "none", rule?.type ?? "none"].join(":"),
+      })
+      .catch((error) => {
+        if (error.message === "github-not-found") return [];
+        throw error;
+      }),
   ]);
 
   return buildReleaseHealthGithubMetadata({
@@ -75,9 +103,21 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
     pull: pullDetails ?? pull,
     reviews,
     timeline,
-    mergeGroupRuns: runs?.workflow_runs ?? [],
+    mergeGroupRuns: runs,
     branchRules,
   });
+}
+
+function timelineIdentity(event) {
+  return (
+    event?.id ??
+    event?.node_id ??
+    [
+      event?.event,
+      event?.created_at,
+      event?.source?.issue?.number ?? event?.commit_id ?? event?.sha ?? event?.comments?.[0]?.id ?? "none",
+    ].join(":")
+  );
 }
 
 export function formatGithubOutput(metadata) {
@@ -114,25 +154,6 @@ async function main(argv, env = process.env) {
     console.error(error instanceof Error ? error.message : String(error));
     return 2;
   }
-}
-
-function createGitHubRequest({ repository, token, fetchImpl }) {
-  if (typeof fetchImpl !== "function") {
-    throw new Error("A fetch implementation is required.");
-  }
-  return async (path) => {
-    const response = await fetchImpl(`https://api.github.com/repos/${repository}${path}`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`GitHub API request failed for ${path}: ${response.status}`);
-    }
-    return response.json();
-  };
 }
 
 function readyForReviewAt(pull, timeline) {
