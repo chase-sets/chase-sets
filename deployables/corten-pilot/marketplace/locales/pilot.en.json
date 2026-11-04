@@ -93,7 +93,7 @@
   "shipments": {
     "line": "{count} line",
     "lines": "{count} lines",
-    "actions_on_marketplace": "Labels and the shipment's other actions are on marketplace for now.",
+    "actions_on_marketplace": "This shipment's actions are on marketplace for now.",
     "open_on_marketplace": "Open on marketplace"
   },
   "packing": {
@@ -106,6 +106,8 @@
     "discard": "Discard recovery metadata",
     "discard_confirmation": "Discard recovery metadata only? This does not cancel or undo the original change. Contact support if its result is still uncertain.",
     "storage_unavailable": "Shipment recovery storage is unavailable. No change was sent.",
+    "center_unconfirmed_title": "We could not confirm your last shipment action",
+    "center_unconfirmed": "Shipment actions are paused until we can confirm whether it was saved. Check again in a moment.",
     "copied": "Copied"
   },
   "addresses": {

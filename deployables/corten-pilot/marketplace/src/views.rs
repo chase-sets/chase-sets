@@ -31,6 +31,7 @@ mod cart_item;
 mod channels_page;
 mod checkout_page;
 mod checkout_start_page;
+mod command_center_page;
 mod consents_page;
 mod decision_card;
 mod desk_page;
@@ -87,6 +88,7 @@ pub use cart_item::{
 pub use channels_page::{ChannelConnectionPage, ChannelPublicationPage, ChannelPublicationsPage, ChannelsPage, ChannelsPending};
 pub use checkout_page::{BuyConfirmationPage, CheckoutPage, CheckoutRecovery};
 pub use checkout_start_page::CheckoutStartPage;
+pub use command_center_page::CommandCenterPage;
 pub use consents_page::ConsentsPage;
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use desk_page::DeskPage;
@@ -278,10 +280,11 @@ pub const SUBMITTED_OFFERS: &[Component] = &[SubmittedOffersPage, submitted_offe
 pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage];
 /// The buyer's shipment pages (Fulfillment's).
 pub const SHIPMENTS: &[Component] = &[ShipmentPage];
-/// The seller's: a shipment's page, the packing page with its script, which the shipment page's
-/// Start packing form also uses, and the packing slips with Print's. Not the buyer's, whose pages
-/// never pack.
+/// The seller's: the command center, a shipment's page, the packing page with its script, which
+/// the command center and the shipment page's Start packing form also use, and the packing slips
+/// with Print's. Not the buyer's, whose pages never pack.
 pub const SALE_SHIPMENTS: &[Component] = &[
+    CommandCenterPage,
     ShipmentPage,
     PackingPage,
     platform::ui::steps::Steps,
@@ -419,7 +422,7 @@ pub fn Frame<'a, H: Render, C: Render>(
             </head>
             <body data-shell={shell}>
                 if shell {
-                    <MarketNav p={p} viewer={viewer} cart={cart} path={req.path()} />
+                    <MarketNav p={p} req={req} viewer={viewer} cart={cart} />
                 }
                 <main>{children}</main>
             </body>

@@ -52,7 +52,7 @@ pub struct PackingProgressId;
 pub struct PackingFooterId;
 
 /// A status's words (`statusLabel`).
-fn status_label(t: ShipmentsMsg, status: &str) -> String {
+pub(super) fn status_label(t: ShipmentsMsg, status: &str) -> String {
     match status {
         "awaiting-package" => t.packing_status_awaiting_package(),
         "packing" => t.packing_status_packing(),
@@ -123,8 +123,8 @@ fn counted(s: &ShipmentDetail) -> (u64, bool) {
 /// a write, the route's pending page.
 #[component(css)]
 pub fn PackingPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, screen: &'a PackingScreen) -> impl Render {
-    // The pilot's address, which redirects to marketplace's command center.
-    let back = url::SaleShipments.href();
+    // The command center.
+    let back = url::SaleShipments::default().href();
     html! {
         if let Some(s) = &screen.shipment {
             <PackingView t={t} p={p} viewer={viewer} id={id} screen={screen} s={s} back={&back} />
@@ -195,7 +195,7 @@ fn PackingView<'a>(
     );
     let writes = screen.outcome.writes();
     let start = url::PackingStart { id }.href();
-    let shipment = url::SaleShipment { id, after: Default::default() }.href();
+    let shipment = url::SaleShipment { id, place: Default::default() }.href();
     html! {
         <div class={Page}>
             <header class={Heading}>
@@ -690,8 +690,8 @@ fn Details<'a>(t: ShipmentsMsg, p: Pilot, s: &'a ShipmentDetail) -> impl Render 
 /// A shipment's page while it is catching up with a write (the packing route's pending words).
 #[component(css = PackingPage)]
 pub fn ShipmentPending(t: ShipmentsMsg) -> impl Render {
-    // The pilot's address, which redirects to marketplace's command center.
-    let back = url::SaleShipments.href();
+    // The command center.
+    let back = url::SaleShipments::default().href();
     html! {
         <div class={Page}>
             <platform::section::PageHeader

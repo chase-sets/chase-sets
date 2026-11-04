@@ -4,11 +4,13 @@
 //   seeds have say what marketplace's say, word for word; Open shipment opens each card's shipment.
 // - As the auth seed's seller: a shipment's page in each status says what marketplace's says, but
 //   for its Actions, which are marketplace's for now (the pilot links there), and Start or Resume
-//   packing, which smoke-market-packing.mjs checks; the seller's list is
-//   marketplace's command center, where the pilot's address sends it.
+//   packing, which smoke-market-packing.mjs checks.
+// - As the seller, without JavaScript: the seller's list is the pilot's command center, with the
+//   buckets the Fulfillment API's command center has shipments in, in its order, and a card for
+//   each of their shipments (https://github.com/chase-sets/chase-sets/issues/10638).
 // - Marketplace says each empty state twice; the comparison counts it once.
 // - At 1280 px two cards to a row, at 390 px one; nothing scrolls sideways and every control is at
-//   least 40 px tall; no console errors.
+//   least 40 px tall (the command center's cards fill the row from 48rem); no console errors.
 // It writes nothing.
 // Usage: node scripts/smoke-market-shipments.mjs [pilot-url] [marketplace-url] [collector-state] [seller-state] [api-url]
 import { readFileSync } from "node:fs";
@@ -165,12 +167,19 @@ for (const status of statuses) {
 }
 
 {
+  const center = await read("/api/marketplace/account/sales/shipments/command-center", sellerState);
   const { ctx, page } = await context({ javaScriptEnabled: false, storageState: sellerState });
   await page.goto(`${base}/account/sales/shipments`);
+  check(page.url() === `${base}/account/sales/shipments`, `the seller's list is the pilot's (${page.url()})`);
+  const headings = await page.locator("main h2").allTextContents();
+  const named = center.buckets.filter((b) => b.count > 0).map((b) => `(${b.count})`);
   check(
-    page.url().startsWith(`${market}/account/sales/shipments`),
-    `the seller's list is marketplace's command center (${page.url()})`,
+    named.length === headings.length && named.every((count, i) => headings[i].trim().endsWith(count)),
+    `the command center's buckets, in the API's order (${headings.join(" | ")})`,
   );
+  const cards = await page.locator("main li").count();
+  const items = center.buckets.reduce((n, b) => n + b.items.length, 0);
+  check(cards === items, `a card for each shipment that needs the seller (${cards} of ${items})`);
   await ctx.close();
 }
 
@@ -184,6 +193,8 @@ for (const [path, state, width, columns] of [
   [`/account/shipments/${awaiting}`, collectorState, 390, 0],
   [`/account/sales/shipments/${policied}`, sellerState, 1280, 0],
   [`/account/sales/shipments/${policied}`, sellerState, 390, 0],
+  ["/account/sales/shipments", sellerState, 1280, (n) => n >= 2],
+  ["/account/sales/shipments", sellerState, 390, 1],
 ]) {
   const { ctx, page, problems } = await context({ storageState: state, viewport: { width, height: 900 } });
   await page.goto(`${base}${path}`);
@@ -203,7 +214,9 @@ for (const [path, state, width, columns] of [
       columns: grid ? getComputedStyle(grid).gridTemplateColumns.split(" ").length : 0,
     };
   });
-  check(layout.columns === columns, `${path} at ${width} px: ${columns || "no"} card columns (${layout.columns})`);
+  const columnsOk = typeof columns === "function" ? columns(layout.columns) : layout.columns === columns;
+  const expected = typeof columns === "function" ? "2 or more" : columns || "no";
+  check(columnsOk, `${path} at ${width} px: ${expected} card columns (${layout.columns})`);
   check(layout.overflow <= 0, `${path} at ${width} px: nothing scrolls sideways (${layout.overflow})`);
   check(
     layout.small.length === 0,

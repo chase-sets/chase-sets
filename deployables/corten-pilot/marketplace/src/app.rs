@@ -1507,14 +1507,17 @@ pub mod url {
     }
 
     /// The seller's shipments (Fulfillment's `account-sale-shipments` and
-    /// `account-sale-shipment`), an area inside the sales'. The list is marketplace's command
-    /// center, which the API does not serve yet (chase-sets/chase-sets#10638), so the pilot sends
-    /// it there; a shipment's page is the pilot's.
+    /// `account-sale-shipment`), an area inside the sales': the command center, each shipment's
+    /// page, packing and the packing slips.
     #[corten::routes(state = crate::app::Shared, area = SaleShipments, caller = crate::auth::Shipper)]
     pub mod sale_shipments {
-        /// The command center, on marketplace.
-        #[route("/account/sales/shipments", get = crate::shipments::command_center)]
-        pub struct SaleShipments;
+        /// The command center (see `command_center`); its actions post to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/sales/shipments", get = crate::command_center::page, post = crate::command_center::act)]
+        pub struct SaleShipments {
+            #[route(query)]
+            pub place: crate::command_center::Place,
+        }
 
         /// Packing slips to print (Fulfillment's `account-sale-shipment-packing-slips`): the
         /// shipments `shipmentIds` names (each value may be a comma-separated list), in `format`.
@@ -1525,12 +1528,13 @@ pub mod url {
             pub format: Option<&'a str>,
         }
 
-        /// A shipment the seller sends, read after the write whose receipt it carries.
-        #[route("/account/sales/shipments/{id}", get = crate::shipments::sale)]
+        /// A shipment the seller sends, read after the write whose receipt it carries; its
+        /// actions post to it.
+        #[route("/account/sales/shipments/{id}", get = crate::shipments::sale, post = crate::shipments::act)]
         pub struct SaleShipment<'a> {
             pub id: &'a str,
             #[route(query)]
-            pub after: crate::cart::AfterWrite,
+            pub place: crate::shipments::SalePlace,
         }
 
         /// Packing the shipment (see `packing`).

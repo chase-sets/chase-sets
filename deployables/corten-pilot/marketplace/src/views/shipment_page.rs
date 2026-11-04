@@ -8,20 +8,35 @@
 //! progress (status, tracking, carrier), its facts, what it is covered by, the postage policy the
 //! order committed to, the label's document, error and refund; for the seller the postage
 //! diagnostics (each label operation and provider event); its lines and its exceptions. The
-//! seller starts or resumes packing here (the pilot's packing page); its other actions are
-//! marketplace's for now (a link there). The facts are two to a row from
-//! 48rem, the cover three to a row from 48rem.
+//! seller starts or resumes packing here (the pilot's packing page), and takes the other actions
+//! the API's plan allows below: the next one first as the primary button, Buy label with its
+//! service, addresses, override reason and package (or a letter's one button). A shipment without
+//! a plan keeps its link to marketplace. The facts are two to a row from 48rem, the cover three to
+//! a row from 48rem, and the label form's fields two to a row from 48rem.
+//!
+//! Every action is a form, so the page works without a script; the script remembers each form's
+//! attempt before it is sent, and asks the page about a record it does not settle (`restore`).
 use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
 
-use super::{listing_page::options, on_marketplace, order_page::display_reference, packing_page::WriteForm};
+use super::{
+    command_center_page::action_value,
+    listing_page::options,
+    on_marketplace,
+    order_page::display_reference,
+    packing_page::{WriteForm, handlers},
+};
 use crate::{
-    api::{PostageOperation, PostagePolicySnapshot, PostageProviderEvent, ShipmentCard, ShipmentDetail, Side},
+    api::{
+        AddressSnapshot, PostageOperation, PostagePolicySnapshot, PostageProviderEvent, ShipmentAction, ShipmentCard,
+        ShipmentDetail, Side,
+    },
+    app::url,
     auth::Viewer,
-    packing::AttemptInput,
-    shipments::{ListScreen, ShipmentScreen},
+    packing::{AttemptInput, Outcome},
+    shipments::{ActionInput, ListScreen, SalePlace, ShipmentScreen},
     text::{Pilot, ShipmentsMsg},
 };
 
@@ -163,7 +178,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
     let description = t.detail_order_with_counterpart(&display_reference(&s.order_id), counterpart).to_string();
     let back = match side {
         Side::Buyer => crate::app::url::Shipments.href(),
-        Side::Seller => on_marketplace("/account/sales/shipments"),
+        Side::Seller => crate::app::url::SaleShipments::default().href(),
     };
     let slip = crate::packing_slips::href(&s.shipment_id);
     let on_market = on_marketplace(&format!("/account/sales/shipments/{}", crate::api::segment(&s.shipment_id)));
@@ -240,7 +255,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
                             id={&s.shipment_id}
                             action={&start}
                             attempt={AttemptInput::FIELDS.attempt}
-                            enabled={true}
+                            enabled={screen.outcome.writes()}
                         >
                             <button type="submit" class={Primary}>{t.detail_start_packing()}</button>
                         </WriteForm>
@@ -251,6 +266,9 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
                     <a class={Secondary} href={&back}>{t.detail_back()}</a>
                 </div>
             </header>
+            if seller {
+                <ShipmentStatus t={t} p={p} viewer={viewer} id={&s.shipment_id} outcome={&screen.outcome} />
+            }
             <section class={Part} aria-labelledby="shipment-summary">
                 <h2 id="shipment-summary" class={SectionTitle}>{t.detail_summary()}</h2>
                 <ol class={Steps}>
@@ -338,13 +356,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
                 }
             </section>
             if seller {
-                <section class={Part} aria-labelledby="shipment-actions">
-                    <h2 id="shipment-actions" class={SectionTitle}>{t.detail_actions()}</h2>
-                    <div class={(Card, Tinted)}>
-                        <p class={Muted}>{p.shipments_actions_on_marketplace()}</p>
-                        <p class={Actions}><a class={Secondary} href={&on_market}>{p.shipments_open_on_marketplace()}</a></p>
-                    </div>
-                </section>
+                <SellerActions t={t} p={p} viewer={viewer} screen={screen} on_market={&on_market} />
             }
         </div>
     }
@@ -512,6 +524,331 @@ fn Event<'a>(t: ShipmentsMsg, event: &'a PostageProviderEvent) -> impl Render {
         fact(t.detail_provider_status_detail(), value(&e.status_detail)),
     ];
         <Facts title={&title} description={None} facts={&facts} />
+    }
+}
+
+/// What the last action did, and the browser's record of an action it could not confirm: the page
+/// asks the API about one it does not settle, and while the API cannot say, the seller may check
+/// again or forget it (with the script).
+#[component(css = ShipmentPage)]
+fn ShipmentStatus<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, outcome: &'a Outcome) -> impl Render {
+    let (check_form, check_attempt) = refs();
+    let account = viewer.actor.account_id.as_str();
+    let page = url::SaleShipment { id, place: SalePlace::default() }.href();
+    let again = match outcome {
+        Outcome::Uncertain(attempt) => {
+            url::SaleShipment { id, place: SalePlace { check: Some(attempt.clone()), ..SalePlace::default() } }.href()
+        }
+        _ => String::new(),
+    };
+    let check = handlers::Check { form: check_form, attempt: check_attempt };
+    html! {
+        <div class={Status} on:connect={handlers::restore(check, account, id, outcome.settles(), outcome.unsettled())}>
+            match outcome {
+                Outcome::Refused { message, .. } => {
+                    <div class={(Banner, Danger)} role="alert" tabindex="-1" autofocus>
+                        <p class={Strong}>{t.sales_route_action_failed()}</p>
+                        <p class={Muted}>{if message.is_empty() { p.packing_not_applied() } else { message.as_str() }}</p>
+                    </div>
+                }
+                Outcome::Uncertain(attempt) => {
+                    <div class={(Banner, Warning)} role="alert" tabindex="-1" autofocus>
+                        <p class={Strong}>{p.packing_center_unconfirmed_title()}</p>
+                        <p class={Muted}>{p.packing_center_unconfirmed()}</p>
+                        <p class={Actions}>
+                            <a class={Secondary} href={&again}>{p.packing_check()}</a>
+                            <button
+                                type="button"
+                                class={Secondary}
+                                hidden
+                                on:connect={handlers::reveal(target)}
+                                on:click={handlers::discard(account, id, attempt.as_str(), p.packing_discard_confirmation(), &page)}
+                            >
+                                {p.packing_discard()}
+                            </button>
+                        </p>
+                    </div>
+                }
+                _ => {}
+            }
+            <form ref={check_form} method="get" action={&page} hidden>
+                <input type="hidden" ref={check_attempt} name={SalePlace::FIELDS.check} value="">
+            </form>
+        </div>
+    }
+}
+
+/// The seller's actions (`shipment-detail-page.tsx`'s Actions): those the API's plan allows, the
+/// next one first as the primary button. Packing's two are the heading's. Without a plan (the
+/// command center leaves the shipment out) the actions are marketplace's, a link there.
+#[component(css = ShipmentPage)]
+fn SellerActions<'a>(
+    t: ShipmentsMsg,
+    p: Pilot,
+    viewer: &'a Viewer,
+    screen: &'a ShipmentScreen,
+    on_market: &'a str,
+) -> impl Render {
+    let s = &screen.shipment;
+    let writes = screen.outcome.writes();
+    let sent = screen.sent.as_ref();
+    let actions: Vec<(ShipmentAction, bool)> = screen
+        .plan
+        .iter()
+        .flat_map(|plan| plan.primary.map(|a| (a, true)).into_iter().chain(plan.disclosed.iter().map(|a| (*a, false))))
+        .filter(|(a, _)| !matches!(a, ShipmentAction::StartPacking | ShipmentAction::CompletePacking | ShipmentAction::Other))
+        .collect();
+    html! {
+        <section class={Part} aria-labelledby="shipment-actions">
+            <h2 id="shipment-actions" class={SectionTitle}>{t.detail_actions()}</h2>
+            match &screen.plan {
+                None => {
+                    <div class={(Card, Tinted)}>
+                        <p class={Muted}>{p.shipments_actions_on_marketplace()}</p>
+                        <p class={Actions}><a class={Secondary} href={on_market}>{p.shipments_open_on_marketplace()}</a></p>
+                    </div>
+                }
+                Some(_) => {
+                    <ul class={List}>
+                        for (action, primary) in actions {
+                            <li class={(Card, Tinted)}>
+                                <ActionForm p={p} viewer={viewer} id={&s.shipment_id} writes={writes}>
+                                    <ActionBody t={t} s={s} action={action} primary={primary} sent={sent} />
+                                </ActionForm>
+                            </li>
+                        }
+                    </ul>
+                }
+            }
+        </section>
+    }
+}
+
+/// An action's form: the attempt (`SubmitKey`) the script remembers before it is sent; off while
+/// an action is uncertain.
+#[component(css = ShipmentPage)]
+fn ActionForm<'a, C: Render>(p: Pilot, viewer: &'a Viewer, id: &'a str, writes: bool, children: C) -> impl Render {
+    let unavailable = refs();
+    let account = viewer.actor.account_id.as_str();
+    let action = url::SaleShipment { id, place: SalePlace::default() }.href();
+    html! {
+        <form class={Write} method="post" action={&action} on:submit={handlers::remember(event, account, id, unavailable)}>
+            {SubmitKey::field(ActionInput::FIELDS.attempt)}
+            <p ref={unavailable} class={Unavailable} role="alert" tabindex="-1" hidden>{p.packing_storage_unavailable()}</p>
+            <fieldset class={Controls} disabled={!writes}>{children}</fieldset>
+        </form>
+    }
+}
+
+/// A text field of the label form: its words, its name, what it holds, whether it is required
+/// and its input type.
+type Row = (&'static str, FieldName<String>, String, bool, &'static str);
+
+/// What a field holds: what a refused form sent, else the shipment's value.
+fn kept(sent: Option<&Option<String>>, value: Option<&str>) -> String {
+    match sent {
+        Some(Some(sent)) => sent.clone(),
+        _ => value.unwrap_or_default().to_owned(),
+    }
+}
+
+/// An address's fields (`AddressFields`), from the shipment's snapshot.
+fn address_rows(t: ShipmentsMsg, sender: bool, address: Option<&AddressSnapshot>, sent: Option<&ActionInput>) -> Vec<Row> {
+    let a = address.cloned().unwrap_or_default();
+    let f = ActionInput::FIELDS;
+    let v = |pick: fn(&ActionInput) -> &Option<String>, value: &Option<String>| kept(sent.map(pick), value.as_deref());
+    if sender {
+        vec![
+            (t.detail_sender_name(), f.sender_name, v(|i| &i.sender_name, &a.name), true, "text"),
+            (t.detail_sender_company(), f.sender_company, v(|i| &i.sender_company, &a.company), false, "text"),
+            (t.detail_sender_street(), f.sender_street1, v(|i| &i.sender_street1, &a.line1), true, "text"),
+            (t.detail_sender_street_2(), f.sender_street2, v(|i| &i.sender_street2, &a.line2), false, "text"),
+            (t.detail_sender_city(), f.sender_city, v(|i| &i.sender_city, &a.city), true, "text"),
+            (t.detail_sender_state(), f.sender_state, v(|i| &i.sender_state, &a.state), true, "text"),
+            (t.detail_sender_zip(), f.sender_postal_code, v(|i| &i.sender_postal_code, &a.postal_code), true, "text"),
+            (t.detail_sender_country(), f.sender_country, v(|i| &i.sender_country, &a.country), true, "text"),
+            (t.detail_sender_phone(), f.sender_phone, v(|i| &i.sender_phone, &a.phone), false, "tel"),
+            (t.detail_sender_email(), f.sender_email, v(|i| &i.sender_email, &a.email), false, "email"),
+        ]
+    } else {
+        vec![
+            (t.detail_recipient_name(), f.recipient_name, v(|i| &i.recipient_name, &a.name), true, "text"),
+            (t.detail_recipient_company(), f.recipient_company, v(|i| &i.recipient_company, &a.company), false, "text"),
+            (t.detail_recipient_street(), f.recipient_street1, v(|i| &i.recipient_street1, &a.line1), true, "text"),
+            (t.detail_recipient_street_2(), f.recipient_street2, v(|i| &i.recipient_street2, &a.line2), false, "text"),
+            (t.detail_recipient_city(), f.recipient_city, v(|i| &i.recipient_city, &a.city), true, "text"),
+            (t.detail_recipient_state(), f.recipient_state, v(|i| &i.recipient_state, &a.state), true, "text"),
+            (t.detail_recipient_zip(), f.recipient_postal_code, v(|i| &i.recipient_postal_code, &a.postal_code), true, "text"),
+            (t.detail_recipient_country(), f.recipient_country, v(|i| &i.recipient_country, &a.country), true, "text"),
+            (t.detail_recipient_phone(), f.recipient_phone, v(|i| &i.recipient_phone, &a.phone), false, "tel"),
+            (t.detail_recipient_email(), f.recipient_email, v(|i| &i.recipient_email, &a.email), false, "email"),
+        ]
+    }
+}
+
+/// The package's sizes (length, width and height in inches, weight in ounces), 7, 5, 1 and 4
+/// unless a refused form sent others.
+fn package_rows(t: ShipmentsMsg, sent: Option<&ActionInput>) -> Vec<Row> {
+    let f = ActionInput::FIELDS;
+    let v = |pick: fn(&ActionInput) -> &Option<String>, value: &str| kept(sent.map(pick), Some(value));
+    vec![
+        (t.detail_length_in(), f.package_length_inches, v(|i| &i.package_length_inches, "7"), true, "number"),
+        (t.detail_width_in(), f.package_width_inches, v(|i| &i.package_width_inches, "5"), true, "number"),
+        (t.detail_height_in(), f.package_height_inches, v(|i| &i.package_height_inches, "1"), true, "number"),
+        (t.detail_weight_oz(), f.package_weight_ounces, v(|i| &i.package_weight_ounces, "4"), true, "number"),
+    ]
+}
+
+/// The USPS services a parcel's label may be bought with (`uspsServiceLevels`).
+fn services(t: ShipmentsMsg) -> [(&'static str, &'static str); 4] {
+    [
+        ("USPS_GROUND_ADVANTAGE", t.detail_usps_ground_advantage()),
+        ("PRIORITY", t.detail_usps_priority_mail()),
+        ("PRIORITY_EXPRESS", t.detail_usps_priority_mail_express()),
+        ("MEDIA_MAIL", t.detail_usps_media_mail()),
+    ]
+}
+
+/// What an action's form holds and its button (`shipment-detail-page.tsx`'s action cards).
+#[component(css = ShipmentPage)]
+fn ActionBody<'a>(
+    t: ShipmentsMsg,
+    s: &'a ShipmentDetail,
+    action: ShipmentAction,
+    primary: bool,
+    sent: Option<&'a ActionInput>,
+) -> impl Render {
+    let f = ActionInput::FIELDS;
+    let letter = s.shipping_plan_snapshot.as_ref().is_some_and(|plan| plan.letter());
+    let service = sent
+        .map(|i| i.service_level.clone())
+        .filter(|v| !v.is_empty())
+        .or_else(|| s.postage_service_level.clone())
+        .unwrap_or_else(|| "USPS_GROUND_ADVANTAGE".to_owned());
+    let sender = s.shipping_origin_snapshot.as_ref().map(|a| address_rows(t, true, Some(a), sent));
+    let recipient = address_rows(t, false, s.shipping_destination_snapshot.as_ref(), sent);
+    let package = package_rows(t, sent);
+    let override_reason = sent.map(|i| i.override_reason.as_str()).unwrap_or_default();
+    let exception_type = sent
+        .map(|i| i.exception_type.clone())
+        .filter(|v| !v.is_empty())
+        .or_else(|| s.current_exception_type.clone())
+        .unwrap_or_else(|| "carrier-delay".to_owned());
+    let notes = match sent {
+        Some(i) => i.notes.clone(),
+        None => s.current_exception_notes.clone().unwrap_or_default(),
+    };
+    let reason = sent.map(|i| i.reason.as_str()).unwrap_or_default();
+    let tracking = s.tracking_identifier.as_deref().unwrap_or_default();
+    html! {
+        match action {
+            ShipmentAction::BuyLabel if letter => {
+                <div class={(Banner, Info)} role="note">
+                    <p class={Strong}>{t.detail_letter_mailpiece()}</p>
+                    <p class={Muted}>{t.detail_letter_mailpiece_description()}</p>
+                </div>
+                <input type="hidden" name={f.service_level} value="First">
+                <ActionButton primary={primary} action={action} label={t.detail_purchase_letter_mail_label()} />
+            }
+            ShipmentAction::BuyLabel => {
+                <label class={Field}>
+                    <span class={Label}>{t.detail_usps_service()}</span>
+                    <select class={Input} name={f.service_level} required>
+                        for (value, words) in services(t) {
+                            <option value={value} selected={value == service}>{words}</option>
+                        }
+                    </select>
+                </label>
+                if let Some(sender) = &sender {
+                    <Inputs rows={sender} />
+                }
+                <Inputs rows={&recipient} />
+                <label class={Field}>
+                    <span class={Label}>{t.detail_override_reason()}</span>
+                    <textarea class={Input} name={f.override_reason} rows="3">{override_reason}</textarea>
+                </label>
+                <Inputs rows={&package} />
+                <ActionButton primary={primary} action={action} label={t.detail_purchase_usps_label()} />
+            }
+            ShipmentAction::Dispatch => {
+                <label class={Field}>
+                    <span class={Label}>{t.detail_tracking_identifier()}</span>
+                    <input class={Input} type="text" readonly value={tracking}>
+                </label>
+                <ActionButton primary={primary} action={action} label={t.detail_mark_dispatched()} />
+            }
+            ShipmentAction::VoidLabel => {
+                <ActionButton primary={primary} action={action} label={t.detail_void_label()} />
+            }
+            ShipmentAction::RecordDelivery => {
+                <ActionButton primary={primary} action={action} label={t.detail_mark_delivered()} />
+            }
+            ShipmentAction::Return => {
+                <label class={Field}>
+                    <span class={Label}>{t.detail_return_notes()}</span>
+                    <textarea class={Input} name={f.reason} rows="3">{reason}</textarea>
+                </label>
+                <ActionButton primary={primary} action={action} label={t.detail_mark_returned()} />
+            }
+            ShipmentAction::RaiseException => {
+                <label class={Field}>
+                    <span class={Label}>{t.detail_exception_type()}</span>
+                    <input class={Input} type="text" name={f.exception_type} required value={&exception_type}>
+                </label>
+                <label class={Field}>
+                    <span class={Label}>{t.detail_notes()}</span>
+                    <textarea class={Input} name={f.notes} rows="3">{&notes}</textarea>
+                </label>
+                <ActionButton primary={primary} action={action} label={t.detail_raise_exception()} />
+            }
+            ShipmentAction::CancelShipment => {
+                <ActionButton primary={primary} action={action} label={t.detail_cancel_shipment()} />
+            }
+            ShipmentAction::StartPacking | ShipmentAction::CompletePacking | ShipmentAction::Other => {}
+        }
+    }
+}
+
+/// Text fields, two to a row from 48rem.
+#[component(css = ShipmentPage)]
+fn Inputs<'a>(rows: &'a [Row]) -> impl Render {
+    html! {
+        <div class={Fields}>
+            for (words, name, value, required, kind) in rows {
+                <label class={Field}>
+                    <span class={Label}>{*words}</span>
+                    if *kind == "number" {
+                        <input
+                            class={Input}
+                            type="number"
+                            name={*name}
+                            value={value}
+                            required={*required}
+                            min="0.1"
+                            step="0.1"
+                            inputmode="decimal"
+                        >
+                    } else {
+                        <input class={Input} type={*kind} name={*name} value={value} required={*required}>
+                    }
+                </label>
+            }
+        </div>
+    }
+}
+
+/// An action's button: the plan's next action is the primary one.
+#[component(css = ShipmentPage)]
+fn ActionButton(primary: bool, action: ShipmentAction, label: &'static str) -> impl Render {
+    html! {
+        <button
+            type="submit"
+            class={if primary { Primary } else { Secondary }}
+            name={ActionInput::FIELDS.intent}
+            value={action_value(action)}
+        >
+            {label}
+        </button>
     }
 }
 

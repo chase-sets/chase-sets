@@ -3554,6 +3554,9 @@ pub struct AddressSnapshot {
     pub state: Option<String>,
     pub postal_code: Option<String>,
     pub country: Option<String>,
+    /// The label form's contact fields.
+    pub phone: Option<String>,
+    pub email: Option<String>,
 }
 
 /// An order's line (`OrderingOrderProjectionLine`, the fields shown).
@@ -3810,6 +3813,211 @@ impl Packing for Caller<'_> {
     }
 }
 
+/// The seller's command center (Fulfillment's `GET account/sales/shipments/command-center`,
+/// `FulfillmentCommandCenter`): the shipments that need the seller now, in their buckets, each
+/// bucket ordered by the Seller Desk attention policy and each shipment with the action plan its
+/// stored state allows. The API decides all of it; the page draws it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommandCenter {
+    /// In the API's order (exceptions, ready to dispatch, needs a label, needs packing), empty
+    /// buckets too.
+    pub buckets: Vec<CommandCenterBucket>,
+    pub total_needing_attention: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommandCenterBucket {
+    /// `exceptions`, `ready-to-dispatch`, `needs-label` or `needs-packing`.
+    pub id: String,
+    pub items: Vec<CommandCenterItem>,
+    pub count: u64,
+}
+
+/// A shipment in the command center (`FulfillmentCommandCenterItem`), as far as the page draws it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommandCenterItem {
+    pub shipment_id: String,
+    pub display_reference: String,
+    pub status: String,
+    pub tracking_identifier: Option<String>,
+    pub buyer_display_name: Option<String>,
+    pub current_exception_type: Option<String>,
+    pub current_exception_notes: Option<String>,
+    pub line_count: u64,
+    pub total_quantity: u64,
+    pub plan: ActionPlan,
+}
+
+/// What a shipment's state allows (`ShipmentActionPlan`): the one next action, if any, and the
+/// others under More actions.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ActionPlan {
+    pub primary: Option<ShipmentAction>,
+    pub disclosed: Vec<ShipmentAction>,
+}
+
+/// A seller's shipment action (`ShipmentActionName`). An action the pilot does not know is kept
+/// as `Other`, drawn as nothing, so a new one in the API does not fail the page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShipmentAction {
+    StartPacking,
+    CompletePacking,
+    BuyLabel,
+    VoidLabel,
+    CancelShipment,
+    Dispatch,
+    RecordDelivery,
+    Return,
+    RaiseException,
+    #[serde(other)]
+    Other,
+}
+
+/// The seller's shipment actions beside packing (Fulfillment's `account/sales/shipments/{id}/..`),
+/// each sent as `attempt` (`Idempotency-Key`); what came of an attempt is `Packing::packing_attempt`.
+pub trait ShipmentCommands {
+    async fn command_center(&self) -> Result<CommandCenter, ApiError>;
+    /// `action` on the shipment, with the exception's or the return's fields. Packing's two are
+    /// the packing page's (`Packing`); `Other` is refused before it is sent.
+    async fn shipment_action(
+        &self,
+        id: &str,
+        action: ShipmentAction,
+        fields: &ActionFields,
+        attempt: &str,
+    ) -> Result<Option<Receipt>, ApiError>;
+}
+
+/// What an action sends beyond the shipment: Raise exception's type and notes, Record return's
+/// reason, and Buy label's label. Empty notes and an empty reason are sent as `null` and an empty
+/// type as `other`, as marketplace's adapter sends them; the command center sends no reason and
+/// no label (Ground Advantage, the API's addresses and package), as marketplace's does.
+#[derive(Clone, Debug, Default)]
+pub struct ActionFields {
+    pub exception_type: String,
+    pub notes: String,
+    pub reason: String,
+    pub label: Option<LabelPurchase>,
+}
+
+/// A label bought from the shipment's page (marketplace's `purchase-label` intent): the service,
+/// the sender's and recipient's addresses as the seller left them, why they changed, and the
+/// package. A letter sends only its service. The API decides whether the addresses changed and
+/// whether the reason is needed.
+#[derive(Clone, Debug, Default)]
+pub struct LabelPurchase {
+    pub service_level: String,
+    pub sender: Option<LabelAddress>,
+    pub recipient: Option<LabelAddress>,
+    pub override_reason: String,
+    /// Length, width and height in inches and weight in ounces, as typed.
+    pub package: Option<[String; 4]>,
+}
+
+/// An address on the label form, as typed.
+#[derive(Clone, Debug, Default)]
+pub struct LabelAddress {
+    pub name: String,
+    pub company: String,
+    pub street1: String,
+    pub street2: String,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub country: String,
+    pub phone: String,
+    pub email: String,
+}
+
+impl LabelPurchase {
+    /// The body marketplace's route sends (`account-sale-shipment.tsx`): every address field as a
+    /// string (an empty country is `US`), the reason as typed (empty too), and each size as `Number()` reads
+    /// it, an empty one as the form's default (7, 5, 1 and 4) and one that is not a number as
+    /// `null`.
+    pub fn body(&self) -> serde_json::Value {
+        use serde_json::{Value, json};
+        let mut body = serde_json::Map::new();
+        body.insert("serviceLevel".into(), json!(self.service_level));
+        for (prefix, address) in [("sender", &self.sender), ("recipient", &self.recipient)] {
+            let Some(a) = address else { continue };
+            let country = if a.country.is_empty() { "US" } else { a.country.as_str() };
+            let fields = [
+                ("Name", a.name.as_str()),
+                ("Company", &a.company),
+                ("Street1", &a.street1),
+                ("Street2", &a.street2),
+                ("City", &a.city),
+                ("State", &a.state),
+                ("PostalCode", &a.postal_code),
+                ("Country", country),
+                ("Phone", &a.phone),
+                ("Email", &a.email),
+            ];
+            for (field, value) in fields {
+                body.insert(format!("{prefix}{field}"), json!(value));
+            }
+        }
+        body.insert("overrideReason".into(), json!(self.override_reason));
+        if let Some(sizes) = &self.package {
+            let names = ["packageLengthInches", "packageWidthInches", "packageHeightInches", "packageWeightOunces"];
+            for ((name, default), value) in names.into_iter().zip([7.0, 5.0, 1.0, 4.0]).zip(sizes) {
+                let value = value.trim();
+                let number = if value.is_empty() { Some(default) } else { value.parse::<f64>().ok().filter(|n| n.is_finite()) };
+                body.insert(name.into(), number.map_or(Value::Null, |n| json!(n)));
+            }
+        }
+        Value::Object(body)
+    }
+}
+
+impl ShipmentCommands for Caller<'_> {
+    async fn command_center(&self) -> Result<CommandCenter, ApiError> {
+        self.read(&format!("{}/command-center", Side::Seller.shipments()), FULFILLMENT).await
+    }
+
+    async fn shipment_action(
+        &self,
+        id: &str,
+        action: ShipmentAction,
+        fields: &ActionFields,
+        attempt: &str,
+    ) -> Result<Option<Receipt>, ApiError> {
+        use serde_json::json;
+        let text = |value: &str| if value.trim().is_empty() { serde_json::Value::Null } else { json!(value.trim()) };
+        let (path, body) = match action {
+            // The label marketplace's command center buys (`runShipmentCommandCenterAction`).
+            ShipmentAction::BuyLabel => match &fields.label {
+                Some(label) => ("label/purchase", label.body()),
+                None => ("label/purchase", json!({ "serviceLevel": "USPS_GROUND_ADVANTAGE" })),
+            },
+            ShipmentAction::VoidLabel => ("label/void", json!({})),
+            ShipmentAction::CancelShipment => ("cancel", json!({})),
+            ShipmentAction::Dispatch => ("dispatch", json!({})),
+            ShipmentAction::RecordDelivery => ("deliver", json!({})),
+            ShipmentAction::Return => ("return", json!({ "reason": text(&fields.reason) })),
+            ShipmentAction::RaiseException => {
+                let kind = if fields.exception_type.trim().is_empty() { "other" } else { fields.exception_type.trim() };
+                ("exception", json!({ "exceptionType": kind, "notes": text(&fields.notes) }))
+            }
+            ShipmentAction::StartPacking | ShipmentAction::CompletePacking | ShipmentAction::Other => {
+                return Err(ApiError::Status {
+                    status: StatusCode::BAD_REQUEST,
+                    code: Some("unknown_action".into()),
+                    message: String::new(),
+                });
+            }
+        };
+        let path = format!("{}/{}/{path}", Side::Seller.shipments(), segment(id));
+        let req = self.request(Method::POST, &path, FULFILLMENT).header(IDEMPOTENCY_KEY, attempt).json(&body);
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+}
+
 /// A page of shipments (`ListResponse<FulfillmentShipmentListItem>`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -3860,6 +4068,9 @@ pub struct ShipmentDetail {
     pub label_refund_status: Option<String>,
     pub label_refund_reference: Option<String>,
     pub delivered_at: Option<String>,
+    /// The exception the shipment is in, if any (Raise exception's defaults).
+    pub current_exception_type: Option<String>,
+    pub current_exception_notes: Option<String>,
     /// When packing started (the packing page's lock), and when the shipment last changed.
     pub packing_started_at: Option<String>,
     pub updated_at: String,
@@ -3880,6 +4091,21 @@ pub struct ShipmentDetail {
 #[serde(default, rename_all = "camelCase")]
 pub struct PackagePlanSnapshot {
     pub postage_policy_snapshot: Option<PostagePolicySnapshot>,
+    pub packages: Vec<PlannedPackage>,
+}
+
+impl PackagePlanSnapshot {
+    /// Every package is a letter (`isLetterMailpiece`): the label is bought as letter mail.
+    pub fn letter(&self) -> bool {
+        !self.packages.is_empty() && self.packages.iter().all(|p| p.mailpiece_class.as_deref() == Some("letter"))
+    }
+}
+
+/// A package the order planned, the part the page reads.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PlannedPackage {
+    pub mailpiece_class: Option<String>,
 }
 
 /// What the postage policy required when the order was placed.

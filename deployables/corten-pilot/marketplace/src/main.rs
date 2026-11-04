@@ -22,6 +22,7 @@ mod checkout;
 mod checkout_entry;
 mod checkout_start;
 mod chrome;
+mod command_center;
 mod consents;
 mod desk;
 mod email_verification;
