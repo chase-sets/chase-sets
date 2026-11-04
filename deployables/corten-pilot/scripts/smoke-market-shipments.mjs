@@ -3,8 +3,9 @@
 // - Without JavaScript, as the auth seed's collector: Shipments and a shipment of each status the
 //   seeds have say what marketplace's say, word for word; Open shipment opens each card's shipment.
 // - As the auth seed's seller: a shipment's page in each status says what marketplace's says, but
-//   for its Actions, which are marketplace's for now (the pilot links there), and Start or Resume
-//   packing, which smoke-market-packing.mjs checks.
+//   for its Actions and Start or Resume packing, which smoke-market-packing.mjs checks. A shipment
+//   the Fulfillment API's command center lists draws that plan's actions as forms posting to its
+//   page; any other links to marketplace's.
 // - As the seller, without JavaScript: the seller's list is the pilot's command center, with the
 //   buckets the Fulfillment API's command center has shipments in, in its order, and a card for
 //   each of their shipments (https://github.com/chase-sets/chase-sets/issues/10638).
@@ -152,17 +153,29 @@ for (const status of statuses) {
   );
   await ctx.close();
 }
+const planned = new Set(
+  (await read("/api/marketplace/account/sales/shipments/command-center", sellerState)).buckets.flatMap((b) =>
+    b.items.map((item) => item.shipmentId ?? item.shipment_id),
+  ),
+);
 for (const status of statuses) {
-  const { ctx, page } = await same(
-    `/account/sales/shipments/${one(sold, status).shipment_id}`,
-    sellerState,
-    `a seller's ${status} shipment`,
-  );
-  const actions = await page.locator("main a", { hasText: "Open on marketplace" }).getAttribute("href");
-  check(
-    actions === `${market}/account/sales/shipments/${one(sold, status).shipment_id}`,
-    `its actions open marketplace's page (${actions})`,
-  );
+  const id = one(sold, status).shipment_id;
+  const { ctx, page } = await same(`/account/sales/shipments/${id}`, sellerState, `a seller's ${status} shipment`);
+  if (planned.has(id)) {
+    const forms = await page
+      .locator("#shipment-actions ~ ul form")
+      .evaluateAll((fs) => fs.map((f) => f.getAttribute("action")));
+    check(
+      forms.length > 0 && forms.every((a) => a === `/account/sales/shipments/${id}`),
+      `its command center plan is forms posting to its page (${forms.length})`,
+    );
+  } else {
+    const actions = await page.locator("main a", { hasText: "Open on marketplace" }).getAttribute("href");
+    check(
+      actions === `${market}/account/sales/shipments/${id}`,
+      `outside the command center, its actions open marketplace's page (${actions})`,
+    );
+  }
   await ctx.close();
 }
 
