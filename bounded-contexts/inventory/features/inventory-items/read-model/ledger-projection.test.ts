@@ -96,7 +96,121 @@ describe("retained consumption handoff query contract", () => {
     ]);
     expect(statements.some((sql) => sql.includes("consumed.global_position <= $1::bigint"))).toBe(true);
     expect(statements.some((sql) => sql.includes("pairedStreamVersion"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("companion.stream_id = 'inventory.item-'"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("jsonb_object_length") && sql.includes("reservationRequestId"))).toBe(
+      true,
+    );
   });
+
+  it.each([
+    ["missing placement source", orderSourceRef, undefined],
+    ["malformed placement source", { orderId: "ord_1", reservationRequestId: "rsv_1", extra: "nope" }, orderSourceRef],
+    ["mismatched consumed source", orderSourceRef, { orderId: "ord_other", reservationRequestId: "rsv_1" }],
+  ])("rejects %s before append", async (_label, placementSourceRef, consumedSourceRef) => {
+    const appendToStreamsInTransaction = vi.fn();
+    const query = vi.fn(async <Row = Record<string, unknown>>(sql: string) => {
+      if (sql.includes("pg_sequence_last_value")) return { rows: [{ head: "10" }] as Row[] };
+      if (sql.includes("consumed.stream_id AS hold_stream_id")) {
+        return {
+          rows: [
+            {
+              hold_stream_id: "inventory.hold-hld_1",
+              hold_stream_version: 2,
+              tenant_id: "tnt_1",
+              performed_by_user_id: "usr_1",
+              for_account_id: "acc_1",
+              occurred_at: "2026-07-06T01:00:00.000Z",
+              payload: { sourceRef: consumedSourceRef },
+              placement_count: 1,
+              placements: [
+                {
+                  itemId: "item_1",
+                  accountId: "acc_1",
+                  quantity: 1,
+                  purpose: "order",
+                  sourceRef: placementSourceRef,
+                },
+              ],
+            },
+          ] as Row[],
+        };
+      }
+      return { rows: [] as Row[] };
+    });
+    await expect(consumptionHandoff.dataStep!({ query, appendToStreamsInTransaction })).rejects.toMatchObject({
+      message: "Inventory consumed-hold handoff incomplete",
+      cause: expect.objectContaining({ message: "consumed-hold handoff failed order source provenance preflight" }),
+    });
+    expect(appendToStreamsInTransaction).not.toHaveBeenCalled();
+  });
+
+  it("preserves a valid synthetic order source and appends one paired adjustment", async () => {
+    const sourceRef = { reservationRequestId: "rsv_1", orderId: "ord_1" };
+    const appendToStreamsInTransaction = vi.fn(async () => [{ storedEvents: [{ streamVersion: 3 }] }]);
+    const query = vi.fn(async <Row = Record<string, unknown>>(sql: string) => {
+      if (sql.includes("pg_sequence_last_value")) return { rows: [{ head: "10" }] as Row[] };
+      if (sql.includes("consumed.stream_id AS hold_stream_id")) {
+        return {
+          rows: [
+            {
+              hold_stream_id: "inventory.hold-hld_1",
+              hold_stream_version: 2,
+              tenant_id: "tnt_1",
+              performed_by_user_id: "usr_1",
+              for_account_id: "acc_1",
+              occurred_at: "2026-07-06T01:00:00.000Z",
+              payload: { sourceRef: { orderId: "ord_1", reservationRequestId: "rsv_1" } },
+              placement_count: 1,
+              placements: [{ itemId: "item_1", accountId: "acc_1", quantity: 1, purpose: "order", sourceRef }],
+            },
+          ] as Row[],
+        };
+      }
+      if (sql.includes("FROM event_store_streams")) {
+        return {
+          rows: [
+            {
+              stream_id: "inventory.item-item_1",
+              current_version: 2,
+              total_quantity: 5,
+              account_id: "acc_1",
+              tenant_id: "tnt_1",
+              held_quantity: 0,
+            },
+          ] as Row[],
+        };
+      }
+      return { rows: [{ missing: 0 }] as Row[] };
+    });
+    await expect(consumptionHandoff.dataStep!({ query, appendToStreamsInTransaction })).resolves.toBeUndefined();
+    expect(appendToStreamsInTransaction).toHaveBeenCalledTimes(1);
+    expect(appendToStreamsInTransaction.mock.calls[0]?.[0]?.[0]?.events[0]?.payload?.sourceRef).toEqual(sourceRef);
+  });
+
+  it.each(["wrong item stream", "wrong reciprocal stream or version", "mismatched pair id"])(
+    "rejects a forged %s claim before append",
+    async (claim) => {
+      const appendToStreamsInTransaction = vi.fn();
+      const query = vi.fn(async <Row = Record<string, unknown>>(sql: string) => {
+        if (sql.includes("pg_sequence_last_value")) return { rows: [{ head: "10" }] as Row[] };
+        if (
+          sql.includes("jsonb_agg(payload ORDER BY stream_version)") &&
+          sql.includes("JOIN event_store_events AS companion")
+        ) {
+          return { rows: [{ count: 1 }] as Row[] };
+        }
+        return { rows: [] as Row[] };
+      });
+      await expect(consumptionHandoff.dataStep!({ query, appendToStreamsInTransaction })).rejects.toMatchObject({
+        message: "Inventory consumed-hold handoff incomplete",
+        cause: expect.objectContaining({
+          message: "consumed-hold handoff found an invalid inventory consumption pair",
+        }),
+      });
+      expect(appendToStreamsInTransaction).not.toHaveBeenCalled();
+      expect(claim).toBeTypeOf("string");
+    },
+  );
 
   it("refuses overflow and wraps injected failures without partial completion", async () => {
     const overflow = {

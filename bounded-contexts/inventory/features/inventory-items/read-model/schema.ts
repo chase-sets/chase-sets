@@ -250,6 +250,37 @@ $migration$`,
               AND metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
             )
           ) NOT VALID`);
+        const invalidSourceRefs = await query<{ count: number }>(
+          `SELECT count(*)::int AS count
+           FROM event_store_events AS consumed
+           JOIN LATERAL (
+             SELECT count(*)::int AS placement_count,
+                    (array_agg(payload ORDER BY stream_version))[1] AS payload
+             FROM event_store_events
+             WHERE stream_id = consumed.stream_id AND event_type = 'inventory.hold.placed'
+           ) AS placement ON true
+           WHERE consumed.event_type = 'inventory.hold.consumed'
+             AND consumed.global_position <= $1::bigint
+             AND placement.placement_count = 1
+             AND placement.payload ->> 'purpose' = 'order'
+             AND NOT (
+               jsonb_typeof(placement.payload -> 'sourceRef') = 'object'
+               AND jsonb_object_length(placement.payload -> 'sourceRef') = 2
+               AND placement.payload -> 'sourceRef' ?& ARRAY['orderId', 'reservationRequestId']
+               AND jsonb_typeof(placement.payload -> 'sourceRef' -> 'orderId') = 'string'
+               AND length(placement.payload -> 'sourceRef' ->> 'orderId') > 0
+               AND jsonb_typeof(placement.payload -> 'sourceRef' -> 'reservationRequestId') = 'string'
+               AND length(placement.payload -> 'sourceRef' ->> 'reservationRequestId') > 0
+               AND jsonb_typeof(consumed.payload -> 'sourceRef') = 'object'
+               AND jsonb_object_length(consumed.payload -> 'sourceRef') = 2
+               AND consumed.payload -> 'sourceRef' ?& ARRAY['orderId', 'reservationRequestId']
+               AND placement.payload -> 'sourceRef' = consumed.payload -> 'sourceRef'
+             )`,
+          [capturedHorizon.toString()],
+        );
+        if ((invalidSourceRefs.rows[0]?.count ?? 0) !== 0) {
+          throw new Error("consumed-hold handoff failed order source provenance preflight");
+        }
         await query("LOCK TABLE inventory_item_ledger IN ACCESS EXCLUSIVE MODE");
         type RetainedConsumption = {
           hold_stream_id: string;
@@ -284,15 +315,66 @@ $migration$`,
              AND NOT EXISTS (
                SELECT 1 FROM event_store_events AS companion
                WHERE companion.event_type = 'inventory.item.adjusted'
+                 AND companion.stream_id = 'inventory.item-' || (placement.placements -> 0 ->> 'itemId')
                  AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = consumed.stream_id
                  AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NOT NULL
                  AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
                  AND (companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint = consumed.stream_version
+                 AND (
+                   consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NULL
+                   OR (
+                     consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = companion.stream_id
+                     AND consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
+                     AND companion.stream_version = (consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint
+                     AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' = consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairId'
+                   )
+                 )
              )
            ORDER BY consumed.global_position
            LIMIT 100001`,
           [capturedHorizon.toString()],
         );
+        const invalidPairClaims = await query<{ count: number }>(
+          `SELECT count(*)::int AS count
+           FROM event_store_events AS consumed
+           JOIN LATERAL (
+             SELECT jsonb_agg(payload ORDER BY stream_version) AS placements
+             FROM event_store_events
+             WHERE stream_id = consumed.stream_id AND event_type = 'inventory.hold.placed'
+           ) AS placement ON true
+           JOIN event_store_events AS companion
+             ON companion.event_type = 'inventory.item.adjusted'
+            AND (
+              companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = consumed.stream_id
+              OR (
+                consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NOT NULL
+                AND companion.stream_id = 'inventory.item-' || (placement.placements -> 0 ->> 'itemId')
+                AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' = consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairId'
+              )
+            )
+           WHERE consumed.event_type = 'inventory.hold.consumed'
+             AND consumed.global_position <= $1::bigint
+             AND NOT (
+               companion.stream_id = 'inventory.item-' || (placement.placements -> 0 ->> 'itemId')
+               AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = consumed.stream_id
+               AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
+               AND (companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint = consumed.stream_version
+               AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NOT NULL
+               AND (
+                 consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NULL
+                 OR (
+                   consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = companion.stream_id
+                   AND consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
+                   AND companion.stream_version = (consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint
+                   AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' = consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairId'
+                 )
+               )
+             )`,
+          [capturedHorizon.toString()],
+        );
+        if ((invalidPairClaims.rows[0]?.count ?? 0) !== 0) {
+          throw new Error("consumed-hold handoff found an invalid inventory consumption pair");
+        }
         const ledger = await query<{
           ledger_entry_id: string;
           stream_id: string;
@@ -327,6 +409,35 @@ $migration$`,
           const accountId = typeof placement.accountId === "string" ? placement.accountId : row.for_account_id;
           if (!itemId || !Number.isSafeInteger(quantity) || Number(quantity) <= 0 || placement.purpose !== "order") {
             throw new Error("consumed-hold handoff failed identity, quantity, or hold-purpose preflight");
+          }
+          const placementSourceRef = placement.sourceRef;
+          const consumedSourceRef =
+            row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+              ? (row.payload as Record<string, unknown>).sourceRef
+              : undefined;
+          const isClosedOrderSourceRef = (
+            value: unknown,
+          ): value is { orderId: string; reservationRequestId: string } => {
+            if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+            const record = value as Record<string, unknown>;
+            const keys = Object.keys(record);
+            return (
+              keys.length === 2 &&
+              keys.includes("orderId") &&
+              keys.includes("reservationRequestId") &&
+              typeof record.orderId === "string" &&
+              record.orderId.length > 0 &&
+              typeof record.reservationRequestId === "string" &&
+              record.reservationRequestId.length > 0
+            );
+          };
+          if (
+            !isClosedOrderSourceRef(placementSourceRef) ||
+            !isClosedOrderSourceRef(consumedSourceRef) ||
+            placementSourceRef.orderId !== consumedSourceRef.orderId ||
+            placementSourceRef.reservationRequestId !== consumedSourceRef.reservationRequestId
+          ) {
+            throw new Error("consumed-hold handoff failed order source provenance preflight");
           }
           if (accountId !== row.for_account_id || !row.tenant_id || !row.performed_by_user_id) {
             throw new Error("consumed-hold handoff failed tenant/account/actor preflight");
@@ -494,14 +605,38 @@ $migration$`,
            FROM event_store_events AS consumed
            WHERE consumed.event_type = 'inventory.hold.consumed'
              AND consumed.global_position <= $1::bigint
+             AND EXISTS (
+               SELECT 1
+               FROM event_store_events AS placement
+               WHERE placement.stream_id = consumed.stream_id
+                 AND placement.event_type = 'inventory.hold.placed'
+                 AND 'inventory.item-' || (placement.payload ->> 'itemId') IS NOT NULL
+             )
              AND (
                NOT EXISTS (
                  SELECT 1 FROM event_store_events AS companion
                  WHERE companion.event_type = 'inventory.item.adjusted'
+                   AND companion.stream_id = (
+                     SELECT 'inventory.item-' || (placement.payload ->> 'itemId')
+                     FROM event_store_events AS placement
+                     WHERE placement.stream_id = consumed.stream_id
+                       AND placement.event_type = 'inventory.hold.placed'
+                     ORDER BY placement.stream_version
+                     LIMIT 1
+                   )
                    AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = consumed.stream_id
                    AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
                    AND (companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint = consumed.stream_version
                    AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NOT NULL
+                   AND (
+                     consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairId' IS NULL
+                     OR (
+                       consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = companion.stream_id
+                       AND consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
+                       AND companion.stream_version = (consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint
+                       AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairId' = consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairId'
+                     )
+                   )
                )
                OR (
                  consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' IS NOT NULL
@@ -510,8 +645,16 @@ $migration$`,
                  AND NOT EXISTS (
                    SELECT 1 FROM event_store_events AS companion
                    WHERE companion.event_type = 'inventory.item.adjusted'
-                     AND companion.stream_id = consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId'
+                     AND companion.stream_id = (
+                       SELECT 'inventory.item-' || (placement.payload ->> 'itemId')
+                       FROM event_store_events AS placement
+                       WHERE placement.stream_id = consumed.stream_id
+                         AND placement.event_type = 'inventory.hold.placed'
+                       ORDER BY placement.stream_version
+                       LIMIT 1
+                     )
                      AND companion.stream_version = (consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint
+                     AND consumed.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = companion.stream_id
                      AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamId' = consumed.stream_id
                      AND companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion' ~ '^[1-9][0-9]*$'
                      AND (companion.metadata -> 'inventoryConsumptionPair' ->> 'pairedStreamVersion')::bigint = consumed.stream_version
