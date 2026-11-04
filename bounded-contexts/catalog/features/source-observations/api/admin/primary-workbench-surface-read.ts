@@ -896,6 +896,10 @@ class CatalogSourceOptionPageTimeoutError extends Error {
   }
 }
 
+// The diagnostic a source-option page carries when the provider option query fails for a reason
+// with no refusal body of its own.
+const SOURCE_OPTIONS_UNAVAILABLE = "Provider source options are unavailable.";
+
 function withSourceOptionPageTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   return new Promise<T>((resolve, reject) => {
@@ -943,7 +947,7 @@ function sourceOptionPageError(error: unknown): CatalogPrimaryWorkbenchSourceOpt
   return {
     status: null,
     code: "catalog_provider_option_query_unavailable",
-    message: "Provider source options are unavailable.",
+    message: SOURCE_OPTIONS_UNAVAILABLE,
     rolloutBlocked: false,
   };
 }
@@ -952,7 +956,7 @@ function sourceOptionRefusalBody(body: unknown): Readonly<{ code: string; messag
   if (typeof body !== "object" || body === null || !("error" in body)) {
     return {
       code: "catalog_provider_option_query_unavailable",
-      message: "Provider source options are unavailable.",
+      message: SOURCE_OPTIONS_UNAVAILABLE,
     };
   }
 
@@ -960,7 +964,7 @@ function sourceOptionRefusalBody(body: unknown): Readonly<{ code: string; messag
   if (typeof errorBody !== "object" || errorBody === null) {
     return {
       code: "catalog_provider_option_query_unavailable",
-      message: String(errorBody ?? "Provider source options are unavailable."),
+      message: String(errorBody ?? SOURCE_OPTIONS_UNAVAILABLE),
     };
   }
 
@@ -971,8 +975,6 @@ function sourceOptionRefusalBody(body: unknown): Readonly<{ code: string; messag
         ? fields.code.trim()
         : "catalog_provider_option_query_unavailable",
     message:
-      typeof fields.message === "string" && fields.message.trim()
-        ? fields.message.trim()
-        : "Provider source options are unavailable.",
+      typeof fields.message === "string" && fields.message.trim() ? fields.message.trim() : SOURCE_OPTIONS_UNAVAILABLE,
   };
 }
