@@ -26,6 +26,9 @@ const digestPattern = /^sha256:[0-9a-f]{64}$/;
 const productionJobName = "Deploy Production";
 const markerStepName = "Mark production release";
 const transitionStepName = "Verify production Kubernetes deployment transition";
+// The workflow mints this short-lived App token for publication only; the default token keeps every read.
+export const publisherTokenVariable = "PRODUCTION_MARKER_PUSH_TOKEN";
+const publisherAuthorityMissing = "production-marker-publisher-authority-missing";
 const uploadStepName = "Upload production Kubernetes deployment transition";
 const requiredSteps = [
   "Verify promoted platform runtime image",
@@ -267,7 +270,9 @@ export async function publishReleaseMarker(identity, io) {
       operation = "atomic-git-publication";
       try {
         await io.publishGit(beforePush);
-      } catch {
+      } catch (error) {
+        // Missing publisher authority is a fixed refusal before the push, never an unknown result to retry.
+        if (error?.code === publisherAuthorityMissing) throw error;
         /* A lost response may have committed both refs. */
       }
       operation = "read-after-publication";
@@ -765,7 +770,39 @@ async function gitRefs(identity, runCommand = command) {
   };
 }
 
-export function markerIo(identity, env, assertFresh, runCommand = command) {
+// Read once and removed before any read or child process can inherit it.
+export function takePublisherToken(env) {
+  const token = env[publisherTokenVariable];
+  delete env[publisherTokenVariable];
+  return token;
+}
+
+/**
+ * Builds the push child's environment. The empty value under checkout's URL-scoped key resets git's extra-header
+ * list, so the App header is the only Authorization header; it travels in this environment, never argv, a URL or
+ * persisted config. Later command-line config could append a second header, so it is not inherited.
+ */
+export function publisherPushEnv(env, token) {
+  if (typeof token !== "string" || !/^\S+$/.test(token)) {
+    const error = new Error("production marker publisher authority unavailable");
+    error.code = publisherAuthorityMissing;
+    throw error;
+  }
+  const key = `http.${new URL(env.GITHUB_SERVER_URL || "https://github.com").origin}/.extraheader`;
+  const inherited = { ...env };
+  delete inherited.GIT_CONFIG_PARAMETERS;
+  return {
+    ...inherited,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_COUNT: "2",
+    GIT_CONFIG_KEY_0: key,
+    GIT_CONFIG_VALUE_0: "",
+    GIT_CONFIG_KEY_1: key,
+    GIT_CONFIG_VALUE_1: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
+  };
+}
+
+export function markerIo(identity, env, assertFresh, runCommand = command, publisherToken) {
   const image = `${identity.image}:${identity.tag}`;
   const registryUnavailable = (error) => {
     const stderr = typeof error.stderr === "string" || Buffer.isBuffer(error.stderr) ? error.stderr.toString() : "";
@@ -816,6 +853,7 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
       runCommand("docker", ["buildx", "imagetools", "create", "--tag", image, `${identity.image}@${identity.digest}`]),
     assertFresh,
     publishGit: async (refs) => {
+      const pushEnv = publisherPushEnv(env, publisherToken);
       let tagSource = refs.tag?.object;
       if (!tagSource) {
         const localRef = `refs/tags/${identity.tag}`;
@@ -853,15 +891,19 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
       }
       // The explicit lease is a compare-and-swap guard, never permission for a non-fast-forward update.
       await runCommand("git", ["merge-base", "--is-ancestor", refs.production, identity.commit]);
-      await runCommand("git", [
-        "push",
-        "--atomic",
-        `--force-with-lease=refs/heads/production:${refs.production}`,
-        `--force-with-lease=refs/tags/${identity.tag}:${refs.tag?.object ?? ""}`,
-        "origin",
-        `${tagSource}:refs/tags/${identity.tag}`,
-        `${identity.commit}:refs/heads/production`,
-      ]);
+      await runCommand(
+        "git",
+        [
+          "push",
+          "--atomic",
+          `--force-with-lease=refs/heads/production:${refs.production}`,
+          `--force-with-lease=refs/tags/${identity.tag}:${refs.tag?.object ?? ""}`,
+          "origin",
+          `${tagSource}:refs/tags/${identity.tag}`,
+          `${identity.commit}:refs/heads/production`,
+        ],
+        { env: pushEnv },
+      );
     },
   };
   io.assertRegistryWritable = async () => {
@@ -907,6 +949,7 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
 
 // The authority reader is the only injected boundary; every other effect stays the production adapter.
 export async function main(action, env, authorityRead = {}) {
+  const publisherToken = takePublisherToken(env);
   let identity;
   let knownProduction = "unknown";
   try {
@@ -1008,7 +1051,7 @@ export async function main(action, env, authorityRead = {}) {
       await admitMarkerOnlyPolicy(sourceIdentity, env);
       const assertFresh = () => assertWriters(env, options);
       const result = await reconcileMarkerOnly(sourceIdentity, {
-        ...markerIo(sourceIdentity, env, assertFresh),
+        ...markerIo(sourceIdentity, env, assertFresh, command, publisherToken),
         readHistory: () => readHistory(options),
         readValues: async (revision) =>
           JSON.parse((await command("helm", buildHelmValuesArgs({ ...options, revision }))).stdout),
@@ -1058,7 +1101,7 @@ export async function main(action, env, authorityRead = {}) {
     const assertFresh = () => assertWriters(env, options);
     if (action === "reconcile") {
       await reconcileReleaseMarker(identity, {
-        ...markerIo(identity, env, assertFresh),
+        ...markerIo(identity, env, assertFresh, command, publisherToken),
         readHistory: () => readHistory(options),
         readValues: async (revision) =>
           JSON.parse((await command("helm", buildHelmValuesArgs({ ...options, revision }))).stdout),
@@ -1089,7 +1132,7 @@ export async function main(action, env, authorityRead = {}) {
       );
       identity.productionCommit = transition.markerIdentity.productionCommit;
     }
-    const result = await publishReleaseMarker(identity, markerIo(identity, env, assertFresh));
+    const result = await publishReleaseMarker(identity, markerIo(identity, env, assertFresh, command, publisherToken));
     // Recovery repairs refs only. Only the normal, freshly verified producer can claim promotion.
     if (action === "publish") await output(result, env);
   } catch (error) {
