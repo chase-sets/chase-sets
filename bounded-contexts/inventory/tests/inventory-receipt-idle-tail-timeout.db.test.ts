@@ -196,6 +196,7 @@ describe("Inventory receipt idle-tail timeout", () => {
           wakeIntentClaimLost: (event) => record("claim-lost", event),
         },
       }),
+      maxConcurrentRunners: 2,
       leaseTtlMs: 30_000,
       leaseRenewIntervalMs: 10_000,
       pollIntervalMs: 1_000,
