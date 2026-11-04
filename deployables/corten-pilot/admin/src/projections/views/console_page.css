@@ -224,7 +224,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .stats {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -236,7 +236,7 @@
 }
 
 /* A phone: each row a card, each cell beside its heading. */
-@media (max-width: 40rem) {
+@media not (--md) {
   .scroll {
     overflow: visible;
     border: 0;

@@ -1,4 +1,5 @@
 use corten::prelude::*;
+use platform::ui::table::TableLayout;
 
 use serde_json::Value;
 
@@ -138,7 +139,7 @@ pub fn Candidates<'a>(t: Cat, candidates: &'a [Candidate]) -> impl Render {
         if candidates.is_empty() {
             <p class={Summary}>{t.bulk_no_records()}</p>
         } else {
-            <Table label={t.bulk_record()} head={&head} all={None}>
+            <Table label={t.bulk_record()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for c in shown {
                     <tr>
                         <td>{&c.label}</td>

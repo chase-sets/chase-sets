@@ -1,12 +1,13 @@
 //! Platform Feedback's pages. The queue (`PlatformFeedbackAdminListPage`): its four counts, the
 //! filters with Export CSV, and the review queue as one form, a box on each row and its two bulk
-//! buttons above, in a table that scrolls on its own on a phone. A feedback's page
-//! (`PlatformFeedbackAdminDetailPage`): Back, Mark reviewed and Archive, the feedback beside its
-//! notes, attribution and related records from 64rem, stacked below that. No script.
+//! buttons above, in a table that stacks on a phone, a row a block of labelled lines. A feedback's
+//! page (`PlatformFeedbackAdminDetailPage`): Back, Mark reviewed and Archive, the feedback beside
+//! its notes, attribution and related records from 64rem, stacked below that. No script.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use crate::{
     support::feedback::{BulkForm, Entry, ItemForm, ItemScreen, ListScreen, STATUSES, TOPICS, WORKFLOWS, url},
@@ -181,26 +182,28 @@ pub fn FeedbackPage<'a>(t: Sup, p: Pilot, screen: &'a ListScreen) -> impl Render
                         </div>
                     }
                     <div class={Scroll}>
-                        <table class={Table} aria-label={t.fb_review_queue()}>
-                            <thead>
-                                <tr>
-                                    if screen.can_manage {
-                                        <th scope="col"><span class={Hidden}>{p.bulk_select_all()}</span></th>
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table} aria-label={t.fb_review_queue()}>
+                                <thead>
+                                    <tr>
+                                        if screen.can_manage {
+                                            <th scope="col"><span class={Hidden}>{p.bulk_select_all()}</span></th>
+                                        }
+                                        <th scope="col">{t.fb_submitted()}</th>
+                                        <th scope="col">{t.fb_rating()}</th>
+                                        <th scope="col">{t.fb_topic()}</th>
+                                        <th scope="col">{t.fb_workflow()}</th>
+                                        <th scope="col">{t.fb_status()}</th>
+                                        <th scope="col">{t.fb_action()}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    for entry in &screen.entries.items {
+                                        <Row t={t} p={p} entry={entry} select={screen.can_manage} field={b.feedback_ids} />
                                     }
-                                    <th scope="col">{t.fb_submitted()}</th>
-                                    <th scope="col">{t.fb_rating()}</th>
-                                    <th scope="col">{t.fb_topic()}</th>
-                                    <th scope="col">{t.fb_workflow()}</th>
-                                    <th scope="col">{t.fb_status()}</th>
-                                    <th scope="col">{t.fb_action()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for entry in &screen.entries.items {
-                                    <Row t={t} p={p} entry={entry} select={screen.can_manage} field={b.feedback_ids} />
-                                }
-                            </tbody>
-                        </table>
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 </form>
             }
@@ -220,12 +223,28 @@ fn Row<'a>(t: Sup, p: Pilot, entry: &'a Entry, select: bool, field: corten::Fiel
                     <input type="checkbox" class={Box} name={field} value={&entry.feedback_id} aria-label={&label}>
                 </td>
             }
-            <td>{when(t, Some(&entry.submitted_at))}</td>
-            <td><Stars value={entry.rating} /></td>
-            <td>{topic(t, &entry.topic)}</td>
-            <td>{workflow(t, &entry.workflow)}</td>
-            <td><StatusPill t={t} value={&entry.status} /></td>
             <td>
+                <CellLabel>{t.fb_submitted()}</CellLabel>
+                {when(t, Some(&entry.submitted_at))}
+            </td>
+            <td>
+                <CellLabel>{t.fb_rating()}</CellLabel>
+                <Stars value={entry.rating} />
+            </td>
+            <td>
+                <CellLabel>{t.fb_topic()}</CellLabel>
+                {topic(t, &entry.topic)}
+            </td>
+            <td>
+                <CellLabel>{t.fb_workflow()}</CellLabel>
+                {workflow(t, &entry.workflow)}
+            </td>
+            <td>
+                <CellLabel>{t.fb_status()}</CellLabel>
+                <StatusPill t={t} value={&entry.status} />
+            </td>
+            <td>
+                <CellLabel>{t.fb_action()}</CellLabel>
                 <a class={Open} href={url::Item { id: &entry.feedback_id, after_write: None }}>{t.fb_open()}</a>
             </td>
         </tr>

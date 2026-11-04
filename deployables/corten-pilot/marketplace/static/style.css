@@ -64,6 +64,11 @@ main {
   padding: var(--space-6);
   padding-bottom: calc(var(--space-6) + var(--shell-bottom-nav-height) + env(safe-area-inset-bottom, 0px));
 }
+/* The error page's detail under corten dev: an API's long message wraps, not past a phone's edge. */
+main > pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* Printed, a page is on white paper and its content uses the page's own margins. */
 @media print {
   body {

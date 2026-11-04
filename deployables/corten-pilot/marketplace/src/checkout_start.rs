@@ -459,19 +459,14 @@ fn follow_to(at: &Uri) -> String {
 }
 
 /// One new contact-less guest, and the browser sent the same form to `at` again as that guest
-/// (`startGuestCheckoutEntry`): a 307 with only the guest's token, and no Checkout write here.
-///
-/// Workaround: `Req::redirect` answers a write with a 303, which the browser follows with a GET
-/// and no form, so the 303 is made a 307 here (todd-skelton/corten#717).
+/// (`startGuestCheckoutEntry`): a 307 with only the guest's token (`Req::resend_to`), and no
+/// Checkout write here.
 async fn new_guest_entry(req: &Req, config: &Shared, headers: &HeaderMap, at: &Uri) -> Result<HtmlResult, ApiError> {
     let guest = config.platform.caller(headers, config.proto, None).start_guest_checkout().await?;
     let hop = || -> HtmlResult {
-        let to: Uri = follow_to(at).parse().map_err(corten::Error::new)?;
-        let mut res = req.redirect(&to)?;
-        if res.status() == StatusCode::SEE_OTHER {
-            *res.status_mut() = StatusCode::TEMPORARY_REDIRECT;
-        }
-        Ok(res.with_cookie(keep_guest(config, &guest)))
+        let to = corten::Local::parse(&follow_to(at))
+            .ok_or_else(|| corten::Error::new("the guest entry is not a path on this site"))?;
+        Ok(req.resend_to(&to)?.with_cookie(keep_guest(config, &guest)))
     };
     Ok(hop())
 }

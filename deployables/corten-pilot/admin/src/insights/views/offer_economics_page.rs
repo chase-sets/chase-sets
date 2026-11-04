@@ -1,8 +1,9 @@
 //! Offer Economics (`OfferEconomicsAdminPage`). Top to bottom: the header, the reporting window,
 //! the figures (one column on a phone, two from 40rem, three from 64rem), the standard schedule the
-//! foregone fee is measured against, the weekly sell-through (a table that scrolls on its own on a
-//! phone) and the order protection reserve.
+//! foregone fee is measured against, the weekly sell-through (a table that stacks on a phone, a row a
+//! block of labelled lines) and the order protection reserve.
 use corten::prelude::*;
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use super::{date, usd};
 use crate::{
@@ -68,30 +69,45 @@ pub fn OfferEconomicsPage<'a>(o: Ops, snapshot: &'a Snapshot) -> impl Render {
                     </div>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{o.oe_week()}</th>
-                                    <th scope="col">{o.oe_listings_created()}</th>
-                                    <th scope="col">{o.oe_cumulative_listings_created()}</th>
-                                    <th scope="col">{o.oe_cumulative_trade_count()}</th>
-                                    <th scope="col">{o.oe_sell_through_rate()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for week in &s.weekly_sell_through {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td>{date(o, &week.week_start)}</td>
-                                        <td>{n(week.listings_created_count)}</td>
-                                        <td>{n(week.cumulative_listings_created_count)}</td>
-                                        <td>{n(week.cumulative_trade_count)}</td>
-                                        <td>
-                                            {ratio_percent(week.sell_through_rate.as_deref()).unwrap_or_else(|| o.oe_not_available().to_owned())}
-                                        </td>
+                                        <th scope="col">{o.oe_week()}</th>
+                                        <th scope="col">{o.oe_listings_created()}</th>
+                                        <th scope="col">{o.oe_cumulative_listings_created()}</th>
+                                        <th scope="col">{o.oe_cumulative_trade_count()}</th>
+                                        <th scope="col">{o.oe_sell_through_rate()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for week in &s.weekly_sell_through {
+                                        <tr>
+                                            <td>
+                                                <CellLabel>{o.oe_week()}</CellLabel>
+                                                {date(o, &week.week_start)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.oe_listings_created()}</CellLabel>
+                                                {n(week.listings_created_count)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.oe_cumulative_listings_created()}</CellLabel>
+                                                {n(week.cumulative_listings_created_count)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.oe_cumulative_trade_count()}</CellLabel>
+                                                {n(week.cumulative_trade_count)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.oe_sell_through_rate()}</CellLabel>
+                                                {ratio_percent(week.sell_through_rate.as_deref()).unwrap_or_else(|| o.oe_not_available().to_owned())}
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>

@@ -106,9 +106,9 @@
   }
 }
 .icon {
+  display: inline-flex;
   flex-shrink: 0;
-  width: 1.25rem;
-  height: 1.25rem;
+  font-size: 1.25rem;
 }
 .badge {
   display: inline-flex;
@@ -207,12 +207,12 @@
 .slot:first-child .up {
   inset-inline: 0 auto;
 }
-@media (max-width: 47.99rem) {
+@media not (--md) {
   .wide {
     display: none;
   }
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .phone {
     display: none;
   }

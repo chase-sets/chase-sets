@@ -48,6 +48,7 @@ use crate::{
     },
     app::{ACCOUNTS_VIEW, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
     auth::{CheckoutBuyer, Viewer},
+    email_verification::{self, Purpose},
     text::{CheckoutMsg, Pilot},
     views::{self, Layout},
 };
@@ -342,6 +343,9 @@ pub struct Screen {
     /// Pay now may have reached Checkout, but one read of the session showed neither a payment
     /// nor an offer: Pay now is off until the buyer refreshes (`confirmationAmbiguous`).
     pub ambiguous: bool,
+    /// Where the buyer verifies their email while Auth withholds `orders.manage` pending it:
+    /// Pay now becomes this link, as Checkout would refuse the payment (`paymentVerifyEmailHref`).
+    pub verify_email: Option<String>,
     pub place: Place,
 }
 
@@ -517,6 +521,7 @@ impl Screen {
             expired,
             error,
             ambiguous: false,
+            verify_email: None,
             place,
         }
     }
@@ -703,6 +708,10 @@ async fn render(
     };
     let mut screen = Screen::new(reads, place, error);
     screen.ambiguous = matches!(answer, Answer::Ambiguous);
+    // Auth withholds payment until the buyer verifies their email; Pay now would be refused.
+    screen.verify_email = (!screen.offer && email_verification::awaits(actor, ORDERS_MANAGE)).then(|| {
+        email_verification::sign_in_href(&url::BuyCheckout { id, place: Place::default() }.href(), Purpose::PayCheckout)
+    });
     let t: CheckoutMsg = req.t();
     let description = if screen.offer {
         t.page_confirm_shipping_place_purchase_intent()
@@ -1033,6 +1042,17 @@ pub(crate) async fn write(
                         && matches!(error.code(), Some("payment_start_pending" | "checkout_reservation_unavailable")) =>
                 {
                     back(Place::reviewed(latest(receipts).as_ref(), &visible, false))
+                }
+                // Checkout refuses Pay now before any order for a buyer who cannot start a payment:
+                // the page again with its words, and Verify your email where Auth withheld it
+                // (`isPaymentStartRefused`).
+                Err(error)
+                    if error.status() == Some(StatusCode::FORBIDDEN)
+                        && matches!(error.code(), Some("email_verification_required" | "authorization_forbidden")) =>
+                {
+                    let message = error.refusal().unwrap_or(t.route_request_failed()).to_owned();
+                    render(&req, &viewer, &config, &headers, &id, here, Answer::Refused(StatusCode::FORBIDDEN, message), chrome)
+                        .await
                 }
                 // The session already started with other order or payment details: nothing new was
                 // sent, and the page shows it as it is now.

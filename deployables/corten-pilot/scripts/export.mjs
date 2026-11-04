@@ -233,8 +233,10 @@
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - marketplace/nav.bottom.json, marketplace/nav.account.json: its bottom-nav (the phone bar, with
 //   each entry's packing priority and badge) and account-menu contributions, composed the same way.
-// - marketplace/nav-icons.json: the inner markup of the design system's `Icon` for each icon those
-//   entries name, and the menu's, as its lucide glyph draws it (the pilot draws the `<svg>` around it).
+// - platform/src/glyphs.rs: the inner markup of the design system's `Icon` for each icon those
+//   entries name, the menu's and the public pages', as its lucide glyph draws it: a kit `Glyph` each
+//   (`platform::glyphs`), made with `Glyph::filled` for the ones `Icon` fills, and `named` for a nav
+//   entry's name.
 // - platform/tokens/: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, as W3C Design Tokens files and a resolver (DTCG 2025.10), which
 //   Corten's `tokens!` reads. Not committed (see GENERATED).
@@ -342,12 +344,12 @@ function marketplaceNav(slot = "top-nav") {
 }
 
 /** The inner markup of the design system's `Icon` for each icon `items` name, and the menu's. */
-async function navIcons(...slots) {
+async function designIcons(extra, ...slots) {
   const need = createRequire(path.join(repo, "packages/design-system/package.json"));
   const { createElement } = need("react");
   const { renderToStaticMarkup } = need("react-dom/server");
   const { Icon } = await import(pathToFileURL(path.join(repo, "packages/design-system/src/icons/index.tsx")).href);
-  const names = new Set(["menu"]);
+  const names = new Set(["menu", ...extra]);
   const walk = (item) => {
     if (item.icon) names.add(item.icon);
     (item.children ?? []).forEach(walk);
@@ -361,6 +363,57 @@ async function navIcons(...slots) {
     icons[name] = inner;
   }
   return icons;
+}
+
+// The design system's icons the public pages draw (public/src/views/home_page.rs's `IconName`).
+const PUBLIC_ICONS = [
+  "cart",
+  "check",
+  "chevronDown",
+  "chevronLeft",
+  "chevronRight",
+  "info",
+  "message",
+  "pause",
+  "rocket",
+  "store",
+  "users",
+  "warning",
+];
+
+/** `icons` as kit glyphs (platform/src/glyphs.rs), the ones the design system's `Icon` fills made filled. */
+function glyphsModule(icons) {
+  const source = readFileSync(path.join(repo, "packages/design-system/src/icons/index.tsx"), "utf8");
+  const rule = source.match(/const filled = ([^;]+);/)?.[1];
+  if (!rule) throw new Error("design-system Icon: no filled rule");
+  const filled = [...rule.matchAll(/name === "(\w+)"/g)].map((m) => m[1]);
+  const constant = (name) => name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+  const lines = [
+    "// Written by deployables/corten-pilot/scripts/export.mjs from the design system's `Icon`",
+    "// (packages/design-system/src/icons): each glyph the pilot draws, as Lucide draws it. Do not edit.",
+    "use crate::ui::icon::Glyph;",
+    "",
+  ];
+  for (const [name, inner] of Object.entries(icons)) {
+    if (inner.includes('"##')) throw new Error(`icon ${name}: its markup closes the raw string`);
+    const make = filled.includes(name) ? "Glyph::filled" : "Glyph::new";
+    lines.push(
+      `/// \`${name}\`${filled.includes(name) ? ", filled" : ""}.`,
+      `pub const ${constant(name)}: Glyph = ${make}(r##"${inner}"##);`,
+    );
+  }
+  lines.push(
+    "",
+    "/// The glyph a nav entry names, by the design system's name.",
+    "pub fn named(name: &str) -> Option<Glyph> {",
+    "    match name {",
+    ...Object.keys(icons).map((name) => `        "${name}" => Some(${constant(name)}),`),
+    "        _ => None,",
+    "    }",
+    "}",
+    "",
+  );
+  return lines.join("\n");
 }
 
 // Token name in the pilot -> custom property in the design system. Dark values are the same
@@ -528,7 +581,15 @@ function tokens() {
     ...groups,
     $extensions: {
       "run.corten": {
-        breakpoints: { md: dtcgDimension("48rem"), lg: dtcgDimension("64rem") },
+        // Tailwind's names and widths, the design system's. The kit's phone layouts (NavBar, Stats,
+        // Steps, Table) switch at `wide`, which is `md`: the design system's DataTable stacks, the
+        // nav's bar and the sheets change at 48rem, and so do the pilot's own `(--md)` rules.
+        breakpoints: {
+          sm: dtcgDimension("40rem"),
+          md: dtcgDimension("48rem"),
+          lg: dtcgDimension("64rem"),
+          wide: "{md}",
+        },
         utilities: { gap: { property: "gap", group: "space" } },
       },
     },
@@ -1751,7 +1812,10 @@ const outputs = [
   ["marketplace/nav.json", json(marketplaceNav())],
   ["marketplace/nav.bottom.json", json(marketplaceNav("bottom-nav"))],
   ["marketplace/nav.account.json", json(marketplaceNav("account-menu"))],
-  ["marketplace/nav-icons.json", json(await navIcons(marketplaceNav("bottom-nav"), marketplaceNav("account-menu")))],
+  [
+    "platform/src/glyphs.rs",
+    glyphsModule(await designIcons(PUBLIC_ICONS, marketplaceNav("bottom-nav"), marketplaceNav("account-menu"))),
+  ],
   ["platform/tokens/base.tokens.json", json(designTokens.base)],
   ["platform/tokens/dark.tokens.json", json(designTokens.dark)],
   ["platform/tokens/ui.tokens.json", json(designTokens.kit)],

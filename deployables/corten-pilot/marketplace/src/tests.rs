@@ -952,6 +952,12 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
         "authenticity-check-opt-in" => committed(StatusCode::OK, "checkout", "13", json!({})),
         "fulfillment-preview" => committed(StatusCode::OK, "checkout", "14", json!({})),
         "confirm" if id == "chk_stale" => refusal(StatusCode::CONFLICT, "fee_quote_stale", "The checkout fee changed."),
+        // As Checkout refuses Pay now for a buyer whose orders.manage Auth withheld (chase-sets/chase-sets#10785).
+        "confirm" if id == "chk_verify" => refusal(
+            StatusCode::FORBIDDEN,
+            "email_verification_required",
+            "Verify your email before you pay. Nothing was reserved or ordered.",
+        ),
         "confirm" if id == "chk_lostpay" => {
             stand.kept.lock().unwrap().insert(format!("confirm:{id}"), json!({}));
             StatusCode::GATEWAY_TIMEOUT.into_response()
@@ -12172,6 +12178,50 @@ async fn pay_now_confirms_what_was_reviewed_and_the_page_shows_the_payment() {
 }
 
 #[tokio::test]
+async fn a_buyer_whose_payment_awaits_email_verification_is_offered_the_sign_in_that_verifies_it() {
+    let pilot = Pilot::new().await;
+    let link = "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&amp;signInMethod=magic-link";
+    // An owner whose orders.manage Auth withheld: Verify your email to pay in place of Pay now.
+    let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(&format!(r#"href="{link}">Verify your email to pay</a>"#)), "{html}");
+    assert!(!html.contains(r#"data-commit="pay""#), "no Pay now: {html}");
+    // Not for an agent, nor for a buyer who may pay.
+    for session in ["unverified_agent", "payer"] {
+        let (_, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some(session))).await;
+        assert!(!text(&html).contains("Verify your email to pay"), "{session}: {html}");
+        assert!(html.contains(r#"data-commit="pay""#), "{session}: {html}");
+    }
+    // Checkout's refusal of Pay now is the page again, with its words and the link.
+    let (status, _, html) = pilot
+        .send(post("/checkout/buy/session/chk_verify", "unverified", &checkout_body("intent=confirm-checkout"), false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert!(text(&html).contains("Verify your email before you pay. Nothing was reserved or ordered."), "{html}");
+    assert!(html.contains("verifyEmail%3Dpay-checkout"), "{html}");
+}
+
+#[tokio::test]
+async fn the_sign_in_says_it_verifies_the_email_to_pay_for_a_checkout() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(get(
+            "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&signInMethod=magic-link",
+            None,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to pay for this checkout"), "{shown}");
+    assert!(shown.contains("brings you back to your checkout, where you can pay"), "{shown}");
+    // Only a checkout's page, and only with its marker.
+    for other in ["%2Fcheckout%2Fbuy%2Fsession%2Fchk_1", "%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dcancel-purchase"] {
+        let (_, _, html) = pilot.send(get(&format!("/sign-in?returnTo={other}"), None)).await;
+        assert!(!text(&html).contains("Verify your email to pay"), "{other}: {html}");
+    }
+}
+
+#[tokio::test]
 async fn pay_now_reviews_again_when_the_review_changed_or_payments_quote_went_stale() {
     let pilot = Pilot::new().await;
     // The buyer changed shipping since the review: the review is written again, not confirmed.
@@ -12337,11 +12387,20 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     assert!(csp.contains("https://js.stripe.com;") || csp.contains("https://js.stripe.com "), "Stripe.js may load: {csp}");
     assert!(csp.contains("frame-src https://js.stripe.com https://hooks.stripe.com;"), "{csp}");
     assert!(csp.contains("https://api.stripe.com"), "{csp}");
-    // Only the payment pages allow Stripe (todd-skelton/corten#275).
+    // The `default` policy <Corten /> makes for a page that loads scripts from another host
+    // (todd-skelton/corten#768), and no policy of the pilot's own.
+    assert!(csp.contains("trusted-types corten default"), "{csp}");
+    assert!(html.contains(r#"trustedTypes.createPolicy("default""#), "{html}");
+    // The Payment Element's wallets run the Payment Request API in Stripe's frames.
+    let features = headers["permissions-policy"].to_str().unwrap();
+    assert!(!features.contains("payment=()") && features.contains("camera=()"), "{features}");
+    // Only the payment pages allow Stripe (todd-skelton/corten#275), or its policy.
     let (status, headers, _) = pilot.send(get(SELL_LIST_PAGE, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK);
     let elsewhere = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
     assert!(!elsewhere.contains("stripe.com"), "{elsewhere}");
+    assert!(elsewhere.contains("trusted-types corten;") || elsewhere.ends_with("trusted-types corten"), "{elsewhere}");
+    assert!(headers["permissions-policy"].to_str().unwrap().contains("payment=()"), "elsewhere payment is denied");
     let page = text(&html);
     assert!(page.contains("Secure Checkout Payment pay_1"), "{page}");
     assert!(page.contains("Complete payment by deadline"), "the order's deadline: {page}");
@@ -13471,6 +13530,7 @@ async fn payout_setup_shows_the_status_what_it_needs_and_stripes_form() {
         csp.contains("https://connect-js.stripe.com") && csp.contains("'sha256-0hAheEzaMe6uXIKV4EehS9pu1am1lj/KnnzrOYqckXk='"),
         "{csp}"
     );
+    assert!(csp.contains("trusted-types corten default"), "Connect.js loads through <Corten />'s policy: {csp}");
     assert_eq!(headers["cross-origin-opener-policy"], "unsafe-none");
     // Every other page keeps same-origin and no Connect.js.
     let (_, headers, _) = pilot.send(get(MONEY, Some("banker"))).await;
@@ -15979,6 +16039,7 @@ async fn saved_payment_methods_are_cards_each_with_its_own_writes() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
     assert!(csp.contains("https://js.stripe.com"), "Add's secure step may load Stripe.js: {csp}");
+    assert!(csp.contains("trusted-types corten default"), "{csp}");
     assert!(html.contains("Saved payment methods") && html.contains("Synthetic spm_card"), "{html}");
     assert!(
         html.contains(">Setup Required<") && html.contains("Bank account"),

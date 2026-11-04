@@ -1,7 +1,8 @@
 //! Access's pages: the home (`AccessPage`, admin-web's `AccessHomePage`: the attention queue, then the account search) and
 //! each list (`AdminResourceListPage`: its title, its search and status filters with the chips of
 //! those applied, how many it found, its table with a View on each row, and its pager). A table
-//! scrolls on its own on a phone; the filters stack there and sit side by side from 40rem.
+//! stacks on a phone, each row a block of labelled lines (the kit `Table`, as admin-web's `DataTable`
+//! does); the filters stack there and sit side by side from 40rem.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
@@ -18,6 +19,7 @@ use crate::{
     },
     text::{Acc, Pilot},
 };
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 /// A moment as admin-web's `formatDateTime` writes it, else the date's unavailable words.
 pub(super) fn when(t: Acc, at: Option<&str>) -> String {
@@ -91,26 +93,28 @@ pub fn AccessPage<'a>(t: Acc, screen: &'a access::HomeScreen) -> impl Render {
                 </div>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.home_attention()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.home_attention_type()}</th>
-                                <th scope="col">{t.home_account()}</th>
-                                <th scope="col">{t.home_details()}</th>
-                                <th scope="col"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for row in &rows {
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.home_attention()}>
+                            <thead>
                                 <tr>
-                                    <td>{row.kind}</td>
-                                    <td>{&row.account}</td>
-                                    <td>{&row.detail}</td>
-                                    <td><a class={Open} href={&row.href}>{t.home_review()}</a></td>
+                                    <th scope="col">{t.home_attention_type()}</th>
+                                    <th scope="col">{t.home_account()}</th>
+                                    <th scope="col">{t.home_details()}</th>
+                                    <th scope="col"></th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                for row in &rows {
+                                    <tr>
+                                        <Cell label={t.home_attention_type()}>{row.kind}</Cell>
+                                        <Cell label={t.home_account()}>{&row.account}</Cell>
+                                        <Cell label={t.home_details()}>{&row.detail}</Cell>
+                                        <td><a class={Open} href={&row.href}>{t.home_review()}</a></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
         </section>
@@ -138,36 +142,44 @@ pub fn AccessPage<'a>(t: Acc, screen: &'a access::HomeScreen) -> impl Render {
                     </div>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table} aria-label={t.home_account_search()}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.accounts_display_name()}</th>
-                                    <th scope="col">{t.accounts_type()}</th>
-                                    <th scope="col">{t.accounts_status()}</th>
-                                    <th scope="col"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for account in &screen.home.accounts {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table} aria-label={t.home_account_search()}>
+                                <thead>
                                     <tr>
-                                        <td>{account_label(account)}</td>
-                                        <td>{access::account_type(t, &account.account_type)}</td>
-                                        <td>
-                                            if account.status == "active" {
-                                                <span class={(Pill, Success)}>{access::account_status(t, &account.status)}</span>
-                                            } else {
-                                                <span class={(Pill, Warning)}>{access::account_status(t, &account.status)}</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            <a class={Open} href={hub(&account.account_id, Tab::Overview)}>
-                                                {t.home_open_account()}
-                                            </a>
-                                        </td>
+                                        <th scope="col">{t.accounts_display_name()}</th>
+                                        <th scope="col">{t.accounts_type()}</th>
+                                        <th scope="col">{t.accounts_status()}</th>
+                                        <th scope="col"></th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for account in &screen.home.accounts {
+                                        <tr>
+                                            <Cell label={t.accounts_display_name()}>{account_label(account)}</Cell>
+                                            <Cell label={t.accounts_type()}>
+                                                {access::account_type(t, &account.account_type)}
+                                            </Cell>
+                                            <Cell label={t.accounts_status()}>
+                                                if account.status == "active" {
+                                                    <span class={(Pill, Success)}>
+                                                        {access::account_status(t, &account.status)}
+                                                    </span>
+                                                } else {
+                                                    <span class={(Pill, Warning)}>
+                                                        {access::account_status(t, &account.status)}
+                                                    </span>
+                                                }
+                                            </Cell>
+                                            <td>
+                                                <a class={Open} href={hub(&account.account_id, Tab::Overview)}>
+                                                    {t.home_open_account()}
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </div>
@@ -249,17 +261,19 @@ fn ListFrame<'a, C: Render>(
                 <p class={Muted}>{words.empty}</p>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={words.title}>
-                        <thead>
-                            <tr>
-                                for heading in head {
-                                    <th scope="col">{*heading}</th>
-                                }
-                                <th scope="col"></th>
-                            </tr>
-                        </thead>
-                        <tbody>{children}</tbody>
-                    </table>
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={words.title}>
+                            <thead>
+                                <tr>
+                                    for heading in head {
+                                        <th scope="col">{*heading}</th>
+                                    }
+                                    <th scope="col"></th>
+                                </tr>
+                            </thead>
+                            <tbody>{children}</tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
             if previous.is_some() || next.is_some() {
@@ -279,11 +293,24 @@ fn View<'a>(p: Pilot, href: &'a str) -> impl Render {
     html! { <td><a class={Open} href={href}>{p.access_view()}</a></td> }
 }
 
-/// An account's name with its badges.
+/// A cell named by its column's heading, which a phone shows beside its value (the kit `Table`'s
+/// `TableLayout::Stack`, as admin-web's `DataTable` stacks).
 #[component(css = AccessPage)]
-fn AccountName<'a>(t: Acc, account: &'a Account) -> impl Render {
+fn Cell<'a, C: Render>(label: &'a str, children: C) -> impl Render {
     html! {
         <td>
+            <CellLabel>{label}</CellLabel>
+            {children}
+        </td>
+    }
+}
+
+/// An account's name with its badges.
+#[component(css = AccessPage)]
+fn AccountName<'a>(t: Acc, account: &'a Account, label: &'a str) -> impl Render {
+    html! {
+        <td>
+            <CellLabel>{label}</CellLabel>
             <span class={Named}>
                 <span>{&account.display_name}</span>
                 for badge in access::badges(t, account) {
@@ -328,10 +355,10 @@ pub fn accounts<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<Account>) -
         >
             for account in &list.items {
                 <tr>
-                    <AccountName t={t} account={account} />
-                    <td>{&account.name}</td>
-                    <td>{access::account_type(t, &account.account_type)}</td>
-                    <td>{access::account_status(t, &account.status)}</td>
+                    <AccountName t={t} account={account} label={head[0]} />
+                    <Cell label={head[1]}>{&account.name}</Cell>
+                    <Cell label={head[2]}>{access::account_type(t, &account.account_type)}</Cell>
+                    <Cell label={head[3]}>{access::account_status(t, &account.status)}</Cell>
                     <View p={p} href={&hub(&account.account_id, Tab::Overview)} />
                 </tr>
             }
@@ -369,16 +396,16 @@ pub fn users<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<User>) -> impl
         >
             for user in &list.items {
                 <tr>
-                    <td>{&user.display_name}</td>
-                    <td>{user.primary_email.as_deref().unwrap_or("")}</td>
-                    <td>
+                    <Cell label={head[0]}>{&user.display_name}</Cell>
+                    <Cell label={head[1]}>{user.primary_email.as_deref().unwrap_or("")}</Cell>
+                    <Cell label={head[2]}>
                         {if user.auth_methods.is_empty() {
                             t.users_none().to_owned()
                         } else {
                             user.auth_methods.iter().map(|m| access::method(t, m)).collect::<Vec<_>>().join(", ")
                         }}
-                    </td>
-                    <td>{access::user_status(t, &user.status)}</td>
+                    </Cell>
+                    <Cell label={head[3]}>{access::user_status(t, &user.status)}</Cell>
                     <View p={p} href={&people::UserPage { id: &user.user_id }.href()} />
                 </tr>
             }
@@ -416,10 +443,10 @@ pub fn memberships<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<Membersh
         >
             for m in &list.items {
                 <tr>
-                    <td>{m.user_label()}</td>
-                    <td>{m.account_label()}</td>
-                    <td>{access::role(t, &m.role_key)}</td>
-                    <td>{access::membership_status(t, &m.status)}</td>
+                    <Cell label={head[0]}>{m.user_label()}</Cell>
+                    <Cell label={head[1]}>{m.account_label()}</Cell>
+                    <Cell label={head[2]}>{access::role(t, &m.role_key)}</Cell>
+                    <Cell label={head[3]}>{access::membership_status(t, &m.status)}</Cell>
                     <View p={p} href={&hub(&m.account_id, Tab::Team)} />
                 </tr>
             }
@@ -457,10 +484,10 @@ pub fn invitations<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<Invitati
         >
             for i in &list.items {
                 <tr>
-                    <td>{&i.email}</td>
-                    <td>{i.account_label()}</td>
-                    <td>{access::role(t, &i.role_key)}</td>
-                    <td>{access::invitation_status(t, &i.status)}</td>
+                    <Cell label={head[0]}>{&i.email}</Cell>
+                    <Cell label={head[1]}>{i.account_label()}</Cell>
+                    <Cell label={head[2]}>{access::role(t, &i.role_key)}</Cell>
+                    <Cell label={head[3]}>{access::invitation_status(t, &i.status)}</Cell>
                     <View p={p} href={&hub(&i.account_id, Tab::Team)} />
                 </tr>
             }
@@ -498,10 +525,10 @@ pub fn api_keys<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<ApiKey>) ->
         >
             for key in &list.items {
                 <tr>
-                    <td>{&key.name}</td>
-                    <td>{key.user_label()}</td>
-                    <td><code>{&key.key_prefix}</code></td>
-                    <td>{access::api_key_status(t, &key.status)}</td>
+                    <Cell label={head[0]}>{&key.name}</Cell>
+                    <Cell label={head[1]}>{key.user_label()}</Cell>
+                    <Cell label={head[2]}><code>{&key.key_prefix}</code></Cell>
+                    <Cell label={head[3]}>{access::api_key_status(t, &key.status)}</Cell>
                     <View p={p} href={&people::ApiKeyPage { id: &key.api_key_id }.href()} />
                 </tr>
             }
@@ -539,10 +566,10 @@ pub fn sessions<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<Session>) -
         >
             for session in &list.items {
                 <tr>
-                    <td>{session.user_label()}</td>
-                    <td>{session.account_label()}</td>
-                    <td>{access::method(t, &session.authentication_method)}</td>
-                    <td>{sessions::status(t, &session.status)}</td>
+                    <Cell label={head[0]}>{session.user_label()}</Cell>
+                    <Cell label={head[1]}>{session.account_label()}</Cell>
+                    <Cell label={head[2]}>{access::method(t, &session.authentication_method)}</Cell>
+                    <Cell label={head[3]}>{sessions::status(t, &session.status)}</Cell>
                     <View p={p} href={&people::SessionPage { id: &session.session_id, after_write: None }.href()} />
                 </tr>
             }

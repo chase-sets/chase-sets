@@ -1,6 +1,6 @@
 /* Google Shopping: the actions and badges wrap; the figures are two columns on a phone and four
    from 64rem (six for a run); the filters are one column on a phone, two from 40rem
-   and a row from 64rem; the detail's facts are one column, then two; tables scroll on their own. */
+   and a row from 64rem; the detail's facts are one column, then two; tables stack on a phone. */
 .page {
   display: grid;
   gap: var(--space-4);
@@ -294,5 +294,18 @@
   }
   .six {
     grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+/* Stacked on a phone, a row is one block: a line between rows, not under each of its cells, and a
+   row header wraps as its cells do. */
+@media not (--md) {
+  .table tbody :is(th, td) {
+    padding-block: var(--space-1);
+    border-bottom: 0;
+    white-space: normal;
+  }
+  .table tbody tr:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
   }
 }

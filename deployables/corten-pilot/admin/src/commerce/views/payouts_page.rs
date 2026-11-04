@@ -12,7 +12,7 @@ use platform::ui::{
     badge::{Badge as KitBadge, BadgeEmphasis, BadgeTone},
     button::{Button as KitButton, ButtonSize, ButtonVariant},
     card::{Card as KitCard, CardContent, CardHeader},
-    table::Table as KitTable,
+    table::{CellLabel, Table as KitTable, TableLayout},
 };
 
 use crate::{
@@ -67,11 +67,13 @@ fn Empty<'a>(title: &'a str, description: &'a str) -> impl Render {
     }
 }
 
-/// A link to the payout on Marketplace, in a new tab (admin-web's Open).
+/// A link to the payout on Marketplace, in a new tab (admin-web's Open), led by its column's name
+/// when its table is stacked; nothing, label too, without a Marketplace to link to.
 #[component(css = MoneyHealthPage)]
-fn OpenPayout<'a>(label: &'a str, href: Option<String>) -> impl Render {
+fn OpenPayout<'a>(column: &'a str, label: &'a str, href: Option<String>) -> impl Render {
     html! {
         if let Some(href) = &href {
+            <CellLabel>{column}</CellLabel>
             <a
                 class={KitButton { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
                 href={href}
@@ -153,7 +155,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
             <section class={KitCard {}} aria-labelledby="mh-provider">
                 <header class={CardHeader {}}><h2 id="mh-provider">{t.mh_provider_diagnostics()}</h2></header>
                 <div class={CardContent {}}>
-                    <KitTable>
+                    <KitTable layout={TableLayout::Stack}>
                         <table>
                             <thead>
                                 <tr>
@@ -164,8 +166,14 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                             <tbody>
                                 for (label, value) in diagnostics {
                                     <tr>
-                                        <th scope="row">{label}</th>
-                                        <td class={Words}>{value}</td>
+                                        <th scope="row">
+                                            <CellLabel>{t.mh_signal()}</CellLabel>
+                                            {label}
+                                        </th>
+                                        <td class={Words}>
+                                            <CellLabel>{t.mh_status()}</CellLabel>
+                                            {value}
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
@@ -182,7 +190,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                             description={t.mh_accounts_with_negative_wallet_balances_appear()}
                         />
                     } else {
-                        <KitTable>
+                        <KitTable layout={TableLayout::Stack}>
                             <table>
                                 <thead>
                                     <tr>
@@ -196,6 +204,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                                     for row in &screen.negative_balance_accounts {
                                         <tr>
                                             <td>
+                                                <CellLabel>{t.mh_account()}</CellLabel>
                                                 <p class={(Strong, Words)}>{&row.account_id}</p>
                                                 <Tone
                                                     words={&row.negative_balance_status}
@@ -203,12 +212,15 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                                                 />
                                             </td>
                                             <td class={Number}>
+                                                <CellLabel>{t.mh_negative_amount()}</CellLabel>
                                                 {money(t, &row.available_balance_amount, &row.currency_code)}
                                             </td>
                                             <td>
+                                                <CellLabel>{t.mh_negative_since()}</CellLabel>
                                                 {row.negative_balance_started_at.as_deref().map_or_else(|| "-".to_owned(), |at| when(t, at))}
                                             </td>
                                             <td>
+                                                <CellLabel>{t.mh_collections()}</CellLabel>
                                                 {row.collections_escalated_at.as_deref().map_or_else(|| "-".to_owned(), |at| when(t, at))}
                                             </td>
                                         </tr>
@@ -228,7 +240,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                             description={t.mh_payouts_that_need_reconciliation_or_review()}
                         />
                     } else {
-                        <KitTable>
+                        <KitTable layout={TableLayout::Stack}>
                             <table>
                                 <thead>
                                     <tr>
@@ -244,15 +256,29 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                                     for row in &screen.payouts_needing_attention {
                                         <tr>
                                             <td>
+                                                <CellLabel>{t.mh_payout()}</CellLabel>
                                                 <p class={(Strong, Words)}>{&row.payout_id}</p>
                                                 <p class={Muted}>{&row.status}</p>
                                             </td>
-                                            <td class={Number}>{money(t, &row.requested_amount, &row.currency_code)}</td>
-                                            <td class={Number}>{money(t, &row.fee_amount, &row.currency_code)}</td>
-                                            <td class={Number}>{money(t, &row.net_amount, &row.currency_code)}</td>
-                                            <td>{when(t, &row.updated_at)}</td>
+                                            <td class={Number}>
+                                                <CellLabel>{t.payout_requested_amount()}</CellLabel>
+                                                {money(t, &row.requested_amount, &row.currency_code)}
+                                            </td>
+                                            <td class={Number}>
+                                                <CellLabel>{t.payout_fee()}</CellLabel>
+                                                {money(t, &row.fee_amount, &row.currency_code)}
+                                            </td>
+                                            <td class={Number}>
+                                                <CellLabel>{t.payout_net()}</CellLabel>
+                                                {money(t, &row.net_amount, &row.currency_code)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.mh_updated()}</CellLabel>
+                                                {when(t, &row.updated_at)}
+                                            </td>
                                             <td>
                                                 <OpenPayout
+                                                    column={t.mh_action()}
                                                     label={t.mh_open()}
                                                     href={payout_href(marketplace, &row.payout_id)}
                                                 />
@@ -274,7 +300,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                             description={t.mh_scheduled_and_manual_reconciliation_outcomes_appear()}
                         />
                     } else {
-                        <KitTable>
+                        <KitTable layout={TableLayout::Stack}>
                             <table>
                                 <thead>
                                     <tr>
@@ -287,15 +313,20 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                                     for row in &screen.reconciliation_runs {
                                         <tr>
                                             <td>
+                                                <CellLabel>{t.mh_status_2()}</CellLabel>
                                                 <Tone
                                                     words={&row.status}
                                                     tone={if row.error_count > 0 { "warning" } else { "success" }}
                                                 />
                                             </td>
                                             <td>
+                                                <CellLabel>{t.mh_counts()}</CellLabel>
                                                 {t.mh_reconciliation_counts(row.checked_count, row.reconciled_count, row.error_count)}
                                             </td>
-                                            <td>{row.completed_at.as_deref().map_or_else(String::new, |at| when(t, at))}</td>
+                                            <td>
+                                                <CellLabel>{t.mh_completed()}</CellLabel>
+                                                {row.completed_at.as_deref().map_or_else(String::new, |at| when(t, at))}
+                                            </td>
                                         </tr>
                                     }
                                 </tbody>
@@ -488,7 +519,7 @@ pub fn PayoutOperationsPage<'a>(
             <section class={KitCard {}} aria-labelledby="po-attention">
                 <header class={CardHeader {}}><h2 id="po-attention">{t.po_needs_attention()}</h2></header>
                 <div class={CardContent {}}>
-                    <KitTable>
+                    <KitTable layout={TableLayout::Stack}>
                         <table>
                             <thead>
                                 <tr>
@@ -500,21 +531,28 @@ pub fn PayoutOperationsPage<'a>(
                             <tbody>
                                 for (label, value, meaning) in needs {
                                     <tr>
-                                        <th scope="row">{label}</th>
+                                        <th scope="row">
+                                            <CellLabel>{t.po_signal()}</CellLabel>
+                                            {label}
+                                        </th>
                                         <td>
+                                            <CellLabel>{t.po_count()}</CellLabel>
                                             <Tone
                                                 words={&count(value)}
                                                 tone={if value > 0 { "warning" } else { "success" }}
                                             />
                                         </td>
-                                        <td class={Prose}>{meaning}</td>
+                                        <td class={Prose}>
+                                            <CellLabel>{t.po_meaning()}</CellLabel>
+                                            {meaning}
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
                         </table>
                     </KitTable>
                     if let Some(readiness) = screen.readiness.as_ref().filter(|_| screen.can_reconcile) {
-                        <KitTable>
+                        <KitTable layout={TableLayout::Stack}>
                             <table>
                                 <thead>
                                     <tr>
@@ -534,14 +572,21 @@ pub fn PayoutOperationsPage<'a>(
                                         ),
                                     ] {
                                         <tr>
-                                            <th scope="row">{label}</th>
+                                            <th scope="row">
+                                                <CellLabel>{t.po_signal()}</CellLabel>
+                                                {label}
+                                            </th>
                                             <td>
+                                                <CellLabel>{t.po_status()}</CellLabel>
                                                 <Tone
                                                     words={&value}
                                                     tone={if setup_blocked || setup_stale { "warning" } else { "success" }}
                                                 />
                                             </td>
-                                            <td class={Prose}>{meaning}</td>
+                                            <td class={Prose}>
+                                                <CellLabel>{t.po_meaning()}</CellLabel>
+                                                {meaning}
+                                            </td>
                                         </tr>
                                     }
                                 </tbody>
@@ -565,7 +610,7 @@ pub fn PayoutOperationsPage<'a>(
                             description={t.po_provider_payout_reconciliation_is_clear()}
                         />
                     } else {
-                        <KitTable>
+                        <KitTable layout={TableLayout::Stack}>
                             <table>
                                 <thead>
                                     <tr>
@@ -584,21 +629,45 @@ pub fn PayoutOperationsPage<'a>(
                                 <tbody>
                                     for row in &screen.payouts {
                                         <tr>
-                                            <td><PayoutStatus t={t} row={row} /></td>
-                                            <td class={Number}>{money(t, &row.requested_amount, &row.currency_code)}</td>
-                                            <td class={Number}>{money(t, &row.fee_amount, &row.currency_code)}</td>
-                                            <td class={Number}>{money(t, &row.net_amount, &row.currency_code)}</td>
                                             <td>
+                                                <CellLabel>{t.po_status()}</CellLabel>
+                                                <PayoutStatus t={t} row={row} />
+                                            </td>
+                                            <td class={Number}>
+                                                <CellLabel>{t.payout_requested_amount()}</CellLabel>
+                                                {money(t, &row.requested_amount, &row.currency_code)}
+                                            </td>
+                                            <td class={Number}>
+                                                <CellLabel>{t.payout_fee()}</CellLabel>
+                                                {money(t, &row.fee_amount, &row.currency_code)}
+                                            </td>
+                                            <td class={Number}>
+                                                <CellLabel>{t.payout_net()}</CellLabel>
+                                                {money(t, &row.net_amount, &row.currency_code)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.po_payout_confirmation()}</CellLabel>
                                                 {if row.provider_payout_reference.is_some() { t.po_confirmed() } else { t.po_pending_confirmation() }}
                                             </td>
-                                            <td>{row.provider_status.as_deref().unwrap_or(t.po_unknown())}</td>
                                             <td>
+                                                <CellLabel>{t.po_external_status()}</CellLabel>
+                                                {row.provider_status.as_deref().unwrap_or(t.po_unknown())}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.po_last_checked_2()}</CellLabel>
                                                 {row.last_reconciled_at.as_deref().map_or_else(|| t.po_not_checked().to_owned(), |at| when(t, at))}
                                             </td>
-                                            <td>{retries(t, row)}</td>
-                                            <td>{when(t, &row.updated_at)}</td>
+                                            <td>
+                                                <CellLabel>{t.po_retry_policy()}</CellLabel>
+                                                {retries(t, row)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.po_updated()}</CellLabel>
+                                                {when(t, &row.updated_at)}
+                                            </td>
                                             <td>
                                                 <OpenPayout
+                                                    column={t.po_actions()}
                                                     label={t.po_open()}
                                                     href={payout_href(marketplace, &row.payout_id)}
                                                 />
@@ -621,7 +690,7 @@ pub fn PayoutOperationsPage<'a>(
                                 description={t.po_provider_transfer_and_payout_submissions_appear()}
                             />
                         } else {
-                            <KitTable>
+                            <KitTable layout={TableLayout::Stack}>
                                 <table>
                                     <thead>
                                         <tr>
@@ -635,13 +704,26 @@ pub fn PayoutOperationsPage<'a>(
                                     <tbody>
                                         for row in &screen.attempts {
                                             <tr>
-                                                <td>{&row.operation_kind}</td>
-                                                <td class={Words}>{row.payout_id.as_deref().unwrap_or(t.po_none())}</td>
+                                                <td>
+                                                    <CellLabel>{t.po_operation()}</CellLabel>
+                                                    {&row.operation_kind}
+                                                </td>
                                                 <td class={Words}>
+                                                    <CellLabel>{t.po_payout()}</CellLabel>
+                                                    {row.payout_id.as_deref().unwrap_or(t.po_none())}
+                                                </td>
+                                                <td class={Words}>
+                                                    <CellLabel>{t.po_provider_reference()}</CellLabel>
                                                     {row.provider_object_reference.as_deref().unwrap_or(t.po_pending())}
                                                 </td>
-                                                <td>{t.po_protected_retry_key()}</td>
-                                                <td>{when(t, &row.created_at)}</td>
+                                                <td>
+                                                    <CellLabel>{t.po_idempotency_key()}</CellLabel>
+                                                    {t.po_protected_retry_key()}
+                                                </td>
+                                                <td>
+                                                    <CellLabel>{t.po_created()}</CellLabel>
+                                                    {when(t, &row.created_at)}
+                                                </td>
                                             </tr>
                                         }
                                     </tbody>

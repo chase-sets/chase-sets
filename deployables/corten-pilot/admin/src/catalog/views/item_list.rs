@@ -7,6 +7,7 @@ use corten::{
     prelude::*,
     view::{AttrValue, Id},
 };
+use platform::ui::table::{CellLabel, TableLayout};
 
 use super::{
     Bar, BulkRows, Candidates, CatalogDialog, Empty, Filters, Followed, Input, JobDialog, ListPage, ListScreen, MoreFilters,
@@ -315,7 +316,7 @@ pub fn item_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <ItemTableRow t={t} row={row} select={select} />
                     }
@@ -357,12 +358,30 @@ fn ItemTableRow<'a>(t: Cat, row: &'a ItemRow, select: Option<Pilot>) -> impl Ren
             if let Some(p) = select {
                 <td><SelectRow p={p} id={&row.catalog_item_id} status={Some(row.status.as_str())} /></td>
             }
-            <td>{&row.title}</td>
-            <td>{row.subtitle.as_deref().unwrap_or(dash)}</td>
-            <td>{language(t, &row.language_code)}</td>
-            <td>{row.blueprint.as_ref().map_or(dash, |b| b.name.as_str())}</td>
-            <td>{if sources.is_empty() { dash } else { sources.as_str() }}</td>
-            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <CellLabel>{t.item_list_title()}</CellLabel>
+                {&row.title}
+            </td>
+            <td>
+                <CellLabel>{t.item_list_subtitle()}</CellLabel>
+                {row.subtitle.as_deref().unwrap_or(dash)}
+            </td>
+            <td>
+                <CellLabel>{t.item_list_language()}</CellLabel>
+                {language(t, &row.language_code)}
+            </td>
+            <td>
+                <CellLabel>{t.item_list_blueprint()}</CellLabel>
+                {row.blueprint.as_ref().map_or(dash, |b| b.name.as_str())}
+            </td>
+            <td>
+                <CellLabel>{t.item_list_source()}</CellLabel>
+                {if sources.is_empty() { dash } else { sources.as_str() }}
+            </td>
+            <td>
+                <CellLabel>{t.item_list_status()}</CellLabel>
+                <StatusPill status={&row.status} toned={false} />
+            </td>
             <td><a class={View} href={&page}>{t.list_view()}</a></td>
         </tr>
     }
@@ -525,7 +544,7 @@ fn PublishTable<'a>(t: Cat, candidates: &'a [PublishCandidate]) -> impl Render {
         if candidates.is_empty() {
             <p class={Note}>{t.item_list_no_items_to_publish()}</p>
         } else {
-            <Table label={t.item_list_bulk_publish_preview()} head={&head} all={None}>
+            <Table label={t.item_list_bulk_publish_preview()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for c in shown {
                     let sources = c.source_providers.join(", ");
                     <tr>
@@ -562,7 +581,7 @@ fn EditTable<'a>(t: Cat, candidates: &'a [EditCandidate]) -> impl Render {
         if candidates.is_empty() {
             <p class={Note}>{t.item_list_bulk_edit_no_items()}</p>
         } else {
-            <Table label={t.item_list_bulk_edit_action()} head={&head} all={None}>
+            <Table label={t.item_list_bulk_edit_action()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for c in shown {
                     let (categories, tags) = (c.category_ids.join(", "), c.tags.join(", "));
                     <tr>

@@ -11,6 +11,7 @@ use corten::{
     prelude::*,
     view::{AttrValue, Id},
 };
+use platform::ui::table::TableLayout;
 use serde_json::Value;
 
 use super::{
@@ -627,7 +628,7 @@ fn FieldValues<'a>(
             if rows.is_empty() {
                 <Empty title={t.item_no_field_values()} description="" />
             } else {
-                <Table label={t.item_field_values()} head={&head} all={None}>
+                <Table label={t.item_field_values()} head={&head} all={None} layout={TableLayout::Scroll}>
                     for row in rows {
                         <tr>
                             <td>{&row.label}</td>
@@ -740,7 +741,7 @@ fn Categories<'a>(
             if item.categories.is_empty() {
                 <p class={Muted}>{t.item_no_categories_assigned()}</p>
             } else {
-                <Table label={t.item_categories()} head={&head} all={None}>
+                <Table label={t.item_categories()} head={&head} all={None} layout={TableLayout::Scroll}>
                     for category in &item.categories {
                         <tr>
                             <td>{&category.name}</td>
@@ -836,7 +837,7 @@ fn Contents<'a>(
                     <p class={Muted}>{t.item_no_product_containers()}</p>
                 } else {
                     let head = [t.item_container_catalog_item(), t.item_content_type(), t.item_quantity(), t.item_selected_options()];
-                    <Table label={t.item_included_in()} head={&head} all={None}>
+                    <Table label={t.item_included_in()} head={&head} all={None} layout={TableLayout::Scroll}>
                         for line in containers {
                             <tr>
                                 <td>{screen.labels.item(&line.container_catalog_item_id)}</td>
@@ -875,7 +876,7 @@ fn LineTable<'a>(
         if lines.is_empty() {
             <p class={Muted}>{empty}</p>
         } else {
-            <Table label={t.item_contents()} head={&head} all={None}>
+            <Table label={t.item_contents()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for line in lines {
                     <tr>
                         <td>
@@ -1048,7 +1049,7 @@ fn References<'a>(
                 if refs.is_empty() {
                     <p class={Muted}>{none}</p>
                 } else {
-                    <Table label={title} head={&head} all={None}>
+                    <Table label={title} head={&head} all={None} layout={TableLayout::Scroll}>
                         for r in refs {
                             <tr>
                                 <td>{&r.provider_key}</td>

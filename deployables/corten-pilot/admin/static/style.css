@@ -52,6 +52,11 @@ main {
   margin: 0 auto;
   padding: var(--space-6);
 }
+/* The error page's detail under corten dev: an API's long message wraps, not past a phone's edge. */
+main > pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 a {
   color: var(--color-primary);
 }

@@ -135,7 +135,7 @@ pub use support_page::SupportPage;
 pub use team_page::TeamPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, Section];
+pub const COMPONENTS: &[Component] = &[theme::TOKENS, platform::ui::icon::Icon, MarketNav, Section];
 
 /// The inventory screens' components (`/account/inventory`), the import page's too.
 /// The inventory list uses Create listing's catalog picker script, and corten-ui's handler that

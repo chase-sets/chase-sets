@@ -309,7 +309,7 @@
   justify-content: space-between;
   flex-wrap: nowrap;
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .figures {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }

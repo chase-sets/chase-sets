@@ -1,10 +1,11 @@
 //! Waitlist (`WaitlistAdminPage`). Top to bottom: the header with Export CSV, the signups by role,
 //! the invite waves' fill, the filters (one column on a phone, then two, then all in a row) and the
-//! signups, which scroll on their own on a phone.
+//! signups, which stack on a phone, a row a block of labelled lines.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use crate::{
     growth::waitlist::{INTERESTS, ROLES, WaitlistScreen, url},
@@ -131,44 +132,63 @@ pub fn WaitlistPage<'a>(t: Gro, screen: &'a WaitlistScreen) -> impl Render {
                     </div>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.admin_updated()}</th>
-                                    <th scope="col">{t.admin_email()}</th>
-                                    <th scope="col">{t.admin_role()}</th>
-                                    <th scope="col">{t.admin_interests()}</th>
-                                    <th scope="col">{t.admin_referrals()}</th>
-                                    <th scope="col">{t.admin_referred()}</th>
-                                    <th scope="col">{t.admin_source()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for item in &screen.signups.items {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td>{when(t, &item.updated_at)}</td>
-                                        <td class={Words}>{&item.email}</td>
-                                        <td><span class={(Pill, Accent)}>{role(t, &item.role)}</span></td>
-                                        <td>
-                                            <span class={Pills}>
-                                                for value in &item.interests {
-                                                    <span class={(Pill, Neutral)}>{interest(t, value)}</span>
-                                                }
-                                            </span>
-                                        </td>
-                                        <td>
-                                            if item.referral_count > 0 {
-                                                <span class={(Pill, Good)}>{t.number(item.referral_count).to_string()}</span>
-                                            } else {
-                                                "0"
-                                            }
-                                        </td>
-                                        <td>{if item.referred_by_signup_id.is_some() { t.admin_referred_yes() } else { "" }}</td>
-                                        <td class={Words}>{item.source()}</td>
+                                        <th scope="col">{t.admin_updated()}</th>
+                                        <th scope="col">{t.admin_email()}</th>
+                                        <th scope="col">{t.admin_role()}</th>
+                                        <th scope="col">{t.admin_interests()}</th>
+                                        <th scope="col">{t.admin_referrals()}</th>
+                                        <th scope="col">{t.admin_referred()}</th>
+                                        <th scope="col">{t.admin_source()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for item in &screen.signups.items {
+                                        <tr>
+                                            <td>
+                                                <CellLabel>{t.admin_updated()}</CellLabel>
+                                                {when(t, &item.updated_at)}
+                                            </td>
+                                            <td class={Words}>
+                                                <CellLabel>{t.admin_email()}</CellLabel>
+                                                {&item.email}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.admin_role()}</CellLabel>
+                                                <span class={(Pill, Accent)}>{role(t, &item.role)}</span>
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.admin_interests()}</CellLabel>
+                                                <span class={Pills}>
+                                                    for value in &item.interests {
+                                                        <span class={(Pill, Neutral)}>{interest(t, value)}</span>
+                                                    }
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.admin_referrals()}</CellLabel>
+                                                if item.referral_count > 0 {
+                                                    <span class={(Pill, Good)}>{t.number(item.referral_count).to_string()}</span>
+                                                } else {
+                                                    "0"
+                                                }
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.admin_referred()}</CellLabel>
+                                                {if item.referred_by_signup_id.is_some() { t.admin_referred_yes() } else { "" }}
+                                            </td>
+                                            <td class={Words}>
+                                                <CellLabel>{t.admin_source()}</CellLabel>
+                                                {item.source()}
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
                 <p class={Muted}>{t.admin_count_summary(screen.signups.count, screen.signups.total)}</p>

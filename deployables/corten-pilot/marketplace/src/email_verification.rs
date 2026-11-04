@@ -25,12 +25,14 @@ pub const RETURN_PARAMETER: &str = "verifyEmail";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Purpose {
     CancelPurchase,
+    PayCheckout,
 }
 
 impl Purpose {
     pub fn key(self) -> &'static str {
         match self {
             Purpose::CancelPurchase => "cancel-purchase",
+            Purpose::PayCheckout => "pay-checkout",
         }
     }
 }
@@ -87,6 +89,10 @@ mod tests {
         assert_eq!(
             sign_in_href("/account/purchases/ord_1", Purpose::CancelPurchase),
             "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_1%3FverifyEmail%3Dcancel-purchase&signInMethod=magic-link"
+        );
+        assert_eq!(
+            sign_in_href("/checkout/buy/session/chk_1", Purpose::PayCheckout),
+            "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&signInMethod=magic-link"
         );
     }
 }

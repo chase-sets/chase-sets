@@ -31,6 +31,7 @@ pub use welcome_page::{WaveStatus, WelcomePage};
 /// the home page's visitors who act open it next.
 pub const COMPONENTS: &[Component] = &[
     theme::TOKENS,
+    platform::ui::icon::Icon,
     NotFound,
     HomeLayout,
     HomePage,
