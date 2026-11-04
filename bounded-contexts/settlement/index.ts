@@ -1,15 +1,4 @@
 export { default as contextManifest } from "./context.json" with { type: "json" };
-export {
-  sellerCheckoutRiskPolicyRevision,
-  type SellerCheckoutRiskOwner,
-  type SellerCheckoutRiskReader,
-  type SellerCheckoutRiskResult,
-} from "./features/seller-checkout-risk/domain/contract";
-export {
-  createSellerCheckoutRiskReader,
-  readSellerCheckoutRisk,
-  type SellerCheckoutRiskFactSource,
-} from "./features/seller-checkout-risk/read-model/queries";
 
 import {
   buildEventSubscriptionsFromManifest,
