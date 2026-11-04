@@ -336,7 +336,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 157, "deps.db"],
       ["bounded-contexts/auth/support/ucp-support/oauth.ts", 354, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
-      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255, "db"],
+      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 367, "db"],
       ["infrastructure/event-core-postgres/postgres-db-test-support.ts", 24, "adminPool"],
       ["bounded-contexts/catalog/features/catalog-items/read-model/projection.ts", 28, "projectionDb"],
       [
@@ -383,7 +383,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235],
-      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255],
+      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 367],
       [fixtureFile, 29],
       [fixtureFile, 37],
     ];

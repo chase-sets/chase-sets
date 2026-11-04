@@ -44,6 +44,17 @@ describe("Account lifecycle proof enrollment", () => {
   });
 });
 
+describe("Admin QA actor fixture proof enrollment", () => {
+  it("enrolls the real DB proof, excludes it from unit CI, and rejects a deleted proof file", () => {
+    const proof = "support/auth-support/admin-qa-actor-fixtures.test.ts";
+    const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    expect(manifest.scripts["test:db"].split(/\s+/)).toContain(proof);
+    expect(manifest.scripts["test:unit"]).toContain(`--exclude ${proof}`);
+    expect(manifest.scripts["test:db"]).not.toContain("passWithNoTests");
+    expect(existsSync(new URL("../auth-support/admin-qa-actor-fixtures.test.ts", import.meta.url))).toBe(true);
+  });
+});
+
 /**
  * Every identity below is SYNTHETIC and exists only inside this file. None of
  * them corresponds to a seeded, staging, or production session, user, account,

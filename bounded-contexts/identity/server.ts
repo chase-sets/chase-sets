@@ -53,6 +53,7 @@ export {
   type AdminQaActorFixtureDefinition,
   type AdminQaActorFixtureResult,
   type AdminQaActorFixtureSignInHost,
+  type AdminQaActorFixtureContacts,
 } from "./support/runtime-support/admin-qa-actor-fixtures";
 export {
   createLinkedPlatformAuthorizationStore,

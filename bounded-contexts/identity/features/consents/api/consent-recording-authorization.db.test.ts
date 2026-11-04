@@ -612,14 +612,15 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
   );
 
   it.each([
-    { profile: "scenario-seed", created: 8, readsProjections: false },
-    { profile: "representative-commerce-state", created: 5, readsProjections: false },
-    // Admin-QA decides existence from the Identity projections rather than the
-    // streams, so its reruns see what the host's projection runner has drained.
-    { profile: "admin-qa-actor-fixtures", created: 6, readsProjections: true },
+    { profile: "scenario-seed", accounts: 8, users: 8, memberships: 8, readsProjections: false },
+    { profile: "representative-commerce-state", accounts: 5, users: 5, memberships: 5, readsProjections: false },
+    // Admin-QA runs beside the host's projection runner, so its reruns also see
+    // drained projections. The viewer's secondary Account and Membership add
+    // one of each (#7363).
+    { profile: "admin-qa-actor-fixtures", accounts: 7, users: 6, memberships: 7, readsProjections: true },
   ] as const)(
     "provisions $profile identities with no Consent fact and no activation-authority read",
-    async ({ profile, created, readsProjections }) => {
+    async ({ profile, accounts, users, memberships, readsProjections }) => {
       const seed = identityModule.seed;
       if (!seed) {
         throw new Error("Identity module must expose its seed boundary.");
@@ -642,9 +643,9 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
       await drainProjections();
       const provisioned = await identityProvisioningState();
       expect(provisioned.created).toEqual({
-        "identity.account.created": created,
-        "identity.user.created": created,
-        "identity.membership.granted": created,
+        "identity.account.created": accounts,
+        "identity.user.created": users,
+        "identity.membership.granted": memberships,
         "identity.consent.recorded": 0,
       });
       await seed(boot.pool, undefined, { enabledDataProfiles: [profile] });
