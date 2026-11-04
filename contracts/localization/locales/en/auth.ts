@@ -344,6 +344,8 @@ export const authEnglishTranslations = {
     "Social login provider could not be reached. Try again or use another sign-in method.",
   "auth.support.apiSupport.socialLoginRoutes.provider.already.linked":
     "This social login is already connected to another Chase Sets user.",
+  "auth.support.apiSupport.socialLoginRoutes.provider.link.repair.required":
+    "This social login needs review before it can be used. Use another sign-in method or contact support.",
   "auth.support.apiSupport.socialLoginRoutes.admin.permission.required":
     "This Workspace user does not have access to this admin area.",
   "auth.support.apiSupport.socialLoginRoutes.admin.user.required": "This Workspace user is not set up in Chase Sets.",

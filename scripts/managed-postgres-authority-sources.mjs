@@ -22,6 +22,7 @@ const PURPOSES = new Set([
   "managed-postgres-boundary",
   "marketplace-ops",
   "release-evidence",
+  "release-marker-publication",
   "restore-drill-fork-ca",
   "spaces-evidence",
   "terraform-infra",
