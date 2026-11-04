@@ -1,5 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 import { logMarketplaceSeedContractGap } from "./support/seed-contract-gap";
@@ -259,8 +260,16 @@ test.describe("buy funnel redesign — defect verification", () => {
 
   test("buy cart with seeded items shows Estimated total and passes all redesign contracts @marketplace-checkout @browser-e2e-seed", async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(120_000);
+
+    await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
+    const fallbackResponseBytes: Promise<number>[] = [];
+    page.on("response", (response) => {
+      if (response.url().includes("/fake-cdn/assets/pokemon-card-back.png") && response.status() === 200) {
+        fallbackResponseBytes.push(response.body().then((body) => body.byteLength));
+      }
+    });
 
     await authenticateSeededBuyer(page);
     await waitForAccountRoute(page, "/account/cart");
@@ -309,9 +318,85 @@ test.describe("buy funnel redesign — defect verification", () => {
       ).toBe(true);
     }
 
+    const fallbackImages = page.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']");
+    await expect(
+      fallbackImages.first(),
+      "the populated cart must visibly render its image-less line with the optimized fallback",
+    ).toBeVisible();
+    await expect
+      .poll(() => fallbackImages.first().evaluate((image) => (image as HTMLImageElement).naturalWidth), {
+        message: "the cart fallback must decode to a non-zero natural width",
+      })
+      .toBeGreaterThan(0);
+
+    const lineImageStates = await cartLines.evaluateAll((lines) =>
+      lines.map((line) => {
+        const images = Array.from(line.querySelectorAll<HTMLImageElement>("img"));
+        const fallbackPath = "/fake-cdn/assets/pokemon-card-back.png";
+        return {
+          fallbackCount: images.filter((image) => image.src.includes(fallbackPath)).length,
+          realImageCount: images.filter((image) => image.src && !image.src.includes(fallbackPath)).length,
+        };
+      }),
+    );
+    const imageLessLineCount = lineImageStates.filter(({ realImageCount }) => realImageCount === 0).length;
+    const fallbackLineCount = lineImageStates.filter(({ fallbackCount }) => fallbackCount > 0).length;
+    expect(fallbackLineCount, "every image-less seeded line must use the optimized fallback").toBe(imageLessLineCount);
+    expect(
+      lineImageStates.every(({ realImageCount, fallbackCount }) => realImageCount === 0 || fallbackCount === 0),
+      "real-image cart lines must not be replaced by the fallback URL",
+    ).toBe(true);
+
+    const observedFallbackBytes = await Promise.all(fallbackResponseBytes);
+    expect(observedFallbackBytes.length, "the cart fallback must be requested over the network").toBeGreaterThan(0);
+    expect(
+      Math.max(...observedFallbackBytes),
+      "every uncached cart fallback response must fit the AC1 byte budget",
+    ).toBeLessThanOrEqual(65_536);
+
     await assertSingleNoticeAtATime(page, "cart with lines");
 
     await captureScreenshot(page, "cart-with-lines");
+  });
+
+  async function assertCartFallbackResponsive(page: Page, width: number, height: number) {
+    await page.setViewportSize({ width, height });
+    await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
+    const fallbackResponseBytes: Promise<number>[] = [];
+    page.on("response", (response) => {
+      if (response.url().includes("/fake-cdn/assets/pokemon-card-back.png") && response.status() === 200) {
+        fallbackResponseBytes.push(response.body().then((body) => body.byteLength));
+      }
+    });
+    await authenticateSeededBuyer(page);
+    await waitForAccountRoute(page, "/account/cart");
+    const fallbackImage = page.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']").first();
+    await expect(fallbackImage).toBeVisible();
+    await expect
+      .poll(() => fallbackImage.evaluate((image) => (image as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+    const box = await fallbackImage.boundingBox();
+    expect(box, `cart fallback must have geometry at ${width}px`).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+    expect(box!.height).toBeGreaterThan(0);
+    await fallbackImage.evaluate((image) => image.setAttribute("data-fallback-evidence-target", "cart"));
+    const bytes = await Promise.all(fallbackResponseBytes);
+    expect(bytes.length).toBeGreaterThan(0);
+    expect(Math.max(...bytes)).toBeLessThanOrEqual(65_536);
+  }
+
+  test("cart fallback responsive evidence at 390px @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }, testInfo) => {
+    await assertCartFallbackResponsive(page, 390, 844);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "cart-fallback-390" });
+  });
+
+  test("cart fallback responsive evidence at 1024px @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }, testInfo) => {
+    await assertCartFallbackResponsive(page, 1024, 768);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "cart-fallback-1024" });
   });
 
   // ── 4. Checkout session surface (unauthenticated recovery) ────────────────
