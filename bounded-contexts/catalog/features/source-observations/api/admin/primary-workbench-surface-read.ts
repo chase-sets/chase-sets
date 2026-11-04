@@ -501,9 +501,7 @@ type BuildSurfaceReadModelInput = Readonly<{
 // Build the surface read model, dropping optional projections only when the
 // composition cannot build with them. Combinations are tried fewest-dropped
 // first, so the result keeps every projection it can.
-function buildSurfaceReadModelFailSoft(
-  input: BuildSurfaceReadModelInput,
-): Readonly<{
+function buildSurfaceReadModelFailSoft(input: BuildSurfaceReadModelInput): Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
 }> {
