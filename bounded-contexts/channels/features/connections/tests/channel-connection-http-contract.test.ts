@@ -14,6 +14,7 @@ const dto: PublicChannelConnection = {
   environment: "sandbox",
   status: "active",
   createdAt: "2026-09-05T00:00:00.000Z",
+  allowedActions: ["pause", "disconnect"],
 };
 
 describe("channel-connection-http-contract", () => {
@@ -23,6 +24,7 @@ describe("channel-connection-http-contract", () => {
       "POST /",
       "POST /:id/activate",
       "GET /",
+      "GET /providers",
       "GET /:id",
       "POST /:id/pause",
       "POST /:id/resume",
@@ -32,18 +34,39 @@ describe("channel-connection-http-contract", () => {
 
   it("returns the exact closed DTO across list, detail, and all three committed mutations", async () => {
     const app = createApp(createServices());
-    for (const request of [
-      new Request("http://local/api/channels/connections"),
-      new Request("http://local/api/channels/connections/connection_1"),
-      new Request("http://local/api/channels/connections/connection_1/pause", { method: "POST" }),
-      new Request("http://local/api/channels/connections/connection_1/resume", { method: "POST" }),
-      new Request("http://local/api/channels/connections/connection_1/disconnect", { method: "POST" }),
-    ]) {
+    for (const [request, expectedStatus] of [
+      [
+        new Request("http://local/api/channels/connections", {
+          method: "POST",
+          body: JSON.stringify({ providerKey: "fixture-provider" }),
+        }),
+        201,
+      ],
+      [
+        new Request("http://local/api/channels/connections/connection_1/activate", {
+          method: "POST",
+          body: JSON.stringify({ storageLocationIds: [] }),
+        }),
+        200,
+      ],
+      [new Request("http://local/api/channels/connections"), 200],
+      [new Request("http://local/api/channels/connections/connection_1"), 200],
+      [new Request("http://local/api/channels/connections/connection_1/pause", { method: "POST" }), 200],
+      [new Request("http://local/api/channels/connections/connection_1/resume", { method: "POST" }), 200],
+      [new Request("http://local/api/channels/connections/connection_1/disconnect", { method: "POST" }), 200],
+    ] as const) {
       const response = await app.request(request);
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(expectedStatus);
       const body = await response.json();
       const item = "items" in body ? body.items[0] : body;
-      expect(Object.keys(item)).toEqual(["connectionId", "providerKey", "environment", "status", "createdAt"]);
+      expect(Object.keys(item)).toEqual([
+        "connectionId",
+        "providerKey",
+        "environment",
+        "status",
+        "createdAt",
+        "allowedActions",
+      ]);
       expect(item).toEqual(dto);
       expect(JSON.stringify(body)).not.toMatch(/accountId|credentialReference|bindings|adversarial-secret-marker/);
     }

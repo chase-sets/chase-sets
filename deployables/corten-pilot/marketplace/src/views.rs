@@ -151,8 +151,9 @@ pub const INVENTORY: &[Component] = &[
     corten_ui::dialog::COMPONENT,
 ];
 
-/// The cart's components (`/account/cart`).
-pub const CART: &[Component] = &[CartItem];
+/// The cart's components (`/account/cart`), and checkout start's page, which a guest's Check out
+/// draws when it cannot start (`checkout_start::cart_as_guest`).
+pub const CART: &[Component] = &[CartItem, CheckoutStartPage];
 
 /// The offline page (`/offline`), which the service worker keeps for a navigation it cannot make.
 pub const OFFLINE: &[Component] = &[OfflinePage];
@@ -165,9 +166,15 @@ pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMP
 pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
 
 /// The item page's components (`/items`): its stylesheet, the Sales tab's chart, corten-ui's
-/// handler that makes Add to List's dialog modal when the server draws it open, and the analytics.
-pub const ITEM: &[Component] =
-    &[ItemDetail, platform::chart::TimeSeries, corten_ui::dialog::COMPONENT, item_detail::analytics::COMPONENT];
+/// handler that makes Add to List's dialog modal when the server draws it open, the analytics, and
+/// checkout start's page, which a guest's Buy now draws when it cannot start (`checkout_start::buy_as_guest`).
+pub const ITEM: &[Component] = &[
+    ItemDetail,
+    platform::chart::TimeSeries,
+    corten_ui::dialog::COMPONENT,
+    item_detail::analytics::COMPONENT,
+    CheckoutStartPage,
+];
 
 /// Search's components (the home page, `/search`, `/categories`, and `/sets` for its cards): its
 /// stylesheet, the script that applies a filter as it changes, and the analytics a result's click
@@ -216,8 +223,10 @@ pub const SESSIONS: &[Component] = &[SessionsPage];
 /// Create listing's page and its script.
 pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handlers::COMPONENT];
 
-/// The seller's listings (`/account/listings`): the list with its script, and a listing's page.
-pub const SELLER_LISTING: &[Component] = &[SellerListingsPage, seller_listings_page::handlers::COMPONENT, SellerListingPage];
+/// The seller's listings (`/account/listings`): the list with its script, a listing's page, and
+/// Create listing's stylesheet for its "Account access required" page (`ListingAccessRequired`).
+pub const SELLER_LISTING: &[Component] =
+    &[SellerListingsPage, seller_listings_page::handlers::COMPONENT, SellerListingPage, NewListingPage];
 
 /// The Sell List (`/account/sell-list`) and the Seller Desk's Offers & sell list (`/account/desk/offers`):
 /// its stylesheet. No script: Decline selected's dialog opens with `command="show-modal"`.
@@ -281,8 +290,9 @@ pub const SALE_SHIPMENTS: &[Component] = &[
     corten_ui::PrintButton,
 ];
 
-/// A listing's public page (`/listings`).
-pub const LISTING: &[Component] = &[ListingPage];
+/// A listing's public page (`/listings`), and checkout start's page, which a guest's Buy now draws
+/// when it cannot start (`checkout_start::buy_as_guest`).
+pub const LISTING: &[Component] = &[ListingPage, CheckoutStartPage];
 
 /// Signing in's pages (`/sign-in`, `/account/select`): the sign-in page's stylesheet.
 pub const SIGN_IN: &[Component] = &[SignInPage];
