@@ -12391,12 +12391,16 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     // (todd-skelton/corten#768), and no policy of the pilot's own.
     assert!(csp.contains("trusted-types corten default"), "{csp}");
     assert!(html.contains(r#"trustedTypes.createPolicy("default""#), "{html}");
+    // The Payment Element's wallets run the Payment Request API in Stripe's frames.
+    let features = headers["permissions-policy"].to_str().unwrap();
+    assert!(!features.contains("payment=()") && features.contains("camera=()"), "{features}");
     // Only the payment pages allow Stripe (todd-skelton/corten#275), or its policy.
     let (status, headers, _) = pilot.send(get(SELL_LIST_PAGE, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK);
     let elsewhere = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
     assert!(!elsewhere.contains("stripe.com"), "{elsewhere}");
     assert!(elsewhere.contains("trusted-types corten;") || elsewhere.ends_with("trusted-types corten"), "{elsewhere}");
+    assert!(headers["permissions-policy"].to_str().unwrap().contains("payment=()"), "elsewhere payment is denied");
     let page = text(&html);
     assert!(page.contains("Secure Checkout Payment pay_1"), "{page}");
     assert!(page.contains("Complete payment by deadline"), "the order's deadline: {page}");
