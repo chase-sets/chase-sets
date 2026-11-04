@@ -12,12 +12,10 @@ import type {
 } from "./contracts";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "./primary-workbench-read-model";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
-import {
-  scrydexOnePieceCardPrintProviderProfile,
-  tcgdexPokemonTcgProviderProfile,
-  tcgplayerAutomationClientProviderProfile,
-  type CatalogProviderIntegrationProfile,
-} from "../api/provider-integration-profiles";
+import { scrydexOnePieceCardPrintProviderProfile } from "../api/providers/scrydex/profiles";
+import { tcgdexPokemonTcgProviderProfile } from "../api/providers/tcgdex/profiles";
+import { tcgplayerAutomationClientProviderProfile } from "../api/providers/tcgplayer/profiles";
+import type { CatalogProviderIntegrationProfile } from "../api/providers/profile-types";
 
 export function sourceObservationScope(
   overrides: Partial<SourceObservationIntegrationScope> = {},
