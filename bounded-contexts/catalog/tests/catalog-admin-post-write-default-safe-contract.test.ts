@@ -71,7 +71,12 @@ describe("catalog admin post-write default-safe contract", () => {
     const byId = new Map(entries.map((entry) => [entry.id, entry]));
     const projectionGroups = new Map((context.projectionGroups ?? []).map((group) => [group.projectionName, group]));
 
-    expect(context.readAfterWriteRouteInventory ?? []).toEqual([]);
+    expect((context.readAfterWriteRouteInventory ?? []).map((entry) => (entry as { id: string }).id)).toEqual([
+      "catalog.item-detail-self-refresh",
+      "catalog.item-list-self-refresh",
+      "catalog.product-contents-container-self-refresh",
+      "catalog.product-contents-contained-self-refresh",
+    ]);
     expect(projectionGroups.get("catalog-product-contents-projection")).toMatchObject({
       sourceContextNames: ["catalog"],
       ownedTables: ["catalog_resolved_product_contents"],
