@@ -9,9 +9,11 @@ import {
   isThinRouteAdapter,
   singleSliceSupportSeverity,
 } from "./run.mjs";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { findServerBarrelReactFreeViolations } from "./server-barrel-react-free.mjs";
+import { fileURLToPath } from "node:url";
 
 const baseManifest = {
   directoryIntent: {
@@ -38,6 +40,39 @@ function violationFor(relativeFile, content, manifest = baseManifest) {
 }
 
 describe("route support placement guard", () => {
+  it("publishes the Settlement risk reader only through the admitted server surface", async () => {
+    expect(isAllowedPublicExportName("./server")).toBe(true);
+    expect(isAllowedPublicExportName("./seller-checkout-risk")).toBe(false);
+    const root = new URL("../../bounded-contexts/settlement/", import.meta.url);
+    const read = (relative) => readFileSync(new URL(relative, root), "utf8");
+    const manifest = JSON.parse(read("context.json"));
+    const pkg = JSON.parse(read("package.json"));
+    expect(manifest.publicExports).toEqual(Object.keys(pkg.exports));
+    expect(manifest.publicExports.every(isAllowedPublicExportName)).toBe(true);
+    expect(pkg.exports["./server"]).toBe("./server.ts");
+    expect(pkg.exports).not.toHaveProperty("./seller-checkout-risk");
+    const facade = read("features/seller-checkout-risk/api/public.ts");
+    for (const symbol of [
+      "createSellerCheckoutRiskReader",
+      "readSellerCheckoutRisk",
+      "SellerCheckoutRiskOwner",
+      "SellerCheckoutRiskResult",
+      "SellerCheckoutRiskReader",
+    ]) {
+      expect(read("server.ts")).toContain(symbol);
+      expect(facade).toContain(symbol);
+    }
+    expect(read("server.ts")).toContain('from "./features/seller-checkout-risk/api/public"');
+    expect(read("index.ts")).not.toMatch(/seller-checkout-risk|export\s+\*.*server/);
+    const violations = await findServerBarrelReactFreeViolations({
+      repoRoot: fileURLToPath(new URL("../../", import.meta.url)),
+      contextManifests: new Map([
+        ["bounded-contexts/settlement", { root: "bounded-contexts/settlement", packageName: pkg.name }],
+      ]),
+    });
+    expect(violations).toEqual([]);
+  });
+
   it("recognizes thin route adapters and rejects behavior in migrated adapters", () => {
     expect(isThinRouteAdapter('export { loader, action } from "../features/catalog/ui/route";')).toBe(true);
     expect(isThinRouteAdapter('export async function loader() { return new Response("owned here"); }')).toBe(false);

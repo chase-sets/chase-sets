@@ -3,10 +3,12 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   sellerCheckoutRiskPolicyRevision,
+  parseSellerCheckoutRiskResult,
   type SellerCheckoutRiskOwner,
   type SellerCheckoutRiskReader,
   type SellerCheckoutRiskResult,
 } from "../domain/contract";
+import { evaluateSellerCheckoutRisk } from "../domain/policy";
 
 type RiskSourceRow = Readonly<{ account_id: string; revision: unknown; updated_at: unknown }>;
 export type SellerCheckoutRiskFactSource = (accountId: AccountId) => Promise<unknown | null>;
@@ -26,7 +28,7 @@ const unavailable: SellerCheckoutRiskResult = {
   status: "not-clear",
   reasonCode: "risk-not-clear",
   policyRevision: sellerCheckoutRiskPolicyRevision,
-  sourceRevision: 0,
+  sourceRevision: null,
   sourceTimestamp: null,
   rowState: "unavailable",
 };
@@ -41,13 +43,20 @@ function ownerOf(value: unknown): SellerCheckoutRiskOwner | null {
     if (!value || typeof value !== "object" || !hasExactKeys(value, ["anonymousSellListId", "kind"])) return null;
   }
   const owner = value as Record<string, unknown>;
-  if (owner.kind === "account" && typeof owner.accountId === "string" && /^acc_.+/.test(owner.accountId)) {
+  if (
+    owner.kind === "account" &&
+    typeof owner.accountId === "string" &&
+    /^acc_[A-Za-z0-9_]+$/.test(owner.accountId) &&
+    owner.accountId.trim() === owner.accountId &&
+    owner.accountId !== "acc_anonymous_sell_list"
+  ) {
     return { kind: "account", accountId: owner.accountId as AccountId };
   }
   if (
     owner.kind === "anonymous" &&
     typeof owner.anonymousSellListId === "string" &&
-    /^anon_.+/.test(owner.anonymousSellListId)
+    /^anon_[A-Za-z0-9_]+$/.test(owner.anonymousSellListId) &&
+    owner.anonymousSellListId.trim() === owner.anonymousSellListId
   ) {
     return { kind: "anonymous", anonymousSellListId: owner.anonymousSellListId as `anon_${string}` };
   }
@@ -61,11 +70,9 @@ function revisionOf(value: unknown): number | null {
 }
 
 function timestampOf(value: unknown): IsoUtcTimestamp | null {
-  if (value instanceof Date) {
-    value = value.toISOString();
-  }
-  if (typeof value !== "string") return null;
   try {
+    if (value instanceof Date) value = value.toISOString();
+    if (typeof value !== "string") return null;
     return parseIsoUtcTimestamp(value);
   } catch {
     return null;
@@ -79,15 +86,14 @@ function present(row: unknown, accountId: AccountId): SellerCheckoutRiskResult |
   if (value.account_id !== accountId || revision === null) return null;
   const sourceTimestamp = timestampOf(value.updated_at);
   if (!sourceTimestamp) return null;
-  return {
+  return parseSellerCheckoutRiskResult({
     schemaVersion: "settlement.seller-checkout-risk.v1",
-    status: "clear",
-    reasonCode: null,
+    ...evaluateSellerCheckoutRisk(),
     policyRevision: sellerCheckoutRiskPolicyRevision,
     sourceRevision: revision,
     sourceTimestamp,
     rowState: "present",
-  };
+  });
 }
 
 /** Reads exactly one Settlement row for an authenticated owner. Anonymous owners have no Settlement row. */
@@ -98,14 +104,13 @@ export async function readSellerCheckoutRisk(
   const owned = ownerOf(owner);
   if (!owned) return unavailable;
   if (owned.kind === "anonymous") return absent;
-  let row: unknown | null;
   try {
-    row = await source(owned.accountId);
+    const row = await source(owned.accountId);
+    if (row === null) return absent;
+    return present(row, owned.accountId) ?? unavailable;
   } catch {
     return unavailable;
   }
-  if (row === null) return absent;
-  return present(row, owned.accountId) ?? unavailable;
 }
 
 export function createSellerCheckoutRiskReader(db: PgQueryable): SellerCheckoutRiskReader {

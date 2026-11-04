@@ -11,5 +11,39 @@
     { "kind": "anonymous", "idField": "anonymousSellListId", "idPrefix": "anon_" }
   ],
   "policyRevision": "seller-checkout-risk-v1",
-  "rowStates": ["present", "absent", "unavailable"]
+  "rowStates": ["present", "absent", "unavailable"],
+  "acceptanceTests": {
+    "AC1": [
+      "contract.test.ts::seller checkout risk authority contract",
+      "scripts/check-structure/route-support-placement.test.mjs::publishes the Settlement risk reader only through the admitted server surface",
+      "scripts/check-structure/server-barrel-react-free.test.mjs"
+    ],
+    "AC2": [
+      "account-risk-source-projection.test.ts::requires every account-risk writer to publish an atomic revision",
+      "account-risk-source-projection.test.ts::classifies only exact immutable legacy normalization before revision introduction",
+      "account-risk-source-projection.test.ts::discovers and rejects %s through the same source scan",
+      "seller-checkout-risk-revision.db.test.ts::upgrades the real old-schema ledger, preserves old facts at zero and boots twice without resets with fresh parity",
+      "seller-checkout-risk-revision.db.test.ts::executes all immutable legacy backfills before the revision column exists, then ledger-skips them on a second boot",
+      "seller-checkout-risk-revision.db.test.ts::publishes insert one and an atomic increment for every <writer> write/conflict (all ten registered writer cases)",
+      "seller-checkout-risk-revision.db.test.ts::serializes overlapping conflicting writers in PostgreSQL without a lost revision or fraud count",
+      "seller-checkout-risk-revision.db.test.ts::observes absence after UNLOGGED projection loss and reconstructs source facts/stamps through ordered replay"
+    ],
+    "AC3": [
+      "authority-timing.test.ts::captures changed facts/stamps and unavailable before-confirm authority for the same trusted owner"
+    ],
+    "AC4": ["policy.test.ts::seller checkout risk v1 policy"]
+  },
+  "dbWriterCases": [
+    "account creation",
+    "badge assignment",
+    "address linkage",
+    "instrument linkage",
+    "velocity aggregation",
+    "reputation aggregation",
+    "fraud warning",
+    "fraud review open",
+    "fraud review close",
+    "payment trust aggregation"
+  ],
+  "proofBoundary": "Named non-DB tests are local focused checks. AC2 persistence, real migration ordering and replay require actual exact-head hosted DB Profile fixture execution without skips. Synthetic lifecycle calls are not HTTP/consumer proof."
 }

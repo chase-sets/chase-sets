@@ -29,9 +29,6 @@ CREATE TABLE IF NOT EXISTS settlement_account_risk_sources (
 );
 
 ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0;
-
-ALTER TABLE settlement_account_risk_sources
   ADD COLUMN IF NOT EXISTS chargeback_7d_count integer NOT NULL DEFAULT 0;
 
 ALTER TABLE settlement_account_risk_sources
@@ -177,14 +174,6 @@ CREATE INDEX IF NOT EXISTS settlement_account_velocity_sources_reviewer_idx
 `;
 
 export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigration[] = [
-  {
-    migrationId: "20261104_settlement_account_risk_source_revision",
-    description: "Add the Settlement account-risk publication revision with zero bootstrap parity.",
-    statements: [
-      `ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0`,
-    ],
-  },
   {
     migrationId: "20260907_settlement_listing_risk_currency",
     description:
@@ -365,6 +354,15 @@ export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigra
    SET revealed_at = updated_at
    WHERE status = 'active'
      AND revealed_at IS NULL`,
+    ],
+  },
+  {
+    migrationId: "20261104_settlement_account_risk_source_revision",
+    description:
+      "Introduce the publication revision after immutable legacy normalization; existing rows start at zero.",
+    statements: [
+      `ALTER TABLE settlement_account_risk_sources
+  ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0`,
     ],
   },
 ] as const;

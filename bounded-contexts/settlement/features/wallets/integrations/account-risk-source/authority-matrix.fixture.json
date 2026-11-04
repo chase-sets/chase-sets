@@ -3,11 +3,57 @@
   "writers": [
     {
       "file": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts",
-      "minimumCount": 9
+      "count": 9
     },
     {
       "file": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts",
-      "minimumCount": 1
+      "count": 1
+    }
+  ],
+  "revisionMigration": "20261104_settlement_account_risk_source_revision",
+  "legacySchemaFile": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-schema.ts",
+  "legacyNormalization": [
+    {
+      "migrationId": "20260706_settlement_payments_fraud_risk_sources",
+      "columns": ["stripe_fraud_flag", "stripe_fraud_signal_count", "stripe_review_open_count"],
+      "statements": [
+        "UPDATE settlement_account_risk_sources SET stripe_fraud_flag = false WHERE stripe_fraud_flag IS NULL",
+        "UPDATE settlement_account_risk_sources SET stripe_fraud_signal_count = 0 WHERE stripe_fraud_signal_count IS NULL",
+        "UPDATE settlement_account_risk_sources SET stripe_review_open_count = 0 WHERE stripe_review_open_count IS NULL"
+      ]
+    },
+    {
+      "migrationId": "20260707_settlement_linked_account_risk_sources",
+      "columns": ["shared_instrument_cluster_count", "shared_address_cluster_count"],
+      "statements": [
+        "UPDATE settlement_account_risk_sources SET shared_instrument_cluster_count = 0 WHERE shared_instrument_cluster_count IS NULL",
+        "UPDATE settlement_account_risk_sources SET shared_address_cluster_count = 0 WHERE shared_address_cluster_count IS NULL"
+      ]
+    },
+    {
+      "migrationId": "20260707_settlement_account_velocity_risk_sources",
+      "columns": [
+        "chargeback_7d_count",
+        "chargeback_30d_count",
+        "chargeback_30d_rate_bps",
+        "listing_24h_count",
+        "listing_24h_value_cents",
+        "review_24h_count",
+        "buyer_order_24h_count",
+        "buyer_spend_24h_cents",
+        "velocity_alert_flags"
+      ],
+      "statements": [
+        "UPDATE settlement_account_risk_sources SET chargeback_7d_count = 0 WHERE chargeback_7d_count IS NULL",
+        "UPDATE settlement_account_risk_sources SET chargeback_30d_count = 0 WHERE chargeback_30d_count IS NULL",
+        "UPDATE settlement_account_risk_sources SET chargeback_30d_rate_bps = 0 WHERE chargeback_30d_rate_bps IS NULL",
+        "UPDATE settlement_account_risk_sources SET listing_24h_count = 0 WHERE listing_24h_count IS NULL",
+        "UPDATE settlement_account_risk_sources SET listing_24h_value_cents = 0 WHERE listing_24h_value_cents IS NULL",
+        "UPDATE settlement_account_risk_sources SET review_24h_count = 0 WHERE review_24h_count IS NULL",
+        "UPDATE settlement_account_risk_sources SET buyer_order_24h_count = 0 WHERE buyer_order_24h_count IS NULL",
+        "UPDATE settlement_account_risk_sources SET buyer_spend_24h_cents = 0 WHERE buyer_spend_24h_cents IS NULL",
+        "UPDATE settlement_account_risk_sources SET velocity_alert_flags = '[]'::jsonb WHERE velocity_alert_flags IS NULL"
+      ]
     }
   ],
   "revisionColumn": "revision",

@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
+import ts from "@chase-sets/typescript-compiler-api";
 import { isTransientProjectionError } from "@chase-sets/event-core/projector";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
@@ -12,8 +14,91 @@ import {
   buildSettlementReputationAccountRiskSourceProjectionHandlers,
 } from "./account-risk-source-projection";
 import authorityMatrix from "./authority-matrix.fixture.json" with { type: "json" };
+import {
+  settlementAccountRiskSourceSchemaMigrations,
+  settlementAccountRiskSourceSchemaSql,
+} from "./account-risk-source-schema";
 
 const repoRoot = fileURLToPath(new URL("../../../../../../", import.meta.url));
+
+function sqlStrings(file: string, content: string): string[] {
+  if (file.endsWith(".sql")) return [content];
+  const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true);
+  const strings: string[] = [];
+  function visit(node: ts.Node) {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) strings.push(node.text);
+    else if (ts.isTemplateExpression(node)) {
+      strings.push(node.head.text + node.templateSpans.map((span) => `dynamic_column${span.literal.text}`).join(""));
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  return strings;
+}
+
+function riskWrites(sources: ReadonlyMap<string, string>) {
+  return [...sources].flatMap(([file, content]) =>
+    sqlStrings(file, content).flatMap((sql) =>
+      sql
+        .split(";")
+        .filter((statement) =>
+          /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY)\s+(?:ONLY\s+)?(?:[\w"]+\.)?"?settlement_account_risk_sources"?\b/i.test(
+            statement,
+          ),
+        )
+        .map((statement) => ({ file, sql: statement.trim() })),
+    ),
+  );
+}
+
+function topLevelParts(sql: string, separator: string) {
+  const tokens = sql.match(/'(?:''|[^'])*'|"(?:""|[^"])*"|\$\d+|[A-Za-z_][\w$]*|\d+|[^\s]/g) ?? [];
+  const parts: string[] = [];
+  let depth = 0;
+  let current: string[] = [];
+  for (const token of tokens) {
+    if (token === "(") depth++;
+    if (token === ")") depth--;
+    if (depth === 0 && token.toUpperCase() === separator) {
+      parts.push(current.join(" "));
+      current = [];
+    } else current.push(token);
+  }
+  parts.push(current.join(" "));
+  return parts;
+}
+
+function revisionViolation(sql: string): string | null {
+  const insert = sql.match(/^INSERT\s+INTO\s+settlement_account_risk_sources\s*\(([^)]+)\)([\s\S]*)$/i);
+  const atomic = /\brevision\s*=\s*settlement_account_risk_sources\.revision\s*\+\s*1\s*(?:,|WHERE\b|$)/i;
+  if (!insert)
+    return /^UPDATE\s+settlement_account_risk_sources\b/i.test(sql) && atomic.test(sql) ? null : "unrevisioned write";
+  const columns = insert[1]!.split(",").map((column) => column.trim());
+  const revisionIndex = columns.indexOf("revision");
+  if (revisionIndex < 0) return "missing insert revision";
+  const body = insert[2]!;
+  const values = body.match(/^\s*VALUES\s*\(([^)]+)\)/i);
+  const select = values ? null : topLevelParts(body, "SELECT")[1];
+  const expressions = values
+    ? topLevelParts(values[1]!, ",")
+    : select
+      ? topLevelParts(topLevelParts(select, "FROM")[0]!, ",")
+      : [];
+  if (expressions[revisionIndex]?.trim() !== "1") return "insert revision is not one";
+  const conflict = body.split(/ON\s+CONFLICT[\s\S]*?DO\s+UPDATE\s+SET/i)[1];
+  return conflict && atomic.test(conflict) ? null : "non-atomic conflict revision";
+}
+
+function inventoryViolations(sources: ReadonlyMap<string, string>) {
+  const legacy = new Set(authorityMatrix.legacyNormalization.flatMap((entry) => entry.statements));
+  return riskWrites(sources).flatMap(({ file, sql }) => {
+    if (file === authorityMatrix.legacySchemaFile && legacy.delete(sql)) return [];
+    const registered = authorityMatrix.writers.some((writer) => writer.file === file);
+    const violation = revisionViolation(sql);
+    return registered && !violation ? [] : [`${file}: ${violation ?? "unregistered writer"}`];
+  });
+}
 
 function event(type: string, data: Record<string, unknown>, streamId = "identity.account-acc_seller"): TransportEvent {
   return buildTransportEvent(type, data, {
@@ -129,18 +214,107 @@ async function captureHandlerError(action: () => Promise<void>): Promise<unknown
 
 describe("settlement account risk source projection", () => {
   it("requires every account-risk writer to publish an atomic revision", () => {
-    for (const writer of authorityMatrix.writers) {
-      const source = readFileSync(path.join(repoRoot, writer.file), "utf8");
-      const writes = [...source.matchAll(/INSERT INTO settlement_account_risk_sources[\s\S]*?`/g)].map(
-        (match) => match[0],
+    const discovered = execFileSync(
+      "git",
+      [
+        "grep",
+        "--untracked",
+        "--exclude-standard",
+        "-l",
+        "-I",
+        "settlement_account_risk_sources",
+        "--",
+        "bounded-contexts",
+        "contracts",
+        "deployables",
+        "infrastructure",
+        "packages",
+        "scripts",
+      ],
+      { cwd: repoRoot, encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+    )
+      .trim()
+      .split(/\r?\n/)
+      .filter(
+        (file) =>
+          /\.(?:[cm]?[jt]sx?|sql)$/.test(file) &&
+          !/\.(?:test|spec|fixture)\./.test(file) &&
+          !/(?:^|\/)(?:tests|__tests__|dist|build)\//.test(file),
       );
-      expect(writes.length).toBeGreaterThanOrEqual(writer.minimumCount);
-      for (const sql of writes) {
-        expect(sql).toContain(authorityMatrix.revisionColumn);
-        expect(sql).toMatch(/(?:SELECT|VALUES)[\s\S]*\b1\b/);
-        expect(sql).toContain(authorityMatrix.conflictRevision);
-      }
+    const sources = new Map(discovered.map((file) => [file, readFileSync(path.join(repoRoot, file), "utf8")]));
+    expect(inventoryViolations(sources)).toEqual([]);
+    const writes = riskWrites(sources);
+    for (const writer of authorityMatrix.writers) {
+      expect(writes.filter((write) => write.file === writer.file)).toHaveLength(writer.count);
     }
+  });
+
+  it("classifies only exact immutable legacy normalization before revision introduction", () => {
+    const migrations = settlementAccountRiskSourceSchemaMigrations;
+    const revisionIndex = migrations.findIndex(
+      (migration) => migration.migrationId === authorityMatrix.revisionMigration,
+    );
+    expect(revisionIndex).toBeGreaterThan(0);
+    expect(settlementAccountRiskSourceSchemaSql).not.toMatch(
+      /ALTER TABLE settlement_account_risk_sources\s+ADD COLUMN IF NOT EXISTS revision/,
+    );
+    for (const legacy of authorityMatrix.legacyNormalization) {
+      const index = migrations.findIndex((migration) => migration.migrationId === legacy.migrationId);
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(index).toBeLessThan(revisionIndex);
+      expect(
+        migrations[index]!.statements.filter((sql) => /^UPDATE settlement_account_risk_sources\b/.test(sql)),
+      ).toEqual(legacy.statements);
+    }
+  });
+
+  it("does not exempt a legacy statement copied into a new schema migration", () => {
+    const sql = authorityMatrix.legacyNormalization[0]!.statements[0]!;
+    const source = `const migrations = [
+      { migrationId: "legacy", statements: [\`${sql}\`] },
+      { migrationId: "future", statements: [\`${sql}\`] }
+    ];`;
+    expect(inventoryViolations(new Map([[authorityMatrix.legacySchemaFile, source]]))).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      "new writer file",
+      "bounded-contexts/settlement/features/wallets/integrations/new-writer.ts",
+      "INSERT INTO settlement_account_risk_sources (account_id, revision) VALUES ($1, 1) ON CONFLICT (account_id) DO UPDATE SET revision = settlement_account_risk_sources.revision + 1",
+    ],
+    [
+      "plain UPDATE",
+      authorityMatrix.writers[0]!.file,
+      "UPDATE settlement_account_risk_sources SET trusted_seller = true WHERE account_id = $1",
+    ],
+    [
+      "missing insert revision",
+      authorityMatrix.writers[0]!.file,
+      "INSERT INTO settlement_account_risk_sources (account_id) VALUES ($1) ON CONFLICT (account_id) DO NOTHING",
+    ],
+    [
+      "wrong revision slot",
+      authorityMatrix.writers[0]!.file,
+      "INSERT INTO settlement_account_risk_sources (account_id, revision, stripe_fraud_signal_count) VALUES ($1, 0, 1) ON CONFLICT (account_id) DO UPDATE SET revision = settlement_account_risk_sources.revision + 1",
+    ],
+    [
+      "non-atomic counter",
+      authorityMatrix.writers[0]!.file,
+      "UPDATE settlement_account_risk_sources SET revision = $2 WHERE account_id = $1",
+    ],
+    [
+      "future hold writer",
+      authorityMatrix.writers[0]!.file,
+      "UPDATE settlement_account_risk_sources SET payout_review_hold = true WHERE account_id = $1",
+    ],
+    [
+      "future schema backfill",
+      "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-schema.ts",
+      "UPDATE settlement_account_risk_sources SET trusted_seller = false",
+    ],
+  ])("discovers and rejects %s through the same source scan", (_name, file, sql) => {
+    expect(inventoryViolations(new Map([[file, `db.query(\`${sql}\`);`]]))).toHaveLength(1);
   });
 
   it("risk projection money consolidation preserves canonical cents and the absent-value default", async () => {
