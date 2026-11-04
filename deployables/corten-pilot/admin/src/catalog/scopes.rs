@@ -6,8 +6,10 @@
 //! |---|---|
 //! | `GET /catalog/scopes?search&status&product_domain&language&page` | the list, with the attention queue above it ([`attention`](super::attention)) |
 //!
-//! Each row's View opens the scope's page ([`scope`](super::scope)). Not ported yet: the
-//! all-scopes alias review that admin-web shows above the list.
+//! Each row's View opens the scope's page ([`scope`](super::scope)). Above the list, after the
+//! queue, is the all-scopes alias review (`alias-review?limit=200`, folded as admin-web's is), whose
+//! commands post to the attention routes ([`attention`](super::attention)). Not ported: its bulk
+//! selection, which admin-web keeps in the browser; each candidate has its own commands.
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
@@ -15,11 +17,11 @@ use corten::{
 use serde::Serialize;
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 
-use futures_util::future::join;
+use futures_util::future::join3;
 use platform::receipt::Receipt;
 
 use super::{
-    api::{AttentionQueue, Catalog as _, Kind, List, ScopeRecord},
+    api::{AliasReview, AttentionQueue, Catalog as _, Kind, List, ScopeRecord},
     attention::Parked,
     list_query, screen,
     views::{self, ListScreen},
@@ -141,6 +143,9 @@ pub struct ScopeScreen {
     pub error: Option<String>,
     /// The attention queue, or none when it could not be read (the page says it is unavailable).
     pub attention: Option<AttentionQueue>,
+    /// The all-scopes alias review, or none when it could not be read (`alias_review_failed`).
+    pub alias_review: Option<AliasReview>,
+    pub alias_review_failed: bool,
 }
 
 /// What the page draws besides the list: an item's sheet, open, with a park form that came back.
@@ -190,7 +195,14 @@ fn scope_screen(list: List<ScopeRecord>, page: u32, language: Option<&str>, now:
             .collect(),
         total: list.total,
     };
-    ScopeScreen { list: screen(rows, page), languages, error: None, attention: None }
+    ScopeScreen {
+        list: screen(rows, page),
+        languages,
+        error: None,
+        attention: None,
+        alias_review: None,
+        alias_review_failed: false,
+    }
 }
 
 /// The attention queue. The page shows it as unavailable when it cannot be read: a missing route,
@@ -231,8 +243,12 @@ pub async fn render(
     let page = query.page.unwrap_or(1).max(1);
     let filters = [("search", &query.search), ("status", &query.status), ("productDomain", &query.product_domain)];
     let now = OffsetDateTime::now_utc();
-    let (list, queue) =
-        join(caller.list::<ScopeRecord>(Kind::ScopeRecords, &list_query(&filters, page)), read_queue(&caller)).await;
+    let (list, queue, review) = join3(
+        caller.list::<ScopeRecord>(Kind::ScopeRecords, &list_query(&filters, page)),
+        read_queue(&caller),
+        caller.read_at::<AliasReview>(Kind::AliasReview, "?limit=200"),
+    )
+    .await;
     let mut view = match list {
         Ok(list) => scope_screen(list, page, query.language.as_deref(), now),
         // As admin-web's loader: an API error is the list's banner, over no rows; sign-in and no
@@ -254,6 +270,14 @@ pub async fn render(
         Err(error) if receipt.is_some() && error.catching_up() => return read_failed(req, error, true),
         Err(_) => None,
     };
+    // As admin-web's loader: an unreadable review is its section's banner, never an empty review.
+    match review {
+        Ok(review) => view.alias_review = Some(review),
+        Err(error) => {
+            tracing::warn!("the all-scopes alias review could not be read: {error}");
+            view.alias_review_failed = true;
+        }
+    }
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let manage = super::manages(viewer);
     let page_view = views::scope_list(t, p, query, &view, notice, back, manage);

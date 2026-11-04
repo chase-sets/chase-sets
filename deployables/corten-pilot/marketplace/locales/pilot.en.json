@@ -288,6 +288,7 @@
   "steps": {
     "done": "(done)",
     "not_started": "(not started)",
-    "blocked": "(blocked)"
+    "blocked": "(blocked)",
+    "failed": "(failed)"
   }
 }

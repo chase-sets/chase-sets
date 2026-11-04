@@ -21,7 +21,7 @@ use crate::{
     packing::{AttemptInput, LineInput, LineState, Outcome, PackInput, PackingScreen, ScanInput, Scanned, short_reference},
     text::{Pilot, ShipmentsMsg},
 };
-use platform::ui::steps::{Step as KitStep, StepState, Steps as KitSteps};
+use platform::ui::steps::{Step as KitStep, StepState, Steps as KitSteps, StepsLayout};
 
 corten::script::script!(pub mod handlers = "packing.js");
 
@@ -206,7 +206,7 @@ fn PackingView<'a>(
                 </div>
                 <p class={Actions}><a class={Secondary} href={back}>{t.packing_back()}</a></p>
             </header>
-            <KitSteps label={t.packing_title()} steps={&steps} />
+            <KitSteps label={t.packing_title()} layout={StepsLayout::Row} steps={&steps} />
             <PackingStatus t={t} p={p} viewer={viewer} id={id} outcome={&screen.outcome} />
             if at.awaiting {
                 <div class={(Banner, Info)}>

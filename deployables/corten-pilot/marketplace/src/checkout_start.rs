@@ -10,22 +10,24 @@
 //!
 //! 1. Signed in, or a guest checkout running: the guest cart the browser carries is moved into the
 //!    account's (best effort), the session starts (the cart's from a fresh readiness snapshot), and
-//!    the buyer goes to the checkout. A guest checkout whose guest access no longer matches gets a
-//!    fresh guest identity and tries once more.
+//!    the buyer goes to the checkout. A guest checkout whose guest access no longer matches gets one
+//!    fresh guest identity, handed the same form as in 2.
 //! 2. A visitor: an offer needs an account; an empty guest cart is the page saying so; otherwise
-//!    Auth starts a contact-less guest checkout, the session starts under it, and the browser keeps
-//!    its token (`chase_sets_guest_checkout`) only once the session exists, the guest cart's cookie
-//!    cleared. A 403 starts one fresh guest identity and tries once more.
+//!    Auth starts a contact-less guest checkout and the answer writes nothing more: a 307 to the
+//!    same address with `guestEntry=1`, carrying only the guest's token
+//!    (`chase_sets_guest_checkout`) (`startGuestCheckoutEntry`). The browser sends the same form
+//!    again, which presents the guest and starts the session as 1. A lost 307 leaves no session;
+//!    a followed form whose guest is not there (the cookie refused or expired) says the guest's
+//!    access expired and starts no second guest, and a followed form never recovers again.
 //!
 //! A refusal is the page with marketplace's recovery for it (`checkoutRecoveryForError`). The
-//! item and listing pages' Buy for a guest or a visitor is this Continue (`buy_as_guest`):
-//! marketplace's action re-sends the form here with a 307, and the pilot calls it instead, since a
-//! Corten redirect is a 303 (a GET). Either goes on to the pilot's checkout page, which a guest
-//! checkout's session reads too.
+//! item and listing pages' Buy and the cart's Check out for a guest or a visitor are this Continue
+//! (`buy_as_guest`, `cart_as_guest`), whose 307 goes back to their own address. Each goes on to
+//! the pilot's checkout page, which a guest checkout's session reads too.
 use std::collections::BTreeMap;
 
 use corten::{
-    axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header},
+    axum::http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     security::cookie,
 };
@@ -440,31 +442,38 @@ async fn begin(
     checkout_entry::open_once(caller, &entry).await
 }
 
-/// A fresh guest identity and the session started under it.
-async fn begin_as_guest(
-    config: &Shared,
-    headers: &HeaderMap,
-    source: Option<&Source>,
-    key: Option<&str>,
-    anonymous: Option<&str>,
-    decisions: &Decisions,
-) -> Result<(Opened, GuestCheckout), ApiError> {
-    let guest = config.platform.caller(headers, config.proto, None).start_guest_checkout().await?;
-    let mut as_guest = HeaderMap::new();
-    if let Some(host) = headers.get(header::HOST) {
-        as_guest.insert(header::HOST, host.clone());
+/// Marks the form a guest entry's 307 sent on (marketplace's `guestEntry=1`).
+const GUEST_ENTRY: &str = "guestEntry";
+
+/// Whether the request is a form a guest entry's 307 sent on, presenting the guest it started.
+fn followed(at: &Uri) -> bool {
+    query_pairs(at.query()).get(GUEST_ENTRY).is_some_and(|v| v == "1")
+}
+
+/// `at` with `guestEntry=1`.
+fn follow_to(at: &Uri) -> String {
+    match at.query().filter(|q| !q.is_empty()) {
+        Some(query) => format!("{}?{query}&{GUEST_ENTRY}=1", at.path()),
+        None => format!("{}?{GUEST_ENTRY}=1", at.path()),
     }
-    let cookie = format!("{GUEST_CHECKOUT_COOKIE}={}", segment(&guest.guest_token));
-    as_guest.insert(
-        header::COOKIE,
-        HeaderValue::from_str(&cookie).map_err(|_| ApiError::Status {
-            status: StatusCode::BAD_GATEWAY,
-            code: None,
-            message: "a guest token that is not a cookie value".into(),
-        })?,
-    );
-    let caller = config.platform.caller(&as_guest, config.proto, None);
-    Ok((begin(&caller, source, key, anonymous, decisions).await?, guest))
+}
+
+/// One new contact-less guest, and the browser sent the same form to `at` again as that guest
+/// (`startGuestCheckoutEntry`): a 307 with only the guest's token, and no Checkout write here.
+///
+/// Workaround: `Req::redirect` answers a write with a 303, which the browser follows with a GET
+/// and no form, so the 303 is made a 307 here (todd-skelton/corten#717).
+async fn new_guest_entry(req: &Req, config: &Shared, headers: &HeaderMap, at: &Uri) -> Result<HtmlResult, ApiError> {
+    let guest = config.platform.caller(headers, config.proto, None).start_guest_checkout().await?;
+    let hop = || -> HtmlResult {
+        let to: Uri = follow_to(at).parse().map_err(corten::Error::new)?;
+        let mut res = req.redirect(&to)?;
+        if res.status() == StatusCode::SEE_OTHER {
+            *res.status_mut() = StatusCode::TEMPORARY_REDIRECT;
+        }
+        Ok(res.with_cookie(keep_guest(config, &guest)))
+    };
+    Ok(hop())
 }
 
 /// A cookie as this deployment sends them: `Secure` only over HTTPS.
@@ -489,15 +498,6 @@ fn session_page<'a>(started: &'a Started, receipt: Option<&Receipt>) -> url::Buy
 /// The guest's token, kept for as long as Auth gives it.
 fn keep_guest(config: &Shared, guest: &GuestCheckout) -> cookie::SetCookie {
     secure(config, cookie::SetCookie::new(GUEST_CHECKOUT_COOKIE, &guest.guest_token).max_age(guest_seconds(&guest.expires_at)))
-}
-
-/// Sends a guest whose session started to its checkout, keeping the guest's token and forgetting
-/// the guest cart.
-fn guest_started(req: &Req, config: &Shared, started: &Started, receipt: Option<&Receipt>, guest: &GuestCheckout) -> HtmlResult {
-    Ok(req
-        .redirect(&session_page(started, receipt))?
-        .with_cookie(keep_guest(config, guest))
-        .with_cookie(secure(config, cookie::SetCookie::remove(ANONYMOUS_CART_COOKIE))))
 }
 
 /// The answer forgetting the guest cart, once it has moved into the checkout.
@@ -532,44 +532,51 @@ pub(crate) async fn start(
     uri: Uri,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    start_at(&req, session.as_deref(), &config, &headers, &uri, &form_pairs(&raw), &Decisions::default(), &chrome).await
+    let posted = form_pairs(&raw);
+    start_at(&req, session.as_deref(), &config, &headers, &uri, &uri, &posted, &Decisions::default(), &chrome).await
 }
 
 /// A guest's or a visitor's Buy on an item or a listing page: checkout start's Continue for the
 /// entry `query` names, sent with the form's entry key, as marketplace's action re-sends the form
-/// to checkout start (a 307). The page's address is checkout start's, so a refusal is that page.
+/// to checkout start (a 307). The page's address is checkout start's, so a refusal is that page;
+/// a new guest's 307 goes back to `at`, the Buy's own address.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn buy_as_guest(
     req: &Req,
     session: Option<&Session>,
     config: &Shared,
     headers: &HeaderMap,
+    at: &Uri,
     query: &str,
     entry: &str,
     chrome: &Chrome,
 ) -> HtmlResult {
     let uri: Uri = format!("{PATH}?{query}").parse().map_err(corten::Error::new)?;
     let posted = Pairs::from([("entryAttemptKey".to_owned(), entry.to_owned())]);
-    start_at(req, session, config, headers, &uri, &posted, &Decisions::default(), chrome).await
+    start_at(req, session, config, headers, &uri, at, &posted, &Decisions::default(), chrome).await
 }
 
 /// The cart page's Check out for a guest or a visitor, whose cart has no checkout of its own
 /// (marketplace's cart form posts to checkout start): Continue for the cart, with the lower-price
-/// offer's `decisions` as the page drew it. A refusal is checkout start's page, at its address.
+/// offer's `decisions` as the page drew it. A refusal is checkout start's page, at its address; a
+/// new guest's 307 goes back to `at`, the Check out's own address.
 pub(crate) async fn cart_as_guest(
     req: &Req,
     session: Option<&Session>,
     config: &Shared,
     headers: &HeaderMap,
+    at: &Uri,
     decisions: &Decisions,
     chrome: &Chrome,
 ) -> HtmlResult {
-    start_at(req, session, config, headers, &Uri::from_static(PATH), &Pairs::new(), decisions, chrome).await
+    start_at(req, session, config, headers, &Uri::from_static(PATH), at, &Pairs::new(), decisions, chrome).await
 }
 
 /// Starts the checkout the entry at `uri` (or else the posted form) names, for whoever is asking;
-/// a cart's with `decisions`. Each session is started as an account the request presents, and
-/// sent once: a page whose key is missing or not one sends nothing (an entry other than the cart's
-/// needs one), and an answer that may have been lost is looked up once, never sent again.
+/// a cart's with `decisions`. `at` is the request's own address, where a new guest's 307 sends the
+/// form. Each session is started as an account the request presents, and sent once: a page whose
+/// key is missing or not one sends nothing (an entry other than the cart's needs one), and an
+/// answer that may have been lost is looked up once, never sent again.
 #[allow(clippy::too_many_arguments)]
 async fn start_at(
     req: &Req,
@@ -577,11 +584,13 @@ async fn start_at(
     config: &Shared,
     headers: &HeaderMap,
     uri: &Uri,
+    at: &Uri,
     posted: &Pairs,
     decisions: &Decisions,
     chrome: &Chrome,
 ) -> HtmlResult {
     let (who, viewer) = who(session)?;
+    let followed = followed(at);
     let source = Source::read(&query_pairs(uri.query())).or_else(|| Source::read(posted));
     let presented = posted.get("entryAttemptKey").map_or("", String::as_str);
     let key = checkout_entry::key(presented);
@@ -598,12 +607,6 @@ async fn start_at(
         }
     };
     let changed = || said(who, Said::Recovery(Recovery::AttemptChanged), Recovery::AttemptChanged.status());
-    // A guest whose start was ambiguous keeps the guest it started as, so the page and a later
-    // look are that guest's.
-    let guest_ambiguous = |guest: GuestCheckout| async move {
-        let res = said(Who::Guest, Said::EntryAmbiguous, StatusCode::OK).await?;
-        Ok(res.with_cookie(keep_guest(config, &guest)))
-    };
     if who != Who::Visitor {
         if refused_before_send {
             return changed().await;
@@ -615,14 +618,11 @@ async fn start_at(
                 Ok(forget_cart(res, config, anonymous))
             }
             Ok(Opened::Ambiguous) => said(who, Said::EntryAmbiguous, StatusCode::OK).await,
-            // A guest's access no longer matches: one fresh guest, which never recovers again.
-            Err(error) if who == Who::Guest && forbidden(&error) && may_start_again(source.as_ref(), anonymous) => {
-                match begin_as_guest(config, headers, source.as_ref(), key, anonymous, decisions).await {
-                    Ok((Opened::Started(started, receipt), guest)) => {
-                        guest_started(req, config, &started, receipt.as_ref(), &guest)
-                    }
-                    Ok((Opened::Ambiguous, guest)) => guest_ambiguous(guest).await,
-                    Err(again) if forbidden(&again) => refuse(who, error).await,
+            // A guest's access no longer matches: one fresh guest handed the same form. A followed
+            // form never recovers again, so a refused new guest cannot loop.
+            Err(error) if who == Who::Guest && !followed && forbidden(&error) && may_start_again(source.as_ref(), anonymous) => {
+                match new_guest_entry(req, config, headers, at).await {
+                    Ok(hop) => hop,
                     Err(again) => refuse(who, again).await,
                 }
             }
@@ -635,6 +635,11 @@ async fn start_at(
     if refused_before_send {
         return changed().await;
     }
+    // A followed form that presents no guest: the browser refused the cookie, or it expired.
+    // Starting another could only loop, so none is started.
+    if followed {
+        return said(who, Said::Recovery(Recovery::GuestExpired), Recovery::GuestExpired.status()).await;
+    }
     if source.is_none() {
         let caller = config.platform.caller(headers, config.proto, None);
         match caller.guest_cart_count(anonymous).await {
@@ -646,12 +651,9 @@ async fn start_at(
             Err(error) => return refuse(who, error).await,
         }
     }
-    // A visitor starts as one new guest, and a refusal is the page's with no second guest
-    // (marketplace's followed guest entry never recovers). The browser keeps no guest then, so the
-    // page is still a visitor's.
-    match begin_as_guest(config, headers, source.as_ref(), key, anonymous, decisions).await {
-        Ok((Opened::Started(started, receipt), guest)) => guest_started(req, config, &started, receipt.as_ref(), &guest),
-        Ok((Opened::Ambiguous, guest)) => guest_ambiguous(guest).await,
+    // A visitor starts as one new guest, handed the same form; nothing is written here.
+    match new_guest_entry(req, config, headers, at).await {
+        Ok(hop) => hop,
         Err(error) => refuse(who, error).await,
     }
 }

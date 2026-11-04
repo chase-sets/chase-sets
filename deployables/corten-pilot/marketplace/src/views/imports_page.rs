@@ -493,6 +493,9 @@ fn FixDialog<'a>(
             >
                 <input type="hidden" name={f.offset} value={screen.offset.to_string()}>
                 <input type="hidden" name="resolveRowId" value={&row.row_id}>
+                <input type="hidden" name={f.expected_row_version} value={&row.row_version}>
+                <input type="hidden" name={f.expected_row_fingerprint} value={&row.row_fingerprint}>
+                {SubmitKey::field(f.attempt)}
                 <Picker t={m} p={p} draft={&fixing.draft} catalog={&fixing.catalog} />
                 <label class={Field}>
                     <span class={Label}>{m.list_storage_location()}</span>

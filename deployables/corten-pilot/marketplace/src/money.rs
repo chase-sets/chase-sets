@@ -324,7 +324,7 @@ pub(crate) async fn payout(
     };
     let screen = PayoutScreen { payout, requested: place.requested.as_deref() == Some("1") };
     let t: MoneyMsg = req.t();
-    let view = html! { <views::PayoutPage t={t} screen={&screen} /> };
+    let view = html! { <views::PayoutPage t={t} p={req.t()} screen={&screen} /> };
     let cart = chrome.cart().await;
     req.screen(
         &screen,

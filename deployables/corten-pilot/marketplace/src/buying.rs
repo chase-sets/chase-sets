@@ -24,7 +24,7 @@
 use corten::{
     axum::{
         extract::State,
-        http::{HeaderMap, StatusCode, header},
+        http::{HeaderMap, StatusCode, Uri, header},
     },
     prelude::*,
     security::cookie,
@@ -486,12 +486,14 @@ pub(crate) async fn add(
 /// started once per form (its `SubmitKey` is the entry key, so sending it again is the same
 /// session), then the checkout. A guest's or a visitor's is checkout start's Continue for the
 /// listing, as marketplace re-sends the form there.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn buy(
     req: Req,
     chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
+    uri: Uri,
     Params(route): Params<crate::app::url::items::ItemBuy<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
@@ -544,7 +546,8 @@ pub(crate) async fn buy(
         let available =
             t.route_inventory_option_label(summary.as_deref().unwrap_or(&item.title), available(&listing)).to_string();
         let entry = guest_checkout(&source, &listing, &available, t.route_confirmed_at_checkout());
-        return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &entry, &input.attempt, &chrome).await;
+        return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &uri, &entry, &input.attempt, &chrome)
+            .await;
     }
     match caller.buy_now(&input.attempt, &source).await {
         Ok((session, receipt)) => {

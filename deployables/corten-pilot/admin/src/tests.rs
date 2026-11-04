@@ -244,6 +244,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(rest) = uri.path().strip_prefix("/api/catalog/scope-sync-batches") {
         return sync_batches_api(&method, rest, &headers, &body);
     }
+    if uri.path() == "/api/catalog/alias-review" && uri.query() == Some("limit=200") {
+        return all_scopes_alias_review(cookie);
+    }
     if let Some(answer) = scope_api(&method, uri.path(), uri.query().unwrap_or_default(), &body) {
         return answer;
     }
@@ -918,6 +921,16 @@ fn get(uri: &str, session: Option<&str>) -> Request<Body> {
     req.body(Body::empty()).unwrap()
 }
 
+/// Whether a link to `href` in `html` is marked the current page, whatever attributes sit between.
+fn marks_current(html: &str, href: &str) -> bool {
+    let needle = format!(r#"href="{href}""#);
+    html.match_indices(&needle).any(|(at, _)| {
+        let start = html[..at].rfind('<').unwrap_or(0);
+        let end = html[at..].find('>').map_or(html.len(), |n| at + n);
+        html[start..end].contains(r#"aria-current="page""#)
+    })
+}
+
 /// A form post as the runtime sends it (`corten: action`), or as a browser without JavaScript.
 fn post(uri: &str, body: &str, script: bool) -> Request<Body> {
     post_as("staff", uri, body, script)
@@ -1166,7 +1179,7 @@ async fn the_list_renders_for_staff_and_data_clients_get_the_screen() {
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("<h1>Postage Policies</h1>"), "{html}");
     assert!(html.contains("Default postage policy"), "{html}");
-    assert!(html.contains(r#"href="/commerce/postage-policies" aria-current="page""#), "{html}");
+    assert!(marks_current(&html, "/commerce/postage-policies"), "{html}");
 
     let mut req = get("/commerce/postage-policies?policy=opp_seed", Some("staff"));
     req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
@@ -1613,11 +1626,51 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
     Some(answer)
 }
 
+/// The all-scopes alias review (`alias-review?limit=200`): a pending, flagged candidate with its
+/// evidence, and an accepted one. It cannot be read for `queue-down`.
+fn all_scopes_alias_review(cookie: &str) -> Response {
+    if cookie.contains("queue-down") {
+        return refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Alias review is unavailable.");
+    }
+    Json(json!({
+        "schemaVersion": "catalog-alias-review-v1", "generatedAt": "2026-11-03T00:00:00.000Z",
+        "counts": { "total": 2, "pending": 1, "accepted": 1, "autoAccepted": 0, "rejected": 0, "revoked": 0,
+                    "needsReview": 1, "autoAcceptEligible": 0, "warned": 1 },
+        "coverage": { "cardsWithAcceptedEnglishAlias": 3, "cardsWithOnlySpeciesAliases": 1, "cardsNeedingReview": 2,
+                      "expansionsAndSeriesNeedingReview": 1, "cards": [], "referenceScopes": [] },
+        "groups": [],
+        "candidates": [
+            { "aliasHash": "ah_glurak", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name",
+              "nativePrintedName": "Glurak", "proposedAlias": "Charizard", "aliasLanguageCode": "en",
+              "aliasType": "generated-translation", "confidence": "generated", "reviewStatus": "pending",
+              "sourceCategory": "machine-translation", "providerKey": "cardmarket",
+              "evidence": [{ "key": "provider", "label": "Provider", "value": "cardmarket" }],
+              "warnings": ["generated-translation", "low-confidence-evidence"],
+              "autoAccept": { "eligible": false, "reasons": ["Machine translations are never official."] },
+              "reviewable": true, "availableActions": ["alias.accept", "alias.reject", "alias.defer"] },
+            { "aliasHash": "ah_pika", "targetKind": "catalog-item", "targetId": "cat_pikachu", "targetKey": "name",
+              "nativePrintedName": "ピカチュウ", "proposedAlias": "Pikachu", "aliasLanguageCode": "en",
+              "aliasType": "provider-english-name", "confidence": "exact", "reviewStatus": "accepted",
+              "sourceCategory": "official-provider", "providerKey": "tcgplayer", "evidence": [], "warnings": [],
+              "autoAccept": { "eligible": false, "reasons": [] },
+              "reviewable": false, "availableActions": ["alias.revoke"] },
+            { "aliasHash": "ah_dracaufeu", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name",
+              "nativePrintedName": "Dracaufeu", "proposedAlias": "Charizard", "aliasLanguageCode": "en",
+              "aliasType": "provider-english-name", "confidence": "exact", "reviewStatus": "pending",
+              "sourceCategory": "official-provider", "providerKey": "tcgdex", "evidence": [], "warnings": [],
+              "autoAccept": { "eligible": true, "reasons": [] },
+              "reviewable": true, "availableActions": ["alias.accept", "alias.reject", "alias.defer"] },
+        ],
+    }))
+    .into_response()
+}
+
 const HEALTH: &str = "provider-health:tcgplayer:tcgplayer:mtg:single-card:source-observation-import";
 
 /// The Catalog attention queue: a provider unit's health (critical, its sheet links to the
-/// provider's page) and an alias candidate (accept and reject in one click). It cannot be read
-/// for `queue-down`; a park whose reason is `refuse` is refused.
+/// provider's page), an alias candidate (accept and reject in one click), and one whose target is
+/// missing (the API marks both commands unavailable). It cannot be read for `queue-down`; a park
+/// whose reason is `refuse` is refused.
 fn attention_queue(method: Method, rest: &str, cookie: &str, headers: &HeaderMap, body: &str) -> Response {
     match (method, rest) {
         (Method::GET, _) if cookie.contains("queue-down") && headers.contains_key("chase-sets-read-after-write") => refusal(
@@ -1650,15 +1703,33 @@ fn attention_queue(method: Method, rest: &str, cookie: &str, headers: &HeaderMap
                 "detailParams": { "provider": "tcgdex", "type": "name", "confidence": 0.92 },
                 "providerKey": "tcgdex", "unitKey": null, "observedAt": "2026-10-24T04:09:09.701000Z",
                 "resolution": { "intent": "alias.accept", "mode": "command", "labelKey": format!("{q}.action.acceptAlias"),
-                    "fields": { "aliasHashes": "h1" }, "requiresReason": false },
+                    "fields": { "aliasHashes": "h1", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name" },
+                    "requiresReason": false },
                 "secondaryResolutions": [{ "intent": "alias.reject", "mode": "command", "labelKey": format!("{q}.action.rejectAlias"),
-                    "fields": { "aliasHashes": "h1" }, "requiresReason": true }],
+                    "fields": { "aliasHashes": "h1", "targetKind": "catalog-item", "targetId": "cat_charizard", "targetKey": "name" },
+                    "requiresReason": true }],
+            });
+            let orphan = |intent: &str, label: &str, reason: bool| {
+                json!({
+                    "intent": intent, "mode": "command", "labelKey": format!("{q}.action.{label}"),
+                    "fields": { "aliasHashes": "h2", "targetKind": "catalog-item", "targetId": "", "targetKey": "name" },
+                    "requiresReason": reason, "unavailable": true,
+                })
+            };
+            let missing = json!({
+                "itemKey": "alias-candidate:h2", "kind": "alias-candidate", "severity": "info",
+                "titleKey": format!("{q}.item.aliasCandidate.title"), "titleParams": { "alias": "Glurak", "type": "name" },
+                "detailKey": format!("{q}.item.aliasCandidate.detail"),
+                "detailParams": { "provider": "tcgdex", "type": "name", "confidence": 0.81 },
+                "providerKey": "tcgdex", "unitKey": null, "observedAt": "2026-10-24T04:09:09.701000Z",
+                "resolution": orphan("alias.accept", "acceptAlias", false),
+                "secondaryResolutions": [orphan("alias.reject", "rejectAlias", true)],
             });
             Json(json!({
-                "generatedAt": "2026-10-25T09:20:07.661Z", "empty": false, "items": [health, alias],
-                "counts": { "total": 2, "bySeverity": { "critical": 1, "warning": 0, "info": 1 },
+                "generatedAt": "2026-10-25T09:20:07.661Z", "empty": false, "items": [health, alias, missing],
+                "counts": { "total": 3, "bySeverity": { "critical": 1, "warning": 0, "info": 2 },
                     "byKind": { "unmapped-scope": 0, "merge-conflict": 0, "provider-health": 1, "import-job": 0,
-                        "alias-candidate": 1, "stale-scope-sync": 0 } },
+                        "alias-candidate": 2, "stale-scope-sync": 0 } },
                 "freshness": { "generatedAt": "2026-10-25T09:20:07.661Z", "oldestObservedAt": null, "newestObservedAt": null },
             }))
             .into_response()
@@ -1954,15 +2025,58 @@ async fn the_top_bar_is_the_kits_with_the_pages_section_current() {
     let (status, _, html) = pilot.send(get("/catalog/dimensions", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let bar = &html[html.find("<header").unwrap()..html.find("</header>").unwrap()];
-    // The kit's bar, with the pilot's phone rule (todd-skelton/corten 673).
-    assert!(bar.starts_with(r#"<header class="nav-bar__bar admin-nav__phone">"#), "{bar}");
+    // The kit's bar, which gives its links a row of their own on a phone.
+    assert!(bar.starts_with(r#"<header class="nav-bar__bar">"#), "{bar}");
     assert!(bar.contains(r#"<nav class="nav-bar__sections""#), "{bar}");
-    // The catalog's section is current (the kit draws it from `aria-current="page"`), marked for
-    // markNav after a client navigation; the others are not.
-    assert!(bar.contains(r#"aria-current="page" data-nav-path="/catalog""#), "{bar}");
-    assert_eq!(bar.matches(r#"aria-current"#).count(), 1, "{bar}");
-    assert!(bar.contains(r#"data-nav-path="/commerce""#), "{bar}");
+    // The catalog's section is current (the kit draws it from `aria-current="page"`), marked by
+    // Corten so the runtime moves the mark after a client navigation; the others are not.
+    assert!(bar.contains(r#"href="/catalog" data-nav="section" data-nav-group=""#), "{bar}");
+    assert_eq!(bar.matches(r#"aria-current="page""#).count(), 1, "{bar}");
+    assert!(
+        bar[bar.find(r#"href="/catalog""#).unwrap()..].split('>').next().unwrap().contains(r#"aria-current="page""#),
+        "{bar}"
+    );
+    assert!(bar.contains(r#"href="/commerce" data-nav="section""#), "{bar}");
+    assert!(!html.contains("data-nav-path"), "no hand marks left: {html}");
     assert!(bar.contains(r#"<div class="nav-bar__actions"><details class="admin-nav__account">"#), "{bar}");
+}
+
+#[tokio::test]
+async fn a_section_home_opens_its_first_page_the_viewer_may_see() {
+    let pilot = Pilot::new().await;
+    let location = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    // Commerce's first entry this viewer may see, in its nav's order.
+    let (status, headers, _) = pilot.send(get("/commerce", Some("staff"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/commerce/postage-policies"));
+    let (status, headers, _) = pilot.send(get("/commerce", Some("intake-viewer"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/commerce/return-intake"));
+    let (status, headers, _) = pilot.send(get("/support", Some("support-agent"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/support/requests"));
+    let (status, headers, _) = pilot.send(get("/platform", Some("ops"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/platform/operations-attention"));
+    let (status, headers, _) = pilot.send(get("/growth", Some("growth-viewer"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/growth/waitlist"));
+    // A section with nothing the viewer may see is refused, as admin-web's is.
+    let (status, _, _) = pilot.send(get("/growth", Some("staff"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // Someone not signed in signs in first.
+    let (status, headers, _) = pilot.send(get("/support", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(location(&headers).contains("sign-in"), "{headers:?}");
+}
+
+#[tokio::test]
+async fn the_section_nav_marks_the_entry_that_holds_the_page() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/dimensions/dim_seed", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let side = &html[html.find(r#"<nav class="admin-nav__side""#).unwrap()..];
+    let side = &side[..side.find("</nav>").unwrap()];
+    let tag = |href: &str| side[side.find(&format!(r#"href="{href}""#)).unwrap()..].split('>').next().unwrap().to_owned();
+    assert!(tag("/catalog/dimensions").contains(r#"aria-current="page""#), "{side}");
+    assert!(tag("/catalog/dimensions").contains(r#"data-nav-group=""#), "{side}");
+    assert!(!tag("/catalog/fields").contains("aria-current"), "{side}");
+    assert_eq!(side.matches(r#"aria-current="page""#).count(), 1, "{side}");
 }
 
 #[tokio::test]
@@ -1979,7 +2093,7 @@ async fn the_list_asks_the_api_as_admin_web_does_and_pages() {
     assert!(html.contains(r#"href="/catalog/dimensions?search=cond&amp;status=active&amp;page=3" rel="next""#), "{html}");
     assert!(html.contains("Page 2 of 3"), "{html}");
     assert!(html.contains(r#"<option value="active" selected>Active</option>"#), "the filter shows its value: {html}");
-    assert!(html.contains(r#"href="/catalog/dimensions" aria-current="page""#), "the catalog's own nav: {html}");
+    assert!(marks_current(&html, "/catalog/dimensions"), "the catalog's own nav: {html}");
     assert!(html.contains(r#"href="/catalog/fields""#), "{html}");
 }
 
@@ -3214,7 +3328,7 @@ async fn the_scopes_list_asks_the_api_and_shows_each_scopes_promotion_and_sync()
         html.contains(r#"<option value="pokemon" selected>pokemon</option>"#) && html.contains(r#"<option value="lorcana">"#),
         "{html}"
     );
-    assert!(html.contains(r#"href="/catalog/scopes" aria-current="page""#), "the nav's Scopes is the pilot's: {html}");
+    assert!(marks_current(&html, "/catalog/scopes"), "the nav's Scopes is the pilot's: {html}");
 }
 
 #[tokio::test]
@@ -3263,7 +3377,7 @@ async fn the_attention_queue_sits_above_the_scopes_with_its_counts_and_items() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let (queue, list) = (html.find("data-attention-queue").unwrap(), html.find("Paldean Fates").unwrap());
     assert!(queue < list, "the queue is above the list");
-    assert!(html.contains(">2 need you</span>") && html.contains("As of 2026-10-25T09:20:07.661Z"), "{html}");
+    assert!(html.contains(">3 need you</span>") && html.contains("As of 2026-10-25T09:20:07.661Z"), "{html}");
     assert!(
         html.contains("Unblock TCGplayer Magic Single Cards on tcgplayer")
             && html.contains("Blocked by credential · provider-retired"),
@@ -3280,6 +3394,15 @@ async fn the_attention_queue_sits_above_the_scopes_with_its_counts_and_items() {
         "a reject sends its label as the reason: {html}"
     );
     assert!(html.contains(r#"<dialog id="attention-sheet"></dialog>"#), "the sheet is drawn when opened: {html}");
+    assert!(
+        html.contains(r#"value="h1"><button type="submit" class="attention-panel__small">Accept</button>"#),
+        "a candidate with its target: {html}"
+    );
+    assert!(
+        html.contains(r#"value="h2"><button type="submit" class="attention-panel__small" disabled>Accept</button>"#)
+            && html.contains(r#"value="Reject"><button type="submit" class="attention-panel__small" disabled>Reject</button>"#),
+        "a candidate whose target is missing cannot be accepted or rejected: {html}"
+    );
 
     let mut req = get("/catalog/scopes", Some("staff"));
     req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
@@ -3321,6 +3444,14 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
 
     let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=gone")).await;
     assert_eq!(html, r#"<dialog id="attention-sheet"></dialog>"#, "an item no longer in the queue");
+
+    // A command resolves in its row: its sheet opens no page and says nothing is missing, unless the
+    // API says its target is.
+    let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=alias-candidate%3Ah1")).await;
+    assert!(html.contains("<dt>targetId</dt><dd>cat_charizard</dd>"), "its fields: {html}");
+    assert!(!html.contains("data-attention-destination") && !html.contains("Resolution unavailable"), "{html}");
+    let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=alias-candidate%3Ah2")).await;
+    assert!(html.contains("Resolution unavailable: the target is missing or deleted."), "{html}");
 
     let (status, _, html) = pilot.send(get(&format!("/catalog/scopes/attention/review?item={key}"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
@@ -3424,12 +3555,129 @@ async fn an_alias_candidates_accept_and_reject_post_the_alias_review() {
 }
 
 #[tokio::test]
+async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_post_the_alias_review() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(pilot.catalog_calls().iter().any(|c| c.path == "/api/catalog/alias-review?limit=200"), "read with the page");
+    let review = html.find(r#"data-alias-review="all-scopes""#).expect("the review is drawn");
+    assert!(html.find("data-attention-queue").unwrap() < review, "under the queue: {html}");
+    assert!(review < html.find("Paldean Fates").unwrap(), "above the list: {html}");
+    let part = &html[review..];
+    assert!(!part[..200].contains(" open"), "folded at first, as admin-web's is: {part}");
+    assert!(part.contains("All-scopes alias review") && part.contains("1 pending alias candidates"), "{part}");
+    assert!(part.contains("2 candidates") && part.contains("Cards with accepted English alias"), "{part}");
+    assert!(part.contains("<dd>3</dd>") && part.contains("<dd>2</dd>"), "the API's coverage counts: {part}");
+    assert!(part.contains("Generated translation") && part.contains("Low-confidence evidence"), "its warnings: {part}");
+    assert!(part.contains("cardmarket · machine-translation"), "its source: {part}");
+    assert!(part.contains("Evidence") && part.contains("<dt>Provider</dt><dd>cardmarket</dd>"), "its evidence: {part}");
+    assert!(
+        part.contains(r#"action="/catalog/scopes/aliases?status=active""#)
+            && part.contains(r#"<input type="hidden" name="intent" value="alias.accept"><input type="hidden" name="alias_hashes" value="ah_glurak">"#),
+        "each command keeps the list's filters: {part}"
+    );
+    assert!(part.contains(r#"value="alias.revoke"><input type="hidden" name="alias_hashes" value="ah_pika">"#), "{part}");
+
+    let (status, headers, _) = pilot
+        .send(post("/catalog/scopes/aliases?status=active", "intent=alias.accept&alias_hashes=ah_glurak,ah_glurak", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/catalog/scopes?status=active&after_write=") && to.ends_with("&done=queued"), "{to}");
+    pilot.send(post("/catalog/scopes/aliases", "intent=alias.revoke&alias_hashes=ah_pika&reason=Wrong+card", false)).await;
+    let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "intent": "accept", "aliasHashes": "ah_glurak" }),
+            json!({ "intent": "revoke", "aliasHashes": "ah_pika", "reason": "Wrong card" })
+        ]
+    );
+
+    // Defer writes nothing; a revoke with no reason and an unknown intent are the failed banner.
+    let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", "intent=alias.defer&alias_hashes=ah_glurak", false)).await;
+    assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=queued");
+    for body in
+        ["intent=alias.revoke&alias_hashes=ah_pika&reason=+", "intent=alias.forget&alias_hashes=ah_pika", "intent=alias.accept"]
+    {
+        let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", body, false)).await;
+        assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=failed", "{body}");
+    }
+    assert_eq!(pilot.catalog_writes().len(), 2, "none of those was sent");
+
+    let (_, _, html) = pilot.send(get("/catalog/scopes", Some("catalog-viewer"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    assert!(part.contains(r#"value="ah_glurak">"#) && part.contains("disabled"), "off for a viewer who may not write: {part}");
+    let (status, _, _) = pilot
+        .send(post_as("catalog-viewer", "/catalog/scopes/aliases", "intent=alias.accept&alias_hashes=ah_glurak", false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
+}
+
+#[tokio::test]
+async fn the_alias_reviews_bulk_bar_posts_the_checked_candidates_and_auto_accepts_only_the_eligible() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    let bar = &part[part.find("data-alias-review-bulk-actions").expect("a bulk bar while a candidate is pending")..];
+    assert!(part.find(r#"id="alias-bulk""#).unwrap() < part.find("ah_glurak").unwrap(), "the bar above the candidates: {part}");
+    assert!(bar.contains(r#"action="/catalog/scopes/aliases?status=active""#), "{bar}");
+    // The reason and Reject first, so Enter in the reason rejects; the other buttons skip its check.
+    let reject = bar.find(r#"value="alias.reject""#).unwrap();
+    assert!(
+        bar.find(r#"name="reason" required"#).unwrap() < reject && reject < bar.find(r#"value="alias.accept""#).unwrap(),
+        "{bar}"
+    );
+    assert!(
+        bar.contains(r#"value="alias.accept" formnovalidate"#) && bar.contains(r#"value="alias.defer" formnovalidate"#),
+        "{bar}"
+    );
+    assert!(bar.contains(r#"value="alias.accept-eligible" formnovalidate"#), "a pending candidate is eligible: {bar}");
+    assert!(bar.contains(r#"type="reset""#) && bar.contains("Clear selection"), "{bar}");
+    // A box for each pending candidate in the bar's form, none for the accepted one.
+    for hash in ["ah_glurak", "ah_dracaufeu"] {
+        assert!(part.contains(&format!(r#"name="picked" value="{hash}" form="alias-bulk""#)), "{hash}: {part}");
+    }
+    assert!(!part.contains(r#"name="picked" value="ah_pika""#), "{part}");
+
+    let at = "/catalog/scopes/aliases?status=active";
+    let (status, headers, _) = pilot.send(post(at, "intent=alias.accept&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=queued"), "{headers:?}");
+    pilot.send(post(at, "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
+    pilot.send(post(at, "intent=alias.reject&picked=ah_glurak&reason=Machine+translation", false)).await;
+    let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu" }),
+            json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }),
+            json!({ "intent": "reject", "aliasHashes": "ah_glurak", "reason": "Machine translation" })
+        ],
+        "Auto-accept eligible sends only the eligible one (chase-sets/chase-sets#11024)"
+    );
+
+    // None eligible, none checked, or a reject without its reason: the failed banner, nothing sent.
+    for body in ["intent=alias.accept-eligible&picked=ah_glurak", "intent=alias.accept", "intent=alias.reject&picked=ah_glurak"] {
+        let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", body, false)).await;
+        assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=failed", "{body}");
+    }
+    assert_eq!(pilot.catalog_writes().len(), 3);
+
+    let (_, _, html) = pilot.send(get("/catalog/scopes", Some("catalog-viewer"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    assert!(part.contains(r#"value="ah_glurak" form="alias-bulk" aria-label="Select row Charizard" disabled"#), "{part}");
+}
+
+#[tokio::test]
 async fn a_queue_the_api_cannot_read_is_its_banner_and_the_list_still_shows() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/scopes", Some("queue-down"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Attention queue unavailable") && html.contains("Paldean Fates"), "{html}");
     assert!(!html.contains("data-attention-queue"), "{html}");
+    let review = &html[html.find(r#"data-alias-review="all-scopes""#).expect("its banner")..];
+    assert!(review.contains("Alias review") && review.contains("Unavailable") && !review[..300].contains("<details"), "{review}");
 
     let (status, _, _) =
         pilot.send(get(&format!("/catalog/scopes?after_write={}&done=queued", fresh_receipt()), Some("queue-down"))).await;
@@ -4100,7 +4348,7 @@ async fn projection_operations_draws_the_apis_console_and_triage() {
             && html.contains("<title>Projection Operations | Chase Sets Admin</title>"),
         "{html}"
     );
-    assert!(html.contains(r#"href="/platform/projections" aria-current="page""#), "the nav entry is the pilot's: {html}");
+    assert!(marks_current(&html, "/platform/projections"), "the nav entry is the pilot's: {html}");
     assert!(html.contains("/sections/platform/projections.css"), "the area's own stylesheet: {html}");
     // The API's and the wake read's attention: a danger item makes the console Needs attention.
     for text in
@@ -4398,7 +4646,7 @@ async fn access_is_an_area_each_list_needs_its_nav_entrys_permission() {
     for path in ["/access/users", "/access/api-keys", "/access/memberships", "/access/invitations"] {
         let (status, _, html) = pilot.send(get(path, Some("access-staff"))).await;
         assert_eq!(status, StatusCode::OK, "{path}: {html}");
-        assert!(html.contains(&format!(r#"href="{path}" aria-current="page""#)), "the nav serves it: {html}");
+        assert!(marks_current(&html, path), "the nav serves it: {html}");
     }
 }
 
@@ -4553,7 +4801,7 @@ async fn sessions_list_and_page_read_auth_as_admin_web_does() {
     assert_eq!(paths, ["/api/auth/sessions?limit=50&offset=50&status=revoked&search=dana"]);
     assert!(html.contains("dana@example.test") && html.contains("Acme Cards") && html.contains("Magic link"), "{html}");
     assert!(html.contains(r#"href="/access/sessions/ses_1""#) && html.contains("Status: Revoked"), "{html}");
-    assert!(html.contains(r#"href="/access/sessions" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/access/sessions"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/access/sessions", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
     assert_eq!(pilot.send(get("/access/sessions/ses_1", Some("accounts-only"))).await.0, StatusCode::FORBIDDEN);
 
@@ -4640,7 +4888,7 @@ async fn reported_content_reads_the_queue_and_its_counts_as_admin_web_does() {
     assert!(html.contains(r#"<option value="needs-review" selected>Needs review</option>"#), "{html}");
     assert!(html.contains(r#"<option value="all" selected>All targets</option>"#), "{html}");
     assert!(html.contains(r#"href="/support/reported-content/listing/lst_1""#), "{html}");
-    assert!(html.contains(r#"href="/support/reported-content" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/reported-content"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/support/reported-content", Some("staff"))).await.0, StatusCode::FORBIDDEN);
     let (status, _, _) = pilot.send(get("/support/reported-content/listing/lst_1", Some("staff"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
@@ -4742,7 +4990,7 @@ async fn risk_alerts_read_the_queue_and_an_alerts_page_as_admin_web_does() {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert!(html.contains(r#"<option value="review-velocity" selected>Review velocity</option>"#), "{html}");
-    assert!(html.contains(r#"href="/support/risk-alerts" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/risk-alerts"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/support/risk-alerts", Some("staff"))).await.0, StatusCode::FORBIDDEN);
 
     let (status, _, html) = pilot.send(get("/support/risk-alerts/ral_1", Some("moderator"))).await;
@@ -4784,7 +5032,7 @@ async fn reference_lookup_finds_the_record_a_reference_names_and_links_its_admin
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(pilot.calls_to(LOOKUP).is_empty(), "nothing is looked up before a search");
     assert!(!html.contains("No record found") && !html.contains("Result"), "{html}");
-    assert!(html.contains(r#"href="/support/reference-lookup" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/reference-lookup"), "the nav serves it: {html}");
 
     let (status, _, html) = pilot.send(get("/support/reference-lookup?reference=+ORD-A1B2C3D4+", Some("support-agent"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -4836,7 +5084,7 @@ async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_o
     assert!(html.contains(r#"value="2026-10-01""#), "{html}");
     assert!(html.contains("cursor=c2&amp;direction=next") && html.contains("cursor=c0&amp;direction=previous"), "{html}");
     assert!(!html.contains("Export safe CSV"), "Export is left out until it works: {html}");
-    assert!(html.contains(r#"href="/support/csat" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/csat"), "the nav serves it: {html}");
 
     pilot.send(get("/support/csat?cursor=c2&direction=next&ratings=4", Some("feedback-viewer"))).await;
     assert_eq!(pilot.calls_to(CSAT).last().unwrap().path, format!("{CSAT}?ratings=4&cursor=c2&direction=next"));
@@ -4887,7 +5135,7 @@ async fn platform_feedback_reads_the_queue_and_its_counts_with_the_filters_admin
     assert!(html.contains(r#"value="bulk-review""#) && html.contains(r#"value="bulk-archive""#), "{html}");
     assert!(html.contains(r#"action="/support/platform-feedback?status=new&amp;workflow=offer-submit""#), "{html}");
     assert!(html.contains(r#"href="/support/platform-feedback/export?status=new&amp;workflow=offer-submit""#), "{html}");
-    assert!(html.contains(r#"href="/support/platform-feedback" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/platform-feedback"), "the nav serves it: {html}");
 
     let (status, _, html) = pilot.send(get("/support/platform-feedback", Some("feedback-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -5020,7 +5268,7 @@ async fn support_requests_reads_the_queue_with_the_filters_admin_web_offers() {
         "{html}"
     );
     assert!(html.contains(r#"aria-current="page">Ready for support</a>"#), "the status tab: {html}");
-    assert!(html.contains(r#"href="/support/requests" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/requests"), "the nav serves it: {html}");
     assert!(!html.contains("<dialog"), "no sheet without a request: {html}");
     assert_eq!(pilot.send(get("/support/requests", Some("feedback-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
@@ -5170,7 +5418,7 @@ async fn the_ebay_lookup_shows_the_counts_and_a_user_ids_unexpired_receipts() {
     );
     assert!(html.contains(r#"name="userId""#) && html.contains(r#"maxlength="1024""#), "{html}");
     assert!(!html.contains("Unexpired receipts") && !html.contains(r#"role="alert""#), "{html}");
-    assert!(html.contains(r#"href="/support/ebay-account-deletion" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/ebay-account-deletion"), "the nav serves it: {html}");
 
     let at = "/support/ebay-account-deletion";
     let (status, headers, html) = pilot.send(post_as("support-agent", at, "userId=ebay-user-1", false)).await;
@@ -5224,7 +5472,7 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
     assert_eq!(html.matches("SLA breached").count(), 1, "only the case the API says is overdue: {html}");
     assert!(html.contains("May 8, 2026, 12:00 PM UTC"), "a case past its date by the clock is the API's not overdue: {html}");
     assert!(!html.contains("caseId="), "no link to the same queue (chase-sets/chase-sets#10854): {html}");
-    assert!(html.contains(r#"href="/support/customer-feedback/attention" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/support/customer-feedback/attention"), "the nav serves it: {html}");
     assert_eq!(pilot.calls_to("/api/customer-feedback/attention").len(), 1);
 
     assert_eq!(pilot.send(get(at, Some("attention-down"))).await.0, StatusCode::BAD_GATEWAY);
@@ -5639,7 +5887,7 @@ async fn the_return_intake_station_opens_a_facility_and_resolves_a_scan() {
     assert!(html.contains("Choose the assigned facility") && html.contains(r#"name="facilityId""#), "{html}");
     assert!(!html.contains("Record unidentified package"), "no unidentified form before a facility: {html}");
     assert!(pilot.calls_to(RETURN_INTAKE).is_empty(), "nothing is read before a facility is open");
-    assert!(html.contains(r#"href="/commerce/return-intake" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/commerce/return-intake"), "the nav serves it: {html}");
 
     let (status, _, html) = pilot.send(get("/commerce/return-intake?facilityId=fac_1", Some("intake-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -5927,7 +6175,7 @@ async fn recovered_returns_shows_the_figures_the_queue_and_the_action_form() {
     ] {
         assert!(html.contains(text), "{text}: {html}");
     }
-    assert!(html.contains(r#"href="/commerce/recovered-items" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/commerce/recovered-items"), "the nav serves it: {html}");
     assert_eq!(pilot.calls_to(RECOVERED).len(), 2, "the list and the figures");
     assert_eq!(pilot.send(get(RECOVERED_PAGE, Some("intake-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
@@ -6164,7 +6412,7 @@ async fn commercial_terms_lists_the_published_schedule_and_the_active_and_schedu
     let reads: Vec<_> = pilot.calls_to(TERMS_API).into_iter().map(|c| c.path).collect();
     assert!(reads.iter().any(|p| p == "/api/commercial-terms/home"), "{reads:?}");
     assert!(!reads.iter().any(|p| p.contains("/schedules?") || p.contains("/agreements?")), "no list reads: {reads:?}");
-    assert!(html.contains(r#"href="/commerce/terms" aria-current="page""#), "the nav serves it: {html}");
+    assert!(marks_current(&html, "/commerce/terms"), "the nav serves it: {html}");
     assert!(!html.contains("<dialog"), "no sheet: {html}");
     assert_eq!(pilot.send(get(TERMS, Some("recovery-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
@@ -6861,10 +7109,10 @@ async fn the_nav_links_every_page_the_pilot_serves_to_the_pilot() {
     for path in ["/growth/waitlist", "/growth/promo-bar"] {
         assert!(html.contains(&format!(r#"href="{path}""#)), "{path}: {html}");
     }
-    assert!(html.contains(r#"href="/growth/campaign-analytics" aria-current="page""#), "{html}");
+    assert!(marks_current(&html, "/growth/campaign-analytics"), "{html}");
     let (status, _, html) = pilot.send(get("/platform/insights/offer-economics", Some("insights-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"href="/platform/insights/offer-economics" aria-current="page""#), "{html}");
+    assert!(marks_current(&html, "/platform/insights/offer-economics"), "{html}");
     assert!(!html.contains("localhost:7752/platform/insights/offer-economics"), "{html}");
 }
 

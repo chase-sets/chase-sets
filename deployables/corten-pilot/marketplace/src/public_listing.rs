@@ -159,12 +159,14 @@ pub fn can_purchase(listing: &PublicListing) -> bool {
 /// Buy this listing: a checkout session for it, started once per form (its `SubmitKey` is the
 /// entry key), then the checkout; a guest's or a visitor's is checkout start's Continue for the
 /// listing, as marketplace's form posts there (`checkoutStartHref`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn buy(
     req: Req,
     chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
+    uri: Uri,
     Params(route): Params<crate::app::url::listings::PublicListingBuy<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
@@ -208,7 +210,7 @@ pub(crate) async fn buy(
         };
         let fulfillment = views::fulfillment(t, listing.ship_from_code.as_deref());
         let entry = guest_checkout(&source, l, &availability, &fulfillment);
-        return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &entry, attempt, &chrome).await;
+        return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &uri, &entry, attempt, &chrome).await;
     }
     match caller.buy_now(attempt, &source).await {
         Ok((started, receipt)) => {

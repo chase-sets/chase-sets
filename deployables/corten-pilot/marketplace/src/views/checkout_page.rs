@@ -23,7 +23,7 @@ use crate::{
     },
     text::{CheckoutMsg, Pilot},
 };
-use platform::ui::steps::{Step, StepState, Steps as KitSteps};
+use platform::ui::steps::{Step, StepState, Steps as KitSteps, StepsLayout};
 
 corten::script::script!(pub mod handlers = "checkout_page.js");
 
@@ -274,7 +274,7 @@ fn Stepper<'a>(t: CheckoutMsg, p: Pilot, screen: &'a Screen) -> impl Render {
             .into_iter()
             .map(|(label, description, status)| Step { label, description: Some(description), link: None, state: step_state(p, status) })
             .collect();
-        <KitSteps label={t.page_checkout_steps()} steps={&steps} />
+        <KitSteps label={t.page_checkout_steps()} layout={StepsLayout::Row} steps={&steps} />
     }
 }
 

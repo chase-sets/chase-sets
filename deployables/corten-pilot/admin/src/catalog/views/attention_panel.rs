@@ -195,7 +195,8 @@ fn AttentionRow<'a>(t: Cat, query: &'a ScopeQuery, item: &'a AttentionItem, mana
 }
 
 /// A one-click resolution (an alias candidate's Accept or Reject): its fields, and the reason a
-/// reject needs (the button's label, as admin-web sends it). Any other intent is not offered.
+/// reject needs (the button's label, as admin-web sends it). Any other intent is not offered, and
+/// one whose target the API says is missing is drawn disabled.
 #[component(css = AttentionPanel)]
 fn CommandButton<'a>(t: Cat, query: &'a ScopeQuery, resolution: &'a Resolution, manage: bool) -> impl Render {
     let action = match resolution.intent.as_str() {
@@ -213,7 +214,7 @@ fn CommandButton<'a>(t: Cat, query: &'a ScopeQuery, resolution: &'a Resolution, 
                 if resolution.requires_reason {
                     <input type="hidden" name="reason" value={&label}>
                 }
-                <button type="submit" class={Small} disabled={!manage}>{&label}</button>
+                <button type="submit" class={Small} disabled={!manage || resolution.unavailable}>{&label}</button>
             </form>
         }
     }
@@ -238,6 +239,9 @@ pub fn AttentionSheet<'a>(
                 let title = shown(t, &item.title_key, &params).to_string();
                 let evidence = evidence(t, item);
                 let destination = item.resolution.href.as_deref().and_then(admin_web).map(|u| u.to_string());
+                // A command with its target resolves in its row, so its sheet names no page and says
+                // nothing is missing.
+                let missing = item.resolution.unavailable || item.resolution.mode == ResolutionMode::Drawer;
                 let blank = || Draft::new(ParkInput::of(item));
                 let dismiss = match parked {
                     Some(Parked::Dismiss(draft)) => draft.clone(),
@@ -258,7 +262,8 @@ pub fn AttentionSheet<'a>(
                         <KeyValues items={&evidence} />
                         match &destination {
                             Some(href) => <a class={Link} href={href} data-attention-destination>{t.attention_action_open_destination()}</a>,
-                            None => <p class={Muted}>{t.attention_resolution_unavailable()}</p>,
+                            None if missing => <p class={Muted}>{t.attention_resolution_unavailable()}</p>,
+                            None => {}
                         }
                         <ParkForm
                             t={t}
