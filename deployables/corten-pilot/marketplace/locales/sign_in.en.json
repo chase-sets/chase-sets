@@ -145,6 +145,7 @@
   "social.provider.not.configured": "Social login is not configured for this provider.",
   "social.provider.failed": "Social login provider could not be reached. Try again or use another sign-in method.",
   "social.provider.already.linked": "This social login is already connected to another Chase Sets user.",
+  "social.provider.link.repair.required": "This social login needs review before it can be used. Use another sign-in method or contact support.",
   "social.admin.permission.required": "This Workspace user does not have access to this admin area.",
   "social.admin.user.required": "This Workspace user is not set up in Chase Sets.",
   "social.registration.consent.unavailable": "Account creation is unavailable right now. Try again in a moment.",
