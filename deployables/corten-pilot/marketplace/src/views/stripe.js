@@ -9,37 +9,14 @@ const STRIPE_JS = "https://js.stripe.com/dahlia/stripe.js";
 /** Connect.js for @stripe/connect-js 3.x (its V1_URL). */
 const CONNECT_JS = "https://connect-js.stripe.com/v1.0/connect.js";
 
-/** Where Stripe.js and Connect.js load what they load themselves. */
-const STRIPE_ORIGINS = ["https://js.stripe.com/", "https://connect-js.stripe.com/"];
-
 /**
- * The page requires Trusted Types, so a script's src is a TrustedScriptURL. Stripe.js and
- * Connect.js add scripts of their own from a string (Stripe's console asks for a `default` policy
- * that allows js.stripe.com), so this is the `default` policy, which app.rs allows only on the
- * Stripe areas (`STRIPE_POLICY`): it passes a script URL from Stripe's origins and nothing else
- * (no markup, no inline script), until the framework loads an allowed origin's script itself
- * (todd-skelton/corten#768). Without the API (an older browser) a URL is the string.
- * @type {{ createScriptURL(url: string): any } | null | undefined}
+ * Connect.js's URL as a script's src (connect_surface.js). The page requires Trusted Types; on a
+ * Stripe area's pages (app.rs's `script_src`) `<Corten />` makes the `default` policy that lets a
+ * script, and the scripts Stripe loads itself, set a URL on another origin as a script's src, and
+ * the CSP holds it to Stripe's (todd-skelton/corten#768).
  */
-let policy;
-
-/** `url` as a script's src, when it is from Stripe. @param {string} url */
-function scriptUrl(url) {
-  const types = /** @type {any} */ (window).trustedTypes;
-  policy ??= types
-    ? types.createPolicy("default", {
-        createScriptURL: (/** @type {string} */ u) => {
-          if (!STRIPE_ORIGINS.some((origin) => u.startsWith(origin))) throw new TypeError(`not a Stripe script: ${u}`);
-          return u;
-        },
-      })
-    : null;
-  return policy ? policy.createScriptURL(url) : url;
-}
-
-/** Connect.js's URL as a script's src (connect_surface.js). */
 export function connectScriptUrl() {
-  return scriptUrl(CONNECT_JS);
+  return CONNECT_JS;
 }
 
 /** @type {Promise<any> | null} */
@@ -51,7 +28,7 @@ export function loadStripe() {
   if (page.Stripe) return Promise.resolve(page.Stripe);
   loading ??= new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = scriptUrl(STRIPE_JS);
+    script.src = STRIPE_JS;
     script.async = true;
     script.addEventListener("load", () => (page.Stripe ? resolve(page.Stripe) : reject(new Error())));
     script.addEventListener("error", () => {

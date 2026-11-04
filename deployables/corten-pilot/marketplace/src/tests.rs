@@ -12387,8 +12387,10 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     assert!(csp.contains("https://js.stripe.com;") || csp.contains("https://js.stripe.com "), "Stripe.js may load: {csp}");
     assert!(csp.contains("frame-src https://js.stripe.com https://hooks.stripe.com;"), "{csp}");
     assert!(csp.contains("https://api.stripe.com"), "{csp}");
-    // stripe.js's `default` policy, which passes only Stripe's script URLs (todd-skelton/corten#768).
+    // The `default` policy <Corten /> makes for a page that loads scripts from another host
+    // (todd-skelton/corten#768), and no policy of the pilot's own.
     assert!(csp.contains("trusted-types corten default"), "{csp}");
+    assert!(html.contains(r#"trustedTypes.createPolicy("default""#), "{html}");
     // Only the payment pages allow Stripe (todd-skelton/corten#275), or its policy.
     let (status, headers, _) = pilot.send(get(SELL_LIST_PAGE, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK);
@@ -13524,7 +13526,7 @@ async fn payout_setup_shows_the_status_what_it_needs_and_stripes_form() {
         csp.contains("https://connect-js.stripe.com") && csp.contains("'sha256-0hAheEzaMe6uXIKV4EehS9pu1am1lj/KnnzrOYqckXk='"),
         "{csp}"
     );
-    assert!(csp.contains("trusted-types corten default"), "Connect.js loads through stripe.js's policy: {csp}");
+    assert!(csp.contains("trusted-types corten default"), "Connect.js loads through <Corten />'s policy: {csp}");
     assert_eq!(headers["cross-origin-opener-policy"], "unsafe-none");
     // Every other page keeps same-origin and no Connect.js.
     let (_, headers, _) = pilot.send(get(MONEY, Some("banker"))).await;
