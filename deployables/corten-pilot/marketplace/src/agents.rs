@@ -33,7 +33,7 @@
 //! | `POST /account/agents/consent` | answer it as another of the user's accounts |
 //! | `GET`, `POST /ucp/oauth/authorize` | the API's authorize, relayed (local only) |
 use corten::{
-    NoStore, Relay,
+    Relay,
     axum::{
         body::Body,
         http::{HeaderMap, HeaderName, StatusCode, Uri, header},
@@ -485,11 +485,11 @@ pub(crate) async fn webhook(
     headers: HeaderMap,
     Params(route): Params<crate::app::url::agents::AgentWebhook<'_>>,
     Form(input): Form<WebhookInput>,
-) -> NoStore<HtmlResult> {
+) -> HtmlResult {
     let id = route.id.as_str();
     let address = input.callback_url.trim();
     let caller = config.platform.caller(&headers, config.proto, None);
-    NoStore(match caller.save_agent_webhook(id, Some(address).filter(|a| !a.is_empty())).await {
+    match caller.save_agent_webhook(id, Some(address).filter(|a| !a.is_empty())).await {
         Ok(None) => back(&req, id, Said::WebhookDisabled),
         Ok(Some(saved)) => {
             let shown = Shown { said: Some(Said::WebhookSaved), webhook: Some(Some(saved)), ..Shown::default() };
@@ -501,7 +501,7 @@ pub(crate) async fn webhook(
                 .await
         }
         Err(error) => written(&req, &viewer, id, error, Said::Failed, chrome.cart().await),
-    })
+    }
 }
 
 pub(crate) async fn disable_webhook(
@@ -529,15 +529,15 @@ pub(crate) async fn consent(
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::agent_consent::AgentConsent>,
-) -> NoStore<HtmlResult> {
+) -> HtmlResult {
     let token = route.ask.consent_token.unwrap_or_default();
     let caller = config.platform.caller(&headers, config.proto, None);
     let consent = match caller.agent_consent(&token).await {
         Ok(consent) => Some(consent),
         Err(error) => match error.status() {
-            Some(StatusCode::UNAUTHORIZED) => return NoStore(back_to_consent(&req, &token)),
+            Some(StatusCode::UNAUTHORIZED) => return back_to_consent(&req, &token),
             Some(StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND) => None,
-            _ => return NoStore(read_failed(&req, Some(&viewer), error, None, chrome.cart().await)),
+            _ => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
         },
     };
     let screen = ConsentScreen { consent, token };
@@ -545,11 +545,9 @@ pub(crate) async fn consent(
     let view = html! { <views::AgentConsentPage t={t} screen={&screen} /> };
     let title = if screen.consent.is_some() { t.consent_title() } else { t.consent_invalid_title() };
     let cart = chrome.cart().await;
-    NoStore(
-        req.screen(
-            &screen,
-            html! { <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={title} head={()}>{view}</Layout> },
-        ),
+    req.screen(
+        &screen,
+        html! { <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={title} head={()}>{view}</Layout> },
     )
 }
 
@@ -572,36 +570,36 @@ pub(crate) async fn switch_account(
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<SwitchInput>,
-) -> NoStore<HtmlResult> {
+) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     let consent = match caller.agent_consent(&input.consent_token).await {
         Ok(consent) => consent,
         Err(error) => {
-            return NoStore(match error.status() {
+            return match error.status() {
                 Some(StatusCode::UNAUTHORIZED) => back_to_consent(&req, &input.consent_token),
                 Some(StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND) => {
                     let ask = ConsentAsk { consent_token: Some(input.consent_token.clone()) };
                     req.redirect(&url::AgentConsent { ask })
                 }
                 _ => read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
-            });
+            };
         }
     };
     let account = input.account_id.trim();
     if !consent.memberships.iter().any(|m| m.account_id == account) {
-        return NoStore(Err(corten::Error::status(StatusCode::FORBIDDEN)));
+        return Err(corten::Error::status(StatusCode::FORBIDDEN));
     }
     if let Err(error) = caller.session_write(&consent.session_id, SessionWrite::Switch(account)).await {
-        return NoStore(match error.status() {
+        return match error.status() {
             Some(StatusCode::UNAUTHORIZED) => back_to_consent(&req, &input.consent_token),
             Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
-        });
+        };
     }
-    NoStore(match consent.authorize_path.parse::<Uri>() {
+    match consent.authorize_path.parse::<Uri>() {
         Ok(to) if to.authority().is_none() && consent.authorize_path.starts_with("/ucp/oauth/authorize?") => req.redirect(&to),
         _ => Err(corten::Error::status(StatusCode::BAD_GATEWAY)),
-    })
+    }
 }
 
 /// The headers of the API's authorize answer the browser gets: where it sends the browser, and

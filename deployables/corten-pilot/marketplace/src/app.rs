@@ -301,11 +301,11 @@ pub mod url {
         #[route("/favicon.ico", get = crate::site::favicon)]
         pub struct FaviconIco;
 
-        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools)]
+        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools, no_store)]
         pub struct Devtools;
 
         /// The item page's and search's analytics events (`crate::site::rail_analytics`).
-        #[route("/analytics/item-detail-rail", post = crate::site::rail_analytics)]
+        #[route("/analytics/item-detail-rail", post = crate::site::rail_analytics, no_store)]
         pub struct RailAnalytics;
     }
 
@@ -764,7 +764,7 @@ pub mod url {
         }
 
         /// Save the webhook's address; the answer shows its new signing secret.
-        #[route("/account/agents/{id}/webhook", post = crate::agents::webhook)]
+        #[route("/account/agents/{id}/webhook", post = crate::agents::webhook, no_store)]
         pub struct AgentWebhook<'a> {
             pub id: &'a str,
         }
@@ -783,7 +783,7 @@ pub mod url {
     pub mod agent_consent {
         /// The consent request, and answering it as another of the user's accounts.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/agents/consent", get = crate::agents::consent, post = crate::agents::switch_account)]
+        #[route("/account/agents/consent", get = crate::agents::consent, post = crate::agents::switch_account, no_store)]
         pub struct AgentConsent {
             #[route(query)]
             pub ask: crate::agents::ConsentAsk,
@@ -1058,7 +1058,7 @@ pub mod url {
 
         /// A Stripe Connect session for the page's script, as JSON.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/desk/settings/session", post = crate::payout_setup::session)]
+        #[route("/account/desk/settings/session", post = crate::payout_setup::session, no_store)]
         pub struct PayoutSetupSession {
             #[route(query)]
             pub which: crate::payout_setup::Which,
