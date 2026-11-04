@@ -1,4 +1,3 @@
-import type { ListResponse } from "@chase-sets/http/responses";
 import { describe, expect, it } from "vitest";
 import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
 import {
@@ -30,8 +29,12 @@ function scope(overrides: Partial<CatalogScopeRecordDetail> = {}): CatalogScopeR
   };
 }
 
-function list(items: CatalogScopeRecordDetail[], total = items.length): ListResponse<CatalogScopeRecordDetail> {
-  return { items, total, count: items.length };
+function list(
+  items: CatalogScopeRecordDetail[],
+  total = items.length,
+  languageEditions = [...new Set(items.flatMap((item) => item.languageEditions))],
+) {
+  return { items, total, count: items.length, facets: { languageEditions } };
 }
 
 const noFilters = { search: "", productDomain: "", languageEdition: "", lifecycleStatus: "" };
@@ -90,7 +93,7 @@ describe("buildCatalogScopeLandingReadModel", () => {
     expect(readModel.rows.find((row) => row.scopeRecordId === "fresh")?.syncFreshness).toBe("fresh");
   });
 
-  it("derives language-edition facets from the loaded page and preserves the server total", () => {
+  it("uses global language-edition facets and preserves the server total", () => {
     const readModel = buildCatalogScopeLandingReadModel({
       scopes: list(
         [
@@ -98,17 +101,18 @@ describe("buildCatalogScopeLandingReadModel", () => {
           scope({ scopeRecordId: "b", languageEditions: ["en", "fr"] }),
         ],
         42,
+        ["en", "fr", "ja", "de"],
       ),
       filters: noFilters,
       generatedAt: GENERATED_AT,
     });
 
-    expect(readModel.facets.languageEditions).toEqual(["en", "fr", "ja"]);
+    expect(readModel.facets.languageEditions).toEqual(["de", "en", "fr", "ja"]);
     expect(readModel.counts.total).toBe(42);
     expect(readModel.counts.shown).toBe(2);
   });
 
-  it("applies the language-edition facet to the shown rows without changing the server total", () => {
+  it("keeps the returned page intact and preserves an active empty selection", () => {
     const readModel = buildCatalogScopeLandingReadModel({
       scopes: list(
         [
@@ -116,15 +120,28 @@ describe("buildCatalogScopeLandingReadModel", () => {
           scope({ scopeRecordId: "b", languageEditions: ["en"] }),
         ],
         10,
+        ["en"],
       ),
       filters: { ...noFilters, languageEdition: "ja" },
       generatedAt: GENERATED_AT,
     });
 
-    expect(readModel.rows.map((row) => row.scopeRecordId)).toEqual(["a"]);
-    expect(readModel.counts.shown).toBe(1);
+    expect(readModel.rows.map((row) => row.scopeRecordId)).toEqual(["a", "b"]);
+    expect(readModel.counts.shown).toBe(2);
     expect(readModel.counts.total).toBe(10);
     // The active facet stays selectable even though only one edition remains on the page.
     expect(readModel.facets.languageEditions).toContain("ja");
+  });
+
+  it("preserves global facets and total when the active page is empty", () => {
+    const readModel = buildCatalogScopeLandingReadModel({
+      scopes: list([], 1, ["en"]),
+      filters: { ...noFilters, languageEdition: "ja" },
+      generatedAt: GENERATED_AT,
+    });
+
+    expect(readModel.rows).toEqual([]);
+    expect(readModel.counts.total).toBe(1);
+    expect(readModel.facets.languageEditions).toEqual(["en", "ja"]);
   });
 });

@@ -39,12 +39,54 @@ export type CatalogScopeRecordListParams = ListParams &
     productLineScopeRecordId?: string;
     seriesScopeRecordId?: string;
     referenceRecordId?: string;
+    languageEdition?: string;
+  }>;
+
+export type CatalogScopeRecordListFacets = Readonly<{
+  languageEditions: readonly string[];
+}>;
+
+export type CatalogScopeRecordListResult = ListResult<CatalogScopeRecordRow> &
+  Readonly<{
+    facets: CatalogScopeRecordListFacets;
   }>;
 
 export async function listCatalogScopeRecords(
   db: PgQueryable,
   params: CatalogScopeRecordListParams = {},
-): Promise<ListResult<CatalogScopeRecordRow>> {
+): Promise<CatalogScopeRecordListResult> {
+  const query = buildScopeRecordQuery(params, true);
+  const facetQuery = buildScopeRecordQuery({ ...params, languageEdition: undefined }, false);
+  const facetWhere = facetQuery.countSql.slice("SELECT COUNT(*) as count FROM catalog_scope_records".length);
+  const facetsSql = `SELECT DISTINCT edition.value AS language_edition
+     FROM catalog_scope_records
+     CROSS JOIN LATERAL jsonb_array_elements_text(
+       CASE WHEN jsonb_typeof(language_editions) = 'array' THEN language_editions ELSE '[]'::jsonb END
+     ) AS edition(value)
+     ${facetWhere}
+     ORDER BY language_edition ASC`;
+
+  const result = await executeListQuery<CatalogScopeRecordRow>(
+    db,
+    query.countSql,
+    catalogIsoUtcListSql(query.listSql, "updated_at"),
+    query.countValues,
+    query.listValues,
+  );
+  const facetResult = await db.query<{ language_edition: string }>(facetsSql, facetQuery.countValues);
+
+  return {
+    ...result,
+    facets: {
+      languageEditions: facetResult.rows.map((row) => row.language_edition),
+    },
+  };
+}
+
+function buildScopeRecordQuery(
+  params: CatalogScopeRecordListParams,
+  includeLanguageEdition: boolean,
+): ReturnType<typeof buildFilteredQuery> {
   const extraConditions: string[] = [];
   const extraValues: unknown[] = [];
 
@@ -55,22 +97,17 @@ export async function listCatalogScopeRecords(
   addEqualCondition(extraConditions, extraValues, "product_line_scope_record_id", params.productLineScopeRecordId);
   addEqualCondition(extraConditions, extraValues, "series_scope_record_id", params.seriesScopeRecordId);
   addEqualCondition(extraConditions, extraValues, "reference_record_id", params.referenceRecordId);
+  if (includeLanguageEdition) {
+    addLanguageCondition(extraConditions, extraValues, params.languageEdition);
+  }
 
-  const query = buildFilteredQuery(
+  return buildFilteredQuery(
     "catalog_scope_records",
     params,
     ["reference_record_key", "name", "official_set_code"],
     "product_domain ASC, scope_kind ASC, name ASC",
     extraConditions,
     extraValues,
-  );
-
-  return executeListQuery<CatalogScopeRecordRow>(
-    db,
-    query.countSql,
-    catalogIsoUtcListSql(query.listSql, "updated_at"),
-    query.countValues,
-    query.listValues,
   );
 }
 
@@ -120,4 +157,16 @@ function addEqualCondition(
   }
   extraValues.push(value);
   extraConditions.push(`${columnName} = $${extraValues.length}`);
+}
+
+function addLanguageCondition(
+  extraConditions: string[],
+  extraValues: unknown[],
+  value: string | null | undefined,
+): void {
+  if (!value) {
+    return;
+  }
+  extraValues.push(value);
+  extraConditions.push(`language_editions ? $${extraValues.length}`);
 }
