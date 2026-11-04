@@ -193,7 +193,7 @@ impl Terms {
         // A family's filters in the order the page writes them: dimensions, fields, references.
         filters.sort_by_key(|f: &Filter| f.kind);
         Terms {
-            q: first(f.q.as_str()).or_else(|| first("search")).unwrap_or("").to_owned(),
+            q: first(f.q.as_str()).or_else(|| first(OLDER_Q)).unwrap_or("").to_owned(),
             category: first(f.category.as_str()).unwrap_or("").to_owned(),
             tag: first(f.tag.as_str()).unwrap_or("").to_owned(),
             language: first(f.language.as_str()).unwrap_or("").to_owned(),
@@ -346,6 +346,9 @@ fn encode(pairs: &[(String, String)]) -> String {
     pairs.iter().map(|(k, v)| format!("{}={}", segment(k), segment(v))).collect::<Vec<_>>().join("&")
 }
 
+/// The words' older parameter name, read when there is no `q` and never written.
+const OLDER_Q: &str = "search";
+
 /// The address's parameters as marketplace names them (camelCase, as serde reads the fields), in
 /// the order the page writes them: an empty one is left out, and the dynamic filters are their
 /// three families (`dimension.<id>=<option>`, `field.`, `reference.`). Its `FIELDS` name the
@@ -355,9 +358,6 @@ fn encode(pairs: &[(String, String)]) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct TermsQuery<'a> {
     q: Option<&'a str>,
-    /// The words' older name, read when there is no `q` and never written: a `FromQuery` set's
-    /// `Read` takes only names its `Link` has (todd-skelton/corten#577).
-    search: Option<&'a str>,
     category: Option<&'a str>,
     tag: Option<&'a str>,
     language: Option<&'a str>,
@@ -385,6 +385,8 @@ pub struct TermsQuery<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct TermsRead {
     q: Vec<String>,
+    /// The words' older name, read when there is no `q` and never written.
+    #[route(read_only)]
     search: Vec<String>,
     category: Vec<String>,
     tag: Vec<String>,
@@ -412,7 +414,7 @@ impl TermsRead {
         let f = TermsQuery::FIELDS;
         for (key, values) in [
             (f.q.as_str(), self.q),
-            (f.search.as_str(), self.search),
+            (OLDER_Q, self.search),
             (f.category.as_str(), self.category),
             (f.tag.as_str(), self.tag),
             (f.language.as_str(), self.language),
@@ -461,7 +463,6 @@ impl corten::route::FromQuery for Terms {
             dimensions,
             fields,
             references,
-            search: None,
             interpreted: self.interpreted.as_deref(),
             more: (self.more > 0).then_some(self.more),
         }
