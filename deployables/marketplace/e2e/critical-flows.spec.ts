@@ -1,5 +1,4 @@
 import { expect, test as baseTest, type Page, type Request, type TestInfo } from "@playwright/test";
-import type { CheckoutSellListLineRow } from "../../../bounded-contexts/checkout/client";
 import {
   mountSellListRecoveryBrowserFixture,
   sellListRecoveryBrowserData,
@@ -14,6 +13,41 @@ import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } fro
 import { marketplaceBrowserE2eSeedContract, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 import { settleSearchResults } from "./support/search-settle";
 import { hasIdentifierSubmitHandler } from "./support/sign-in-readiness";
+
+type CheckoutSellListLineRow = Readonly<{
+  line_id: string;
+  line_type: "selected-offer" | "product";
+  product_id: string;
+  catalog_catalog_item_id: string;
+  fallback_mode: "none" | "create-listing";
+  minimum_listing_price_amount: string | null;
+  quantity: number;
+}>;
+
+type SellListCompositeReviewSnapshot = Readonly<{
+  offerReviews: readonly Readonly<{
+    lineId: string;
+    status: string;
+    terms: Readonly<{
+      basis_amount: string;
+      marketplace_sales_fee_unit_amount: string;
+      seller_net_unit_amount: string;
+    }> | null;
+  }>[];
+  productOfferReviews: readonly Readonly<{
+    lineId: string;
+    status: string;
+    message: string | null;
+    offers: readonly Readonly<{
+      offer: Readonly<{ offer_id: string; product_id: string }>;
+      terms: Readonly<{
+        basis_amount?: string;
+        marketplace_sales_fee_unit_amount: string;
+        seller_net_unit_amount: string;
+      }>;
+    }>[];
+  }>[];
+}>;
 
 const configuredMarketplaceAccount = {
   email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
@@ -861,12 +895,22 @@ test.describe("marketplace critical flows", () => {
     const salesBefore = await readJson(salesPath);
     const itemPath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
     const itemUrl = new URL(itemPath, page.url());
-    const mutations: Request[] = [];
+    const commerceMutations: Request[] = [];
+    const analyticsPosts: Array<{ path: string; origin: string; payload: string | null }> = [];
+    const unexpectedPosts: Request[] = [];
     const boundary: Array<{ event: string; path: string; detail?: string | number }> = [];
     const errors: string[] = [];
     page.on("request", (request) => {
       const path = new URL(request.url()).pathname;
-      if (request.method() === "POST") mutations.push(request);
+      if (request.method() === "POST") {
+        const url = new URL(request.url());
+        if (url.origin === itemUrl.origin && path === "/analytics/item-detail-rail") {
+          analyticsPosts.push({ path, origin: url.origin, payload: request.postData() });
+        } else {
+          commerceMutations.push(request);
+          if (url.origin !== itemUrl.origin || path.startsWith("/analytics/")) unexpectedPosts.push(request);
+        }
+      }
       if (request.isNavigationRequest() || path === "/__manifest") {
         boundary.push({ event: request.method(), path });
       }
@@ -897,7 +941,7 @@ test.describe("marketplace critical flows", () => {
     restoreDeskReview(async () => {
       try {
         if (additionArmed) {
-          const adds = mutations.filter(
+          const adds = commerceMutations.filter(
             (request) =>
               new URL(request.url()).pathname.replace(/\.data$/, "") === itemUrl.pathname &&
               new URLSearchParams(request.postData() ?? "").get("intent") === "add-product-to-sell-list",
@@ -966,14 +1010,21 @@ test.describe("marketplace critical flows", () => {
         expect(await readJson(payoutPath), "preserve the not-started payout oracle").toEqual(payoutBefore);
         expect(await readJson(salesPath), "review must not create a sale").toEqual(salesBefore);
         expect(
-          mutations.map((request) => ({
+          commerceMutations.map((request) => ({
             path: new URL(request.url()).pathname.replace(/\.data$/, ""),
             intent: new URLSearchParams(request.postData() ?? "").get("intent"),
           })),
           "review must not submit Accept, Decline, seller checkout or a session-creating command",
         ).toEqual(
-          additionArmed && mutations.length > 0 ? [{ path: itemUrl.pathname, intent: "add-product-to-sell-list" }] : [],
+          additionArmed && commerceMutations.length > 0
+            ? [{ path: itemUrl.pathname, intent: "add-product-to-sell-list" }]
+            : [],
         );
+        expect(unexpectedPosts, "unexpected analytics or cross-origin POSTs must fail closed").toEqual([]);
+        expect(
+          analyticsPosts.every((entry) => entry.payload !== null && entry.payload.length > 0),
+          "observed item-detail telemetry must retain its payload",
+        ).toBe(true);
         expect(
           boundary.filter((entry) => entry.path.startsWith("/checkout/")),
           "review must not enter a checkout session",
@@ -981,7 +1032,7 @@ test.describe("marketplace critical flows", () => {
         expect(errors).toEqual([]);
       } finally {
         await testInfo.attach("desk-review-request-boundary", {
-          body: JSON.stringify({ boundary, errors }),
+          body: JSON.stringify({ boundary, errors, analyticsPosts }),
           contentType: "application/json",
         });
       }
@@ -1029,6 +1080,34 @@ test.describe("marketplace critical flows", () => {
     expect(addedLine, "the public Add to Sell List journey must create one identifiable line").toBeDefined();
     expect(isAddedProduct(addedLine!)).toBe(true);
     expect(addedLine!.quantity).toBe(1);
+    const composite = (await readJson(
+      "/api/marketplace/account/sell-list/composite-review",
+    )) as SellListCompositeReviewSnapshot;
+    const productReview = composite.productOfferReviews.find((review) => review.lineId === addedLine!.line_id);
+    const requiredOffer = productReview?.offers.find(
+      (entry) => entry.offer.offer_id === offerBefore.offer_id && entry.offer.product_id === addedLine!.product_id,
+    );
+    await testInfo.attach("desk-review-composite-diagnostic", {
+      body: JSON.stringify({
+        account: "demo-seller",
+        lineId: addedLine!.line_id,
+        productId: addedLine!.product_id,
+        requiredOfferId: offerBefore.offer_id,
+        reviewStatus: productReview?.status ?? "missing",
+        quote: requiredOffer
+          ? {
+              basis: requiredOffer.terms.basis_amount ?? null,
+              fee: requiredOffer.terms.marketplace_sales_fee_unit_amount,
+              net: requiredOffer.terms.seller_net_unit_amount,
+            }
+          : null,
+        payoutReadiness: payoutBefore.status,
+      }),
+      contentType: "application/json",
+    });
+    expect(productReview, "the added line must be present in the composite review").toBeDefined();
+    expect(productReview!.status, "the required offer must resolve through the public review").toBe("ready");
+    expect(requiredOffer, "the required offer and terms must resolve through the public review").toBeDefined();
     await page.goto("/account/desk/offers");
     const review = page.getByRole("button", { name: "Review Charizard offers and terms", exact: true });
     await expect(review).toHaveCount(1);
@@ -1054,11 +1133,19 @@ test.describe("marketplace critical flows", () => {
     await review.click();
     const dialog = page.getByRole("dialog", { name: "Charizard offers and terms", exact: true });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(/Charizard/).first()).toBeVisible();
-    await expect(dialog.getByText(/Not quoted yet|\$\d+\.\d{2}/).first()).toBeVisible();
+    await expect(dialog.getByText("Charizard", { exact: false }).first()).toBeVisible();
+    await expect(dialog).toContainText(`$${requiredOffer!.terms.seller_net_unit_amount}`);
     await expect(dialog.getByText("Offers cannot be accepted yet.")).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "Continue to seller checkout" })).toBeDisabled();
     await expect(page.getByText("Payout setup required", { exact: true })).toBeVisible();
+    const selectedOffer = dialog.getByRole("checkbox");
+    await selectedOffer.check();
+    await expect(dialog.getByRole("button", { name: "Accept selected" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Decline selected" })).toHaveAttribute(
+      "form",
+      "sell-list-checkout-form",
+    );
+    expect(dialog.getByRole("button", { name: "Remove" }).closest("form")).not.toBeNull();
     await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-sheet-1280" });
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await review.focus();

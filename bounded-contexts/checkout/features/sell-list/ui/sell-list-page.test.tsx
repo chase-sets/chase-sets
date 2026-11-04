@@ -113,6 +113,20 @@ const tintedSurfaceExcluded = [
 ] as const;
 const outlinedSurfaceExcluded = ["surface-border", "ds-glass", "shadow-tokenSm", "shadow-tokenLg", "ds-glow"] as const;
 
+function expectPageCheckoutControls(disabled: boolean) {
+  const controls = screen.getAllByRole("button", { name: "Continue to seller checkout", exact: true });
+  expect(controls).toHaveLength(2);
+  for (const control of controls) {
+    expect((control as HTMLButtonElement).disabled).toBe(disabled);
+    const formId = control.getAttribute("form");
+    if (formId) {
+      expect(document.getElementById(formId)).not.toBeNull();
+    } else {
+      expect(control.closest("form")?.id).toBe("sell-list-checkout-form");
+    }
+  }
+}
+
 describe("quoted payout and readiness copy", () => {
   const line = { ...selectedOfferLine, quantity: 1, offer_price_amount: "380.00" };
   const quote: SellListOfferReview = {
@@ -216,9 +230,7 @@ describe("quoted payout and readiness copy", () => {
     );
     expect(screen.getByText("Resolve 3 lines before seller checkout starts.")).toBeTruthy();
     expect(screen.getByText("Offers cannot be accepted yet.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Continue to seller checkout" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expectPageCheckoutControls(true);
   });
 
   it.each([{ payoutReadiness: { status: "pending", missing_requirements: [] } as const }, { payoutReadiness: null }])(
@@ -236,9 +248,7 @@ describe("quoted payout and readiness copy", () => {
       const links = screen.getAllByRole("link", { name: "Review payout requirements" });
       expect(links).toHaveLength(1);
       expect(links[0]?.getAttribute("href")).toBe("/account/payouts/setup?returnTo=%2Faccount%2Fdesk%2Foffers");
-      expect((screen.getByRole("button", { name: "Continue to seller checkout" }) as HTMLButtonElement).disabled).toBe(
-        true,
-      );
+      expectPageCheckoutControls(true);
     },
   );
 
@@ -261,9 +271,7 @@ describe("quoted payout and readiness copy", () => {
       />,
     );
     expect(screen.getByText("Offers can be accepted after review.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Continue to seller checkout" }) as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expectPageCheckoutControls(false);
   });
 
   it("labels the best offer separately from a multi-offer aggregate", () => {
@@ -858,7 +866,7 @@ describe("checkout sell list page", () => {
     const currencyInput = screen.getByRole("textbox", { name: "Listing price currency code" }) as HTMLInputElement;
     expect(currencyInput.required).toBe(true);
     expect(currencyInput.value).toBe("");
-    expect(screen.getByRole("button", { name: "Continue to seller checkout" }).hasAttribute("disabled")).toBe(false);
+    expectPageCheckoutControls(false);
   });
 
   it("links unavailable selected offers to matching listing setup", () => {
@@ -953,7 +961,7 @@ describe("checkout sell list page", () => {
       expect(screen.queryByText(/Best offer net|Expected seller payout|Estimated sales fees/)).toBeNull();
       expect(screen.queryByText(/No ready matching offers|Some items need action|Line readiness/)).toBeNull();
       expect(screen.queryByRole("button", { name: /Review .* offers and terms/ })).toBeNull();
-      expect(screen.getByRole("button", { name: "Continue to seller checkout" }).hasAttribute("disabled")).toBe(true);
+      expectPageCheckoutControls(true);
       expect(document.querySelector('form[method="post"]')).toBeNull();
     },
   );

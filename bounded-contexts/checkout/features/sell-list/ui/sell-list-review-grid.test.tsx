@@ -90,52 +90,74 @@ describe("SellListReviewGrid hydration and controls", () => {
     document.body.innerHTML = "";
   });
 
-  it("hydrates without recoverable errors and opens one sheet for pointer, Enter, and Space", async () => {
+  it("hydrates without recoverable errors and preserves pointer, keyboard, and selection state", async () => {
     const user = userEvent.setup();
     const serverMarkup = renderToString(renderGrid());
     document.body.innerHTML = `<div id="root">${serverMarkup}</div>`;
     const errors: unknown[] = [];
-    let root!: ReturnType<typeof hydrateRoot>;
-    await act(async () => {
-      root = hydrateRoot(document.getElementById("root")!, renderGrid(), {
-        onRecoverableError: (error) => errors.push(error),
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      await act(async () => {
+        root = hydrateRoot(document.getElementById("root")!, renderGrid(), {
+          onRecoverableError: (error) => errors.push(error),
+        });
       });
-    });
-    expect(errors).toHaveLength(0);
+      expect(errors).toHaveLength(0);
 
-    const trigger = () => screen.getByRole("button", { name: "Review Charizard offers and terms" });
-    fireEvent.click(trigger());
-    expect(screen.getAllByRole("dialog", { name: "Charizard offers and terms" })).toHaveLength(1);
-    assertDialogFormAssociations();
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Charizard offers and terms" })).getByRole("checkbox"));
-    for (const name of ["Accept selected", "Decline selected"]) {
-      const button = within(screen.getByRole("dialog", { name: "Charizard offers and terms" })).getByRole("button", {
-        name,
-      });
-      expect(button).toBeTruthy();
-      expect(button.getAttribute("form")).toBe("sell-list-checkout-form");
+      const trigger = () => screen.getByRole("button", { name: "Review Charizard offers and terms" });
+      await user.click(trigger());
+      expect(screen.getAllByRole("dialog", { name: "Charizard offers and terms" })).toHaveLength(1);
+      assertDialogFormAssociations();
+      let dialog = screen.getByRole("dialog", { name: "Charizard offers and terms" });
+      const checkbox = within(dialog).getByRole("checkbox") as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
+      await user.click(checkbox);
+      expect(checkbox.checked).toBe(true);
+      for (const name of ["Accept selected", "Decline selected"]) {
+        const button = within(dialog).getByRole("button", { name });
+        expect(button).toBeTruthy();
+        expect(button.getAttribute("form")).toBe("sell-list-checkout-form");
+      }
+      expect(within(dialog).queryByRole("button", { name: "Continue to seller checkout" })).toBeNull();
+      await user.click(within(dialog).getByRole("button", { name: "Close" }));
+
+      await user.click(trigger());
+      dialog = screen.getByRole("dialog", { name: "Charizard offers and terms" });
+      expect((within(dialog).getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+      expect(within(dialog).getByRole("button", { name: "Accept selected" })).toBeTruthy();
+      expect(within(dialog).getByRole("button", { name: "Decline selected" })).toBeTruthy();
+      expect(within(dialog).queryByRole("button", { name: "Continue to seller checkout" })).toBeNull();
+      await user.click(within(dialog).getByRole("button", { name: "Clear selection" }));
+      expect((within(dialog).getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+      expect(within(dialog).getByRole("button", { name: "Continue to seller checkout" })).toBeTruthy();
+      expect(within(dialog).queryByRole("button", { name: "Accept selected" })).toBeNull();
+      await user.click(within(dialog).getByRole("button", { name: "Close" }));
+
+      trigger().focus();
+      await user.keyboard("{Enter}");
+      dialog = screen.getByRole("dialog", { name: "Charizard offers and terms" });
+      expect((within(dialog).getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+      expect(within(dialog).getByRole("button", { name: "Continue to seller checkout" })).toBeTruthy();
+      assertDialogFormAssociations();
+      await user.click(within(dialog).getByRole("button", { name: "Close" }));
+
+      trigger().focus();
+      await user.keyboard(" ");
+      dialog = screen.getByRole("dialog", { name: "Charizard offers and terms" });
+      expect((within(dialog).getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+      expect(within(dialog).getByRole("button", { name: "Continue to seller checkout" })).toBeTruthy();
+      assertDialogFormAssociations();
+      await user.click(within(dialog).getByRole("button", { name: "Close" }));
+
+      await user.click(screen.getByRole("button", { name: "Review Pikachu offers and terms" }));
+      const switched = screen.getAllByRole("dialog", { name: "Pikachu offers and terms" });
+      expect(switched).toHaveLength(1);
+      expect(screen.queryByRole("dialog", { name: "Charizard offers and terms" })).toBeNull();
+      expect(switched[0].querySelector('input[name="lineId"]')?.getAttribute("value")).toBe(otherLine.line_id);
+      expect(switched[0].textContent).not.toContain("Charizard");
+      expect(errors).toHaveLength(0);
+    } finally {
+      await act(async () => root?.unmount());
     }
-    expect(screen.getByRole("button", { name: "Clear selection" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-
-    trigger().focus();
-    await user.keyboard("{Enter}");
-    expect(screen.getAllByRole("dialog", { name: "Charizard offers and terms" })).toHaveLength(1);
-    assertDialogFormAssociations();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-
-    trigger().focus();
-    await user.keyboard(" ");
-    expect(screen.getAllByRole("dialog", { name: "Charizard offers and terms" })).toHaveLength(1);
-    assertDialogFormAssociations();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    await user.click(screen.getByRole("button", { name: "Review Pikachu offers and terms" }));
-    const switched = screen.getAllByRole("dialog", { name: "Pikachu offers and terms" });
-    expect(switched).toHaveLength(1);
-    expect(screen.queryByRole("dialog", { name: "Charizard offers and terms" })).toBeNull();
-    expect(switched[0].querySelector('input[name="lineId"]')?.getAttribute("value")).toBe(otherLine.line_id);
-    expect(switched[0].textContent).not.toContain("Charizard");
-    expect(errors).toHaveLength(0);
-    await act(async () => root.unmount());
   });
 });
