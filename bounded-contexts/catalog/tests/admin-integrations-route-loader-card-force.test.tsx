@@ -18,8 +18,8 @@ const { mockCreateCatalogRequestApiClient, mockIsTransientAuthResolutionError, m
 
 vi.mock("../support/request-support/api-client", async () => {
   const { withCatalogSurfaceReads } = await vi.importActual<
-    typeof import("../support/route-support/admin-integrations/integrations-surface-read-test-client")
-  >("../support/route-support/admin-integrations/integrations-surface-read-test-client");
+    typeof import("../features/source-observations/tests/integrations-surface-read-test-client")
+  >("../features/source-observations/tests/integrations-surface-read-test-client");
   return {
     createCatalogRequestApiClient: (request: Request) =>
       withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),

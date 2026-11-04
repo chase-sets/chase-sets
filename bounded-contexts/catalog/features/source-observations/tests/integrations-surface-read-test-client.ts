@@ -5,8 +5,8 @@ import {
   readCatalogPrimaryWorkbenchSurface,
   type CatalogPrimaryWorkbenchSurfaceKey,
   type CatalogPrimaryWorkbenchSurfaceSources,
-} from "../../../features/source-observations/api/admin/primary-workbench-surface-read";
-import { ApiError as CatalogApiError } from "../../shell-support/api/client";
+} from "../api/admin/primary-workbench-surface-read";
+import { ApiError as CatalogApiError } from "../../../support/shell-support/api/client";
 
 // Test-only. The integrations loaders read their workbench from the Catalog
 // API's surface endpoints. Loader tests stub the per-projection client methods

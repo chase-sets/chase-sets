@@ -18,8 +18,8 @@ import { loader as loadDailySurface } from "../../../../../routes/admin/integrat
 const { createApi } = vi.hoisted(() => ({ createApi: vi.fn() }));
 vi.mock("../../../../../support/request-support/api-client", async () => {
   const { withCatalogSurfaceReads } = await vi.importActual<
-    typeof import("../../../../../support/route-support/admin-integrations/integrations-surface-read-test-client")
-  >("../../../../../support/route-support/admin-integrations/integrations-surface-read-test-client");
+    typeof import("../../../tests/integrations-surface-read-test-client")
+  >("../../../tests/integrations-surface-read-test-client");
   return {
     createCatalogRequestApiClient: (request: Request) => withCatalogSurfaceReads(createApi(request), request),
   };
