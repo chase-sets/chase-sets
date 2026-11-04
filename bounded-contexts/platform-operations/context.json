@@ -24,7 +24,8 @@
     "platform-remedy-policy",
     "remedy-approval",
     "seller-compliance-sale",
-    "appealable-enforcement-action"
+    "appealable-enforcement-action",
+    "seller-compliance-cohort"
   ],
   "streamPrefix": "platform-operations.",
   "accountCapabilities": [
@@ -60,7 +61,8 @@
     "support-requests",
     "csat-dashboard",
     "seller-compliance-sales",
-    "account-appeals"
+    "account-appeals",
+    "seller-compliance-cohorts"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
   "publicExports": [
@@ -1496,6 +1498,11 @@
       "classification": "slice",
       "purpose": "Own the private Account Appeal lifecycle and the Appealable Enforcement Action registry: branded seller/operator/action capabilities, deterministic state decisions, expected-version command appends, and the owner-attributed immutable tuple each source enforcement fact records.",
       "expectedConsumers": ["Internal platform-operations module composition", "Future seller and operator appeal routes"]
+    },
+    "seller-compliance-cohorts": {
+      "classification": "slice",
+      "purpose": "Own policy-configured rolling-window seller compliance cohort evaluation, durable state, transition envelopes, failure records, and operator read queries over seller-compliance sale facts.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Platform worker scheduled runner"]
     }
   },
   "runtimeDeployables": ["platform-worker"],

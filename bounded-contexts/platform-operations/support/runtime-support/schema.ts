@@ -12,6 +12,7 @@ import { supportSourceProjectionSchemaSql } from "../../features/support-request
 import { supportRequestSchemaSql } from "../../features/support-requests/read-model/schema";
 import { supportEvidenceCleanupLocatorSchemaSql } from "../../features/support-requests/read-model/cleanup-locator-schema";
 import { accountAppealSchemaSql } from "../../features/account-appeals/read-model/schema";
+import { sellerComplianceCohortSchemaSql } from "../../features/seller-compliance-cohorts/read-model/cohort-schema";
 
 export const platformOperationsSchemaSql = [
   eventCorePostgresSchemaSql,
@@ -27,6 +28,7 @@ export const platformOperationsSchemaSql = [
   supportRequestSchemaSql,
   supportEvidenceCleanupLocatorSchemaSql,
   accountAppealSchemaSql,
+  sellerComplianceCohortSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the platform-wide rate-limit policy (../../features/rate-limit-policy/domain/rate-limit-policy.ts)
   // and the support-flow deadline policy (../../features/support-requests/domain/support-deadline-policy.ts).
