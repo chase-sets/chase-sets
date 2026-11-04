@@ -1011,6 +1011,9 @@
       "@chase-sets/settlement/seed-support/*": [
         "./bounded-contexts/settlement/support/seed-support/*.ts"
       ],
+      "@chase-sets/settlement/seller-checkout-risk": [
+        "./bounded-contexts/settlement/features/seller-checkout-risk/api/public.ts"
+      ],
       "@chase-sets/settlement/server": [
         "./bounded-contexts/settlement/server.ts"
       ],
