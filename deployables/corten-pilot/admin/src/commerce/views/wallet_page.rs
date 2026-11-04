@@ -1,13 +1,14 @@
 //! The Wallet Workbench (`SettlementWalletWorkbenchPage`). Top to bottom: the header, the balance (its
 //! four figures one to a row on a phone, two from 40rem and four from 64rem), the guided credit or
 //! debit (its steps, the form, and the preview with Confirm & submit), the adjustment history with
-//! each row's Approve, Reject or Reverse, and the ledger. The tables scroll on their own on a phone.
+//! each row's Approve, Reject or Reverse, and the ledger. The tables stack on a phone.
 //! Every command asks first in a dialog, as admin-web's `AlertDialog` does, so a bare Enter cannot
 //! post one; the dialogs open with the browser's own `command` buttons, without JavaScript.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout, TableNumeric};
 
 use crate::{
     api::segment,
@@ -563,88 +564,100 @@ pub fn WalletPage<'a>(t: Com, screen: &'a WalletScreen, title: &'a str) -> impl 
                     </div>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.ww_status()}</th>
-                                    <th scope="col">{t.ww_direction()}</th>
-                                    <th scope="col">{t.ww_reason()}</th>
-                                    <th scope="col">{t.ww_actors()}</th>
-                                    <th scope="col">{t.ww_resulting_balance()}</th>
-                                    <th scope="col">{t.ww_reversal()}</th>
-                                    <th scope="col">{t.ww_timeline()}</th>
-                                    <th scope="col">{t.ww_actions()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &screen.adjustments {
-                                    let refusal = scoped(row);
-                                    let status_tone = match row.status.as_str() {
-                                        "requested" => Warning,
-                                        "approved" => Info,
-                                        "posted" => Good,
-                                        _ => Neutral,
-                                    };
-                                    let direction_tone = if row.direction == "credit" { Good } else { Danger };
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td>
-                                            <span class={(Pill, status_tone)}>{status_label(t, &row.status)}</span>
-                                            <span class={(Muted, Words, Block)}>{&row.adjustment_id}</span>
-                                        </td>
-                                        <td>
-                                            <span class={(Pill, direction_tone)}>{direction_label(t, &row.direction)}</span>
-                                            <span class={(Strong, Block)}>{money(t, &row.amount, &row.currency_code)}</span>
-                                        </td>
-                                        <td>
-                                            <span class={Block}>{reason_label(t, &row.reason_code)}</span>
-                                            if let Some(explanation) = &row.explanation {
-                                                <span class={(Muted, Words, Block)}>{explanation}</span>
-                                            }
-                                            if !row.evidence_references.is_empty() {
-                                                <span class={(Muted, Words, Block)}>{row.evidence_references.join(", ")}</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            <span class={(Muted, Words, Block)}>{t.ww_requested_by(&row.requested_by)}</span>
-                                            if let Some(user) = &row.approved_by {
-                                                <span class={(Muted, Words, Block)}>{t.ww_approved_by(user)}</span>
-                                            }
-                                            if let Some(user) = &row.rejected_by {
-                                                <span class={(Muted, Words, Block)}>{t.ww_rejected_by(user)}</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            {row.available_balance_after.as_deref().map_or_else(|| "\u{2014}".to_owned(), |a| money(t, a, &row.currency_code))}
-                                        </td>
-                                        <td>
-                                            if let Some(of) = &row.reversal_of_adjustment_id {
-                                                <span class={(Muted, Words)}>{t.ww_reverses(of)}</span>
-                                            } else if let Some(by) = &row.reversed_by_adjustment_id {
-                                                <span class={(Muted, Words)}>{t.ww_reversed_by(by)}</span>
-                                            } else {
-                                                "\u{2014}"
-                                            }
-                                        </td>
-                                        <td>
-                                            <span class={(Muted, Block)}>{when(t, &row.requested_at)}</span>
-                                            if let Some(at) = &row.posted_at {
-                                                <span class={(Muted, Block)}>{t.ww_posted_at(&when(t, at))}</span>
-                                            }
-                                        </td>
-                                        <td class={Actions}>
-                                            if let Some(refusal) = refusal {
-                                                <Refused t={t} refusal={refusal} sign_in={&sign_in} />
-                                            }
-                                            if row.status == "requested" && screen.can_approve {
-                                                <Approval t={t} screen={screen} row={row} refusal={refusal} label={label} />
-                                            } else if row.status == "posted" && screen.can_reverse {
-                                                <Reversal t={t} screen={screen} row={row} label={label} />
-                                            }
-                                        </td>
+                                        <th scope="col">{t.ww_status()}</th>
+                                        <th scope="col">{t.ww_direction()}</th>
+                                        <th scope="col">{t.ww_reason()}</th>
+                                        <th scope="col">{t.ww_actors()}</th>
+                                        <th scope="col">{t.ww_resulting_balance()}</th>
+                                        <th scope="col">{t.ww_reversal()}</th>
+                                        <th scope="col">{t.ww_timeline()}</th>
+                                        <th scope="col">{t.ww_actions()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for row in &screen.adjustments {
+                                        let refusal = scoped(row);
+                                        let status_tone = match row.status.as_str() {
+                                            "requested" => Warning,
+                                            "approved" => Info,
+                                            "posted" => Good,
+                                            _ => Neutral,
+                                        };
+                                        let direction_tone = if row.direction == "credit" { Good } else { Danger };
+                                        <tr>
+                                            <td>
+                                                <CellLabel>{t.ww_status()}</CellLabel>
+                                                <span class={(Pill, status_tone)}>{status_label(t, &row.status)}</span>
+                                                <span class={(Muted, Words, Block)}>{&row.adjustment_id}</span>
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.ww_direction()}</CellLabel>
+                                                <span class={(Pill, direction_tone)}>{direction_label(t, &row.direction)}</span>
+                                                <span class={(Strong, Block)}>{money(t, &row.amount, &row.currency_code)}</span>
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.ww_reason()}</CellLabel>
+                                                <span class={Block}>{reason_label(t, &row.reason_code)}</span>
+                                                if let Some(explanation) = &row.explanation {
+                                                    <span class={(Muted, Words, Block)}>{explanation}</span>
+                                                }
+                                                if !row.evidence_references.is_empty() {
+                                                    <span class={(Muted, Words, Block)}>
+                                                        {row.evidence_references.join(", ")}
+                                                    </span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.ww_actors()}</CellLabel>
+                                                <span class={(Muted, Words, Block)}>{t.ww_requested_by(&row.requested_by)}</span>
+                                                if let Some(user) = &row.approved_by {
+                                                    <span class={(Muted, Words, Block)}>{t.ww_approved_by(user)}</span>
+                                                }
+                                                if let Some(user) = &row.rejected_by {
+                                                    <span class={(Muted, Words, Block)}>{t.ww_rejected_by(user)}</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.ww_resulting_balance()}</CellLabel>
+                                                {row.available_balance_after.as_deref().map_or_else(|| "\u{2014}".to_owned(), |a| money(t, a, &row.currency_code))}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.ww_reversal()}</CellLabel>
+                                                if let Some(of) = &row.reversal_of_adjustment_id {
+                                                    <span class={(Muted, Words)}>{t.ww_reverses(of)}</span>
+                                                } else if let Some(by) = &row.reversed_by_adjustment_id {
+                                                    <span class={(Muted, Words)}>{t.ww_reversed_by(by)}</span>
+                                                } else {
+                                                    "\u{2014}"
+                                                }
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.ww_timeline()}</CellLabel>
+                                                <span class={(Muted, Block)}>{when(t, &row.requested_at)}</span>
+                                                if let Some(at) = &row.posted_at {
+                                                    <span class={(Muted, Block)}>{t.ww_posted_at(&when(t, at))}</span>
+                                                }
+                                            </td>
+                                            <td class={Actions}>
+                                                <CellLabel>{t.ww_actions()}</CellLabel>
+                                                if let Some(refusal) = refusal {
+                                                    <Refused t={t} refusal={refusal} sign_in={&sign_in} />
+                                                }
+                                                if row.status == "requested" && screen.can_approve {
+                                                    <Approval t={t} screen={screen} row={row} refusal={refusal} label={label} />
+                                                } else if row.status == "posted" && screen.can_reverse {
+                                                    <Reversal t={t} screen={screen} row={row} label={label} />
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
                 <Pager t={t} label={t.ww_adjustment_history()} previous={previous} next={next} />
@@ -658,52 +671,63 @@ pub fn WalletPage<'a>(t: Com, screen: &'a WalletScreen, title: &'a str) -> impl 
                     </div>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.ww_kind()}</th>
-                                    <th scope="col">{t.ww_direction()}</th>
-                                    <th scope="col" class={End}>{t.ww_amount()}</th>
-                                    <th scope="col">{t.ww_posted()}</th>
-                                    <th scope="col">{t.ww_related()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for entry in &screen.ledger {
-                                    let direction_tone = if entry.direction == "credit" { Good } else { Danger };
-                                    let link = entry.payout_id.as_deref().and_then(payout);
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td>
-                                            <span class={(Strong, Block)}>{&entry.kind}</span>
-                                            if let Some(description) = &entry.description {
-                                                <span class={(Muted, Words, Block)}>{description}</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            <span class={(Pill, direction_tone)}>{direction_label(t, &entry.direction)}</span>
-                                        </td>
-                                        <td class={End}>{money(t, &entry.amount, &entry.currency_code)}</td>
-                                        <td>{when(t, &entry.posted_at)}</td>
-                                        <td>
-                                            if let Some(href) = &link {
-                                                <a
-                                                    class={(Button, Secondary, Small)}
-                                                    href={href}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                >
-                                                    {t.ww_related_payout()}
-                                                </a>
-                                            } else if let Some(order) = &entry.order_id {
-                                                <span class={(Muted, Words)}>{order}</span>
-                                            } else {
-                                                "\u{2014}"
-                                            }
-                                        </td>
+                                        <th scope="col">{t.ww_kind()}</th>
+                                        <th scope="col">{t.ww_direction()}</th>
+                                        <th scope="col" class={TableNumeric {}}>{t.ww_amount()}</th>
+                                        <th scope="col">{t.ww_posted()}</th>
+                                        <th scope="col">{t.ww_related()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for entry in &screen.ledger {
+                                        let direction_tone = if entry.direction == "credit" { Good } else { Danger };
+                                        let link = entry.payout_id.as_deref().and_then(payout);
+                                        <tr>
+                                            <td>
+                                                <CellLabel>{t.ww_kind()}</CellLabel>
+                                                <span class={(Strong, Block)}>{&entry.kind}</span>
+                                                if let Some(description) = &entry.description {
+                                                    <span class={(Muted, Words, Block)}>{description}</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.ww_direction()}</CellLabel>
+                                                <span class={(Pill, direction_tone)}>{direction_label(t, &entry.direction)}</span>
+                                            </td>
+                                            <td class={TableNumeric {}}>
+                                                <CellLabel>{t.ww_amount()}</CellLabel>
+                                                {money(t, &entry.amount, &entry.currency_code)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.ww_posted()}</CellLabel>
+                                                {when(t, &entry.posted_at)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.ww_related()}</CellLabel>
+                                                if let Some(href) = &link {
+                                                    <a
+                                                        class={(Button, Secondary, Small)}
+                                                        href={href}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                    >
+                                                        {t.ww_related_payout()}
+                                                    </a>
+                                                } else if let Some(order) = &entry.order_id {
+                                                    <span class={(Muted, Words)}>{order}</span>
+                                                } else {
+                                                    "\u{2014}"
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
                 <Pager t={t} label={t.ww_ledger()} previous={ledger_previous} next={ledger_next} />

@@ -1,6 +1,6 @@
 /* The Wallet Workbench: the balance's figures are one to a row on a phone, two from 40rem and four
-   from 64rem; the form's amount and reason sit side by side from 40rem; the tables scroll on their
-   own on a phone. Tones (good, warning, danger, info, neutral) colour a pill, a banner or a button,
+   from 64rem; the form's amount and reason sit side by side from 40rem; the tables stack on a
+   phone. Tones (good, warning, danger, info, neutral) colour a pill, a banner or a button,
    each in its own way. */
 .page {
   display: grid;
@@ -331,10 +331,6 @@
 .table tr:last-child td {
   border-bottom: 0;
 }
-.table .end {
-  text-align: end;
-  font-variant-numeric: tabular-nums;
-}
 .actions {
   min-inline-size: 14rem;
 }
@@ -373,5 +369,17 @@
 @media (min-width: 64rem) {
   .figures {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Stacked on a phone, a row is one block: a line between rows, not under each of its cells. */
+@media not (--sm) {
+  .table tbody :is(th, td) {
+    padding-block: var(--space-1);
+    border-bottom: 0;
+    white-space: normal;
+  }
+  .table tbody tr:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
   }
 }

@@ -8,6 +8,7 @@
 //! `dialog::modalClosedBy` makes the sheet modal and sends Escape to the close link's address, so
 //! the address says what is open.
 use corten::prelude::*;
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 use serde_json::Value;
 
 use super::{
@@ -444,25 +445,39 @@ fn Repairs<'a>(
 #[component(css = DetailSheet)]
 fn PoisonTable<'a>(t: Ops, events: &'a [&'a PoisonEvent]) -> impl Render {
     html! {
-        <table class={Table}>
-            <thead>
-                <tr>
-                    <th scope="col">{t.projections_event_type()}</th>
-                    <th scope="col">{t.projections_state()}</th>
-                    <th scope="col">{t.projections_position()}</th>
-                    <th scope="col">{t.projections_error()}</th>
-                </tr>
-            </thead>
-            <tbody>
-                for event in events {
+        <KitTable layout={TableLayout::Stack}>
+            <table class={Table}>
+                <thead>
                     <tr>
-                        <td>{&event.event_type}</td>
-                        <td><Pill hue={state_hue(&event.state)} label={&event.state} /></td>
-                        <td class={Number}>{&event.global_position.0}</td>
-                        <td>{&event.error_message}</td>
+                        <th scope="col">{t.projections_event_type()}</th>
+                        <th scope="col">{t.projections_state()}</th>
+                        <th scope="col">{t.projections_position()}</th>
+                        <th scope="col">{t.projections_error()}</th>
                     </tr>
-                }
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    for event in events {
+                        <tr>
+                            <td>
+                                <CellLabel>{t.projections_event_type()}</CellLabel>
+                                {&event.event_type}
+                            </td>
+                            <td>
+                                <CellLabel>{t.projections_state()}</CellLabel>
+                                <Pill hue={state_hue(&event.state)} label={&event.state} />
+                            </td>
+                            <td class={Number}>
+                                <CellLabel>{t.projections_position()}</CellLabel>
+                                {&event.global_position.0}
+                            </td>
+                            <td>
+                                <CellLabel>{t.projections_error()}</CellLabel>
+                                {&event.error_message}
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </KitTable>
     }
 }

@@ -4902,6 +4902,12 @@ async fn reported_content_reads_the_queue_and_its_counts_as_admin_web_does() {
     assert!(html.contains(r#"<option value="needs-review" selected>Needs review</option>"#), "{html}");
     assert!(html.contains(r#"<option value="all" selected>All targets</option>"#), "{html}");
     assert!(html.contains(r#"href="/support/reported-content/listing/lst_1""#), "{html}");
+    assert!(
+        html.contains(
+            r#"<td class="reported-page__words"><span class="table__label" aria-hidden="true">Reasons</span>counterfeit (2)</td>"#
+        ),
+        "the queue stacks on a phone: {html}"
+    );
     assert!(marks_current(&html, "/support/reported-content"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/support/reported-content", Some("staff"))).await.0, StatusCode::FORBIDDEN);
     let (status, _, _) = pilot.send(get("/support/reported-content/listing/lst_1", Some("staff"))).await;
@@ -5484,6 +5490,13 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert_eq!(html.matches("SLA breached").count(), 1, "only the case the API says is overdue: {html}");
+    assert!(
+        html.contains(&labelled_cell("Rating", "1/5"))
+            && html.contains(
+                r#"<td class="feedback-attention-page__words"><span class="table__label" aria-hidden="true">Owner</span>Unassigned</td>"#
+            ),
+        "the queue stacks on a phone: {html}"
+    );
     assert!(html.contains("May 8, 2026, 12:00 PM UTC"), "a case past its date by the clock is the API's not overdue: {html}");
     assert!(!html.contains("caseId="), "no link to the same queue (chase-sets/chase-sets#10854): {html}");
     assert!(marks_current(&html, "/support/customer-feedback/attention"), "the nav serves it: {html}");

@@ -6,9 +6,10 @@
 //! Each tab is a link to the workspace on it, so without JavaScript a tab loads its page. A
 //! form that asks first (suspend, close, revoke, cancel) opens a `<dialog>` with
 //! `command="show-modal"`, no script. Forms stack on a phone and sit in a row from 40rem; tables
-//! scroll on their own.
+//! stack on a phone, a row a block of labelled lines.
 use corten::prelude::*;
 use corten_ui::{CopyButton, Tab as UiTab, TabGroup};
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use super::access_page::when;
 use crate::{
@@ -384,21 +385,23 @@ fn Team<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, hub: &'a Hub) -> impl Render {
                 </div>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.account_team()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.memberships_user()}</th>
-                                <th scope="col">{t.memberships_role()}</th>
-                                <th scope="col">{t.memberships_status()}</th>
-                                <th scope="col"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for m in &hub.memberships {
-                                <MembershipRow t={t} p={p} id={id} account={name} m={m} manage={manage} />
-                            }
-                        </tbody>
-                    </table>
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.account_team()}>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{t.memberships_user()}</th>
+                                    <th scope="col">{t.memberships_role()}</th>
+                                    <th scope="col">{t.memberships_status()}</th>
+                                    <th scope="col"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                for m in &hub.memberships {
+                                    <MembershipRow t={t} p={p} id={id} account={name} m={m} manage={manage} />
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
         </section>
@@ -408,21 +411,23 @@ fn Team<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, hub: &'a Hub) -> impl Render {
                 <p class={Muted}>{t.invitations_no_invitations_yet()}</p>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.invitations_invitations()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.invitations_email()}</th>
-                                <th scope="col">{t.invitations_role()}</th>
-                                <th scope="col">{t.invitations_status()}</th>
-                                <th scope="col"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for i in &hub.invitations {
-                                <InvitationRow t={t} p={p} id={id} account={name} i={i} manage={manage} />
-                            }
-                        </tbody>
-                    </table>
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.invitations_invitations()}>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{t.invitations_email()}</th>
+                                    <th scope="col">{t.invitations_role()}</th>
+                                    <th scope="col">{t.invitations_status()}</th>
+                                    <th scope="col"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                for i in &hub.invitations {
+                                    <InvitationRow t={t} p={p} id={id} account={name} i={i} manage={manage} />
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
         </section>
@@ -439,9 +444,18 @@ fn MembershipRow<'a>(t: Acc, p: Pilot, id: &'a str, account: &'a str, m: &'a Mem
     let hidden = [(f.membership_id.as_str(), m.membership_id.as_str())];
     html! {
         <tr>
-            <td>{who}</td>
-            <td>{access::role(t, &m.role_key)}</td>
-            <td><span class={Pill}>{access::membership_status(t, &m.status)}</span></td>
+            <td>
+                <CellLabel>{t.memberships_user()}</CellLabel>
+                {who}
+            </td>
+            <td>
+                <CellLabel>{t.memberships_role()}</CellLabel>
+                {access::role(t, &m.role_key)}
+            </td>
+            <td>
+                <CellLabel>{t.memberships_status()}</CellLabel>
+                <span class={Pill}>{access::membership_status(t, &m.status)}</span>
+            </td>
             <td>
                 if manage && m.status == "active" {
                     <div class={Actions}>
@@ -490,9 +504,18 @@ fn InvitationRow<'a>(t: Acc, p: Pilot, id: &'a str, account: &'a str, i: &'a Inv
     let resend = [(f.invitation_id.as_str(), i.invitation_id.as_str()), (f.expires_at.as_str(), i.expires_at.as_str())];
     html! {
         <tr>
-            <td>{&i.email}</td>
-            <td>{access::role(t, &i.role_key)}</td>
-            <td><span class={Pill}>{access::invitation_status(t, &i.status)}</span></td>
+            <td>
+                <CellLabel>{t.invitations_email()}</CellLabel>
+                {&i.email}
+            </td>
+            <td>
+                <CellLabel>{t.invitations_role()}</CellLabel>
+                {access::role(t, &i.role_key)}
+            </td>
+            <td>
+                <CellLabel>{t.invitations_status()}</CellLabel>
+                <span class={Pill}>{access::invitation_status(t, &i.status)}</span>
+            </td>
             <td>
                 if manage && i.status == "pending" {
                     <div class={Actions}>
@@ -704,28 +727,30 @@ fn ApiAccess<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, hub: &'a Hub, secret: Opt
                 </div>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.account_api_access()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.api_keys_name()}</th>
-                                <th scope="col">{t.api_keys_user()}</th>
-                                <th scope="col">{t.api_keys_prefix()}</th>
-                                <th scope="col">{t.api_keys_status()}</th>
-                                <th scope="col"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for key in &hub.api_keys {
-                                <KeyRow
-                                    t={t}
-                                    p={p}
-                                    id={id}
-                                    key_={key}
-                                    manage={key.status == "active" && account::manages_user(viewer, &key.user_id)}
-                                />
-                            }
-                        </tbody>
-                    </table>
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.account_api_access()}>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{t.api_keys_name()}</th>
+                                    <th scope="col">{t.api_keys_user()}</th>
+                                    <th scope="col">{t.api_keys_prefix()}</th>
+                                    <th scope="col">{t.api_keys_status()}</th>
+                                    <th scope="col"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                for key in &hub.api_keys {
+                                    <KeyRow
+                                        t={t}
+                                        p={p}
+                                        id={id}
+                                        key_={key}
+                                        manage={key.status == "active" && account::manages_user(viewer, &key.user_id)}
+                                    />
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
         </section>
@@ -738,10 +763,22 @@ fn KeyRow<'a>(t: Acc, p: Pilot, id: &'a str, key_: &'a ApiKey, manage: bool) -> 
     let hidden = [(f.api_key_id.as_str(), key_.api_key_id.as_str())];
     html! {
         <tr>
-            <td>{&key_.name}</td>
-            <td>{key_.user_label()}</td>
-            <td><code>{&key_.key_prefix}</code></td>
-            <td><span class={Pill}>{access::api_key_status(t, &key_.status)}</span></td>
+            <td>
+                <CellLabel>{t.api_keys_name()}</CellLabel>
+                {&key_.name}
+            </td>
+            <td>
+                <CellLabel>{t.api_keys_user()}</CellLabel>
+                {key_.user_label()}
+            </td>
+            <td>
+                <CellLabel>{t.api_keys_prefix()}</CellLabel>
+                <code>{&key_.key_prefix}</code>
+            </td>
+            <td>
+                <CellLabel>{t.api_keys_status()}</CellLabel>
+                <span class={Pill}>{access::api_key_status(t, &key_.status)}</span>
+            </td>
             <td>
                 if manage {
                     <div class={Actions}>

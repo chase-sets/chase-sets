@@ -79,3 +79,15 @@
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
+
+/* Stacked on a phone, a row is one block: a line between rows, not under each of its cells. */
+@media not (--sm) {
+  .table tbody :is(th, td) {
+    padding-block: var(--space-1);
+    border-bottom: 0;
+    white-space: normal;
+  }
+  .table tbody tr:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
+  }
+}

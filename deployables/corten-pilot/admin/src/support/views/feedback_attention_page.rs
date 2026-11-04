@@ -1,9 +1,10 @@
 //! Customer Feedback's attention queue (`FeedbackAttentionSurface`): four figures (one column on a
-//! phone, four from 48rem), then the queue as a table that scrolls on its own on a phone.
+//! phone, four from 48rem), then the queue as a table that stacks on a phone, a row a block of labelled lines.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use crate::{
     support::attention::{AttentionScreen, Item, duration},
@@ -28,18 +29,34 @@ fn Row<'a>(t: Sup, item: &'a Item) -> impl Render {
         parse_timestamp(at).map_or_else(|| at.to_owned(), |at| t.date_time(at, DateStyle::Medium, TimeStyle::Short).to_string());
     html! {
         <tr>
-            <td class={Words}>{&item.case_id}</td>
-            <td><Priority value={&item.priority} /></td>
-            <td>{format!("{}/5", item.rating)}</td>
+            <td class={Words}>
+                <CellLabel>{t.cfa_case()}</CellLabel>
+                {&item.case_id}
+            </td>
             <td>
+                <CellLabel>{t.cfa_priority()}</CellLabel>
+                <Priority value={&item.priority} />
+            </td>
+            <td>
+                <CellLabel>{t.cfa_rating()}</CellLabel>
+                {format!("{}/5", item.rating)}
+            </td>
+            <td>
+                <CellLabel>{t.cfa_sla()}</CellLabel>
                 if item.sla.overdue {
                     <span class={(Pill, Danger)}>{t.cfa_sla_breached()}</span>
                 } else {
                     <span class={(Pill, Neutral)}>{&due}</span>
                 }
             </td>
-            <td>{format!("{} / {}", item.delivery_status, item.follow_up_delivery_status)}</td>
-            <td class={Words}>{item.owner_id.as_deref().unwrap_or(t.cfa_unassigned())}</td>
+            <td>
+                <CellLabel>{t.cfa_delivery()}</CellLabel>
+                {format!("{} / {}", item.delivery_status, item.follow_up_delivery_status)}
+            </td>
+            <td class={Words}>
+                <CellLabel>{t.cfa_owner()}</CellLabel>
+                {item.owner_id.as_deref().unwrap_or(t.cfa_unassigned())}
+            </td>
         </tr>
     }
 }
@@ -80,23 +97,25 @@ pub fn FeedbackAttentionPage<'a>(t: Sup, screen: &'a AttentionScreen) -> impl Re
                 </div>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.cfa_queue()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.cfa_case()}</th>
-                                <th scope="col">{t.cfa_priority()}</th>
-                                <th scope="col">{t.cfa_rating()}</th>
-                                <th scope="col">{t.cfa_sla()}</th>
-                                <th scope="col">{t.cfa_delivery()}</th>
-                                <th scope="col">{t.cfa_owner()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for item in &screen.items {
-                                <Row t={t} item={item} />
-                            }
-                        </tbody>
-                    </table>
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.cfa_queue()}>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{t.cfa_case()}</th>
+                                    <th scope="col">{t.cfa_priority()}</th>
+                                    <th scope="col">{t.cfa_rating()}</th>
+                                    <th scope="col">{t.cfa_sla()}</th>
+                                    <th scope="col">{t.cfa_delivery()}</th>
+                                    <th scope="col">{t.cfa_owner()}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                for item in &screen.items {
+                                    <Row t={t} item={item} />
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
         </section>
