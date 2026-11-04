@@ -15,7 +15,8 @@
     "account-management-mutation-attempt",
     "founders-cohort",
     "shipping-address",
-    "user-preference"
+    "user-preference",
+    "account-block"
   ],
   "streamPrefix": "identity.",
   "apiBasePath": "/api/identity",
@@ -32,7 +33,8 @@
     "consents",
     "founders-cohort",
     "shipping-addresses",
-    "preferences"
+    "preferences",
+    "account-blocks"
   ],
   "allowedSupportDirectories": [
     "request-support",
@@ -2214,6 +2216,11 @@
       "classification": "slice",
       "purpose": "Own reusable account recipient shipping address behavior, read models, and UI contracts for the identity context.",
       "expectedConsumers": ["Internal identity module composition", "Checkout request-time address selection"]
+    },
+    "account-blocks": {
+      "classification": "slice",
+      "purpose": "Own the directed Account Block pair authority, the Account-wide Block budget, their private codecs and the staged append plan.",
+      "expectedConsumers": ["Account Block receipt admission", "Account Block management API"]
     },
     "preferences": {
       "classification": "slice",
