@@ -250,6 +250,13 @@ const callerNeedles = [
   "chaseSetsLogoSvg",
 ];
 
+// The accepted bootstrap capture pair carries source-manifest paths as data;
+// those paths are not callers of the brand representations.
+const captureFixtureCarrierPaths = new Set([
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41285374094-paired.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41285374094.json",
+]);
+
 export function deriveCallers() {
   const callers = new Set();
   for (const needle of callerNeedles) {
@@ -261,7 +268,11 @@ export function deriveCallers() {
     } catch {
       output = "";
     }
-    for (const file of output.split("\n").filter(Boolean)) callers.add(file.replaceAll("\\", "/"));
+    for (const file of output.split("\n").filter(Boolean)) {
+      const normalized = file.replaceAll("\\", "/");
+      if (captureFixtureCarrierPaths.has(normalized)) continue;
+      callers.add(normalized);
+    }
   }
   return [...callers].sort();
 }

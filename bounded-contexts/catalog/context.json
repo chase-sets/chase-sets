@@ -61,6 +61,11 @@
   "seedRequirements": [],
   "hostPorts": [
     {
+      "portName": "catalogOperatorAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Checks the live Identity authority of the actor and each operator-session grant creator before Catalog observation access."
+    },
+    {
       "portName": "catalogAssetStorage",
       "providedBy": "platform-api",
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
