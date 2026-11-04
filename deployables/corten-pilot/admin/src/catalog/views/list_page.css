@@ -79,10 +79,16 @@
     border-bottom: 1px solid var(--color-border);
   }
 }
-/* A number column (`align: "right"`): the category list's display order. */
+/* A number column (`align: "right"`): the category list's display order. Stacked, it starts
+   where the other values do. */
 .table .number {
   text-align: end;
   font-variant-numeric: tabular-nums;
+}
+@media not (--sm) {
+  .table .number {
+    text-align: start;
+  }
 }
 .view {
   display: inline-flex;
