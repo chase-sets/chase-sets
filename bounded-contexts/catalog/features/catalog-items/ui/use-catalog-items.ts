@@ -13,7 +13,9 @@ import type {
   ProductContentInclusionPolicyRef,
   ProductContentLineDetail,
   ProductContentsResolvedSnapshot,
+  ProductContentsAuthoringSnapshot,
   ProductContentTypeRef,
+  ProductContentSelectedOption,
   ReplaceProductContentsInput,
 } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
@@ -80,6 +82,13 @@ export function useProductContentsForContainer(id: string) {
   return useFetch(() => api.listProductContentsForContainer<ListResponse<ProductContentLineDetail>>(id), [id]);
 }
 
+export function getProductContentsAuthoringState(
+  id: string,
+  containerSelectedOptions?: ProductContentSelectedOption[],
+) {
+  return api.getProductContentsAuthoringState<ProductContentsAuthoringSnapshot>(id, containerSelectedOptions);
+}
+
 export function useProductContainersForContained(id: string) {
   return useFetch(() => api.listProductContainersForContained<ListResponse<ProductContentLineDetail>>(id), [id]);
 }
@@ -88,7 +97,10 @@ export function replaceProductContents(id: string, body: ReplaceProductContentsI
   return api.replaceProductContents<ProductContentsResolvedSnapshot>(id, body);
 }
 
-export function removeProductContents(id: string, body: Pick<ReplaceProductContentsInput, "containerSelectedOptions">) {
+export function removeProductContents(
+  id: string,
+  body: Pick<ReplaceProductContentsInput, "containerSelectedOptions" | "expectedVersion">,
+) {
   return api.removeProductContents<ProductContentsResolvedSnapshot>(id, body);
 }
 

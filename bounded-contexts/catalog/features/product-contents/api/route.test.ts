@@ -35,6 +35,7 @@ function createServices(overrides: Partial<ProductContentServices> = {}): Produc
       resolvedFactHash: "hash",
       resolverVersion: 1,
       resolvedAt: "2026-07-01T00:00:00.000Z",
+      version: 0,
     }),
     removeProductContents: async (input) => ({
       containerCatalogItemId: input.containerCatalogItemId,
@@ -44,11 +45,18 @@ function createServices(overrides: Partial<ProductContentServices> = {}): Produc
       resolvedFactHash: "hash",
       resolverVersion: 1,
       resolvedAt: "2026-07-01T00:00:00.000Z",
+      version: 0,
     }),
     listProductContentTypes: async () => [],
     listProductContentInclusionPolicies: async () => [],
     listProductContentsForContainer: async () => [],
     listProductContainersForContained: async () => [],
+    readProductContentsAuthoringState: async (containerCatalogItemId) => ({
+      containerCatalogItemId,
+      containerSelectedOptions: null,
+      lines: [],
+      version: 0,
+    }),
     projectors: [],
     ...overrides,
   };
@@ -104,6 +112,7 @@ describe("product content routes", () => {
         method: "PUT",
         body: JSON.stringify({
           containerSelectedOptions: [{ dimensionId: "language", optionId: "en" }],
+          expectedVersion: 0,
           lines: [
             {
               containedCatalogItemId: "cat_pack",
@@ -122,6 +131,7 @@ describe("product content routes", () => {
       {
         containerCatalogItemId: "cat_box",
         containerSelectedOptions: [{ dimensionId: "language", optionId: "en" }],
+        expectedVersion: 0,
         lines: [
           {
             containedCatalogItemId: "cat_pack",

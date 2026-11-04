@@ -989,7 +989,9 @@ function getCatalogServices(services: Readonly<Record<string, unknown>>): Repres
     !("upsertInclusionPolicy" in catalog.productContents) ||
     typeof catalog.productContents.upsertInclusionPolicy !== "function" ||
     !("replaceProductContents" in catalog.productContents) ||
-    typeof catalog.productContents.replaceProductContents !== "function"
+    typeof catalog.productContents.replaceProductContents !== "function" ||
+    !("readProductContentsAuthoringState" in catalog.productContents) ||
+    typeof catalog.productContents.readProductContentsAuthoringState !== "function"
   ) {
     throw new Error(
       "Representative commerce state requires mounted Catalog services with Product Contents, product measures, and a queryable db.",

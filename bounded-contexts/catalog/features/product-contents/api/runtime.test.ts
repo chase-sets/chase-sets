@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { AppendToStreamInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -215,17 +216,23 @@ function storedEvent(streamVersion: number, eventType: string, payload: StoredEv
 function createEventStore(existingEvents: readonly StoredEvent[] = []) {
   const appended: AppendToStreamInput[] = [];
   const reads: ReadStreamInput[] = [];
+  const store = createInMemoryEventStore();
+  if (existingEvents.length > 0) {
+    store.streams.set(existingEvents[0]?.streamId ?? "catalog.product-contents-cat_box", [...existingEvents]);
+    store.allEvents.push(...existingEvents);
+  }
+  const originalAppend = store.eventStore.appendToStream;
+  const originalRead = store.eventStore.readStream;
   const eventStore: EventStore = {
+    ...store.eventStore,
     appendToStream: vi.fn(async (input: AppendToStreamInput) => {
       appended.push(input);
-      return [];
+      return originalAppend(input);
     }),
     readStream: async (input: ReadStreamInput): Promise<StoredEvent[]> => {
       reads.push(input);
-      const fromIndex = (input.fromVersion ?? 1) - 1;
-      return existingEvents.slice(fromIndex, fromIndex + (input.limit ?? 500));
+      return [...(await originalRead(input))];
     },
-    readAll: async (_input?: ReadAllInput): Promise<StoredEvent[]> => [],
   };
   return { eventStore, appended, reads };
 }
@@ -292,6 +299,7 @@ describe("product content runtime", () => {
     const fact = await services.replaceProductContents(
       {
         containerCatalogItemId: "cat_box" as never,
+        expectedVersion: 0,
         containerSelectedOptions: [{ dimensionId: "language", optionId: "en" }],
         lines: [
           {
@@ -467,6 +475,7 @@ describe("product content runtime", () => {
 
     const input = {
       containerCatalogItemId: "cat_box" as never,
+      expectedVersion: 0,
       lines: [
         {
           containedCatalogItemId: "cat_card" as never,
@@ -525,6 +534,7 @@ describe("product content runtime", () => {
       services.replaceProductContents(
         {
           containerCatalogItemId: "cat_box" as never,
+          expectedVersion: 0,
           lines: [{ containedCatalogItemId: "cat_card" as never, quantity: 1, contentTypeId: "pct_included_item" }],
         },
         context,
@@ -557,6 +567,7 @@ describe("product content runtime", () => {
     ]);
     const input = {
       containerCatalogItemId: "cat_box" as never,
+      expectedVersion: 0,
       lines: [
         {
           containedCatalogItemId: "cat_card" as never,
@@ -596,11 +607,11 @@ describe("product content runtime", () => {
       checkpointStore: createCheckpointStore(),
     });
 
-    const replayed = await replayServices.replaceProductContents(input, context);
+    const replayed = await replayServices.replaceProductContents({ ...input, expectedVersion: 501 }, context);
 
-    expect(replayStore.reads.map((read) => read.fromVersion)).toEqual([1, 501]);
+    expect(replayStore.reads.map((read) => read.fromVersion)).toEqual([1, 501, 1, 501]);
     expect(replayStore.appended).toEqual([]);
-    expect(replayed).toEqual(retainedPayload);
+    expect(replayed).toMatchObject({ ...retainedPayload, version: 501 });
   });
 
   it("rejects duplicate, self-referential, and cyclic resolved lines", async () => {
@@ -632,6 +643,7 @@ describe("product content runtime", () => {
       services.replaceProductContents(
         {
           containerCatalogItemId: "cat_a" as never,
+          expectedVersion: 0,
           lines: [{ containedCatalogItemId: "cat_a" as never, quantity: 1, contentTypeId: "pct_included_item" }],
         },
         context,
@@ -665,6 +677,7 @@ describe("product content runtime", () => {
       services.replaceProductContents(
         {
           containerCatalogItemId: "cat_a" as never,
+          expectedVersion: 0,
           lines: [{ containedCatalogItemId: "cat_b" as never, quantity: 1, contentTypeId: "pct_included_item" }],
         },
         context,

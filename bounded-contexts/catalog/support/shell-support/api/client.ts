@@ -978,6 +978,20 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async getProductContentsAuthoringState<T>(id: string, containerSelectedOptions?: unknown): Promise<T> {
+      const query =
+        containerSelectedOptions === undefined
+          ? ""
+          : `?containerSelectedOptions=${encodeURIComponent(JSON.stringify(containerSelectedOptions))}`;
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/product-contents/containers/${encodeURIComponent(id)}/authoring${query}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async listProductContainersForContained<T>(id: string): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/product-contents/contained/${encodeURIComponent(id)}`,

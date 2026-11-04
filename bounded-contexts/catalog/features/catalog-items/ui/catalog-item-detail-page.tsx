@@ -19,6 +19,7 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
+import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import { CatalogItemPublicationApiError } from "../../../support/shell-support/api/client";
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
 import { toCatalogAdminHref } from "../../../support/shell-support/ui/catalog-admin-hrefs";
@@ -51,6 +52,7 @@ import {
   unlinkExternalCatalogItemReference,
   unlinkExternalProductReference,
   replaceProductContents,
+  getProductContentsAuthoringState,
 } from "./use-catalog-items";
 import { useFieldList } from "../../fields/ui/use-fields";
 import type { ReferenceRecord } from "../../reference-data/ui/contracts";
@@ -417,6 +419,10 @@ export function CatalogItemDetailPage({
   const { data: productContentPoliciesData } = useProductContentInclusionPolicies();
   const { data: productContentItemsData } = useCatalogItemList("limit=500&status=active");
   const { data: productContentsData, refresh: refreshProductContents } = useProductContentsForContainer(id);
+  const { data: authoringProductContentsData, refresh: refreshAuthoringProductContents } = useFetch(
+    () => getProductContentsAuthoringState(id),
+    [id],
+  );
   const { data: productContainersData, refresh: refreshProductContainers } = useProductContainersForContained(id);
   const fields = fieldsData?.items ?? [];
   const referenceRecords = referenceRecordsData?.items ?? [];
@@ -429,7 +435,9 @@ export function CatalogItemDetailPage({
     setAuthoritativeProductContents(null);
   }, [id]);
 
-  const productContents = authoritativeProductContents?.lines ?? productContentsData?.items ?? [];
+  const productContents =
+    authoritativeProductContents?.lines ?? authoringProductContentsData?.lines ?? productContentsData?.items ?? [];
+  const productContentsVersion = authoritativeProductContents?.version ?? authoringProductContentsData?.version ?? 0;
   const productContainers = productContainersData?.items ?? [];
   const resolvedProductContents = productContents.filter((line) => line.resolutionStatus === "resolved");
   const unresolvedProductContentEvidence = productContents.filter((line) => line.resolutionStatus === "unresolved");
@@ -717,6 +725,7 @@ export function CatalogItemDetailPage({
     try {
       const result = await replaceProductContents(id, {
         lines: [...productContents.map(productContentLineToInput), nextLine],
+        expectedVersion: productContentsVersion,
       });
       setAuthoritativeProductContents(result);
       addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
@@ -727,6 +736,7 @@ export function CatalogItemDetailPage({
       setProductContentTargetOptions("");
       setProductContentQuantity("1");
       refreshProductContents();
+      refreshAuthoringProductContents();
       refreshProductContainers();
     } catch (error) {
       const message = messageFromError(error);
@@ -751,10 +761,12 @@ export function CatalogItemDetailPage({
     try {
       const result = await replaceProductContents(id, {
         lines: productContents.filter((entry) => entry.lineId !== line.lineId).map(productContentLineToInput),
+        expectedVersion: productContentsVersion,
       });
       setAuthoritativeProductContents(result);
       addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
       refreshProductContents();
+      refreshAuthoringProductContents();
       refreshProductContainers();
     } catch (error) {
       const message = messageFromError(error);

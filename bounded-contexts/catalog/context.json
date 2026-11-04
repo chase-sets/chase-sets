@@ -1102,10 +1102,10 @@
       ],
       "visibleDestination": {
         "routeId": "catalog-items-detail",
-        "description": "Product Contents authoring stays on the Catalog Item detail surface and returns the resolved Product Contents fact snapshot from the command runtime without waiting on the forward/reverse read-model projection."
+        "description": "Product Contents authoring stays on the Catalog Item detail surface, reads a complete-stream authoring snapshot with its terminal version, and returns the guarded resolved fact snapshot without waiting on the forward/reverse read-model projection."
       },
       "proof": {
-        "authoritativeResponse": "The Product Contents replace and remove routes return the resolved fact built by the Product Contents runtime in the same request. The Catalog Item detail UI refreshes Product Contents rows after the authoritative command response, while the projection catches up for forward and reverse lookup rows.",
+        "authoritativeResponse": "The Product Contents authoring snapshot binds matching lines to the terminal stream version; replace and remove require that expectedVersion and return the resolved fact plus committed version in the same request. The Catalog Item detail UI refreshes Product Contents rows after the guarded command response, while the projection catches up for forward and reverse lookup rows.",
         "tests": [
           "bounded-contexts/catalog/features/product-contents/api/route.test.ts",
           "bounded-contexts/catalog/features/product-contents/api/runtime.test.ts",
