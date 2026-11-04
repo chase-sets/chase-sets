@@ -581,7 +581,10 @@ function tokens() {
     ...groups,
     $extensions: {
       "run.corten": {
-        breakpoints: { md: dtcgDimension("48rem"), lg: dtcgDimension("64rem") },
+        // The kit's phone layouts (NavBar, Steps, Table) and the pilot's own switch at `sm`. The
+        // design system's switch at Tailwind's `md`, 48rem (DataTable stacks, the nav's bar and the
+        // sheets change), so `sm` is that width here.
+        breakpoints: { sm: dtcgDimension("48rem"), lg: dtcgDimension("64rem") },
         utilities: { gap: { property: "gap", group: "space" } },
       },
     },
