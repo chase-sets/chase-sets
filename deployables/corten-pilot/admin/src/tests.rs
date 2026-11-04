@@ -1522,23 +1522,26 @@ fn items_api(method: Method, rest: &str, body: &str) -> Response {
     }
 }
 
-/// The Catalog's Scope Records: two on the page of 51, one live and changed lately (a time to
-/// come, so it stays fresh), one a draft untouched since 2020. A search for `broken` fails.
+/// The Catalog's Scope Records: two on the page of 51, one live and fresh, one a draft the API
+/// reads as a stale sync, with the editions across every page as the facets. The API filters by
+/// `languageEdition`. A search for `broken` fails.
 fn scope_records(query: &str) -> Response {
     if query.contains("search=broken") {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "The scope list is unavailable.");
     }
-    let scope = |id: &str, name: &str, code: Option<&str>, editions: &[&str], status: &str, updated: &str| {
+    let scope = |id: &str, name: &str, code: Option<&str>, editions: &[&str], status: &str, row: [&str; 2]| {
         json!({ "scopeRecordId": id, "productDomain": "pokemon", "scopeKind": "expansion", "referenceTypeKey": "expansion",
                 "referenceRecordId": format!("ref_{id}"), "referenceRecordKey": id, "name": name, "parentScopeRecordId": null,
                 "productLineScopeRecordId": null, "seriesScopeRecordId": null, "releaseDate": null, "officialSetCode": code,
-                "languageEditions": editions, "lifecycleStatus": status, "updatedAt": updated })
+                "languageEditions": editions, "lifecycleStatus": status, "updatedAt": "2026-11-04T00:00:00.000Z",
+                "promotionReadiness": row[0], "syncFreshness": row[1] })
     };
-    let items = [
-        scope("scp_paf", "Paldean Fates", Some("PAF"), &["en", "ja"], "active", "2999-01-01T00:00:00.000Z"),
-        scope("scp_base", "Base Set", None, &[], "draft", "2020-01-01T00:00:00.000Z"),
-    ];
-    Json(json!({ "items": items, "total": 51, "count": 2 })).into_response()
+    let paf = scope("scp_paf", "Paldean Fates", Some("PAF"), &["en", "ja"], "active", ["live", "fresh"]);
+    let base = scope("scp_base", "Base Set", None, &[], "draft", ["unpublished", "stale"]);
+    let items = if query.contains("languageEdition=ja") { vec![paf] } else { vec![paf, base] };
+    let facets = json!({ "languageEditions": ["en", "fr", "ja"] });
+    Json(json!({ "generatedAt": "2026-11-04T12:00:00.000Z", "items": items, "total": 51, "count": 2, "facets": facets }))
+        .into_response()
 }
 
 /// A scope's page's reads and writes. `scp_paf` has two editions (its Japanese alias pending), a
@@ -1550,7 +1553,8 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         json!({ "scopeRecordId": id, "productDomain": "pokemon", "scopeKind": "expansion", "referenceTypeKey": "expansion",
                 "referenceRecordId": format!("ref_{id}"), "referenceRecordKey": id, "name": "Paldean Fates",
                 "officialSetCode": "PAF", "languageEditions": editions, "lifecycleStatus": status,
-                "updatedAt": "2999-01-01T00:00:00.000Z" })
+                "updatedAt": "2026-11-04T00:00:00.000Z",
+                "promotionReadiness": if status == "active" { "live" } else { "unpublished" }, "syncFreshness": "fresh" })
     };
     let job = |id: &str, kind: &str, status: &str, result: Value, error: Value| {
         json!({ "jobId": id, "kind": kind, "status": status, "progress": { "completed": 1, "total": 2 },
@@ -3349,17 +3353,18 @@ async fn the_scopes_list_asks_the_api_and_shows_each_scopes_promotion_and_sync()
 }
 
 #[tokio::test]
-async fn the_scopes_language_filters_the_page_the_api_returned() {
+async fn the_scopes_language_is_the_apis_filter_and_its_choices_the_apis_facets() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/catalog/scopes?language=ja", Some("staff"))).await;
     assert!(
-        pilot.catalog_calls().iter().any(|c| c.path == "/api/catalog/scope-records?limit=50&offset=0"),
-        "not sent to the API"
+        pilot.catalog_calls().iter().any(|c| c.path == "/api/catalog/scope-records?languageEdition=ja&limit=50&offset=0"),
+        "{:?}",
+        pilot.catalog_calls()
     );
-    assert!(html.contains("Paldean Fates") && !html.contains("Base Set"), "{html}");
+    assert!(html.contains("Paldean Fates") && !html.contains("Base Set"), "the API's rows: {html}");
     assert!(
-        html.contains(r#"<option value="ja" selected>ja</option>"#) && html.contains(r#"<option value="en">en</option>"#),
-        "{html}"
+        html.contains(r#"<option value="ja" selected>ja</option>"#) && html.contains(r#"<option value="fr">fr</option>"#),
+        "every page's editions, not only this page's: {html}"
     );
 }
 

@@ -1,6 +1,7 @@
 //! The scopes list (admin-web's scope-first Catalog landing, `CatalogScopeLandingPage`): every
-//! canonical Scope Record, filtered by product domain, lifecycle status and text in the API and
-//! by language edition over the page it returned, as admin-web's loader does.
+//! canonical Scope Record, filtered by product domain, lifecycle status, language edition and text
+//! in the API, with each row's promotion readiness and sync freshness as the API derives them and
+//! the language choices from its facets.
 //!
 //! | Route | Answers |
 //! |---|---|
@@ -15,13 +16,13 @@ use corten::{
     prelude::*,
 };
 use serde::Serialize;
-use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 
 use futures_util::future::join3;
 use platform::receipt::Receipt;
 
+pub use super::api::{Promotion, Sync};
 use super::{
-    api::{AliasReview, AttentionQueue, Catalog as _, Kind, List, ScopeRecord},
+    api::{AliasReview, AttentionQueue, Catalog as _, Kind, List, ScopeFacets, ScopePage, ScopeRecord},
     attention::Parked,
     list_query, screen,
     views::{self, ListScreen},
@@ -46,7 +47,7 @@ pub mod url {
         pub search: Option<String>,
         pub status: Option<String>,
         pub product_domain: Option<String>,
-        /// A language edition: filters the page the API returned, not the API's query.
+        /// A language edition (the API's `languageEdition`).
         pub language: Option<String>,
         pub page: Option<u32>,
     }
@@ -105,39 +106,13 @@ pub fn product_domains() -> &'static [String] {
     &DOMAINS
 }
 
-/// Whether a scope's canonical record can promote Catalog Items yet (`CatalogScopePromotionReadiness`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToJson)]
-#[serde(rename_all = "lowercase")]
-pub enum Promotion {
-    Unpublished,
-    Live,
-    Deprecated,
-    Archived,
-}
-
-/// Whether a scope's record changed in the last two weeks (`CatalogScopeSyncFreshness`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToJson)]
-#[serde(rename_all = "lowercase")]
-pub enum Sync {
-    Fresh,
-    Stale,
-}
-
-/// A row: the record, and what admin-web derives from it.
-#[derive(Clone, Debug, Serialize, ToJson)]
-pub struct ScopeRow {
-    #[serde(flatten)]
-    pub scope: ScopeRecord,
-    pub promotion: Promotion,
-    pub sync: Sync,
-}
-
 /// The list page's view model: what it shows and what a data client gets.
 #[derive(Serialize, ToJson)]
 pub struct ScopeScreen {
     #[serde(flatten)]
-    pub list: ListScreen<ScopeRow>,
-    /// The language editions on the page the API returned, and the one filtered by.
+    pub list: ListScreen<ScopeRecord>,
+    /// The language editions across every page of the filter (the API's facets), and the one
+    /// filtered by.
     pub languages: Vec<String>,
     /// The API's message when the list could not be read (the page shows it, with no rows).
     pub error: Option<String>,
@@ -156,45 +131,14 @@ pub enum ScopeBack {
     Review(String, Option<Parked>),
 }
 
-/// `SCOPE_LANDING_STALE_SYNC_MS`: a record that has not changed in two weeks reads as a stale sync.
-const STALE_SYNC: Duration = Duration::days(14);
-
-/// Workaround for chase-sets/chase-sets#10507: admin-web derives a scope's promotion readiness and
-/// sync freshness in its web layer (`scope-landing-read-model.ts`), so the pilot repeats the rule.
-/// Remove it once the Catalog API returns them.
-pub(crate) fn row(scope: ScopeRecord, now: OffsetDateTime) -> ScopeRow {
-    let promotion = match scope.lifecycle_status.as_str() {
-        "active" => Promotion::Live,
-        "deprecated" => Promotion::Deprecated,
-        "archived" => Promotion::Archived,
-        _ => Promotion::Unpublished,
-    };
-    // An unreadable time is stale, so it is reviewed rather than read as fresh.
-    let sync = match OffsetDateTime::parse(&scope.updated_at, &Rfc3339) {
-        Ok(at) if now - at <= STALE_SYNC => Sync::Fresh,
-        _ => Sync::Stale,
-    };
-    ScopeRow { scope, promotion, sync }
-}
-
-/// The rows, the page and the language facet, from the API's page (`buildCatalogScopeLandingReadModel`).
-/// Workaround for chase-sets/chase-sets#10565: the API has no language filter, so the facet filters
-/// only the page shown, as admin-web's does. Forward it to the API once it takes one.
-fn scope_screen(list: List<ScopeRecord>, page: u32, language: Option<&str>, now: OffsetDateTime) -> ScopeScreen {
-    let language = language.map(str::trim).filter(|l| !l.is_empty());
-    let mut languages: Vec<String> = list.items.iter().flat_map(|s| s.language_editions.iter().cloned()).collect();
-    languages.extend(language.map(str::to_owned));
+/// The rows, the page and the language choices, from the API's page
+/// (`buildCatalogScopeLandingReadModel`): the active edition stays a choice when no record has it.
+fn scope_screen(list: ScopePage, page: u32, language: Option<&str>) -> ScopeScreen {
+    let mut languages = list.facets.language_editions;
+    languages.extend(language.map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned));
     languages.sort();
     languages.dedup();
-    let rows = List {
-        items: list
-            .items
-            .into_iter()
-            .filter(|s| language.is_none_or(|l| s.language_editions.iter().any(|e| e == l)))
-            .map(|s| row(s, now))
-            .collect(),
-        total: list.total,
-    };
+    let rows = List { items: list.items, total: list.total };
     ScopeScreen {
         list: screen(rows, page),
         languages,
@@ -241,20 +185,25 @@ pub async fn render(
     let receipt = Receipt::from_param(notice.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let page = query.page.unwrap_or(1).max(1);
-    let filters = [("search", &query.search), ("status", &query.status), ("productDomain", &query.product_domain)];
-    let now = OffsetDateTime::now_utc();
+    let filters = [
+        ("search", &query.search),
+        ("status", &query.status),
+        ("productDomain", &query.product_domain),
+        ("languageEdition", &query.language),
+    ];
     let (list, queue, review) = join3(
-        caller.list::<ScopeRecord>(Kind::ScopeRecords, &list_query(&filters, page)),
+        caller.read_at::<ScopePage>(Kind::ScopeRecords, &format!("?{}", list_query(&filters, page))),
         read_queue(&caller),
         caller.read_at::<AliasReview>(Kind::AliasReview, "?limit=200"),
     )
     .await;
     let mut view = match list {
-        Ok(list) => scope_screen(list, page, query.language.as_deref(), now),
+        Ok(list) => scope_screen(list, page, query.language.as_deref()),
         // As admin-web's loader: an API error is the list's banner, over no rows; sign-in and no
         // answer at all are the error pages.
         Err(error) if error.status().is_some_and(|s| s != StatusCode::UNAUTHORIZED) => {
-            let mut empty = scope_screen(List { items: Vec::new(), total: 0 }, page, query.language.as_deref(), now);
+            let empty_page = ScopePage { items: Vec::new(), total: 0, facets: ScopeFacets::default() };
+            let mut empty = scope_screen(empty_page, page, query.language.as_deref());
             empty.error = Some(match error {
                 ApiError::Status { message, .. } if !message.is_empty() => message,
                 other => other.to_string(),
@@ -295,7 +244,7 @@ pub async fn render(
 mod tests {
     use super::*;
 
-    fn scope(id: &str, status: &str, updated_at: &str, editions: &[&str]) -> ScopeRecord {
+    fn scope(id: &str, editions: &[&str]) -> ScopeRecord {
         ScopeRecord {
             scope_record_id: id.into(),
             reference_record_id: id.into(),
@@ -304,36 +253,24 @@ mod tests {
             name: id.into(),
             official_set_code: None,
             language_editions: editions.iter().map(|e| (*e).into()).collect(),
-            lifecycle_status: status.into(),
-            updated_at: updated_at.into(),
+            lifecycle_status: "active".into(),
+            updated_at: String::new(),
+            promotion_readiness: Promotion::Live,
+            sync_freshness: Sync::Fresh,
         }
     }
 
     #[test]
-    fn promotion_follows_the_lifecycle_and_sync_the_last_two_weeks() {
-        let now = OffsetDateTime::parse("2026-10-25T00:00:00Z", &Rfc3339).unwrap();
-        let read = |status, at| {
-            let r = row(scope("s", status, at, &[]), now);
-            (r.promotion, r.sync)
-        };
-        assert_eq!(read("active", "2026-10-11T00:00:00.000Z"), (Promotion::Live, Sync::Fresh), "exactly 14 days");
-        assert_eq!(read("draft", "2026-10-10T23:59:59Z"), (Promotion::Unpublished, Sync::Stale));
-        assert_eq!(read("deprecated", "2026-10-24T19:00:00-05:00"), (Promotion::Deprecated, Sync::Fresh), "an offset");
-        assert_eq!(read("archived", "yesterday"), (Promotion::Archived, Sync::Stale), "unreadable is stale");
-    }
-
-    #[test]
-    fn the_language_facet_filters_the_page_and_lists_its_editions() {
-        let now = OffsetDateTime::now_utc();
-        let list = List { items: vec![scope("a", "active", "", &["ja", "en"]), scope("b", "active", "", &["en"])], total: 7 };
-        let all = scope_screen(list.clone(), 1, None, now);
+    fn the_language_choices_are_the_apis_facets_with_the_active_edition() {
+        let facets = ScopeFacets { language_editions: vec!["ja".into(), "en".into()] };
+        let list = ScopePage { items: vec![scope("a", &["en"])], total: 7, facets };
+        let all = scope_screen(list.clone(), 1, None);
         assert_eq!(
             (all.list.items.len(), all.list.total, all.languages.as_slice()),
-            (2, 7, &["en".to_owned(), "ja".to_owned()][..])
+            (1, 7, &["en".to_owned(), "ja".to_owned()][..]),
+            "the rows are the API's: it filtered them"
         );
-        let ja = scope_screen(list.clone(), 1, Some("ja"), now);
-        assert_eq!(ja.list.items.iter().map(|r| r.scope.scope_record_id.as_str()).collect::<Vec<_>>(), ["a"]);
-        let fr = scope_screen(list, 1, Some("fr"), now);
-        assert!(fr.list.items.is_empty() && fr.languages.contains(&"fr".to_owned()), "the active edition stays a choice");
+        let fr = scope_screen(list, 1, Some(" fr "));
+        assert_eq!(fr.languages, ["en", "fr", "ja"], "the active edition stays a choice");
     }
 }

@@ -8,7 +8,8 @@ use super::{
 };
 use crate::{
     catalog::{
-        scopes::{self, Promotion, ScopeBack, ScopeRow, ScopeScreen, Sync},
+        api::ScopeRecord,
+        scopes::{self, Promotion, ScopeBack, ScopeScreen, Sync},
         url,
     },
     text::{Cat, Pilot},
@@ -86,7 +87,7 @@ pub fn scope_list<'a>(
     }
 }
 
-fn scope_rows<'a>(t: Cat, p: Pilot, query: &'a url::ScopeQuery, screen: &'a ListScreen<ScopeRow>) -> impl Render + 'a {
+fn scope_rows<'a>(t: Cat, p: Pilot, query: &'a url::ScopeQuery, screen: &'a ListScreen<ScopeRecord>) -> impl Render + 'a {
     let title = t.scopes_title();
     let filtered = query.search.is_some() || query.status.is_some();
     let empty_title = t.list_none_found(title.to_lowercase()).to_string();
@@ -134,18 +135,18 @@ fn ListError<'a>(t: Cat, message: &'a str) -> impl Render {
 
 /// A scope's row; its View opens the scope's page.
 #[component(css)]
-pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRow) -> impl Render {
-    let s = &row.scope;
+pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRecord) -> impl Render {
+    let s = row;
     let domain = format!("{} · {}", s.product_domain, s.scope_kind);
     let coverage = (!s.language_editions.is_empty())
         .then(|| t.scopes_coverage_editions(s.language_editions.len(), s.language_editions.join(", ")).to_string());
-    let (promotion, promotion_tone) = match row.promotion {
+    let (promotion, promotion_tone) = match row.promotion_readiness {
         Promotion::Unpublished => (t.scopes_promotion_unpublished(), Tone::Warning),
         Promotion::Live => (t.scopes_promotion_live(), Tone::Success),
         Promotion::Deprecated => (t.scopes_promotion_deprecated(), Tone::Neutral),
         Promotion::Archived => (t.scopes_promotion_archived(), Tone::Neutral),
     };
-    let (sync, sync_tone) = match row.sync {
+    let (sync, sync_tone) = match row.sync_freshness {
         Sync::Fresh => (t.scopes_sync_fresh(), Tone::Success),
         Sync::Stale => (t.scopes_sync_stale(), Tone::Warning),
     };

@@ -52,6 +52,47 @@ pub struct ScopeRecord {
     pub language_editions: Vec<String>,
     pub lifecycle_status: String,
     pub updated_at: String,
+    /// Whether the scope can promote Catalog Items yet, as the API derives it from the lifecycle.
+    pub promotion_readiness: Promotion,
+    /// Whether the record changed lately, as the API measures it against its generation time.
+    pub sync_freshness: Sync,
+}
+
+/// Whether a scope's canonical record can promote Catalog Items yet (`CatalogScopePromotionReadiness`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "lowercase")]
+pub enum Promotion {
+    Unpublished,
+    Live,
+    Deprecated,
+    Archived,
+}
+
+/// Whether a scope's record changed in the API's stale window (`CatalogScopeSyncFreshness`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "lowercase")]
+pub enum Sync {
+    Fresh,
+    Stale,
+}
+
+/// A page of Scope Records (`CatalogScopeRecordListResponse`): the page, the filtered total and the
+/// language editions across every page of that filter.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ScopePage {
+    pub items: Vec<ScopeRecord>,
+    #[serde(default)]
+    pub total: u32,
+    #[serde(default)]
+    pub facets: ScopeFacets,
+}
+
+/// The list's facets.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeFacets {
+    #[serde(default)]
+    pub language_editions: Vec<String>,
 }
 
 /// A scope's provider coverage (`ScopeCoverageMatrix`, features/provider-scope-mapping): each
