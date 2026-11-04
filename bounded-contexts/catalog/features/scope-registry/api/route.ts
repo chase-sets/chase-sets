@@ -4,7 +4,11 @@ import { t } from "@chase-sets/localization";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogScopeRegistryRuntimeDeps } from "./runtime";
 import type { createCatalogScopeRegistryRuntime } from "./runtime";
-import type { CatalogScopeRecordListParams, CatalogScopeRecordRow } from "../read-model/queries";
+import type {
+  CatalogScopeRecordListParams,
+  CatalogScopeRecordListFacets,
+  CatalogScopeRecordRow,
+} from "../read-model/queries";
 import { catalogScopeProductDomains, catalogScopeRecordKinds } from "../domain/contract";
 import type { CatalogLifecycleStatus } from "../../../support/runtime-support/common";
 
@@ -86,6 +90,7 @@ export function scopeRecordListParamsFromRecord(
     scopeKind: matchEnum(text("scopeKind"), catalogScopeRecordKinds),
     lifecycleStatus: matchEnum(text("status"), catalogLifecycleStatuses),
     referenceRecordId: text("referenceRecordId"),
+    languageEdition: text("languageEdition"),
   };
 }
 
@@ -94,6 +99,7 @@ export type CatalogScopeRecordListResponse = Readonly<{
   items: readonly CatalogScopeRecordDetail[];
   total: number;
   count: number;
+  facets: CatalogScopeRecordListFacets;
 }>;
 
 export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteServices) {
@@ -102,8 +108,8 @@ export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteSe
   // Scope-first landing (`GET /scope-records`): the canonical Scope Record list
   // that drives the scope-first Catalog Home. Read-only, filterable by product
   // domain / scope kind / lifecycle status / free-text, and paginated. Language
-  // edition is a client-side facet over the returned page (the column is a JSONB
-  // array), so it is intentionally not a server filter here.
+  // edition is a server-side filter over the canonical JSONB array, before
+  // pagination and count. The response also carries a global observed facet.
   app.get("/", async (c) => {
     const permissionError = requireCatalogViewPermission(c);
     if (permissionError) {
@@ -111,10 +117,10 @@ export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteSe
     }
 
     const params = scopeRecordListParamsFromRecord(c.req.query());
-    const { items, total } = await services.listScopeRecords(params);
+    const { items, total, facets } = await services.listScopeRecords(params);
     const mapped = items.map(scopeRecordDetailFromRow);
 
-    return c.json<CatalogScopeRecordListResponse>({ items: mapped, total, count: mapped.length });
+    return c.json<CatalogScopeRecordListResponse>({ items: mapped, total, count: mapped.length, facets });
   });
 
   app.get("/:id", async (c) => {

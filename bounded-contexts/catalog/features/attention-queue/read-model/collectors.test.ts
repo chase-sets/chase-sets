@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { t, translationCatalogs } from "@chase-sets/localization";
 import type { CatalogAliasCandidateRow } from "../../alias-equivalence/read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
 import type { CatalogMergeCandidateAttentionRow } from "../../source-observations/read-model/queries";
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../../source-observations/api/runtime";
 import type { CatalogIntegrationUnitActivity } from "../../source-observations/api/admin-control-plane-overview";
+import type { CatalogAttentionItem } from "./attention-item";
 import {
   collectAliasCandidateItems,
   collectImportJobItems,
@@ -268,6 +270,23 @@ describe("collectAliasCandidateItems", () => {
     });
     expect(item.secondaryResolutions[0]!.fields).toEqual(item.resolution.fields);
   });
+
+  it("renders the alias type in the detail through the real translator", () => {
+    const item = collectAliasCandidateItems([
+      aliasCandidate({
+        alias_text: "Elsa",
+        alias_type: "printed-name" as CatalogAliasCandidateRow["alias_type"],
+        provider_key: "tcgplayer",
+        confidence: "0.92",
+      }),
+    ])[0]!;
+    const detail = t(item.detailKey, item.detailParams);
+
+    expect(item.titleParams).toEqual({ alias: "Elsa" });
+    expect(item.detailParams).toEqual({ provider: "tcgplayer", type: "printed-name", confidence: "0.92" });
+    expect(detail).toBe("tcgplayer · printed-name · confidence 0.92");
+    expect(detail).not.toContain("{type}");
+  });
 });
 
 function scopeRecord(overrides: Partial<CatalogScopeRecordRow>): CatalogScopeRecordRow {
@@ -343,5 +362,85 @@ describe("attention destination matrix", () => {
     expect(unavailableConflict.resolution.href).toBeUndefined();
     expect(alias.resolution.intent).toBe("alias.accept");
     expect(alias.secondaryResolutions[0]!.intent).toBe("alias.reject");
+  });
+});
+
+// Reads placeholders from the canonical English message with the same token
+// pattern the translator substitutes; a placeholder counts only when that
+// message's own params supply a value the translator would substitute.
+function missingMessageArguments(key: string, params: CatalogAttentionItem["titleParams"]): string[] {
+  const template = translationCatalogs.en[key];
+  if (template === undefined) {
+    return [`missing message ${key}`];
+  }
+  return [...template.matchAll(/\{([A-Za-z0-9_.-]+)\}/g)]
+    .map((match) => match[1]!)
+    .filter((token) => params[token] === undefined || params[token] === null);
+}
+
+describe("attention item messages", () => {
+  const items = [
+    ...collectUnmappedScopeItems([scopeMapping({})]),
+    ...collectMergeConflictItems([
+      mergeCandidate({
+        candidate_id: "conflicted",
+        status: "has-conflicts",
+        status_reason: "title mismatch",
+        blocking_conflict_count: 1,
+      }),
+      mergeCandidate({ candidate_id: "stale", status: "stale", status_reason: "source refreshed" }),
+    ]),
+    ...collectProviderHealthItems(
+      [unitReadiness({ credentialReadiness: "blocked", credentialDiagnosticCode: "credential-expired" })],
+      { generatedAt: "2026-07-09T00:00:00.000Z" },
+    ),
+    ...collectImportJobItems([unitActivity({})]),
+    ...collectAliasCandidateItems([aliasCandidate({ alias_text: "Elsa", confidence: "0.92" })]),
+    ...collectStaleScopeSyncItems([scopeRecord({})], {
+      now: "2026-07-09T00:00:00.000Z",
+      stalenessThresholdMs: 7 * 24 * 60 * 60 * 1000,
+    }),
+  ];
+  const messages = items.flatMap((item) => [
+    { key: item.titleKey, params: item.titleParams },
+    { key: item.detailKey, params: item.detailParams },
+  ]);
+
+  it("covers every canonical attention item message, including the merge conflict and stale variants", () => {
+    const canonicalItemKeys = Object.keys(translationCatalogs.en).filter((key) =>
+      key.startsWith("catalog.features.attentionQueue.item."),
+    );
+
+    expect(messages.map((message) => message.key).sort()).toEqual(canonicalItemKeys.sort());
+  });
+
+  it("supplies every placeholder on that message's own params", () => {
+    const uncovered = messages
+      .map((message) => ({ key: message.key, missing: missingMessageArguments(message.key, message.params) }))
+      .filter((entry) => entry.missing.length > 0);
+
+    expect(uncovered).toEqual([]);
+  });
+
+  it("detects a detail placeholder missing from the detail params", () => {
+    const alias = items.find((item) => item.kind === "alias-candidate")!;
+    const detailWithoutType = Object.fromEntries(
+      Object.entries(alias.detailParams).filter(([name]) => name !== "type"),
+    );
+
+    expect(missingMessageArguments(alias.detailKey, detailWithoutType)).toEqual(["type"]);
+    expect(t(alias.detailKey, detailWithoutType)).toContain("{type}");
+  });
+
+  it("renders every kind's title and detail through the real translator", () => {
+    expect(items.map((item) => [t(item.titleKey, item.titleParams), t(item.detailKey, item.detailParams)])).toEqual([
+      ["Map Scarlet & Violet for tcgplayer", "Unit pokemon-sealed · confidence candidate"],
+      ["Resolve 1 blocking conflicts on conflicted", "3 observations · title mismatch"],
+      ["Refresh stale merge candidate stale", "3 observations · source refreshed"],
+      ["Unblock Pokémon Sealed on tcgplayer", "Blocked by credential · credential-expired"],
+      ["Import job job-1 is failed", "tcgplayer · import · en:pokemon:sv1"],
+      ["Review alias Elsa", "tcgplayer · printed-name · confidence 0.92"],
+      ["Re-sync Scarlet & Violet (pokemon)", "set · last refreshed 2026-06-01T00:00:00.000Z"],
+    ]);
   });
 });
