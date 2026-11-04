@@ -9,7 +9,7 @@
 //! Buy, the two forms' choices kept in step, the promo bar's turns, the sticky bars, the referrer
 //! in the forms, and the analytics events.
 use corten::prelude::*;
-use platform::ui::icon::{Icon as KitIcon, ds};
+use platform::{glyphs, ui::icon::Icon as KitIcon};
 
 use crate::{
     home::{Game, Interest, Panel, Role, Screen, Variant},
@@ -772,18 +772,18 @@ pub enum IconName {
 #[component(css = HomePage)]
 pub(crate) fn Icon(name: IconName) -> impl Render {
     let glyph = match name {
-        IconName::Rocket => ds::ROCKET,
-        IconName::Store => ds::STORE,
-        IconName::Cart => ds::CART,
-        IconName::Users => ds::USERS,
-        IconName::Message => ds::MESSAGE,
-        IconName::ChevronDown => ds::CHEVRON_DOWN,
-        IconName::ChevronLeft => ds::CHEVRON_LEFT,
-        IconName::ChevronRight => ds::CHEVRON_RIGHT,
-        IconName::Pause => ds::PAUSE,
-        IconName::Check => ds::CHECK,
-        IconName::Info => ds::INFO,
-        IconName::Warning => ds::WARNING,
+        IconName::Rocket => glyphs::ROCKET,
+        IconName::Store => glyphs::STORE,
+        IconName::Cart => glyphs::CART,
+        IconName::Users => glyphs::USERS,
+        IconName::Message => glyphs::MESSAGE,
+        IconName::ChevronDown => glyphs::CHEVRON_DOWN,
+        IconName::ChevronLeft => glyphs::CHEVRON_LEFT,
+        IconName::ChevronRight => glyphs::CHEVRON_RIGHT,
+        IconName::Pause => glyphs::PAUSE,
+        IconName::Check => glyphs::CHECK,
+        IconName::Info => glyphs::INFO,
+        IconName::Warning => glyphs::WARNING,
     };
     html! { <span class={Icon}><KitIcon glyph={glyph} /></span> }
 }

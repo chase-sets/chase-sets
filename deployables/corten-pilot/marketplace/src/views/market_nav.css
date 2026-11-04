@@ -110,10 +110,6 @@
   flex-shrink: 0;
   font-size: 1.25rem;
 }
-/* The kit's Icon draws lines only (todd-skelton/corten#753). */
-.icon[data-filled] svg {
-  fill: currentColor;
-}
 .badge {
   display: inline-flex;
   align-items: center;

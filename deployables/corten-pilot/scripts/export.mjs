@@ -233,9 +233,10 @@
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - marketplace/nav.bottom.json, marketplace/nav.account.json: its bottom-nav (the phone bar, with
 //   each entry's packing priority and badge) and account-menu contributions, composed the same way.
-// - platform/src/ui/glyphs.rs: the inner markup of the design system's `Icon` for each icon those
+// - platform/src/glyphs.rs: the inner markup of the design system's `Icon` for each icon those
 //   entries name, the menu's and the public pages', as its lucide glyph draws it: a kit `Glyph` each
-//   (`ui::icon::ds`), `named` for a nav entry's name, and `filled` for the ones `Icon` fills.
+//   (`platform::glyphs`), made with `Glyph::filled` for the ones `Icon` fills, and `named` for a nav
+//   entry's name.
 // - platform/tokens/: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, as W3C Design Tokens files and a resolver (DTCG 2025.10), which
 //   Corten's `tokens!` reads. Not committed (see GENERATED).
@@ -380,7 +381,7 @@ const PUBLIC_ICONS = [
   "warning",
 ];
 
-/** `icons` as kit glyphs (platform/src/ui/icon.rs includes it in `ds`), with the names `Icon` fills. */
+/** `icons` as kit glyphs (platform/src/glyphs.rs), the ones the design system's `Icon` fills made filled. */
 function glyphsModule(icons) {
   const source = readFileSync(path.join(repo, "packages/design-system/src/icons/index.tsx"), "utf8");
   const rule = source.match(/const filled = ([^;]+);/)?.[1];
@@ -390,12 +391,16 @@ function glyphsModule(icons) {
   const lines = [
     "// Written by deployables/corten-pilot/scripts/export.mjs from the design system's `Icon`",
     "// (packages/design-system/src/icons): each glyph the pilot draws, as Lucide draws it. Do not edit.",
-    "use super::Glyph;",
+    "use crate::ui::icon::Glyph;",
     "",
   ];
   for (const [name, inner] of Object.entries(icons)) {
     if (inner.includes('"##')) throw new Error(`icon ${name}: its markup closes the raw string`);
-    lines.push(`/// \`${name}\`.`, `pub const ${constant(name)}: Glyph = Glyph(r##"${inner}"##);`);
+    const make = filled.includes(name) ? "Glyph::filled" : "Glyph::new";
+    lines.push(
+      `/// \`${name}\`${filled.includes(name) ? ", filled" : ""}.`,
+      `pub const ${constant(name)}: Glyph = ${make}(r##"${inner}"##);`,
+    );
   }
   lines.push(
     "",
@@ -405,11 +410,6 @@ function glyphsModule(icons) {
     ...Object.keys(icons).map((name) => `        "${name}" => Some(${constant(name)}),`),
     "        _ => None,",
     "    }",
-    "}",
-    "",
-    "/// Whether the design system's `Icon` draws the glyph filled (`filled`): a rating's star, a saved heart.",
-    "pub fn filled(name: &str) -> bool {",
-    `    matches!(name, ${filled.map((n) => `"${n}"`).join(" | ")})`,
     "}",
     "",
   );
@@ -1805,7 +1805,7 @@ const outputs = [
   ["marketplace/nav.bottom.json", json(marketplaceNav("bottom-nav"))],
   ["marketplace/nav.account.json", json(marketplaceNav("account-menu"))],
   [
-    "platform/src/ui/glyphs.rs",
+    "platform/src/glyphs.rs",
     glyphsModule(await designIcons(PUBLIC_ICONS, marketplaceNav("bottom-nav"), marketplaceNav("account-menu"))),
   ],
   ["platform/tokens/base.tokens.json", json(designTokens.base)],

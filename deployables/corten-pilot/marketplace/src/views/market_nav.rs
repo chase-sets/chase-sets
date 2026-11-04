@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use corten::{Local, NavLink, NavLinks, NavTo, prelude::*};
-use platform::ui::icon::{Icon as KitIcon, ds};
+use platform::{glyphs, ui::icon::Icon as KitIcon};
 
 use super::marketplace;
 use crate::{
@@ -193,15 +193,14 @@ fn Entry<'a, K: ClassList, C: Render>(class: K, link: Option<&'a NavLink<'a>>, i
 }
 
 /// A design-system icon (`Icon` at its small size, in its `<span>`): the kit's `Icon` with the
-/// glyph the export took, filled where the design system fills it (a rating's star), or nothing for
+/// glyph the export took (filled where the design system fills it, a rating's star), or nothing for
 /// an entry without one.
 #[component(css = MarketNav)]
 fn Glyph<'a>(name: Option<&'a str>) -> impl Render {
-    let glyph = name.and_then(ds::named);
-    let filled = name.is_some_and(ds::filled).then_some("true");
+    let glyph = name.and_then(glyphs::named);
     html! {
         if let Some(glyph) = glyph {
-            <span class={Icon} data-filled={filled}><KitIcon glyph={glyph} /></span>
+            <span class={Icon}><KitIcon glyph={glyph} /></span>
         }
     }
 }
