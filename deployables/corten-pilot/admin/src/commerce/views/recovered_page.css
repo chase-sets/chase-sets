@@ -206,10 +206,3 @@
     border-bottom: 1px solid var(--color-border);
   }
 }
-/* A stacked row header keeps the kit header's 2.5rem height, taller than its row's other lines
-   (todd-skelton/corten#777). */
-@media not (--md) {
-  .table tbody th {
-    height: auto;
-  }
-}
