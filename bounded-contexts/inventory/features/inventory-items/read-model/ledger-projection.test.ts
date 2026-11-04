@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type { BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildInventoryItemLedgerProjectionHandlers } from "./ledger-projection";
 import { buildInventoryItemProjectionHandlers } from "./projection";
@@ -97,9 +98,8 @@ describe("retained consumption handoff query contract", () => {
     expect(statements.some((sql) => sql.includes("consumed.global_position <= $1::bigint"))).toBe(true);
     expect(statements.some((sql) => sql.includes("pairedStreamVersion"))).toBe(true);
     expect(statements.some((sql) => sql.includes("companion.stream_id = 'inventory.item-'"))).toBe(true);
-    expect(statements.some((sql) => sql.includes("jsonb_object_length") && sql.includes("reservationRequestId"))).toBe(
-      true,
-    );
+    expect(statements.some((sql) => sql.includes("jsonb_each") && sql.includes("reservationRequestId"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("jsonb_object_length"))).toBe(false);
   });
 
   it.each([
@@ -107,8 +107,11 @@ describe("retained consumption handoff query contract", () => {
     ["malformed placement source", { orderId: "ord_1", reservationRequestId: "rsv_1", extra: "nope" }, orderSourceRef],
     ["mismatched consumed source", orderSourceRef, { orderId: "ord_other", reservationRequestId: "rsv_1" }],
   ])("rejects %s before append", async (_label, placementSourceRef, consumedSourceRef) => {
-    const appendToStreamsInTransaction = vi.fn();
-    const query = vi.fn(async <Row = Record<string, unknown>>(sql: string) => {
+    const appendToStreamsInTransaction = vi.fn<NonNullable<BcSchemaMigrationClient["appendToStreamsInTransaction"]>>();
+    const query: BcSchemaMigrationClient["query"] = async <Row = Record<string, unknown>>(
+      sql: string,
+      _values?: readonly unknown[],
+    ) => {
       if (sql.includes("pg_sequence_last_value")) return { rows: [{ head: "10" }] as Row[] };
       if (sql.includes("consumed.stream_id AS hold_stream_id")) {
         return {
@@ -136,7 +139,7 @@ describe("retained consumption handoff query contract", () => {
         };
       }
       return { rows: [] as Row[] };
-    });
+    };
     await expect(consumptionHandoff.dataStep!({ query, appendToStreamsInTransaction })).rejects.toMatchObject({
       message: "Inventory consumed-hold handoff incomplete",
       cause: expect.objectContaining({ message: "consumed-hold handoff failed order source provenance preflight" }),
@@ -146,8 +149,13 @@ describe("retained consumption handoff query contract", () => {
 
   it("preserves a valid synthetic order source and appends one paired adjustment", async () => {
     const sourceRef = { reservationRequestId: "rsv_1", orderId: "ord_1" };
-    const appendToStreamsInTransaction = vi.fn(async () => [{ storedEvents: [{ streamVersion: 3 }] }]);
-    const query = vi.fn(async <Row = Record<string, unknown>>(sql: string) => {
+    const appendToStreamsInTransaction = vi
+      .fn<NonNullable<BcSchemaMigrationClient["appendToStreamsInTransaction"]>>()
+      .mockResolvedValue([{ streamId: "inventory.item-item_1", storedEvents: [] }]);
+    const query: BcSchemaMigrationClient["query"] = async <Row = Record<string, unknown>>(
+      sql: string,
+      _values?: readonly unknown[],
+    ) => {
       if (sql.includes("pg_sequence_last_value")) return { rows: [{ head: "10" }] as Row[] };
       if (sql.includes("consumed.stream_id AS hold_stream_id")) {
         return {
@@ -181,7 +189,7 @@ describe("retained consumption handoff query contract", () => {
         };
       }
       return { rows: [{ missing: 0 }] as Row[] };
-    });
+    };
     await expect(consumptionHandoff.dataStep!({ query, appendToStreamsInTransaction })).resolves.toBeUndefined();
     expect(appendToStreamsInTransaction).toHaveBeenCalledTimes(1);
     expect(appendToStreamsInTransaction.mock.calls[0]?.[0]?.[0]?.events[0]?.payload?.sourceRef).toEqual(sourceRef);
@@ -190,8 +198,12 @@ describe("retained consumption handoff query contract", () => {
   it.each(["wrong item stream", "wrong reciprocal stream or version", "mismatched pair id"])(
     "rejects a forged %s claim before append",
     async (claim) => {
-      const appendToStreamsInTransaction = vi.fn();
-      const query = vi.fn(async <Row = Record<string, unknown>>(sql: string) => {
+      const appendToStreamsInTransaction =
+        vi.fn<NonNullable<BcSchemaMigrationClient["appendToStreamsInTransaction"]>>();
+      const query: BcSchemaMigrationClient["query"] = async <Row = Record<string, unknown>>(
+        sql: string,
+        _values?: readonly unknown[],
+      ) => {
         if (sql.includes("pg_sequence_last_value")) return { rows: [{ head: "10" }] as Row[] };
         if (
           sql.includes("jsonb_agg(payload ORDER BY stream_version)") &&
@@ -200,7 +212,7 @@ describe("retained consumption handoff query contract", () => {
           return { rows: [{ count: 1 }] as Row[] };
         }
         return { rows: [] as Row[] };
-      });
+      };
       await expect(consumptionHandoff.dataStep!({ query, appendToStreamsInTransaction })).rejects.toMatchObject({
         message: "Inventory consumed-hold handoff incomplete",
         cause: expect.objectContaining({

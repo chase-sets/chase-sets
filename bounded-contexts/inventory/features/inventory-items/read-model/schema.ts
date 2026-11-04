@@ -265,14 +265,24 @@ $migration$`,
              AND placement.payload ->> 'purpose' = 'order'
              AND NOT (
                jsonb_typeof(placement.payload -> 'sourceRef') = 'object'
-               AND jsonb_object_length(placement.payload -> 'sourceRef') = 2
+               AND (
+                 CASE WHEN jsonb_typeof(placement.payload -> 'sourceRef') = 'object'
+                   THEN (SELECT count(*) FROM jsonb_each(placement.payload -> 'sourceRef'))
+                   ELSE 0
+                 END
+               ) = 2
                AND placement.payload -> 'sourceRef' ?& ARRAY['orderId', 'reservationRequestId']
                AND jsonb_typeof(placement.payload -> 'sourceRef' -> 'orderId') = 'string'
                AND length(placement.payload -> 'sourceRef' ->> 'orderId') > 0
                AND jsonb_typeof(placement.payload -> 'sourceRef' -> 'reservationRequestId') = 'string'
                AND length(placement.payload -> 'sourceRef' ->> 'reservationRequestId') > 0
                AND jsonb_typeof(consumed.payload -> 'sourceRef') = 'object'
-               AND jsonb_object_length(consumed.payload -> 'sourceRef') = 2
+               AND (
+                 CASE WHEN jsonb_typeof(consumed.payload -> 'sourceRef') = 'object'
+                   THEN (SELECT count(*) FROM jsonb_each(consumed.payload -> 'sourceRef'))
+                   ELSE 0
+                 END
+               ) = 2
                AND consumed.payload -> 'sourceRef' ?& ARRAY['orderId', 'reservationRequestId']
                AND placement.payload -> 'sourceRef' = consumed.payload -> 'sourceRef'
              )`,
