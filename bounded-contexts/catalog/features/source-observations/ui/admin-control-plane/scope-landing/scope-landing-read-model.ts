@@ -1,7 +1,7 @@
-import type { ListResponse } from "@chase-sets/http/responses";
 import type {
   CatalogScopePromotionReadiness,
   CatalogScopeRecordDetail,
+  CatalogScopeRecordListResponse,
   CatalogScopeSyncFreshness,
 } from "../../../../scope-registry/ui/contracts";
 
@@ -51,11 +51,11 @@ export type CatalogScopeLandingReadModel = Readonly<{
   counts: Readonly<{
     /** Total matching the server-side filters (product domain / status / search). */
     total: number;
-    /** Rows shown after the client-side language-edition facet is applied. */
+    /** Rows returned by the API after the server-side language filter. */
     shown: number;
   }>;
   facets: Readonly<{
-    /** Language editions present across the loaded page, plus the active one. */
+    /** Language editions observed across the complete filtered cohort. */
     languageEditions: readonly string[];
   }>;
   filters: CatalogScopeLandingFilters;
@@ -73,24 +73,16 @@ export function scopeDetailHref(scopeRecordId: string): string {
 }
 
 export function buildCatalogScopeLandingReadModel(input: {
-  scopes: ListResponse<CatalogScopeRecordDetail>;
+  scopes: CatalogScopeRecordListResponse;
   filters: CatalogScopeLandingFilters;
   generatedAt: string;
 }): CatalogScopeLandingReadModel {
+  const rows = input.scopes.items.map(toLandingRow);
+  const languageEditions = new Set(
+    input.scopes.facets?.languageEditions ?? input.scopes.items.flatMap((scope) => scope.languageEditions),
+  );
   const languageFilter = input.filters.languageEdition.trim();
-
-  const allRows = input.scopes.items.map(toLandingRow);
-  const rows = languageFilter ? allRows.filter((row) => row.languageEditions.includes(languageFilter)) : allRows;
-
-  const languageEditions = new Set<string>();
-  for (const row of allRows) {
-    for (const edition of row.languageEditions) {
-      languageEditions.add(edition);
-    }
-  }
-  if (languageFilter) {
-    languageEditions.add(languageFilter);
-  }
+  if (languageFilter) languageEditions.add(languageFilter);
 
   return {
     generatedAt: input.generatedAt,

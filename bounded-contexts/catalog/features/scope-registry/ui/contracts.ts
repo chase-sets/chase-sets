@@ -27,3 +27,14 @@ export interface CatalogScopeRecordDetail {
   /** API-owned: whether `updatedAt` is within the stale-sync window of the response. */
   syncFreshness: CatalogScopeSyncFreshness;
 }
+
+export interface CatalogScopeRecordListResponse {
+  /** When the API derived each row's promotion readiness and sync freshness. */
+  generatedAt?: string;
+  items: readonly CatalogScopeRecordDetail[];
+  total: number;
+  count: number;
+  facets?: Readonly<{
+    languageEditions: readonly string[];
+  }>;
+}

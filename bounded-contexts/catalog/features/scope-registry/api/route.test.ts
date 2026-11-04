@@ -120,7 +120,9 @@ describe("Catalog scope registry route", () => {
 
 describe("Catalog scope registry list route", () => {
   it("returns the canonical scope record list for catalog.view operators", async () => {
-    const listScopeRecords = vi.fn().mockResolvedValue({ items: [paldeanFatesRow()], total: 1 });
+    const listScopeRecords = vi
+      .fn()
+      .mockResolvedValue({ items: [paldeanFatesRow()], total: 1, facets: { languageEditions: ["en", "ja"] } });
     const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
 
     const response = await app.request("/scope-records");
@@ -134,25 +136,39 @@ describe("Catalog scope registry list route", () => {
   });
 
   it("parses product domain / scope kind / status / search / pagination into the query params", async () => {
-    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0 });
+    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0, facets: { languageEditions: [] } });
     const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
 
     await app.request(
-      "/scope-records?productDomain=pokemon&scopeKind=expansion&status=active&search=paldean&limit=25&offset=50",
+      "/scope-records?productDomain=pokemon&scopeKind=expansion&status=active&languageEdition=ja&search=paldean&limit=25&offset=50",
     );
 
     expect(listScopeRecords).toHaveBeenCalledWith({
       productDomain: "pokemon",
       scopeKind: "expansion",
       lifecycleStatus: "active",
+      languageEdition: "ja",
       search: "paldean",
       limit: 25,
       offset: 50,
     });
   });
 
+  it.each([
+    ["languageEdition=%20ja%20", "ja"],
+    ["languageEdition=", undefined],
+    ["languageEdition=%20%20", undefined],
+  ])("trims or omits the language edition filter for %s", async (search, expected) => {
+    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0, facets: { languageEditions: [] } });
+    const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
+
+    await app.request(`/scope-records?${search}`);
+
+    expect(listScopeRecords.mock.calls[0]?.[0].languageEdition).toBe(expected);
+  });
+
   it("ignores unknown enum filter values rather than forwarding them", async () => {
-    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0 });
+    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0, facets: { languageEditions: [] } });
     const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
 
     await app.request("/scope-records?productDomain=not-a-domain&status=not-a-status");
@@ -161,7 +177,7 @@ describe("Catalog scope registry list route", () => {
   });
 
   it("clamps the page limit to the maximum", async () => {
-    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0 });
+    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0, facets: { languageEditions: [] } });
     const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
 
     await app.request("/scope-records?limit=100000");
