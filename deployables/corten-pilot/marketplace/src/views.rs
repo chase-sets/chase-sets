@@ -432,10 +432,10 @@ pub fn Frame<'a, H: Render, C: Render>(
 
 /// The page for a failed request, in the layout (`App::error_page`), for who is asking: a member's
 /// shell and theme, a visitor's shell, and no shell when the session could not be read. Under
-/// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`. Corten starts no
-/// layout read here, so for a failure the cart read does not share (a 4xx) the page reads the count
-/// itself and gives it (`ErrorPageCount`, corten-run/corten#877); for any other it is drawn only if
-/// its read is in already.
+/// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`. Corten starts the
+/// layout's reads for a failure it finds the request at fault for (corten-run/corten#877), but not
+/// for a handler's own refusal, so for that the page reads the count itself and gives it
+/// (`ErrorPageCount`, corten-run/corten#890).
 pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Session>>, count: ErrorPageCount) -> HtmlResult {
     let p: Pilot = req.t();
     // Each case is named, so a case Corten adds stops this compiling.
@@ -460,11 +460,17 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
     let detail = failure.detail().map(str::to_owned);
     let viewer = session.as_ref().and_then(|Caller(session)| session.viewer());
     let cart = match &failure {
-        Failure::NotFound | Failure::Refused { .. } | Failure::CrossSite | Failure::WrongMethod | Failure::Rejected { .. } => {
+        // Corten never answers a handler's 404 this way (`Failure::NotFound`), and a 429 slows a
+        // client down, so it starts no work for it.
+        Failure::Failed { status, .. } if status.is_client_error() && *status != StatusCode::TOO_MANY_REQUESTS => {
             count.read().await
         }
-        Failure::Failed { status, .. } if status.is_client_error() => count.read().await,
-        Failure::Failed { .. }
+        Failure::NotFound
+        | Failure::Refused { .. }
+        | Failure::CrossSite
+        | Failure::WrongMethod
+        | Failure::Rejected { .. }
+        | Failure::Failed { .. }
         | Failure::Panicked { .. }
         | Failure::TimedOut
         | Failure::Unidentified { .. }

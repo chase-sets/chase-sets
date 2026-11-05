@@ -2793,8 +2793,9 @@ async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
     assert_eq!(guest_cart_reads(&pilot).len(), reads, "nothing read without a guest cart");
 }
 
-/// Corten's error page starts no layout read (corten-run/corten#877): for a 404 or a refusal the
-/// page reads the count itself, so the shell has it as on every other page.
+/// A 404 or a refusal draws the cart's count, as every other page does: Corten starts the layout's
+/// reads for it (corten-run/corten#877), and for a handler's own refusal, which it starts none for,
+/// the page reads the count itself (corten-run/corten#890).
 #[tokio::test]
 async fn a_not_found_or_refused_page_draws_the_carts_count() {
     let pilot = Pilot::new().await;
@@ -2809,7 +2810,12 @@ async fn a_not_found_or_refused_page_draws_the_carts_count() {
     assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a visitor's guest cart: {html}");
     let (status, _, html) = pilot.send(get(SCREEN, Some("buyer"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
-    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "a refused page: {html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a refused page: {html}");
+    // The handler refuses an account that is not the user's.
+    let body = "consent_token=tok_ok&account_id=acc_else";
+    let (status, _, html) = pilot.send(post(&format!("{AGENTS}/consent"), "buyer", body, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "a handler's refusal: {html}");
 }
 
 #[tokio::test]

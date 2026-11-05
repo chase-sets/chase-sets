@@ -51,10 +51,10 @@ impl LayoutRead for CartCount {
     }
 }
 
-/// The cart's count for the error page, which Corten starts no layout read for: the request's head,
-/// read only for a failure the cart read does not share (`views::error_page`), and given to the
-/// page (`HtmlResponse::give`). Corten draws a read on the error page only if it is in already,
-/// so a not-found address or a refusal would lose the count (corten-run/corten#877).
+/// The cart's count for a handler's own refusal, which Corten starts no layout read for: the
+/// request's head, read only then (`views::error_page`), and given to the page
+/// (`HtmlResponse::give`). Corten starts the reads for every other failure the request is at
+/// fault for (corten-run/corten#877), but a handler cannot say its 403 is one (corten-run/corten#890).
 pub struct ErrorPageCount {
     head: Parts,
     config: Shared,
