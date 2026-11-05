@@ -228,6 +228,38 @@ describe("candidate promotion application versioning", () => {
     ["an unknown outcome status", [unapplied("cand_unknown", "unrecognized-synthetic-status")]],
     ["a missing outcome status", [unapplied("cand_missing", undefined)]],
     ["a deferred outcome", [unapplied("cand_deferred", "deferred")]],
+    [
+      "an unknown disposition",
+      [{ ...unapplied("cand_disposition", "skipped-not-eligible"), disposition: "item-producing" }],
+    ],
+    [
+      "a reference-only disposition on a promoted result",
+      [{ ...promoted("cand_promoted_reference", "cat_x"), disposition: "reference-only" }],
+    ],
+    [
+      "a reference-only disposition on a failed result",
+      [{ ...unapplied("cand_failed_reference", "failed"), disposition: "reference-only" }],
+    ],
+    [
+      "a reference-only disposition carrying a diagnostic code",
+      [
+        {
+          ...unapplied("cand_diagnosed_reference", "skipped-not-eligible"),
+          disposition: "reference-only",
+          diagnosticCode: "asset-processing-failed",
+        },
+      ],
+    ],
+    [
+      "a reference-only disposition carrying application facts",
+      [
+        {
+          ...unapplied("cand_applied_reference", "skipped-not-eligible"),
+          disposition: "reference-only",
+          appliedMode: "create",
+        },
+      ],
+    ],
   ])("fails closed on version-1 jobs with %s", (_name, outcomes) => {
     expect(() =>
       toCatalogMergeCandidateBulkJob(
@@ -247,6 +279,18 @@ describe("candidate promotion application versioning", () => {
         record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, outcomes),
       ).result,
     ).toEqual({ requested: 2, promoted: 0, deferred: 0, skippedNotEligible: 1, failed: 1, outcomes });
+  });
+
+  it("keeps reference-only skipped outcomes readable and counted as skipped, beside results that omit disposition", () => {
+    const outcomes = [
+      unapplied("cand_omitted", "skipped-not-eligible"),
+      { ...unapplied("cand_reference_only", "skipped-not-eligible"), disposition: "reference-only" as const },
+    ];
+    expect(
+      toCatalogMergeCandidateBulkJob(
+        record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, outcomes),
+      ).result,
+    ).toEqual({ requested: 2, promoted: 0, deferred: 0, skippedNotEligible: 2, failed: 0, outcomes });
   });
 
   it("refuses a stored version-1 job with an unknown outcome status on get and completed-list readback", async () => {

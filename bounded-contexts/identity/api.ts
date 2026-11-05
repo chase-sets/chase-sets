@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { t } from "@chase-sets/localization";
 import { consentActivationGuardAppendInput } from "@chase-sets/platform-policy/consent-activation-authority";
+import type { PermissionKey } from "@chase-sets/auth-context";
 import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { DomainEvent } from "@chase-sets/event-core";
 import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
@@ -26,13 +27,18 @@ import {
   normalizePhoneNumber,
   parseGrantableRoleKey,
   type GrantableRoleKey,
-  type PermissionKey,
 } from "./support/runtime-support/common";
 import type { IdentityServices } from "./support/runtime-support/services";
 import { accountRoutes } from "./features/accounts/api/route";
 import { accountCapabilityRoutes } from "./features/account-capabilities/api/route";
 import { accessHubRoutes } from "./features/access-hub/api/route";
 import { userRoutes } from "./features/users/api/route";
+import {
+  linkSocialLogin,
+  parseSocialLoginLinkBody,
+  parseSocialLoginResolveBody,
+  resolveSocialLoginSubject,
+} from "./features/users/api/social-login-ownership";
 import { membershipRoutes } from "./features/memberships/api/route";
 import { invitationRoutes } from "./features/invitations/api/route";
 import { validateInvitationAcceptanceToken } from "./features/invitations/domain/domain";
@@ -109,7 +115,7 @@ import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
 import { buildCurrentActorDisplay } from "./support/shell-support/current-actor-display";
-import { publishIdentityCsatOutcomeFact } from "./support/request-support/csat-outcome-facts";
+import { appendOnboardingCompleted, appendRegistrationCompleted } from "./support/request-support/lifecycle-events";
 
 export type IdentityApiEnv = {
   Variables: {
@@ -1131,34 +1137,15 @@ async function appendPersonalIdentityRegistration(
   // Strictly after the registration commits, and never able to convert a
   // committed registration into a failed response. Its idempotency key is
   // stable per operation because the account id now is.
-  await publishRegistrationOutcomeFact(args.services, params.context, accountId);
+  if (args.services.eventStore) {
+    try {
+      await appendRegistrationCompleted(args.services.eventStore, params.context, { accountId, userId });
+    } catch {
+      // Cross-context outcome publication is outside the registration atom.
+    }
+  }
 
   return { userId, accountId, membershipId, snapshots };
-}
-
-async function publishRegistrationOutcomeFact(
-  services: IdentityServices,
-  context: EventStoreContext,
-  accountId: AccountId,
-) {
-  if (!services.eventStore) {
-    return;
-  }
-
-  try {
-    await publishIdentityCsatOutcomeFact(services.eventStore, context, {
-      outcomeCode: "registration.completed",
-      subjectAccountId: accountId,
-      subjectKind: "account",
-      subject: { entityType: "account", entityId: accountId },
-      idempotencyKey: `identity:registration:${accountId}`,
-    });
-  } catch {
-    // A cross-context outcome fact is not part of the registration atom. The
-    // account, user, membership and consent bundle are already committed, and
-    // reporting a failure here would tell the caller to retry work that
-    // succeeded.
-  }
 }
 
 async function createGuestAccountForAuth(
@@ -1235,15 +1222,13 @@ async function grantGuestAccountForAuth(
     context: params.context,
   });
 
-  if (services.eventStore) {
-    await publishIdentityCsatOutcomeFact(services.eventStore, params.context, {
-      outcomeCode: "onboarding.completed",
-      subjectAccountId: params.accountId,
-      subjectKind: "account",
-      subject: { entityType: "account", entityId: params.accountId },
+  if (services.eventStore)
+    await appendOnboardingCompleted(services.eventStore, params.context, {
+      accountId: params.accountId as AccountId,
+      userId: params.userId as UserId,
+      onboardingPath: "guest-account",
       idempotencyKey: `identity:onboarding:guest-account:${params.accountId}:${params.userId}`,
     });
-  }
 
   return { membershipId, snapshots: [mutationSnapshot("membership", membershipId, result)] };
 }
@@ -1311,12 +1296,6 @@ async function enableSmsCodeForAuth(
   return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
 }
 
-class SocialLoginLinkConflictError extends Error {
-  constructor() {
-    super("Social login is already linked to another user.");
-  }
-}
-
 function roleKeyValidationError() {
   return {
     error: {
@@ -1324,45 +1303,6 @@ function roleKeyValidationError() {
       message: `Role key is invalid. Valid role keys: ${formatGrantableRoleKeys()}.`,
     },
   };
-}
-
-async function linkSocialLoginForAuth(
-  services: IdentityServices,
-  params: Readonly<{
-    userId: string;
-    providerName: "google" | "facebook";
-    providerSubject: string;
-    email: string;
-    context: EventStoreContext;
-  }>,
-) {
-  const existingLink = await services.users.getUserBySocialLogin({
-    providerName: params.providerName,
-    providerSubject: params.providerSubject,
-  });
-
-  if (existingLink && existingLink.user_id !== params.userId) {
-    throw new SocialLoginLinkConflictError();
-  }
-
-  await services.users.commandHandler({
-    streamId: `identity.user-${params.userId}`,
-    command: { type: "EnableAuthMethod", authMethod: "social-login" },
-    context: params.context,
-  });
-
-  const result = await services.users.commandHandler({
-    streamId: `identity.user-${params.userId}`,
-    command: {
-      type: "LinkSocialLogin",
-      providerName: params.providerName,
-      providerSubject: params.providerSubject,
-      email: params.email,
-      linkedAt: new Date().toISOString(),
-    },
-    context: params.context,
-  });
-  return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
 }
 
 async function verifyEmailContactMethodForAuth(
@@ -1439,15 +1379,14 @@ async function acceptInvitationForUserFromAuth(
     },
     context: params.context,
   });
-  if (services.eventStore) {
-    await publishIdentityCsatOutcomeFact(services.eventStore, params.context, {
-      outcomeCode: "onboarding.completed",
-      subjectAccountId: invitation.accountId,
-      subjectKind: "account",
-      subject: { entityType: "invitation", entityId: params.invitationId },
+  if (services.eventStore)
+    await appendOnboardingCompleted(services.eventStore, params.context, {
+      accountId: invitation.accountId,
+      userId: params.userId as UserId,
+      onboardingPath: "invitation",
+      invitationId: params.invitationId,
       idempotencyKey: `identity:onboarding:invitation:${params.invitationId}:${params.userId}`,
     });
-  }
   return {
     membershipId,
     snapshots: [
@@ -1762,44 +1701,35 @@ export function buildIdentityApi(
   });
 
   app.post("/internal/auth/users/:id/social-login-link", async (c) => {
-    const body = await c.req.json();
-    const providerName = String(body.providerName ?? "");
-    if (providerName !== "google" && providerName !== "facebook") {
+    const input = parseSocialLoginLinkBody(await c.req.json().catch(() => null));
+    if (!input) {
+      return c.json({ error: { code: "validation_failed", message: "Social login link request is invalid." } }, 400);
+    }
+
+    const userId = c.req.param("id");
+    const link = await linkSocialLogin(services, { userId, ...input }, getBootstrapContext(c));
+    if (link.outcome === "already-linked") {
       return c.json(
-        {
-          error: {
-            code: "validation_failed",
-            message: "Social login provider is unsupported.",
-          },
-        },
-        400,
+        { error: { code: "social_login_already_linked", message: "Social login is already linked to another user." } },
+        409,
       );
     }
-
-    try {
-      const link = await linkSocialLoginForAuth(services, {
-        userId: c.req.param("id"),
-        providerName,
-        providerSubject: String(body.providerSubject ?? ""),
-        email: String(body.email ?? ""),
-        context: getBootstrapContext(c),
-      });
-      return c.json({ ok: true, ...link });
-    } catch (error) {
-      if (error instanceof SocialLoginLinkConflictError) {
-        return c.json(
-          {
-            error: {
-              code: "social_login_already_linked",
-              message: "Social login is already linked to another user.",
-            },
-          },
-          409,
-        );
-      }
-
-      throw error;
+    if (link.outcome === "repair-required") {
+      return c.json(
+        { error: { code: "social_login_repair_required", message: "Social login ownership requires repair." } },
+        409,
+      );
     }
+    return c.json({ ok: true, userId, snapshots: [mutationSnapshot("user", userId, link)] });
+  });
+
+  app.post("/internal/auth/social-login-subjects/resolve", async (c) => {
+    const input = parseSocialLoginResolveBody(await c.req.json().catch(() => null));
+    if (!input) {
+      return c.json({ error: { code: "validation_failed", message: "Social login resolve request is invalid." } }, 400);
+    }
+
+    return c.json(await resolveSocialLoginSubject(services, input, getBootstrapContext(c)));
   });
 
   app.post("/internal/auth/users/:id/email-verification", async (c) => {
@@ -1825,11 +1755,11 @@ export function buildIdentityApi(
           acceptanceTokenHash: String(body.acceptanceTokenHash ?? ""),
           context: getBootstrapContext(c),
         });
-        await publishIdentityCsatOutcomeFact(services.eventStore, getBootstrapContext(c), {
-          outcomeCode: "onboarding.completed",
-          subjectAccountId: operation.accountId,
-          subjectKind: "account",
-          subject: { entityType: "invitation", entityId: operation.invitationId },
+        await appendOnboardingCompleted(services.eventStore, getBootstrapContext(c), {
+          accountId: operation.accountId as AccountId,
+          userId: operation.userId as UserId,
+          onboardingPath: "invitation",
+          invitationId: operation.invitationId,
           idempotencyKey: `identity:onboarding:invitation:${operation.invitationId}:${operation.userId}`,
         });
         return c.json(result);

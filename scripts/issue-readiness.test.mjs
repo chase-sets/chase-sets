@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -208,7 +209,10 @@ const FUTURE_MANIFEST_NEEDLE = `${["chase-sets", "dispatch-brief-manifest", "v2"
 const OWNED_SCANNER_PATHS = Object.freeze(["scripts/issue-readiness.mjs", "scripts/issue-readiness.test.mjs"]);
 
 function trackedTreeEntries() {
-  const trackedPaths = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot })
+  const trackedPaths = execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .toString("utf8")
     .split("\0")
     .filter(Boolean);

@@ -8,22 +8,24 @@
 // The assembler runs the real queries and feeds the rows here.
 // ---------------------------------------------------------------------------
 
-import type { CatalogAliasCandidateRow } from "../../alias-equivalence/read-model/queries";
-import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
-import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
-import type { CatalogMergeCandidateListRow } from "../../source-observations/read-model/queries";
+import type { CatalogAliasCandidateAttentionRow } from "../../alias-equivalence/read-model/queries";
+import type { ProviderScopeMappingAttentionRow } from "../../provider-scope-mapping/read-model/queries";
+import type { CatalogScopeRecordAttentionRow } from "../../scope-registry/read-model/queries";
+import type { CatalogMergeCandidateAttentionRow } from "../../source-observations/read-model/queries";
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../../source-observations/api/runtime";
 import type { CatalogIntegrationUnitActivity } from "../../source-observations/api/admin-control-plane-overview";
 import type { CatalogAttentionItem, CatalogAttentionResolution } from "./attention-item";
 
-// A drawer resolution reveals the source's deep controls inline on the daily
-// surface; no navigation, no cross-surface redirect.
+// A drawer resolution carries the source identity and the entity home. The
+// drawer stays on Catalog home; the link is a forward navigation to the owning
+// entity page, never a detour to a retired workspace.
 function drawerResolution(
   intent: string,
   labelKey: string,
   fields: Record<string, string>,
+  href?: string,
 ): CatalogAttentionResolution {
-  return { intent, mode: "drawer", labelKey, fields };
+  return { intent, mode: "drawer", labelKey, fields, ...(href ? { href } : { unavailable: true }) };
 }
 
 function commandResolution(
@@ -32,13 +34,20 @@ function commandResolution(
   fields: Record<string, string>,
   requiresReason = false,
 ): CatalogAttentionResolution {
-  return { intent, mode: "command", labelKey, fields, requiresReason };
+  return {
+    intent,
+    mode: "command",
+    labelKey,
+    fields,
+    requiresReason,
+    ...("targetId" in fields && !fields.targetId ? { unavailable: true } : {}),
+  };
 }
 
 // --- Source 1: unmapped provider scopes ------------------------------------
 // Provider scope mappings still awaiting review (`proposed`) are the "this
 // provider unit produced a scope nobody has mapped yet" case.
-export function collectUnmappedScopeItems(rows: readonly ProviderScopeMappingRow[]): CatalogAttentionItem[] {
+export function collectUnmappedScopeItems(rows: readonly ProviderScopeMappingAttentionRow[]): CatalogAttentionItem[] {
   return rows
     .filter((row) => row.review_status === "proposed")
     .map((row) => {
@@ -54,23 +63,28 @@ export function collectUnmappedScopeItems(rows: readonly ProviderScopeMappingRow
         providerKey: row.provider_key,
         unitKey: row.unit_key,
         observedAt: row.proposed_at,
-        resolution: drawerResolution("review-scope-mapping", "catalog.features.attentionQueue.action.reviewMapping", {
-          mappingId: row.mapping_id,
-          scopeRecordId: row.scope_record_id,
-          providerKey: row.provider_key,
-          unitKey: row.unit_key,
-        }),
+        resolution: drawerResolution(
+          "review-scope-mapping",
+          "catalog.features.attentionQueue.action.reviewMapping",
+          {
+            mappingId: row.mapping_id,
+            scopeRecordId: row.scope_record_id,
+            providerKey: row.provider_key,
+            unitKey: row.unit_key,
+          },
+          row.scope_record_id ? `/catalog/scopes/${encodeURIComponent(row.scope_record_id)}` : undefined,
+        ),
         secondaryResolutions: [],
       } satisfies CatalogAttentionItem;
     });
 }
 
 // --- Source 2: merge candidates in has-conflicts / stale --------------------
-export function collectMergeConflictItems(rows: readonly CatalogMergeCandidateListRow[]): CatalogAttentionItem[] {
+export function collectMergeConflictItems(rows: readonly CatalogMergeCandidateAttentionRow[]): CatalogAttentionItem[] {
   return rows
     .filter((row) => row.status === "has-conflicts" || row.status === "stale")
     .map((row) => {
-      const blocking = row.conflicts_json.filter((conflict) => conflict.severity === "blocking").length;
+      const blocking = row.blocking_conflict_count;
       const isConflict = row.status === "has-conflicts";
       return {
         itemKey: `merge-conflict:${row.candidate_id}`,
@@ -90,7 +104,8 @@ export function collectMergeConflictItems(rows: readonly CatalogMergeCandidateLi
         resolution: drawerResolution(
           "review-merge-conflict",
           "catalog.features.attentionQueue.action.resolveConflict",
-          { candidateId: row.candidate_id },
+          { candidateId: row.candidate_id, scopeRecordId: row.scope_record_id ?? "" },
+          row.scope_record_id ? `/catalog/scopes/${encodeURIComponent(row.scope_record_id)}` : undefined,
         ),
         secondaryResolutions: [],
       } satisfies CatalogAttentionItem;
@@ -118,10 +133,14 @@ export function collectProviderHealthItems(
       providerKey: unit.providerKey,
       unitKey: unit.unitKey,
       observedAt: options.generatedAt,
-      resolution: drawerResolution("review-provider-health", "catalog.features.attentionQueue.action.reviewHealth", {
-        providerKey: unit.providerKey,
-        unitKey: unit.unitKey,
-      }),
+      resolution: drawerResolution(
+        "review-provider-health",
+        "catalog.features.attentionQueue.action.reviewHealth",
+        { providerKey: unit.providerKey, unitKey: unit.unitKey },
+        unit.providerKey && unit.unitKey
+          ? `/catalog/providers/${encodeURIComponent(unit.providerKey)}?unitKey=${encodeURIComponent(unit.unitKey)}`
+          : undefined,
+      ),
       secondaryResolutions: [],
     }));
 }
@@ -164,11 +183,14 @@ export function collectImportJobItems(activity: readonly CatalogIntegrationUnitA
         providerKey: job.providerKey,
         unitKey: job.unitKey,
         observedAt: job.startedAt ?? job.createdAt,
-        resolution: drawerResolution("review-import-job", "catalog.features.attentionQueue.action.reviewJob", {
-          jobId: job.jobId,
-          providerKey: job.providerKey,
-          unitKey: job.unitKey ?? "",
-        }),
+        resolution: drawerResolution(
+          "review-import-job",
+          "catalog.features.attentionQueue.action.reviewJob",
+          { jobId: job.jobId, providerKey: job.providerKey, unitKey: job.unitKey ?? "" },
+          job.providerKey && job.jobId
+            ? `/catalog/providers/${encodeURIComponent(job.providerKey)}?jobId=${encodeURIComponent(job.jobId)}`
+            : undefined,
+        ),
         secondaryResolutions: [],
       });
     }
@@ -187,7 +209,7 @@ function importJobSeverity(operatorStatus: string): CatalogAttentionItem["severi
 }
 
 // --- Source 5: pending alias-equivalence candidates -------------------------
-export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateRow[]): CatalogAttentionItem[] {
+export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateAttentionRow[]): CatalogAttentionItem[] {
   return rows
     .filter((row) => row.review_status === "pending")
     .map((row) => ({
@@ -195,20 +217,32 @@ export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateR
       kind: "alias-candidate" as const,
       severity: "info" as const,
       titleKey: "catalog.features.attentionQueue.item.aliasCandidate.title",
-      titleParams: { alias: row.alias_text, type: row.alias_type },
+      titleParams: { alias: row.alias_text },
       detailKey: "catalog.features.attentionQueue.item.aliasCandidate.detail",
-      detailParams: { provider: row.provider_key, confidence: row.confidence },
+      detailParams: {
+        provider: row.provider_key,
+        type: row.alias_type,
+        confidence: row.confidence,
+      },
       providerKey: row.provider_key,
       unitKey: null,
       observedAt: row.first_observed_at,
-      resolution: commandResolution("accept", "catalog.features.attentionQueue.action.acceptAlias", {
+      resolution: commandResolution("alias.accept", "catalog.features.attentionQueue.action.acceptAlias", {
         aliasHashes: row.alias_hash,
+        targetKind: row.target_kind,
+        targetId: row.target_id ?? "",
+        targetKey: row.target_key,
       }),
       secondaryResolutions: [
         commandResolution(
-          "reject",
+          "alias.reject",
           "catalog.features.attentionQueue.action.rejectAlias",
-          { aliasHashes: row.alias_hash },
+          {
+            aliasHashes: row.alias_hash,
+            targetKind: row.target_kind,
+            targetId: row.target_id ?? "",
+            targetKey: row.target_key,
+          },
           true,
         ),
       ],
@@ -221,7 +255,7 @@ export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateR
 // record whose projection has not been refreshed within the freshness window is
 // a scope whose provider sync has gone stale.
 export function collectStaleScopeSyncItems(
-  rows: readonly CatalogScopeRecordRow[],
+  rows: readonly CatalogScopeRecordAttentionRow[],
   options: Readonly<{ now: string; stalenessThresholdMs: number }>,
 ): CatalogAttentionItem[] {
   const nowMs = Date.parse(options.now);
@@ -242,9 +276,12 @@ export function collectStaleScopeSyncItems(
       providerKey: null,
       unitKey: null,
       observedAt: row.updated_at,
-      resolution: drawerResolution("review-scope-sync", "catalog.features.attentionQueue.action.reviewScopeSync", {
-        scopeRecordId: row.scope_record_id,
-      }),
+      resolution: drawerResolution(
+        "review-scope-sync",
+        "catalog.features.attentionQueue.action.reviewScopeSync",
+        { scopeRecordId: row.scope_record_id },
+        row.scope_record_id ? `/catalog/scopes/${encodeURIComponent(row.scope_record_id)}` : undefined,
+      ),
       secondaryResolutions: [],
     }));
 }

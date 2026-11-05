@@ -1,0 +1,57 @@
+name: Platform Production Release Lock Monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: platform-production-release-lock-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor-production-release-lock:
+    name: Monitor Production Release Lock
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_API_URL: ${{ github.api_url }}
+      GITHUB_RUN_ID: ${{ github.run_id }}
+      GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+      PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED }}
+      PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
+      PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: ${{ vars.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE || '' }}
+      PRODUCTION_RELEASE_LOCK_DEADLINE: ${{ vars.PRODUCTION_RELEASE_LOCK_DEADLINE || '' }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Notify production release lock incident
+        env:
+          GITHUB_JOB_URL: ${{ github.server_url }}/${{ github.repository }}/runs/${{ job.check_run_id }}?check_suite_focus=true
+          GITHUB_CHECK_RUN_ID: ${{ job.check_run_id }}
+        run: node ./scripts/release-lock-monitor.mjs --out artifacts/release-health/production-release-lock-monitor.json
+
+      - name: Upload production release lock monitor receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-release-lock-monitor-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/production-release-lock-monitor.json
+          if-no-files-found: error
+          retention-days: 30

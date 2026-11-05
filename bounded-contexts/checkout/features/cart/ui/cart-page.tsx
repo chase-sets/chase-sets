@@ -32,13 +32,7 @@ import {
   Text,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import {
-  createCartReadinessSnapshot,
-  lowestCartReadinessListing,
-  selectedCartReadinessListing,
-  type CartReadinessDecisionInput,
-  type CartReadinessSnapshot,
-} from "../domain/readiness";
+import { type CartReadinessDecisionInput, type CartReadinessRead, type CartReadinessSnapshot } from "../api/contracts";
 import type { CheckoutCartLine } from "./contracts";
 import {
   useOptimisticCartMutationConsistency,
@@ -186,7 +180,7 @@ function sellerOptionMoney(option: CheckoutCartLine["seller_options"][number] | 
   return option ? listingMoney(option.price_amount, option.price_currency_code, option.listing_stream_version) : null;
 }
 
-function selectedUnitMoney(line: CheckoutCartLineGroup): CartListingMoney | null {
+function selectedUnitMoney(line: CheckoutCartLineGroup, listingId: string | null): CartListingMoney | null {
   if (line.locked_listing_id) {
     const selected = line.seller_options.find((option) => option.listing_id === line.locked_listing_id);
     const selectedMoney = sellerOptionMoney(selected);
@@ -205,57 +199,27 @@ function selectedUnitMoney(line: CheckoutCartLineGroup): CartListingMoney | null
     return null;
   }
 
-  return sellerOptionMoney(lowestCartReadinessListing(line));
+  return sellerOptionMoney(findSellerOption(line, listingId));
 }
 
-function estimateCartSubtotal(
-  lines: readonly CheckoutCartLineGroup[],
-  includedLineIds: readonly string[],
-): CartListingMoney | null {
-  const included = new Set(includedLineIds);
-  const includedLines = lines.filter((line) => included.has(line.line_id));
-  if (includedLines.length === 0 || includedLines.length !== included.size) {
-    return null;
-  }
-
-  const money = includedLines.map(selectedUnitMoney);
-  if (money.some((value) => value === null)) {
-    return null;
-  }
-
-  const completeMoney = money as CartListingMoney[];
-  const currencies = new Set(completeMoney.map((value) => value.currency));
-  if (currencies.size !== 1) {
-    return null;
-  }
-
-  return {
-    amountMinor: completeMoney.reduce(
-      (sum, value, index) => sum + value.amountMinor * BigInt(includedLines[index]!.quantity),
-      0n,
-    ),
-    currency: completeMoney[0]!.currency,
-  };
-}
-
-function hasKnownLinePrice(line: CheckoutCartLineGroup) {
-  return selectedUnitMoney(line) !== null;
+function hasKnownLinePrice(line: CheckoutCartLineGroup, listingId: string | null) {
+  return selectedUnitMoney(line, listingId) !== null;
 }
 
 // A locked listing is pinned, so its price is a charge-grade `exact` value. An
 // `optimize` line resolves its final listing under Smart Match at checkout, so
 // its known floor is surfaced as an `indicative` `from <amount>`. A line with no
 // priced options defers to a single quiet `Priced at checkout` statement.
-function linePriceState(line: CheckoutCartLineGroup): "exact" | "indicative" | "deferred" {
-  if (!hasKnownLinePrice(line)) {
+function linePriceState(line: CheckoutCartLineGroup, listingId: string | null): "exact" | "indicative" | "deferred" {
+  if (!hasKnownLinePrice(line, listingId)) {
     return "deferred";
   }
 
   return line.fulfillment_mode === "locked-listing" && line.locked_listing_id ? "exact" : "indicative";
 }
 
-function linePrice(line: CheckoutCartLineGroup): ReactNode {
-  const unitMoney = selectedUnitMoney(line);
+function linePrice(line: CheckoutCartLineGroup, listingId: string | null): ReactNode {
+  const unitMoney = selectedUnitMoney(line, listingId);
   if (!unitMoney) {
     return null;
   }
@@ -436,15 +400,17 @@ function cartListingLabel(line: CheckoutCartLineGroup, listingId: string | null)
  * use either the current seller option or the durable selected-listing snapshot,
  * while Smart Match still resolves from current seller options.
  */
-function selectedListingSellerOption(line: CheckoutCartLineGroup): CheckoutCartSellerAttribution | null {
+function selectedListingSellerOption(
+  line: CheckoutCartLineGroup,
+  listingId: string | null,
+): CheckoutCartSellerAttribution | null {
   if (line.fulfillment_mode === "locked-listing") {
     return (
       findSellerOption(line, line.locked_listing_id) ?? selectedListingSnapshotSeller(line, line.locked_listing_id)
     );
   }
 
-  const resolved = lowestCartReadinessListing(line);
-  return findSellerOption(line, resolved?.listing_id ?? null);
+  return findSellerOption(line, listingId);
 }
 
 /**
@@ -498,8 +464,8 @@ function ListingPreferenceStatus({ line }: { line: CheckoutCartLineGroup }) {
   );
 }
 
-function LinePrice({ line }: { line: CheckoutCartLineGroup }) {
-  const state = linePriceState(line);
+function LinePrice({ line, listingId }: { line: CheckoutCartLineGroup; listingId: string | null }) {
+  const state = linePriceState(line, listingId);
 
   if (state === "deferred") {
     return (
@@ -516,7 +482,7 @@ function LinePrice({ line }: { line: CheckoutCartLineGroup }) {
           {t("checkout.features.cart.ui.cartPage.from")}
         </Text>
       ) : null}
-      <Text weight="semibold">{linePrice(line)}</Text>
+      <Text weight="semibold">{linePrice(line, listingId)}</Text>
     </Inline>
   );
 }
@@ -643,6 +609,7 @@ function CartLineActions({
 
 function CartLineRow({
   line,
+  listingId,
   status,
   onQuantityChange,
   onRemove,
@@ -650,6 +617,7 @@ function CartLineRow({
   disabled,
 }: {
   line: CheckoutCartLineGroup;
+  listingId: string | null;
   status: OptimisticCorrectionStatus;
   onQuantityChange: (line: CheckoutCartLineGroup, quantity: number) => void;
   onRemove: (line: CheckoutCartLineGroup) => void;
@@ -679,8 +647,8 @@ function CartLineRow({
         <Stack gap={2}>
           {renderLineOptions(line)}
           <ListingPreferenceStatus line={line} />
-          <SellerReputation option={selectedListingSellerOption(line)} />
-          <LinePrice line={line} />
+          <SellerReputation option={selectedListingSellerOption(line, listingId)} />
+          <LinePrice line={line} listingId={listingId} />
         </Stack>
       }
       quantityControl={
@@ -848,11 +816,13 @@ function CartAttemptNotice({
 
 export function CheckoutCartPage({
   cartLines,
+  readiness: providedReadiness,
   errorMessage,
   recoveryState,
   attemptState,
 }: {
   cartLines: readonly CheckoutCartLine[];
+  readiness: CartReadinessRead | null;
   errorMessage?: string | null;
   recoveryState?: CartRecoveryState | null;
   attemptState?: CartAttemptState | null;
@@ -861,69 +831,59 @@ export function CheckoutCartPage({
   const cartMutations = useOptimisticCartMutationConsistency({ sourceCartLineGroups });
   const visibleAttempt = cartMutations.attemptState ?? attemptState ?? null;
   const cartLineGroups = cartMutations.cartLineGroups;
+  const hasPendingOptimisticMutation = sourceCartLineGroups.some(
+    (line) => cartMutations.statusForLine(line) !== "idle",
+  );
+  const readiness = providedReadiness && !hasPendingOptimisticMutation ? providedReadiness : null;
   const visibleErrorMessage = cartMutations.errorMessage ?? errorMessage;
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
-  const baseReadinessSnapshot = createCartReadinessSnapshot(cartLineGroups);
+  const checkoutReadinessSnapshot = readiness?.declined ?? null;
   const declinedOptimizationDecision =
-    baseReadinessSnapshot.optimization.available &&
-    baseReadinessSnapshot.optimization.proposedLineId &&
-    baseReadinessSnapshot.optimization.proposedListingId
-      ? ({
+    checkoutReadinessSnapshot?.optimization.decision === "declined" &&
+    checkoutReadinessSnapshot.optimization.proposedLineId &&
+    checkoutReadinessSnapshot.optimization.proposedListingId
+      ? {
           optimization: {
-            decision: "declined",
-            lineId: baseReadinessSnapshot.optimization.proposedLineId,
-            listingId: baseReadinessSnapshot.optimization.proposedListingId,
+            decision: "declined" as const,
+            lineId: checkoutReadinessSnapshot.optimization.proposedLineId,
+            listingId: checkoutReadinessSnapshot.optimization.proposedListingId,
           },
-        } satisfies CartReadinessDecisionInput)
+        }
       : null;
-  const checkoutReadinessSnapshot = declinedOptimizationDecision
-    ? createCartReadinessSnapshot(cartLineGroups, declinedOptimizationDecision)
-    : baseReadinessSnapshot;
-  const blockedLineCount = checkoutReadinessSnapshot.unresolvedLineIds.length;
-  const estimatedSubtotal =
-    checkoutReadinessSnapshot.status === "ready"
-      ? estimateCartSubtotal(cartLineGroups, checkoutReadinessSnapshot.includedLineIds)
-      : null;
+  const blockedLineCount = readiness?.blockedLineCount ?? 0;
+  const estimatedSubtotal = readiness?.estimatedSubtotal ?? null;
   const hasKnownTotal = estimatedSubtotal !== null;
   const estimatedTotal = estimatedSubtotal
-    ? formatMoney(centsToSignedMoneyAmount(estimatedSubtotal.amountMinor), estimatedSubtotal.currency)
+    ? formatMoney(estimatedSubtotal.amount, estimatedSubtotal.currency)
     : t("checkout.features.cart.ui.cartPage.priced.at.checkout");
-  const acceptedOptimizationDecision =
-    baseReadinessSnapshot.optimization.available &&
-    baseReadinessSnapshot.optimization.proposedLineId &&
-    baseReadinessSnapshot.optimization.proposedListingId
-      ? ({
-          optimization: {
-            decision: "accepted",
-            lineId: baseReadinessSnapshot.optimization.proposedLineId,
-            listingId: baseReadinessSnapshot.optimization.proposedListingId,
-          },
-        } satisfies CartReadinessDecisionInput)
-      : null;
-  const acceptedOptimization = acceptedOptimizationDecision
-    ? {
-        decisions: acceptedOptimizationDecision,
-        snapshot: createCartReadinessSnapshot(cartLineGroups, acceptedOptimizationDecision),
-      }
+  const acceptedOptimizationDecision = readiness?.accepted
+    ? ({
+        optimization: {
+          decision: "accepted",
+          lineId: readiness.accepted.optimization.proposedLineId!,
+          listingId: readiness.accepted.optimization.proposedListingId!,
+        },
+      } satisfies CartReadinessDecisionInput)
     : null;
-  const cartReady = cartLineGroups.length > 0 && checkoutReadinessSnapshot.status === "ready";
-  const optimizationAvailable = cartReady && checkoutReadinessSnapshot.optimization.available;
-  const optimizationSavings =
-    checkoutReadinessSnapshot.optimization.savingsAmount && checkoutReadinessSnapshot.optimization.currency
-      ? formatMoney(
-          checkoutReadinessSnapshot.optimization.savingsAmount,
-          checkoutReadinessSnapshot.optimization.currency,
-        )
-      : t("checkout.features.cart.ui.cartPage.priced.at.checkout");
+  const acceptedOptimization =
+    readiness?.accepted && acceptedOptimizationDecision
+      ? { decisions: acceptedOptimizationDecision, snapshot: readiness.accepted }
+      : null;
+  const cartReady = Boolean(readiness && cartLineGroups.length > 0 && checkoutReadinessSnapshot?.status === "ready");
+  const optimizationAvailable = cartReady && checkoutReadinessSnapshot?.optimization.available === true;
+  const optimizationSavings = readiness?.savings
+    ? formatMoney(readiness.savings.amount, readiness.savings.currency)
+    : t("checkout.features.cart.ui.cartPage.priced.at.checkout");
   // Resolve the seller behind the proposed lower-cost listing so the savings
   // notice can name the seller and show its reputation (helps the buyer decide
   // whether the switch is worth it), falling back to the seller-less copy when
   // the proposed seller has no display name projected yet.
-  const proposedOptimizationLine = checkoutReadinessSnapshot.optimization.proposedLineId
+  const proposedOptimizationLine = checkoutReadinessSnapshot?.optimization.proposedLineId
     ? (cartLineGroups.find((line) => line.line_id === checkoutReadinessSnapshot.optimization.proposedLineId) ?? null)
     : null;
+  const proposedOptimizationListingId = checkoutReadinessSnapshot?.optimization.proposedListingId ?? null;
   const proposedOptimizationOption = proposedOptimizationLine
-    ? findSellerOption(proposedOptimizationLine, checkoutReadinessSnapshot.optimization.proposedListingId)
+    ? findSellerOption(proposedOptimizationLine, proposedOptimizationListingId)
     : null;
   const proposedOptimizationSeller = proposedOptimizationOption?.seller_display_name ?? null;
 
@@ -936,7 +896,7 @@ export function CheckoutCartPage({
       candidates={[
         {
           priority: "needs-review",
-          active: cartLineGroups.length > 0 && !cartReady,
+          active: readiness !== null && cartLineGroups.length > 0 && !cartReady,
           notice: (
             <Banner
               tone="warning"
@@ -978,7 +938,7 @@ export function CheckoutCartPage({
 
   const checkoutContext = (
     <Text size="sm" tone="tertiary">
-      {cartReady
+      {cartReady || readiness === null
         ? t("checkout.features.cart.ui.cartPage.taxes.and.shipping.calculated")
         : t("checkout.features.cart.ui.cartPage.resolve.before.payment")}
     </Text>
@@ -1069,6 +1029,7 @@ export function CheckoutCartPage({
                   <CartLineRow
                     key={line.line_id}
                     line={line}
+                    listingId={providedReadiness?.lineListingIds[line.line_id] ?? null}
                     status={cartMutations.statusForLine(line)}
                     disabled={cartMutations.actionsDisabled}
                     onQuantityChange={cartMutations.setQuantity}
@@ -1097,10 +1058,18 @@ export function CheckoutCartPage({
                 context={checkoutContext}
                 reassurance={secureIndicator}
                 primaryAction={
-                  <CheckoutPrimaryAction
-                    snapshot={checkoutReadinessSnapshot}
-                    decisions={declinedOptimizationDecision}
-                  />
+                  checkoutReadinessSnapshot ? (
+                    <CheckoutPrimaryAction
+                      snapshot={checkoutReadinessSnapshot}
+                      decisions={declinedOptimizationDecision}
+                    />
+                  ) : (
+                    <Box minWidth="action">
+                      <LinkButton href={BUY_READINESS_ROUTE} tone="primary" size="md" block>
+                        {t("checkout.features.cart.ui.cartPage.resolve.fulfillment")}
+                      </LinkButton>
+                    </Box>
+                  )
                 }
                 secondaryAction={
                   <Stack gap={2}>

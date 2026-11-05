@@ -67,13 +67,11 @@ async function handleParticipantAction(
         actionResult = "evidence";
         break;
       case "response": {
-        const offerResolutionType = formValue(formData, "offerResolutionType");
         const refundAmount = formValue(formData, "refundAmount");
         commandResult = await api.recordSupportResponse(supportRequestId, {
           submittedByRole: formValue(formData, "submittedByRole"),
           responseType: formValue(formData, "responseType"),
           summary: formValue(formData, "summary"),
-          ...(offerResolutionType ? { offerResolutionType } : {}),
           ...(refundAmount ? { refundAmount } : {}),
         });
         actionResult = "response";
@@ -209,7 +207,7 @@ export default function AccountSupportDetailRoute() {
         request={data.request}
         flow={data.flow}
         viewerRole={data.viewerRole as SupportParticipantRole}
-        canCancel={data.canCancel}
+        participantPolicy={data.participantPolicy}
         now={data.now}
         actionError={actionData && "error" in actionData ? actionData.error : searchParams.get("actionError")}
         actionResult={searchParams.get("action")}

@@ -1,0 +1,31 @@
+global:
+  previewStackIsolation: true
+components:
+  public-web:
+    resources:
+      requests:
+        memory: "1024Mi"
+  marketplace:
+    resources:
+      requests:
+        memory: "1152Mi"
+  admin-web:
+    resources:
+      requests:
+        memory: "832Mi"
+  platform-api:
+    resources:
+      requests:
+        memory: "640Mi"
+  platform-worker:
+    resources:
+      requests:
+        memory: "832Mi"
+  platform-bootstrap:
+    resources:
+      requests:
+        memory: "1152Mi"
+previewPostgres:
+  resources:
+    requests:
+      memory: "448Mi"

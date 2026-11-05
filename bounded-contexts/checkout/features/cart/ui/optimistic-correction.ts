@@ -496,7 +496,7 @@ export function useOptimisticCartMutationConsistency<TLine extends OptimisticCar
       formData.set("attemptId", mintCheckoutCommandAttemptId());
       lastSubmissionRef.current = formData;
       dataBeforeSubmitRef.current = latestDataRef.current;
-      fetcher.submit(formData, { method: "post", action: "/account/cart" });
+      void fetcher.submit(formData, { method: "post", action: "/account/cart" });
     },
     [fetcher],
   );
@@ -598,7 +598,7 @@ export function useOptimisticCartMutationConsistency<TLine extends OptimisticCar
       return;
     }
     dataBeforeSubmitRef.current = latestDataRef.current;
-    fetcher.submit(submission, { method: "post", action: "/account/cart" });
+    void fetcher.submit(submission, { method: "post", action: "/account/cart" });
   }, [attemptState?.state, fetcher, submitting]);
 
   useEffect(() => {

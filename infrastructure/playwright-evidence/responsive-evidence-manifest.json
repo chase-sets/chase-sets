@@ -4,12 +4,469 @@
   "claims": [
     {
       "kind": "claim",
+      "id": "checkout-recovery-390",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "authenticated buy checkout session satisfies redesign contracts @marketplace-checkout @browser-e2e-seed",
+      "route": { "name": "seeded checkout recovery", "path": "/checkout/buy/session/chk_seed_started_cart" },
+      "fixture": { "identity": "authenticated-checkout-recovery:seeded-started-cart:v1" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "checkout-recovery-panel",
+        "selector": "section.grid.rounded-tokenLg:has(> div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
+        "populatedSelector": ":scope h2, :scope > div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary, :scope a"
+      },
+      "measurements": [
+        {
+          "identity": "recovery-panel-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": { "equals": true }
+        },
+        {
+          "identity": "recovery-panel-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        }
+      ],
+      "artifact": "checkout-recovery-390"
+    },
+    {
+      "kind": "claim",
+      "id": "checkout-recovery-1024",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "authenticated buy checkout session satisfies redesign contracts @marketplace-checkout @browser-e2e-seed",
+      "route": { "name": "seeded checkout recovery", "path": "/checkout/buy/session/chk_seed_started_cart" },
+      "fixture": { "identity": "authenticated-checkout-recovery:seeded-started-cart:v1" },
+      "viewport": { "width": 1024, "height": 768 },
+      "target": {
+        "identity": "checkout-recovery-panel",
+        "selector": "section.grid.rounded-tokenLg:has(> div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
+        "populatedSelector": ":scope h2, :scope > div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary, :scope a"
+      },
+      "measurements": [
+        {
+          "identity": "recovery-panel-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": { "equals": true }
+        },
+        {
+          "identity": "recovery-panel-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 1024 }
+        }
+      ],
+      "artifact": "checkout-recovery-1024"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-comparison-360",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal comparison",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-comparison-real-worker"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "completed-goal-comparison",
+        "selector": "[data-testid='pricing-health-goal-comparison']",
+        "populatedSelector": "td, dd"
+      },
+      "measurements": [
+        {
+          "identity": "comparison-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 360
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-comparison-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-comparison-390",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal comparison",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-comparison-real-worker"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "completed-goal-comparison",
+        "selector": "[data-testid='pricing-health-goal-comparison']",
+        "populatedSelector": "td, dd"
+      },
+      "measurements": [
+        {
+          "identity": "comparison-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-comparison-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-comparison-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal comparison",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-comparison-real-worker"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
+      "target": {
+        "identity": "completed-goal-comparison",
+        "selector": "[data-testid='pricing-health-goal-comparison']",
+        "populatedSelector": "td, dd"
+      },
+      "measurements": [
+        {
+          "identity": "comparison-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 820
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-comparison-tablet"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-parameters-360",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal parameters",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-comparison-real-worker"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "expanded-goal-parameters",
+        "selector": "[data-testid='pricing-health-goal-picker']",
+        "populatedSelector": "input[type='number']"
+      },
+      "measurements": [
+        {
+          "identity": "parameters-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 360
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-parameters-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-parameters-390",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal parameters",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-comparison-real-worker"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "expanded-goal-parameters",
+        "selector": "[data-testid='pricing-health-goal-picker']",
+        "populatedSelector": "input[type='number']"
+      },
+      "measurements": [
+        {
+          "identity": "parameters-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-parameters-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-parameters-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
+      "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal parameters",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-comparison-real-worker"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
+      "target": {
+        "identity": "expanded-goal-parameters",
+        "selector": "[data-testid='pricing-health-goal-picker']",
+        "populatedSelector": "input[type='number']"
+      },
+      "measurements": [
+        {
+          "identity": "parameters-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 820
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-parameters-tablet"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-health-what-if-360",
+      "file": "deployables/marketplace/e2e/pricing-health-what-if.spec.ts",
+      "testTitle": "Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Health",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-health-real-worker"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "pricing-health-what-if-panels",
+        "selector": "[data-testid='pricing-health-what-if']",
+        "populatedSelector": "[data-testid^='pricing-health-what-if-']"
+      },
+      "measurements": [
+        {
+          "identity": "what-if-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 360
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-health-what-if-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-health-what-if-390",
+      "file": "deployables/marketplace/e2e/pricing-health-what-if.spec.ts",
+      "testTitle": "Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Health",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-health-real-worker"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "pricing-health-what-if-panels",
+        "selector": "[data-testid='pricing-health-what-if']",
+        "populatedSelector": "[data-testid^='pricing-health-what-if-']"
+      },
+      "measurements": [
+        {
+          "identity": "what-if-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-health-what-if-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-health-what-if-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-what-if.spec.ts",
+      "testTitle": "Pricing Health renders preview-only horizon and hurdle panels without mutation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Health",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-health-real-worker"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
+      "target": {
+        "identity": "pricing-health-what-if-panels",
+        "selector": "[data-testid='pricing-health-what-if']",
+        "populatedSelector": "[data-testid^='pricing-health-what-if-']"
+      },
+      "measurements": [
+        {
+          "identity": "what-if-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 820
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-health-what-if-tablet"
+    },
+    {
+      "kind": "claim",
       "id": "pricing-health-populated-0",
       "file": "deployables/marketplace/e2e/pricing-health-verdict.spec.ts",
       "testTitle": "mounted Pricing Health reads a nonempty stored verdict and disclosed cohort at mobile and tablet sizes @marketplace-seller @browser-e2e-seed",
-      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
-      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
-      "viewport": { "width": 360, "height": 800 },
+      "route": {
+        "name": "Pricing Health",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-health-real-worker"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
       "target": {
         "identity": "stored-health-summary",
         "selector": "[data-testid='pricing-health-summary']",
@@ -21,25 +478,167 @@
           "scope": "target",
           "selector": ":scope",
           "property": "width",
-          "assertion": { "minimum": 1, "maximum": 360 }
+          "assertion": {
+            "minimum": 1,
+            "maximum": 360
+          }
         },
         {
           "identity": "no-document-overflow",
           "scope": "document",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 1 }
+          "assertion": {
+            "maximum": 1
+          }
         }
       ],
       "artifact": "pricing-health-populated-360"
     },
     {
       "kind": "claim",
+      "id": "pricing-goal-apply-confirmation-360",
+      "file": "deployables/marketplace/e2e/pricing-health-apply-goal.spec.ts",
+      "testTitle": "applies one compared Pricing Goal with fenced confirmation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal apply confirmation",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-apply-real-worker"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "apply-goal-confirmation",
+        "selector": "[role='alertdialog']",
+        "populatedSelector": "button"
+      },
+      "measurements": [
+        {
+          "identity": "dialog-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 360
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-apply-confirmation-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-apply-confirmation-390",
+      "file": "deployables/marketplace/e2e/pricing-health-apply-goal.spec.ts",
+      "testTitle": "applies one compared Pricing Goal with fenced confirmation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal apply confirmation",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-apply-real-worker"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "apply-goal-confirmation",
+        "selector": "[role='alertdialog']",
+        "populatedSelector": "button"
+      },
+      "measurements": [
+        {
+          "identity": "dialog-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-apply-confirmation-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-apply-confirmation-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-apply-goal.spec.ts",
+      "testTitle": "applies one compared Pricing Goal with fenced confirmation @marketplace-seller @browser-e2e-seed",
+      "route": {
+        "name": "Pricing Goal apply confirmation",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-goal-apply-real-worker"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
+      "target": {
+        "identity": "apply-goal-confirmation",
+        "selector": "[role='alertdialog']",
+        "populatedSelector": "button"
+      },
+      "measurements": [
+        {
+          "identity": "dialog-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 820
+          }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "pricing-goal-apply-confirmation-tablet"
+    },
+    {
+      "kind": "claim",
       "id": "pricing-health-populated-1",
       "file": "deployables/marketplace/e2e/pricing-health-verdict.spec.ts",
       "testTitle": "mounted Pricing Health reads a nonempty stored verdict and disclosed cohort at mobile and tablet sizes @marketplace-seller @browser-e2e-seed",
-      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
-      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
-      "viewport": { "width": 390, "height": 844 },
+      "route": {
+        "name": "Pricing Health",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-health-real-worker"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
       "target": {
         "identity": "stored-health-summary",
         "selector": "[data-testid='pricing-health-summary']",
@@ -51,13 +650,18 @@
           "scope": "target",
           "selector": ":scope",
           "property": "width",
-          "assertion": { "minimum": 1, "maximum": 390 }
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
         },
         {
           "identity": "no-document-overflow",
           "scope": "document",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 1 }
+          "assertion": {
+            "maximum": 1
+          }
         }
       ],
       "artifact": "pricing-health-populated-390"
@@ -67,9 +671,17 @@
       "id": "pricing-health-populated-2",
       "file": "deployables/marketplace/e2e/pricing-health-verdict.spec.ts",
       "testTitle": "mounted Pricing Health reads a nonempty stored verdict and disclosed cohort at mobile and tablet sizes @marketplace-seller @browser-e2e-seed",
-      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
-      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
-      "viewport": { "width": 820, "height": 1180 },
+      "route": {
+        "name": "Pricing Health",
+        "path": "/account/desk/pricing-health"
+      },
+      "fixture": {
+        "identity": "synthetic-pricing-health-real-worker"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 1180
+      },
       "target": {
         "identity": "stored-health-summary",
         "selector": "[data-testid='pricing-health-summary']",
@@ -81,13 +693,18 @@
           "scope": "target",
           "selector": ":scope",
           "property": "width",
-          "assertion": { "minimum": 1, "maximum": 820 }
+          "assertion": {
+            "minimum": 1,
+            "maximum": 820
+          }
         },
         {
           "identity": "no-document-overflow",
           "scope": "document",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 1 }
+          "assertion": {
+            "maximum": 1
+          }
         }
       ],
       "artifact": "pricing-health-populated-tablet"
@@ -616,7 +1233,7 @@
       },
       "target": {
         "identity": "catalog-scope-card-list",
-        "selector": "main div[role='list']",
+        "selector": "main div[role='list']:not([data-catalog-scope-home-review] *)",
         "populatedSelector": ":scope > [role='listitem']"
       },
       "measurements": [
@@ -642,7 +1259,7 @@
         {
           "identity": "scope-table-hidden-on-mobile",
           "scope": "page",
-          "selector": "main table",
+          "selector": "main table:not([data-catalog-scope-home-review] *)",
           "property": "visible",
           "assertion": {
             "equals": false
@@ -677,7 +1294,7 @@
       },
       "target": {
         "identity": "catalog-scope-table",
-        "selector": "main table",
+        "selector": "main table:not([data-catalog-scope-home-review] *)",
         "populatedSelector": ":scope > tbody > tr"
       },
       "measurements": [
@@ -703,7 +1320,7 @@
         {
           "identity": "scope-cards-hidden-on-tablet",
           "scope": "page",
-          "selector": "main div[role='list']",
+          "selector": "main div[role='list']:not([data-catalog-scope-home-review] *)",
           "property": "visible",
           "assertion": {
             "equals": false
@@ -790,7 +1407,10 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "published-dock-height",
@@ -798,7 +1418,10 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -806,14 +1429,20 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": { "equals": 84, "tolerance": 0.5 }
+          "assertion": {
+            "equals": 84,
+            "tolerance": 0.5
+          }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 128, "maximum": 160 }
+          "assertion": {
+            "minimum": 128,
+            "maximum": 160
+          }
         },
         {
           "identity": "gap-above-dock",
@@ -821,7 +1450,9 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": { "minimum": 0 }
+          "assertion": {
+            "minimum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-360"
@@ -853,7 +1484,10 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "published-dock-height",
@@ -861,7 +1495,10 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -869,14 +1506,20 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": { "equals": 84, "tolerance": 0.5 }
+          "assertion": {
+            "equals": 84,
+            "tolerance": 0.5
+          }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 128, "maximum": 160 }
+          "assertion": {
+            "minimum": 128,
+            "maximum": 160
+          }
         },
         {
           "identity": "gap-above-dock",
@@ -884,7 +1527,9 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": { "minimum": 0 }
+          "assertion": {
+            "minimum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-390"
@@ -916,7 +1561,10 @@
           "scope": "page",
           "selector": "[data-testid='product-detail-mobile-dock']",
           "property": "height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "published-dock-height",
@@ -924,7 +1572,10 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--product-detail-dock-height",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "shell-bottom-nav-height",
@@ -932,14 +1583,20 @@
           "selector": ":scope",
           "property": "css-custom-property",
           "customProperty": "--shell-bottom-nav-height",
-          "assertion": { "equals": 0, "tolerance": 0.5 }
+          "assertion": {
+            "equals": 0,
+            "tolerance": 0.5
+          }
         },
         {
           "identity": "focus-clearance",
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         },
         {
           "identity": "gap-above-dock",
@@ -947,7 +1604,9 @@
           "selector": ":scope",
           "property": "gap-above",
           "relativeToSelector": "[data-testid='product-detail-mobile-dock']",
-          "assertion": { "minimum": 0 }
+          "assertion": {
+            "minimum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-tablet"
@@ -979,7 +1638,10 @@
           "scope": "target",
           "selector": ":scope",
           "property": "scroll-margin-bottom",
-          "assertion": { "minimum": 44, "maximum": 76 }
+          "assertion": {
+            "minimum": 44,
+            "maximum": 76
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-geometry-tablet-frozen-control"
@@ -1011,7 +1673,9 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-360"
@@ -1043,7 +1707,9 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-390"
@@ -1075,7 +1741,9 @@
           "scope": "target",
           "selector": "role=link[name='Select options']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-unselected-tablet"
@@ -1107,21 +1775,27 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-360"
@@ -1153,21 +1827,27 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-390"
@@ -1199,21 +1879,27 @@
           "scope": "target",
           "selector": "role=button[name='Buy']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "sell-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Sell']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         },
         {
           "identity": "watch-label-not-clipped",
           "scope": "target",
           "selector": "role=button[name='Watch']",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "item-detail-mobile-dock-labels-selected-tablet"
@@ -2415,9 +3101,17 @@
       "id": "repricing-policy-editor-mobile",
       "file": "deployables/marketplace/e2e/repricing-policies.spec.ts",
       "testTitle": "manages a policy from the list and detail pages and leaves no active policy @marketplace-seller @browser-e2e-seed",
-      "route": { "name": "Seller Desk repricing policy editor", "path": "/account/desk/repricing" },
-      "fixture": { "identity": "browser-e2e-seed:seller-repricing-policy:hold-only" },
-      "viewport": { "width": 390, "height": 844 },
+      "route": {
+        "name": "Seller Desk repricing policy editor",
+        "path": "/account/desk/repricing"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:seller-repricing-policy:hold-only"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
       "target": {
         "identity": "repricing-policy-editor",
         "selector": "[data-testid='repricing-policy-editor']",
@@ -2429,20 +3123,27 @@
           "scope": "target",
           "selector": ":scope",
           "property": "width",
-          "assertion": { "minimum": 1, "maximum": 390 }
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
         },
         {
           "identity": "editor-input-height",
           "scope": "target",
           "selector": "[data-testid='repricing-policy-name']",
           "property": "height",
-          "assertion": { "minimum": 44 }
+          "assertion": {
+            "minimum": 44
+          }
         },
         {
           "identity": "editor-horizontal-overflow",
           "scope": "document",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 1 }
+          "assertion": {
+            "maximum": 1
+          }
         }
       ],
       "artifact": "repricing-policy-editor-mobile"
@@ -5933,6 +6634,343 @@
         }
       ],
       "artifact": "marketplace-shell-search-row-desktop-768"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-create-360",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "submitted-create-validation-summary",
+        "selector": "section[role='alert']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "submitted-create-summary-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "submitted-create-summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-create-360"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-update-390",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "submitted-update-validation-summary",
+        "selector": "section[role='alert']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "submitted-update-summary-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "submitted-update-summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-update-390"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-removed-row-1024",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "target": {
+        "identity": "removed-row-controller-banner",
+        "selector": "[role='status'][tabindex='-1'] [role='alert']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "removed-row-controller-banner-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "removed-row-controller-banner-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-removed-row-1024"
+    },
+    {
+      "kind": "claim",
+      "id": "cart-fallback-390",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "cart fallback responsive evidence at 390px @marketplace-checkout @browser-e2e-seed",
+      "route": {
+        "name": "fallback asset evidence",
+        "path": "/account/cart"
+      },
+      "fixture": {
+        "identity": "browser-e2e:canonical-fallback-assets:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "optimized-fallback-image",
+        "selector": "[data-fallback-evidence-target='cart']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "fallback-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "fallback-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "fallback-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        }
+      ],
+      "artifact": "cart-fallback-390"
+    },
+    {
+      "kind": "claim",
+      "id": "cart-fallback-1024",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "cart fallback responsive evidence at 1024px @marketplace-checkout @browser-e2e-seed",
+      "route": {
+        "name": "fallback asset evidence",
+        "path": "/account/cart"
+      },
+      "fixture": {
+        "identity": "browser-e2e:canonical-fallback-assets:v1"
+      },
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "target": {
+        "identity": "optimized-fallback-image",
+        "selector": "[data-fallback-evidence-target='cart']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "fallback-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "fallback-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "fallback-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        }
+      ],
+      "artifact": "cart-fallback-1024"
+    },
+    {
+      "kind": "claim",
+      "id": "discovery-fallback-390",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "renders the optimized Discovery fallback with stable card geometry at 390px @marketplace-browse",
+      "route": {
+        "name": "fallback asset evidence",
+        "path": "/items/bulbasaur-base-set-44-102-common-seed-bulbasaur-base-set-ok08ju"
+      },
+      "fixture": {
+        "identity": "browser-e2e:canonical-fallback-assets:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "optimized-fallback-image",
+        "selector": "[data-fallback-evidence-target='discovery']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "fallback-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "fallback-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "fallback-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        }
+      ],
+      "artifact": "discovery-fallback-390"
+    },
+    {
+      "kind": "claim",
+      "id": "discovery-fallback-1024",
+      "file": "deployables/marketplace/e2e/item-detail.spec.ts",
+      "testTitle": "renders the optimized Discovery fallback with stable card geometry at 1024px @marketplace-browse",
+      "route": {
+        "name": "fallback asset evidence",
+        "path": "/items/bulbasaur-base-set-44-102-common-seed-bulbasaur-base-set-ok08ju"
+      },
+      "fixture": {
+        "identity": "browser-e2e:canonical-fallback-assets:v1"
+      },
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "target": {
+        "identity": "optimized-fallback-image",
+        "selector": "[data-fallback-evidence-target='discovery']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "fallback-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "fallback-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "fallback-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        }
+      ],
+      "artifact": "discovery-fallback-1024"
     }
   ]
 }

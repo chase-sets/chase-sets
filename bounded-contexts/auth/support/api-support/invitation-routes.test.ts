@@ -26,6 +26,12 @@ import type { AuthServices } from "../runtime-support/services";
 import { createInvitationProjectionFreshnessWaiter } from "../runtime-support/invitation-projection-freshness";
 import { registerInvitationRoutes } from "./invitation-routes";
 import type { AuthApiEnv } from "./support";
+import {
+  SAME_SITE_TEST_ORIGIN,
+  UNSAFE_AUTH_PATHS,
+  VALID_AUTH_PATHS,
+} from "../auth-support/same-site-path.test-support";
+import * as sameSitePaths from "../auth-support/same-site-path";
 
 function invitationFreshWriteHeader(maxGlobalPosition: string): Record<string, string> {
   const receipt: FreshWriteReceipt = {
@@ -199,6 +205,61 @@ function createIdentityMutations() {
 useMockReset();
 
 describe("invitation auth routes", () => {
+  it("checks the final invitation origin before appending a token even if validation regresses", async () => {
+    const guard = vi.spyOn(sameSitePaths, "getSafeSameSitePath").mockReturnValue("/\\outside.example.test/collect");
+    try {
+      const services = createServices();
+      mockCreateIdentityAuthRequestClient.mockReturnValue(createIdentityMutations());
+      const response = await buildApp(services).request(
+        `${SAME_SITE_TEST_ORIGIN}/invitations/acceptance-link/request`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ invitationId: "ivt_1" }),
+        },
+      );
+      expect(response.status).toBe(200);
+      const message = services.notificationOutbox.enqueueNotification.mock.calls[0]![0].message;
+      const url = new URL(String(message.templateData.invitationLink));
+      expect(url.origin).toBe(SAME_SITE_TEST_ORIGIN);
+      expect(url.pathname).toBe("/invite/ivt_1");
+      expect(url.searchParams.get("token")).toBe("invite_token");
+    } finally {
+      guard.mockRestore();
+    }
+  });
+
+  it.each([...UNSAFE_AUTH_PATHS, ...VALID_AUTH_PATHS])(
+    "tokenized links remain same-origin: invitation %j",
+    async (path) => {
+      const services = createServices();
+      const mutations = createIdentityMutations();
+      mockCreateIdentityAuthRequestClient.mockReturnValue(mutations);
+      const response = await buildApp(services).request(
+        `${SAME_SITE_TEST_ORIGIN}/invitations/acceptance-link/request`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ invitationId: "ivt_1", landingPath: path }),
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).not.toHaveProperty("token");
+      const message = services.notificationOutbox.enqueueNotification.mock.calls[0]![0].message;
+      const url = new URL(String(message.templateData.invitationLink));
+      const expected = new URL(VALID_AUTH_PATHS.includes(path) ? path : "/invite/ivt_1", SAME_SITE_TEST_ORIGIN);
+      expect(url.origin).toBe(SAME_SITE_TEST_ORIGIN);
+      expect(url.pathname).toBe(expected.pathname);
+      expect(url.hash).toBe(expected.hash);
+      expect(url.searchParams.get("token")).toBe("invite_token");
+      expect(url.searchParams.get("invitationId")).toBe("ivt_1");
+      for (const [key, value] of expected.searchParams) expect(url.searchParams.get(key)).toBe(value);
+      expect(mutations.issueInvitationAcceptanceToken).toHaveBeenCalledWith(
+        expect.objectContaining({ tokenHash: "hashed:invite_token" }),
+      );
+    },
+  );
+
   const consentRejections = [
     {
       code: "registration_consent_not_server_minted",

@@ -43,7 +43,9 @@ const buyer: ResolvedActor = {
 afterEach(() => vi.useRealTimers());
 
 function fixture(response: () => Response | Promise<Response> = () => Response.json(profile)) {
-  const handler = vi.fn((_input: unknown) => createUcpEnvelope("ok", { checkout: { id: "checkout_1" }, products: [] }));
+  const handler = vi.fn((_input: unknown) =>
+    createUcpEnvelope("success", { checkout: { id: "checkout_1" }, products: [] }),
+  );
   const reserve = vi.fn<UcpIdempotencyStore["reserve"]>((input) => ({
     outcome: "reserved",
     record: { ...input, status: "pending", response: null },
@@ -90,9 +92,8 @@ function fixture(response: () => Response | Promise<Response> = () => Response.j
             ? handler(input)
             : createUcpEnvelope("error", {}, [
                 {
-                  severity: "error",
                   code: "authentication_required",
-                  message: "Authenticate first.",
+                  content: "Authenticate first.",
                 },
               ]),
         complete_checkout: handler,
@@ -133,7 +134,7 @@ describe("platform API UCP profile negotiation", () => {
       }),
     });
     expect(response.status).toBe(200);
-    expect((await response.json()).result.structuredContent.ucp.status).toBe("ok");
+    expect((await response.json()).result.structuredContent.ucp.status).toBe("success");
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ arguments: { checkout: { line_items: [] } } }));
   });
 
@@ -245,7 +246,7 @@ describe("platform API UCP profile negotiation", () => {
         params: { name: "create_checkout", _meta: { "ucp-agent": "x" }, arguments: {} },
       }),
     });
-    expect((await legacy.json()).result.structuredContent.ucp.status).toBe("ok");
+    expect((await legacy.json()).result.structuredContent.ucp.status).toBe("success");
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -293,7 +294,7 @@ describe("platform API UCP profile negotiation", () => {
       expect((await response.json()).messages[0].code).toBe("invalid_profile_url");
     }
     const rest = await app.request("/ucp/v1/catalog/search", { method: "POST" });
-    expect((await rest.json()).ucp.status).toBe("ok");
+    expect((await rest.json()).ucp.status).toBe("success");
     const mcp = await app.request("/ucp/mcp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -304,7 +305,7 @@ describe("platform API UCP profile negotiation", () => {
         params: { name: "search_catalog", arguments: {} },
       }),
     });
-    expect((await mcp.json()).result.structuredContent.ucp.status).toBe("ok");
+    expect((await mcp.json()).result.structuredContent.ucp.status).toBe("success");
     expect(fetch).not.toHaveBeenCalled();
     expect(reserve).not.toHaveBeenCalled();
   });
@@ -360,7 +361,7 @@ describe("platform API UCP profile negotiation", () => {
         }),
       });
       const result = (await response.json()).result;
-      expect(result.structuredContent.ucp.status).toBe(token ? "ok" : "error");
+      expect(result.structuredContent.ucp.status).toBe(token ? "success" : "error");
       if (!token) expect(result._meta["mcp/www_authenticate"]).toBeDefined();
     }
     expect(fetch).not.toHaveBeenCalled();

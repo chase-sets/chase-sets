@@ -106,7 +106,7 @@ export function WalletAdjustmentApprovalActions({
           cancelLabel={t("settlement.features.wallets.ui.walletAdjustmentApprovalActions.cancel")}
           onConfirm={() => {
             if (approveFormRef.current) {
-              submit(approveFormRef.current);
+              void submit(approveFormRef.current);
             }
           }}
           trigger={
@@ -126,7 +126,7 @@ export function WalletAdjustmentApprovalActions({
           cancelLabel={t("settlement.features.wallets.ui.walletAdjustmentApprovalActions.cancel")}
           onConfirm={() => {
             if (rejectFormRef.current) {
-              submit(rejectFormRef.current);
+              void submit(rejectFormRef.current);
             }
           }}
           trigger={

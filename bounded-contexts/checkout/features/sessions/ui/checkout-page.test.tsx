@@ -9,9 +9,26 @@ import type { CheckoutFulfillmentPreview } from "../../../support/request-suppor
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
 
 import { CheckoutSessionPage } from "./checkout-page";
+import { CheckoutEmptyCartState } from "./checkout-commit-actions";
 
 afterEach(() => {
   cleanup();
+});
+
+describe("CheckoutEmptyCartState", () => {
+  it("keeps the canonical empty-cart title, action, and description presentation", () => {
+    const markup = renderToString(<CheckoutEmptyCartState />);
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const description = container.querySelector("section div.m-0.mx-auto.max-w-xl");
+    expect(container.querySelector("h2")?.textContent).toBe(
+      t("checkout.features.sessions.ui.checkoutPage.your.cart.is.empty"),
+    );
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("/search");
+    expect(description).not.toBeNull();
+    expect(description?.className).toContain("m-0 mx-auto max-w-xl text-sm leading-6 text-secondary");
+    expect(description?.textContent).toContain("Add a product");
+  });
 });
 
 const session: CheckoutSessionRow = {
@@ -1125,7 +1142,7 @@ describe("checkout session page", () => {
     expect(inFormPrimary?.closest(".hidden.md\\:block")).not.toBeNull();
   });
 
-  it("prepares payment automatically once checkout reaches a complete quoted payment step", async () => {
+  it("quote and forged flag are not authority", async () => {
     const submitListener = vi.fn((event: SubmitEvent) => event.preventDefault());
     document.addEventListener("submit", submitListener);
 
@@ -1152,18 +1169,11 @@ describe("checkout session page", () => {
           }}
           fulfillmentPreview={readyFulfillmentPreview}
           paymentPreview={paymentPreview}
-          autoResumePaymentStart
         />,
       );
 
-      await waitFor(() => expect(submitListener).toHaveBeenCalledTimes(1));
-      const submitEvent = submitListener.mock.calls[0]?.[0];
-      expect((submitEvent?.submitter as HTMLButtonElement | null)?.value).toBe("confirm-checkout");
-      const form = document.getElementById("checkout-confirmation-form") as HTMLFormElement | null;
-      expect(form).not.toBeNull();
-      const formData = new FormData(form!);
-      expect(formData.get("marketplaceCheckoutFeeQuoteFingerprint")).toBe("quote_1");
-      expect(formData.get("paymentMethodCategory")).toBe("card");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(submitListener).not.toHaveBeenCalled();
     } finally {
       document.removeEventListener("submit", submitListener);
     }
@@ -1180,7 +1190,6 @@ describe("checkout session page", () => {
           paymentPreview={paymentPreview}
           walletUnavailable
           isSignedInBuyer
-          autoResumePaymentStart
         />,
       );
       expect(screen.getByText("Wallet balance is temporarily unavailable")).toBeTruthy();
@@ -1211,7 +1220,6 @@ describe("checkout session page", () => {
         wallet={null}
         walletUnavailable={false}
         isSignedInBuyer
-        autoResumePaymentStart
       />,
     );
 
@@ -1230,7 +1238,6 @@ describe("checkout session page", () => {
           fulfillmentPreview={readyFulfillmentPreview}
           walletUnavailable
           isSignedInBuyer
-          autoResumePaymentStart
           savedShippingAddresses={[savedAddress]}
           savedCheckoutInstruments={[savedCard]}
         />,

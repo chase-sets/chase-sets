@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { buyCheckoutSupportReference, formatBuyCheckoutReferenceList } from "./buy-checkout-confirmation-formatting";
 import {
   addressIsComplete,
@@ -41,7 +41,6 @@ export function useCheckoutSessionModel({
   canSavePaymentMethods = false,
   isSignedInBuyer = false,
   initialEditSection = null,
-  autoResumePaymentStart = false,
   preparedPaymentEntry = null,
 }: CheckoutSessionPageProps) {
   const lines = session.lines;
@@ -76,6 +75,15 @@ export function useCheckoutSessionModel({
   const reservationExpired = Boolean(
     activeReservations.length > 0 && reservationMsRemaining !== null && reservationMsRemaining <= 0,
   );
+  const checkoutCancelled = Boolean(session.cancelled_at);
+  // Cancel checkout is the owner's release for holds alone; once orders, payment
+  // or purchase intent exist, those holds belong to the purchase instead.
+  const canCancelCheckout =
+    !checkoutCancelled &&
+    !hasPayment &&
+    session.order_ids.length === 0 &&
+    !session.submitted_offer_id &&
+    activeReservations.length > 0;
   const readyCount = isOfferIntent ? 0 : (preview?.readyLineKeys.length ?? lines.length);
   const unavailableCount = isOfferIntent ? lines.length : (preview?.unavailableLineKeys.length ?? 0);
   const needsPaymentQuote = !isOfferIntent && !hasPayment && !payment;
@@ -249,40 +257,6 @@ export function useCheckoutSessionModel({
   const commitIntent = shouldRefreshBeforeCommit ? "refresh-checkout-preview" : "confirm-checkout";
   const commitIcon: "refreshCcw" | "lock" = shouldRefreshBeforeCommit ? "refreshCcw" : "lock";
   const reReserveIntent = "confirm-checkout";
-  const hasAutoResumedPaymentStartRef = useRef(false);
-  const canAutoResumePaymentStart = Boolean(
-    autoResumePaymentStart &&
-    !walletUnavailable &&
-    !hasPayment &&
-    !isOfferIntent &&
-    addressIsComplete(addressDefaults) &&
-    contactReady &&
-    payment?.marketplace_checkout_fee.quote_fingerprint &&
-    payment.can_start_payment !== false &&
-    !needsReviewRefresh &&
-    !canUseAcceleratedSavedPayment,
-  );
-
-  useEffect(() => {
-    if (hasAutoResumedPaymentStartRef.current || isSubmitting || !canAutoResumePaymentStart) {
-      return;
-    }
-
-    const form = document.getElementById("checkout-confirmation-form");
-    if (!(form instanceof HTMLFormElement)) {
-      return;
-    }
-
-    const submitter = form.querySelector<HTMLButtonElement>(
-      'button[type="submit"][name="intent"][value="confirm-checkout"]',
-    );
-    if (!submitter) {
-      return;
-    }
-
-    hasAutoResumedPaymentStartRef.current = true;
-    form.requestSubmit(submitter);
-  }, [canAutoResumePaymentStart, isSubmitting]);
 
   const noticeCandidates = buildCheckoutNoticeCandidates({
     hasReservationUnavailableCheckoutLines,
@@ -326,6 +300,8 @@ export function useCheckoutSessionModel({
     reservationExpired,
     reservationMsRemaining,
     activeReservations,
+    checkoutCancelled,
+    canCancelCheckout,
     firstDeliveryGroup,
     savedAddressesForCheckout,
     canManageAddressBookInCheckout,

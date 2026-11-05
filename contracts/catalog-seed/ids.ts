@@ -106,6 +106,7 @@ export const catalogSeedIds = {
       magicTheGathering: "ref_seed_magic_the_gathering" as SeedReferenceRecordId,
       onePieceCardGame: "ref_seed_one_piece_card_game" as SeedReferenceRecordId,
       disneyLorcana: "ref_seed_disney_lorcana" as SeedReferenceRecordId,
+      yuGiOhOfficialCardGame: "ref_seed_yu_gi_oh_official_card_game" as SeedReferenceRecordId,
     },
     series: {
       base: "ref_seed_series_base" as SeedReferenceRecordId,

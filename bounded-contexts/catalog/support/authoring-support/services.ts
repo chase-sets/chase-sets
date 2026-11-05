@@ -41,17 +41,11 @@ import { createPgCatalogProviderOptionQueryCacheStore } from "../../features/sou
 import { scrydexOnePieceCredentialsFromEnv } from "../../features/source-observations/api/providers/provider-option-queries";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
-import type { TcgplayerAutomationCatalogClient } from "../../features/source-observations/api/tcgplayer-automation-catalog-client";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
-import {
-  createOperatorSessionGrants,
-  type OperatorSessionConfiguration,
-} from "../../features/operator-session/api/grants";
+import { createOperatorSessionGrants } from "../../features/operator-session/api/grants";
 
 export type CatalogHostPorts = Readonly<{
-  catalogOperatorSessionConfiguration?: OperatorSessionConfiguration;
   catalogAssetStorage?: CatalogAssetStorage;
-  tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   sourceObservationTelemetry?: SourceObservationTelemetry;
 }>;
 
@@ -106,7 +100,6 @@ export function createCatalogServices(
     db,
     notificationWaiterPool: options.notificationWaiterPool,
     assetStorage: ports.catalogAssetStorage,
-    tcgplayerAutomationCatalogClient: ports.tcgplayerAutomationCatalogClient,
     sourceObservationTelemetry: ports.sourceObservationTelemetry,
   } as const;
 
@@ -170,7 +163,13 @@ export function createCatalogServices(
   };
   const attentionQueue = createCatalogAttentionQueueRuntime(deps, {
     getReadiness: sourceObservations.getCatalogIntegrationControlPlaneReadiness,
-    listActiveJobs: sourceObservations.listActiveIntegrationJobs,
+    // A runtime without the snapshot read only offers the flag-free active list,
+    // which can never prove it holds every active job.
+    listActiveJobSnapshot: async (input) =>
+      (await sourceObservations.listActiveIntegrationJobSnapshot?.(input)) ?? {
+        items: await sourceObservations.listActiveIntegrationJobs(input),
+        completeness: "incomplete",
+      },
   });
   const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
   const providerScopeDiscovery = createProviderScopeDiscoveryRuntime(deps, {
@@ -180,7 +179,7 @@ export function createCatalogServices(
   });
 
   return {
-    operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorSessionConfiguration),
+    operatorSession: createOperatorSessionGrants(pool),
     dimensions,
     displayTemplates,
     fields,

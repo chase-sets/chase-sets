@@ -1,16 +1,19 @@
 import { t } from "@chase-sets/localization";
 import { HiddenInput, Form, Button, Card, Heading, LiveRegion, Stack, Text } from "@chase-sets/design-system";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 
 export function AccountSelectionPage({
   memberships,
   action,
   errorMessage,
   submitLabel = t("auth.features.accountSelection.ui.accountSelectionPage.continue"),
+  submissionMode = "document",
 }: {
   memberships: readonly { accountId: string; accountName: string; roleLabel: string }[];
   action?: string;
   errorMessage?: string | null;
   submitLabel?: string;
+  submissionMode?: "document" | "router";
 }) {
   return (
     <Stack gap={4}>
@@ -29,22 +32,41 @@ export function AccountSelectionPage({
       ) : null}
       {memberships.map((membership) => (
         <Card key={membership.accountId} elevation="elevated">
-          <Form spacing="none" action={action} method="post">
-            <Stack gap={3}>
-              <HiddenInput type="hidden" name="accountId" value={membership.accountId} readOnly />
-              <Stack gap={1}>
-                <Heading level={2} visualSize={6}>
-                  {membership.accountName}
-                </Heading>
-                <Text tone="secondary">
-                  {t("auth.features.accountSelection.ui.accountSelectionPage.role", {
-                    roleLabel: membership.roleLabel,
-                  })}
-                </Text>
+          {submissionMode === "router" ? (
+            <RouterForm spacing="none" action={action} method="post">
+              <Stack gap={3}>
+                <HiddenInput type="hidden" name="accountId" value={membership.accountId} readOnly />
+                <Stack gap={1}>
+                  <Heading level={2} visualSize={6}>
+                    {membership.accountName}
+                  </Heading>
+                  <Text tone="secondary">
+                    {t("auth.features.accountSelection.ui.accountSelectionPage.role", {
+                      roleLabel: membership.roleLabel,
+                    })}
+                  </Text>
+                </Stack>
+                <Button type="submit">{submitLabel}</Button>
               </Stack>
-              <Button type="submit">{submitLabel}</Button>
-            </Stack>
-          </Form>
+            </RouterForm>
+          ) : (
+            <Form spacing="none" action={action} method="post">
+              <Stack gap={3}>
+                <HiddenInput type="hidden" name="accountId" value={membership.accountId} readOnly />
+                <Stack gap={1}>
+                  <Heading level={2} visualSize={6}>
+                    {membership.accountName}
+                  </Heading>
+                  <Text tone="secondary">
+                    {t("auth.features.accountSelection.ui.accountSelectionPage.role", {
+                      roleLabel: membership.roleLabel,
+                    })}
+                  </Text>
+                </Stack>
+                <Button type="submit">{submitLabel}</Button>
+              </Stack>
+            </Form>
+          )}
         </Card>
       ))}
     </Stack>

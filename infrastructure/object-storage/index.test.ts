@@ -1,7 +1,13 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { DeleteObjectsCommand, GetObjectCommand, NoSuchKey, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  NoSuchKey,
+  S3Client,
+  type DeleteObjectsCommandOutput,
+} from "@aws-sdk/client-s3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createFilesystemObjectFileStorage,
@@ -204,10 +210,12 @@ describe("createS3PrivateObjectStoreFromOptions", () => {
   });
 
   it("builds its own client from the shared connection options when none is injected", async () => {
-    const send = vi.spyOn(S3Client.prototype, "send").mockImplementation(async () => ({
+    const promiseSend: { send(command: DeleteObjectsCommand): Promise<DeleteObjectsCommandOutput> } =
+      S3Client.prototype;
+    const send = vi.spyOn(promiseSend, "send").mockResolvedValue({
       $metadata: { httpStatusCode: 200 },
       Deleted: [{ Key: "support-evidence/a.png" }],
-    }));
+    });
     try {
       await createS3PrivateObjectStoreFromOptions(options).deleteKeys(["support-evidence/a.png"]);
       expect(send).toHaveBeenCalledTimes(1);

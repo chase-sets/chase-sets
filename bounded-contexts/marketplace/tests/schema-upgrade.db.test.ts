@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { bootstrapContextDatabase, createSubscriptionRunner } from "@chase-sets/bounded-context-runtime";
+import { buildEventSubscriptionsFromManifest } from "@chase-sets/bounded-context-module";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -29,6 +30,10 @@ import { managedFixture } from "../features/offers/tests/managed-fixture";
 import { buildManagedOfferProjectionHandlers } from "../features/offers/read-model/managed-projection";
 import { buildMarketplaceOfferProjectionHandlers } from "../features/offers/read-model/projection";
 import { getOfferMatch, listOfferMatches } from "../features/offers/read-model/queries";
+import { createMarketplaceListingRuntime } from "../features/listings/api/runtime";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import marketplaceManifest from "../context.json" with { type: "json" };
+import type { CreateListingCommand } from "../features/listings/domain/domain";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -66,6 +71,296 @@ describeDb("marketplace schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("ledgers fresh and amount-only supply upgrades without inventing acquisition currency", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    expect(await readColumnNames(pool, "marketplace_supply_items")).toContain("acquisition_cost_currency_code");
+    const migrationId = "20261028_marketplace_supply_acquisition_cost_currency";
+    expect(
+      (
+        await pool.query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+          migrationId,
+        ])
+      ).rows,
+    ).toEqual([{ migration_id: migrationId }]);
+    await pool.query(`ALTER TABLE marketplace_supply_items DROP COLUMN acquisition_cost_currency_code;
+      INSERT INTO marketplace_supply_items (item_id, account_id, catalog_catalog_item_id, product_id, storage_location_id, total_quantity, acquisition_cost_amount)
+      VALUES ('inv_amount_only', 'acc_legacy', 'cat_legacy', 'cat_legacy::', 'loc_legacy', 2, 5.25)`);
+    await pool.query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = $1", [migrationId]);
+    // Execute the registered migration independently: boot SQL must not mask a missing ledger statement.
+    const migration = marketplaceModule.schemaMigrations?.find((entry) => entry.migrationId === migrationId);
+    expect(migration).toBeDefined();
+    for (const statement of migration!.statements ?? []) await pool.query(statement);
+    expect(
+      (
+        await pool.query(
+          "SELECT acquisition_cost_amount::text, acquisition_cost_currency_code FROM marketplace_supply_items WHERE item_id = 'inv_amount_only'",
+        )
+      ).rows,
+    ).toEqual([{ acquisition_cost_amount: "5.25", acquisition_cost_currency_code: null }]);
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    expect(
+      (
+        await pool.query(
+          "SELECT acquisition_cost_amount::text, acquisition_cost_currency_code FROM marketplace_supply_items WHERE item_id = 'inv_amount_only'",
+        )
+      ).rows,
+    ).toEqual([{ acquisition_cost_amount: "5.25", acquisition_cost_currency_code: null }]);
+    expect(
+      (
+        await pool.query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+          migrationId,
+        ])
+      ).rows,
+    ).toEqual([{ migration_id: migrationId }]);
+  });
+
+  it("upgrades native fee constraints and projects real channel-only creation, photos and withdrawal without poison", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    await pool.query(`ALTER TABLE marketplace_listing_pages
+      ALTER COLUMN marketplace_sales_fee_unit_amount SET NOT NULL,
+      ALTER COLUMN seller_net_unit_amount SET NOT NULL,
+      ALTER COLUMN fee_quote_fingerprint SET NOT NULL;
+      DELETE FROM bounded_context_schema_migrations
+      WHERE migration_id = '20261023_marketplace_listing_channel_only_nullable_fees'`);
+    const store = createPostgresEventStore({ pool });
+    const runtime = createMarketplaceListingRuntime({
+      db: pool,
+      eventStore: store,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+      commercialTermsResolver: {} as never,
+    });
+    const create: CreateListingCommand = {
+      type: "CreateListing",
+      publicationScope: "channel-only",
+      listingId: "lst_channel_reader" as never,
+      accountId: "acc_seller" as never,
+      inventoryItemId: "inv_card",
+      catalogItemId: "cat_card",
+      productId: "cat_card::" as never,
+      itemTitle: "Card",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      storageLocationName: null,
+      shipFromCode: "US",
+      shipFromAddress: {
+        name: "Seller",
+        company: null,
+        line1: "1 Main",
+        line2: null,
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        country: "US",
+        phone: null,
+        email: null,
+      },
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      feeLock: null,
+      quantityCap: 1,
+      evidenceRequirements: null,
+    };
+    const streamId = `marketplace.listing-${create.listingId}`;
+    await runtime.commandHandler({ streamId, command: create, context });
+    const handlers = buildMarketplaceListingProjectionHandlers(pool);
+    const [created] = await store.readStream({ streamId });
+    await expect(handlers["marketplace.listing.created"]!(toTransportEvent(created!))).rejects.toMatchObject({
+      code: "23502",
+    });
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const [subscription] = buildEventSubscriptionsFromManifest({
+      contextName: "marketplace",
+      manifest: marketplaceManifest,
+      handlers: { "marketplace.marketplace-listing-projection": () => handlers },
+    });
+    const runner = createSubscriptionRunner("marketplace", pool, pool, subscription!);
+    const project = async () => {
+      while ((await runner.runOnce()).processed > 0) {
+        /* Drain the registered subscription. */
+      }
+      expect(await runner.refreshStatus()).toMatchObject({
+        blockedStreamCount: 0,
+        poisonEventCount: 0,
+        lastError: null,
+      });
+    };
+    const read = async (listingId: string) =>
+      (
+        await pool.query(
+          `SELECT status, marketplace_sales_fee_unit_amount::text, seller_net_unit_amount::text,
+       fee_quote_fingerprint, terms_schedule_id, terms_agreement_id, terms_resolved_at,
+       fee_locks, shipping_allowance_percentage_bps, evidence FROM marketplace_listing_pages WHERE listing_id = $1`,
+          [listingId],
+        )
+      ).rows[0];
+    await project();
+    const absentFees = {
+      marketplace_sales_fee_unit_amount: null,
+      seller_net_unit_amount: null,
+      fee_quote_fingerprint: null,
+      terms_schedule_id: null,
+      terms_agreement_id: null,
+      terms_resolved_at: null,
+      fee_locks: [],
+      shipping_allowance_percentage_bps: 0,
+    };
+    expect(await read(create.listingId)).toMatchObject({ ...absentFees, status: "draft", evidence: [] });
+    const asset = {
+      role: "source" as const,
+      width: 1200,
+      height: 1600,
+      density: null,
+      mediaType: "image/webp" as const,
+      storageKey: "photos/reader",
+      publicUrl: "https://example.test/reader.webp",
+      byteSize: 100,
+      generatedAt: "2026-10-23T00:00:00.000Z",
+    };
+    await runtime.commandHandler({
+      streamId,
+      context,
+      command: {
+        type: "AddListingPhotos",
+        photos: [
+          {
+            photoId: "lpho_reader",
+            sortOrder: 0,
+            uploadedAt: asset.generatedAt,
+            assetSet: { kind: "listing-photo", sourceHash: "0123456789abcdef", source: asset, variants: [] },
+          },
+        ],
+      },
+    });
+    await project();
+    expect(await read(create.listingId)).toMatchObject({
+      ...absentFees,
+      status: "draft",
+      evidence: [{ photoId: "lpho_reader" }],
+    });
+    await runtime.commandHandler({ streamId, context, command: { type: "WithdrawListing" } });
+    await project();
+    expect(await read(create.listingId)).toMatchObject({
+      ...absentFees,
+      status: "withdrawn",
+      evidence: [{ photoId: "lpho_reader" }],
+    });
+    const native = {
+      ...create,
+      listingId: "lst_native_reader" as never,
+      publicationScope: "native" as const,
+      feeLock: {
+        unitCount: 1,
+        terms: {
+          marketplaceSalesFeePercentageBps: 500,
+          marketplaceSalesFeeFixedAmount: "0.00",
+          marketplaceSalesFeeCapAmount: null,
+          shippingAllowancePercentageBps: 500,
+          termsScheduleId: "cts_native",
+          termsAgreementId: null,
+          termsResolvedAt: "2026-10-23T00:00:00.000Z",
+        },
+        marketplaceSalesFeeUnitAmount: "0.50",
+        sellerNetUnitAmount: "9.50",
+        feeQuoteFingerprint: "native-reader",
+      },
+      evidenceRequirements: {
+        policyId: null,
+        policyVersion: null,
+        policyHash: "sha256:policy",
+        evaluatedAt: "2026-10-23T00:00:00.000Z",
+        requirementHash: "sha256:requirements",
+        matchedRuleIds: [],
+        explanationCodes: [],
+        requirements: {
+          minimumPhotoCount: 0,
+          requiredSlots: [],
+          sellerTrustRequirements: [],
+          buyerAcknowledgment: "none" as const,
+        },
+      },
+    } satisfies CreateListingCommand;
+    await runtime.commandHandler({ streamId: `marketplace.listing-${native.listingId}`, command: native, context });
+    await project();
+    expect(await read(native.listingId)).toMatchObject({
+      status: "draft",
+      marketplace_sales_fee_unit_amount: "0.50",
+      seller_net_unit_amount: "9.50",
+      fee_quote_fingerprint: "native-reader",
+      terms_schedule_id: "cts_native",
+      fee_locks: [native.feeLock],
+      shipping_allowance_percentage_bps: 500,
+    });
+    expect((await pool.query("SELECT * FROM event_projection_poison_events")).rows).toEqual([]);
+    expect((await pool.query("SELECT * FROM event_projection_blocked_streams")).rows).toEqual([]);
+  });
+
+  it.each(["amount-only", "price-pair"] as const)(
+    "replays prior-schema %s Listing creation as native without rewriting stored payloads",
+    async (schema) => {
+      const pool = pools.marketplace;
+      await bootstrapContextDatabase(marketplaceModule, pool);
+      const store = createPostgresEventStore({ pool });
+      const payload = {
+        listingId: "lst_prior_schema",
+        accountId: "acc_seller",
+        inventoryItemId: "inv_card",
+        catalogItemId: "cat_card",
+        productId: "cat_card::",
+        itemLanguageCode: "en",
+        itemTitle: "Card",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        productMeasureSnapshot: null,
+        gradedCard: null,
+        storageLocationName: null,
+        shipFromCode: "US",
+        shipFromAddress: null,
+        priceAmount: "10.00",
+        ...(schema === "price-pair" ? { priceCurrencyCode: "USD" } : {}),
+        marketplaceSalesFeeUnitAmount: "0.50",
+        sellerNetUnitAmount: "9.50",
+        shippingAllowancePercentageBps: 500,
+        termsScheduleId: "cts_native",
+        termsAgreementId: null,
+        termsResolvedAt: "2026-01-01T00:00:00.000Z",
+        feeQuoteFingerprint: "prior-schema-native",
+        feeLocks: [],
+        quantityCap: 1,
+        purchaseLimits: { maxUnitsPerOrder: null, maxUnitsPerDay: null, maxUnitsPerCustomerAccount: null },
+        evidenceRequirements: null,
+        evidence: [],
+      };
+      const streamId = "marketplace.listing-lst_prior_schema";
+      await store.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        context,
+        events: [{ eventType: "marketplace.listing.created", payload }],
+      });
+      const runtime = createMarketplaceListingRuntime({
+        db: pool,
+        eventStore: store,
+        checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+        commercialTermsResolver: {} as never,
+      });
+      expect(await runtime.loadListingState("lst_prior_schema")).toMatchObject({
+        publicationScope: "native",
+        nativeVisibility: "enabled",
+        nativeFeeState: "enrolled",
+        status: "draft",
+        priceAmount: "10.00",
+        priceCurrencyCode: schema === "price-pair" ? "USD" : null,
+        feeQuoteFingerprint: "prior-schema-native",
+      });
+      expect((await store.readStream({ streamId }))[0]?.payload).toEqual(payload);
+    },
+  );
 
   it("keeps fixed demand actionable and managed Match queries closed across target, held, pause, projection lag and stop", async () => {
     const pool = pools.marketplace;
@@ -110,7 +405,13 @@ describeDb("marketplace schema upgrades", () => {
     });
     expect(await getOfferMatch(pool, "off_one", "acc_one")).toMatchObject({ can_fulfill: true, managed_status: null });
     amount = "12.00";
-    await expect(f.offers.acceptOffer(await f.acceptance(), context)).rejects.toMatchObject({
+    const acceptance = await f.acceptance();
+    await expect(
+      f.offers.acceptOffer(acceptance, {
+        ...context,
+        audit: { ...context.audit, forAccountId: acceptance.sellerAccountId },
+      }),
+    ).rejects.toMatchObject({
       code: "managed_offer_refresh_required",
     });
     held = true;
@@ -122,7 +423,12 @@ describeDb("marketplace schema upgrades", () => {
     });
     const paused = await f.policies.execute(
       "bop_one",
-      { type: "PauseBuyerOfferPolicy", expectedVersion: 3, operationId: "pause" },
+      {
+        attemptId: String("pause").padEnd(22, "_"),
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: 3,
+        operationId: "pause",
+      },
       context,
     );
     expect(await getOfferMatch(pool, "off_one", "acc_one")).toMatchObject({
@@ -136,7 +442,12 @@ describeDb("marketplace schema upgrades", () => {
     });
     await f.policies.execute(
       "bop_one",
-      { type: "StopBuyerOfferPolicy", expectedVersion: paused.version, operationId: "stop" },
+      {
+        attemptId: String("stop").padEnd(22, "_"),
+        type: "StopBuyerOfferPolicy",
+        expectedVersion: paused.version,
+        operationId: "stop",
+      },
       context,
     );
     await project();
@@ -164,7 +475,9 @@ describeDb("marketplace schema upgrades", () => {
       END $$;
       CREATE TRIGGER reject_managed_acceptance BEFORE INSERT ON event_store_events
       FOR EACH ROW EXECUTE FUNCTION reject_managed_acceptance();`);
-    await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({
+    await expect(
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+    ).rejects.toMatchObject({
       code: "infrastructure_failure",
       details: { cause: "injected Offer append failure" },
     });
@@ -173,7 +486,10 @@ describeDb("marketplace schema upgrades", () => {
     await pool.query(
       "DROP TRIGGER reject_managed_acceptance ON event_store_events; DROP FUNCTION reject_managed_acceptance();",
     );
-    const results = await Promise.all([f.offers.acceptOffer(params, context), f.offers.acceptOffer(params, context)]);
+    const results = await Promise.all([
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+    ]);
     expect(results[0]).toEqual(results[1]);
     const events = await store.readAll();
     expect(events.slice(before.length).map((event) => event.eventType)).toEqual([
@@ -181,6 +497,7 @@ describeDb("marketplace schema upgrades", () => {
       "marketplace.listing.evidence-requirements-refreshed",
       "marketplace.listing.offer-commitment-recorded",
       "marketplace.seller-listing-availability.commitment-checked",
+      "marketplace.mutation-attempt.completed",
     ]);
     const project = buildBuyerOfferPolicyProjectionHandlers(pool);
     for (const event of events) if (project[event.eventType]) await project[event.eventType]!(toTransportEvent(event));
@@ -211,7 +528,11 @@ describeDb("marketplace schema upgrades", () => {
       },
     });
     const params = await Promise.all([f.acceptance("one"), f.acceptance("two")]);
-    const result = await Promise.allSettled(params.map((p) => f.offers.acceptOffer(p, context)));
+    const result = await Promise.allSettled(
+      params.map((p) =>
+        f.offers.acceptOffer(p, { ...context, audit: { ...context.audit, forAccountId: p.sellerAccountId } }),
+      ),
+    );
     expect(arrivals).toBe(2);
     expect(result.filter((r) => r.status === "fulfilled")).toHaveLength(2);
     const events = await f.store.readAll();
@@ -306,16 +627,24 @@ describeDb("marketplace schema upgrades", () => {
       pause = () =>
         f.policies.execute(
           "bop_one",
-          { type: "PauseBuyerOfferPolicy", expectedVersion: 4, operationId: "racing_pause" },
+          {
+            attemptId: String("racing_pause").padEnd(22, "_"),
+            type: "PauseBuyerOfferPolicy",
+            expectedVersion: 4,
+            operationId: "racing_pause",
+          },
           context,
         );
+      const sellerContext = { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } };
       if (racePause) {
         pauseAtAppend = true;
-        await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({ code: "managed_offer_conflict" });
+        await expect(f.offers.acceptOffer(params, sellerContext)).rejects.toMatchObject({
+          code: "managed_offer_conflict",
+        });
         expect((await store.readAll()).filter((event) => event.eventType === "marketplace.offer.accepted")).toEqual([]);
         expect((await f.policies.get("bop_one", "acc_buyer")).status).toBe("paused");
       } else {
-        await f.offers.acceptOffer(params, context);
+        await f.offers.acceptOffer(params, sellerContext);
         expect((await store.readStream({ streamId: "marketplace.offer-off_one" })).at(-1)).toMatchObject({
           eventType: "marketplace.offer.accepted",
           payload: { priceAmount: "5.00" },
@@ -522,13 +851,19 @@ describeDb("marketplace schema upgrades", () => {
     for (const policyId of ["bop_one", "bop_two"]) {
       await runtime.execute(
         policyId,
-        { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+        {
+          attemptId: String("create").padEnd(22, "_"),
+          type: "CreateBuyerOfferPolicy",
+          expectedVersion: 0,
+          operationId: "create",
+        },
         context,
       );
       previews.push(
         await runtime.execute(
           policyId,
           {
+            attemptId: String("preview").padEnd(22, "_"),
             type: "PreviewBuyerOfferPolicy",
             expectedVersion: 1,
             operationId: "preview",
@@ -543,6 +878,7 @@ describeDb("marketplace schema upgrades", () => {
         runtime.execute(
           p.policyId!,
           {
+            attemptId: String("authorize").padEnd(22, "_"),
             type: "AuthorizeBuyerOfferPolicy",
             expectedVersion: p.version,
             operationId: "authorize",
@@ -599,6 +935,7 @@ describeDb("marketplace schema upgrades", () => {
     await runtime.execute(
       "bop_one",
       {
+        attemptId: String("stop").padEnd(22, "_"),
         type: "StopBuyerOfferPolicy",
         expectedVersion: 3,
         operationId: "stop",

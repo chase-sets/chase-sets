@@ -606,7 +606,7 @@ function SourceObservationEvidenceSheet({ row }: { row: SourceObservationReviewR
   // it to a single request and lets the operator reopen without a redundant fetch.
   useEffect(() => {
     if (open && fetcher.state === "idle" && !fetcher.data) {
-      fetcher.load(observationEvidenceHref(row.observationId));
+      void fetcher.load(observationEvidenceHref(row.observationId));
     }
   }, [open, fetcher, row.observationId]);
 

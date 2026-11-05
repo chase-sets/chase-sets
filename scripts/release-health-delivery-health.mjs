@@ -7,6 +7,22 @@ import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import { classifyPrScope } from "./lib/pr-scope-policy-v1.mjs";
 import { parseCircuitMarker, thresholdForObservations } from "./release-health-merge-group-failure-signatures.mjs";
+import {
+  evaluateMergeQualificationPolicy,
+  inventoryMergeQualificationAttempts,
+  inventoryMergeQualificationProducerAttempts,
+  listMergeQualificationAdvisoryRuns,
+  readMergeQualificationProducerImageEligibility,
+  readMergeQualificationProducerTerminalRecords,
+  readMergeQualificationRunCollection,
+  readMergeQualificationTerminalRecords,
+  readHistoricalProducerPolicy,
+  resolveMergeQualificationTerminalReplay,
+  validateMergeQualificationDecision,
+  validateMergeQualificationCandidate,
+  validateMergeQualificationEvent,
+  validateMergeQualificationProducerTerminal,
+} from "./merge-qualification.mjs";
 
 export const DELIVERY_HEALTH_VERSION = "delivery-health/v1";
 export const DELIVERY_HEALTH_POLICY_PATH = new URL("./release-health-delivery-health-policy.json", import.meta.url);
@@ -72,6 +88,7 @@ const EPHEMERAL_FAILURE_PHASES = new Set([
 const EPHEMERAL_WORKLOADS = new Set(["representative-commerce-state", "platform-smoke", "stripe-money-smoke"]);
 const EPHEMERAL_ARCHIVE_MAX_BYTES = 256 * 1024 * 1024;
 const EPHEMERAL_RECORD_MAX_BYTES = 256 * 1024;
+const QUALIFICATION_RECORD_MAX_BYTES = 64 * 1024;
 
 export function parseDeliveryHealthArgs(argv, env = process.env) {
   return {
@@ -142,6 +159,7 @@ export async function collectDeliveryHealth(options, dependencies = {}) {
 
 async function collectSourceData({ options, policy, client, queryStart }) {
   const workflows = policy.collection.workflowSources;
+  const window = { start: queryStart, end: options.checkedAt, limit: policy.windows.lastN };
   const sourceFailures = [];
   const safely = async (source, collect) => {
     try {
@@ -153,31 +171,19 @@ async function collectSourceData({ options, policy, client, queryStart }) {
   };
   const [pulls, platformPrRuns, dispatchRuns, deployRuns, ephemeralRuns, circuitIssues] = await Promise.all([
     safely("pull-requests", () =>
-      fetchPullRequests(client, options.repository, queryStart, policy.collection.maxPages),
+      fetchPullRequests(client, options.repository, window, policy.collection.maxPages, policy.collection.concurrency),
     ),
     safely("platform-pr-runs", () =>
-      fetchWorkflowRuns(client, workflows.platformPr, queryStart, policy.collection.maxPages, policy.windows.lastN),
+      fetchWorkflowRuns(client, workflows.platformPr, window, policy.collection.maxPages),
     ),
     safely("release-dispatch-runs", () =>
-      fetchWorkflowRuns(
-        client,
-        workflows.releaseDispatch,
-        queryStart,
-        policy.collection.maxPages,
-        policy.windows.lastN,
-      ),
+      fetchWorkflowRuns(client, workflows.releaseDispatch, window, policy.collection.maxPages),
     ),
     safely("platform-deploy-runs", () =>
-      fetchWorkflowRuns(client, workflows.platformDeploy, queryStart, policy.collection.maxPages, policy.windows.lastN),
+      fetchWorkflowRuns(client, workflows.platformDeploy, window, policy.collection.maxPages),
     ),
     safely("ephemeral-verification-runs", () =>
-      fetchWorkflowRuns(
-        client,
-        workflows.ephemeralVerification,
-        queryStart,
-        policy.collection.maxPages,
-        policy.windows.lastN,
-      ),
+      fetchWorkflowRuns(client, workflows.ephemeralVerification, window, policy.collection.maxPages),
     ),
     safely("delivery-failure-signatures", () =>
       fetchCircuitIssues(client, options.repository, policy.collection.maxPages),
@@ -271,6 +277,8 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     }
   });
 
+  const qualification = await collectQualificationEvidence({ options, client });
+
   return {
     pulls,
     platformPrRuns: platformPrRuns.map((run) => ({ ...run, jobs: jobsByRun.get(String(run.id)) ?? [] })),
@@ -290,8 +298,310 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     circuits: circuitIssues.map((issue) => normalizeCircuitIssue(issue)).filter(Boolean),
     artifactFailures,
     sourceFailures,
+    qualification,
     apiStatus: client.status(),
   };
+}
+
+async function collectQualificationEvidence({ options, client }) {
+  const evidence = emptyQualificationEvidence();
+  const repository = options.repository;
+  const now = () => new Date(options.checkedAt);
+  const requestJson = (endpoint) => {
+    const prefix = `repos/${repository}`;
+    if (!endpoint.startsWith(`${prefix}/`)) throw new Error("qualification_endpoint_invalid");
+    return client.json(endpoint.slice(prefix.length), { advisory: true });
+  };
+  const policies = new Map();
+  const readPolicyContent = async (revision) => {
+    if (!policies.has(revision)) {
+      policies.set(
+        revision,
+        (async () => {
+          const payload = await client.json(`/contents/scripts/merge-qualification-policy.json?ref=${revision}`, {
+            advisory: true,
+          });
+          if (payload?.encoding !== "base64" || typeof payload.content !== "string" || payload.content.length > 100_000)
+            throw new Error("qualification_policy_unavailable");
+          return Buffer.from(payload.content, "base64").toString("utf8");
+        })(),
+      );
+    }
+    return policies.get(revision);
+  };
+  try {
+    let currentContent;
+    try {
+      currentContent = await readPolicyContent("main");
+    } catch (error) {
+      if (error.message === "github-not-found") return evidence;
+      throw error;
+    }
+    const currentPolicy = evaluateMergeQualificationPolicy(currentContent, { now });
+    if (!currentPolicy.enabled) return evidence;
+    evidence.status = "complete";
+    const listing = await listMergeQualificationAdvisoryRuns({ repository, requestJson, now });
+    if (listing.errors.length) throw new Error(listing.errors[0]);
+    const latest = new Map();
+    for (const run of listing.runs) {
+      const id = decimalIdentity(run?.id);
+      const attempt = decimalIdentity(run?.run_attempt);
+      if (!id || !attempt) throw new Error("qualification_identity_invalid");
+      if (!latest.has(id) || BigInt(attempt) > BigInt(latest.get(id).run_attempt)) latest.set(id, run);
+    }
+    const inventory = await inventoryMergeQualificationAttempts({
+      repository,
+      requestJson,
+      now,
+      advisoryRuns: listing.runs,
+      readPolicyContent,
+    });
+    if (inventory.errors.length) {
+      evidence.attempts = [...latest.values()].map((run) => ({
+        ...qualificationAttempt(run.id, run.run_attempt, run.conclusion),
+        status: "invalid",
+      }));
+      throw new Error(inventory.errors[0]);
+    }
+    const collections = new Map();
+    const artifactsFor = (runId) => {
+      if (!collections.has(runId))
+        collections.set(
+          runId,
+          readMergeQualificationRunCollection({
+            repository,
+            runId: String(runId),
+            runAttempt: "1",
+            collection: "artifacts",
+            requestJson,
+          }),
+        );
+      return collections.get(runId);
+    };
+    const downloadArtifact = async ({ runId, name, fileName = "event.json" }) => {
+      const listing = await artifactsFor(runId);
+      const matches = listing.artifacts.filter((artifact) => artifact.name === name && artifact.expired === false);
+      if (matches.length !== 1) throw new Error("qualification_artifact_ambiguous");
+      const artifact = matches[0];
+      if (
+        !Number.isSafeInteger(artifact.size_in_bytes) ||
+        artifact.size_in_bytes < 1 ||
+        artifact.size_in_bytes > EPHEMERAL_ARCHIVE_MAX_BYTES
+      )
+        throw new Error("qualification_archive_size_invalid");
+      const response = await client.request(`/actions/artifacts/${artifact.id}/zip`, { advisory: true });
+      const bytes = await readBoundedQualificationArchive(response);
+      return readQualificationArchive(bytes, fileName);
+    };
+    for (const run of latest.values()) {
+      if (run.event !== "workflow_dispatch") continue;
+      if (
+        run.status === "completed" &&
+        !inventory.attempts.some(
+          (attempt) => attempt.run_id === String(run.id) && attempt.run_attempt === String(run.run_attempt),
+        )
+      )
+        continue;
+      const enabled = evaluateMergeQualificationPolicy(await readPolicyContent(run.head_sha), {
+        now: () => new Date(run.run_started_at),
+      }).enabled;
+      if (!enabled) continue;
+      const attempt = qualificationAttempt(run.id, run.run_attempt, run.conclusion);
+      evidence.attempts.push(attempt);
+      try {
+        const text = await downloadArtifact({
+          runId: attempt.runId,
+          name: `merge-qualification-decision-${attempt.runId}-${attempt.runAttempt}`,
+          fileName: "decision.json",
+        });
+        const decision = JSON.parse(text);
+        if (
+          validateMergeQualificationDecision(decision).length ||
+          decision.repository !== repository ||
+          decision.runId !== attempt.runId ||
+          decision.runAttempt !== attempt.runAttempt ||
+          decision.workflowId !== String(run.workflow_id) ||
+          decision.workflowPath !== run.path ||
+          decision.policyRevision !== run.head_sha ||
+          decision.observedAt !== run.run_started_at ||
+          run.display_title !== `Merge Qualification producer ${decision.parentRunId}-${decision.parentRunAttempt}` ||
+          decision.policyEnabled !== true
+        )
+          throw new Error("qualification_decision_invalid");
+        attempt.classifierClass = decision.classifierClass;
+        attempt.eligible = decision.classifierClass === "isolated" ? true : null;
+        if (["not_applicable", "persistent_required"].includes(decision.classifierClass)) {
+          attempt.status = "not-required";
+          attempt.eligible = false;
+          continue;
+        }
+        const parent = await requestJson(
+          `repos/${repository}/actions/runs/${decision.parentRunId}/attempts/${decision.parentRunAttempt}`,
+        );
+        if (
+          parent?.repository?.full_name !== repository ||
+          parent.path !== decision.parentWorkflowPath ||
+          parent.event !== "merge_group" ||
+          String(parent.id) !== decision.parentRunId ||
+          String(parent.run_attempt) !== decision.parentRunAttempt ||
+          String(parent.workflow_id) !== decision.parentWorkflowId
+        )
+          throw new Error("qualification_parent_invalid");
+        if (decision.candidateSha !== null) {
+          const candidate = JSON.parse(
+            await downloadArtifact({
+              runId: decision.parentRunId,
+              name: `merge-qualification-candidate-${decision.parentRunId}-${decision.parentRunAttempt}`,
+              fileName: "candidate.json",
+            }),
+          );
+          if (
+            validateMergeQualificationCandidate(candidate).length ||
+            candidate.repository !== repository ||
+            candidate.workflowId !== decision.parentWorkflowId ||
+            candidate.workflowPath !== decision.parentWorkflowPath ||
+            candidate.runId !== decision.parentRunId ||
+            candidate.runAttempt !== decision.parentRunAttempt ||
+            candidate.candidateSha !== parent.head_sha ||
+            candidate.candidateSha !== decision.candidateSha ||
+            candidate.candidateTreeSha !== decision.candidateTreeSha ||
+            candidate.builtImageDigest !== decision.builtImageDigest
+          )
+            throw new Error("qualification_candidate_invalid");
+        }
+        const terminal = await readMergeQualificationTerminalRecords({
+          decision,
+          defaultBranch: "main",
+          requestJson,
+          downloadArtifact,
+        });
+        if (terminal.errors.length) throw new Error(terminal.errors[0]);
+        const replay = resolveMergeQualificationTerminalReplay({ decision, records: terminal.records });
+        if (replay.errors.length) throw new Error(replay.errors[0]);
+        if (replay.event) {
+          attempt.status = "terminal";
+          attempt.terminalState = replay.event.terminalState;
+          attempt.identityAvailable = replay.event.identityAvailable;
+          evidence.events.push(replay.event);
+        }
+      } catch {
+        attempt.status = "invalid";
+      }
+      if (attempt.status !== "terminal")
+        evidence.reasons.push(`qualification:${attempt.runId}/${attempt.runAttempt}:${attempt.status}`);
+    }
+    let policyHistory;
+    const producers = await inventoryMergeQualificationProducerAttempts({
+      repository,
+      requestJson,
+      now,
+      advisoryRuns: listing.runs,
+      readHistoricalPolicyContent: ({ run }) =>
+        readHistoricalProducerPolicy({
+          run,
+          repository,
+          readPolicy: readPolicyContent,
+          readHistory: async () => {
+            if (!policyHistory)
+              policyHistory = client.paginate(
+                "/commits?sha=main&path=scripts%2Fmerge-qualification-policy.json&per_page=100",
+                (payload) => payload,
+                { identity: (commit) => commit.sha },
+              );
+            return (await policyHistory).map((commit) => `${commit.sha}\t${commit.commit?.committer?.date}`).join("\n");
+          },
+          readLandingEvidence: ({ revision }) => client.paginate(`/commits/${revision}/pulls?per_page=100`),
+        }),
+      readProducerImageEligibility: ({ run }) =>
+        readMergeQualificationProducerImageEligibility({ repository, run, requestJson }),
+    });
+    if (producers.errors.length) throw new Error(producers.errors[0]);
+    for (const producer of producers.attempts) {
+      const attempt = {
+        ...qualificationAttempt(producer.run_id, producer.run_attempt, producer.conclusion),
+        kind: "producer",
+      };
+      evidence.attempts.push(attempt);
+      if (producer.historicalPolicyState !== "enabled") {
+        evidence.reasons.push(`qualification:${attempt.runId}/${attempt.runAttempt}:policy-unknown`);
+        continue;
+      }
+      attempt.eligible = true;
+      const run = await requestJson(`repos/${repository}/actions/runs/${attempt.runId}/attempts/${attempt.runAttempt}`);
+      const advisoryRun = producer.advisoryRunId
+        ? await requestJson(
+            `repos/${repository}/actions/runs/${producer.advisoryRunId}/attempts/${producer.advisoryRunAttempt}`,
+          )
+        : null;
+      if (
+        advisoryRun &&
+        (String(advisoryRun.id) !== producer.advisoryRunId ||
+          String(advisoryRun.run_attempt) !== producer.advisoryRunAttempt ||
+          advisoryRun.display_title !== `Merge Qualification producer ${attempt.runId}-${attempt.runAttempt}`)
+      )
+        throw new Error("qualification_advisory_binding_invalid");
+      const terminal = await readMergeQualificationProducerTerminalRecords({
+        repository,
+        producer: run,
+        advisoryRun,
+        defaultBranch: "main",
+        requestJson,
+        downloadArtifact,
+      });
+      if (!terminal.errors.length && terminal.records?.length && terminal.state === "dispatch_loss") {
+        attempt.status = "terminal";
+        attempt.terminalState = "infrastructure_error";
+        attempt.identityAvailable = false;
+        evidence.producerEvents.push(...terminal.records.map((record) => JSON.parse(record)));
+      } else {
+        if (advisoryRun || terminal.state.includes("conflict")) attempt.status = "conflict";
+        evidence.reasons.push(`qualification:${attempt.runId}/${attempt.runAttempt}:${terminal.state}`);
+      }
+    }
+  } catch {
+    evidence.reasons.push("qualification:authority-unavailable");
+  }
+  if (evidence.reasons.length) evidence.status = "partial";
+  return evidence;
+}
+
+export async function readBoundedQualificationArchive(response) {
+  const length = response.headers?.get?.("content-length");
+  if (
+    length !== null &&
+    length !== undefined &&
+    (!/^\d+$/.test(length) || Number(length) > EPHEMERAL_ARCHIVE_MAX_BYTES)
+  )
+    throw new Error("qualification_archive_size_invalid");
+  if (!response.body?.getReader) throw new Error("qualification_archive_stream_unavailable");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > EPHEMERAL_ARCHIVE_MAX_BYTES) throw new Error("qualification_archive_size_invalid");
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    await reader.cancel();
+    reader.releaseLock();
+  }
+  if (size === 0) throw new Error("qualification_archive_size_invalid");
+  return Buffer.concat(chunks, size);
+}
+
+export function readQualificationArchive(bytes, fileName = "event.json") {
+  if (!["event.json", "decision.json", "candidate.json", "cleanup-complete.json"].includes(fileName))
+    throw new Error("qualification_payload_path_invalid");
+  const entries = unzipJsonEntries(bytes, {
+    include: (entry) => entry === fileName,
+    maxEntryBytes: QUALIFICATION_RECORD_MAX_BYTES,
+  });
+  if (entries.size !== 1) throw new Error("qualification_payload_missing");
+  return entries.get(fileName).toString("utf8");
 }
 
 export function buildDeliveryHealth(input) {
@@ -329,6 +639,7 @@ export function buildDeliveryHealth(input) {
       },
     },
     completeness,
+    qualification: normalized.qualification,
     policy: {
       schemaVersion: input.policy.schemaVersion,
       windows: input.policy.windows,
@@ -407,11 +718,148 @@ function normalizeSource(source = {}) {
     circuits: Array.isArray(source.circuits) ? source.circuits : [],
     artifactFailures: Array.isArray(source.artifactFailures) ? source.artifactFailures : [],
     sourceFailures: Array.isArray(source.sourceFailures) ? source.sourceFailures : [],
+    qualification: normalizeQualificationEvidence(source.qualification),
     collection: {
       ephemeralArtifacts: source.collection?.ephemeralArtifacts === true,
       firstAttemptCollectionComplete: source.collection?.firstAttemptCollectionComplete === true,
     },
   };
+}
+
+function decimalIdentity(value) {
+  if (typeof value !== "string" && !Number.isSafeInteger(value)) return null;
+  return /^[1-9][0-9]{0,63}$/.test(String(value)) ? String(value) : null;
+}
+
+function qualificationConclusion(value) {
+  return [
+    "success",
+    "failure",
+    "neutral",
+    "cancelled",
+    "skipped",
+    "timed_out",
+    "action_required",
+    "stale",
+    "startup_failure",
+  ].includes(value)
+    ? value
+    : "unknown";
+}
+
+function qualificationAttempt(runId, runAttempt, conclusion) {
+  return {
+    runId: String(runId),
+    runAttempt: String(runAttempt),
+    conclusion: qualificationConclusion(conclusion),
+    status: "missing",
+    terminalState: null,
+    classifierClass: null,
+    eligible: null,
+    identityAvailable: null,
+  };
+}
+
+function emptyQualificationEvidence() {
+  return {
+    schemaVersion: "delivery-health-qualification/v1",
+    status: "disabled",
+    attempts: [],
+    events: [],
+    producerEvents: [],
+    reasons: [],
+  };
+}
+
+function normalizeQualificationEvidence(value) {
+  if (value === undefined) return emptyQualificationEvidence();
+  const invalid = () => ({
+    ...emptyQualificationEvidence(),
+    status: "partial",
+    reasons: ["qualification:record-invalid"],
+  });
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    value.schemaVersion !== "delivery-health-qualification/v1" ||
+    Object.keys(value).sort().join(",") !== "attempts,events,producerEvents,reasons,schemaVersion,status" ||
+    !["disabled", "complete", "partial"].includes(value.status) ||
+    ["attempts", "events", "producerEvents", "reasons"].some(
+      (key) => !Array.isArray(value[key]) || value[key].length > 1024,
+    ) ||
+    value.reasons.some((reason) => typeof reason !== "string" || !/^qualification:[a-z0-9_:/-]{1,160}$/.test(reason))
+  )
+    return invalid();
+  const identities = new Set();
+  for (const attempt of value.attempts) {
+    const fields =
+      attempt?.kind === "producer"
+        ? "classifierClass,conclusion,eligible,identityAvailable,kind,runAttempt,runId,status,terminalState"
+        : "classifierClass,conclusion,eligible,identityAvailable,runAttempt,runId,status,terminalState";
+    const key = `${attempt?.kind ?? "advisory"}:${attempt?.runId}/${attempt?.runAttempt}`;
+    if (
+      !attempt ||
+      Object.keys(attempt).sort().join(",") !== fields ||
+      decimalIdentity(attempt.runId) !== attempt.runId ||
+      decimalIdentity(attempt.runAttempt) !== attempt.runAttempt ||
+      !["terminal", "missing", "invalid", "not-required", "conflict"].includes(attempt.status) ||
+      qualificationConclusion(attempt.conclusion) !== attempt.conclusion ||
+      ![null, "isolated", "not_applicable", "persistent_required"].includes(attempt.classifierClass) ||
+      ![null, true, false].includes(attempt.eligible) ||
+      ![null, true, false].includes(attempt.identityAvailable) ||
+      (attempt.status === "not-required" &&
+        (attempt.eligible !== false || !["not_applicable", "persistent_required"].includes(attempt.classifierClass))) ||
+      identities.has(key) ||
+      (attempt.status !== "terminal" && attempt.terminalState !== null)
+    )
+      return invalid();
+    identities.add(key);
+  }
+  const events = [
+    ...value.events.map((event) => [event, validateMergeQualificationEvent(event), "advisory"]),
+    ...value.producerEvents.map((event) => [event, validateMergeQualificationProducerTerminal(event), "producer"]),
+  ];
+  const terminalIdentities = new Set();
+  for (const [event, errors, kind] of events) {
+    const runId = kind === "producer" ? event?.producerRunId : event?.runId;
+    const runAttempt = kind === "producer" ? event?.producerRunAttempt : event?.runAttempt;
+    const key = `${kind}:${runId}/${runAttempt}`;
+    const attempt = value.attempts.find(
+      (candidate) =>
+        (candidate.kind ?? "advisory") === kind && candidate.runId === runId && candidate.runAttempt === runAttempt,
+    );
+    if (
+      errors.length ||
+      !attempt ||
+      attempt.status !== "terminal" ||
+      attempt.terminalState !== event.terminalState ||
+      (kind === "advisory" &&
+        (attempt.classifierClass !== event.classifierClass ||
+          attempt.identityAvailable !== event.identityAvailable ||
+          attempt.eligible !== (event.classifierClass === "isolated" ? true : null))) ||
+      (kind === "producer" &&
+        (attempt.eligible !== true || attempt.identityAvailable !== false || attempt.classifierClass !== null)) ||
+      terminalIdentities.has(key)
+    )
+      return invalid();
+    terminalIdentities.add(key);
+  }
+  if (
+    value.attempts.some(
+      (attempt) =>
+        attempt.status === "terminal" &&
+        !terminalIdentities.has(`${attempt.kind ?? "advisory"}:${attempt.runId}/${attempt.runAttempt}`),
+    ) ||
+    (value.status === "disabled" &&
+      (value.attempts.length || value.events.length || value.producerEvents.length || value.reasons.length)) ||
+    (value.status === "complete" &&
+      (value.reasons.length ||
+        value.attempts.some((attempt) => !["terminal", "not-required"].includes(attempt.status)))) ||
+    (value.status === "partial" && value.reasons.length === 0)
+  )
+    return invalid();
+  return value;
 }
 
 function buildWindows(end, policy) {
@@ -513,7 +961,7 @@ function summarizePullRequests(pulls, runs, generatedPaths, window) {
     nonGeneratedChurn: percentileSummary(
       created.map((pull) =>
         (pull.files ?? [])
-          .filter((file) => !isGeneratedPath(file.path, generatedPaths))
+          .filter((file) => !isGeneratedPath(file.filename ?? file.path, generatedPaths))
           .reduce((sum, file) => sum + nonNegativeInteger(file.additions) + nonNegativeInteger(file.deletions), 0),
       ),
     ),
@@ -922,6 +1370,7 @@ function buildCompleteness(source, apiStatus = {}) {
     ...missingReleaseArtifacts.map((runId) => `missing-release-health:${runId}`),
     ...missingEphemeralArtifacts.map((runId) => `missing-ephemeral-evidence:${runId}`),
     ...(source.pulls.some((pull) => pull.nestedDataTruncated) ? ["truncated:pull-request-nested-data"] : []),
+    ...source.qualification.reasons,
   ];
   return {
     status: reasons.length === 0 ? "complete" : "partial",
@@ -953,6 +1402,19 @@ export function renderDeliveryHealthMarkdown(record) {
   for (const [name, window] of Object.entries(record.windows)) {
     lines.push(
       `| ${name} | ${formatRate(window.prs.platformPr.pullRequest)} | ${formatRate(window.prs.platformPr.mergeGroup)} | ${formatRate(window.releases.actual)} | ${formatRate(window.releases.ephemeral)} | ${formatSeconds(window.prs.platformPr.combined.executionSeconds.p90)} | ${formatSeconds(window.prs.creationToMergeSeconds.p90)} |`,
+    );
+  }
+  lines.push("", "### Advisory qualification evidence", "", `Evidence: ${record.qualification.status}.`);
+  if (record.qualification.status === "disabled")
+    lines.push("Qualification is disabled; no advisory assertion is made.");
+  lines.push(
+    "",
+    "| Run / attempt | Conclusion | Evidence | Terminal state | Eligible | Classification | Immutable proof |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+  );
+  for (const attempt of record.qualification.attempts) {
+    lines.push(
+      `| ${attempt.runId} / ${attempt.runAttempt} | ${attempt.conclusion ?? "pending"} | ${attempt.status} | ${attempt.terminalState ?? "unknown"} | ${attempt.eligible ?? "unknown"} | ${attempt.classifierClass ?? "unknown"} | ${attempt.identityAvailable ?? "unknown"} |`,
     );
   }
   lines.push(
@@ -1121,6 +1583,7 @@ export function createGitHubClient(options, collection = {}) {
         });
         updateRateLimit(status, response.headers);
         if (response.ok) return response;
+        if (response.status === 404) throw new Error("github-not-found");
         const rateLimitResponse =
           response.status === 429 ||
           (response.status === 403 && Number(response.headers?.get?.("x-ratelimit-remaining")) === 0);
@@ -1145,23 +1608,115 @@ export function createGitHubClient(options, collection = {}) {
   }
 
   async function json(path, requestOptions = {}) {
-    const response = await request(path, requestOptions);
-    return response.status === 204 ? null : response.json();
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      const response = await request(path, requestOptions);
+      if (response.status === 204) return null;
+      try {
+        return await response.json();
+      } catch (error) {
+        if (attempt === retries) {
+          const message = "github-response-invalid";
+          if (!requestOptions.advisory) status.errors.push(message);
+          throw new Error(message);
+        }
+        status.retryCount += 1;
+        await options.sleep(Math.min(4_000, 250 * 2 ** attempt));
+      }
+    }
+    throw new Error("github-response-invalid");
   }
 
   async function paginate(path, select = (payload) => payload, pagination = {}) {
     const values = [];
-    const separator = path.includes("?") ? "&" : "?";
-    const pageLimit = pagination.maxPages ?? maxPages;
+    const identities = new Set();
+    const base = new URL(path, `${API_BASE_URL}/repos/${options.repository}/`);
+    if (path.startsWith("/") && !path.startsWith("/repos/"))
+      base.pathname = `/repos/${options.repository}${base.pathname}`;
+    const initialPage = base.searchParams.get("page");
+    if (initialPage !== null && initialPage !== "1") throw new Error("collection_page_invalid");
+    const perPage = Number(base.searchParams.get("per_page") ?? 100);
+    if (!Number.isInteger(perPage) || perPage < 1 || perPage > 100) throw new Error("collection_page_invalid");
+    const pageLimit = Math.min(pagination.maxPages ?? maxPages, 20);
+    const repositoryIds = new Set();
+    let total;
+    const refused = () => {
+      status.truncated.push(pagination.source ?? path.split("?")[0]);
+      throw new Error("collection_incomplete");
+    };
     for (let page = 1; page <= pageLimit; page += 1) {
-      const response = await json(`${path}${separator}page=${page}`);
-      const selected = select(response);
-      const entries = Array.isArray(selected) ? selected : [];
+      base.searchParams.set("page", String(page));
+      const response = await request(base.href);
+      const payload = await response.json();
+      const entries = select(payload);
+      if (!Array.isArray(entries) || entries.length > perPage || payload?.incomplete_results === true) return refused();
+      const observedTotal = payload?.total_count;
+      if (observedTotal !== undefined) {
+        if (
+          !Number.isSafeInteger(observedTotal) ||
+          observedTotal < 0 ||
+          (total !== undefined && total !== observedTotal) ||
+          observedTotal > pageLimit * perPage ||
+          (pagination.providerCap !== undefined && observedTotal >= pagination.providerCap)
+        )
+          return refused();
+        total = observedTotal;
+      } else if (pagination.requireTotal) return refused();
+      for (const entry of entries) {
+        const identity = pagination.identity ? pagination.identity(entry) : (entry?.id ?? entry?.node_id);
+        if (
+          (typeof identity !== "string" && !Number.isSafeInteger(identity)) ||
+          String(identity).length < 1 ||
+          String(identity).length > 256 ||
+          identities.has(String(identity))
+        )
+          return refused();
+        identities.add(String(identity));
+      }
       values.push(...entries);
-      if (entries.length < 100) return values;
+      const link = response.headers?.get?.("link") ?? "";
+      if (link.length > 8192) return refused();
+      const next = [];
+      for (const part of link ? link.split(/,\s*(?=<)/) : []) {
+        const match = /^<([^<>]+)>\s*;\s*rel="([a-z_ ]+)"$/.exec(part.trim());
+        if (!match) return refused();
+        let target;
+        try {
+          target = new URL(match[1]);
+        } catch {
+          return refused();
+        }
+        const linkedPage = Number(target.searchParams.get("page"));
+        if (!Number.isInteger(linkedPage) || linkedPage < 1 || linkedPage > pageLimit) return refused();
+        const expected = new URL(base);
+        expected.searchParams.set("page", String(linkedPage));
+        target.searchParams.sort();
+        expected.searchParams.sort();
+        if (
+          target.origin !== API_BASE_URL ||
+          !sameRepositoryPath(target.pathname, expected.pathname, repositoryIds) ||
+          target.search !== expected.search ||
+          (entries.length < perPage && linkedPage > page)
+        )
+          return refused();
+        for (const relation of match[2].split(" ")) {
+          if (!["next", "prev", "first", "last"].includes(relation)) return refused();
+          if (relation === "next") {
+            if (linkedPage !== page + 1) return refused();
+            next.push(target);
+          }
+        }
+      }
+      if (next.length > 1) return refused();
+      if (total !== undefined) {
+        if (values.length > total || (values.length === total && next.length)) return refused();
+        if (values.length === total) return values;
+        if (entries.length !== perPage) return refused();
+      } else if (entries.length < perPage) {
+        if (next.length) return refused();
+        return values;
+      }
     }
-    status.truncated.push(pagination.source ?? path.split("?")[0]);
-    return values;
+    return refused();
   }
 
   return {
@@ -1173,21 +1728,144 @@ export function createGitHubClient(options, collection = {}) {
   };
 }
 
-async function fetchPullRequests(client, repository, queryStart, maxPages) {
-  const [owner, name] = repository.split("/");
+// A created-date window alone loses old runs retried today. Reconcile disjoint
+// historical partitions before selecting latest-activity and independent last-N series.
+async function collectPartitionedHistory({ end, maxPages, read, identity, createdAt }) {
+  let queries = 0;
+  const seen = new Map();
+  const visit = async (start, finish) => {
+    if (++queries > maxPages * 8) throw new Error("history_partition_limit");
+    const range = `${new Date(start * 1000).toISOString()}..${new Date(finish * 1000 + 999).toISOString()}`;
+    const collection = await read(range);
+    if (!Number.isSafeInteger(collection.total) || collection.total < 0)
+      throw new Error("history_collection_incomplete");
+    if (collection.total >= 1000 || collection.total > maxPages * 100) {
+      if (start >= finish) throw new Error("history_provider_cap");
+      const midpoint = Math.floor((start + finish) / 2);
+      const left = await visit(start, midpoint);
+      const right = await visit(midpoint + 1, finish);
+      const total = left.total + right.total;
+      // A saturated provider count is a lower bound, not an exact parent total.
+      if (collection.saturated ? total < collection.total : total !== collection.total)
+        throw new Error("history_total_changed");
+      return { total, values: [...left.values, ...right.values] };
+    }
+    const values = await collection.collect();
+    if (values.length !== collection.total) throw new Error("history_total_changed");
+    for (const value of values) {
+      const key = identity(value);
+      const created = Date.parse(createdAt(value));
+      if (
+        (typeof key !== "string" && !Number.isSafeInteger(key)) ||
+        String(key).length < 1 ||
+        String(key).length > 256 ||
+        (seen.has(String(key)) && seen.get(String(key)) !== range) ||
+        !Number.isFinite(created) ||
+        created < start * 1000 ||
+        created > finish * 1000 + 999
+      )
+        throw new Error("history_identity_or_range_invalid");
+      seen.set(String(key), range);
+    }
+    return { total: collection.total, values };
+  };
+  return (await visit(0, Math.floor(Date.parse(end) / 1000))).values;
+}
+
+function selectCollectedWindow(values, window, series) {
+  const selected = new Set();
+  for (const [cohort, timestamp] of series) {
+    for (const value of selectMetricSeries(cohort, { kind: "last-n", limit: window.limit, end: window.end }, timestamp))
+      selected.add(value);
+  }
+  return values.filter((value) => selected.has(value) || inBounds(value.updatedAt ?? runTimestamp(value), window));
+}
+
+function sameRepositoryPath(actualPath, expectedPath, repositoryIds) {
+  const actual = parseRepositoryPath(actualPath);
+  const expected = parseRepositoryPath(expectedPath);
+  if (!expected) return actualPath === expectedPath;
+  if (!actual || actual.suffix !== expected.suffix) return false;
+  if (actual.kind === "id") {
+    if (expected.kind === "id") repositoryIds.add(expected.value);
+    repositoryIds.add(actual.value);
+    if (repositoryIds.size > 1) return false;
+    return true;
+  }
+  return expected.kind === "name" && actual.value === expected.value;
+}
+
+function parseRepositoryPath(pathname) {
+  const match = /^\/(repos\/([^/]+\/[^/]+)|repositories\/(\d+))(\/.*)?$/.exec(pathname);
+  if (!match) return null;
+  return {
+    kind: match[2] ? "name" : "id",
+    value: match[2] ?? match[3],
+    suffix: match[4] ?? "",
+  };
+}
+
+async function fetchPullRequests(client, repository, window, maxPages, concurrency) {
+  const pulls = await collectPartitionedHistory({
+    end: window.end,
+    maxPages,
+    identity: (pull) => pull.number,
+    createdAt: (pull) => pull.createdAt,
+    read: async (range) => {
+      const query = `repo:${repository} is:pr created:${range}`;
+      const first = await fetchPullRequestPage(client, query, null);
+      return {
+        total: first.issueCount,
+        collect: () => fetchPullRequestPartition(client, query, first, maxPages),
+      };
+    },
+  });
+  const selected = selectCollectedWindow(pulls, window, [
+    [pulls, (pull) => pull.createdAt],
+    [pulls.filter((pull) => pull.mergedAt), (pull) => pull.mergedAt],
+  ]);
+  return enrichPullRequestWindow(client, selected, maxPages, concurrency);
+}
+
+async function fetchPullRequestPage(client, query, cursor) {
+  const payload = await client.json(GRAPHQL_URL, {
+    method: "POST",
+    body: {
+      query: `query DeliveryHealthPulls($query:String!,$cursor:String){search(query:$query,type:ISSUE,first:100,after:$cursor){issueCount pageInfo{hasNextPage endCursor}nodes{... on PullRequest{number state isDraft createdAt updatedAt mergedAt timelineItems(first:1,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}}}}}}`,
+      variables: { query, cursor },
+    },
+  });
+  if (payload.errors?.length) throw new Error(`GitHub GraphQL failed: ${boundedError(payload.errors[0]?.message)}`);
+  return payload.data?.search ?? {};
+}
+
+async function fetchPullRequestPartition(client, query, first, maxPages) {
   const pulls = [];
   let cursor = null;
+  let total;
+  const cursors = new Set();
+  const identities = new Set();
   for (let page = 1; page <= maxPages; page += 1) {
-    const payload = await client.json(GRAPHQL_URL, {
-      method: "POST",
-      body: {
-        query: `query DeliveryHealthPulls($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number state isDraft createdAt updatedAt mergedAt additions deletions changedFiles timelineItems(first:1,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}}reviews(first:100){totalCount nodes{state}}files(first:100){totalCount nodes{path additions deletions}}}}}}`,
-        variables: { owner, name, cursor },
-      },
-    });
-    if (payload.errors?.length) throw new Error(`GitHub GraphQL failed: ${boundedError(payload.errors[0]?.message)}`);
-    const connection = payload.data?.repository?.pullRequests;
+    const connection = page === 1 ? first : await fetchPullRequestPage(client, query, cursor);
     const nodes = connection?.nodes ?? [];
+    if (!Array.isArray(nodes) || nodes.length > 100 || typeof connection?.pageInfo?.hasNextPage !== "boolean")
+      throw new Error("pull_collection_incomplete");
+    if (connection.issueCount !== undefined) {
+      if (
+        !Number.isSafeInteger(connection.issueCount) ||
+        connection.issueCount < 0 ||
+        (total !== undefined && total !== connection.issueCount) ||
+        connection.issueCount > maxPages * 100 ||
+        connection.issueCount >= 1000
+      )
+        throw new Error("pull_collection_incomplete");
+      total = connection.issueCount;
+    } else throw new Error("pull_collection_incomplete");
+    for (const node of nodes) {
+      if (!Number.isSafeInteger(node?.number) || identities.has(node.number))
+        throw new Error("pull_collection_incomplete");
+      identities.add(node.number);
+    }
     pulls.push(
       ...nodes.map((pull) => ({
         number: pull.number,
@@ -1197,54 +1875,113 @@ async function fetchPullRequests(client, repository, queryStart, maxPages) {
         updatedAt: pull.updatedAt,
         mergedAt: pull.mergedAt,
         readyForReviewAt: pull.timelineItems?.nodes?.[0]?.createdAt ?? (!pull.isDraft ? pull.createdAt : null),
-        changedFiles: pull.changedFiles,
-        reviewCount: pull.reviews?.totalCount ?? 0,
+        changedFiles: pull.changedFiles ?? null,
+        reviewCount: pull.reviews ? pull.reviews.totalCount : null,
         approvedReviewCount: (pull.reviews?.nodes ?? []).filter((review) => review.state === "APPROVED").length,
-        files: pull.files?.nodes ?? [],
-        reviewsTruncated: (pull.reviews?.totalCount ?? 0) > 100,
-        filesTruncated: (pull.files?.totalCount ?? 0) > 100,
-        nestedDataTruncated: (pull.reviews?.totalCount ?? 0) > 100 || (pull.files?.totalCount ?? 0) > 100,
+        files: Array.isArray(pull.files?.nodes) ? pull.files.nodes : null,
+        reviewsTruncated: Number.isSafeInteger(pull.reviews?.totalCount) && pull.reviews.totalCount > 100,
+        filesTruncated: Number.isSafeInteger(pull.files?.totalCount) && pull.files.totalCount > 100,
+        nestedDataTruncated:
+          !Number.isSafeInteger(pull.reviews?.totalCount) ||
+          pull.reviews.totalCount !== pull.reviews.nodes?.length ||
+          !Number.isSafeInteger(pull.files?.totalCount) ||
+          pull.files.totalCount !== pull.files.nodes?.length,
       })),
     );
-    if (!connection?.pageInfo?.hasNextPage || Date.parse(nodes.at(-1)?.updatedAt ?? 0) < Date.parse(queryStart))
+    if (connection.pageInfo.hasNextPage && pulls.length >= total) throw new Error("pull_collection_incomplete");
+    if (!connection.pageInfo.hasNextPage) {
+      if (total !== undefined && pulls.length !== total) throw new Error("pull_collection_incomplete");
       return pulls;
+    }
+    if (
+      nodes.length !== 100 ||
+      typeof connection.pageInfo.endCursor !== "string" ||
+      !connection.pageInfo.endCursor ||
+      cursors.has(connection.pageInfo.endCursor)
+    )
+      throw new Error("pull_collection_incomplete");
     cursor = connection.pageInfo.endCursor;
+    cursors.add(cursor);
   }
-  client.markTruncated("pull-requests");
+  throw new Error("pull_collection_incomplete");
+}
+
+async function enrichPullRequestWindow(client, pulls, maxPages, concurrency) {
+  const missing = pulls.filter(
+    (pull) =>
+      !Number.isSafeInteger(pull.changedFiles) || !Array.isArray(pull.files) || !Number.isSafeInteger(pull.reviewCount),
+  );
+  await mapConcurrent(missing, concurrency, async (pull) => {
+    try {
+      const detail = await client.json(`/pulls/${pull.number}`, { advisory: true });
+      if (!Number.isSafeInteger(pull.changedFiles) && Number.isSafeInteger(detail?.changed_files))
+        pull.changedFiles = detail.changed_files;
+      if (pull.files === null) pull.files = await fetchPullFiles(client, pull.number, maxPages);
+      if (!Number.isSafeInteger(pull.reviewCount)) {
+        const reviews = await fetchPullReviews(client, pull.number, maxPages);
+        pull.reviewCount = reviews.length;
+        pull.approvedReviewCount = reviews.filter((review) => review.state === "APPROVED").length;
+      }
+      pull.reviewsTruncated = false;
+      pull.filesTruncated = false;
+      pull.nestedDataTruncated = false;
+    } catch {
+      pull.nestedDataTruncated = true;
+      if (pull.files === null) pull.files = [];
+      if (!Number.isSafeInteger(pull.changedFiles)) pull.changedFiles = null;
+      if (!Number.isSafeInteger(pull.reviewCount)) pull.reviewCount = null;
+    }
+  });
   return pulls;
 }
 
-async function fetchWorkflowRuns(client, workflow, queryStart, maxPages, lastN) {
-  const runs = [];
-  for (let page = 1; page <= maxPages; page += 1) {
-    const payload = await client.json(
-      `/actions/workflows/${encodeURIComponent(workflow)}/runs?per_page=100&page=${page}`,
-    );
-    const entries = payload?.workflow_runs ?? [];
-    runs.push(...entries);
-    const oldest = entries.at(-1);
-    if (
-      entries.length < 100 ||
-      (runs.length >= lastN && Date.parse(runTimestamp(oldest) ?? 0) < Date.parse(queryStart))
-    ) {
-      return runs;
-    }
-  }
-  client.markTruncated(`workflow:${workflow}`);
-  return runs;
+async function fetchWorkflowRuns(client, workflow, window, maxPages) {
+  const runs = await collectPartitionedHistory({
+    end: window.end,
+    maxPages,
+    identity: (run) => run.id,
+    createdAt: (run) => run.created_at,
+    read: async (range) => {
+      const path = `/actions/workflows/${encodeURIComponent(workflow)}/runs?per_page=100&created=${encodeURIComponent(range)}`;
+      const first = await client.json(path);
+      if (first?.incomplete_results === true) throw new Error("history_collection_incomplete");
+      return {
+        total: first?.total_count,
+        // Workflow count metadata can saturate at 2500 independently of its 1000-result page cap.
+        saturated: first?.total_count === 2500,
+        collect: () =>
+          client.paginate(path, (payload) => payload?.workflow_runs, {
+            source: `workflow:${workflow}`,
+            maxPages,
+            requireTotal: true,
+            providerCap: 1000,
+          }),
+      };
+    },
+  });
+  return selectCollectedWindow(
+    runs,
+    window,
+    [...new Set(runs.map((run) => run.event))].map((event) => [
+      runs.filter((run) => run.event === event),
+      runTimestamp,
+    ]),
+  );
 }
 
 async function fetchRunJobs(client, runId, maxPages) {
   return client.paginate(`/actions/runs/${runId}/jobs?filter=all&per_page=100`, (payload) => payload?.jobs, {
     source: `jobs:${runId}`,
     maxPages,
+    requireTotal: true,
   });
 }
 
-async function fetchPullFiles(client, pullNumber, maxPages) {
+export async function fetchPullFiles(client, pullNumber, maxPages) {
   return client.paginate(`/pulls/${pullNumber}/files?per_page=100`, (payload) => payload, {
     source: `pull-files:${pullNumber}`,
     maxPages,
+    identity: (file) => file?.filename,
   });
 }
 
@@ -1260,6 +1997,8 @@ async function fetchCircuitIssues(client, repository, maxPages) {
   return client.paginate(`${API_BASE_URL}/search/issues?q=${query}&per_page=100`, (payload) => payload?.items, {
     source: "delivery-failure-signatures",
     maxPages,
+    requireTotal: true,
+    providerCap: 1000,
   });
 }
 
@@ -1269,13 +2008,16 @@ async function fetchReleaseHealthArtifacts(client, runId) {
     (payload) => payload?.artifacts,
     {
       source: `artifacts:${runId}`,
-      maxPages: 2,
+      maxPages: 20,
+      requireTotal: true,
     },
   );
   const selected = artifacts.filter((artifact) => /(?:staging|production)-release-health/.test(artifact.name ?? ""));
   const records = [];
   for (const artifact of selected) {
-    const response = await client.request(artifact.archive_download_url, { accept: "application/vnd.github+json" });
+    const response = await client.request(`/actions/artifacts/${artifact.id}/zip`, {
+      accept: "application/vnd.github+json",
+    });
     const bytes = Buffer.from(await response.arrayBuffer());
     if (bytes.length > 10 * 1024 * 1024) throw new Error(`Release-health artifact ${artifact.id} exceeds 10 MiB.`);
     for (const [name, contents] of unzipJsonEntries(bytes)) {
@@ -1300,7 +2042,7 @@ async function fetchEphemeralVerificationArtifact(client, run) {
   const artifacts = await client.paginate(
     `/actions/runs/${run.id}/artifacts?per_page=100`,
     (payload) => payload?.artifacts,
-    { source: `ephemeral-artifacts:${run.id}`, maxPages: 2 },
+    { source: `ephemeral-artifacts:${run.id}`, maxPages: 20, requireTotal: true },
   );
   const runAttempt = run.run_attempt ?? run.runAttempt;
   const suffix = `-${run.id}-${runAttempt}`;
@@ -1322,7 +2064,9 @@ async function fetchEphemeralVerificationArtifact(client, run) {
   ) {
     throw new Error(`ephemeral-verification-artifact-size-invalid: artifact ${artifact.id}.`);
   }
-  const response = await client.request(artifact.archive_download_url, { accept: "application/vnd.github+json" });
+  const response = await client.request(`/actions/artifacts/${artifact.id}/zip`, {
+    accept: "application/vnd.github+json",
+  });
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length < 1 || bytes.length > EPHEMERAL_ARCHIVE_MAX_BYTES) {
     throw new Error(`ephemeral-verification-artifact-size-invalid: artifact ${artifact.id}.`);
@@ -1466,12 +2210,23 @@ function isBoundedTimezoneInstant(value) {
 
 export function unzipJsonEntries(buffer, options = {}) {
   const entries = new Map();
+  if (!Buffer.isBuffer(buffer) || buffer.length > EPHEMERAL_ARCHIVE_MAX_BYTES)
+    throw new Error("artifact_archive_size_invalid");
   const eocd = findEndOfCentralDirectory(buffer);
   if (eocd < 0) throw new Error("Artifact archive is not a supported ZIP file.");
   const entryCount = buffer.readUInt16LE(eocd + 10);
   if (entryCount > 1_000) throw new Error("Artifact ZIP contains too many entries.");
   let offset = buffer.readUInt32LE(eocd + 16);
+  if (
+    buffer.readUInt16LE(eocd + 4) !== 0 ||
+    buffer.readUInt16LE(eocd + 6) !== 0 ||
+    buffer.readUInt16LE(eocd + 8) !== entryCount ||
+    offset + buffer.readUInt32LE(eocd + 12) !== eocd ||
+    eocd + 22 + buffer.readUInt16LE(eocd + 20) !== buffer.length
+  )
+    throw new Error("artifact_zip_directory_invalid");
   for (let index = 0; index < entryCount; index += 1) {
+    if (offset + 46 > eocd) throw new Error("artifact_zip_directory_invalid");
     if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("Artifact ZIP central directory is invalid.");
     const method = buffer.readUInt16LE(offset + 10);
     const compressedSize = buffer.readUInt32LE(offset + 20);
@@ -1480,17 +2235,37 @@ export function unzipJsonEntries(buffer, options = {}) {
     const extraLength = buffer.readUInt16LE(offset + 30);
     const commentLength = buffer.readUInt16LE(offset + 32);
     const localOffset = buffer.readUInt32LE(offset + 42);
+    if (offset + 46 + fileNameLength + extraLength + commentLength > eocd || localOffset + 30 > offset)
+      throw new Error("artifact_zip_directory_invalid");
     const name = buffer.subarray(offset + 46, offset + 46 + fileNameLength).toString("utf8");
+    if (
+      !name ||
+      name.includes("\\") ||
+      name.startsWith("/") ||
+      name.includes("\0") ||
+      name.split("/").includes("..") ||
+      /^[A-Za-z]:/.test(name) ||
+      ((buffer.readUInt32LE(offset + 38) >>> 16) & 0o170000) === 0o120000 ||
+      (buffer.readUInt16LE(offset + 8) & 1) !== 0 ||
+      buffer.readUInt32LE(localOffset) !== 0x04034b50
+    )
+      throw new Error("artifact_zip_entry_invalid");
     const localNameLength = buffer.readUInt16LE(localOffset + 26);
     const localExtraLength = buffer.readUInt16LE(localOffset + 28);
     const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    if (
+      dataStart + compressedSize > buffer.readUInt32LE(eocd + 16) ||
+      buffer.subarray(localOffset + 30, localOffset + 30 + localNameLength).toString("utf8") !== name ||
+      buffer.readUInt16LE(localOffset + 8) !== method
+    )
+      throw new Error("artifact_zip_entry_invalid");
     const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
     if (name.toLowerCase().endsWith(".json") && (options.include?.(name) ?? true)) {
       const maxEntryBytes = options.maxEntryBytes ?? 2 * 1024 * 1024;
       if (uncompressedSize > maxEntryBytes) throw new Error(`Artifact JSON entry ${name} exceeds its byte bound.`);
       let contents;
       if (method === 0) contents = compressed;
-      else if (method === 8) contents = inflateRawSync(compressed);
+      else if (method === 8) contents = inflateRawSync(compressed, { maxOutputLength: maxEntryBytes });
       else throw new Error(`Artifact ZIP uses unsupported compression method ${method}.`);
       if (contents.length !== uncompressedSize || contents.length > maxEntryBytes)
         throw new Error(`Artifact JSON entry ${name} has an invalid expanded size.`);
@@ -1499,6 +2274,7 @@ export function unzipJsonEntries(buffer, options = {}) {
     }
     offset += 46 + fileNameLength + extraLength + commentLength;
   }
+  if (offset !== eocd) throw new Error("artifact_zip_directory_invalid");
   return entries;
 }
 
@@ -1680,9 +2456,7 @@ function isRetryableError(error) {
 }
 
 function boundedError(error) {
-  return String(error?.message ?? error ?? "unknown error")
-    .replaceAll(/https?:\/\/[^\s]+/g, "<url>")
-    .slice(0, 240);
+  return error?.message === "github-not-found" ? "github-not-found" : "github-authority-unavailable";
 }
 
 function safeRequestLabel(value) {
@@ -1736,6 +2510,30 @@ function validatePolicy(policy) {
   if (policy?.schemaVersion !== "delivery-health-policy/v1") throw new Error("Unsupported delivery-health policy.");
   if (!Number.isInteger(policy.windows?.lastN) || policy.windows.lastN < 1)
     throw new Error("Policy lastN must be positive.");
+  const collection = policy.collection;
+  if (
+    !collection ||
+    Object.keys(collection).sort().join(",") !== "concurrency,generatedPaths,maxPages,retries,workflowSources" ||
+    !Number.isInteger(collection.maxPages) ||
+    collection.maxPages < 1 ||
+    collection.maxPages > 20 ||
+    !Number.isInteger(collection.concurrency) ||
+    collection.concurrency < 1 ||
+    collection.concurrency > 16 ||
+    !Number.isInteger(collection.retries) ||
+    collection.retries < 0 ||
+    collection.retries > 5 ||
+    !Array.isArray(collection.generatedPaths) ||
+    collection.generatedPaths.length > 100 ||
+    collection.generatedPaths.some((path) => typeof path !== "string" || path.length < 1 || path.length > 256) ||
+    !collection.workflowSources ||
+    Object.keys(collection.workflowSources).sort().join(",") !==
+      "ephemeralVerification,platformDeploy,platformPr,releaseDispatch" ||
+    Object.values(collection.workflowSources).some(
+      (workflow) => typeof workflow !== "string" || !/^[A-Za-z0-9._-]{1,128}\.ya?ml$/.test(workflow),
+    )
+  )
+    throw new Error("Invalid delivery-health collection policy.");
 }
 
 async function writeOutputs(options, result) {

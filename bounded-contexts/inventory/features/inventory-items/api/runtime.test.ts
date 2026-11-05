@@ -10,7 +10,10 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { createInventoryItemRuntime } from "./runtime";
+import { createInventoryItemRuntime, type InventoryItemServices } from "./runtime";
+import type { InventoryCatalogItemServices } from "../integrations/catalog/runtime";
+import type { InventoryProductSchema } from "../integrations/catalog/versioning";
+import { evolveInventoryItem, initialInventoryItemState } from "../domain/domain";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -39,6 +42,281 @@ const shipFromAddress = {
   postalCode: "60601",
   country: "US",
 } as const;
+
+describe("inventory create runtime graded boundaries", () => {
+  const MISSING_DETAILS = "Choose a grading company and grade before creating a Graded inventory item.";
+  const REQUIRES_DETAILS = "Graded inventory items require graded card details.";
+  const RAW_DETAILS = "Graded card details are only allowed for graded inventory items.";
+  const whenGraded = [{ dimensionId: "form", optionIds: ["opt_graded"] }];
+  const formDimension = (
+    options: ReadonlyArray<readonly [string, string]> = [
+      ["opt_raw", "Raw"],
+      ["opt_graded", "Graded"],
+    ],
+    name = "Form",
+  ) => ({
+    dimensionId: "form",
+    dimensionName: name,
+    required: true,
+    appliesWhen: [],
+    allowedOptions: options.map(([optionId, label]) => ({ optionId, code: optionId, label })),
+  });
+  const companyDimension = (required: boolean) => ({
+    dimensionId: "company",
+    dimensionName: "Grading Company",
+    required,
+    appliesWhen: whenGraded,
+    allowedOptions: [{ optionId: "opt_psa", code: "psa", label: "PSA" }],
+  });
+  const gradeDimension = (required: boolean) => ({
+    dimensionId: "grade",
+    dimensionName: "Grade",
+    required,
+    appliesWhen: whenGraded,
+    allowedOptions: [{ optionId: "opt_ten", code: "ten", label: "10" }],
+  });
+  function productSchema(...dimensions: InventoryProductSchema["dimensions"]): InventoryProductSchema {
+    return {
+      canonicalDimensionOrder: dimensions.map(({ dimensionId, dimensionName }) => ({ dimensionId, dimensionName })),
+      dimensions,
+    };
+  }
+  const schemas: Record<string, InventoryProductSchema | null> = {
+    cat_required: productSchema(formDimension(), companyDimension(true), gradeDimension(true)),
+    cat_optional: productSchema(formDimension(), companyDimension(false), gradeDimension(false)),
+    cat_no_company: productSchema(formDimension(), gradeDimension(true)),
+    cat_no_grade: productSchema(formDimension(), companyDimension(true)),
+    cat_slab: productSchema(formDimension([["opt_graded", "Graded (Slab)"]])),
+    cat_card_form: productSchema(formDimension([["opt_graded", "Graded"]], "Card Form")),
+    cat_unstructured: null,
+  };
+  const gradedOptions = [
+    { dimensionId: "form", optionId: "opt_graded" },
+    { dimensionId: "company", optionId: "opt_psa" },
+    { dimensionId: "grade", optionId: "opt_ten" },
+  ];
+  const rawOptions = [{ dimensionId: "form", optionId: "opt_raw" }];
+
+  function setup() {
+    const { eventStore, streams } = createInMemoryEventStore();
+    const locations = ["acc_seller", "acc_other"].map((accountId) => ({
+      storage_location_id: `loc_${accountId}`,
+      account_id: accountId,
+      name: "Main shelf",
+      description: null,
+      ship_from_code: "MAIN",
+      ship_from_address: shipFromAddress,
+      is_archived: false,
+    }));
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[]) => {
+        if (!sql.includes("FROM inventory_storage_locations")) throw new Error(`Unexpected query: ${sql}`);
+        return {
+          rows: locations.filter(
+            (location) =>
+              location.storage_location_id === values[0] &&
+              (!sql.includes("account_id = $2") || location.account_id === values[1]),
+          ),
+        };
+      }),
+    };
+    const catalogItems: InventoryCatalogItemServices = {
+      getCatalogItem: vi.fn(async (catalogItemId: string) =>
+        catalogItemId in schemas
+          ? {
+              catalog_item_id: catalogItemId,
+              language_code: "en",
+              title: "Charizard",
+              subtitle: null,
+              blueprint_id: null,
+              status: "active",
+              product_schema: schemas[catalogItemId] ?? null,
+              updated_at: "2026-11-01T00:00:00.000Z",
+            }
+          : null,
+      ),
+      getExternalProductReference: vi.fn(async () => null),
+      getExternalCatalogItemReference: vi.fn(async () => null),
+      getCatalogItemByGtin: vi.fn(async () => null),
+      projectors: [],
+    };
+    const runtime = createInventoryItemRuntime(
+      { eventStore, db: db as never, checkpointStore: createCheckpointStore() },
+      catalogItems,
+      { listStorageLocations: vi.fn() } as never,
+    );
+    return { runtime, eventStore, streams, db };
+  }
+
+  type CreateInput = Omit<
+    Parameters<InventoryItemServices["createItem"]>[0],
+    "accountId" | "storageLocationId" | "totalQuantity"
+  >;
+  function create(input: CreateInput, harness = setup()) {
+    return harness.runtime.createItem(
+      { accountId: "acc_seller" as never, storageLocationId: "loc_acc_seller", totalQuantity: 2, ...input },
+      context,
+    );
+  }
+
+  async function createdPayload(input: CreateInput) {
+    const harness = setup();
+    const result = await create(input, harness);
+    const events = await harness.eventStore.readStream({ streamId: `inventory.item-${result.itemId}` });
+    expect(events.map((event) => event.eventType)).toEqual(["inventory.item.created"]);
+    const state = evolveInventoryItem(initialInventoryItemState, {
+      type: "inventory.item.created",
+      data: events[0].payload,
+    } as never);
+    expect(state.gradedCard).toEqual((events[0].payload as { gradedCard: unknown }).gradedCard);
+    return events[0].payload as Record<string, unknown>;
+  }
+
+  async function expectRefusedWithoutWrites(input: CreateInput, message: string) {
+    const harness = setup();
+    await expect(create(input, harness)).rejects.toThrow(message);
+    expect(harness.streams.size).toBe(0);
+  }
+
+  it.each([
+    ["cert-123", "cert-123"],
+    ["  cert-123  ", "cert-123"],
+    [null, null],
+    ["   ", null],
+  ])("derives the graded card from the selected options with certification %j", async (certificationNumber, stored) => {
+    const payload = await createdPayload({
+      catalogItemId: "cat_required",
+      selectedOptions: gradedOptions,
+      certificationNumber,
+    });
+    expect(payload).toMatchObject({
+      accountId: "acc_seller",
+      selectedOptions: gradedOptions,
+      gradedCard: {
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: stored,
+        population: null,
+        conditionDescriptors: [],
+      },
+      storageLocationId: "loc_acc_seller",
+      totalQuantity: 2,
+    });
+  });
+
+  it("refuses a Graded create that omits the certification member, which only older clients do", async () => {
+    await expectRefusedWithoutWrites(
+      { catalogItemId: "cat_required", selectedOptions: gradedOptions },
+      REQUIRES_DETAILS,
+    );
+    await expect(
+      createdPayload({ catalogItemId: "cat_required", selectedOptions: gradedOptions, certificationNumber: null }),
+    ).resolves.toMatchObject({ gradedCard: { gradingCompany: "PSA" } });
+  });
+
+  it.each([
+    ["Grading Company", "company"],
+    ["Grade", "grade"],
+  ])("keeps the shipped schema error when required %s is omitted", async (dimensionName, dimensionId) => {
+    await expectRefusedWithoutWrites(
+      {
+        catalogItemId: "cat_required",
+        selectedOptions: gradedOptions.filter((option) => option.dimensionId !== dimensionId),
+        certificationNumber: "cert-123",
+      },
+      `Selected options must include ${dimensionName}.`,
+    );
+  });
+
+  it.each([
+    ["optional company not chosen", "cat_optional", ["form", "grade"]],
+    ["optional grade not chosen", "cat_optional", ["form", "company"]],
+    ["company absent from the schema", "cat_no_company", ["form", "grade"]],
+    ["grade absent from the schema", "cat_no_grade", ["form", "company"]],
+  ])("answers the missing-details text when the %s", async (_name, catalogItemId, dimensionIds) => {
+    await expectRefusedWithoutWrites(
+      {
+        catalogItemId,
+        selectedOptions: gradedOptions.filter((option) => dimensionIds.includes(option.dimensionId)),
+        certificationNumber: "cert-123",
+      },
+      MISSING_DETAILS,
+    );
+  });
+
+  it("creates when the optional company and grade are both chosen", async () => {
+    await expect(
+      createdPayload({
+        catalogItemId: "cat_optional",
+        selectedOptions: gradedOptions,
+        certificationNumber: "cert-123",
+      }),
+    ).resolves.toMatchObject({ gradedCard: { gradingCompany: "PSA", grade: "10", certificationNumber: "cert-123" } });
+  });
+
+  it.each(["cat_slab", "cat_card_form"])(
+    "refuses the legacy %s selection instead of creating it raw",
+    async (catalogItemId) => {
+      await expectRefusedWithoutWrites(
+        {
+          catalogItemId,
+          selectedOptions: [{ dimensionId: "form", optionId: "opt_graded" }],
+          certificationNumber: null,
+        },
+        REQUIRES_DETAILS,
+      );
+    },
+  );
+
+  it.each([{}, { certificationNumber: null }, { certificationNumber: "  " }])(
+    "creates raw items unchanged with %j",
+    async (certification) => {
+      await expect(
+        createdPayload({ catalogItemId: "cat_required", selectedOptions: rawOptions, ...certification }),
+      ).resolves.toMatchObject({
+        selectedOptions: rawOptions,
+        gradedCard: null,
+      });
+      await expect(
+        createdPayload({ catalogItemId: "cat_unstructured", selectedOptions: [], ...certification }),
+      ).resolves.toMatchObject({
+        gradedCard: null,
+      });
+    },
+  );
+
+  it("refuses a non-blank certification number on a raw item", async () => {
+    await expectRefusedWithoutWrites(
+      { catalogItemId: "cat_required", selectedOptions: rawOptions, certificationNumber: "cert-123" },
+      RAW_DETAILS,
+    );
+  });
+
+  it.each([
+    ["raw", rawOptions, undefined],
+    ["graded", gradedOptions, "cert-123"],
+  ])("refuses another account's storage for %s without writes", async (_form, selectedOptions, certificationNumber) => {
+    const harness = setup();
+    await expect(
+      harness.runtime.createItem(
+        {
+          accountId: "acc_seller" as never,
+          catalogItemId: "cat_required",
+          selectedOptions,
+          ...(certificationNumber === undefined ? {} : { certificationNumber }),
+          storageLocationId: "loc_acc_other",
+          totalQuantity: 1,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Storage location not found.");
+    expect(harness.streams.size).toBe(0);
+    expect(harness.db.query).toHaveBeenCalledWith(expect.stringContaining("account_id = $2"), [
+      "loc_acc_other",
+      "acc_seller",
+    ]);
+  });
+});
 
 describe("inventory item runtime", () => {
   it.each(["load->history", "history->append"] as const)(

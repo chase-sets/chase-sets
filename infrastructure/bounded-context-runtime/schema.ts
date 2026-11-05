@@ -2,6 +2,7 @@ import type { BcApiModule, BcSchemaMigration, BcSchemaMigrationClient } from "@c
 import {
   eventCorePostgresSchemaSql,
   eventStoreEventsReadIndexStatements,
+  createPostgresEventStore,
   type PgPoolClient,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
@@ -115,11 +116,22 @@ const projectionRecoveryMarkerBackfillMigration = {
   ],
 };
 
+const configurationEpochMigration = {
+  migrationId: "20261022_configuration_epoch_closure",
+  description: "Create acknowledged configuration epoch guard, topology and CLOSED-THROUGH receipt tables.",
+  statements: [
+    eventCorePostgresSchemaSql
+      .split("-- configuration-epoch-schema:start")[1]
+      ?.split("-- configuration-epoch-schema:end")[0] ?? "",
+  ],
+};
+
 const contextSchemaMigrations = [
   contextBackfillMigration,
   concurrentEventStoreIndexesMigration,
   eventStoreWriteHotFillfactorMigration,
   projectionRecoveryMarkerBackfillMigration,
+  configurationEpochMigration,
   {
     migrationId: "20261015_subscription_reaction_output_positions",
     description: "Record reaction output positions atomically with completed applications.",
@@ -646,6 +658,7 @@ async function applyStatementsAndLedgerRow(client: PgPoolClient, migration: BcSc
 }
 
 function concurrentlyRefusingMigrationClient(client: PgPoolClient, migrationId: string): BcSchemaMigrationClient {
+  const eventStore = createPostgresEventStore({ pool: client as unknown as PgTransactionalPool });
   return {
     async query<Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) {
       if (CONCURRENTLY_KEYWORD_RE.test(text)) {
@@ -656,6 +669,7 @@ function concurrentlyRefusingMigrationClient(client: PgPoolClient, migrationId: 
 
       return client.query<Row>(text, values);
     },
+    appendToStreamsInTransaction: (inputs) => eventStore.appendToStreamsInTransaction(client, inputs),
   };
 }
 

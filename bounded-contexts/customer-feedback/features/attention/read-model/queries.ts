@@ -1,5 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { FeedbackAttentionItem } from "../domain/attention";
+import {
+  feedbackAttentionRule,
+  feedbackCaseSlaState,
+  type FeedbackAttentionItem,
+  type FeedbackSlaState,
+} from "../domain/attention";
 
 export type FeedbackAttentionQueueFilters = Readonly<{
   ownerId?: string | null;
@@ -8,28 +13,59 @@ export type FeedbackAttentionQueueFilters = Readonly<{
   overdueOnly?: boolean;
 }>;
 
+export type FeedbackAttentionQueueItem = FeedbackAttentionItem & Readonly<{ sla: FeedbackSlaState }>;
+
+export type FeedbackSlaColumns = Readonly<{
+  openedAt: string;
+  priority: string;
+  triagedAt: string;
+  dueAt: string;
+}>;
+
+export function feedbackTriageDeadlineSql(columns: Pick<FeedbackSlaColumns, "openedAt" | "priority">): string {
+  const minutes = feedbackAttentionRule.triageSlaMinutes;
+  return `(${columns.openedAt} + CASE ${columns.priority}
+    WHEN 'urgent' THEN interval '${minutes.urgent} minutes'
+    WHEN 'high' THEN interval '${minutes.high} minutes'
+    WHEN 'normal' THEN interval '${minutes.normal} minutes'
+    ELSE interval '${minutes.low} minutes'
+  END)`;
+}
+
+export function feedbackOverdueSql(columns: FeedbackSlaColumns, now: string): string {
+  return `((${columns.triagedAt} IS NULL AND ${feedbackTriageDeadlineSql(columns)} < ${now}) OR (${columns.dueAt} IS NOT NULL AND ${columns.dueAt} < ${now}))`;
+}
+
+const derivedSlaColumns: FeedbackSlaColumns = {
+  openedAt: 'derived_sla_attention."openedAt"',
+  priority: "derived_sla_attention.priority",
+  triagedAt: 'derived_sla_attention."triagedAt"',
+  dueAt: 'derived_sla_attention."dueAt"',
+};
+
+const queueSlaColumns: FeedbackSlaColumns = {
+  openedAt: 'attention_queue."openedAt"',
+  priority: "attention_queue.priority",
+  triagedAt: 'attention_queue."triagedAt"',
+  dueAt: 'attention_queue."dueAt"',
+};
+
 export async function listFeedbackAttention(
   db: PgQueryable,
   filters: FeedbackAttentionQueueFilters = {},
-): Promise<readonly FeedbackAttentionItem[]> {
+): Promise<readonly FeedbackAttentionQueueItem[]> {
   const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
-  const values: unknown[] = [filters.now ?? new Date().toISOString()];
+  const now = filters.now ?? new Date().toISOString();
+  const values: unknown[] = [now];
   const ownerClause = filters.ownerId === undefined ? "" : 'AND attention_queue."ownerId" = $2';
   if (filters.ownerId !== undefined) values.push(filters.ownerId);
-  const overdueClause = filters.overdueOnly
-    ? 'AND ((attention_queue."triagedAt" IS NULL AND attention_queue."triageDueAt" < $1) OR (attention_queue."dueAt" IS NOT NULL AND attention_queue."dueAt" < $1))'
-    : "";
+  const overdueClause = filters.overdueOnly ? `AND ${feedbackOverdueSql(queueSlaColumns, "$1::timestamptz")}` : "";
   values.push(limit);
   const result = await db.query<FeedbackAttentionItem>(
     `WITH derived_sla_attention AS (
        SELECT case_id AS "caseId", rating, priority, owner_id AS "ownerId", opened_at AS "openedAt",
               triaged_at AS "triagedAt", due_at AS "dueAt", closed_at AS "closedAt",
-              opened_at + CASE priority
-                WHEN 'urgent' THEN interval '60 minutes'
-                WHEN 'high' THEN interval '240 minutes'
-                WHEN 'normal' THEN interval '1440 minutes'
-                ELSE interval '2880 minutes'
-              END AS "triageDueAt"
+              ${feedbackTriageDeadlineSql({ openedAt: "cases.opened_at", priority: "cases.priority" })} AS "triageDueAt"
        FROM customer_feedback_feedback_cases AS cases
        WHERE status <> 'closed'
          AND NOT EXISTS (
@@ -50,7 +86,7 @@ export async function listFeedbackAttention(
        SELECT 'sla:' || "caseId", "caseId", 'active', 'sla-breach', 'triage-sla-v1', rating, priority, "ownerId",
               "openedAt", "triagedAt", "dueAt", "triageDueAt", "closedAt", 'pending', NULL, NULL
        FROM derived_sla_attention
-       WHERE ("triagedAt" IS NULL AND "triageDueAt" < $1) OR ("dueAt" IS NOT NULL AND "dueAt" < $1)
+       WHERE ${feedbackOverdueSql(derivedSlaColumns, "$1::timestamptz")}
      )
      SELECT attention_queue.*,
             cases.follow_up_delivery_status AS "followUpDeliveryStatus",
@@ -65,5 +101,29 @@ export async function listFeedbackAttention(
      LIMIT $${values.length}`,
     values,
   );
-  return result.rows;
+  return result.rows.map((row) => ({ ...row, sla: attentionSlaState(row, now) }));
+}
+
+// node-postgres returns timestamptz columns as Date; the helper parses strings, so normalize first.
+function isoTimestamp(value: Date | string): string {
+  return new Date(value).toISOString();
+}
+
+function optionalIsoTimestamp(value: Date | string | null): string | null {
+  return value === null ? null : isoTimestamp(value);
+}
+
+function attentionSlaState(row: FeedbackAttentionItem, now: string): FeedbackSlaState {
+  const closedAt = optionalIsoTimestamp(row.closedAt);
+  return feedbackCaseSlaState(
+    {
+      openedAt: isoTimestamp(row.openedAt),
+      priority: row.priority,
+      triagedAt: optionalIsoTimestamp(row.triagedAt),
+      dueAt: optionalIsoTimestamp(row.dueAt),
+      status: closedAt ? "closed" : "new",
+      closedAt,
+    },
+    now,
+  );
 }

@@ -61,6 +61,10 @@ Notes:
 - Checkout Reservations expire if the buyer abandons checkout before order creation.
 - Order creation converts Checkout Reservations to order holds without releasing and replacing the stock commitment.
 
+## Cancel Checkout
+
+**Cancel checkout** is the session owner's action, on the checkout page and the Checkout session API's `cancel` route, that releases every active Checkout Reservation of a session holding only reservations and records the session cancelled. A repeat answers already-cancelled and releases nothing. Once the session has created orders, started payment or placed purchase intent, Cancel checkout is refused: those holds are released only by cancelling the purchase in Ordering, or by Payments reporting the payment terminal.
+
 ## Source Intent
 
 **Source Intent** describes how a checkout session began: cart checkout, buy now, or offer intent.

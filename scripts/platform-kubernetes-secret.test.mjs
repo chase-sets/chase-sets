@@ -37,6 +37,23 @@ const sampleValues = {
   },
 };
 
+const previewProviderSecretNames = [
+  "SCRYDEX_API_KEY",
+  "SCRYDEX_TEAM_ID",
+  "SES_AWS_ACCESS_KEY_ID",
+  "SES_AWS_SECRET_ACCESS_KEY",
+  "SES_SOURCE_ARN",
+];
+
+const previewProviderValues = {
+  global: { existingSecretName: "chase-sets-platform-runtime" },
+  components: {
+    api: {
+      env: previewProviderSecretNames.map((name) => ({ name, secret: true, secretKey: name })),
+    },
+  },
+};
+
 describe("platform Kubernetes secret", () => {
   it("threads only the Secret-apply steps; chart identity does not gate keyring reconciliation", () => {
     let sinks = 0;
@@ -51,7 +68,7 @@ describe("platform Kubernetes secret", () => {
         for (const step of job.steps ?? []) {
           if (!/^Apply .*Kubernetes runtime secrets$/.test(step.name ?? "")) continue;
           sinks++;
-          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"]) {
+          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON"]) {
             expect(step.env[secretName]).toBe(`\${{ secrets.${secretName} || '' }}`);
             expect(step.run).not.toContain(secretName);
             expect(job.env ?? {}).not.toHaveProperty(secretName);
@@ -92,37 +109,30 @@ describe("platform Kubernetes secret", () => {
     for (const marker of ["synthetic-old-keyring", "synthetic-new-keyring"]) {
       await applyPlatformSecretManifest({
         values,
-        env: { ...env, CHANNELS_CREDENTIAL_KEYRING_JSON: marker, CATALOG_OPERATOR_SESSION_KEYRING_JSON: marker },
+        env: { ...env, CHANNELS_CREDENTIAL_KEYRING_JSON: marker },
         spawn,
         kubectlPath: "synthetic-kubectl",
       });
     }
     expect(calls).toHaveLength(2);
-    for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
-      expect(inputs.map((input) => Buffer.from(JSON.parse(input).data[secretName], "base64").toString())).toEqual([
-        "synthetic-old-keyring",
-        "synthetic-new-keyring",
-      ]);
+    expect(
+      inputs.map((input) => Buffer.from(JSON.parse(input).data.CHANNELS_CREDENTIAL_KEYRING_JSON, "base64").toString()),
+    ).toEqual(["synthetic-old-keyring", "synthetic-new-keyring"]);
     expect(JSON.stringify(calls)).not.toMatch(/synthetic-(old|new)-keyring/);
   });
-  it.each(["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])(
-    "includes optional %s without its value in a summary",
-    (secretName) => {
-      const values = buildPlatformHelmValues();
-      expect(collectPlatformSecretKeys(values)).toEqual(
-        expect.arrayContaining(["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"]),
-      );
-      const env = Object.fromEntries(collectPlatformSecretKeys(values).map((key) => [key, "synthetic-value"]));
-      env[secretName] = "synthetic-custody-marker";
-      const manifest = buildPlatformSecretManifest({ values, env, namespace: "synthetic" });
-      expect(Buffer.from(manifest.data[secretName], "base64").toString()).toBe("synthetic-custody-marker");
-      expect(JSON.stringify(summarizePlatformSecret({ values, namespace: "synthetic" }))).not.toContain(
-        "synthetic-custody-marker",
-      );
-      env[secretName] = "";
-      expect(buildPlatformSecretManifest({ values, env, namespace: "synthetic" }).data[secretName]).toBe("");
-    },
-  );
+  it.each(["CHANNELS_CREDENTIAL_KEYRING_JSON"])("includes optional %s without its value in a summary", (secretName) => {
+    const values = buildPlatformHelmValues();
+    expect(collectPlatformSecretKeys(values)).toEqual(expect.arrayContaining(["CHANNELS_CREDENTIAL_KEYRING_JSON"]));
+    const env = Object.fromEntries(collectPlatformSecretKeys(values).map((key) => [key, "synthetic-value"]));
+    env[secretName] = "synthetic-custody-marker";
+    const manifest = buildPlatformSecretManifest({ values, env, namespace: "synthetic" });
+    expect(Buffer.from(manifest.data[secretName], "base64").toString()).toBe("synthetic-custody-marker");
+    expect(JSON.stringify(summarizePlatformSecret({ values, namespace: "synthetic" }))).not.toContain(
+      "synthetic-custody-marker",
+    );
+    env[secretName] = "";
+    expect(buildPlatformSecretManifest({ values, env, namespace: "synthetic" }).data[secretName]).toBe("");
+  });
   it("collects unique secret keys from Helm values", () => {
     expect(collectPlatformSecretKeys(sampleValues)).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
   });
@@ -255,6 +265,15 @@ describe("platform Kubernetes secret", () => {
         },
       }),
     ).toThrow("STRIPE_SECRET_KEY");
+  });
+
+  it.each(previewProviderSecretNames)("fails closed when %s is omitted", (missingName) => {
+    const env = Object.fromEntries(previewProviderSecretNames.map((name) => [name, `synthetic-${name}`]));
+    delete env[missingName];
+
+    expect(() => buildPlatformSecretManifest({ values: previewProviderValues, env })).toThrow(
+      `Missing Kubernetes secret environment value(s): ${missingName}.`,
+    );
   });
 
   it("synthesizes disposable preview Postgres secrets and database URLs", () => {

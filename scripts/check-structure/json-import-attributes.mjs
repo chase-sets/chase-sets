@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { listWorkspacePackages, repoRoot } from "../lib/repo.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 const sourceExtensions = [".ts", ".tsx", ".mts", ".cts"];
 const sourceExtensionSet = new Set(sourceExtensions);
@@ -45,7 +46,10 @@ function sourceFile(relativeFile, content, work) {
 function trackedPaths(rootDir, work) {
   work.gitSubprocesses += 1;
   return new Set(
-    execFileSync("git", ["-C", rootDir, "ls-files"], { encoding: "utf8" })
+    execFileSync("git", ["-C", rootDir, "ls-files"], {
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split(/\r?\n/)
       .filter(Boolean)
       .map(normalizePath),
@@ -55,21 +59,11 @@ function trackedPaths(rootDir, work) {
 function gitGrepPaths(rootDir, patterns, work) {
   work.gitSubprocesses += 1;
   work.wholeTreeScans += 1;
+  const expression = patterns.map((pattern) => pattern.replace(/[|\\{}()[\]^$+*?.-]/g, "\\$&")).join("|");
   try {
     return execFileSync(
       "git",
-      [
-        "-C",
-        rootDir,
-        "grep",
-        "-IlF",
-        ...patterns.flatMap((pattern) => ["-e", pattern]),
-        "--",
-        "*.ts",
-        "*.tsx",
-        "*.mts",
-        "*.cts",
-      ],
+      ["-C", rootDir, "grep", "-Il", "-E", "-e", expression, "--", "*.ts", "*.tsx", "*.mts", "*.cts"],
       { encoding: "utf8" },
     )
       .split(/\r?\n/)
@@ -274,6 +268,10 @@ function workspacePackageJsonPath(workspace) {
   return normalizePath(path.posix.join(workspace.root, workspace.dirName, "package.json"));
 }
 
+function indexedWorkspacePackages(paths, discoveredPackages) {
+  return discoveredPackages.filter((workspace) => paths.has(workspacePackageJsonPath(workspace)));
+}
+
 function implementedContexts(packages, rootDir) {
   return packages.flatMap((workspace) => {
     if (workspace.root !== "bounded-contexts") return [];
@@ -343,14 +341,14 @@ function possibleManifestPaths({
   // The text filter only over-selects; the compiler preprocessor decodes the
   // specifier and the authoritative full AST decides the declaration below.
   const markers = [".json", "\\", ...manifestSpecifiers];
-  const possible = useGitPrefilter
+  const sourceCandidates = useGitPrefilter
     ? gitGrepPaths(rootDir, markers, work)
     : [...paths].filter(
         (relativeFile) =>
           sourceExtensionSet.has(path.posix.extname(relativeFile)) &&
           markers.some((marker) => readContent(relativeFile).includes(marker)),
       );
-  return possible.filter(
+  const candidates = sourceCandidates.filter(
     (relativeFile) =>
       paths.has(relativeFile) &&
       readImports(relativeFile).some(({ fileName }) => {
@@ -358,6 +356,9 @@ function possibleManifestPaths({
         return contextByManifest.has(resolved);
       }),
   );
+  work.sourceIndex.prefilterCount = sourceCandidates.length;
+  work.sourceIndex.candidateCount = candidates.length;
+  return candidates;
 }
 
 function stringProperty(source, propertyName) {
@@ -586,15 +587,22 @@ export function inspectJsonImportAttributes(options = {}) {
   const work = { gitSubprocesses: 0, wholeTreeScans: 0, fileReads: [], fullParses: [], configParses: [], closures: [] };
   let paths = options.paths ?? trackedPaths(rootDir, work);
   paths = new Set([...paths].map(normalizePath));
+  const readContent = createContentReader(rootDir, paths, work);
+  const sourceIndex = [...paths].filter((file) => sourceExtensionSet.has(path.posix.extname(file))).sort();
+  work.indexCandidates = sourceIndex;
+  work.sourceIndex = {
+    kind: "git-index-source/v1",
+    pathCount: paths.size,
+    sourceCount: sourceIndex.length,
+    candidates: [],
+  };
   // Unfiltered filesystem discovery only witnesses an index collapse below.
   // Resolution and context enrollment use Git-index members, so untracked
   // workspace metadata cannot move the partition.
   const discoveredPackages = listWorkspacePackages({ repoRoot: rootDir });
-  const packages = discoveredPackages.filter((workspace) => paths.has(workspacePackageJsonPath(workspace)));
+  const packages = indexedWorkspacePackages(paths, discoveredPackages);
   work.discoveredWorkspaces = discoveredPackages.map(workspacePackageJsonPath);
   work.enrolledWorkspaces = packages.map(workspacePackageJsonPath);
-  work.indexCandidates = [...paths].filter((file) => sourceExtensionSet.has(path.posix.extname(file))).sort();
-  const readContent = createContentReader(rootDir, paths, work);
   const readSource = createSourceReader(readContent, work);
   const readImports = createImportReader(readContent);
   const readRecords = createRecordReader(readSource);
@@ -614,6 +622,7 @@ export function inspectJsonImportAttributes(options = {}) {
     work,
   });
   work.manifestCandidates = [...candidates].sort();
+  work.sourceIndex.candidates = work.manifestCandidates;
   const nodeFiles = moduleClosure({
     seeds: nodeClosureSeeds,
     paths,

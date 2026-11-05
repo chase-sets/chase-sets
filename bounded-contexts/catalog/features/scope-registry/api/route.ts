@@ -4,7 +4,11 @@ import { t } from "@chase-sets/localization";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogScopeRegistryRuntimeDeps } from "./runtime";
 import type { createCatalogScopeRegistryRuntime } from "./runtime";
-import type { CatalogScopeRecordListParams, CatalogScopeRecordRow } from "../read-model/queries";
+import type {
+  CatalogScopeRecordListParams,
+  CatalogScopeRecordListFacets,
+  CatalogScopeRecordRow,
+} from "../read-model/queries";
 import { catalogScopeProductDomains, catalogScopeRecordKinds } from "../domain/contract";
 import type { CatalogLifecycleStatus } from "../../../support/runtime-support/common";
 
@@ -73,11 +77,29 @@ export function scopeRecordDetailFromRow(row: CatalogScopeRecordRow): CatalogSco
   };
 }
 
+export function scopeRecordListParamsFromRecord(
+  record: Readonly<Record<string, unknown>>,
+): CatalogScopeRecordListParams {
+  const text = (key: string) =>
+    typeof record[key] === "string" && String(record[key]).trim() ? String(record[key]).trim() : undefined;
+  return {
+    limit: clampScopeListLimit(record.limit === undefined ? undefined : String(record.limit)),
+    offset: clampScopeListOffset(record.offset === undefined ? undefined : String(record.offset)),
+    search: text("search"),
+    productDomain: matchEnum(text("productDomain"), catalogScopeProductDomains),
+    scopeKind: matchEnum(text("scopeKind"), catalogScopeRecordKinds),
+    lifecycleStatus: matchEnum(text("status"), catalogLifecycleStatuses),
+    referenceRecordId: text("referenceRecordId"),
+    languageEdition: text("languageEdition"),
+  };
+}
+
 /** The canonical Scope Record list page the browser receives. */
 export type CatalogScopeRecordListResponse = Readonly<{
   items: readonly CatalogScopeRecordDetail[];
   total: number;
   count: number;
+  facets: CatalogScopeRecordListFacets;
 }>;
 
 export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteServices) {
@@ -86,19 +108,19 @@ export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteSe
   // Scope-first landing (`GET /scope-records`): the canonical Scope Record list
   // that drives the scope-first Catalog Home. Read-only, filterable by product
   // domain / scope kind / lifecycle status / free-text, and paginated. Language
-  // edition is a client-side facet over the returned page (the column is a JSONB
-  // array), so it is intentionally not a server filter here.
+  // edition is a server-side filter over the canonical JSONB array, before
+  // pagination and count. The response also carries a global observed facet.
   app.get("/", async (c) => {
     const permissionError = requireCatalogViewPermission(c);
     if (permissionError) {
       return permissionError;
     }
 
-    const params = scopeRecordListParamsFromQuery(c);
-    const { items, total } = await services.listScopeRecords(params);
+    const params = scopeRecordListParamsFromRecord(c.req.query());
+    const { items, total, facets } = await services.listScopeRecords(params);
     const mapped = items.map(scopeRecordDetailFromRow);
 
-    return c.json<CatalogScopeRecordListResponse>({ items: mapped, total, count: mapped.length });
+    return c.json<CatalogScopeRecordListResponse>({ items: mapped, total, count: mapped.length, facets });
   });
 
   app.get("/:id", async (c) => {
@@ -124,39 +146,6 @@ export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteSe
   });
 
   return app;
-}
-
-function scopeRecordListParamsFromQuery(c: Context<CatalogAuthoringEnv>): CatalogScopeRecordListParams {
-  const query = c.req.query();
-  const params: {
-    -readonly [K in keyof CatalogScopeRecordListParams]: CatalogScopeRecordListParams[K];
-  } = {
-    limit: clampScopeListLimit(query.limit),
-    offset: clampScopeListOffset(query.offset),
-  };
-
-  const search = query.search?.trim();
-  if (search) {
-    params.search = search;
-  }
-  const productDomain = matchEnum(query.productDomain, catalogScopeProductDomains);
-  if (productDomain) {
-    params.productDomain = productDomain;
-  }
-  const scopeKind = matchEnum(query.scopeKind, catalogScopeRecordKinds);
-  if (scopeKind) {
-    params.scopeKind = scopeKind;
-  }
-  const lifecycleStatus = matchEnum(query.status, catalogLifecycleStatuses);
-  if (lifecycleStatus) {
-    params.lifecycleStatus = lifecycleStatus;
-  }
-  const referenceRecordId = query.referenceRecordId?.trim();
-  if (referenceRecordId) {
-    params.referenceRecordId = referenceRecordId;
-  }
-
-  return params;
 }
 
 function matchEnum<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {

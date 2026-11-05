@@ -5,6 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 
 import { MANAGED_REGISTRY_AUTHORITY } from "./managed-registry-readiness.mjs";
 
@@ -24,6 +25,7 @@ export function discoverTrackedExecutableWorkflows(repositoryRoot) {
   const output = execFileSync("git", ["ls-files", "--", executableWorkflowDirectory], {
     cwd: repositoryRoot,
     encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
     windowsHide: true,
   });
 

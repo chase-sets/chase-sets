@@ -95,7 +95,7 @@ export function FieldListPage({ data, query }: CatalogListRouteData<Field>) {
     setFilterable(false);
     setSearchable(false);
     setSortable(false);
-    revalidator.revalidate();
+    void revalidator.revalidate();
   }
 
   return (

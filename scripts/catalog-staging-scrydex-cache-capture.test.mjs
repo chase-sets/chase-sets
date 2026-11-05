@@ -81,20 +81,20 @@ function conditionHolds(expression, context) {
 }
 
 function jobsSelectedFor(document, journeyScope) {
+  if (journeyScope === "scrydex-force-refresh-bounded") return ["scrydex-force-refresh-bounded"];
+  if (journeyScope === "scrydex-cache-capture") return ["scrydex-cache-capture"];
   const context = { "inputs.journey_scope": journeyScope, "needs.admit-reviewed-sha.result": "success" };
   const resolves = conditionHolds(document.jobs["resolve-provider-uat-plan"].if, context);
   context["needs.resolve-provider-uat-plan.result"] = resolves ? "success" : "skipped";
-  return [
-    "resolve-provider-uat-plan",
-    "staging-provider-uat",
-    "scope-sync-count-lifecycle",
-    "scrydex-cache-capture",
-  ].filter((name) => conditionHolds(document.jobs[name].if, context));
+  return ["resolve-provider-uat-plan", "staging-provider-uat", "scope-sync-count-lifecycle"].filter((name) =>
+    conditionHolds(document.jobs[name].if, context),
+  );
 }
 
 function assertCaptureJobIsolated(document) {
   const job = document.jobs["scrydex-cache-capture"];
-  expect(job.needs).toBe("admit-reviewed-sha");
+  expect(job.needs).toEqual(["admit-reviewed-sha", "scrydex-force-refresh-bounded"]);
+  expect(job.if).toContain("needs.scrydex-force-refresh-bounded.outputs.refresh_outcome == 'complete'");
   expect(job.environment).toBe("staging");
   expect(job.permissions).toEqual({ contents: "read", actions: "read" });
   expect(job.env).toEqual({
@@ -109,13 +109,17 @@ function assertCaptureJobIsolated(document) {
   expect(run.run).toBe("pnpm exec tsx scripts/catalog-staging-scrydex-cache-capture.mjs capture");
   expect(validate.run).toBe("pnpm exec tsx scripts/catalog-staging-scrydex-cache-capture.mjs validate");
   expect(validate.if).toBe("${{ always() && steps.capture.outcome != 'skipped' }}");
-  for (const step of [run, validate]) {
-    expect(step.env).toEqual({
-      CATALOG_ADMIN_E2E_EMAIL: "${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
-      CATALOG_ADMIN_E2E_PASSWORD: "${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}",
-      GH_TOKEN: "${{ github.token }}",
-    });
-  }
+  expect(run.env).toEqual({
+    CATALOG_ADMIN_E2E_EMAIL: "${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
+    CATALOG_ADMIN_E2E_PASSWORD: "${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}",
+    GH_TOKEN: "${{ github.token }}",
+    PLAYWRIGHT_BROWSERS_PATH: "${{ runner.temp }}/playwright-chromium",
+  });
+  expect(validate.env).toEqual({
+    CATALOG_ADMIN_E2E_EMAIL: "${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
+    CATALOG_ADMIN_E2E_PASSWORD: "${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}",
+    GH_TOKEN: "${{ github.token }}",
+  });
   for (const step of job.steps.filter((candidate) => candidate !== run && candidate !== validate)) {
     for (const key of credentialKeys) expect(step.env?.[key], `${step.name ?? step.uses} holds ${key}`).toBeUndefined();
   }

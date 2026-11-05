@@ -152,7 +152,10 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const result = await services.submitOffer(
       {
+        attemptId: readRequiredString(args, "attemptId"),
+        requestHash: readRequiredString(args, "requestHash"),
         offerId: readOptionalMcpTypedIdArgument(args, "offerIdOverride", "off") ?? undefined,
+        counteredOfferId: readOptionalMcpTypedIdArgument(args, "counteredOfferId", "off") ?? undefined,
         buyerAccountId: scopedActor.accountId as AccountId,
         catalogItemId: readMcpTypedIdArgument(args, "catalogItemId", "cat"),
         productId: readRequiredString(args, "productId"),
@@ -182,6 +185,8 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const result = await services.updateOfferPrice(
       {
+        attemptId: readRequiredString(args, "attemptId"),
+        requestHash: readRequiredString(args, "requestHash"),
         offerId: readMcpTypedIdArgument(args, "offerId", "off"),
         buyerAccountId: scopedActor.accountId as AccountId,
         priceAmount: readRequiredString(args, "priceAmount"),
@@ -214,7 +219,8 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
         sellerAccountId: scopedActor.accountId as AccountId,
         listingId: readRequiredString(args, "listingId"),
         feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
-        sourceActionKey: readMcpStringArgument(args, "sourceActionKey"),
+        sourceActionKey: readRequiredString(args, "attemptId"),
+        requestHash: readRequiredString(args, "requestHash"),
       },
       createActorEventStoreContext(scopedActor),
     );
@@ -229,6 +235,8 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
     requirePermission(scopedActor, "listings.view");
     const result = await services.declineOfferMatch(
       {
+        attemptId: readRequiredString(args, "attemptId"),
+        requestHash: readRequiredString(args, "requestHash"),
         offerId: readMcpTypedIdArgument(args, "offerId", "off"),
         sellerAccountId: scopedActor.accountId as AccountId,
       },

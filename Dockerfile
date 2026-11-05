@@ -1,5 +1,5 @@
-# syntax=docker/dockerfile:1
-FROM node:24-bookworm-slim AS manifests
+# syntax=ghcr.io/chase-sets/ci-mirror-dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS manifests
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ COPY . .
 RUN mkdir /manifests \
   && find . -mindepth 3 -maxdepth 3 -name package.json | tar -cf - -T - | tar -xf - -C /manifests
 
-FROM node:24-bookworm-slim AS build
+FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS build
 
 WORKDIR /app
 
@@ -38,9 +38,11 @@ COPY --chown=node:node deployables ./deployables
 
 RUN pnpm --filter @chase-sets/app-public-web run build \
   && pnpm --filter @chase-sets/app-marketplace-web run build \
-  && pnpm --filter @chase-sets/app-admin-web run build
+  && pnpm --filter @chase-sets/app-admin-web run build \
+  && pnpm --filter @chase-sets/app-platform-api run build \
+  && pnpm --filter @chase-sets/app-platform-worker run build
 
-FROM node:24-bookworm-slim AS runtime
+FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime
 
 WORKDIR /app
 
@@ -64,6 +66,8 @@ COPY --chown=node:node deployables ./deployables
 COPY --chown=node:node --from=build /app/deployables/public-web/build ./deployables/public-web/build
 COPY --chown=node:node --from=build /app/deployables/marketplace/build ./deployables/marketplace/build
 COPY --chown=node:node --from=build /app/deployables/admin-web/build ./deployables/admin-web/build
+COPY --chown=node:node --from=build /app/deployables/platform-api/dist ./deployables/platform-api/dist
+COPY --chown=node:node --from=build /app/deployables/platform-worker/dist ./deployables/platform-worker/dist
 COPY --chown=node:node scripts/discovery-search-identity-terms-populate.mjs ./scripts/discovery-search-identity-terms-populate.mjs
 COPY --chown=node:node scripts/typescript-resolver-caller-manifests/discovery-search-identity-terms-populate.manifest ./scripts/typescript-resolver-caller-manifests/discovery-search-identity-terms-populate.manifest
 

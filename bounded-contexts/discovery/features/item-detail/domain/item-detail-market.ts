@@ -262,22 +262,7 @@ export function sortOffersBySellerPrice(offers: readonly DiscoveryOffer[]): Disc
   });
 }
 
-export function getBestOffer(offers: readonly DiscoveryOffer[]): DiscoveryOffer | null {
-  return offers.find((offer) => offer.status === "submitted") ?? offers[0] ?? null;
-}
-
-export function getBestAccountOfferMatch(
-  offers: readonly DiscoveryAccountOfferMatch[],
-): DiscoveryAccountOfferMatch | null {
-  return (
-    sortAccountOfferMatchesForReview(offers.filter((offer) => offer.status === "submitted" && offer.can_fulfill))[0] ??
-    null
-  );
-}
-
-export function sortAccountOfferMatchesForReview(
-  offers: readonly DiscoveryAccountOfferMatch[],
-): DiscoveryAccountOfferMatch[] {
+export function sortAccountOfferMatchesForReview<T extends DiscoveryAccountOfferMatch>(offers: readonly T[]): T[] {
   return [...offers].sort((left, right) => {
     const fulfillableDelta = Number(right.can_fulfill) - Number(left.can_fulfill);
     if (fulfillableDelta !== 0) {

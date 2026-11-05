@@ -667,6 +667,11 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("Your Sell List is empty");
     expect(markup).toContain("Add selected offers or products");
     expect(markup).toContain("Browse products");
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    expect(container.querySelector("section div.m-0.mx-auto.max-w-xl")?.className).toContain(
+      "m-0 mx-auto max-w-xl text-sm leading-6 text-secondary",
+    );
     expect(markup).not.toContain("Expected seller payout");
     expect(markup).not.toContain("Continue to seller checkout");
   });
@@ -713,7 +718,16 @@ describe("checkout sell list page", () => {
       );
 
       expect(screen.getByText("Your Sell List is updating.")).toBeTruthy();
+      const panel = screen.getByText("Your Sell List is updating.").closest(".rounded-tokenLg");
+      expect(panel).toBeTruthy();
+      expect(panel?.querySelectorAll("article.inset-surface")).toHaveLength(2);
+      expect(panel?.querySelector("article.rounded-tokenLg")).toBeNull();
       expect(screen.getByText(isAutoRevalidating ? "Updating Sell List" : "Refreshing Sell List")).toBeTruthy();
+      expect(screen.getByText("Unavailable")).toBeTruthy();
+      expect(screen.getAllByText("Charizard").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Base Set 4/102 Holo Rare").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Raw / Near Mint").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Quantity").length).toBeGreaterThan(0);
       expect(screen.getByRole("link", { name: "Refresh Sell List" }).getAttribute("href")).toBe(
         "/account/sell-list?afterWrite=synthetic-pending-review",
       );

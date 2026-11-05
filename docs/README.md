@@ -155,7 +155,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Product Contents QA/UAT](./runbooks/product-contents-qa-uat.md): seeded scenario, API, MCP, Admin, and Marketplace rollout evidence checklist.
 - [Catalog Asset Storage](./runbooks/catalog-asset-storage.md): owned storage for provider-fed catalog imagery.
 - [Catalog Provider Integration Profiles](./runbooks/catalog-provider-integration-profiles.md): profile activation, rollback, retirement, and bootstrap failure response.
-- [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): provider cookie handling, throttling, redaction, retention, and recovery for the automation-app client.
+- [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): the retired server transport, credential-free extension pairing grants, redaction, and retention.
 - [Channels Pilot Operations](./runbooks/channels-pilot-operations.md): TCGplayer phase-1 manual-sync round trip, pause/resume, operator kill switch, degraded manual mode, no-redelivery rule, and evidence capture.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, rebuild triage, and poison-event/blocked-stream repair.
@@ -197,6 +197,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Localization Contract](../contracts/localization/README.md)
 
 ## ADRs
+
+- [DB-other Headroom Decision](./decisions/10766-db-other-headroom.md): measured coverage-preserving headroom decision and successor handoff.
 
 - [ADR 0001: Platform API Observability](./adr/0001-platform-api-observability.md)
 - [ADR 0002: Adopt UCP For Agent Commerce](./adr/0002-adopt-ucp-for-agent-commerce.md)

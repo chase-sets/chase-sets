@@ -2,13 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { supportFlowCatalog } from "../domain/flow-catalog";
+import { getSupportFlowDefinition, supportFlowCatalog } from "../domain/flow-catalog";
 import { SupportRequestListPage } from "./support-request-list-page";
 import { File as NodeFile } from "node:buffer";
 import MarketplaceAccountSupportRoute, { action, loader } from "../../../routes/marketplace/account-support";
 import AccountSupportDetailRoute, { loader as detailLoader } from "../../../routes/marketplace/account-support-detail";
-import { supportParticipantDetailFixture } from "./participant-router.test-data";
+import { supportParticipantDetailFixture, withParticipantPolicy } from "./participant-router.test-data";
 import { multipartRequest, nativeFormData } from "../tests/attachment-intake.test-support";
+import { formatDateTime } from "@chase-sets/localization";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer", tenantId: "tnt_identity" })),
@@ -88,7 +89,7 @@ describe("SupportRequestListPage", () => {
   });
 
   for (const failure of ["ambiguous", "denied", "rejected", "conflict", "submit-conflict"] as const) {
-    it(`actual action-loader-form renders ${failure}, retains one batch and changes it only explicitly`, async () => {
+    it(`participant form busies only its own submission: ${failure} retains one batch and changes it only explicitly`, async () => {
       vi.stubGlobal("File", NodeFile);
       const user = userEvent.setup();
       const uploadIds: string[] = [];
@@ -111,25 +112,31 @@ describe("SupportRequestListPage", () => {
           if (url.endsWith("/flows")) return json({ items: supportFlowCatalog });
           if (url.endsWith("/purchases") || url.endsWith("/sales")) return json({ items: [] });
           if (url.endsWith("/support-requests/sup_1"))
-            return json({
-              ...supportParticipantDetailFixture(),
-              support_request_id: "sup_1",
-              order_id: "ord_1",
-              display_reference: "SUP-OPENED",
-              flow_type: "product-damaged",
-              status: "waiting-on-seller",
-              checklist: [],
-              evidence: [
+            return json(
+              withParticipantPolicy(
                 {
-                  evidenceId: "sev_opening",
-                  evidenceType: "photo",
-                  summary: "Opening photos recorded",
-                  submittedByRole: "buyer",
-                  submittedAt: "2026-10-12T12:01:00.000Z",
-                  attachments: [],
+                  ...supportParticipantDetailFixture(),
+                  support_request_id: "sup_1",
+                  order_id: "ord_1",
+                  display_reference: "SUP-OPENED",
+                  flow_type: "product-damaged",
+                  flow: getSupportFlowDefinition("product-damaged"),
+                  status: "waiting-on-seller",
+                  checklist: [],
+                  evidence: [
+                    {
+                      evidenceId: "sev_opening",
+                      evidenceType: "photo",
+                      summary: "Opening photos recorded",
+                      submittedByRole: "buyer",
+                      submittedAt: "2026-10-12T12:01:00.000Z",
+                      attachments: [],
+                    },
+                  ],
                 },
-              ],
-            });
+                "acc_buyer",
+              ),
+            );
           if (url.endsWith("/orders/ord_1"))
             return json({
               ...buyerOrder,
@@ -138,6 +145,7 @@ describe("SupportRequestListPage", () => {
                 : null,
             });
           if (url.endsWith("/support-requests")) {
+            if (failing && failure === "submit-conflict") return json({ error: { message: "Submit conflict" } }, 409);
             opened = true;
             return json({ id: "sup_1" }, 201);
           }
@@ -189,7 +197,7 @@ describe("SupportRequestListPage", () => {
                     reader.onerror = reject;
                     reader.readAsArrayBuffer(value);
                   });
-                  native.append(key, new NodeFile([bytes], value.name, { type: value.type }) as File);
+                  native.append(key, new File([bytes], value.name, { type: value.type }));
                 }
               }
               return action({ ...args, request: await multipartRequest(args.request.url, native) });
@@ -220,7 +228,9 @@ describe("SupportRequestListPage", () => {
         await act(() => uploadDispatched);
         expect(uploadIds).toEqual([originalId]);
         expect(document.querySelector("form")?.getAttribute("aria-busy")).toBe("true");
-        expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(true);
+        expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(false);
+        fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
+        expect(uploadIds).toEqual([originalId]);
         const released = navigationSettled(router);
         await act(async () => {
           releaseUpload!();
@@ -237,7 +247,7 @@ describe("SupportRequestListPage", () => {
         expect(field().value).toBe(originalId);
         expect(uploadIds).toEqual([originalId]);
         expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull();
-        expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')?.value).toBe("sup_1");
+        expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')).toBeNull();
         expect(screen.queryByText("You already have an open case for this order")).toBeNull();
         if (failure === "submit-conflict") {
           const status = screen.getByRole("heading", {
@@ -269,7 +279,7 @@ describe("SupportRequestListPage", () => {
         await user.click(screen.getByRole("button", { name: "Start a new photo batch" }));
         const freshId = field().value;
         expect(freshId).not.toBe(originalId);
-        expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')?.value).toBe("sup_1");
+        expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')).toBeNull();
         expect(document.querySelector('input[name="uploadedAttachmentReferences"]')).toBeNull();
         expect(document.querySelector<HTMLInputElement>('input[name="uploadUncertain"]')?.value).toBe("false");
         failing = false;
@@ -411,12 +421,50 @@ describe("SupportRequestListPage", () => {
       closure_blocking_reasons: [],
       next_remedy_action: null,
       remedy_repair_guidance: [],
+      customerRemedyStatus: null,
+      nextDeadline: "2026-07-17T08:00:00.000Z",
     };
 
-    renderPage(null, [request], [request]);
+    const projection = {
+      state: "completed" as const,
+      terminal: true,
+      role: "buyer" as const,
+      outcome: "fullRefund" as const,
+      coverage: "full" as const,
+      noFaultFinding: false,
+      returnDirective: "no-return" as const,
+      refundTrigger: "immediate" as const,
+      nextAction: null,
+      amount: "5.00",
+      currencyCode: "usd",
+      sellerAmount: "0.00",
+      platformAmount: "5.00",
+      allocationCurrencyCode: "usd",
+    };
+    const nextDeadline = "2026-07-30T08:00:00.000Z";
+    renderPage(
+      null,
+      [{ ...request, nextDeadline, customerRemedyStatus: projection }],
+      [
+        {
+          ...request,
+          nextDeadline,
+          customerRemedyStatus: {
+            ...projection,
+            role: "seller",
+            outcome: "completedCovered",
+            coverage: null,
+            noFaultFinding: true,
+          },
+        },
+      ],
+    );
 
     const links = screen.getAllByRole("link", { name: "SUP-CASEDETA" });
     expect(links).toHaveLength(4);
     expect(links.every((link) => link.getAttribute("href") === "/account/support/sup_case_detail")).toBe(true);
+    expect(screen.getAllByText("Full refund of $5.00 approved.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Seller charge: $0.00. Chase Sets covered $5.00.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatDateTime(nextDeadline, { preset: "short" })).length).toBeGreaterThan(0);
   });
 });

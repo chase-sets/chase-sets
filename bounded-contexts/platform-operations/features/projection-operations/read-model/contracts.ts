@@ -200,6 +200,16 @@ export function normalizeProjectionOperationsSnapshot(value: unknown): Projectio
   };
 }
 
+export function deriveProjectionTriage(body: unknown) {
+  const snapshot = normalizeProjectionOperationsSnapshot(body);
+  return {
+    attentionItems: buildAttentionItems(snapshot),
+    repairQueue: buildProjectionRepairQueue(snapshot),
+    activeWorkerCount: activeWorkerCount(snapshot),
+    staleWorkerCount: staleWorkerCount(snapshot),
+  } as const;
+}
+
 export function resolveProjectionOperatorState(
   subscriptionState: ProjectionState,
   runnerState: string | undefined,

@@ -4,15 +4,12 @@ import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
-import { listSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/queries";
-import { listProposedProviderScopeMappings } from "../../provider-scope-mapping/read-model/queries";
-import { listStaleActiveCatalogScopeRecords } from "../../scope-registry/read-model/queries";
-import { listCatalogMergeCandidates } from "../../source-observations/read-model/queries";
-import { buildCatalogIntegrationControlPlaneOverview } from "../../source-observations/api/admin-control-plane-overview";
-import type {
-  CatalogIntegrationControlPlaneReadiness,
-  SourceObservationIntegrationJob,
-} from "../../source-observations/api/runtime";
+import { readPendingAliasCandidateAttentionWindow } from "../../alias-equivalence/read-model/queries";
+import { readProposedProviderScopeMappingAttentionWindow } from "../../provider-scope-mapping/read-model/queries";
+import { readStaleActiveCatalogScopeRecordAttentionWindow } from "../../scope-registry/read-model/queries";
+import { readCatalogMergeCandidateAttentionWindow } from "../../source-observations/read-model/queries";
+import { buildCatalogIntegrationUnitActivity } from "../../source-observations/api/admin-control-plane-overview";
+import type { CatalogIntegrationEngineServices, IntegrationJobServices } from "../../source-observations/api/runtime";
 import {
   decideCatalogAttentionDismissal,
   evolveCatalogAttentionDismissal,
@@ -21,6 +18,13 @@ import {
   type CatalogAttentionDismissalEvent,
   type CatalogAttentionDismissalState,
 } from "../domain/dismissal";
+import {
+  CATALOG_ATTENTION_SUMMARY_WINDOW,
+  catalogAttentionKindWindow,
+  type CatalogAttentionItemKind,
+  type CatalogAttentionQueueWindow,
+} from "../read-model/attention-item";
+import { collectImportJobItems, collectProviderHealthItems } from "../read-model/collectors";
 import { buildCatalogAttentionDismissalProjectionHandlers } from "../read-model/dismissal-projection";
 import { listActiveAttentionDismissalKeys } from "../read-model/dismissal-queries";
 import { assembleCatalogAttentionQueue, type CatalogAttentionQueueReadModel } from "./contracts";
@@ -30,12 +34,14 @@ import { assembleCatalogAttentionQueue, type CatalogAttentionQueueReadModel } fr
 // genuinely abandoned syncs. Superseded by the scope-sync-state model.
 export const CATALOG_ATTENTION_STALE_SCOPE_SYNC_MS = 14 * 24 * 60 * 60 * 1000;
 
-// The already-computed control-plane inputs the attention queue folds in for its
-// health and import-job sources. Injected from the source-observations runtime so
-// the queue and the health-triage surface read the same readiness facts.
+// The control-plane inputs the attention queue folds in for its health and
+// import-job sources, injected from the source-observations runtime so the queue
+// and the health-triage surface read the same readiness facts. The job source is
+// the active-job snapshot with its completeness: the job store caps it, so an
+// incomplete snapshot can only support a lower-bound job count.
 export type CatalogAttentionControlPlaneSources = Readonly<{
-  getReadiness: () => Promise<CatalogIntegrationControlPlaneReadiness>;
-  listActiveJobs: (input: { context: EventStoreContext }) => Promise<readonly SourceObservationIntegrationJob[]>;
+  getReadiness: CatalogIntegrationEngineServices["getCatalogIntegrationControlPlaneReadiness"];
+  listActiveJobSnapshot: NonNullable<IntegrationJobServices["listActiveIntegrationJobSnapshot"]>;
 }>;
 
 export type CatalogAttentionQueueServices = Readonly<{
@@ -47,6 +53,7 @@ export type CatalogAttentionQueueServices = Readonly<{
   getCatalogAttentionQueueReadModel: (input: {
     context: EventStoreContext;
     generatedAt?: string;
+    window?: CatalogAttentionQueueWindow;
   }) => Promise<CatalogAttentionQueueReadModel>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -70,50 +77,55 @@ export function createCatalogAttentionQueueRuntime(
     }),
   ];
 
+  // Readiness and the active-job snapshot, with the parked keys among the items
+  // they produce. Only these items are observed in memory; every other source
+  // excludes parked rows in SQL.
+  async function readObservedControlPlane(context: EventStoreContext, now: string) {
+    const [readiness, jobSnapshot] = await Promise.all([
+      controlPlane.getReadiness(),
+      controlPlane.listActiveJobSnapshot({ context }),
+    ]);
+    const unitActivity = buildCatalogIntegrationUnitActivity(readiness.units, jobSnapshot.items);
+    const observedItemKeys = [
+      ...collectProviderHealthItems(readiness.units, { generatedAt: now }),
+      ...collectImportJobItems(unitActivity),
+    ].map((item) => item.itemKey);
+    const parkedObservedItemKeys = await listActiveAttentionDismissalKeys(deps.db, {
+      now,
+      itemKeys: observedItemKeys,
+    });
+    return { readiness, unitActivity, completeness: jobSnapshot.completeness, parkedObservedItemKeys };
+  }
+
   return {
     catalogAttentionDismissalCommandHandler,
-    getCatalogAttentionQueueReadModel: async ({ context, generatedAt }) => {
+    getCatalogAttentionQueueReadModel: async ({ context, generatedAt, window = CATALOG_ATTENTION_SUMMARY_WINDOW }) => {
       const now = generatedAt ?? new Date().toISOString();
       const staleBefore = new Date(Date.parse(now) - CATALOG_ATTENTION_STALE_SCOPE_SYNC_MS).toISOString();
+      const sourceWindow = (kind: CatalogAttentionItemKind) => ({ now, ...catalogAttentionKindWindow(window, kind) });
 
-      const [
-        readiness,
-        activeJobs,
-        proposedScopeMappings,
-        conflictCandidates,
-        staleCandidates,
-        pendingAliasCandidates,
-        staleScopeRecords,
-        dismissedItemKeys,
-      ] = await Promise.all([
-        controlPlane.getReadiness(),
-        controlPlane.listActiveJobs({ context }),
-        listProposedProviderScopeMappings(deps.db),
-        listCatalogMergeCandidates(deps.db, { status: "has-conflicts", limit: 200 }),
-        listCatalogMergeCandidates(deps.db, { status: "stale", limit: 200 }),
-        listSourceObservationAliasCandidates(deps.db, { reviewStatuses: ["pending"], limit: 200 }),
-        listStaleActiveCatalogScopeRecords(deps.db, { before: staleBefore }),
-        listActiveAttentionDismissalKeys(deps.db, { now }),
-      ]);
-
-      const overview = buildCatalogIntegrationControlPlaneOverview({
-        readiness,
-        profiles: [],
-        activeJobs,
-        generatedAt: now,
-        audience: "daily",
-      });
+      const [observed, proposedScopeMappings, mergeCandidates, pendingAliasCandidates, staleScopeRecords] =
+        await Promise.all([
+          readObservedControlPlane(context, now),
+          readProposedProviderScopeMappingAttentionWindow(deps.db, sourceWindow("unmapped-scope")),
+          readCatalogMergeCandidateAttentionWindow(deps.db, sourceWindow("merge-conflict")),
+          readPendingAliasCandidateAttentionWindow(deps.db, sourceWindow("alias-candidate")),
+          readStaleActiveCatalogScopeRecordAttentionWindow(deps.db, {
+            ...sourceWindow("stale-scope-sync"),
+            before: staleBefore,
+          }),
+        ]);
 
       return assembleCatalogAttentionQueue(
         {
           proposedScopeMappings,
-          mergeCandidates: [...conflictCandidates.items, ...staleCandidates.items],
-          unitReadiness: readiness.units,
-          unitActivity: overview.unitActivity.units,
+          mergeCandidates,
+          unitReadiness: observed.readiness.units,
+          importJobs: { unitActivity: observed.unitActivity, completeness: observed.completeness },
           pendingAliasCandidates,
           staleScopeRecords,
         },
-        { generatedAt: now, dismissedItemKeys },
+        { generatedAt: now, parkedObservedItemKeys: observed.parkedObservedItemKeys, window },
       );
     },
     projectors,

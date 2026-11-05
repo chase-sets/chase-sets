@@ -1,0 +1,11 @@
+{
+  "name": "unauthorized write with active garbage collection evidence",
+  "input": {
+    "phase": "build-image",
+    "message": "unauthorized:",
+    "diagnostics": [
+      { "rootCauseCode": "registry-gc-read-only", "active": true, "status": "scanning for unreferenced blobs" }
+    ]
+  },
+  "expected": { "rootCauseCode": "registry-gc-read-only" }
+}

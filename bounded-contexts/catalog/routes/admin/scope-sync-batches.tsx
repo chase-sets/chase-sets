@@ -24,11 +24,11 @@ export default function ScopeSyncBatchesRoute() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     formData.set("intent", "resolve-held-sets");
-    submit(formData, { method: "post", action: "/catalog/scopes/sync-batches", encType: "multipart/form-data" });
+    void submit(formData, { method: "post", action: "/catalog/scopes/sync-batches", encType: "multipart/form-data" });
   };
   useEffect(() => {
     if (!batch || !["queued", "running"].includes(batch.status)) return;
-    const timer = window.setInterval(() => revalidator.revalidate(), 2_000);
+    const timer = window.setInterval(() => void revalidator.revalidate(), 2_000);
     return () => window.clearInterval(timer);
   }, [batch, revalidator]);
   return (

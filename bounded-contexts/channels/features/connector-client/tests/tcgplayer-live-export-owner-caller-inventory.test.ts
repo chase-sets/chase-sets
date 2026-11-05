@@ -82,6 +82,7 @@ describe("tcgplayer-live-export-owner-caller-inventory", () => {
       "adapters/chrome-alarms.ts",
       "adapters/chrome-identity.ts",
       "adapters/chrome-indexeddb.ts",
+      "adapters/chrome-listener.ts",
       "adapters/chrome-runtime.ts",
       "adapters/chrome-session.ts",
       "adapters/chrome-storage.ts",

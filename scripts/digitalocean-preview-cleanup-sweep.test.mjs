@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   DIGITALOCEAN_PREVIEW_CLEANUP_SWEEP_VERSION,
+  DIGITALOCEAN_PREVIEW_STATE_RETIREMENT_VERSION,
   IDLE_DRAFT_MAX_SELECTIONS,
   OPEN_PULL_REQUEST_MAX_PAGES,
   PLATFORM_PREVIEW_IDLE_DRAFTS_VERSION,
@@ -15,6 +16,8 @@ import {
   buildPreviewDatabaseClusterInventory,
   cleanupLeakedPreviewDatabaseClusters,
   cleanupMatrixForTargets,
+  cleanupBatchesForTargets,
+  cleanupMatrixForBatches,
   classifyDatabaseCluster,
   commandOutput,
   combinePreviewCleanupCandidates,
@@ -27,6 +30,8 @@ import {
   previewPrNumberFromDnsRecordFqdn,
   previewPrNumberFromNamespaceName,
   previewPrNumberFromStateKey,
+  previewStateKeyForPrNumber,
+  retirePreviewTerraformState,
   previewSharedDnsRecordPlan,
   resolvePreviewDnsZone,
   selectPreviewDatabaseClusterTargets,
@@ -52,6 +57,215 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(previewPrNumberFromStateKey("platform/previews/pr-123.tfstate")).toBe(123);
     expect(previewPrNumberFromStateKey("platform/previews/pr-123.backup")).toBeNull();
     expect(previewPrNumberFromStateKey("landing/staging.tfstate")).toBeNull();
+  });
+
+  it("retires only an empty exact-key state after cleanup and live version guards", async () => {
+    const commands = [];
+    let headCount = 0;
+    const record = await retirePreviewTerraformState(
+      {
+        prNumber: 17,
+        bucket: "chase-sets-terraform-state",
+        endpointUrl: "https://nyc3.digitaloceanspaces.com",
+        terraformDirectory: "infrastructure/digitalocean/platform",
+        checkedAt: "2026-07-04T12:00:00.000Z",
+        cleanupSucceeded: true,
+      },
+      {
+        commandOutput: async (command, args) => {
+          commands.push([command, args]);
+          if (command === "terraform" && args.includes("state")) return "";
+          if (command === "terraform") return "initialized";
+          if (args.includes("get-bucket-versioning")) return JSON.stringify({ Status: "Enabled" });
+          if (args.includes("head-object")) {
+            headCount += 1;
+            return JSON.stringify({ VersionId: "version-17" });
+          }
+          return "deleted";
+        },
+      },
+    );
+
+    expect(record).toMatchObject({
+      schemaVersion: DIGITALOCEAN_PREVIEW_STATE_RETIREMENT_VERSION,
+      stateKey: "platform/previews/pr-17.tfstate",
+      outcome: "retired",
+      result: "success",
+      stateList: { status: "success", empty: true, resourceCount: 0 },
+      versioning: { status: "Enabled" },
+      headBeforeStateList: { versionId: "version-17" },
+      headBeforeDelete: { versionId: "version-17" },
+    });
+    expect(headCount).toBe(2);
+    expect(commands.map(([command, args]) => `${command} ${args.join(" ")}`)).toEqual([
+      expect.stringContaining("aws s3api head-object"),
+      expect.stringContaining("terraform -chdir=infrastructure/digitalocean/platform init"),
+      expect.stringContaining("terraform -chdir=infrastructure/digitalocean/platform state list"),
+      expect.stringContaining("aws s3api get-bucket-versioning"),
+      expect.stringContaining("aws s3api head-object"),
+      expect.stringContaining("aws s3api delete-object"),
+    ]);
+    expect(commands[1][1]).toContain("-backend-config=key=platform/previews/pr-17.tfstate");
+    expect(commands.at(-1)).toEqual([
+      "aws",
+      [
+        "s3api",
+        "delete-object",
+        "--bucket",
+        "chase-sets-terraform-state",
+        "--key",
+        "platform/previews/pr-17.tfstate",
+        "--endpoint-url",
+        "https://nyc3.digitaloceanspaces.com",
+      ],
+    ]);
+    expect(previewStateKeyForPrNumber(17)).toBe("platform/previews/pr-17.tfstate");
+  });
+
+  it.each([
+    ["non-empty state", "digitalocean_database_cluster.postgres\n", "enabled"],
+    ["failed state list", new Error("state list failed"), "enabled"],
+    ["suspended versioning", "", "suspended"],
+    ["absent versioning", "", "absent"],
+    ["malformed versioning", "", "malformed"],
+  ])("leaves the state object when the %s guard refuses", async (_label, stateList, versioningMode) => {
+    const commands = [];
+    const record = await retirePreviewTerraformState(
+      { prNumber: 18, cleanupSucceeded: true, checkedAt: "2026-07-04T12:00:00.000Z" },
+      {
+        commandOutput: async (command, args) => {
+          commands.push([command, args]);
+          if (command === "terraform" && args.includes("state")) {
+            if (stateList instanceof Error) throw stateList;
+            return stateList;
+          }
+          if (command === "terraform") return "initialized";
+          if (args.includes("get-bucket-versioning")) {
+            if (versioningMode === "malformed") return "not-json";
+            if (versioningMode === "absent") return JSON.stringify({});
+            return JSON.stringify({ Status: versioningMode === "enabled" ? "Enabled" : "Suspended" });
+          }
+          if (args.includes("head-object")) return JSON.stringify({ VersionId: "version-18" });
+          return "deleted";
+        },
+      },
+    );
+
+    expect(record.result).toBe("failure");
+    expect(record.outcome).toBe("refused");
+    expect(commands.some(([, args]) => args.includes("delete-object"))).toBe(false);
+  });
+
+  it("refuses before state list when backend initialization fails and records the backend key", async () => {
+    const commands = [];
+    const record = await retirePreviewTerraformState(
+      { prNumber: 21, cleanupSucceeded: true, checkedAt: "2026-07-04T12:00:00.000Z" },
+      {
+        commandOutput: async (command, args) => {
+          commands.push([command, args]);
+          if (command === "aws" && args.includes("head-object")) return JSON.stringify({ VersionId: "version-21" });
+          if (command === "terraform") throw new Error("backend unavailable");
+          return JSON.stringify({ Status: "Enabled" });
+        },
+      },
+    );
+
+    expect(record).toMatchObject({
+      result: "failure",
+      outcome: "refused",
+      stateList: { status: "backend-init-failed" },
+    });
+    expect(record.errors[0]).toContain("backend unavailable");
+    expect(commands).toHaveLength(2);
+    expect(commands[1][1]).toContain("-backend-config=key=platform/previews/pr-21.tfstate");
+    expect(commands.some(([, args]) => args.includes("state"))).toBe(false);
+    expect(commands.some(([, args]) => args.includes("delete-object"))).toBe(false);
+  });
+
+  it("records a cleanup failure without touching the state object", async () => {
+    const commands = [];
+    const record = await retirePreviewTerraformState(
+      { prNumber: 19, cleanupSucceeded: false },
+      { commandOutput: async (...args) => commands.push(args) },
+    );
+    expect(record).toMatchObject({ result: "failure", outcome: "skipped-cleanup-failure", cleanupSucceeded: false });
+    expect(commands).toEqual([]);
+  });
+
+  it.each([{ bucket: "other-bucket" }, { prefix: "platform/production" }])(
+    "refuses retirement target redirection %j before running a command",
+    async (redirect) => {
+      const output = vi.fn();
+      const record = await retirePreviewTerraformState(
+        { prNumber: 22, cleanupSucceeded: true, ...redirect },
+        { commandOutput: output },
+      );
+      expect(record.result).toBe("failure");
+      expect(record.outcome).toBe("refused");
+      expect(output).not.toHaveBeenCalled();
+    },
+  );
+
+  it("pins the retirement CLI bucket and preview prefix despite redirect flags and environment", () => {
+    let record;
+    try {
+      execFileSync(
+        process.execPath,
+        [
+          resolve("scripts/digitalocean-preview-cleanup-sweep.mjs"),
+          "retire-state",
+          "--pr-number",
+          "22",
+          "--cleanup-succeeded",
+          "false",
+          "--bucket",
+          "other-bucket",
+          "--prefix",
+          "platform/production",
+        ],
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          env: { ...process.env, TERRAFORM_STATE_BUCKET: "other-bucket", PREVIEW_STATE_PREFIX: "platform/production" },
+        },
+      );
+      throw new Error("cleanup failure should exit non-zero");
+    } catch (error) {
+      expect(error.status).toBe(1);
+      record = JSON.parse(error.stdout);
+    }
+    expect(record).toMatchObject({
+      bucket: "chase-sets-terraform-state",
+      stateKey: "platform/previews/pr-22.tfstate",
+      outcome: "skipped-cleanup-failure",
+      delete: { status: "not-run" },
+    });
+  });
+
+  it.each(["changed VersionId", "failed versioning probe"])("refuses delete on %s", async (failureMode) => {
+    const commands = [];
+    let headCount = 0;
+    const record = await retirePreviewTerraformState(
+      { prNumber: 20, cleanupSucceeded: true, checkedAt: "2026-07-04T12:00:00.000Z" },
+      {
+        commandOutput: async (command, args) => {
+          commands.push([command, args]);
+          if (command === "terraform" && args.includes("state")) return "";
+          if (command === "terraform") return "initialized";
+          if (args.includes("get-bucket-versioning")) {
+            if (failureMode === "failed versioning probe") throw new Error("versioning unavailable");
+            return JSON.stringify({ Status: "Enabled" });
+          }
+          if (args.includes("head-object")) {
+            headCount += 1;
+            return JSON.stringify({ VersionId: headCount === 1 ? "version-before" : "version-after" });
+          }
+          return "deleted";
+        },
+      },
+    );
+    expect(record.result).toBe("failure");
+    expect(commands.some(([, args]) => args.includes("delete-object"))).toBe(false);
   });
 
   it("extracts preview PR numbers from current and legacy database cluster names", () => {
@@ -151,6 +365,18 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     });
   });
 
+  it("partitions 1,260 sorted cleanup targets into contiguous 32-target batches", () => {
+    const targets = Array.from({ length: 1_260 }, (_, index) => ({ prNumber: 1_260 - index }));
+    const batches = cleanupBatchesForTargets(targets);
+    expect(batches).toHaveLength(40);
+    expect(batches.flatMap((batch) => batch.targets.map((target) => target.prNumber))).toEqual(
+      Array.from({ length: 1_260 }, (_, index) => index + 1),
+    );
+    expect(batches.slice(0, -1).every((batch) => batch.targets.length === 32)).toBe(true);
+    expect(batches.at(-1).targets).toHaveLength(12);
+    expect(cleanupMatrixForBatches(batches, { checkoutRef: "main", imageSha: "abc123" }).include).toHaveLength(40);
+  });
+
   it("discovers closed pull requests from preview state and live database clusters", async () => {
     const result = await discoverPreviewCleanupTargets(
       {
@@ -198,25 +424,31 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(result.matrix).toEqual({
       include: [
         {
-          pr_number: 10,
+          batch_index: 0,
+          batch_count: 1,
           checkout_ref: "main",
           image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-10-postgres",
-        },
-        {
-          pr_number: 12,
-          checkout_ref: "main",
-          image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-12-postgres",
-        },
-        {
-          pr_number: 13,
-          checkout_ref: "main",
-          image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-13-postgres",
         },
       ],
     });
+  });
+
+  it("records an empty successful no-op without a destroy matrix", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => [],
+    });
+    expect(result.record).toMatchObject({
+      result: "empty",
+      closedTargetCount: 0,
+      batchSize: 32,
+      batchCount: 0,
+      batches: [],
+    });
+    expect(result.matrix).toEqual({ include: [] });
   });
 
   it("builds a read-only inventory and marks closed or merged preview clusters leaked", async () => {
@@ -475,7 +707,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(result.record.targets).toEqual([
       expect.objectContaining({ prNumber: 50, pullRequestState: "closed", selected: true }),
     ]);
-    expect(result.matrix.include).toEqual([expect.objectContaining({ pr_number: 50 })]);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ batch_index: 0, batch_count: 1 })]);
   });
 
   it("extracts preview PR numbers from live chase-sets-pr-* namespace names only", () => {
@@ -542,7 +774,70 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       expect.objectContaining({ prNumber: 4736, pullRequestState: "closed", merged: true, selected: true }),
     ]);
     expect(result.record.targets.some((target) => target.prNumber === 4783)).toBe(false);
-    expect(result.matrix.include).toEqual([expect.objectContaining({ pr_number: 4736 })]);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ batch_index: 0, batch_count: 1 })]);
+  });
+
+  it("unwraps Kubernetes List items before closed-preview namespace selection", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [{ name: "chasesets.com" }],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => ({
+        apiVersion: "v1",
+        kind: "List",
+        items: [{ metadata: { name: "chase-sets-pr-4736" } }],
+      }),
+      fetchPullRequest: async () => ({ state: "closed", merged: true }),
+    });
+
+    expect(result.record.namespaceCandidates).toEqual([
+      { prNumber: 4736, namespace: "chase-sets-pr-4736", creationTimestamp: null },
+    ]);
+    expect(result.record.targets).toEqual([
+      expect.objectContaining({ prNumber: 4736, namespace: "chase-sets-pr-4736", pullRequestState: "closed" }),
+    ]);
+    expect(result.record.batches).toEqual([
+      expect.objectContaining({
+        index: 0,
+        targets: [expect.objectContaining({ prNumber: 4736, namespace: "chase-sets-pr-4736" })],
+      }),
+    ]);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ batch_index: 0, batch_count: 1 })]);
+  });
+
+  it("accepts an empty Kubernetes List without warning", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => ({ apiVersion: "v1", kind: "List", items: [] }),
+    });
+
+    expect(result.record.namespaceCandidates).toEqual([]);
+    expect(result.record.phases[3]).toMatchObject({ name: "namespace-list", count: 0, error: null });
+    expect(result.record.warnings).toEqual([]);
+  });
+
+  it("fails closed when the namespace listing has no items array", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => ({ apiVersion: "v1", kind: "Status" }),
+    });
+
+    expect(result.record.namespaceCandidates).toEqual([]);
+    expect(result.record.targets).toEqual([]);
+    expect(result.matrix.include).toEqual([]);
+    expect(result.record.phases[3]).toMatchObject({ name: "namespace-list", count: null });
+    expect(result.record.phases[3].error).toBe("kubectl namespace listing returned no items array.");
+    expect(result.record.warnings[0]).toBe(
+      "Preview namespace listing failed; state, cluster, and DNS cleanup targets were still evaluated.",
+    );
+    expect(result.record.warnings[1]).toBe("kubectl namespace listing returned no items array.");
   });
 
   it("degrades to a warning instead of failing the whole sweep when namespace listing is unavailable", async () => {
@@ -829,6 +1124,71 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     }
   });
 
+  it("looks up each sorted candidate once with no more than eight active workers", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const lookedUp = [];
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({
+        Contents: Array.from({ length: 1_260 }, (_, index) => ({ Key: `platform/previews/pr-${index + 1}.tfstate` })),
+      }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => [],
+      fetchPullRequest: async (prNumber) => {
+        lookedUp.push(prNumber);
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        active -= 1;
+        return { state: "closed", merged: false };
+      },
+    });
+    expect(maximumActive).toBeLessThanOrEqual(8);
+    expect(lookedUp).toHaveLength(1_260);
+    expect(new Set(lookedUp).size).toBe(1_260);
+    expect(result.record.targets).toHaveLength(1_260);
+    expect(result.record.batchSize).toBe(32);
+    expect(result.record.batchCount).toBe(40);
+    expect(result.record.batches.map((batch) => batch.targets.length)).toEqual([...Array(39).fill(32), 12]);
+    expect(result.matrix.include).toEqual([
+      ...Array.from({ length: 40 }, (_, batch_index) => ({
+        batch_index,
+        batch_count: 40,
+        checkout_ref: "main",
+        image_sha: "abc123",
+      })),
+    ]);
+  });
+
+  it("fails closed above the 256-batch matrix limit without truncating targets", async () => {
+    const discover = async (count) =>
+      discoverPreviewCleanupTargets(discoveryOptions(), {
+        awsJson: async () => ({
+          Contents: Array.from({ length: count }, (_, index) => ({ Key: `platform/previews/pr-${index + 1}.tfstate` })),
+        }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => [],
+        fetchPullRequest: async () => ({ state: "closed", merged: false }),
+      });
+
+    const withinLimit = await discover(8_192);
+    expect(withinLimit.record.batchCount).toBe(256);
+    expect(withinLimit.record.result).not.toBe("failure");
+    expect(withinLimit.matrix.include).toHaveLength(256);
+
+    const overLimit = await discover(8_193);
+    expect(overLimit.record.result).toBe("failure");
+    expect(overLimit.record.errors).toContain("matrix-limit-exceeded");
+    expect(overLimit.record.batchCount).toBe(257);
+    expect(overLimit.record.targets).toHaveLength(8_193);
+    expect(overLimit.record.batches).toHaveLength(257);
+    expect(overLimit.matrix).toEqual({ include: [] });
+  });
+
   it("fails closed at the discovery budget", async () => {
     const calls = { namespaces: 0, lookups: 0 };
     let nowMs = 0;
@@ -889,16 +1249,6 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       },
       { name: "namespace-only", namespaces: [{ metadata: { name: "chase-sets-pr-4" } }], expected: [4] },
       {
-        name: "namespace-only (kubectl List shape)",
-        namespaces: {
-          apiVersion: "v1",
-          kind: "List",
-          items: [{ metadata: { name: "chase-sets-pr-10" } }, { metadata: { name: "kube-system" } }],
-        },
-        expected: [],
-        listCount: 2,
-      },
-      {
         name: "mixed open/closed/merged",
         state: [{ Key: "platform/previews/pr-5.tfstate" }, { Key: "platform/previews/pr-6.tfstate" }],
         expected: [5],
@@ -932,7 +1282,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
         testCase.name,
       ).toEqual(testCase.expected);
       expect(
-        result.matrix.include.map((target) => target.pr_number),
+        result.record.targets.map((target) => target.prNumber),
         testCase.name,
       ).toEqual(testCase.expected);
       if (testCase.listCount !== undefined) {
@@ -1532,10 +1882,10 @@ describe("discover-idle-drafts (#9964)", () => {
     expect(result.matrix).toEqual({
       include: [
         {
-          pr_number: 502,
+          batch_index: 0,
+          batch_count: 1,
           checkout_ref: "main",
           image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-502-postgres",
         },
       ],
     });

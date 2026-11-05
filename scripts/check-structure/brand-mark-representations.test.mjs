@@ -26,6 +26,7 @@ function repositoryRoot() {
 const root = repositoryRoot();
 const selfPath = fileURLToPath(import.meta.url);
 const selfSource = readFileSync(selfPath, "utf8");
+const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
 
 // Slices the JSON array committed between `// <name>:begin` and `// <name>:end`
 // sentinel comment lines: the text between the sentinels is reduced to its
@@ -284,10 +285,27 @@ export const committedCallers = [
   "deployables/admin-web/app/routes/favicon.ts",
   "deployables/admin-web/app/routes/manifest.ts",
   "deployables/admin-web/app/routes/pwa-endpoints.test.ts",
+  "deployables/corten-pilot/admin/src/site.rs",
+  "deployables/corten-pilot/marketplace/src/site.rs",
+  "deployables/corten-pilot/public/src/site.rs",
+  "deployables/corten-pilot/public/src/tests.rs",
+  "deployables/corten-pilot/scripts/export.mjs",
   "deployables/marketplace/app/pwa/service-worker-source.ts",
   "deployables/marketplace/app/routes/favicon.ts",
   "deployables/marketplace/app/routes/manifest.ts",
   "deployables/marketplace/app/routes/ssr.test.tsx",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40078269313.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40191794836.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40217094516.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40252660960-paired.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40252660960.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40503475846.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40787363393-paired.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40787363393.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41043769783-paired.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41043769783.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41551303861-paired.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41551303861.json",
   "deployables/public-web/app/routes/favicon.ts",
   "docs/campaigns/brand-distribution-kit.md",
   "packages/design-system/COMPONENT_INDEX.md",
@@ -558,7 +576,7 @@ describe("repository source-output inventory", () => {
 });
 
 describe("derived caller inventory", () => {
-  it("matches the committed caller list in both directions", () => {
+  it("matches the committed caller list in both directions", { timeout: REPOSITORY_SCAN_TEST_TIMEOUT_MS }, () => {
     const derived = deriveCallers();
     console.log(`derived callers (${derived.length}):\n${JSON.stringify(derived, null, 2)}`);
     const report = compareCallerSets(derived, committedCallers);
@@ -566,13 +584,17 @@ describe("derived caller inventory", () => {
     expect(report.notFound, "committed callers the scan no longer finds").toEqual([]);
   });
 
-  it("reacts in both directions: a planted reference and a ghost entry each fail by path", () => {
-    const derived = deriveCallers();
-    const planted = compareCallerSets([...derived, "scripts/scratch-caller.mjs"], committedCallers);
-    expect(planted.notCommitted).toEqual(["scripts/scratch-caller.mjs"]);
-    const ghost = compareCallerSets(derived, [...committedCallers, "scripts/ghost-caller.mjs"]);
-    expect(ghost.notFound).toEqual(["scripts/ghost-caller.mjs"]);
-  });
+  it(
+    "reacts in both directions: a planted reference and a ghost entry each fail by path",
+    { timeout: REPOSITORY_SCAN_TEST_TIMEOUT_MS },
+    () => {
+      const derived = deriveCallers();
+      const planted = compareCallerSets([...derived, "scripts/scratch-caller.mjs"], committedCallers);
+      expect(planted.notCommitted).toEqual(["scripts/scratch-caller.mjs"]);
+      const ghost = compareCallerSets(derived, [...committedCallers, "scripts/ghost-caller.mjs"]);
+      expect(ghost.notFound).toEqual(["scripts/ghost-caller.mjs"]);
+    },
+  );
 });
 
 describe("raster generator literal parity", () => {

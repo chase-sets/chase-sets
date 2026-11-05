@@ -7,10 +7,10 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { SecondaryProduct, TcgplayerMarketObservationPosture } from "@chase-sets/tcgplayer-market-observations";
 import { module as pricingModule } from "../../../index";
 import { mapProviderObservationCapture } from "../domain/provider-observation-mapper";
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../domain/provider-observation-policy";
-import type { TcgplayerSecondaryObservation } from "../integrations/tcgplayer/market-client";
 import { listProviderListingAskGroups } from "../read-model/provider-observation-queries";
 import { commitProviderObservationCapture } from "../read-model/provider-observation-writes";
 
@@ -34,8 +34,8 @@ describeDb("capture-local seller/condition/amount joint", () => {
   it("preserves the R4 discriminator through mapper, transaction, and public export", async () => {
     const one = captureFor("synthetic-joint-one", { A: { NM: 10, MP: 5 }, B: { NM: 20, MP: 6 } });
     const two = captureFor("synthetic-joint-two", { A: { NM: 10, MP: 6 }, B: { NM: 20, MP: 5 } });
-    await commitProviderObservationCapture(pool, one.header.providerKey, work(), one);
-    await commitProviderObservationCapture(pool, two.header.providerKey, work(), two);
+    await commitProviderObservationCapture(pool, one);
+    await commitProviderObservationCapture(pool, two);
 
     const oneRows = await listProviderListingAskGroups(pool, {
       providerKey: one.header.providerKey,
@@ -62,17 +62,13 @@ type Config = Readonly<Record<"A" | "B", Readonly<Record<"NM" | "MP", number>>>>
 
 function captureFor(providerKey: string, config: Config) {
   const listings = Object.entries(config).flatMap(([sellerKey, byCondition]) =>
-    Object.entries(byCondition).map(([condition, price], index) => ({
+    Object.entries(byCondition).map(([condition, price]) => ({
+      sellerOrdinal: sellerKey === "A" ? 1 : 2,
       condition,
       printing: "Normal",
       language: "English",
-      verifiedSeller: true,
-      sellerKey,
-      sellerId: sellerKey,
-      sellerName: sellerKey,
-      listingId: index + 1,
-      price,
-      sellerShippingPrice: 0,
+      price: price.toFixed(2),
+      sellerShippingPrice: "0.00",
     })),
   );
   const emptyEndpoint = {
@@ -82,9 +78,11 @@ function captureFor(providerKey: string, config: Config) {
     rejectedRows: 0,
     httpStatusClass: "none" as const,
   };
-  const observation: TcgplayerSecondaryObservation = {
+  const observation: SecondaryProduct = {
+    productId: 7001,
     sales: {
       ...emptyEndpoint,
+      credentialsMode: "omit",
       rows: [],
       coverage: "complete",
       pagesFetched: 1,
@@ -97,14 +95,21 @@ function captureFor(providerKey: string, config: Config) {
     },
     listings: {
       ...emptyEndpoint,
+      credentialsMode: "omit",
       rows: listings,
       coverage: "complete",
       pagesFetched: 1,
       returnedCount: 4,
       reportedTotal: 4,
-      ownSellerExclusionApplied: false,
     },
-    history: { ...emptyEndpoint, rows: [], coverage: "observed", resultCount: 0, bucketCount: 0 },
+    history: {
+      ...emptyEndpoint,
+      credentialsMode: "omit",
+      rows: [],
+      coverage: "observed",
+      resultCount: 0,
+      bucketCount: 0,
+    },
   };
   return mapProviderObservationCapture({
     providerKey,
@@ -117,21 +122,29 @@ function captureFor(providerKey: string, config: Config) {
     captureCompletedAt: "2026-09-01T15:00:01.000Z",
     observationPolicy: { revisionId: "synthetic-observation-r1", value: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE },
     statHygienePolicyRevisionId: "synthetic-stat-r1",
-    authenticatedRequest: false,
     recordedSignalCount: 1,
     unresolvedSignalCount: 0,
+    executedPosture: posture(),
     observation,
   });
 }
 
-function work() {
+function posture(): TcgplayerMarketObservationPosture {
   return {
-    productExternalKey: "product:7001",
-    productId: 7001,
-    catalogItemId: "cat_synthetic",
-    skus: [],
-    expectedCursor: { afterExternalKey: "", generation: 0 },
-    nextCursor: { afterExternalKey: "", generation: 1 },
+    salesOffset: 0,
+    salesLimit: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.limit,
+    salesPageSize: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.pageSize,
+    salesPageBudget: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.pageBudget,
+    salesConditions: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.conditions,
+    salesLanguages: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.languages,
+    salesVariants: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.variants,
+    salesListingType: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.listingType,
+    listingsVerifiedOnly: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.listings.verifiedSellersOnly,
+    listingsPageSize: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.listings.pageSize,
+    listingsPageBudget: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.listings.pageBudget,
+    listingsDeliveredCeiling: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.listings.deliveredCeiling,
+    historyRange: "annual",
+    timeoutMs: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.secondaryTimeoutMs,
   };
 }
 

@@ -27,8 +27,8 @@ const listingRuntime = "bounded-contexts/marketplace/features/listings/api/runti
 const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime.test.ts";
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
-const currentQuoteEvidence = `${listingRuntime}:1007-1027; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:419-444; ${listingDomain}:552-584; ${listingDomain}:1003-1032; ${listingRuntime}:1472-1517; ${currentQuoteEvidence}`;
+const currentQuoteEvidence = `${listingRuntime}:1232-1249; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
+const creationEvidence = `${listingDomain}:437-462; ${listingDomain}:592-631; ${listingDomain}:1099-1133; ${listingRuntime}:1764-1818; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -91,8 +91,8 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         decisionRefs: [4068, 6798, 7101],
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
-          "bounded-contexts/identity/api.ts:869-881",
-          `${listingRuntime}:1837-1977`,
+          "bounded-contexts/identity/api.ts:875-887",
+          `${listingRuntime}:2141-2335`,
           `${feeLock}:106-180`,
         ],
         openQuestions: [
@@ -101,7 +101,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         assumptions: [
           {
             assertion: "Beta access starts the 60-day window independently of badge claim.",
-            evidenceRef: "bounded-contexts/identity/api.ts:869-881; bounded-contexts/identity/GLOSSARY.md:120-132",
+            evidenceRef: "bounded-contexts/identity/api.ts:875-887; bounded-contexts/identity/GLOSSARY.md:120-132",
           },
           {
             assertion:
@@ -113,30 +113,30 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:1837-1853; ${listingRuntime}:1854-1962; ${feeQuotes}:154-176; ${listingDomain}:759-767; ${feeLock}:106-135`,
+            evidenceRef: `${listingRuntime}:2141-2172; ${listingRuntime}:2174-2293; ${feeQuotes}:154-176; ${listingDomain}:847-877; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
-            evidenceRef: `${listingTests}:383-405`,
+            evidenceRef: `${listingTests}:443-475`,
           },
           {
             assertion:
               "Purchase-limit edits change only purchase limits; this is structural evidence, not a dedicated behavioral test.",
-            evidenceRef: `${listingDomain}:812-822; ${listingDomain}:1053-1060`,
+            evidenceRef: `${listingDomain}:900-909; ${listingDomain}:1154-1158`,
           },
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:791-810; ${feeLock}:143-180; ${listingRuntime}:1965-1977; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:882-902; ${feeLock}:143-180; ${listingRuntime}:2295-2335; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
-            evidenceRef: `${listingDomain}:989-995; ${listingTests}:407-429; ${creationEvidence}; ${runtimeTests}:971-1097`,
+            evidenceRef: `${listingDomain}:1085-1088; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:981-1110`,
           },
           {
             assertion:
               "Item or condition substitution requires recreation; the closed command union is structural evidence, and new listings use current quoted terms.",
-            evidenceRef: `${listingDomain}:536-552; ${creationEvidence}; ${runtimeTests}:971-1097`,
+            evidenceRef: `${listingDomain}:553-568; ${creationEvidence}; ${runtimeTests}:981-1110`,
           },
           {
             assertion:

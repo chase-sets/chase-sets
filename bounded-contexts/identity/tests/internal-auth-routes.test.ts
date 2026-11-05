@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { IdentityServices } from "../support/runtime-support/services";
 import { buildIdentityApi, normalizeAccountDisplayNameKey } from "../api";
@@ -31,8 +32,12 @@ function createServices() {
     accounts: {
       commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
     },
+    mutationPersistence: {
+      transaction: vi.fn(async () => {
+        throw new Error("synthetic transaction stop");
+      }),
+    },
     users: {
-      getUserBySocialLogin: vi.fn(async () => null),
       commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
     },
     memberships: {
@@ -138,39 +143,97 @@ describe("identity internal auth routes", () => {
     );
   });
 
-  it("links social login facts without requiring a current user read model row", async () => {
+  const subjectMarker = "synthetic-subject-marker-10295";
+  const emailMarker = "synthetic-email-marker-10295@example.test";
+
+  it.each([
+    ["link", "/internal/auth/users/usr_1/social-login-link", "not json"],
+    ["link", "/internal/auth/users/usr_1/social-login-link", []],
+    [
+      "link",
+      "/internal/auth/users/usr_1/social-login-link",
+      { providerName: "apple", providerSubject: subjectMarker, email: emailMarker },
+    ],
+    [
+      "link",
+      "/internal/auth/users/usr_1/social-login-link",
+      { providerName: "google", providerSubject: " ", email: emailMarker },
+    ],
+    [
+      "link",
+      "/internal/auth/users/usr_1/social-login-link",
+      { providerName: "google", providerSubject: "s".repeat(513), email: emailMarker },
+    ],
+    [
+      "link",
+      "/internal/auth/users/usr_1/social-login-link",
+      { providerName: "google", providerSubject: subjectMarker, email: "" },
+    ],
+    [
+      "link",
+      "/internal/auth/users/usr_1/social-login-link",
+      { providerName: "google", providerSubject: subjectMarker, email: "e".repeat(321) },
+    ],
+    [
+      "link",
+      "/internal/auth/users/usr_1/social-login-link",
+      { providerName: "google", providerSubject: 7, email: emailMarker },
+    ],
+    [
+      "link",
+      "/internal/auth/users/usr_1/social-login-link",
+      { providerName: "google", providerSubject: subjectMarker, email: emailMarker, userId: "usr_2" },
+    ],
+    ["resolve", "/internal/auth/social-login-subjects/resolve", { providerName: "google" }],
+    [
+      "resolve",
+      "/internal/auth/social-login-subjects/resolve",
+      { providerName: "facebook", providerSubject: subjectMarker, email: emailMarker },
+    ],
+    [
+      "resolve",
+      "/internal/auth/social-login-subjects/resolve",
+      { providerName: "google", providerSubject: "s".repeat(513) },
+    ],
+  ] as const)("refuses a malformed Social Login %s body with 400 and no ownership work", async (_kind, path, body) => {
     const services = createServices();
     const app = buildIdentityApi(services);
 
-    const response = await app.request("/internal/auth/users/usr_platform_admin/social-login-link", {
+    const response = await app.request(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        providerName: "google",
-        providerSubject: "google-subject",
-        email: "ops@chasesets.com",
-      }),
+      body: typeof body === "string" ? body : JSON.stringify(body),
     });
 
-    expect(response.status).toBe(200);
-    expect(services.users.getUserBySocialLogin).toHaveBeenCalledWith({
-      providerName: "google",
-      providerSubject: "google-subject",
+    expect(response.status).toBe(400);
+    const text = await response.text();
+    expect(JSON.parse(text)).toMatchObject({ error: { code: "validation_failed" } });
+    expect(text).not.toContain(subjectMarker);
+    expect(text).not.toContain(emailMarker);
+    expect(services.mutationPersistence.transaction).not.toHaveBeenCalled();
+    expect(services.db.query).not.toHaveBeenCalled();
+    expect((services.eventStore as InMemoryEventStore).streamIdsWithPrefix("identity.")).toEqual([]);
+  });
+
+  it("decides a link only inside one mutation transaction whose scopes never carry the subject", async () => {
+    const services = createServices();
+    const app = buildIdentityApi(services);
+
+    const response = await app.request("/internal/auth/users/usr_1/social-login-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ providerName: "google", providerSubject: ` ${subjectMarker} `, email: emailMarker }),
     });
-    expect(services.users.commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: { type: "EnableAuthMethod", authMethod: "social-login" },
-      }),
-    );
-    expect(services.users.commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: expect.objectContaining({
-          type: "LinkSocialLogin",
-          providerName: "google",
-          providerSubject: "google-subject",
-          email: "ops@chasesets.com",
-        }),
-      }),
-    );
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain(subjectMarker);
+    expect(services.mutationPersistence.transaction).toHaveBeenCalledTimes(1);
+    const [scopes] = vi.mocked(services.mutationPersistence.transaction).mock.calls[0]!;
+    expect(scopes).toEqual([
+      "identity.social-login-ownership-catch-up",
+      `identity:social-login-ownership:${createHash("sha256").update(`google:${subjectMarker}`).digest("hex")}`,
+    ]);
+    expect(JSON.stringify(scopes)).not.toContain(subjectMarker);
+    expect(services.users.commandHandler).not.toHaveBeenCalled();
   });
 });

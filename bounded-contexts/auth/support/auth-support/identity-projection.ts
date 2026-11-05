@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ProjectorHandler, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
@@ -11,12 +12,8 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import { type AccountId, type UserId, type TenantId } from "@chase-sets/primitives/typed-ids";
-import {
-  AUTH_BOOTSTRAP_ACCOUNT_ID,
-  AUTH_BOOTSTRAP_TENANT_ID,
-  AUTH_BOOTSTRAP_USER_ID,
-  AUTH_ROLE_PERMISSIONS,
-} from "./constants";
+import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
+import { AUTH_BOOTSTRAP_ACCOUNT_ID, AUTH_BOOTSTRAP_TENANT_ID, AUTH_BOOTSTRAP_USER_ID } from "./constants";
 
 export const authIdentityProjectionSchemaSql = `
 CREATE TABLE IF NOT EXISTS auth_identity_users (
@@ -539,7 +536,7 @@ async function upsertMembershipMirror(
   membershipId: string,
   userId: string,
   accountId: string,
-  roleKey: keyof typeof AUTH_ROLE_PERMISSIONS,
+  roleKey: keyof typeof ROLE_PERMISSIONS,
   status: string,
   updatedAt: string,
 ) {
@@ -552,7 +549,7 @@ async function upsertMembershipMirror(
       user_id: userId,
       account_id: accountId,
       role_key: roleKey,
-      role_permissions: AUTH_ROLE_PERMISSIONS[roleKey],
+      role_permissions: ROLE_PERMISSIONS[roleKey],
       status,
       updated_at: updatedAt,
     },
@@ -566,7 +563,7 @@ export async function upsertActiveAuthIdentityMembershipMirror(
     membershipId: string;
     userId: string;
     accountId: string;
-    roleKey: keyof typeof AUTH_ROLE_PERMISSIONS;
+    roleKey: keyof typeof ROLE_PERMISSIONS;
     updatedAt: string;
   }>,
 ) {
@@ -579,6 +576,17 @@ export async function upsertActiveAuthIdentityMembershipMirror(
     "active",
     params.updatedAt,
   );
+}
+
+const SOCIAL_LOGIN_LINK_CONFLICT_USER_ID_LIMIT = 10;
+
+/** Bounded, subject-free signal for a replayed link naming a second User; the same shape Identity's projection emits. */
+function reportSocialLoginLinkConflict(providerName: string, providerSubject: string, userIds: readonly string[]) {
+  console.warn("social_login_link_conflict", {
+    providerName,
+    linkKey: createHash("sha256").update(`${providerName}:${providerSubject.trim()}`, "utf8").digest("hex"),
+    userIds: [...new Set(userIds)].sort().slice(0, SOCIAL_LOGIN_LINK_CONFLICT_USER_ID_LIMIT),
+  });
 }
 
 export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -780,19 +788,34 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
         ],
         updatedAt: { value: event.timing.recordedAt },
       });
-      await upsertRow(db, {
-        table: "auth_identity_user_social_login_links",
-        insertColumns: ["provider_name", "provider_subject", "user_id", "email", "linked_at", "updated_at"],
-        conflictColumns: ["provider_name", "provider_subject"],
-        values: {
-          provider_name: link.providerName,
-          provider_subject: link.providerSubject,
-          user_id: userId,
-          email: normalizeAuthEmail(link.email),
-          linked_at: link.linkedAt,
-          updated_at: event.timing.recordedAt,
-        },
-      });
+      // A view, never an authority: Identity's ownership claim decides; a second User keeps the first row.
+      const kept = await db.query<{ user_id: string }>(
+        `INSERT INTO auth_identity_user_social_login_links
+           (provider_name, provider_subject, user_id, email, linked_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (provider_name, provider_subject) DO UPDATE
+         SET email = EXCLUDED.email, linked_at = EXCLUDED.linked_at, updated_at = EXCLUDED.updated_at
+         WHERE auth_identity_user_social_login_links.user_id = EXCLUDED.user_id
+         RETURNING user_id`,
+        [
+          link.providerName,
+          link.providerSubject,
+          userId,
+          normalizeAuthEmail(link.email),
+          link.linkedAt,
+          event.timing.recordedAt,
+        ],
+      );
+      if (kept.rows.length === 0) {
+        const owner = await db.query<{ user_id: string }>(
+          `SELECT user_id FROM auth_identity_user_social_login_links WHERE provider_name = $1 AND provider_subject = $2`,
+          [link.providerName, link.providerSubject],
+        );
+        reportSocialLoginLinkConflict(link.providerName, link.providerSubject, [
+          ...owner.rows.map((row) => row.user_id),
+          userId,
+        ]);
+      }
     },
     "identity.user.suspended": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
@@ -824,7 +847,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
         membershipId: string;
         userId: string;
         accountId: string;
-        roleKey: keyof typeof AUTH_ROLE_PERMISSIONS;
+        roleKey: keyof typeof ROLE_PERMISSIONS;
       };
       await upsertRow(db, {
         table: "auth_identity_memberships",
@@ -843,7 +866,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
           user_id: userId,
           account_id: accountId,
           role_key: roleKey,
-          role_permissions: AUTH_ROLE_PERMISSIONS[roleKey],
+          role_permissions: ROLE_PERMISSIONS[roleKey],
           status: "active",
           updated_at: event.timing.recordedAt,
         },
@@ -853,7 +876,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
     },
     "identity.membership.role-changed": async (event) => {
       const membershipId = extractIdFromStreamId(event.streamId, "identity.membership-");
-      const roleKey = (event.data as { roleKey: keyof typeof AUTH_ROLE_PERMISSIONS }).roleKey;
+      const roleKey = (event.data as { roleKey: keyof typeof ROLE_PERMISSIONS }).roleKey;
       const existing = await db.query<{ user_id: string; account_id: string; status: string }>(
         `SELECT user_id, account_id, status
          FROM auth_identity_memberships
@@ -867,7 +890,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
         setColumns: ["role_key", "role_permissions", "updated_at"],
         values: {
           role_key: roleKey,
-          role_permissions: AUTH_ROLE_PERMISSIONS[roleKey],
+          role_permissions: ROLE_PERMISSIONS[roleKey],
           updated_at: event.timing.recordedAt,
         },
         casts: { role_permissions: "jsonb" },
@@ -894,7 +917,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
       const existing = await db.query<{
         user_id: string;
         account_id: string;
-        role_key: keyof typeof AUTH_ROLE_PERMISSIONS;
+        role_key: keyof typeof ROLE_PERMISSIONS;
       }>(
         `SELECT user_id, account_id, role_key
          FROM auth_identity_memberships
@@ -928,7 +951,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
       const existing = await db.query<{
         user_id: string;
         account_id: string;
-        role_key: keyof typeof AUTH_ROLE_PERMISSIONS;
+        role_key: keyof typeof ROLE_PERMISSIONS;
       }>(
         `SELECT user_id, account_id, role_key
          FROM auth_identity_memberships
@@ -1158,21 +1181,6 @@ export async function getAuthIdentityUserByPhone(db: PgQueryable, phone: string)
      INNER JOIN auth_identity_users AS users ON users.user_id = phones.user_id
      WHERE phones.phone = $1`,
     [normalizeAuthPhoneNumber(phone)],
-  );
-  return result.rows[0] ?? null;
-}
-
-export async function getAuthIdentityUserBySocialLogin(
-  db: PgQueryable,
-  params: Readonly<{ providerName: string; providerSubject: string }>,
-) {
-  const result = await db.query<AuthIdentityUserRow>(
-    `SELECT users.*
-     FROM auth_identity_user_social_login_links AS links
-     INNER JOIN auth_identity_users AS users ON users.user_id = links.user_id
-     WHERE links.provider_name = $1
-       AND links.provider_subject = $2`,
-    [params.providerName, params.providerSubject],
   );
   return result.rows[0] ?? null;
 }

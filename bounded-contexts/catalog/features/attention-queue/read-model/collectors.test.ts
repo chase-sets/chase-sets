@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { t, translationCatalogs } from "@chase-sets/localization";
 import type { CatalogAliasCandidateRow } from "../../alias-equivalence/read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
-import type { CatalogMergeCandidateListRow } from "../../source-observations/read-model/queries";
+import type { CatalogMergeCandidateAttentionRow } from "../../source-observations/read-model/queries";
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../../source-observations/api/runtime";
 import type { CatalogIntegrationUnitActivity } from "../../source-observations/api/admin-control-plane-overview";
+import type { CatalogAttentionItem } from "./attention-item";
 import {
   collectAliasCandidateItems,
   collectImportJobItems,
@@ -50,26 +52,24 @@ describe("collectUnmappedScopeItems", () => {
     expect(items[0]!.severity).toBe("warning");
     expect(items[0]!.resolution.mode).toBe("drawer");
   });
+
+  it("carries the exact scope destination identity", () => {
+    const item = collectUnmappedScopeItems([
+      scopeMapping({ mapping_id: "mapped-1", scope_record_id: "scope/one" }),
+    ])[0]!;
+    expect(item.itemKey).toBe("unmapped-scope:mapped-1");
+    expect(item.resolution.fields).toMatchObject({ mappingId: "mapped-1", scopeRecordId: "scope/one" });
+    expect(item.resolution.href).toBe("/catalog/scopes/scope%2Fone");
+  });
 });
 
-function mergeCandidate(overrides: Partial<CatalogMergeCandidateListRow>): CatalogMergeCandidateListRow {
+function mergeCandidate(overrides: Partial<CatalogMergeCandidateAttentionRow>): CatalogMergeCandidateAttentionRow {
   return {
     candidate_id: "cand-1",
-    identity_fingerprint: "fp",
-    sync_run_ids_json: [],
+    scope_record_id: null,
     status: "has-conflicts",
     status_reason: null,
-    identity_json: {} as CatalogMergeCandidateListRow["identity_json"],
-    matched_catalog_item_id: null,
-    matched_product_ids_json: [],
-    proposed_catalog_item_facts_json: {},
-    proposed_external_catalog_item_references_json: [],
-    proposed_external_product_references_json: [],
-    conflicts_json: [],
-    warnings_json: [],
-    field_provenance_json: [],
-    membership_json: [],
-    promotion_intent: "create" as CatalogMergeCandidateListRow["promotion_intent"],
+    blocking_conflict_count: 0,
     created_at: "2026-07-01T00:00:00.000Z",
     updated_at: "2026-07-02T00:00:00.000Z",
     stale_at: null,
@@ -84,7 +84,7 @@ describe("collectMergeConflictItems", () => {
       mergeCandidate({
         candidate_id: "c1",
         status: "has-conflicts",
-        conflicts_json: [{ severity: "blocking" } as CatalogMergeCandidateListRow["conflicts_json"][number]],
+        blocking_conflict_count: 1,
       }),
       mergeCandidate({ candidate_id: "c2", status: "stale", stale_at: "2026-07-03T00:00:00.000Z" }),
       mergeCandidate({ candidate_id: "c3", status: "ready" }),
@@ -92,8 +92,20 @@ describe("collectMergeConflictItems", () => {
     ]);
     expect(items.map((entry) => entry.itemKey)).toEqual(["merge-conflict:c1", "merge-conflict:c2"]);
     expect(items[0]!.severity).toBe("critical");
+    expect(items[0]!.titleParams).toEqual({ candidate: "c1", conflicts: 1 });
+    expect(items[0]!.detailParams).toEqual({ reason: "", observations: 3 });
     expect(items[1]!.severity).toBe("warning");
     expect(items[1]!.observedAt).toBe("2026-07-03T00:00:00.000Z");
+  });
+
+  it("carries the scope destination and marks a conflict without scope identity unavailable", () => {
+    const [mapped, unavailable] = collectMergeConflictItems([
+      mergeCandidate({ candidate_id: "mapped", scope_record_id: "scope-1" }),
+      mergeCandidate({ candidate_id: "missing" }),
+    ]);
+    expect(mapped!.resolution.href).toBe("/catalog/scopes/scope-1");
+    expect(unavailable!.resolution.unavailable).toBe(true);
+    expect(unavailable!.resolution.href).toBeUndefined();
   });
 });
 
@@ -138,6 +150,15 @@ describe("collectProviderHealthItems", () => {
     );
     expect(items.map((entry) => entry.detailParams.blocker)).toEqual(["credential", "transport", "diagnostic"]);
     expect(items.every((entry) => entry.severity === "critical")).toBe(true);
+  });
+
+  it("carries the provider and unit destination", () => {
+    const item = collectProviderHealthItems(
+      [unitReadiness({ providerKey: "tcgdex", unitKey: "tcgdex:card", credentialReadiness: "blocked" })],
+      { generatedAt: "2026-07-09T00:00:00.000Z" },
+    )[0]!;
+    expect(item.itemKey).toBe("provider-health:tcgdex:tcgdex:card");
+    expect(item.resolution.href).toBe("/catalog/providers/tcgdex?unitKey=tcgdex%3Acard");
   });
 });
 
@@ -184,6 +205,18 @@ describe("collectImportJobItems", () => {
       "import-job:j-stale:warning",
     ]);
   });
+
+  it("carries the selected job destination identity", () => {
+    const item = collectImportJobItems([
+      unitActivity({ jobId: "job/failed", providerKey: "tcgdex", unitKey: "tcgdex:card" }),
+    ])[0]!;
+    expect(item.resolution.fields).toMatchObject({
+      jobId: "job/failed",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:card",
+    });
+    expect(item.resolution.href).toBe("/catalog/providers/tcgdex?jobId=job%2Ffailed");
+  });
 });
 
 function aliasCandidate(overrides: Partial<CatalogAliasCandidateRow>): CatalogAliasCandidateRow {
@@ -220,9 +253,39 @@ describe("collectAliasCandidateItems", () => {
     ]);
     expect(items).toHaveLength(1);
     expect(items[0]!.severity).toBe("info");
-    expect(items[0]!.resolution.intent).toBe("accept");
-    expect(items[0]!.secondaryResolutions[0]!.intent).toBe("reject");
+    expect(items[0]!.resolution.intent).toBe("alias.accept");
+    expect(items[0]!.secondaryResolutions[0]!.intent).toBe("alias.reject");
     expect(items[0]!.secondaryResolutions[0]!.requiresReason).toBe(true);
+  });
+
+  it("keeps alias metadata compatible while the mounted form submits entity-scoped ids", () => {
+    const item = collectAliasCandidateItems([aliasCandidate({ alias_hash: "h1" })])[0]!;
+    expect(item.resolution.intent).toBe("alias.accept");
+    expect(item.secondaryResolutions[0]!.intent).toBe("alias.reject");
+    expect(item.resolution.fields).toEqual({
+      aliasHashes: "h1",
+      targetKind: "catalog-item",
+      targetId: "item-1",
+      targetKey: "item-1",
+    });
+    expect(item.secondaryResolutions[0]!.fields).toEqual(item.resolution.fields);
+  });
+
+  it("renders the alias type in the detail through the real translator", () => {
+    const item = collectAliasCandidateItems([
+      aliasCandidate({
+        alias_text: "Elsa",
+        alias_type: "printed-name" as CatalogAliasCandidateRow["alias_type"],
+        provider_key: "tcgplayer",
+        confidence: "0.92",
+      }),
+    ])[0]!;
+    const detail = t(item.detailKey, item.detailParams);
+
+    expect(item.titleParams).toEqual({ alias: "Elsa" });
+    expect(item.detailParams).toEqual({ provider: "tcgplayer", type: "printed-name", confidence: "0.92" });
+    expect(detail).toBe("tcgplayer · printed-name · confidence 0.92");
+    expect(detail).not.toContain("{type}");
   });
 });
 
@@ -262,5 +325,122 @@ describe("collectStaleScopeSyncItems", () => {
     );
     expect(items.map((entry) => entry.itemKey)).toEqual(["stale-scope-sync:s-old"]);
     expect(items[0]!.severity).toBe("warning");
+    expect(items[0]!.resolution.href).toBe("/catalog/scopes/s-old");
+  });
+});
+
+describe("attention destination matrix", () => {
+  it("defines one exact destination or explicit unavailable state for every source kind", () => {
+    const unmapped = collectUnmappedScopeItems([scopeMapping({ mapping_id: "m", scope_record_id: "s" })])[0]!;
+    const mappedConflict = collectMergeConflictItems([mergeCandidate({ candidate_id: "c", scope_record_id: "s" })])[0]!;
+    const unavailableConflict = collectMergeConflictItems([mergeCandidate({ candidate_id: "missing" })])[0]!;
+    const health = collectProviderHealthItems(
+      [unitReadiness({ providerKey: "tcgdex", unitKey: "unit", transportReadiness: "blocked" })],
+      { generatedAt: "2026-07-09T00:00:00.000Z" },
+    )[0]!;
+    const job = collectImportJobItems([unitActivity({ jobId: "job", providerKey: "tcgdex" })])[0]!;
+    const alias = collectAliasCandidateItems([aliasCandidate({ alias_hash: "alias" })])[0]!;
+    const stale = collectStaleScopeSyncItems(
+      [scopeRecord({ scope_record_id: "stale", updated_at: "2026-06-01T00:00:00.000Z" })],
+      { now: "2026-07-09T00:00:00.000Z", stalenessThresholdMs: 7 * 24 * 60 * 60 * 1000 },
+    )[0]!;
+
+    expect([
+      unmapped.resolution.href,
+      mappedConflict.resolution.href,
+      health.resolution.href,
+      job.resolution.href,
+      stale.resolution.href,
+    ]).toEqual([
+      "/catalog/scopes/s",
+      "/catalog/scopes/s",
+      "/catalog/providers/tcgdex?unitKey=unit",
+      "/catalog/providers/tcgdex?jobId=job",
+      "/catalog/scopes/stale",
+    ]);
+    expect(unavailableConflict.resolution).toMatchObject({ unavailable: true });
+    expect(unavailableConflict.resolution.href).toBeUndefined();
+    expect(alias.resolution.intent).toBe("alias.accept");
+    expect(alias.secondaryResolutions[0]!.intent).toBe("alias.reject");
+  });
+});
+
+// Reads placeholders from the canonical English message with the same token
+// pattern the translator substitutes; a placeholder counts only when that
+// message's own params supply a value the translator would substitute.
+function missingMessageArguments(key: string, params: CatalogAttentionItem["titleParams"]): string[] {
+  const template = translationCatalogs.en[key];
+  if (template === undefined) {
+    return [`missing message ${key}`];
+  }
+  return [...template.matchAll(/\{([A-Za-z0-9_.-]+)\}/g)]
+    .map((match) => match[1]!)
+    .filter((token) => params[token] === undefined || params[token] === null);
+}
+
+describe("attention item messages", () => {
+  const items = [
+    ...collectUnmappedScopeItems([scopeMapping({})]),
+    ...collectMergeConflictItems([
+      mergeCandidate({
+        candidate_id: "conflicted",
+        status: "has-conflicts",
+        status_reason: "title mismatch",
+        blocking_conflict_count: 1,
+      }),
+      mergeCandidate({ candidate_id: "stale", status: "stale", status_reason: "source refreshed" }),
+    ]),
+    ...collectProviderHealthItems(
+      [unitReadiness({ credentialReadiness: "blocked", credentialDiagnosticCode: "credential-expired" })],
+      { generatedAt: "2026-07-09T00:00:00.000Z" },
+    ),
+    ...collectImportJobItems([unitActivity({})]),
+    ...collectAliasCandidateItems([aliasCandidate({ alias_text: "Elsa", confidence: "0.92" })]),
+    ...collectStaleScopeSyncItems([scopeRecord({})], {
+      now: "2026-07-09T00:00:00.000Z",
+      stalenessThresholdMs: 7 * 24 * 60 * 60 * 1000,
+    }),
+  ];
+  const messages = items.flatMap((item) => [
+    { key: item.titleKey, params: item.titleParams },
+    { key: item.detailKey, params: item.detailParams },
+  ]);
+
+  it("covers every canonical attention item message, including the merge conflict and stale variants", () => {
+    const canonicalItemKeys = Object.keys(translationCatalogs.en).filter((key) =>
+      key.startsWith("catalog.features.attentionQueue.item."),
+    );
+
+    expect(messages.map((message) => message.key).sort()).toEqual(canonicalItemKeys.sort());
+  });
+
+  it("supplies every placeholder on that message's own params", () => {
+    const uncovered = messages
+      .map((message) => ({ key: message.key, missing: missingMessageArguments(message.key, message.params) }))
+      .filter((entry) => entry.missing.length > 0);
+
+    expect(uncovered).toEqual([]);
+  });
+
+  it("detects a detail placeholder missing from the detail params", () => {
+    const alias = items.find((item) => item.kind === "alias-candidate")!;
+    const detailWithoutType = Object.fromEntries(
+      Object.entries(alias.detailParams).filter(([name]) => name !== "type"),
+    );
+
+    expect(missingMessageArguments(alias.detailKey, detailWithoutType)).toEqual(["type"]);
+    expect(t(alias.detailKey, detailWithoutType)).toContain("{type}");
+  });
+
+  it("renders every kind's title and detail through the real translator", () => {
+    expect(items.map((item) => [t(item.titleKey, item.titleParams), t(item.detailKey, item.detailParams)])).toEqual([
+      ["Map Scarlet & Violet for tcgplayer", "Unit pokemon-sealed · confidence candidate"],
+      ["Resolve 1 blocking conflicts on conflicted", "3 observations · title mismatch"],
+      ["Refresh stale merge candidate stale", "3 observations · source refreshed"],
+      ["Unblock Pokémon Sealed on tcgplayer", "Blocked by credential · credential-expired"],
+      ["Import job job-1 is failed", "tcgplayer · import · en:pokemon:sv1"],
+      ["Review alias Elsa", "tcgplayer · printed-name · confidence 0.92"],
+      ["Re-sync Scarlet & Violet (pokemon)", "set · last refreshed 2026-06-01T00:00:00.000Z"],
+    ]);
   });
 });

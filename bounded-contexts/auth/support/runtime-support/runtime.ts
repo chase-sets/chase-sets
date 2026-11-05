@@ -1,7 +1,11 @@
-import { normalizeAgentOAuthScopes, type ResolvedActor } from "@chase-sets/auth-context";
+import {
+  AUTH_GUEST_CHECKOUT_COOKIE_NAME,
+  normalizeAgentOAuthScopes,
+  type PermissionKey,
+  type ResolvedActor,
+} from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { readAuthSessionToken, readCookie } from "../auth-support/http";
-import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
 import type { AuthServices } from "./services";
 import { createAuthBootstrapContext as createAuthBootstrapEventContext } from "../auth-support/identity-projection";
 import { getGuestCheckoutTokenByHash, getSessionByTokenHash } from "../auth-support/store";
@@ -11,7 +15,7 @@ export { readAuthSessionToken } from "../auth-support/http";
 
 export const AUTH_GUEST_CHECKOUT_USER_ID = "usr_guest_checkout" as const;
 export const AUTH_GUEST_CHECKOUT_ROLE_KEY = "guest-buyer" as const;
-export const AUTH_GUEST_CHECKOUT_PERMISSIONS = ["guest-checkout.manage"] as const;
+export const AUTH_GUEST_CHECKOUT_PERMISSIONS = ["guest-checkout.manage"] as const satisfies readonly PermissionKey[];
 
 const UCP_ACCESS_TOKEN_PREFIX = "ucp_at_";
 

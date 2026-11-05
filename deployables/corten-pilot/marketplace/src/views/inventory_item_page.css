@@ -1,0 +1,231 @@
+/* Mobile first: one column; from 64rem the writes are a column beside the item, its holds and its
+   ledger. Every control is at least --control-height tall, and nothing is wider than the screen. */
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-block-end: var(--space-5);
+}
+.heading {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 48rem;
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.part-title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.label {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+}
+.notice {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-lg);
+  background: var(--color-warning-soft);
+}
+.layout,
+.main,
+.aside {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-block: var(--space-4);
+}
+.card {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+.card > p {
+  margin: 0;
+}
+.facts div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  justify-content: space-between;
+}
+.facts dt {
+  color: var(--color-text-secondary);
+}
+.facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+.number {
+  font-variant-numeric: tabular-nums;
+}
+.badge,
+.chip {
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge[data-tone="info"] {
+  background: var(--color-info-soft, var(--color-surface));
+}
+.badge[data-tone="warning"] {
+  background: var(--color-warning-soft);
+}
+.chip {
+  font-weight: 400;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  justify-content: flex-end;
+}
+.holds {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hold-card {
+  background: var(--color-surface);
+}
+.form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+  cursor: pointer;
+}
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.small {
+  font-size: 0.875rem;
+}
+/* The ledger filter that is shown. */
+.secondary[aria-current="page"] {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  border-color: var(--color-primary);
+}
+/* The ledger: a line down the side, a dot per movement, an issue's dot in the danger color. */
+.timeline {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0 0 0 var(--space-5);
+  list-style: none;
+  border-inline-start: 2px solid var(--color-border);
+}
+.step {
+  position: relative;
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+  min-width: 0;
+}
+.step::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(-1 * var(--space-5) - 7px);
+  inset-block-start: 0.35rem;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+.step[data-status="issue"]::before {
+  background: var(--color-danger);
+}
+@media (min-width: 64rem) {
+  .layout {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: var(--space-6);
+    align-items: start;
+  }
+}

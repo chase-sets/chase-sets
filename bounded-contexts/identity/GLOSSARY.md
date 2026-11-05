@@ -267,6 +267,9 @@ Notes:
 - Auth owns the provider redirect, callback verification, and session journey.
 - A provider identity must not be linked to more than one User.
 - Provider tokens and raw profile payloads are not Identity facts.
+- A **Social Login Ownership Claim** is the event-sourced fact that decides which User owns one provider identity. Its stream is keyed by a hash of the provider name and trimmed subject, so the raw subject never appears in stream or scope names. A link is appended only in the same transaction that claims the subject for that User; the link projections are views of those facts and never move a provider identity to another User.
+- Links recorded before the claim existed are folded into claims by a bounded catch-up over link history, so an existing link and a later competing link are decided the same way.
+- **`repair-required`** is the claim state when link history shows one provider identity linked to more than one User. The provider identity then signs in, registers, and links no one until it is repaired; Auth refuses it with `provider_link_repair_required`.
 
 ### API Key
 
@@ -294,6 +297,10 @@ Notes:
 
 - Profiles are representational only.
 - Profiles must not contain permissions or credentials.
+
+### Account Profile
+
+An **Account Profile** is an Account's Profile as other users meet it. It is the `account-profile` noun in Identity's public facts: an **Account Profile Report** (`identity.account-profile.report-submitted` v1, `contracts/event-core/public-event-payloads/identity.ts`) records that one Account reported another Account's profile, and Platform Operations queues it as Reported Content. The reporting user, route and attempt stay Identity-private.
 
 ### Contact Method
 
@@ -380,7 +387,7 @@ Notes:
 - **Never-activated and inactive are different states.** A key that was activated and later deactivated is inactive; only a never-activated key can be first-activated. Deactivation does not return a key to never-activated.
 - **Activation is aggregate state, never presence.** An active policy document, a projection row, or a stream row for the key is not an activation. A document is the policy *value*; the authority is the *activation*.
 - Activation state, the active version, and the guard token are always read together from the authority's own event stream. A cached policy value must never be paired with a separately read authority revision.
-- The authority is the identity Consent recording needs. [[Consent Bundle]] composes several authorities for one surface and is the read-side consumer that exists today; the elimination sweep for consent-activation races and the write call sites that commit against a guard are owned elsewhere and do not exist yet.
+- The authority is the identity Consent recording needs. [[Consent Bundle]] composes several authorities for one surface and is the read-side consumer that exists today. Terms of Service acceptance and atomic registration are the write call sites that commit against a guard: each records its Consent in the same all-or-nothing append as the guard of every authority it read, so an authority that moved after that read fails the write and records nothing. The elimination sweep for consent-activation races is owned elsewhere and does not exist yet.
 
 ### Consent Bundle
 
@@ -388,7 +395,7 @@ A **Consent Bundle** is the ordered set of consent policies one surface asks a s
 
 A bundle has a **declared member** list and a **derived requirement** list, and they are different things. A declared member is a consent policy the surface is *allowed* to require. A derived requirement is a member bound to the exact version a [[Consent Activation Authority]] says is active right now, plus where that version is readable.
 
-Today the Consent Bundle is a domain and read-side capability: it resolves bundles, answers per-policy and per-bundle acceptance, and backs the Terms of Service acceptance gate. Binding Consent recording and atomic registration to a resolved bundle — including the ordered requirements a [[Registration Consent Resolution]] carries — is owned by a separate slice and is not part of this capability.
+Today the Consent Bundle is a domain and read-side capability: it resolves bundles, answers per-policy and per-bundle acceptance, and backs the Terms of Service acceptance gate. Consent recording is bound to a resolved bundle: Terms of Service acceptance records the exact version its resolved member requires, and atomic registration records the ordered requirements a [[Registration Consent Resolution]] carries, each guarded by the authorities it read. The registration surface does not yet render an affirmation of a non-empty requirement set, so registration fails closed rather than record an agreement nobody was shown.
 
 Notes:
 
@@ -400,6 +407,14 @@ Notes:
 - **One unresolvable member makes the whole bundle unresolved.** A version that contradicts its publication, or an authority that cannot be validated, yields no requirement list at all rather than a shorter one.
 - **An empty requirement set is a value, not a disabled mode.** The shipped corpus derives two empty ordered sets, and resolution still ran.
 - **Bundle acceptance is subject-exact and aggregate.** It is decided for exactly one subject at exactly one scope, and satisfaction requires the current state of each required member to be recorded at the exact required version. Another user of the same account, an account-scoped fact standing in for a user-scoped one, a withdrawn or superseded record, and a legacy `terms` fact never satisfy a bundle.
+
+### Registration
+
+**Registration** is the atomic creation of an Account, User, Membership, and declared consent bundle.
+
+### Onboarding
+
+**Onboarding** is the completion of a guest-account or invitation membership journey.
 
 ### Registration Consent Resolution
 

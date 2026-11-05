@@ -4,6 +4,7 @@ import type { ReferenceRelationship } from "../../../reference-data/domain/domai
 import type {
   CatalogProviderIntegrationProfile,
   CatalogProviderReferenceHierarchyAttributeRule,
+  CatalogProviderReferenceHierarchyLanguageEditionRule,
   CatalogProviderReferenceHierarchyRecordRule,
   CatalogProviderReferenceHierarchyValueRule,
 } from "../provider-integration-profiles";
@@ -29,6 +30,19 @@ export type CatalogProviderReferenceRecordProvision = Readonly<{
   description: string;
   attributes?: Readonly<Record<string, JsonValue>>;
   relationships?: readonly ReferenceRelationship[];
+  languageEdition?: CatalogProviderReferenceRecordLanguageEdition;
+}>;
+
+/**
+ * The language edition a provisioned record represents. Reuse accepts a record
+ * whose `attributeKey` holds `languageCode`; an unqualified language also
+ * accepts a record that records no language edition yet, because its records
+ * predate the attribute.
+ */
+export type CatalogProviderReferenceRecordLanguageEdition = Readonly<{
+  attributeKey: string;
+  languageCode: string;
+  unqualified: boolean;
 }>;
 
 export type CatalogProviderReferenceHierarchyProvisioningResult = Readonly<{
@@ -87,7 +101,16 @@ function referenceRecordProvision(
   recordRule: CatalogProviderReferenceHierarchyRecordRule,
   referenceRecordIdsByRuleKey: ReadonlyMap<string, ReferenceRecordId>,
 ): CatalogProviderReferenceRecordProvision | null {
-  const referenceRecordId = referenceRecordIdForRule(profile, payload, recordRule);
+  const languageEdition = recordRule.languageEdition
+    ? languageEditionForRule(recordRule.languageEdition, payload)
+    : undefined;
+  if (languageEdition === null) {
+    return null;
+  }
+
+  // An unqualified language keeps the provider's own record id and key.
+  const languageQualifier = languageEdition && !languageEdition.unqualified ? languageEdition.languageCode : null;
+  const referenceRecordId = referenceRecordIdForRule(profile, payload, recordRule, languageQualifier);
   const key = valueAsString(recordRule.key, payload);
   const name = valueAsString(recordRule.name, payload);
   const description = valueAsString(recordRule.description, payload);
@@ -96,21 +119,67 @@ function referenceRecordProvision(
     return null;
   }
 
+  const attributes = attributesForRule(recordRule.attributes ?? [], payload);
   return {
     referenceRecordId,
     typeKey: recordRule.typeKey,
-    key: normalizeReferenceKey(key),
+    key: normalizeReferenceKey(languageQualifier ? `${languageQualifier}-${key}` : key),
     name,
     description,
-    attributes: attributesForRule(recordRule.attributes ?? [], payload),
+    attributes: languageEdition
+      ? { ...attributes, [languageEdition.attributeKey]: [languageEdition.languageCode] }
+      : attributes,
     relationships: relationshipsForRule(recordRule.relationships ?? [], referenceRecordIdsByRuleKey),
+    ...(languageEdition ? { languageEdition } : {}),
   };
+}
+
+function languageEditionForRule(
+  rule: CatalogProviderReferenceHierarchyLanguageEditionRule,
+  payload: JsonValue,
+): CatalogProviderReferenceRecordLanguageEdition | null {
+  const languageCode = valueAsString({ kind: "path", path: rule.languageCodePath }, payload);
+  if (!languageCode) {
+    return null;
+  }
+  return {
+    attributeKey: rule.attributeKey,
+    languageCode,
+    unqualified: sameLanguageCode(languageCode, rule.unqualifiedLanguageCode),
+  };
+}
+
+/**
+ * Whether a record with `attributes` may be reused as `languageEdition`: it
+ * records that language, or it records none and the language is unqualified.
+ */
+export function holdsLanguageEdition(
+  attributes: Readonly<Record<string, JsonValue>>,
+  languageEdition: CatalogProviderReferenceRecordLanguageEdition | undefined,
+): boolean {
+  if (!languageEdition) {
+    return true;
+  }
+  const recorded = attributes[languageEdition.attributeKey];
+  if (recorded === undefined || (Array.isArray(recorded) && recorded.length === 0)) {
+    return languageEdition.unqualified;
+  }
+  return (
+    Array.isArray(recorded) &&
+    recorded.some((entry) => typeof entry === "string" && sameLanguageCode(entry, languageEdition.languageCode))
+  );
+}
+
+/** BCP 47 language tags compare case-insensitively. */
+function sameLanguageCode(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
 function referenceRecordIdForRule(
   profile: CatalogProviderIntegrationProfile,
   payload: JsonValue,
   recordRule: CatalogProviderReferenceHierarchyRecordRule,
+  languageQualifier: string | null,
 ): ReferenceRecordId | null {
   if (recordRule.recordId.kind === "static") {
     return recordRule.recordId.referenceRecordId as ReferenceRecordId;
@@ -121,7 +190,8 @@ function referenceRecordIdForRule(
     return null;
   }
 
-  return `${profile.referenceHierarchyMapping.providerReferenceIdPrefix}_${recordRule.recordId.typeKey}_${normalizeReferenceKey(providerId).replace(/-/g, "_")}` as ReferenceRecordId;
+  const qualifiedProviderId = languageQualifier ? `${languageQualifier}-${providerId}` : providerId;
+  return `${profile.referenceHierarchyMapping.providerReferenceIdPrefix}_${recordRule.recordId.typeKey}_${normalizeReferenceKey(qualifiedProviderId).replace(/-/g, "_")}` as ReferenceRecordId;
 }
 
 function attributesForRule(

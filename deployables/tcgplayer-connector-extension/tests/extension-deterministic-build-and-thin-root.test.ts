@@ -26,7 +26,7 @@ function assertThinRoot(worker: string) {
 }
 
 describe("extension-deterministic-build-and-thin-root", () => {
-  it("keeps one composition-only entry, seven adapters, and no superseded probe sources", () => {
+  it("keeps one composition-only entry, eight adapters, and no superseded probe sources", () => {
     const worker = read("src/compose.ts");
     assertThinRoot(worker);
     expect(readdirSync(resolve(root, "src/adapters")).sort()).toEqual([
@@ -34,6 +34,7 @@ describe("extension-deterministic-build-and-thin-root", () => {
       "chrome-alarms.ts",
       "chrome-identity.ts",
       "chrome-indexeddb.ts",
+      "chrome-listener.ts",
       "chrome-runtime.ts",
       "chrome-session.ts",
       "chrome-storage.ts",

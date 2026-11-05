@@ -65,6 +65,7 @@ export const REVOCATION_BUDGET_SECONDS = 1800;
 export const POLL_SECONDS = 30;
 export const JOB_TIMEOUT_MINUTES = 150;
 export const OBSERVER_WORKFLOW_FILE = "platform-staging-evidence-window-cleanup.yml";
+export const WINDOW_JOB_NAME = "Staging Evidence Window";
 export const CLEANUP_GROUP_PREFIX = "evidence-window-cleanup-";
 export const CONSUMERS = Object.freeze(["rehearsal"]);
 export const FAULTS = Object.freeze(["none", "fail", "hang", "runner-loss"]);
@@ -641,6 +642,34 @@ export function observerDecision({ runStatus, now, annotation }) {
   }
   return "wait";
 }
+
+const DISPLACED = "evidence-window-displaced";
+
+/**
+ * Classifies, from the listing alone, a job that never reached a runner (no runner, no
+ * steps, so no log). The shared deploy group cancels a pending window job, whatever joined
+ * it, so a cancelled window is displaced; a skipped sibling is not-started. Every other job
+ * is left to its log. started_at is never read: GitHub sets it on jobs that never ran.
+ */
+export function classifyUnstartedJob(job) {
+  const noRunner = (job.runner_id === null || job.runner_id === 0) && !job.runner_name;
+  if (job.status !== "completed" || !noRunner || job.steps.length !== 0) return null;
+  if (job.name === WINDOW_JOB_NAME) return job.conclusion === "cancelled" ? DISPLACED : null;
+  return job.conclusion === "skipped" ? "not-started" : null;
+}
+
+const isListedJob = (job, identity) =>
+  isRecord(job) &&
+  Number.isSafeInteger(job.id) &&
+  job.id > 0 &&
+  String(job.run_id) === identity.runId &&
+  job.run_attempt === identity.attempt &&
+  typeof job.name === "string" &&
+  typeof job.status === "string" &&
+  (job.conclusion === null || typeof job.conclusion === "string") &&
+  (job.runner_id === null || Number.isSafeInteger(job.runner_id)) &&
+  (job.runner_name === null || typeof job.runner_name === "string") &&
+  Array.isArray(job.steps);
 
 /**
  * Groups residue by the run identity its names encode. Malformed identity fails closed;
@@ -1946,15 +1975,19 @@ export const commands = {
       expiredCredential,
       completedAt: iso(ctx.clock()),
     });
-    // The run's own logs are scanned once it has ended; a marker anywhere fails.
+    // The run's own logs are scanned once it has ended; a marker anywhere fails, and so does
+    // a window the deploy group displaced before it reached a runner.
     while (!runEndedAt && ctx.clock() < Date.parse(budgetEnd)) {
       const run = await ctx.github.runAttempt(identity.runId, identity.attempt);
       if (run?.status === "completed") runEndedAt = run.updated_at ?? iso(ctx.clock());
       else await ctx.sleep(POLL_SECONDS * 1000);
     }
-    state.observer.logScan = runEndedAt ? await scanRunLogs(ctx.github, identity) : "run-not-ended";
+    const scan = runEndedAt ? await scanRunLogs(ctx.github, identity) : { logScan: "run-not-ended", jobs: [] };
+    state.observer.logScan = scan.logScan;
+    state.observer.jobs = scan.jobs;
     if (state.cleanup.verdict !== "proven") state.pendingExit = `cleanup-${state.cleanup.verdict}`;
-    else if (state.observer.logScan !== "clean") state.pendingExit = `log-scan-${state.observer.logScan}`;
+    else if (scan.logScan === DISPLACED) state.pendingExit = DISPLACED;
+    else if (scan.logScan !== "clean") state.pendingExit = `log-scan-${scan.logScan}`;
     return state;
   },
 };
@@ -1971,17 +2004,41 @@ async function confirmObserver(ctx, identity, dispatchedAt) {
   throw stop("observer-unconfirmed");
 }
 
+/**
+ * One scan state per listed job, then the run's: a found marker outranks a displaced
+ * window, which outranks an unreadable log. A listing that is partial, malformed, another
+ * run's or without exactly one window job reads no log at all.
+ */
 async function scanRunLogs(github, identity) {
+  let listing;
   try {
-    const jobs = await github.attemptJobs(identity.runId, identity.attempt);
-    if ((jobs?.jobs ?? []).length === 0 || jobs.total_count > (jobs.jobs ?? []).length) return "incomplete";
-    for (const job of jobs.jobs) {
-      if (credentialMarkersIn(await github.jobLog(job.id)).length > 0) return "marker-found";
-    }
-    return "clean";
+    listing = await github.attemptJobs(identity.runId, identity.attempt);
   } catch {
-    return "unreadable";
+    return { logScan: "unreadable", jobs: [] };
   }
+  const listed = Array.isArray(listing?.jobs) ? listing.jobs : [];
+  if (
+    listed.length === 0 ||
+    listing.total_count !== listed.length ||
+    !listed.every((job) => isListedJob(job, identity)) ||
+    listed.filter((job) => job.name === WINDOW_JOB_NAME).length !== 1
+  ) {
+    return { logScan: "incomplete", jobs: [] };
+  }
+  const jobs = [];
+  for (const job of listed) {
+    let logScan = classifyUnstartedJob(job);
+    if (logScan === null) {
+      try {
+        logScan = credentialMarkersIn(await github.jobLog(job.id)).length > 0 ? "marker-found" : "clean";
+      } catch {
+        logScan = "unreadable";
+      }
+    }
+    jobs.push({ id: String(job.id), name: job.name, logScan });
+  }
+  const states = new Set(jobs.map((job) => job.logScan));
+  return { logScan: ["marker-found", DISPLACED, "unreadable"].find((state) => states.has(state)) ?? "clean", jobs };
 }
 
 function scanDirectoryForMarkers(directory) {

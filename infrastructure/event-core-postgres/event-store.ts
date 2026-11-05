@@ -29,6 +29,11 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import {
+  lockConfigurationGrantVectorInTransaction,
+  validateConfigurationGrantVectorInTransaction,
+  withConfigurationEpochTransaction,
+} from "./configuration-epoch";
+import {
   isPgRetryableTransientError,
   withPgTransaction,
   type PgPoolClient,
@@ -264,6 +269,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
   return {
     readStreamInTransaction: readStream,
     appendToStreamInTransaction: async (client, input) => {
+      if (input.configurationGrants?.length)
+        throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
       if (input.events.length === 0) return [];
       assertEventPayloadSizes([input]);
       return observeEventStoreOperation(
@@ -351,6 +358,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStream: async (input) => {
+      if (input.configurationGrants?.length)
+        throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
       if (input.events.length === 0) {
         return [];
       }
@@ -399,6 +408,9 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStreams: async (inputs) => {
+      const appendTransaction = inputs.some((input) => input.configurationGrants?.length)
+        ? withConfigurationEpochTransaction
+        : withPgTransaction;
       const appendInputs = inputs.filter((input) => input.events.length > 0);
       // A zero-event input is a version guard, not a skipped no-op: the
       // transaction still opens so its expected version is enforced.
@@ -416,7 +428,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
         },
         async () => {
           try {
-            return await withPgTransaction(
+            return await appendTransaction(
               pool,
               async (client) =>
                 appendEventsToStreams({
@@ -458,6 +470,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStreamsIndependently: async (inputs, options) => {
+      if (inputs.some((input) => input.configurationGrants?.length))
+        throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
       const appendInputs = inputs.filter((input) => input.events.length > 0);
       if (appendInputs.length === 0) {
         return inputs.map((input) => ({
@@ -643,6 +657,7 @@ type AppendInTransactionArgs = Readonly<{
   eventsTable: string;
   readEventsByIdsSql: string;
   updateStreamVersionSql: string;
+  preparedVersions?: ReadonlyMap<string, number>;
 }>;
 
 type AppendStreamsInTransactionArgs = Omit<AppendInTransactionArgs, "input"> &
@@ -735,21 +750,23 @@ function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
 }
 
 async function appendEventsToStream(args: AppendInTransactionArgs): Promise<readonly StoredEvent[]> {
-  const now = args.now();
-
-  await args.client.query(args.upsertStreamSql, [args.input.streamId, now]);
-
-  const streamVersionResult = await args.client.query<DbStreamVersionRow>(args.readCurrentVersionSql, [
-    args.input.streamId,
-  ]);
-
-  if (streamVersionResult.rows.length !== 1) {
-    throw createEventStoreError("infrastructure_failure", "Stream row not found", {
-      streamId: args.input.streamId,
-    });
+  if (args.input.configurationGrants?.length && !args.preparedVersions) {
+    throw createEventStoreError("concurrency_conflict", "Class-C grants require the atomic appendToStreams adapter.");
   }
-
-  const currentVersion = toNumber(streamVersionResult.rows[0].current_version);
+  const now = args.now();
+  let currentVersion = args.preparedVersions?.get(args.input.streamId);
+  if (currentVersion === undefined) {
+    await args.client.query(args.upsertStreamSql, [args.input.streamId, now]);
+    const streamVersionResult = await args.client.query<DbStreamVersionRow>(args.readCurrentVersionSql, [
+      args.input.streamId,
+    ]);
+    if (streamVersionResult.rows.length !== 1) {
+      throw createEventStoreError("infrastructure_failure", "Stream row not found", {
+        streamId: args.input.streamId,
+      });
+    }
+    currentVersion = toNumber(streamVersionResult.rows[0].current_version);
+  }
 
   assertExpectedVersion(args.input.streamId, args.input.expectedVersion, currentVersion);
 
@@ -791,9 +808,10 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
     // can assign positions and commit concurrently. Catch-up readers take the
     // exclusive side before capturing the sequence horizon; they therefore
     // cannot checkpoint past any position owned by an in-flight append.
-    await args.client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
-      EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
-    ]);
+    if (!args.preparedVersions)
+      await args.client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
+        EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
+      ]);
     const insertResult = await args.client.query<DbEventRow>(
       buildInsertEventsSql(args.eventsTable, eventsToInsert.length),
       buildInsertEventsParams(eventsToInsert),
@@ -846,16 +864,36 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
 
 async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Promise<readonly AppendToStreamsResult[]> {
   const results: AppendToStreamsResult[] = [];
+  const grants = args.inputs.flatMap((input) => input.configurationGrants ?? []);
+  if (grants.length) {
+    assertUniqueStreamIds("appendToStreams", args.inputs);
+    await lockConfigurationGrantVectorInTransaction(args.client, grants);
+    const versions = new Map<string, number>();
+    for (const input of [...args.inputs].sort((a, b) => (a.streamId < b.streamId ? -1 : 1))) {
+      await args.client.query(args.upsertStreamSql, [input.streamId, args.now()]);
+      const version = await args.client.query<DbStreamVersionRow>(args.readCurrentVersionSql, [input.streamId]);
+      if (version.rows.length !== 1) throw createEventStoreError("infrastructure_failure", "Stream row not found");
+      const current = toNumber(version.rows[0].current_version);
+      assertExpectedVersion(input.streamId, input.expectedVersion, current);
+      versions.set(input.streamId, current);
+    }
+    await args.client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
+      EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
+    ]);
+    await validateConfigurationGrantVectorInTransaction(args.client, grants);
+    args = { ...args, preparedVersions: versions };
+  }
 
   for (const input of args.inputs) {
     if (input.events.length === 0) {
-      await assertStreamExpectedVersionInTransaction({
-        client: args.client,
-        input,
-        now: args.now,
-        upsertStreamSql: args.upsertStreamSql,
-        readCurrentVersionSql: args.readCurrentVersionSql,
-      });
+      if (!args.preparedVersions)
+        await assertStreamExpectedVersionInTransaction({
+          client: args.client,
+          input,
+          now: args.now,
+          upsertStreamSql: args.upsertStreamSql,
+          readCurrentVersionSql: args.readCurrentVersionSql,
+        });
       results.push({ streamId: input.streamId, storedEvents: [] });
       continue;
     }
@@ -932,6 +970,8 @@ type PendingIndependentStreamAppend = Readonly<{
 async function appendEventsToStreamsIndependently(
   args: AppendStreamsIndependentlyInTransactionArgs,
 ): Promise<readonly AppendToStreamsIndependentResult[]> {
+  if (args.inputs.some((input) => input.configurationGrants?.length))
+    throw createEventStoreError("concurrency_conflict", "Class-C grants require the atomic appendToStreams adapter.");
   const now = args.now();
   const results: AppendToStreamsIndependentResult[] = [];
   const pendingStreams: PendingIndependentStreamAppend[] = [];

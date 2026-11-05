@@ -260,6 +260,11 @@ export interface CatalogIntegrationControlPlaneOverview {
     generatedAt: string;
     units: CatalogIntegrationUnitActivity[];
   };
+  /** Context-scoped durable active snapshot; absent only for legacy fixtures. */
+  activeJobs?: {
+    items: CatalogIntegrationRecentJobSummary[];
+    completeness: "complete" | "incomplete";
+  };
   providerReadiness: {
     generatedAt: string;
     providers: CatalogIntegrationProviderReadiness[];

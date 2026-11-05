@@ -126,6 +126,7 @@ describe("Discovery search runtime telemetry", () => {
 
   it("lexical and final zero states: nonempty hybrid candidates survive later retrieval failure", async () => {
     const recordSearchQuery = vi.fn();
+    const recordSearchRetrievalFailure = vi.fn();
     const failure = new Error("synthetic hydration failure");
     const db = interpretationDb((sql, values) => {
       if (sql.startsWith("SELECT * FROM (")) return [{ catalog_item_id: "synthetic-candidate", title: "Candidate" }];
@@ -146,12 +147,41 @@ describe("Discovery search runtime telemetry", () => {
         cache: createQueryEmbeddingCache(),
         hybridEnabled: true,
         recordSearchQuery,
+        recordSearchRetrievalFailure,
       },
     );
-    await expect(runtime.searchItems({ search: "dragon" })).rejects.toBe(failure);
+    await expect(
+      runtime.searchItems({ search: "dragon" }, { correlationId: "0123456789abcdef0123456789abcdef" }),
+    ).rejects.toBe(failure);
+    expect(recordSearchRetrievalFailure).toHaveBeenCalledExactlyOnceWith({
+      correlationId: "0123456789abcdef0123456789abcdef",
+      error: failure,
+    });
     expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ lexicalZero: false, zeroResults: null, interpretation: "unknown", outcome: "failure" }),
     );
+  });
+
+  it("rethrows the original retrieval error when the failure observer throws", async () => {
+    const failure = new Error("synthetic retrieval failure");
+    const observer = vi.fn(() => {
+      throw new Error("synthetic observer failure");
+    });
+    const runtime = createDiscoveryItemSearchRuntime(
+      { ...deps(), db: { query: vi.fn().mockRejectedValue(failure) } },
+      { recordSearchRetrievalFailure: observer },
+    );
+
+    await expect(runtime.searchItems({ search: "query" })).rejects.toBe(failure);
+    expect(observer).toHaveBeenCalledExactlyOnceWith({ correlationId: undefined, error: failure });
+  });
+
+  it("does not invoke the failure observer after a successful retrieval", async () => {
+    const observer = vi.fn();
+    const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchRetrievalFailure: observer });
+
+    await expect(runtime.searchItems({ search: "" })).resolves.toMatchObject({ retrievalMode: "lexical" });
+    expect(observer).not.toHaveBeenCalled();
   });
 
   it("privacy sentinels never enter query signals or logs", async () => {

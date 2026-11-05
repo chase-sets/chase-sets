@@ -1,3 +1,4 @@
+import { sendListingCommandsWithFreshAttempts } from "../tests/listing-attempt-test-support";
 import { inspect } from "node:util";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -44,7 +45,7 @@ function buildApp(
     resolver?: RateLimitRuleResolver;
   } = {},
 ) {
-  const app = new Hono<MarketplaceApiEnv>();
+  const app = sendListingCommandsWithFreshAttempts(new Hono<MarketplaceApiEnv>());
   app.onError(errorHandler);
   app.use("*", async (c, next) => {
     c.set("actor", options.actor === undefined ? actor : options.actor);
@@ -300,6 +301,12 @@ describe("safe Listing errors", () => {
 
   it("distinguishes real commandHandler rejection from an identical plain persistence failure through buildMarketplaceApi", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const {
+      publicationScope: _publicationScope,
+      nativeVisibility: _nativeVisibility,
+      nativeFeeState: _nativeFeeState,
+      ...historicalListingState
+    } = initialMarketplaceListingState;
     for (const plain of [false, true]) {
       const { eventStore } = createInMemoryEventStore();
       const context = {
@@ -313,7 +320,7 @@ describe("safe Listing errors", () => {
         events: [
           {
             eventType: "marketplace.listing.created",
-            payload: { ...initialMarketplaceListingState, listingId: "lst_1", accountId: "acc_seller" },
+            payload: { ...historicalListingState, listingId: "lst_1", accountId: "acc_seller" },
           },
           ...(plain ? [{ eventType: "marketplace.listing.published", payload: {} }] : []),
         ],
@@ -333,7 +340,7 @@ describe("safe Listing errors", () => {
         commercialTermsResolver: services.commercialTermsResolver,
         checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
       });
-      const app = new Hono<MarketplaceApiEnv>();
+      const app = sendListingCommandsWithFreshAttempts(new Hono<MarketplaceApiEnv>());
       app.onError(errorHandler);
       app.use("*", async (c, next) => {
         c.set("actor", actor);

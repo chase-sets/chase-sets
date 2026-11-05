@@ -1,5 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { listChangedFiles } from "./change-scope.mjs";
 import { resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
 
 const productionCommit = "a".repeat(40);
@@ -79,6 +80,31 @@ function resolveWithGit({ eventName = "push", forceDeploy = false, productionRef
 }
 
 describe("release deployment scope", () => {
+  it("takes the no-deploy path when the real release diff is empty", () => {
+    const sha = "1".repeat(40);
+    const execFileSync = (_command, args) => {
+      if (args[0] === "show-ref") return "refs/remotes/origin/production\n";
+      if (args[0] === "rev-parse" || args[0] === "merge-base") return `${sha}\n`;
+      if (args[0] === "diff") return "";
+      throw new Error(`unexpected git command: ${args.join(" ")}`);
+    };
+
+    const result = resolveReleaseDeploymentScope(
+      { eventName: "push", releaseCommit: sha, forceDeploy: false },
+      {
+        cwd: path.join(process.cwd(), "repo"),
+        execFileSync,
+        appendFileSync: () => {},
+        listChangedFiles,
+        workspaces: [],
+        log: () => {},
+      },
+    );
+
+    expect(result).toMatchObject({ deploy: false, reason: "scoped" });
+    expect(result.scope.changedFiles).toEqual([]);
+  });
+
   it("deploys a latest docs-only push when production has pending deployable commits", () => {
     const { result, appended, listedDiffs } = resolveWithGit({
       productionRef: productionCommit,

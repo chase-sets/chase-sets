@@ -1,12 +1,24 @@
-import type {
-  CatalogAttentionQueueReadModel,
-  CatalogDeferredAttentionQueueResult,
+import {
+  catalogAttentionCountBasis,
+  catalogAttentionKindCoverage,
+  type CatalogAttentionKindCoverage,
+  type CatalogAttentionQueueCoverage,
+  type CatalogAttentionQueueReadModel,
+  type CatalogDeferredAttentionQueueResult,
 } from "../../../features/attention-queue/api/contracts";
 import {
   CATALOG_ATTENTION_ITEM_KINDS,
-  summarizeCatalogAttentionItems,
+  CATALOG_ATTENTION_KIND_SEVERITIES,
+  CATALOG_ATTENTION_MAX_WINDOW_LIMIT,
+  CATALOG_ATTENTION_SEVERITIES,
+  CATALOG_ATTENTION_TOTAL_KINDS,
+  catalogAttentionKindRecord,
+  catalogAttentionKindWindow,
+  isCatalogAttentionItemKind,
   type CatalogAttentionItem,
-  type CatalogAttentionItemKind,
+  type CatalogAttentionQueueCountBasis,
+  type CatalogAttentionQueueCounts,
+  type CatalogAttentionQueueWindow,
   type CatalogAttentionResolution,
   type CatalogAttentionSeverity,
 } from "../../../features/attention-queue/read-model/attention-item";
@@ -34,17 +46,31 @@ export const CATALOG_ATTENTION_QUEUE_UNAVAILABLE: CatalogDeferredAttentionQueueR
   status: "unavailable",
 });
 
-// Accept a raw API response only when it matches the existing attention read
-// model exactly (closed key sets, closed enums, timezone-bearing timestamps) and
-// its derived facts agree with its items. Any mismatch is `unavailable`: a queue
-// the surface cannot trust must not be rendered as an empty or partial inbox.
+// Accept a raw API response only when it matches the attention read model
+// exactly (closed key sets, closed enums, timezone-bearing timestamps) and its
+// derived facts agree: counts with per-kind coverage, count bases with each
+// kind's exact or lower-bound total, windows with the request window, and
+// freshness with the returned items. Any mismatch is `unavailable`: a queue the
+// surface cannot trust must not be rendered as an empty or partial inbox.
 export function resolveCatalogAttentionQueueResult(value: unknown): CatalogDeferredAttentionQueueResult {
   const readModel = parseCatalogAttentionQueueReadModel(value);
   return readModel ? { status: "ready", readModel } : CATALOG_ATTENTION_QUEUE_UNAVAILABLE;
 }
 
-const READ_MODEL_KEYS = ["generatedAt", "empty", "items", "counts", "freshness"] as const;
+const READ_MODEL_KEYS = [
+  "generatedAt",
+  "empty",
+  "items",
+  "counts",
+  "countBasis",
+  "coverage",
+  "window",
+  "freshness",
+] as const;
 const COUNTS_KEYS = ["total", "bySeverity", "byKind"] as const;
+const COUNT_BASIS_KEYS = ["total", "bySeverity"] as const;
+const WINDOW_KEYS = ["kind", "offset", "limit"] as const;
+const COVERAGE_KEYS = ["total", "totalKind", "offset", "limit", "returned", "truncated", "nextOffset"] as const;
 const FRESHNESS_KEYS = ["generatedAt", "oldestObservedAt", "newestObservedAt"] as const;
 const ITEM_KEYS = [
   "itemKey",
@@ -61,8 +87,7 @@ const ITEM_KEYS = [
   "secondaryResolutions",
 ] as const;
 const RESOLUTION_REQUIRED_KEYS = ["intent", "mode", "labelKey", "fields"] as const;
-const RESOLUTION_OPTIONAL_KEYS = ["requiresReason"] as const;
-const SEVERITIES = ["critical", "warning", "info"] as const satisfies readonly CatalogAttentionSeverity[];
+const RESOLUTION_OPTIONAL_KEYS = ["requiresReason", "href", "unavailable"] as const;
 const RESOLUTION_MODES = ["command", "drawer"] as const;
 
 // ISO-8601 date-time with an explicit offset (`Z` or `±hh:mm`). The queue's
@@ -87,17 +112,151 @@ export function parseCatalogAttentionQueueReadModel(value: unknown): CatalogAtte
     }
     items.push(item);
   }
-  if (value.empty !== (items.length === 0)) {
+
+  const window = parseWindow(value.window);
+  const coverage = window ? parseCoverage(value.coverage, window, items) : null;
+  if (!window || !coverage) {
     return null;
   }
-
-  const counts = parseCounts(value.counts, items);
+  const counts = parseCounts(value.counts, coverage);
+  const countBasis = parseCountBasis(value.countBasis, coverage);
   const freshness = parseFreshness(value.freshness, generatedAt, items);
-  if (!counts || !freshness) {
+  if (!counts || !countBasis || !freshness) {
+    return null;
+  }
+  // Only a complete zero is an empty queue; an incomplete zero is unknown work.
+  if (value.empty !== (counts.total === 0 && countBasis.total === "exact")) {
     return null;
   }
 
-  return { generatedAt, empty: value.empty, items, counts, freshness };
+  return { generatedAt, empty: value.empty, items, counts, countBasis, coverage, window, freshness };
+}
+
+function parseWindow(value: unknown): CatalogAttentionQueueWindow | null {
+  if (!hasExactKeys(value, WINDOW_KEYS)) {
+    return null;
+  }
+  const kind = value.kind === null ? null : isCatalogAttentionItemKind(value.kind) ? value.kind : undefined;
+  if (
+    kind === undefined ||
+    !isNonNegativeInteger(value.offset) ||
+    !isNonNegativeInteger(value.limit) ||
+    value.limit < 1 ||
+    value.limit > CATALOG_ATTENTION_MAX_WINDOW_LIMIT
+  ) {
+    return null;
+  }
+  return { kind, offset: value.offset, limit: value.limit };
+}
+
+// Each kind's coverage must describe the request window and the items actually
+// returned for that kind; truncation and the next offset are recomputed.
+function parseCoverage(
+  value: unknown,
+  window: CatalogAttentionQueueWindow,
+  items: readonly CatalogAttentionItem[],
+): CatalogAttentionQueueCoverage | null {
+  if (!hasExactKeys(value, CATALOG_ATTENTION_ITEM_KINDS)) {
+    return null;
+  }
+  const parsed: Partial<Record<CatalogAttentionItem["kind"], CatalogAttentionKindCoverage>> = {};
+  for (const kind of CATALOG_ATTENTION_ITEM_KINDS) {
+    const coverage = parseKindCoverage(
+      value[kind],
+      catalogAttentionKindWindow(window, kind),
+      items.filter((item) => item.kind === kind).length,
+    );
+    if (!coverage) {
+      return null;
+    }
+    parsed[kind] = coverage;
+  }
+  return catalogAttentionKindRecord((kind) => parsed[kind]!);
+}
+
+function parseKindCoverage(
+  value: unknown,
+  window: Readonly<{ offset: number; limit: number }>,
+  returned: number,
+): CatalogAttentionKindCoverage | null {
+  if (
+    !hasExactKeys(value, COVERAGE_KEYS) ||
+    !isNonNegativeInteger(value.total) ||
+    !isOneOf(value.totalKind, CATALOG_ATTENTION_TOTAL_KINDS) ||
+    returned > window.limit
+  ) {
+    return null;
+  }
+  const expected = catalogAttentionKindCoverage({
+    total: value.total,
+    totalKind: value.totalKind,
+    offset: window.offset,
+    limit: window.limit,
+    returned,
+  });
+  const matches =
+    value.offset === expected.offset &&
+    value.limit === expected.limit &&
+    value.returned === expected.returned &&
+    value.truncated === expected.truncated &&
+    value.nextOffset === expected.nextOffset;
+  return matches ? expected : null;
+}
+
+// Counts are cohort-wide, so they are checked against coverage, not the window:
+// each kind count is its coverage total, the global total is their sum, and each
+// severity count is attributable to the kinds that can produce that severity.
+function parseCounts(value: unknown, coverage: CatalogAttentionQueueCoverage): CatalogAttentionQueueCounts | null {
+  if (!hasExactKeys(value, COUNTS_KEYS)) {
+    return null;
+  }
+  const byKind = catalogAttentionKindRecord((kind) => coverage[kind].total);
+  const total = CATALOG_ATTENTION_ITEM_KINDS.reduce((sum, kind) => sum + byKind[kind], 0);
+  const bySeverity = parseSeverityCounts(value.bySeverity);
+  if (
+    value.total !== total ||
+    !countRecordMatches(value.byKind, CATALOG_ATTENTION_ITEM_KINDS, byKind) ||
+    !bySeverity ||
+    CATALOG_ATTENTION_SEVERITIES.reduce((sum, severity) => sum + bySeverity[severity], 0) !== total
+  ) {
+    return null;
+  }
+  const attributable = CATALOG_ATTENTION_SEVERITIES.every((severity) => {
+    const kindsFor = (only: boolean) =>
+      CATALOG_ATTENTION_ITEM_KINDS.filter((kind) => {
+        const severities = CATALOG_ATTENTION_KIND_SEVERITIES[kind];
+        return only ? severities.length === 1 && severities[0] === severity : severities.includes(severity);
+      }).reduce((sum, kind) => sum + byKind[kind], 0);
+    return bySeverity[severity] >= kindsFor(true) && bySeverity[severity] <= kindsFor(false);
+  });
+  return attributable ? { total, bySeverity, byKind } : null;
+}
+
+function parseSeverityCounts(value: unknown): Readonly<Record<CatalogAttentionSeverity, number>> | null {
+  if (!hasExactKeys(value, CATALOG_ATTENTION_SEVERITIES)) {
+    return null;
+  }
+  const { critical, warning, info } = value;
+  return isNonNegativeInteger(critical) && isNonNegativeInteger(warning) && isNonNegativeInteger(info)
+    ? { critical, warning, info }
+    : null;
+}
+
+// The count bases are re-derived from each kind's total kind: one lower-bound
+// kind makes the global total and every severity it can produce a lower bound.
+function parseCountBasis(
+  value: unknown,
+  coverage: CatalogAttentionQueueCoverage,
+): CatalogAttentionQueueCountBasis | null {
+  if (!hasExactKeys(value, COUNT_BASIS_KEYS) || !hasExactKeys(value.bySeverity, CATALOG_ATTENTION_SEVERITIES)) {
+    return null;
+  }
+  const expected = catalogAttentionCountBasis(catalogAttentionKindRecord((kind) => coverage[kind].totalKind));
+  const bySeverity = value.bySeverity;
+  const matches =
+    value.total === expected.total &&
+    CATALOG_ATTENTION_SEVERITIES.every((severity) => bySeverity[severity] === expected.bySeverity[severity]);
+  return matches ? expected : null;
 }
 
 function parseItem(value: unknown): CatalogAttentionItem | null {
@@ -119,8 +278,10 @@ function parseItem(value: unknown): CatalogAttentionItem | null {
     titleParams === null ||
     detailParams === null ||
     resolution === null ||
-    !isItemKind(value.kind) ||
+    !isCatalogAttentionItemKind(value.kind) ||
     !isSeverity(value.severity) ||
+    // A severity the item's source cannot produce is not a queue item.
+    !CATALOG_ATTENTION_KIND_SEVERITIES[value.kind].includes(value.severity) ||
     !isNullableString(value.providerKey) ||
     !isNullableString(value.unitKey) ||
     !Array.isArray(value.secondaryResolutions)
@@ -165,30 +326,22 @@ function parseResolution(value: unknown): CatalogAttentionResolution | null {
     labelKey === null ||
     fields === null ||
     !isOneOf(value.mode, RESOLUTION_MODES) ||
-    !("requiresReason" in value ? typeof value.requiresReason === "boolean" : true)
+    !("requiresReason" in value ? typeof value.requiresReason === "boolean" : true) ||
+    !("href" in value ? typeof value.href === "string" && value.href.startsWith("/catalog/") : true) ||
+    !("unavailable" in value ? value.unavailable === true : true) ||
+    ("href" in value && "unavailable" in value)
   ) {
     return null;
   }
-  return "requiresReason" in value
-    ? { intent, mode: value.mode, labelKey, fields, requiresReason: value.requiresReason === true }
-    : { intent, mode: value.mode, labelKey, fields };
-}
-
-// Counts are re-derived from the accepted items; the response's own counts must
-// match that recomputation exactly or the queue is not trusted.
-function parseCounts(value: unknown, items: readonly CatalogAttentionItem[]) {
-  if (!hasExactKeys(value, COUNTS_KEYS)) {
-    return null;
-  }
-  const expected = summarizeCatalogAttentionItems(items);
-  if (
-    value.total !== expected.total ||
-    !countRecordMatches(value.bySeverity, SEVERITIES, expected.bySeverity) ||
-    !countRecordMatches(value.byKind, CATALOG_ATTENTION_ITEM_KINDS, expected.byKind)
-  ) {
-    return null;
-  }
-  return expected;
+  return {
+    intent,
+    mode: value.mode,
+    labelKey,
+    fields,
+    ...(value.requiresReason !== undefined ? { requiresReason: value.requiresReason === true } : {}),
+    ...(typeof value.href === "string" ? { href: value.href } : {}),
+    ...(value.unavailable === true ? { unavailable: true } : {}),
+  };
 }
 
 function parseFreshness(value: unknown, generatedAt: string, items: readonly CatalogAttentionItem[]) {
@@ -248,12 +401,12 @@ function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value
   return typeof value === "string" && (allowed as readonly string[]).includes(value);
 }
 
-function isItemKind(value: unknown): value is CatalogAttentionItemKind {
-  return isOneOf(value, CATALOG_ATTENTION_ITEM_KINDS);
+function isSeverity(value: unknown): value is CatalogAttentionSeverity {
+  return isOneOf(value, CATALOG_ATTENTION_SEVERITIES);
 }
 
-function isSeverity(value: unknown): value is CatalogAttentionSeverity {
-  return isOneOf(value, SEVERITIES);
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
 function isNullableString(value: unknown): value is string | null {

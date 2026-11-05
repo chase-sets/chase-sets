@@ -7,6 +7,6 @@ export function useDiscoveryRealtimeRevalidation() {
   revalidateRef.current = revalidator.revalidate;
 
   return useCallback(() => {
-    revalidateRef.current();
+    void revalidateRef.current();
   }, []);
 }

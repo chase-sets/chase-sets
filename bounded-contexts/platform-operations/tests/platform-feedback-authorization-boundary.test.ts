@@ -21,9 +21,8 @@ import type { PlatformFeedbackServices } from "../features/platform-feedback/api
  *
  * The corrected role model grants ordinary account roles (owner/manager/
  * fulfillment/viewer) NONE of the platform-feedback operator capabilities; that
- * source-of-truth exclusion is asserted directly against the role maps in
- * bounded-contexts/identity/features/memberships/read-model/constants.test.ts
- * and bounded-contexts/auth/support/auth-support/constants.test.ts. Here we
+ * source-of-truth exclusion is asserted directly against the role table in
+ * contracts/auth-context/role-permissions.test.ts. Here we
  * represent each ordinary-role and marketplace-customer session by an actor that
  * carries realistic non-feedback grants but no platform-feedback.* capability,
  * and prove the server-side authz denies it.

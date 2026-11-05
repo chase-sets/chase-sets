@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { AUTH_SESSION_COOKIE_NAME, type ResolvedActor } from "@chase-sets/auth-context";
+import {
+  AUTH_GUEST_CHECKOUT_COOKIE_NAME,
+  AUTH_SESSION_COOKIE_NAME,
+  type ResolvedActor,
+} from "@chase-sets/auth-context";
 import {
   bootstrapContextDatabase,
   drainContextRuntime,
@@ -29,7 +33,6 @@ import {
   buildAuthIdentityUserProjectionHandlers,
 } from "../auth-support/identity-projection";
 import { upsertGuestCheckoutToken } from "../auth-support/store";
-import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
 import { resolveActorFromRequest } from "./runtime";
 import { createAuthServices, startInteractiveAuth, type AuthServices } from "./services";
 

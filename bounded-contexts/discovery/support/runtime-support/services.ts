@@ -60,7 +60,10 @@ export type DiscoveryHostPorts = Readonly<{
     queryTimeoutMs?: number;
   }>;
   searchEmbeddingProvider?: DiscoveryEmbeddingProvider;
-  searchTelemetry?: Pick<DiscoverySearchRetrievalOptions, "recordSearchQuery" | "recordQueryEmbeddingLoad">;
+  searchTelemetry?: Pick<
+    DiscoverySearchRetrievalOptions,
+    "recordSearchQuery" | "recordQueryEmbeddingLoad" | "recordSearchRetrievalFailure"
+  >;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
 }>;
 
@@ -148,6 +151,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
       }),
     recordSearchQuery: ports.searchTelemetry?.recordSearchQuery,
     recordQueryEmbeddingLoad: ports.searchTelemetry?.recordQueryEmbeddingLoad,
+    recordSearchRetrievalFailure: ports.searchTelemetry?.recordSearchRetrievalFailure,
   });
 
   return {

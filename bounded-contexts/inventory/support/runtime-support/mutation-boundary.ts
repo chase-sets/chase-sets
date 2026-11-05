@@ -7,7 +7,7 @@ const fields = {
   create: [
     "catalogItemId",
     "selectedOptions",
-    "gradedCard",
+    "certificationNumber",
     "storageLocationId",
     "totalQuantity",
     "acquisitionCostAmount",
@@ -65,6 +65,11 @@ export function validateInventoryMutationBody(value: unknown, allowed: readonly 
     );
   }
   if (body.isArchived !== undefined) assert(typeof body.isArchived === "boolean", "Invalid archive flag.");
+  if (body.certificationNumber !== undefined)
+    assert(
+      body.certificationNumber === null || typeof body.certificationNumber === "string",
+      "Invalid certification number.",
+    );
   if (body.selectedOptions !== undefined) {
     const options: unknown =
       typeof body.selectedOptions === "string" ? JSON.parse(body.selectedOptions) : body.selectedOptions;

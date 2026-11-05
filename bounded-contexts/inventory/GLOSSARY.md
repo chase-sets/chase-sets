@@ -18,6 +18,10 @@ A Restock Decision attempt includes the expected decision version, outcome and n
 
 An **Import Row Outcome** is the immutable validation result for one row in an Inventory import batch. It records whether the row was accepted, rejected, or committed together with the normalized row identity and any bounded validation diagnostics; it is not a replacement upload or a new batch identity.
 
+## Commit Input Snapshot
+
+A **Commit Input Snapshot** is the server-derived, versioned set of accepted import row values captured when a commit is accepted. Its canonical row-set hash and immutable row data are referenced by the durable commit job; worker retries read this snapshot rather than mutable batch rows.
+
 ## Inventory Item
 
 An **Inventory Item** is a seller's stock for one specific product and storage location.
@@ -122,6 +126,13 @@ Notes:
 - A direct Order Hold is `placed` with Hold Purpose `order` and an exact Hold Source Reference; a converted checkout Hold is `placed` with purpose `checkout`, extended zero or more times, then `converted` to purpose `order`.
 - At most one `released`, `consumed`, or `expired` terminal may appear, and nothing may follow it.
 - Reading Hold Cleanup Authority never releases, consumes, or otherwise mutates the Hold.
+
+## Sale-Consumed
+
+**Sale-consumed** is the producer-only Inventory adjustment reason for the
+single stock reduction paired with an order Hold's terminal consumption. The
+consumed Hold ledger row is an audit detail with a null quantity delta; the
+paired Inventory Item adjustment is the only quantity-bearing movement.
 
 ## Hold Source Lookup
 
