@@ -672,6 +672,54 @@ describe("Catalog integrations route", () => {
     expect(rejectButtons.map((button) => button.disabled)).toEqual(rejectButtons.map(() => true));
   });
 
+  it("labels exact cohort totals beyond the summary window without page links on the daily mount", async () => {
+    const queue = catalogAttentionQueueReadModelFixture(undefined, undefined, {
+      cohorts: { "alias-candidate": { total: 5027 } },
+    });
+    // Even a result that carried navigation would not add page links here.
+    await renderDailyRouteWithAttention(
+      Promise.resolve({
+        status: "ready",
+        readModel: queue,
+        navigation: { pathname: "/catalog/integrations", search: "providerKey=tcgdex" },
+      }),
+    );
+
+    expect(await screen.findByText("5,028 need you")).toBeTruthy();
+    const aliasCoverage = document.querySelector<HTMLElement>('[data-attention-coverage-kind="alias-candidate"]');
+    expect(aliasCoverage?.textContent).toContain("Showing 1 of 5,027");
+    expect(queue.coverage["alias-candidate"].nextOffset).toBe(1);
+    expect(document.querySelectorAll("[data-attention-page]")).toHaveLength(0);
+    expect(screen.queryByText(/at least/i)).toBeNull();
+    // Action keys are unchanged by the window.
+    expect(attentionCommandButtons("alias.accept").length).toBeGreaterThan(0);
+    expect(attentionCommandButtons("alias.reject").length).toBeGreaterThan(0);
+  });
+
+  it("labels an incomplete job snapshot as at least N and an incomplete zero as unknown work", async () => {
+    const bounded = catalogAttentionQueueReadModelFixture(undefined, undefined, {
+      cohorts: { "import-job": { totalKind: "lower-bound" } },
+    });
+    await renderDailyRouteWithAttention(Promise.resolve({ status: "ready", readModel: bounded }));
+    expect(await screen.findByText("At least 2 need you")).toBeTruthy();
+    expect(screen.getAllByText("Some import jobs could not be checked.").length).toBeGreaterThan(0);
+    expect(screen.queryByText(ATTENTION_EMPTY_TITLE)).toBeNull();
+    cleanup();
+
+    const incompleteZero = catalogAttentionQueueReadModelFixture([], undefined, {
+      cohorts: { "import-job": { totalKind: "lower-bound" } },
+    });
+    await renderDailyRouteWithAttention(Promise.resolve({ status: "ready", readModel: incompleteZero }));
+    expect(await screen.findByText("At least 0 need you")).toBeTruthy();
+    expect(document.querySelector('[data-attention-incomplete="true"]')?.textContent).toContain(
+      "Some import jobs could not be checked.",
+    );
+    expect(screen.queryByText(ATTENTION_EMPTY_TITLE)).toBeNull();
+    expect(screen.queryByText(/running itself/i)).toBeNull();
+    expect(screen.queryByText(ATTENTION_UNAVAILABLE_TITLE)).toBeNull();
+    expect(attentionSlotMarkers()).toEqual({ panel: 1, unavailable: 0, loading: 0 });
+  });
+
   it("contains rejected supplementary slots without unmounting the workbench", async () => {
     const rejected = <T,>(reason: Error): Promise<T> => {
       const promise = Promise.reject(reason);

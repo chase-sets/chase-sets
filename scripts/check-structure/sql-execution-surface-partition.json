@@ -527,13 +527,14 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 273,
+    "count": 276,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
       "bounded-contexts/auth/support/ucp-support/oauth.ts": 5,
       "bounded-contexts/authenticity/features/cases/api/route.ts": 3,
       "bounded-contexts/catalog/features/alias-equivalence/api/route.ts": 2,
+      "bounded-contexts/catalog/features/attention-queue/api/route.ts": 3,
       "bounded-contexts/catalog/features/blueprints/api/route.ts": 1,
       "bounded-contexts/catalog/features/catalog-items/api/route.ts": 1,
       "bounded-contexts/catalog/features/categories/api/route.ts": 1,
