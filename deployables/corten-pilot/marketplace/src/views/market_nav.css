@@ -110,6 +110,11 @@
   flex-shrink: 0;
   font-size: 1.25rem;
 }
+/* A visitor's cart entry (`data-hide-empty`) is shown only while its badge has a count: the
+   layout read draws the badge hidden at 0, and draws none when it was not read. */
+[data-hide-empty]:not(:has(.badge:not([hidden]))) {
+  display: none;
+}
 .badge {
   display: inline-flex;
   align-items: center;

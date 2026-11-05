@@ -29,7 +29,6 @@ use corten::{
 };
 use serde::Deserialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, CatalogItem, ClaimedDraft, CreatedListing, EvidenceReadiness, ListingCreate as _, Listings as _, Photo, Schema,
@@ -459,12 +458,11 @@ async fn screen(
     caller: &crate::api::Caller<'_>,
     draft: Draft,
     errors: Errors,
-    chrome: &Chrome,
 ) -> Result<NewListingScreen, Box<HtmlResult>> {
     let t: ListingNewMsg = req.t();
     let ((items, has), catalog) = match tokio::join!(supply(caller, &draft), catalog(caller, &draft)) {
         (Ok(read), catalog) => (read, catalog),
-        (Err(error), _) => return Err(Box::new(read_failed(req, Some(viewer), error, None, chrome.cart().await))),
+        (Err(error), _) => return Err(Box::new(read_failed(req, Some(viewer), error, None))),
     };
     let notice = (!draft.inventory_item_id.is_empty() && !items.iter().any(|i| i.item_id == draft.inventory_item_id))
         .then(|| t.route_inventory_item_preparing().to_owned());
@@ -501,13 +499,13 @@ async fn screen(
 }
 
 /// The page, or with JavaScript after one of the form's own `GET`s, its parts.
-fn answer(req: &Req, viewer: &Viewer, screen: &NewListingScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
+fn answer(req: &Req, viewer: &Viewer, screen: &NewListingScreen, status: StatusCode) -> HtmlResult {
     let (t, p): (ListingNewMsg, Pilot) = (req.t(), req.t());
     if req.mode == corten::Mode::Action && (screen.draft.redraw || status != StatusCode::OK) {
         return req.patch_with_status(status, html! { <views::NewListingParts t={t} p={p} screen={screen} /> });
     }
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_create_listing()} head={()}>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_create_listing()} head={()}>
             <views::NewListingPage t={t} p={p} screen={screen} />
         </Layout>
     };
@@ -515,10 +513,10 @@ fn answer(req: &Req, viewer: &Viewer, screen: &NewListingScreen, status: StatusC
 }
 
 /// The account may not manage listings: marketplace's "Account access required" page.
-fn access_required(req: &Req, viewer: &Viewer, cart: Option<u64>) -> HtmlResult {
+fn access_required(req: &Req, viewer: &Viewer) -> HtmlResult {
     let t: ListingNewMsg = req.t();
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_create_listing()} head={()}>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_create_listing()} head={()}>
             <views::ListingAccessRequired t={t} back={&crate::app::url::NewListing.href()} />
         </Layout>
     };
@@ -527,14 +525,13 @@ fn access_required(req: &Req, viewer: &Viewer, cart: Option<u64>) -> HtmlResult 
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(ListingSeller(viewer)): Caller<ListingSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
     if !viewer.actor.can(LISTINGS_VIEW) {
-        return access_required(&req, &viewer, chrome.cart().await);
+        return access_required(&req, &viewer);
     }
     let t: ListingNewMsg = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
@@ -555,14 +552,14 @@ pub(crate) async fn page(
             },
         }
     }
-    let mut screen = match screen(&req, &viewer, &caller, draft, Errors::new(), &chrome).await {
+    let mut screen = match screen(&req, &viewer, &caller, draft, Errors::new()).await {
         Ok(screen) => screen,
         Err(answer) => return *answer,
     };
     if claim_failed.is_some() {
         screen.notice = claim_failed;
     }
-    answer(&req, &viewer, &screen, StatusCode::OK, chrome.cart().await)
+    answer(&req, &viewer, &screen, StatusCode::OK)
 }
 
 /// How a write's failure is answered.
@@ -617,7 +614,6 @@ fn create_fields(draft: &Draft, snapshot: Option<&serde_json::Value>, id: &str) 
 
 pub(crate) async fn create(
     req: Req,
-    chrome: Chrome,
     Caller(ListingSeller(viewer)): Caller<ListingSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -632,7 +628,7 @@ pub(crate) async fn create(
         Err(UploadError::TooLarge { .. }) => {
             // What came after the limit is lost, the fields too: the form starts again.
             errors.add(f.evidence, p.listing_new_photos_too_large());
-            return refuse(&req, &viewer, &caller, Draft::default(), errors, false, StatusCode::PAYLOAD_TOO_LARGE, &chrome).await;
+            return refuse(&req, &viewer, &caller, Draft::default(), errors, false, StatusCode::PAYLOAD_TOO_LARGE).await;
         }
         Err(other) => return Err(other.into()),
     };
@@ -682,7 +678,7 @@ pub(crate) async fn create(
         },
     };
     if !errors.is_empty() {
-        return refuse(&req, &viewer, &caller, draft, errors, sent_photos, StatusCode::UNPROCESSABLE_ENTITY, &chrome).await;
+        return refuse(&req, &viewer, &caller, draft, errors, sent_photos, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
     let id = listing_id(&attempt).expect("a valid attempt");
     let photos: Vec<Photo> =
@@ -709,17 +705,8 @@ pub(crate) async fn create(
                         Failed::SignIn => sign_in(&req),
                         Failed::Error(error) => Err(error),
                         Failed::Refused(message) => {
-                            refuse(
-                                &req,
-                                &viewer,
-                                &caller,
-                                draft,
-                                refused(message),
-                                sent_photos,
-                                StatusCode::UNPROCESSABLE_ENTITY,
-                                &chrome,
-                            )
-                            .await
+                            refuse(&req, &viewer, &caller, draft, refused(message), sent_photos, StatusCode::UNPROCESSABLE_ENTITY)
+                                .await
                         }
                     };
                 }
@@ -744,7 +731,6 @@ pub(crate) async fn create(
                             refused(message),
                             sent_photos,
                             StatusCode::UNPROCESSABLE_ENTITY,
-                            &chrome,
                         )
                         .await;
                     }
@@ -761,24 +747,14 @@ pub(crate) async fn create(
             tracing::warn!("a create with photos failed: {error}");
             let mut errors = Errors::new();
             errors.add(f.evidence, p.listing_new_photos_unprocessed());
-            return refuse(&req, &viewer, &caller, draft, errors, sent_photos, StatusCode::UNPROCESSABLE_ENTITY, &chrome).await;
+            return refuse(&req, &viewer, &caller, draft, errors, sent_photos, StatusCode::UNPROCESSABLE_ENTITY).await;
         }
         Err(error) => {
             return match failed(error) {
                 Failed::SignIn => sign_in(&req),
                 Failed::Error(error) => Err(error),
                 Failed::Refused(message) => {
-                    refuse(
-                        &req,
-                        &viewer,
-                        &caller,
-                        draft,
-                        refused(message),
-                        sent_photos,
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        &chrome,
-                    )
-                    .await
+                    refuse(&req, &viewer, &caller, draft, refused(message), sent_photos, StatusCode::UNPROCESSABLE_ENTITY).await
                 }
             };
         }
@@ -794,13 +770,13 @@ pub(crate) async fn create(
                     Failed::SignIn => sign_in(&req),
                     Failed::Error(error) => Err(error),
                     Failed::Refused(message) => {
-                        let mut screen = match screen(&req, &viewer, &caller, draft, refused(message), &chrome).await {
+                        let mut screen = match screen(&req, &viewer, &caller, draft, refused(message)).await {
                             Ok(screen) => screen,
                             Err(answer) => return *answer,
                         };
                         screen.draft_saved = Some(created.id);
                         screen.photos_lost = sent_photos && req.mode != corten::Mode::Action;
-                        answer(&req, &viewer, &screen, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await)
+                        answer(&req, &viewer, &screen, StatusCode::UNPROCESSABLE_ENTITY)
                     }
                 };
             }
@@ -820,16 +796,15 @@ async fn refuse(
     errors: Errors,
     sent_photos: bool,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
-    let mut screen = match screen(req, viewer, caller, draft, errors, chrome).await {
+    let mut screen = match screen(req, viewer, caller, draft, errors).await {
         Ok(screen) => screen,
         Err(answer) => return *answer,
     };
     // Drawn as a page, the file input is new: the photos must be chosen again. As a patch the
     // input is not replaced, so they stay chosen.
     screen.photos_lost = sent_photos && req.mode != corten::Mode::Action;
-    answer(req, viewer, &screen, status, chrome.cart().await)
+    answer(req, viewer, &screen, status)
 }
 
 #[cfg(test)]

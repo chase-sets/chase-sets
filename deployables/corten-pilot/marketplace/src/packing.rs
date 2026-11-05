@@ -27,7 +27,6 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, Caller as Api, Packing as _, PackingAttempt, ShipmentDetail, ShipmentLine, Shipments as _, Side},
     app::{Shared, read_failed, sign_in, url},
@@ -159,7 +158,6 @@ pub struct PackingScreen {
 /// which reads itself again.
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -178,7 +176,7 @@ pub(crate) async fn page(
         _ => None,
     };
     let line = line.or_else(|| place.done.as_ref().zip(place.line.clone()).map(|(_, line)| (line, LineState::Saved)));
-    render(&req, &viewer, &config, &headers, &id, place.after_write.clone(), outcome, scan, line, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, &id, place.after_write.clone(), outcome, scan, line, StatusCode::OK).await
 }
 
 /// What the API says came of `attempt` on shipment `id`, for the page (the command center's too).
@@ -209,7 +207,6 @@ async fn render(
     scan: Option<(Scanned, String)>,
     line: Option<(String, LineState)>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -220,7 +217,7 @@ async fn render(
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {
             return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND));
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let pending = shipment.is_none();
     let screen = PackingScreen { shipment, after_write, outcome, scan, line };
@@ -231,9 +228,8 @@ async fn render(
         }
     };
     let view = html! { <views::PackingPage t={t} p={req.t()} viewer={viewer} id={id} screen={&screen} /> };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.pack_route_pack_shipment_marketplace()} head={head}>
+        <Layout req={req} viewer={Some(viewer)} title={t.pack_route_pack_shipment_marketplace()} head={head}>
             {view}
         </Layout>
     };
@@ -302,7 +298,6 @@ fn applied(
 
 pub(crate) async fn start(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -318,20 +313,7 @@ pub(crate) async fn start(
             Failed::AppliedBefore => applied(&req, &id, attempt, None, None, None),
             Failed::Refused(message) => {
                 let outcome = Outcome::Refused { attempt: attempt.to_owned(), message };
-                render(
-                    &req,
-                    &viewer,
-                    &config,
-                    &headers,
-                    &id,
-                    None,
-                    outcome,
-                    None,
-                    None,
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    &chrome,
-                )
-                .await
+                render(&req, &viewer, &config, &headers, &id, None, outcome, None, None, StatusCode::UNPROCESSABLE_ENTITY).await
             }
             Failed::Uncertain => uncertain(&req, &id, attempt),
             Failed::SignIn => sign_in(&req),
@@ -347,7 +329,6 @@ fn quantity(text: &str) -> Option<u64> {
 
 pub(crate) async fn line(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -361,9 +342,9 @@ pub(crate) async fn line(
             attempt: attempt_text(&input.attempt).to_owned(),
             message: p.packing_quantity_invalid().to_owned(),
         };
-        return refused(&req, &viewer, &config, &headers, &id, &line, outcome, None, &chrome).await;
+        return refused(&req, &viewer, &config, &headers, &id, &line, outcome, None).await;
     };
-    set(&req, &viewer, &config, &headers, &id, &line, count, attempt_text(&input.attempt), None, &chrome).await
+    set(&req, &viewer, &config, &headers, &id, &line, count, attempt_text(&input.attempt), None).await
 }
 
 /// Set how many of `line` are packed, then the line, the progress and Finish in place (with the
@@ -379,7 +360,6 @@ async fn set(
     count: u64,
     attempt: &str,
     scan: Option<Scanned>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     let receipt = match caller.set_packed(id, line, count, attempt).await {
@@ -388,7 +368,7 @@ async fn set(
             Failed::AppliedBefore => None,
             Failed::Refused(message) => {
                 let outcome = Outcome::Refused { attempt: attempt.to_owned(), message };
-                return refused(req, viewer, config, headers, id, line, outcome, scan, chrome).await;
+                return refused(req, viewer, config, headers, id, line, outcome, scan).await;
             }
             Failed::Uncertain => return uncertain(req, id, attempt),
             Failed::SignIn => return sign_in(req),
@@ -431,7 +411,6 @@ async fn refused(
     line: &str,
     outcome: Outcome,
     scan: Option<Scanned>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let message = match &outcome {
         Outcome::Refused { message, .. } => message.clone(),
@@ -447,10 +426,10 @@ async fn refused(
                 let screen = PackingScreen { shipment: Some(shipment), after_write: None, outcome, scan, line: state };
                 return patch(req, viewer, id, &screen, status);
             }
-            Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+            Err(error) => return read_failed(req, Some(viewer), error, None),
         }
     }
-    render(req, viewer, config, headers, id, None, outcome, scan, state, status, chrome).await
+    render(req, viewer, config, headers, id, None, outcome, scan, state, status).await
 }
 
 /// The line a scan names (`findScannedLine`): a reference exactly (the line's, its order line's,
@@ -494,7 +473,6 @@ pub fn short_reference(value: &str) -> String {
 
 pub(crate) async fn scan(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -506,7 +484,7 @@ pub(crate) async fn scan(
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let shipment = match caller.shipment(Side::Seller, &id).await {
         Ok(shipment) => shipment,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let found = find(&shipment.lines, &input.code);
     let (scanned, line) = match found {
@@ -525,7 +503,6 @@ pub(crate) async fn scan(
                 count,
                 attempt_text(&input.attempt),
                 Some(Scanned::Matched),
-                &chrome,
             )
             .await;
         }
@@ -550,7 +527,6 @@ pub(crate) async fn scan(
 
 pub(crate) async fn pack(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -563,20 +539,7 @@ pub(crate) async fn pack(
     let refuse = |message: String| Outcome::Refused { attempt: attempt.to_owned(), message };
     let Some(packages) = quantity(&input.package_count).filter(|n| *n >= 1) else {
         let outcome = refuse(p.packing_package_count_invalid().to_owned());
-        return render(
-            &req,
-            &viewer,
-            &config,
-            &headers,
-            &id,
-            None,
-            outcome,
-            None,
-            None,
-            StatusCode::UNPROCESSABLE_ENTITY,
-            &chrome,
-        )
-        .await;
+        return render(&req, &viewer, &config, &headers, &id, None, outcome, None, None, StatusCode::UNPROCESSABLE_ENTITY).await;
     };
     let caller = config.platform.caller(&headers, config.proto, None);
     let receipt = match caller.pack(&id, packages, attempt).await {
@@ -595,7 +558,6 @@ pub(crate) async fn pack(
                     None,
                     None,
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    &chrome,
                 )
                 .await;
             }

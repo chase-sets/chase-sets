@@ -26,7 +26,6 @@ use corten::{
 use platform::{api::segment, money, receipt::Receipt};
 use serde::{Deserialize, Serialize};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, CommandError, CompositeReview, InventoryOption, LineAction, LineKept, ListingCommand, ListingEvidence,
@@ -772,19 +771,17 @@ fn forget_guest(config: &Config) -> corten::axum::http::HeaderValue {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::sell_list::SellList>,
 ) -> HtmlResult {
     let place = route.place;
-    render(&req, session.as_deref(), &config, &headers, Surface::SellList, &place, None, &chrome).await
+    render(&req, session.as_deref(), &config, &headers, Surface::SellList, &place, None).await
 }
 
 pub(crate) async fn desk_page(
     req: Req,
-    chrome: Chrome,
     Caller(DeskSeller(viewer)): Caller<DeskSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -792,7 +789,7 @@ pub(crate) async fn desk_page(
 ) -> HtmlResult {
     let place = route.place;
     let session = Session::Account(viewer);
-    render(&req, Some(&session), &config, &headers, Surface::DeskOffers, &place, None, &chrome).await
+    render(&req, Some(&session), &config, &headers, Surface::DeskOffers, &place, None).await
 }
 
 /// The page, read after the address's write, with `notice` (a write that did not happen, 422).
@@ -805,7 +802,6 @@ async fn render(
     surface: Surface,
     place: &Place,
     notice: Option<String>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
@@ -855,7 +851,7 @@ async fn render(
             Default::default()
         }
         Err(error) => {
-            return read_failed(req, viewer, error, waiting.then(|| t.route_sell_list_request_failed()), chrome.cart().await);
+            return read_failed(req, viewer, error, waiting.then(|| t.route_sell_list_request_failed()));
         }
     };
     if recovery.is_none() && list.items.is_empty() && list.count == 0 && place.waits_for_a_line() {
@@ -876,7 +872,7 @@ async fn render(
                 recovery = recovery.or(Some(Recovery::Pending));
                 CompositeReview::default()
             }
-            Err(error) => return read_failed(req, viewer, error, None, chrome.cart().await),
+            Err(error) => return read_failed(req, viewer, error, None),
         };
         let payout = caller.sell_payout_readiness().await.inspect_err(|e| tracing::warn!("payout readiness: {e}")).ok();
         (review, payout)
@@ -909,11 +905,10 @@ async fn render(
             <ReadAgain after={Duration::from_secs(2)} />
         }
     };
-    let cart = chrome.cart().await;
     let mut res = req.page_with_status(
         status,
         html! {
-            <Layout req={req} viewer={viewer} cart={cart} title={t.route_sell_list_chase_sets()} head={head}>
+            <Layout req={req} viewer={viewer} title={t.route_sell_list_chase_sets()} head={head}>
                 <views::SellListPage t={t} p={req.t()} screen={&screen} />
             </Layout>
         },
@@ -927,25 +922,23 @@ async fn render(
 /// The page's forms: the intent and, for each, what it sends.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    act(&req, session.as_deref(), &config, &headers, Surface::SellList, raw, &chrome).await
+    act(&req, session.as_deref(), &config, &headers, Surface::SellList, raw).await
 }
 
 pub(crate) async fn desk_write(
     req: Req,
-    chrome: Chrome,
     Caller(DeskSeller(viewer)): Caller<DeskSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
     let session = Session::Account(viewer);
-    act(&req, Some(&session), &config, &headers, Surface::DeskOffers, raw, &chrome).await
+    act(&req, Some(&session), &config, &headers, Surface::DeskOffers, raw).await
 }
 
 /// Why a write did not happen, or where it went.
@@ -962,7 +955,6 @@ async fn act(
     headers: &HeaderMap,
     surface: Surface,
     raw: Raw,
-    chrome: &Chrome,
 ) -> HtmlResult {
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
@@ -1024,7 +1016,7 @@ async fn act(
             let to = to.parse::<Uri>().map_err(corten::Error::new)?;
             req.redirect(&to)
         }
-        Done::Refused(message) => render(req, session, config, headers, surface, &Place::default(), Some(message), chrome).await,
+        Done::Refused(message) => render(req, session, config, headers, surface, &Place::default(), Some(message)).await,
         Done::Failed(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => match sign_in_back_to(surface.path()) {
                 Some(to) => req.redirect(&to),
@@ -1033,7 +1025,7 @@ async fn act(
             Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
             Some(status) if status.is_client_error() => {
                 let message = error.refusal().unwrap_or(t.route_sell_list_request_failed()).to_owned();
-                render(req, session, config, headers, surface, &Place::default(), Some(message), chrome).await
+                render(req, session, config, headers, surface, &Place::default(), Some(message)).await
             }
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
@@ -1158,7 +1150,6 @@ pub fn checkout_path(
 /// Marketplace with its alt text.
 pub(crate) async fn evidence(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -1171,14 +1162,14 @@ pub(crate) async fn evidence(
         Err(UploadError::TooLarge { .. }) => {
             let p: crate::text::Pilot = req.t();
             let message = p.seller_listing_photos_too_large().to_owned();
-            return render(&req, session, &config, &headers, Surface::SellList, &Place::default(), Some(message), &chrome).await;
+            return render(&req, session, &config, &headers, Surface::SellList, &Place::default(), Some(message)).await;
         }
         Err(other) => return Err(other.into()),
     };
     let surface = Surface::read(&first(&posted.fields, "surface"));
     if !account_sell_list(session) {
         let message = t.page_sign_in_required().to_owned();
-        return render(&req, session, &config, &headers, surface, &Place::default(), Some(message), &chrome).await;
+        return render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await;
     }
     let listing = first(&posted.fields, "listingId");
     let file = posted.files.into_iter().find(|u| u.field == "listingPhoto" && !u.bytes.is_empty());
@@ -1192,7 +1183,7 @@ pub(crate) async fn evidence(
         (Some(file), None) => file,
         (_, refusal) => {
             let message = refusal.unwrap_or(t.page_evidence_photo()).to_owned();
-            return render(&req, session, &config, &headers, surface, &Place::default(), Some(message), &chrome).await;
+            return render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await;
         }
     };
     let photo = Photo { filename: file.filename, content_type: file.content_type, bytes: file.bytes };
@@ -1201,12 +1192,10 @@ pub(crate) async fn evidence(
     let failed = t.route_sell_list_request_failed().to_owned();
     match listing_written(caller.add_listing_photos(&listing, &[photo], Some(&alt)).await, surface, &failed) {
         Done::To(to) => req.redirect(&to.parse::<Uri>().map_err(corten::Error::new)?),
-        Done::Refused(message) => {
-            render(&req, session, &config, &headers, surface, &Place::default(), Some(message), &chrome).await
-        }
+        Done::Refused(message) => render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await,
         Done::Failed(error) => {
             let message = error.refusal().map_or(failed, str::to_owned);
-            render(&req, session, &config, &headers, surface, &Place::default(), Some(message), &chrome).await
+            render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await
         }
     }
 }

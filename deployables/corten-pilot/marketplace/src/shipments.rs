@@ -25,7 +25,6 @@ use serde::{Deserialize, Serialize};
 
 use platform::receipt::Receipt;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
         ActionFields, ActionPlan, ApiError, CommandCenter, LabelAddress, LabelPurchase, ShipmentAction, ShipmentCommands as _,
@@ -160,7 +159,6 @@ pub struct ShipmentScreen {
 
 pub(crate) async fn purchases(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -168,16 +166,15 @@ pub(crate) async fn purchases(
     let caller = config.platform.caller(&headers, config.proto, None);
     let shipments = match caller.shipments(Side::Buyer).await {
         Ok(shipments) => shipments,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let screen = ListScreen { shipments };
     let t: ShipmentsMsg = req.t();
     let view = html! { <views::ShipmentList t={t} p={req.t()} screen={&screen} /> };
-    let cart = chrome.cart().await;
     req.screen(
         &screen,
         html! {
-            <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={t.shipments_shipments_marketplace()} head="">
+            <Layout req={&req} viewer={Some(&viewer)} title={t.shipments_shipments_marketplace()} head="">
                 {view}
             </Layout>
         },
@@ -186,7 +183,6 @@ pub(crate) async fn purchases(
 
 pub(crate) async fn purchase(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -194,12 +190,11 @@ pub(crate) async fn purchase(
 ) -> HtmlResult {
     let id = route.id;
     let view = View { outcome: Outcome::Ready, sent: None, status: StatusCode::OK };
-    shipment(&req, &viewer, &config, &headers, Side::Buyer, &id, None, view, &chrome).await
+    shipment(&req, &viewer, &config, &headers, Side::Buyer, &id, None, view).await
 }
 
 pub(crate) async fn sale(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -213,14 +208,13 @@ pub(crate) async fn sale(
         (None, None) => Outcome::Ready,
     };
     let view = View { outcome, sent: None, status: StatusCode::OK };
-    shipment(&req, &viewer, &config, &headers, Side::Seller, id, receipt, view, &chrome).await
+    shipment(&req, &viewer, &config, &headers, Side::Seller, id, receipt, view).await
 }
 
 /// The action `intent` on the shipment: applied, its page read after it; refused, the page with
 /// why and what was typed; unconfirmed, the page asking the API about it.
 pub(crate) async fn act(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -241,7 +235,7 @@ pub(crate) async fn act(
     };
     let Some(action) = action else {
         let view = refused(t.sales_route_action_failed().to_owned(), input);
-        return shipment(&req, &viewer, &config, &headers, Side::Seller, id, None, view, &chrome).await;
+        return shipment(&req, &viewer, &config, &headers, Side::Seller, id, None, view).await;
     };
     let fields = ActionFields {
         exception_type: input.exception_type.clone(),
@@ -256,7 +250,7 @@ pub(crate) async fn act(
             Failed::AppliedBefore => applied(&req, id, &attempt, None),
             Failed::Refused(message) => {
                 let view = refused(message, input);
-                shipment(&req, &viewer, &config, &headers, Side::Seller, id, None, view, &chrome).await
+                shipment(&req, &viewer, &config, &headers, Side::Seller, id, None, view).await
             }
             Failed::Uncertain => {
                 let place = SalePlace { check: Some(attempt.clone()), ..SalePlace::default() };
@@ -308,7 +302,6 @@ async fn shipment(
     id: &str,
     receipt: Option<Receipt>,
     view: View,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let (read, center) = match side {
@@ -325,11 +318,9 @@ async fn shipment(
             let head = html! { <ReadAgain after={std::time::Duration::from_secs(2)} /> };
             let view = html! { <views::ShipmentPending t={t} /> };
             let title = t.sale_shipment_sale_shipment_marketplace();
-            let cart = chrome.cart().await;
-            return req
-                .page(html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={head}>{view}</Layout> });
+            return req.page(html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> });
         }
-        Err(error) => return shipment_failed(req, viewer, error, chrome.cart().await),
+        Err(error) => return shipment_failed(req, viewer, error),
     };
     let plan = center.and_then(|center| plan(center, id));
     let View { outcome, sent, status } = view;
@@ -340,16 +331,15 @@ async fn shipment(
         Side::Seller => t.sale_shipment_sale_shipment_marketplace(),
     };
     let view = html! { <views::ShipmentPage t={t} p={req.t()} viewer={viewer} screen={&screen} /> };
-    let cart = chrome.cart().await;
-    let page = html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head="">{view}</Layout> };
+    let page = html! { <Layout req={req} viewer={Some(viewer)} title={title} head="">{view}</Layout> };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
 
 /// A read that failed: a 404 is the error page's Not found (marketplace's "Shipment not found."),
 /// else as every read.
-fn shipment_failed(req: &Req, viewer: &Viewer, error: ApiError, cart: Option<u64>) -> HtmlResult {
+fn shipment_failed(req: &Req, viewer: &Viewer, error: ApiError) -> HtmlResult {
     if error.status() == Some(StatusCode::NOT_FOUND) {
         return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND));
     }
-    read_failed(req, Some(viewer), error, None, cart)
+    read_failed(req, Some(viewer), error, None)
 }

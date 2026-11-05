@@ -1820,6 +1820,8 @@ pub fn app(config: Config) -> App {
         .messages::<crate::text::Msg>()
         // The seller's listings turn a picked day into its start where the seller is.
         .client_zone()
+        // The cart's count in the shell, read beside each whole page (`crate::chrome`).
+        .layout_read(crate::chrome::CartCount(shared.clone()))
         .components(views::COMPONENTS)
         // Search is the home page too, outside every area, and at two prefixes, and a set's page
         // shows its cards: its components are in `components.css`, about 2.2 KB brotli, which a
@@ -1927,13 +1929,7 @@ pub fn sign_in(req: &Req) -> HtmlResult {
 /// A list's read that failed, as the page's answer. After a write, a read that failed for good is
 /// marketplace's "could not be verified" (409), in the screen's words (`unverified`): the error
 /// page knows only the status, so the screen draws it.
-pub fn read_failed(
-    req: &Req,
-    viewer: Option<&Viewer>,
-    error: ApiError,
-    after_write: Option<&str>,
-    cart: Option<u64>,
-) -> HtmlResult {
+pub fn read_failed(req: &Req, viewer: Option<&Viewer>, error: ApiError, after_write: Option<&str>) -> HtmlResult {
     let status = match error.status() {
         Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
         Some(StatusCode::FORBIDDEN) => StatusCode::FORBIDDEN,
@@ -1946,7 +1942,7 @@ pub fn read_failed(
                 return req.page_with_status(
                     StatusCode::CONFLICT,
                     html! {
-                        <views::Layout req={req} viewer={viewer} cart={cart} title={title} head={head}>{view}</views::Layout>
+                        <views::Layout req={req} viewer={viewer} title={title} head={head}>{view}</views::Layout>
                     },
                 );
             }

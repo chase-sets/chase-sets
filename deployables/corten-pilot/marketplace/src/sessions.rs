@@ -26,7 +26,6 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, SessionCalls as _, SessionRecord, SessionWrite},
     app::{Shared, read_failed, sign_in, url},
@@ -147,7 +146,6 @@ pub struct SwitchInput {
 
 pub(crate) async fn list(
     req: Req,
-    chrome: Chrome,
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -158,21 +156,16 @@ pub(crate) async fn list(
     let (limit, offset, status) = (filters.limit(), filters.offset(), filters.status());
     let (sessions, total) = match caller.sessions(&viewer.actor.user_id, status, limit, offset).await {
         Ok(found) => found,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let screen = ListScreen { sessions, status: status.map(str::to_owned), total, limit: limit.into(), offset: offset.into() };
     let t: SessionsMsg = req.t();
     let view = html! { <views::SessionsPage t={t} p={req.t()} screen={&screen} /> };
-    let cart = chrome.cart().await;
-    req.screen(
-        &screen,
-        html! { <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={t.list_sessions()} head={()}>{view}</Layout> },
-    )
+    req.screen(&screen, html! { <Layout req={&req} viewer={Some(&viewer)} title={t.list_sessions()} head={()}>{view}</Layout> })
 }
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -188,10 +181,10 @@ pub(crate) async fn page(
             let plain = config.platform.caller(&headers, config.proto, None);
             match plain.session(&id).await {
                 Ok(session) => (session, true),
-                Err(error) => return failed_read(&req, &viewer, error, chrome.cart().await),
+                Err(error) => return failed_read(&req, &viewer, error),
             }
         }
-        Err(error) => return failed_read(&req, &viewer, error, chrome.cart().await),
+        Err(error) => return failed_read(&req, &viewer, error),
     };
     let screen = SessionScreen { session, said: place.said, pending };
     let t: SessionsMsg = req.t();
@@ -201,36 +194,30 @@ pub(crate) async fn page(
         }
     };
     let view = html! { <views::SessionPage t={t} p={req.t()} screen={&screen} /> };
-    let cart = chrome.cart().await;
-    req.screen(
-        &screen,
-        html! { <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={t.list_session()} head={head}>{view}</Layout> },
-    )
+    req.screen(&screen, html! { <Layout req={&req} viewer={Some(&viewer)} title={t.list_session()} head={head}>{view}</Layout> })
 }
 
 /// A session Auth does not have is not found; one that is not the user's, forbidden.
-fn failed_read(req: &Req, viewer: &Viewer, error: ApiError, cart: Option<u64>) -> HtmlResult {
+fn failed_read(req: &Req, viewer: &Viewer, error: ApiError) -> HtmlResult {
     match error.status() {
         Some(StatusCode::NOT_FOUND) => Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND)),
-        _ => read_failed(req, Some(viewer), error, None, cart),
+        _ => read_failed(req, Some(viewer), error, None),
     }
 }
 
 pub(crate) async fn revoke(
     req: Req,
-    chrome: Chrome,
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::sessions::SessionRevoke<'_>>,
 ) -> HtmlResult {
     let id = route.id;
-    write(&req, &viewer, &config, &headers, &id, SessionWrite::Revoke, chrome).await
+    write(&req, &viewer, &config, &headers, &id, SessionWrite::Revoke).await
 }
 
 pub(crate) async fn switch(
     req: Req,
-    chrome: Chrome,
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -239,7 +226,7 @@ pub(crate) async fn switch(
 ) -> HtmlResult {
     let id = route.id;
     let account = input.account_id.trim();
-    write(&req, &viewer, &config, &headers, &id, SessionWrite::Switch(account), chrome).await
+    write(&req, &viewer, &config, &headers, &id, SessionWrite::Switch(account)).await
 }
 
 async fn write(
@@ -249,7 +236,6 @@ async fn write(
     headers: &HeaderMap,
     id: &str,
     write: SessionWrite<'_>,
-    chrome: Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     let to = |after_write: Option<String>, said: Said| {
@@ -263,7 +249,7 @@ async fn write(
         Ok(after_write) => return to(after_write, done),
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
-            Some(StatusCode::FORBIDDEN | StatusCode::NOT_FOUND) => return failed_read(req, viewer, error, chrome.cart().await),
+            Some(StatusCode::FORBIDDEN | StatusCode::NOT_FOUND) => return failed_read(req, viewer, error),
             // A refusal, a failure, or no answer: Auth answers them alike.
             _ => tracing::warn!("a session write did not succeed: {error}"),
         },
@@ -274,7 +260,7 @@ async fn write(
         (Ok(now), SessionWrite::Switch(_)) if now.status != "active" => Said::NotActive,
         (Ok(_), SessionWrite::Switch(_)) => Said::SwitchRefused,
         (Ok(_), SessionWrite::Revoke) => Said::Failed,
-        (Err(error), _) => return failed_read(req, viewer, error, chrome.cart().await),
+        (Err(error), _) => return failed_read(req, viewer, error),
     };
     to(None, said)
 }

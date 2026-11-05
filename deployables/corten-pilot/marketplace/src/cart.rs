@@ -26,7 +26,7 @@ use corten::{
 use platform::{money, receipt::Receipt};
 use serde::{Deserialize, Serialize};
 
-use crate::chrome::Chrome;
+use crate::chrome::CartCount;
 use crate::{
     api::{
         ApiError, Cart, CartCommand, CartLine, CartWrite, Checkout as _, Decisions, OptimizationDecision, Readiness,
@@ -486,7 +486,8 @@ pub(crate) async fn page(
 
 /// The cart page, read after `receipt`'s write when there is one, with `notice` above the lines:
 /// a checkout or a write that applied nothing is 422, a write that applied part or may not have
-/// applied is 409. The nav's count is the one this read found, so the page takes no `Chrome`.
+/// applied is 409. The nav's count is the one this read found, which the page gives the layout
+/// read (`chrome::CartCount`, which starts no read of its own for this page).
 async fn render(
     req: &Req,
     buyer: &Buyer,
@@ -507,7 +508,7 @@ async fn render(
         Err(error) if receipt.is_some() && error.catching_up() => CartScreen::pending(),
         Err(error) => {
             let t: CartMsg = req.t();
-            return read_failed(req, viewer, error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()), None);
+            return read_failed(req, viewer, error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()));
         }
     };
     let t: CartMsg = req.t();
@@ -528,11 +529,8 @@ async fn render(
     let view = views::cart_page(t, &screen, notice.as_ref());
     let title = t.route_cart_marketplace();
     let cart = (!screen.pending).then(|| screen.item_count());
-    req.screen_with_status(
-        status,
-        &screen,
-        html! { <Layout req={req} viewer={viewer} cart={cart} title={title} head={head}>{view}</Layout> },
-    )
+    req.screen_with_status(status, &screen, html! { <Layout req={req} viewer={viewer} title={title} head={head}>{view}</Layout> })
+        .map(|page| page.give::<CartCount>(cart))
 }
 
 pub(crate) async fn quantity(
@@ -620,7 +618,6 @@ async fn write(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, w
 /// start's Continue, with the same decision.
 pub(crate) async fn checkout(
     req: Req,
-    chrome: Chrome,
     Caller(buyer): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -630,7 +627,7 @@ pub(crate) async fn checkout(
     let decisions = input.decisions();
     if let Buyer::Guest(_) = buyer {
         let session = buyer.session();
-        return crate::checkout_start::cart_as_guest(&req, session.as_ref(), &config, &headers, &uri, &decisions, &chrome).await;
+        return crate::checkout_start::cart_as_guest(&req, session.as_ref(), &config, &headers, &uri, &decisions).await;
     }
     let caller = config.platform.caller(&headers, config.proto, None);
     let guest = anonymous_cart(&headers);

@@ -24,7 +24,6 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ActionFields, CommandCenter, ShipmentAction, ShipmentCommands as _},
     app::{Shared, read_failed, sign_in, url},
@@ -71,7 +70,6 @@ pub struct CenterScreen {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -86,7 +84,7 @@ pub(crate) async fn page(
         (None, Some(done)) => Outcome::Applied(done.clone()),
         (None, None) => Outcome::Ready,
     };
-    render(&req, &viewer, &config, &headers, place.after_write, outcome, shipment, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, place.after_write, outcome, shipment, StatusCode::OK).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -99,7 +97,6 @@ async fn render(
     outcome: Outcome,
     shipment: String,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -107,7 +104,7 @@ async fn render(
         Ok(center) => Some(center),
         // The write's projection is not readable yet: the page says so and reads itself again.
         Err(error) if receipt.is_some() && error.catching_up() => None,
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let pending = center.is_none();
     let screen = CenterScreen { center, after_write, outcome, shipment };
@@ -118,9 +115,8 @@ async fn render(
         }
     };
     let view = html! { <views::CommandCenterPage t={t} p={req.t()} viewer={viewer} screen={&screen} /> };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.sales_route_sale_shipments_marketplace()} head={head}>
+        <Layout req={req} viewer={Some(viewer)} title={t.sales_route_sale_shipments_marketplace()} head={head}>
             {view}
         </Layout>
     };
@@ -141,7 +137,6 @@ fn applied(req: &Req, shipment: &str, attempt: &str, receipt: Option<Receipt>) -
 
 pub(crate) async fn act(
     req: Req,
-    chrome: Chrome,
     Caller(Shipper(viewer)): Caller<Shipper>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -157,8 +152,7 @@ pub(crate) async fn act(
         .filter(|a| !matches!(a, ShipmentAction::StartPacking | ShipmentAction::CompletePacking | ShipmentAction::Other));
     let Some(action) = action.filter(|_| !shipment.is_empty()) else {
         let outcome = refuse(t.sales_route_action_failed().to_owned());
-        return render(&req, &viewer, &config, &headers, None, outcome, shipment, StatusCode::UNPROCESSABLE_ENTITY, &chrome)
-            .await;
+        return render(&req, &viewer, &config, &headers, None, outcome, shipment, StatusCode::UNPROCESSABLE_ENTITY).await;
     };
     let fields = ActionFields { exception_type: input.exception_type, notes: input.notes, ..ActionFields::default() };
     let caller = config.platform.caller(&headers, config.proto, None);
@@ -168,7 +162,7 @@ pub(crate) async fn act(
             Failed::AppliedBefore => applied(&req, &shipment, &attempt, None),
             Failed::Refused(message) => {
                 let outcome = refuse(message);
-                render(&req, &viewer, &config, &headers, None, outcome, shipment, StatusCode::UNPROCESSABLE_ENTITY, &chrome).await
+                render(&req, &viewer, &config, &headers, None, outcome, shipment, StatusCode::UNPROCESSABLE_ENTITY).await
             }
             Failed::Uncertain => {
                 let place = Place { check: Some(attempt.clone()), shipment: Some(shipment), ..Place::default() };

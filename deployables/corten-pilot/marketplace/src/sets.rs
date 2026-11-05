@@ -8,7 +8,6 @@ use corten::{
 };
 use serde_json::{Value, json};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{Search, SetPage},
     app::{Shared, marketplace_origin, url},
@@ -19,7 +18,6 @@ use crate::{
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -58,9 +56,8 @@ pub(crate) async fn page(
     };
     let session = session.as_deref();
     let viewer = session.and_then(Session::viewer);
-    let cart = chrome.cart().await;
     req.page(html! {
-        <views::Layout req={&req} viewer={viewer} cart={cart} title={&title} head={head}>
+        <views::Layout req={&req} viewer={viewer} title={&title} head={head}>
             <views::SetPage t={t} set={&set} />
         </views::Layout>
     })

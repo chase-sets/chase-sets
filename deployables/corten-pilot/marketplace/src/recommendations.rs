@@ -21,7 +21,6 @@ use corten::{
 use futures_util::StreamExt;
 use serde::Deserialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, PRICING_CONTEXT, Recommendation, RecommendationCalls as _, RecommendationJob, recommendation_job_events},
     app::{PRICING_MANAGE, Shared, read_failed, sign_in, url},
@@ -106,12 +105,11 @@ async fn render(
     place: &Place,
     error: Option<String>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let t: RepricingMsg = req.t();
     let screen = match screen(config, headers, viewer, place.job(), error).await {
         Ok(screen) => screen,
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let active = screen.active();
     let head = html! {
@@ -122,9 +120,8 @@ async fn render(
             {ReadAgain { after: std::time::Duration::from_secs(2) }.without_javascript()}
         }
     };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.recs_route_repricing_marketplace()} head={head}>
+        <Layout req={req} viewer={Some(viewer)} title={t.recs_route_repricing_marketplace()} head={head}>
             <views::RecommendationsPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
@@ -134,20 +131,18 @@ async fn render(
 /// The page, following the job its address names.
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::recommendations::Recommendations>,
 ) -> HtmlResult {
-    render(&req, &viewer, &config, &headers, &route.place, None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, &route.place, None, StatusCode::OK).await
 }
 
 /// Refresh, Apply selected and Dismiss selected: the page following the job, or the page with what
 /// Pricing refused (its words), as marketplace's action answers.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -160,8 +155,7 @@ pub(crate) async fn write(
         "dismiss-recommendations" => "dismiss",
         _ => {
             let error = Some(t.recs_route_unknown_action().to_owned());
-            return render(&req, &viewer, &config, &headers, &Place::default(), error, StatusCode::UNPROCESSABLE_ENTITY, &chrome)
-                .await;
+            return render(&req, &viewer, &config, &headers, &Place::default(), error, StatusCode::UNPROCESSABLE_ENTITY).await;
         }
     };
     let ids: Vec<String> = form.recommendation_id.iter().map(|id| id.trim().to_owned()).filter(|id| !id.is_empty()).collect();
@@ -173,7 +167,7 @@ pub(crate) async fn write(
             Some(status) if status.is_client_error() => {
                 let message = error.refusal().map_or_else(|| t.recs_route_action_failed().to_owned(), str::to_owned);
                 let place = Place::default();
-                render(&req, &viewer, &config, &headers, &place, Some(message), StatusCode::UNPROCESSABLE_ENTITY, &chrome).await
+                render(&req, &viewer, &config, &headers, &place, Some(message), StatusCode::UNPROCESSABLE_ENTITY).await
             }
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },

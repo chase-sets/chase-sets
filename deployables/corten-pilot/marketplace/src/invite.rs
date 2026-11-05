@@ -33,7 +33,6 @@ use platform::receipt::Receipt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, Caller, Method as Http},
     app::{Shared, read_failed, url},
@@ -244,13 +243,12 @@ pub fn read_answer(answer: Result<(Value, Option<Receipt>), ApiError>) -> Result
     }
 }
 
-fn render(req: &Req, status: StatusCode, screen: &InviteScreen, cart: Option<u64>) -> HtmlResult {
+fn render(req: &Req, status: StatusCode, screen: &InviteScreen) -> HtmlResult {
     let t: SignInMsg = req.t();
     let page = html! {
         <Layout
             req={req}
             viewer={None}
-            cart={cart}
             title={t.invite_title()}
             head={html! { <meta name="robots" content="noindex"> }}
         >
@@ -263,7 +261,6 @@ fn render(req: &Req, status: StatusCode, screen: &InviteScreen, cart: Option<u64
 /// The invitation, as the API has it.
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
@@ -272,7 +269,7 @@ pub(crate) async fn page(
     let caller = config.platform.caller(&headers, config.proto, None);
     let invitation = match inspect(&caller, client, &route.id, route.invited.token()).await {
         Ok(invitation) => invitation,
-        Err(error) => return read_failed(&req, None, error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, None, error, None),
     };
     let screen = InviteScreen {
         id: route.id.clone(),
@@ -282,13 +279,12 @@ pub(crate) async fn page(
         phase: None,
         failed_safe: false,
     };
-    render(&req, StatusCode::OK, &screen, chrome.cart().await)
+    render(&req, StatusCode::OK, &screen)
 }
 
 /// Accept, or check an attempt's status.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
@@ -310,11 +306,11 @@ pub(crate) async fn write(
         // No attempt the API could apply: nothing was sent.
         screen.invitation = inspect(&caller, client, id, token).await.unwrap_or(Invitation::Unavailable);
         screen.failed_safe = true;
-        return render(&req, StatusCode::UNPROCESSABLE_ENTITY, &screen, chrome.cart().await);
+        return render(&req, StatusCode::UNPROCESSABLE_ENTITY, &screen);
     }
     if form.intent == "status" {
         screen.phase = Some((status(&caller, client, id, token, &attempt).await, attempt));
-        return render(&req, StatusCode::OK, &screen, chrome.cart().await);
+        return render(&req, StatusCode::OK, &screen);
     }
     let body = json!({ "invitationId": id, "token": token, "attemptId": attempt, "password": form.password });
     let answer = post::<Value>(&caller, client, "/api/auth/invitations/accept", Some(&attempt), body).await;
@@ -326,12 +322,12 @@ pub(crate) async fn write(
         Ok(Accepted::FailedSafe) => {
             screen.invitation = inspect(&caller, client, id, token).await.unwrap_or(Invitation::Unavailable);
             screen.failed_safe = true;
-            return render(&req, StatusCode::UNPROCESSABLE_ENTITY, &screen, chrome.cart().await);
+            return render(&req, StatusCode::UNPROCESSABLE_ENTITY, &screen);
         }
         Err(()) => status(&caller, client, id, token, &attempt).await,
     };
     screen.phase = Some((phase, attempt));
-    render(&req, StatusCode::OK, &screen, chrome.cart().await)
+    render(&req, StatusCode::OK, &screen)
 }
 
 /// Marketplace's page, for a passkey (WebAuthn is its page's script).

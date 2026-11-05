@@ -2749,6 +2749,18 @@ fn cart_badges(html: &str) -> Vec<(String, bool)> {
         .collect()
 }
 
+/// `CartBadge` draws one "max+" for both bars from the top bar's cart entry, so the bottom bar's
+/// must match it.
+#[test]
+fn both_bars_cap_the_carts_count_the_same() {
+    let cart = |items: Vec<platform::nav::Shown<'static>>| {
+        items.into_iter().find(|(item, _)| item.badge_key() == Some("checkout.cart-count")).map(|(item, _)| item.badge_max())
+    };
+    let top = cart(crate::auth::top_nav(None)).expect("the top bar's cart");
+    assert!(top.is_some());
+    assert_eq!(cart(crate::auth::bottom_nav(None)), Some(top));
+}
+
 #[tokio::test]
 async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
     let pilot = Pilot::new().await;
@@ -2771,6 +2783,8 @@ async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
     req.headers_mut().insert(header::COOKIE, GUEST_LINES.parse().unwrap());
     let (_, _, html) = pilot.send(req).await;
     assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "the guest cart the browser carries: {html}");
+    // The stylesheet shows a visitor's entry while its badge has a count; the server hides none.
+    assert_eq!(html.matches(" data-hide-empty>").count(), 2, "both bars: {html}");
     assert!(!html.contains("hidden data-hide-empty"), "{html}");
     // No guest cart: nothing is read, and the entry is hidden.
     let reads = guest_cart_reads(&pilot).len();
@@ -2828,11 +2842,10 @@ async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidde
     let (_, _, html) = pilot.send(get(CART_SCREEN, None)).await;
     let shell = html.split_once("<main>").unwrap().0;
     assert!(!shell.contains(r#"aria-label="Account menu""#) && !shell.contains("Sign Out"), "{shell}");
-    assert_eq!(
-        shell.matches("hidden data-hide-empty>").count(),
-        2,
-        "a visitor's cart waits for its count, in both bars: {shell}"
-    );
+    // A visitor's cart entry is drawn in both bars with its badge hidden at 0, which the stylesheet
+    // hides it by (`views/market_nav.css`); the cart page gives the count its own read found.
+    assert_eq!(shell.matches(" data-hide-empty>").count(), 2, "a visitor's cart waits for its count, in both bars: {shell}");
+    assert_eq!(cart_badges(&html), [(String::new(), true), (String::new(), true)], "{shell}");
     let (_, _, html) = pilot.send(get("/offline", None)).await;
     assert!(
         !html.contains("<nav") && html.contains("<body><main>"),

@@ -26,7 +26,6 @@ use corten::{
 };
 use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, Caller, Discovery as _, Item, RecentSavedList, SavedLists as _, Selected, segment},
     app::{Shared, sign_in_at, url},
@@ -324,17 +323,15 @@ async fn refused(
     input: SaveInput,
     message: String,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let notice = BuyNotice::SaveRefused { message, input };
     let reads = PageReads { save: state(session, caller).await, ..Default::default() };
-    items::render(req, session, item, address, Some(&notice), status, reads, chrome.cart().await)
+    items::render(req, session, item, address, Some(&notice), status, reads)
 }
 
 /// Add to List's Add Product, and a guest's Add to List.
 pub(crate) async fn save(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -372,7 +369,7 @@ pub(crate) async fn save(
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
     if product_id.is_empty() || screen.product_id.as_deref() != Some(product_id.as_str()) {
         let message = t.saved_api_product_invalid().to_owned();
-        return refused(&req, session, &caller, item, &address, input, message, unprocessable, &chrome).await;
+        return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
     }
     let product =
         Product { catalog_item_id: &item.catalog_item_id, product_id: &product_id, selected_options: &screen.product_options };
@@ -386,7 +383,7 @@ pub(crate) async fn save(
         let owner = guest_owner(&headers);
         let intent = match caller.saved_list_intent(&owner, &intent).await {
             Ok(intent) => intent,
-            Err(error) => return refusal(&req, session, &caller, item, &address, input, error, &chrome).await,
+            Err(error) => return refusal(&req, session, &caller, item, &address, input, error).await,
         };
         let to: Uri = register_href(&source, &intent.intent_id).parse().map_err(corten::Error::new)?;
         let mut res = req.redirect(&to)?;
@@ -397,17 +394,16 @@ pub(crate) async fn save(
     };
     if !viewer.actor.can(ACCOUNTS_VIEW) {
         let message = t.saved_api_account_forbidden().to_owned();
-        return refused(&req, session, &caller, item, &address, input, message, StatusCode::FORBIDDEN, &chrome).await;
+        return refused(&req, session, &caller, item, &address, input, message, StatusCode::FORBIDDEN).await;
     }
     // A form without its ids is not one the page drew (or one from before the ids): drawn again
     // with new ones, nothing sent.
     if tokens.is_none() {
-        return refused(&req, session, &caller, item, &address, input, p.check_attempt().to_owned(), unprocessable, &chrome)
-            .await;
+        return refused(&req, session, &caller, item, &address, input, p.check_attempt().to_owned(), unprocessable).await;
     }
     let Some(tracked) = quantity(&input.quantity) else {
         let message = p.item_saved_quantity_invalid().to_owned();
-        return refused(&req, session, &caller, item, &address, input, message, unprocessable, &chrome).await;
+        return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
     };
     let destination = if input.list == NEW_LIST {
         match title(&input.title) {
@@ -416,12 +412,12 @@ pub(crate) async fn save(
             }
             None => {
                 let message = p.item_saved_title_required().to_owned();
-                return refused(&req, session, &caller, item, &address, input, message, unprocessable, &chrome).await;
+                return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
             }
         }
     } else if input.list.is_empty() {
         let message = p.item_saved_choose_list().to_owned();
-        return refused(&req, session, &caller, item, &address, input, message, unprocessable, &chrome).await;
+        return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
     } else {
         Destination::Existing { list_id: &input.list }
     };
@@ -458,7 +454,7 @@ pub(crate) async fn save(
         Err(error) => {
             // A new list's title stays as typed; the ids stay, so trying again is the same addition.
             input.title = input.title.trim().to_owned();
-            refusal(&req, session, &caller, item, &address, input, error, &chrome).await
+            refusal(&req, session, &caller, item, &address, input, error).await
         }
     }
 }
@@ -473,12 +469,11 @@ async fn refusal(
     address: &Address,
     input: SaveInput,
     error: ApiError,
-    chrome: &Chrome,
 ) -> HtmlResult {
     match error.refusal() {
         Some(message) => {
             let message = message.to_owned();
-            refused(req, session, caller, item, address, input, message, StatusCode::UNPROCESSABLE_ENTITY, chrome).await
+            refused(req, session, caller, item, address, input, message, StatusCode::UNPROCESSABLE_ENTITY).await
         }
         None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }

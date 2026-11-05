@@ -31,7 +31,6 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, ImportBatch, ImportBatchDetail, ImportRow, Imports as _, Location, NewImport, RowFix},
     app::{Shared, read_failed, url},
@@ -294,14 +293,7 @@ async fn lists(caller: &crate::api::Caller<'_>) -> Result<(Vec<ImportBatch>, Vec
     Ok((batches?.items, locations?.items))
 }
 
-fn draw(
-    req: &Req,
-    viewer: &Viewer,
-    screen: &ImportsScreen,
-    reads_again: bool,
-    status: StatusCode,
-    cart: Option<u64>,
-) -> HtmlResult {
+fn draw(req: &Req, viewer: &Viewer, screen: &ImportsScreen, reads_again: bool, status: StatusCode) -> HtmlResult {
     let t: ImportsMsg = req.t();
     let head = html! {
         if reads_again {
@@ -310,7 +302,7 @@ fn draw(
     };
     let view = html! { <views::ImportsPage t={t} p={req.t()} m={req.t()} screen={screen} /> };
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_inventory_import_marketplace()} head={head}>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_inventory_import_marketplace()} head={head}>
             {view}
         </Layout>
     };
@@ -319,7 +311,6 @@ fn draw(
 
 pub(crate) async fn list(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -332,11 +323,11 @@ pub(crate) async fn list(
         Ok(Followed::Done(batch, after_write)) => return finished(&req, batch, after_write),
         Ok(Followed::Running(notice)) => Some(notice),
         Ok(Followed::Nothing) => None,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let (batches, locations) = match lists(&caller).await {
         Ok(lists) => lists,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let running = job.as_ref().is_some_and(|j| !j.failed);
     let screen = ImportsScreen {
@@ -349,12 +340,11 @@ pub(crate) async fn list(
         offset: 0,
         fixing: None,
     };
-    draw(&req, &viewer, &screen, running, StatusCode::OK, chrome.cart().await)
+    draw(&req, &viewer, &screen, running, StatusCode::OK)
 }
 
 pub(crate) async fn batch(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -369,13 +359,13 @@ pub(crate) async fn batch(
         Ok(Followed::Done(batch, after_write)) => return finished(&req, batch, after_write),
         Ok(Followed::Running(notice)) => Some(notice),
         Ok(Followed::Nothing) => None,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let offset = place.offset();
     let (detail, lists) = tokio::join!(caller.import_batch(&id, offset), lists(&plain));
     let (batches, locations) = match lists {
         Ok(lists) => lists,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let (detail, pending) = match detail {
         Ok(detail) => (Some(detail), false),
@@ -384,7 +374,7 @@ pub(crate) async fn batch(
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {
             return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND));
         }
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let running = job.as_ref().is_some_and(|j| !j.failed);
     let fixing = match &detail {
@@ -392,12 +382,11 @@ pub(crate) async fn batch(
         None => None,
     };
     let screen = ImportsScreen { batches, locations, detail, pending, job, upload: Upload::default(), offset, fixing };
-    draw(&req, &viewer, &screen, running || pending, StatusCode::OK, chrome.cart().await)
+    draw(&req, &viewer, &screen, running || pending, StatusCode::OK)
 }
 
 pub(crate) async fn create(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -410,7 +399,7 @@ pub(crate) async fn create(
         Ok(posted) => posted,
         Err(corten::UploadError::TooLarge { .. }) => {
             let upload = Upload { error: Some(t.api_import_source_not_accepted().to_owned()), ..Upload::default() };
-            return refuse(&req, &viewer, &caller, upload, StatusCode::PAYLOAD_TOO_LARGE, &chrome).await;
+            return refuse(&req, &viewer, &caller, upload, StatusCode::PAYLOAD_TOO_LARGE).await;
         }
         Err(other) => return Err(other.into()),
     };
@@ -436,7 +425,7 @@ pub(crate) async fn create(
     };
     let Some(csv_text) = csv_text.filter(|_| valid_attempt(&attempt)) else {
         sent.error = Some(t.api_import_source_not_accepted().to_owned());
-        return refuse(&req, &viewer, &caller, sent, StatusCode::UNPROCESSABLE_ENTITY, &chrome).await;
+        return refuse(&req, &viewer, &caller, sent, StatusCode::UNPROCESSABLE_ENTITY).await;
     };
     let body = NewImport {
         csv_text,
@@ -450,33 +439,25 @@ pub(crate) async fn create(
         Err(error) => match error.refusal() {
             Some(message) if error.status() != Some(StatusCode::FORBIDDEN) => {
                 sent.error = Some(message.to_owned());
-                refuse(&req, &viewer, &caller, sent, StatusCode::UNPROCESSABLE_ENTITY, &chrome).await
+                refuse(&req, &viewer, &caller, sent, StatusCode::UNPROCESSABLE_ENTITY).await
             }
-            _ => read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+            _ => read_failed(&req, Some(&viewer), error, None),
         },
     }
 }
 
 /// The page again with the upload form as it was sent and why it was refused.
-async fn refuse(
-    req: &Req,
-    viewer: &Viewer,
-    caller: &crate::api::Caller<'_>,
-    upload: Upload,
-    status: StatusCode,
-    chrome: &Chrome,
-) -> HtmlResult {
+async fn refuse(req: &Req, viewer: &Viewer, caller: &crate::api::Caller<'_>, upload: Upload, status: StatusCode) -> HtmlResult {
     let (batches, locations) = match lists(caller).await {
         Ok(lists) => lists,
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let screen = ImportsScreen { batches, locations, detail: None, pending: false, job: None, upload, offset: 0, fixing: None };
-    draw(req, viewer, &screen, false, status, chrome.cart().await)
+    draw(req, viewer, &screen, false, status)
 }
 
 pub(crate) async fn commit(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -504,7 +485,7 @@ pub(crate) async fn commit(
                 let ((batches, locations), detail) = match (lists, detail) {
                     (Ok(lists), Ok(detail)) => (lists, detail),
                     (Err(error), _) | (_, Err(error)) => {
-                        return read_failed(&req, Some(&viewer), error, None, chrome.cart().await);
+                        return read_failed(&req, Some(&viewer), error, None);
                     }
                 };
                 let upload = Upload { error: Some(message), ..Upload::default() };
@@ -518,9 +499,9 @@ pub(crate) async fn commit(
                     offset: 0,
                     fixing: None,
                 };
-                draw(&req, &viewer, &screen, false, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await)
+                draw(&req, &viewer, &screen, false, StatusCode::UNPROCESSABLE_ENTITY)
             }
-            _ => read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+            _ => read_failed(&req, Some(&viewer), error, None),
         },
     }
 }
@@ -532,7 +513,6 @@ pub(crate) async fn commit(
 /// again with why (422).
 pub(crate) async fn resolve(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -565,7 +545,7 @@ pub(crate) async fn resolve(
             }
             Err(error) => match error.refusal() {
                 Some(message) if error.status() != Some(StatusCode::FORBIDDEN) => message.to_owned(),
-                _ => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+                _ => return read_failed(&req, Some(&viewer), error, None),
             },
         },
         None => p.listing_new_choose_options().to_owned(),
@@ -573,12 +553,12 @@ pub(crate) async fn resolve(
     let (detail, lists) = tokio::join!(caller.import_batch(&id, offset), lists(&caller));
     let ((batches, locations), detail) = match (lists, detail) {
         (Ok(lists), Ok(detail)) => (lists, detail),
-        (Err(error), _) | (_, Err(error)) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        (Err(error), _) | (_, Err(error)) => return read_failed(&req, Some(&viewer), error, None),
     };
     let fixing = fixing(&caller, &detail, Some(&row_id), &raw, Some(refused)).await;
     let upload = Upload::default();
     let screen = ImportsScreen { batches, locations, detail: Some(detail), pending: false, job: None, upload, offset, fixing };
-    draw(&req, &viewer, &screen, false, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await)
+    draw(&req, &viewer, &screen, false, StatusCode::UNPROCESSABLE_ENTITY)
 }
 
 /// The native template, as the API sends it.

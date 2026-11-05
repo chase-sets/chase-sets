@@ -32,7 +32,6 @@ use corten::{
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{Caller, CartWrite, Checkout as _, Discovery as _, Item, Listing, Selected, segment},
     app::{GUEST_CHECKOUT, Shared, sign_in_at, url},
@@ -395,10 +394,10 @@ async fn read_item(caller: &Caller<'_>, slug: &str) -> Result<Item, corten::Erro
 }
 
 /// The page again, saying why nothing changed.
-fn refused(req: &Req, session: Option<&Session>, item: Item, input: BuyInput, message: String, cart: Option<u64>) -> HtmlResult {
+fn refused(req: &Req, session: Option<&Session>, item: Item, input: BuyInput, message: String) -> HtmlResult {
     let address = input.address.clone();
     let notice = BuyNotice::Refused { message, input };
-    items::render(req, session, item, &address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, Default::default(), cart)
+    items::render(req, session, item, &address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, Default::default())
 }
 
 /// Marketplace's sign-in, back to the item: the session ended between the page and the post.
@@ -412,7 +411,6 @@ fn sign_in(req: &Req, slug: &str) -> HtmlResult {
 /// Add to cart and Buy best match (the action's `add-to-cart` and `buy-best-match`).
 pub(crate) async fn add(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -428,11 +426,11 @@ pub(crate) async fn add(
     let item = read_item(&caller, &slug).await?;
     let guest = guest_cart(session, &headers)?;
     let Some(screen) = screen_for(session, &item, &input) else {
-        return refused(&req, session, item, input, t.route_add_to_cart_failed().to_owned(), chrome.cart().await);
+        return refused(&req, session, item, input, t.route_add_to_cart_failed().to_owned());
     };
     let line = match cart_line(t, &item, &screen, &input) {
         Ok(line) => line,
-        Err(message) => return refused(&req, session, item, input, message, chrome.cart().await),
+        Err(message) => return refused(&req, session, item, input, message),
     };
     let write = CartWrite::add_line(&line, guest.clone());
     let outcome = match cart_attempt::submit(&caller, &input.attempt, &write).await {
@@ -455,23 +453,14 @@ pub(crate) async fn add(
         Attempted::Ambiguous => {
             let address = input.address.clone();
             let notice = BuyNotice::Ambiguous { cart: cart_href(""), resend: input };
-            items::render(
-                &req,
-                session,
-                item,
-                &address,
-                Some(&notice),
-                StatusCode::CONFLICT,
-                Default::default(),
-                chrome.cart().await,
-            )?
+            items::render(&req, session, item, &address, Some(&notice), StatusCode::CONFLICT, Default::default())?
         }
         Attempted::Partial | Attempted::FailedSafe => {
             let message = outcome
                 .message
                 .or_else(|| outcome.not_applied.into_iter().flatten().next())
                 .unwrap_or_else(|| t.route_add_to_cart_failed().to_owned());
-            refused(&req, session, item, input, message, chrome.cart().await)?
+            refused(&req, session, item, input, message)?
         }
     };
     if let Some(id) = guest {
@@ -489,7 +478,6 @@ pub(crate) async fn add(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn buy(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -506,27 +494,20 @@ pub(crate) async fn buy(
     let item = read_item(&caller, &slug).await?;
     let changed = t.route_buy_changed().to_owned();
     if cart_attempt::attempt_id(&input.attempt) != input.attempt {
-        return refused(&req, session, item, input, changed, chrome.cart().await);
+        return refused(&req, session, item, input, changed);
     }
     let Some(screen) = screen_for(session, &item, &input) else {
-        return refused(&req, session, item, input, changed, chrome.cart().await);
+        return refused(&req, session, item, input, changed);
     };
     let Some(quantity) = quantity(&input.quantity) else {
-        return refused(&req, session, item, input, t.route_validation_quantity_required().to_owned(), chrome.cart().await);
+        return refused(&req, session, item, input, t.route_validation_quantity_required().to_owned());
     };
     let listing = if input.lock.is_empty() { lowest(&item, &input.product) } else { buyable(&item, &input.lock) };
     let Some(listing) = listing.cloned() else {
-        return refused(
-            &req,
-            session,
-            item,
-            input,
-            t.route_validation_selected_listing_unavailable().to_owned(),
-            chrome.cart().await,
-        );
+        return refused(&req, session, item, input, t.route_validation_selected_listing_unavailable().to_owned());
     };
     if let Err(message) = enough(t, &listing, quantity) {
-        return refused(&req, session, item, input, message, chrome.cart().await);
+        return refused(&req, session, item, input, message);
     }
     let summary = screen.product_summary.clone();
     let source = json!({
@@ -546,8 +527,7 @@ pub(crate) async fn buy(
         let available =
             t.route_inventory_option_label(summary.as_deref().unwrap_or(&item.title), available(&listing)).to_string();
         let entry = guest_checkout(&source, &listing, &available, t.route_confirmed_at_checkout());
-        return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &uri, &entry, &input.attempt, &chrome)
-            .await;
+        return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &uri, &entry, &input.attempt).await;
     }
     match caller.buy_now(&input.attempt, &source).await {
         Ok((session, receipt)) => {
@@ -557,13 +537,11 @@ pub(crate) async fn buy(
         Err(error) => match (error.status(), error.code()) {
             (Some(StatusCode::UNAUTHORIZED), _) => sign_in(&req, &slug),
             (Some(StatusCode::FORBIDDEN), _) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
-            (_, Some("checkout_attempt_conflict")) => refused(&req, session, item, input, changed, chrome.cart().await),
-            (_, Some("checkout_closed")) => {
-                refused(&req, session, item, input, t.route_checkout_closed().to_owned(), chrome.cart().await)
-            }
+            (_, Some("checkout_attempt_conflict")) => refused(&req, session, item, input, changed),
+            (_, Some("checkout_closed")) => refused(&req, session, item, input, t.route_checkout_closed().to_owned()),
             (Some(status), _) if status.is_client_error() => {
                 let message = error.refusal().map(str::to_owned).unwrap_or(changed);
-                refused(&req, session, item, input, message, chrome.cart().await)
+                refused(&req, session, item, input, message)
             }
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
@@ -587,7 +565,6 @@ pub fn price(t: ItemMsg, text: &str) -> Option<String> {
 /// from there.
 pub(crate) async fn offer(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -602,13 +579,13 @@ pub(crate) async fn offer(
     let caller = config.platform.caller(&headers, config.proto, None);
     let item = read_item(&caller, &slug).await?;
     let Some(amount) = price(t, &input.price) else {
-        return refused(&req, session, item, input, t.route_validation_price_required().to_owned(), chrome.cart().await);
+        return refused(&req, session, item, input, t.route_validation_price_required().to_owned());
     };
     let Some(quantity) = quantity(&input.quantity) else {
-        return refused(&req, session, item, input, t.route_validation_quantity_required().to_owned(), chrome.cart().await);
+        return refused(&req, session, item, input, t.route_validation_quantity_required().to_owned());
     };
     let Some(screen) = screen_for(session, &item, &input) else {
-        return refused(&req, session, item, input, t.route_choose_options_to_make_an_offer().to_owned(), chrome.cart().await);
+        return refused(&req, session, item, input, t.route_choose_options_to_make_an_offer().to_owned());
     };
     let options = serde_json::to_string(&screen.product_options).unwrap_or_else(|_| "[]".to_owned());
     let pairs = [

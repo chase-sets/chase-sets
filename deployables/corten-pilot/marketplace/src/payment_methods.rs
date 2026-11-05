@@ -36,7 +36,6 @@ use corten::{
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, MethodChange, PaymentMethod, PaymentMethodCalls as _, SetupSession},
     app::{ORDERS_MANAGE, Shared, read_failed, sign_in, url},
@@ -215,7 +214,6 @@ fn watching(until: Option<u64>) -> bool {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -254,7 +252,7 @@ pub(crate) async fn page(
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let outcome = place.done.map(|form| Outcome { form, attempt: String::new(), state: AttemptState::Succeeded });
     let screen = Drawn { setup_result, outcome, setup: None, failed, watch };
-    render(&req, &viewer, &config, &headers, receipt.as_ref(), screen, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, receipt.as_ref(), screen, StatusCode::OK).await
 }
 
 /// What a handler has for the page before the methods are read.
@@ -282,7 +280,6 @@ async fn render(
     receipt: Option<&Receipt>,
     drawn: Drawn,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, receipt);
     let methods = match caller.payment_methods().await {
@@ -291,10 +288,10 @@ async fn render(
         Err(error) if receipt.is_some() && error.catching_up() => {
             match config.platform.caller(headers, config.proto, None).payment_methods().await {
                 Ok(methods) => methods,
-                Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+                Err(error) => return read_failed(req, Some(viewer), error, None),
             }
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let screen = MethodsScreen {
         account_id: viewer.actor.account_id.clone(),
@@ -314,9 +311,8 @@ async fn render(
         }
     };
     let view = html! { <views::PaymentMethodsPage t={t} screen={&screen} /> };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.saved_payment_methods()} head={head}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} title={t.saved_payment_methods()} head={head}>{view}</Layout>
     };
     if status == StatusCode::OK && screen.setup.is_none() {
         req.screen(&screen, page)
@@ -329,23 +325,15 @@ async fn render(
 /// kept (`no-store`).
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<MethodInput>,
 ) -> NoStore<HtmlResult> {
-    NoStore(send(&req, &viewer, &config, &headers, input, &chrome).await)
+    NoStore(send(&req, &viewer, &config, &headers, input).await)
 }
 
-async fn send(
-    req: &Req,
-    viewer: &Viewer,
-    config: &Shared,
-    headers: &HeaderMap,
-    input: MethodInput,
-    chrome: &Chrome,
-) -> HtmlResult {
+async fn send(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, input: MethodInput) -> HtmlResult {
     let t: PaymentMethodsMsg = req.t();
     let caller = config.platform.caller(headers, config.proto, None);
     if input.intent == "reconcile" {
@@ -355,18 +343,18 @@ async fn send(
             Err(error) => {
                 tracing::warn!("Refresh failed: {error}");
                 let drawn = Drawn { failed: Some(t.payment_method_update_failed()), ..Drawn::answer(None) };
-                render(req, viewer, config, headers, None, drawn, StatusCode::BAD_GATEWAY, chrome).await
+                render(req, viewer, config, headers, None, drawn, StatusCode::BAD_GATEWAY).await
             }
         };
     }
     let Some(form) = FormKey::of(&input.intent, &input.instrument_id) else {
         let drawn = Drawn { failed: Some(t.choose_payment_method_action()), ..Drawn::answer(None) };
-        return render(req, viewer, config, headers, None, drawn, StatusCode::UNPROCESSABLE_ENTITY, chrome).await;
+        return render(req, viewer, config, headers, None, drawn, StatusCode::UNPROCESSABLE_ENTITY).await;
     };
     let attempt = attempt_text(&input.attempt).to_owned();
     let answer = |state: AttemptState| {
         let outcome = Outcome { form: form.key(), attempt: attempt.clone(), state };
-        render(req, viewer, config, headers, None, Drawn::answer(Some(outcome)), state.status(), chrome)
+        render(req, viewer, config, headers, None, Drawn::answer(Some(outcome)), state.status())
     };
     // Checked before any command, as marketplace's `submitAttempt`.
     if input.account_id != viewer.actor.account_id {
@@ -385,7 +373,7 @@ async fn send(
         FormKey::Add => match caller.start_setup(account, &attempt, RETURN_PATH).await {
             Ok(setup) => {
                 let drawn = Drawn { setup: Some(setup), ..Drawn::answer(None) };
-                render(req, viewer, config, headers, None, drawn, StatusCode::OK, chrome).await
+                render(req, viewer, config, headers, None, drawn, StatusCode::OK).await
             }
             Err(error) => failed(error).await,
         },

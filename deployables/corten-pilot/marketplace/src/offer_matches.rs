@@ -30,7 +30,6 @@ use futures_util::StreamExt;
 use platform::{realtime::Tick, receipt::Receipt};
 use serde::Deserialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{AcceptanceTerms, ApiError, CommandError, OfferMatch, OfferMatchCalls as _, SellList as _},
     app::{Shared, read_failed, sign_in, url},
@@ -66,7 +65,6 @@ pub struct OfferScreen {
 
 pub(crate) async fn list(
     req: Req,
-    chrome: Chrome,
     Caller(OfferReviewer(viewer)): Caller<OfferReviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -80,16 +78,15 @@ pub(crate) async fn list(
         Err(error) if receipt.is_some() && error.catching_up() => {
             match config.platform.caller(&headers, config.proto, None).offer_matches().await {
                 Ok(matches) => matches,
-                Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+                Err(error) => return read_failed(&req, Some(&viewer), error, None),
             }
         }
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let req = &req;
     let t: OfferMatchesMsg = req.t();
-    let cart = chrome.cart().await;
     req.page(html! {
-        <Layout req={req} viewer={Some(&viewer)} cart={cart} title={t.routes_offer_matches_marketplace()} head={()}>
+        <Layout req={req} viewer={Some(&viewer)} title={t.routes_offer_matches_marketplace()} head={()}>
             <views::OfferMatchesPage t={t} p={req.t()} matches={&matches} />
         </Layout>
     })
@@ -145,13 +142,12 @@ async fn render(
     id: &str,
     refusal: Option<String>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     let offer = match caller.offer_match(id).await {
         Ok(Some(offer)) => offer,
         Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     // Marketplace's page fails when the preview does; the offer is still worth showing.
     let terms = match offer.status.as_str() {
@@ -164,9 +160,8 @@ async fn render(
     };
     let t: OfferMatchesMsg = req.t();
     let screen = OfferScreen { offer, terms, refusal };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_offer_match_marketplace()} head={()}>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_offer_match_marketplace()} head={()}>
             <views::OfferMatchPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
@@ -175,20 +170,18 @@ async fn render(
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(OfferReviewer(viewer)): Caller<OfferReviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::offer_matches::OfferMatch<'_>>,
 ) -> HtmlResult {
     let id = route.id;
-    render(&req, &viewer, &config, &headers, &id, None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, &id, None, StatusCode::OK).await
 }
 
 /// Add selected offer to Sell List (and Accept offer match, which adds it too) and Decline.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(OfferReviewer(viewer)): Caller<OfferReviewer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -205,9 +198,9 @@ pub(crate) async fn write(
                 Ok(Some(offer)) if offer.status == "submitted" => offer,
                 Ok(_) => {
                     let refusal = Some(p.offer_matches_unavailable().to_owned());
-                    return render(&req, &viewer, &config, &headers, &id, refusal, StatusCode::CONFLICT, &chrome).await;
+                    return render(&req, &viewer, &config, &headers, &id, refusal, StatusCode::CONFLICT).await;
                 }
-                Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+                Err(error) => return read_failed(&req, Some(&viewer), error, None),
             };
             match caller.add_sell_list_line(&SellListLine::offer_match(&offer), None).await {
                 Ok(receipt) => {
@@ -228,13 +221,13 @@ pub(crate) async fn write(
                 Err(other) => {
                     tracing::warn!("a decline was refused with a listing's conflict: {other:?}");
                     let refusal = Some(t.route_request_failed().to_owned());
-                    return render(&req, &viewer, &config, &headers, &id, refusal, StatusCode::CONFLICT, &chrome).await;
+                    return render(&req, &viewer, &config, &headers, &id, refusal, StatusCode::CONFLICT).await;
                 }
             }
         }
         _ => return Err(corten::Error::status(StatusCode::BAD_REQUEST)),
     };
-    refused(&req, &viewer, &config, &headers, &id, error, t, &chrome).await
+    refused(&req, &viewer, &config, &headers, &id, error, t).await
 }
 
 /// A write the API refused (4xx), as the offer match's page with its words; anything else is a 502.
@@ -247,7 +240,6 @@ async fn refused(
     id: &str,
     error: ApiError,
     t: OfferMatchesMsg,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let status = match error.status() {
         Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
@@ -257,5 +249,5 @@ async fn refused(
     };
     let message = error.refusal().unwrap_or(t.route_request_failed()).to_owned();
     let status = if status == StatusCode::CONFLICT { status } else { StatusCode::UNPROCESSABLE_ENTITY };
-    render(req, viewer, config, headers, id, Some(message), status, chrome).await
+    render(req, viewer, config, headers, id, Some(message), status).await
 }

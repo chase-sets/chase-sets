@@ -2,9 +2,10 @@
 //! the top bar, the account menu and, on a phone, the bottom bar, for a member, a guest checkout or
 //! a visitor, from the exported top-nav, bottom-nav and account-menu contributions.
 //!
-//! The cart's count is the page's `Chrome` (`crate::chrome`), read beside the page for a full load
-//! and drawn here, with or without JavaScript; a visitor's cart entry is hidden while it is 0, as
-//! marketplace hides it. A write's redirect draws the header again, and so does the cart page
+//! The cart's count is the app's layout read (`crate::chrome::CartCount`), which Corten reads beside
+//! the page for a full load and draws where the shell puts it, with or without JavaScript; a
+//! visitor's cart entry is hidden by the stylesheet while its badge is hidden or missing, as
+//! marketplace hides it at 0. A write's redirect draws the header again, and so does the cart page
 //! reading itself again while its write lands, once the cart is found.
 use std::collections::HashMap;
 
@@ -15,6 +16,7 @@ use super::marketplace;
 use crate::{
     app::url,
     auth::{self, NavItem, Viewer},
+    chrome::CartCount,
     text::Pilot,
 };
 
@@ -52,7 +54,7 @@ fn elsewhere(item: &NavItem) -> Option<String> {
 /// (`BottomNav`), its groups opening upward. An entry the pilot serves links to the pilot, marked
 /// current by Corten's nav rule; every other one to marketplace, never current.
 #[component(css)]
-pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>, cart: Option<u64>) -> impl Render {
+pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>) -> impl Render {
     let items = auth::top_nav(viewer);
     let (mut ends, primary): (Vec<_>, Vec<_>) =
         items.into_iter().partition(|(item, _)| item.placement.as_deref() == Some("utility"));
@@ -60,8 +62,8 @@ pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>, cart: O
     ends.sort_by_key(|(item, _)| item.key == "cart");
     let menu = auth::account_menu(viewer);
     let bottom = auth::bottom_nav(viewer);
-    // A visitor's cart entry is drawn hidden while the cart is empty, so the cart page can show it.
-    let hidden = |item: &NavItem| viewer.is_none() && item.hides_when_empty() && cart.unwrap_or(0) == 0;
+    // A visitor's cart entry is always drawn, and the stylesheet hides it while its badge is hidden
+    // or missing (`data-hide-empty`), so the count the layout read draws decides it, without a script.
     let empty = |item: &NavItem| viewer.is_none() && item.hides_when_empty();
     html! {
         // The top bar's sections and its utility entries are one nav, as marketplace marks them;
@@ -131,10 +133,10 @@ pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>, cart: O
                 if !ends.is_empty() {
                     <ul class={(Items, Wide)}>
                         for (item, _) in &ends {
-                            <li hidden={hidden(item)} data-hide-empty={empty(item)}>
+                            <li data-hide-empty={empty(item)}>
                                 <Entry class={Item} link={top.get(item.key.as_str())} item={item}>
                                     {&item.label}
-                                    <Count item={item} cart={cart} />
+                                    <Count item={item} />
                                 </Entry>
                             </li>
                         }
@@ -145,12 +147,12 @@ pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>, cart: O
         <nav class={Phone} aria-label={p.shell_navigation()}>
             <ul class={Slots}>
                 for (item, children) in &bottom {
-                    <li class={Slot} hidden={hidden(item)} data-hide-empty={empty(item)}>
+                    <li class={Slot} data-hide-empty={empty(item)}>
                         if children.is_empty() {
                             <Entry class={Tab} link={phone.get(item.key.as_str())} item={item}>
                                 <span class={Mark}>
                                     <Glyph name={item.icon.as_deref()} />
-                                    <Count item={item} cart={cart} />
+                                    <Count item={item} />
                                 </span>
                                 <span class={Label}>{&item.label}</span>
                             </Entry>
@@ -205,16 +207,28 @@ fn Glyph<'a>(name: Option<&'a str>) -> impl Render {
     }
 }
 
-/// The cart's count on its entry, "max+" past its most and hidden at 0 (`toNavigationItem`);
-/// nothing for an entry without a badge.
+/// Where the cart's count goes on its entry: the layout read's place (`CartCount`); nothing for
+/// an entry without the cart's badge.
 #[component(css = MarketNav)]
-fn Count<'a>(item: &'a NavItem, cart: Option<u64>) -> impl Render {
-    let key = item.badge_key();
-    let count = cart.filter(|_| key == Some(CART_COUNT));
-    let text = key.zip(count).and_then(|(key, count)| item.badge(&[(key, count)]));
+fn Count<'a>(item: &'a NavItem) -> impl Render {
+    let cart = item.badge_key() == Some(CART_COUNT);
     html! {
-        if let Some(key) = key {
-            <span class={Badge} data-badge={key} data-max={item.badge_max()} hidden={text.is_none()}>{text}</span>
+        if cart {
+            {later::<CartCount>()}
         }
+    }
+}
+
+/// The cart's badge (`toNavigationItem`): the count, "max+" past its most, and hidden at 0 or
+/// while the cart page's read catches up (`None`). `CartCount`'s view: it has only the count, so
+/// the most is the top bar's cart entry's, which the bottom bar's matches (nav.json).
+#[component(css = MarketNav)]
+pub fn CartBadge(count: Option<u64>) -> impl Render {
+    let item = auth::NAV.iter().find(|item| item.badge_key() == Some(CART_COUNT));
+    let text = item.zip(count).and_then(|(item, count)| item.badge(&[(CART_COUNT, count)]));
+    html! {
+        <span class={Badge} data-badge={CART_COUNT} data-max={item.and_then(NavItem::badge_max)} hidden={text.is_none()}>
+            {text}
+        </span>
     }
 }

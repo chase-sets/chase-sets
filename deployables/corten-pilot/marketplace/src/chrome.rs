@@ -1,77 +1,46 @@
 //! What the layout shows beside the page that needs a read of its own: the cart's count on the
 //! nav's Buy Cart entry (marketplace's root loader, `resolveCartCount`).
 //!
-//! The count is started as the request arrives (`Chrome`, an extractor every page that draws the
-//! layout takes), so a full load reads it beside the page's own reads and waits for the longer of
-//! the two. It is read only when the layout is drawn: a full load, and the page a write redirects
-//! to, which the runtime fetches whole. A client navigation or a `data-patch` answer keeps the
-//! header, so they start nothing. A page without JavaScript has the count in its HTML.
-use std::{convert::Infallible, sync::Mutex};
+//! `CartCount` is the app's one layout read (`App::layout_read`). Corten starts it beside the
+//! page's own reads for a whole document (a first load, a reload, the page a write redirects to)
+//! and draws its view where the shell put `later::<CartCount>()` (`views::market_nav`), so no
+//! handler takes or passes it. A client navigation or a `data-patch` answer keeps the header, so
+//! nothing is started for them. A page without JavaScript has the count in its HTML. The cart page
+//! reads the cart itself and gives the count it found (`cart::render`), so its `GET` starts none.
+use std::future::Future;
 
-use corten::{
-    Ahead, Mode,
-    axum::{
-        extract::{FromRequestParts, Request},
-        http::request::Parts,
-    },
-};
+use corten::{LayoutRead, axum::http::request::Parts, prelude::*};
 
 use crate::{
     api::Checkout as _,
-    app::Shared,
+    app::{Shared, url},
     auth::{Found, after_write},
     cart::anonymous_cart,
+    views::CartBadge,
 };
 
 /// The item page's parameter after Add to cart: the add's receipt (`items::After::added`).
 const ADDED: &str = "added";
 
-/// The layout's own reads, started for a request that draws it. A handler lends it to whatever
-/// draws the page, and each branch that draws the layout awaits it there. Corten has no read the
-/// app starts once for the layout, nor an `Ahead` awaited from several branches, so every handler
-/// takes this and the cell keeps the one answer (todd-skelton/corten#580).
-pub struct Chrome {
-    cart: Mutex<Option<Ahead<Option<u64>>>>,
-    read: tokio::sync::OnceCell<Option<u64>>,
-}
+/// The cart's count in the shell: `None` while the cart page's own read is still catching up
+/// with a write (drawn as the badge at 0), and nothing at all where the read was not drawn (it
+/// failed, or the page is the same for everyone), which hides a visitor's cart entry.
+pub struct CartCount(pub Shared);
 
-impl Chrome {
-    fn new(cart: Ahead<Option<u64>>) -> Chrome {
-        Chrome { cart: Mutex::new(Some(cart)), read: tokio::sync::OnceCell::new() }
-    }
+impl LayoutRead for CartCount {
+    type Value = Option<u64>;
 
-    /// The cart's count, for the layout: `None` when the layout is not drawn. Awaited once; a
-    /// second draw (a refused form drawn after a failed one) has the same count.
-    pub async fn cart(&self) -> Option<u64> {
-        *self
-            .read
-            .get_or_init(|| async {
-                let started = self.cart.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-                match started {
-                    Some(started) => started.await,
-                    None => None,
-                }
-            })
-            .await
-    }
-}
-
-impl FromRequestParts<Shared> for Chrome {
-    type Rejection = Infallible;
-
-    async fn from_request_parts(parts: &mut Parts, config: &Shared) -> Result<Self, Infallible> {
-        // The runtime keeps the header for a navigation and a `data-patch` answer (not for the page
-        // a write redirects to, which it fetches as a document).
-        if Mode::of(&parts.headers).swaps() {
-            return Ok(Chrome::new(Ahead::ready(None)));
+    fn start(&self, parts: &Parts) -> Option<impl Future<Output = Option<u64>> + Send + 'static> {
+        // The cart page gives the count its own read found.
+        if parts.uri.path() == url::Cart::default().href() {
+            return None;
         }
-        // The request's head, with its extensions: Corten keeps the request's one lookup of who is
-        // asking there (on its `Signal`), which the handler and the error page share.
-        let mut head = Request::new(()).into_parts().0;
-        (head.method, head.uri, head.headers, head.extensions) =
-            (parts.method.clone(), parts.uri.clone(), parts.headers.clone(), parts.extensions.clone());
-        let config = config.clone();
-        Ok(Chrome::new(Ahead::start(async move { Some(count(&head, &config).await) })))
+        let (config, head) = (self.0.clone(), parts.clone());
+        Some(async move { Some(count(&head, &config).await) })
+    }
+
+    fn view(count: &Option<u64>) -> impl Render + '_ {
+        html! { <CartBadge count={*count} /> }
     }
 }
 

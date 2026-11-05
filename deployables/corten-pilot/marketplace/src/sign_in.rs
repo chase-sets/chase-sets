@@ -39,7 +39,6 @@ use platform::auth::{PhoneCodeSent, Refusal, selection_token};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::chrome::Chrome;
 use crate::email_verification::{Purpose, RETURN_PARAMETER};
 use crate::{
     api::{ApiError, Caller, segment},
@@ -277,13 +276,12 @@ pub(crate) fn complete(req: &Req, config: &Config, return_to: &str, result: Auth
     Ok(res.with_cookie(secure(config, SetCookie::remove(SELECTION_COOKIE))).with_cookie(secure(config, keep)))
 }
 
-fn render(req: &Req, status: StatusCode, screen: &SignInScreen, cart: Option<u64>) -> HtmlResult {
+fn render(req: &Req, status: StatusCode, screen: &SignInScreen) -> HtmlResult {
     let (t, p): (SignInMsg, Pilot) = (req.t(), req.t());
     let page = html! {
         <Layout
             req={req}
             viewer={None}
-            cart={cart}
             title={p.auth_sign_in_title()}
             head={html! { <meta name="robots" content="noindex"> }}
         >
@@ -294,16 +292,15 @@ fn render(req: &Req, status: StatusCode, screen: &SignInScreen, cart: Option<u64
 }
 
 /// The page, at the step its address is on.
-pub(crate) async fn page(req: Req, chrome: Chrome, Params(route): Params<crate::app::url::sign_in::SignIn>) -> HtmlResult {
+pub(crate) async fn page(req: Req, Params(route): Params<crate::app::url::sign_in::SignIn>) -> HtmlResult {
     let ask = route.ask;
     let screen = SignInScreen::new(req.t(), ask);
-    render(&req, StatusCode::OK, &screen, chrome.cart().await)
+    render(&req, StatusCode::OK, &screen)
 }
 
 /// The page's forms (marketplace's sign-in action).
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
@@ -326,10 +323,10 @@ pub(crate) async fn write(
         screen.identifier = Some((identifier.to_owned(), Kind::of(identifier)));
         screen.method = Some(method);
     }
-    let failed = |cart: Option<u64>, mut screen: SignInScreen, error: ApiError| {
+    let failed = |mut screen: SignInScreen, error: ApiError| {
         let (status, message) = refusal(t, intent, &error);
         screen.error = Some(message);
-        render(&req, status, &screen, cart)
+        render(&req, status, &screen)
     };
     let started = match intent {
         "magic-link-request" => {
@@ -337,9 +334,9 @@ pub(crate) async fn write(
             return match call::<Value>(&caller, client, "/api/auth/magic-link/request", body).await {
                 Ok(_) => {
                     screen.notice = Some(Notice::MagicLinkSent);
-                    render(&req, StatusCode::OK, &screen, chrome.cart().await)
+                    render(&req, StatusCode::OK, &screen)
                 }
-                Err(error) => failed(chrome.cart().await, screen, error),
+                Err(error) => failed(screen, error),
             };
         }
         "phone-code-request" => {
@@ -348,9 +345,9 @@ pub(crate) async fn write(
             {
                 Ok(sent) => {
                     screen.notice = Some(Notice::PhoneCodeSent { token_id: sent.token_id });
-                    render(&req, StatusCode::OK, &screen, chrome.cart().await)
+                    render(&req, StatusCode::OK, &screen)
                 }
-                Err(error) => failed(chrome.cart().await, screen, error),
+                Err(error) => failed(screen, error),
             };
         }
         "phone-code-consume" => {
@@ -367,7 +364,7 @@ pub(crate) async fn write(
     };
     match started {
         Ok(result) => complete(&req, &config, &return_to, result),
-        Err(error) => failed(chrome.cart().await, screen, error),
+        Err(error) => failed(screen, error),
     }
 }
 
@@ -375,7 +372,6 @@ pub(crate) async fn write(
 /// in, or the page says why it could not.
 pub(crate) async fn magic(
     req: Req,
-    chrome: Chrome,
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
@@ -384,7 +380,7 @@ pub(crate) async fn magic(
     let link = route.link;
     let t: SignInMsg = req.t();
     let return_to = safe_return_to(link.return_to.as_deref(), DEFAULT_SUCCESS);
-    let failed = |cart: Option<u64>, status: StatusCode, title: &str, description: &str| {
+    let failed = |status: StatusCode, title: &str, description: &str| {
         let p: Pilot = req.t();
         let again = url::SignIn { ask: Ask::back_to(&return_to) };
         req.page_with_status(
@@ -393,7 +389,6 @@ pub(crate) async fn magic(
                 <Layout
                     req={&req}
                     viewer={None}
-                    cart={cart}
                     title={p.auth_sign_in_title()}
                     head={html! { <meta name="robots" content="noindex"> }}
                 >
@@ -403,25 +398,17 @@ pub(crate) async fn magic(
         )
     };
     let Some(token) = link.token.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
-        return failed(
-            chrome.cart().await,
-            StatusCode::BAD_REQUEST,
-            t.magic_magic_link_could_not_be_completed(),
-            t.magic_magic_link_is_missing(),
-        );
+        return failed(StatusCode::BAD_REQUEST, t.magic_magic_link_could_not_be_completed(), t.magic_magic_link_is_missing());
     };
     let caller = config.platform.caller(&headers, config.proto, None);
     match call::<Authenticated>(&caller, client, "/api/auth/magic-link/consume", json!({ "token": token })).await {
         Ok(result) => complete(&req, &config, &return_to, result),
-        Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => failed(
-            chrome.cart().await,
-            StatusCode::UNAUTHORIZED,
-            t.magic_magic_link_expired_or_used(),
-            t.magic_request_a_new_sign_in_link(),
-        ),
+        Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
+            failed(StatusCode::UNAUTHORIZED, t.magic_magic_link_expired_or_used(), t.magic_request_a_new_sign_in_link())
+        }
         Err(ApiError::Status { status, message, .. }) => {
             tracing::warn!("a magic link could not be used: {status} {message}");
-            failed(chrome.cart().await, StatusCode::BAD_GATEWAY, t.magic_sign_in_temporarily_unavailable(), &message)
+            failed(StatusCode::BAD_GATEWAY, t.magic_sign_in_temporarily_unavailable(), &message)
         }
         Err(error) => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
@@ -441,7 +428,6 @@ async fn select_render(
     token: &str,
     back: &Back,
     error: Option<(StatusCode, String)>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let memberships = match platform::auth::memberships(caller, client, token).await {
         Ok(found) => found,
@@ -451,12 +437,10 @@ async fn select_render(
     };
     let (t, p): (SignInMsg, Pilot) = (req.t(), req.t());
     let (status, message) = error.map_or((StatusCode::OK, None), |(status, message)| (status, Some(message)));
-    let cart = chrome.cart().await;
     let page = html! {
         <Layout
             req={req}
             viewer={None}
-            cart={cart}
             title={p.auth_account_selection_title()}
             head={html! { <meta name="robots" content="noindex"> }}
         >
@@ -469,7 +453,6 @@ async fn select_render(
 /// The accounts the user may act for, each a form (marketplace's account selection loader).
 pub(crate) async fn select_page(
     req: Req,
-    chrome: Chrome,
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
@@ -478,13 +461,12 @@ pub(crate) async fn select_page(
     let back = route.back;
     let Some(token) = selection_token(&headers) else { return sign_in_again(&req, &back) };
     let caller = config.platform.caller(&headers, config.proto, None);
-    select_render(&req, &caller, client, token, &back, None, &chrome).await
+    select_render(&req, &caller, client, token, &back, None).await
 }
 
 /// The account chosen: the session, then where the sign-in was going.
 pub(crate) async fn select(
     req: Req,
-    chrome: Chrome,
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
@@ -499,7 +481,7 @@ pub(crate) async fn select(
         Ok(result) => complete(&req, &config, &safe_return_to(back.return_to.as_deref(), DEFAULT_SUCCESS), result),
         Err(error) => {
             let refused = refusal(req.t(), "account-selection", &error);
-            select_render(&req, &caller, client, token, &back, Some(refused), &chrome).await
+            select_render(&req, &caller, client, token, &back, Some(refused)).await
         }
     }
 }

@@ -256,14 +256,14 @@ fn sha256(value: &Value) -> Option<String> {
 /// deploy's worker keeps the page that names the deploy's stylesheet.
 pub(crate) async fn offline(req: Req) -> Public<HtmlResult> {
     // The same page for everyone (the service worker keeps it), so no cart count.
-    Public::new(Duration::ZERO, offline_page(&req, None))
+    Public::new(Duration::ZERO, offline_page(&req))
 }
 
-fn offline_page<For>(req: &Req, cart: Option<u64>) -> corten::Result<corten::HtmlResponse<For>> {
+fn offline_page<For>(req: &Req) -> corten::Result<corten::HtmlResponse<For>> {
     let t: SiteMsg = req.t();
     let head = html! { <meta name="robots" content="noindex"> };
     req.page(html! {
-        <views::Frame req={req} viewer={None} cart={cart} shell={false} title={t.offline_title()} head={head}>
+        <views::Frame req={req} viewer={None} shell={false} title={t.offline_title()} head={head}>
             <views::OfflinePage t={t} />
         </views::Frame>
     })

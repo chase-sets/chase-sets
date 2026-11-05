@@ -14,7 +14,6 @@ use crate::{
     app::url,
     auth::{Session, Viewer},
     cart::CartScreen,
-    chrome::Chrome,
     form::LocationInput,
     locations::Screen,
     recovery::{Check, Status},
@@ -99,7 +98,7 @@ pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_part
 pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingParts};
 pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_price, unbuyable};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
-pub use market_nav::MarketNav;
+pub use market_nav::{CartBadge, MarketNav};
 pub use money_page::{MoneyPage, PayoutPage, PayoutPreparing};
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
 pub use offer_matches_page::{OfferMatchPage, OfferMatchesPage, offer_matches_live_parts};
@@ -372,19 +371,18 @@ pub fn srcset_on_marketplace(srcset: &str) -> String {
 /// phone's bottom bar) and the user's color mode, `title`, the page's own `head` tags
 /// (description, canonical, social, JSON-LD, `ReadAgain`) and the page (`children`). A client
 /// navigation gets only the title, the head tags and `<main>`'s children. `viewer` is the handler's
-/// `Caller` (none for a visitor, who gets the visitor's shell), and `cart` the cart's count its
-/// `Chrome` read (`crate::chrome`).
+/// `Caller` (none for a visitor, who gets the visitor's shell); the cart's count is the layout
+/// read's (`crate::chrome::CartCount`), which Corten draws in the shell.
 #[component]
 pub fn Layout<'a, H: Render, C: Render>(
     req: &'a Req,
     viewer: Option<&'a Viewer>,
-    cart: Option<u64>,
     title: &'a str,
     head: H,
     children: C,
 ) -> impl Document + 'a {
     html! {
-        <Frame req={req} viewer={viewer} cart={cart} shell={true} title={title} head={head}>{children}</Frame>
+        <Frame req={req} viewer={viewer} shell={true} title={title} head={head}>{children}</Frame>
     }
 }
 
@@ -395,7 +393,6 @@ pub fn Layout<'a, H: Render, C: Render>(
 pub fn Frame<'a, H: Render, C: Render>(
     req: &'a Req,
     viewer: Option<&'a Viewer>,
-    cart: Option<u64>,
     shell: bool,
     title: &'a str,
     head: H,
@@ -424,7 +421,7 @@ pub fn Frame<'a, H: Render, C: Render>(
             </head>
             <body data-shell={shell}>
                 if shell {
-                    <MarketNav p={p} req={req} viewer={viewer} cart={cart} />
+                    <MarketNav p={p} req={req} viewer={viewer} />
                 }
                 <main>{children}</main>
             </body>
@@ -434,8 +431,9 @@ pub fn Frame<'a, H: Render, C: Render>(
 
 /// The page for a failed request, in the layout (`App::error_page`), for who is asking: a member's
 /// shell and theme, a visitor's shell, and no shell when the session could not be read. Under
-/// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`.
-pub async fn error_page(failure: Failure, req: Req, chrome: Chrome, session: Option<Caller<Session>>) -> HtmlResult {
+/// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`. Corten waits for
+/// no layout read here: the cart's count is drawn only if its read is in already.
+pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Session>>) -> HtmlResult {
     let p: Pilot = req.t();
     // Each case is named, so a case Corten adds stops this compiling.
     let (title, text) = match &failure {
@@ -458,7 +456,6 @@ pub async fn error_page(failure: Failure, req: Req, chrome: Chrome, session: Opt
     };
     let detail = failure.detail().map(str::to_owned);
     let viewer = session.as_ref().and_then(|Caller(session)| session.viewer());
-    let cart = chrome.cart().await;
     // An account refused the seller's listings may not manage listings: marketplace's "Account
     // access required" page (`AccountAccessRequiredPage`), back to the page asked for.
     if let (Failure::Refused { .. }, Some(viewer)) = (&failure, viewer)
@@ -467,7 +464,7 @@ pub async fn error_page(failure: Failure, req: Req, chrome: Chrome, session: Opt
         let t: crate::text::ListingNewMsg = req.t();
         let back = req.path().to_owned();
         return req.page(html! {
-            <Layout req={&req} viewer={Some(viewer)} cart={cart} title={t.route_account_access_required_title()} head="">
+            <Layout req={&req} viewer={Some(viewer)} title={t.route_account_access_required_title()} head="">
                 <ListingAccessRequired t={t} back={&back} />
             </Layout>
         });
@@ -475,7 +472,7 @@ pub async fn error_page(failure: Failure, req: Req, chrome: Chrome, session: Opt
     // Who is asking is unknown when the session could not be read: no shell, not a visitor's.
     let shell = !matches!(failure, Failure::Unidentified { .. });
     req.page(html! {
-        <Frame req={&req} viewer={viewer} cart={cart} shell={shell} title={title} head="">
+        <Frame req={&req} viewer={viewer} shell={shell} title={title} head="">
             <h1>{title}</h1>
             <p>{text}</p>
             if let Some(detail) = &detail {

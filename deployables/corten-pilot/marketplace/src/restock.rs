@@ -7,7 +7,6 @@ use corten::{axum::http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{Decision, Inventory as _, Outcome},
     app::{Config, Shared, read_failed, sign_in, url},
@@ -35,7 +34,6 @@ async fn render(
     headers: &HeaderMap,
     query: &Check,
     posted: Option<Posted>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(query.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -59,13 +57,7 @@ async fn render(
         // marketplace's `onPending`: the page with a message and no decisions.
         Err(error) if receipt.is_some() && error.catching_up() => (Vec::new(), true),
         Err(error) => {
-            return read_failed(
-                req,
-                Some(viewer),
-                error,
-                receipt.is_some().then(|| req.t::<Restock>().unverified()),
-                chrome.cart().await,
-            );
+            return read_failed(req, Some(viewer), error, receipt.is_some().then(|| req.t::<Restock>().unverified()));
         }
     };
     let screen = RestockScreen { decisions, pending, status };
@@ -73,25 +65,22 @@ async fn render(
     let (title, head) = (t.route_title(), html! { <meta name="description" content={t.route_description()}> });
     let again = url::Restock { check: query.again() };
     let view = views::restock_page(t, req.t(), req.t(), viewer, &screen, &again, posted);
-    let cart = chrome.cart().await;
-    req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={head}>{view}</Layout> })
+    req.screen(&screen, html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> })
 }
 
 pub(crate) async fn list(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::inventory::Restock>,
 ) -> HtmlResult {
     let query = route.check;
-    render(&req, &viewer, &config, &headers, &query, None, &chrome).await
+    render(&req, &viewer, &config, &headers, &query, None).await
 }
 
 pub(crate) async fn restock(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -99,12 +88,11 @@ pub(crate) async fn restock(
     Form(input): Form<DecisionInput>,
 ) -> HtmlResult {
     let id = route.id;
-    decide(&req, &viewer, &config, &headers, Decided::Restock(id), input, &chrome).await
+    decide(&req, &viewer, &config, &headers, Decided::Restock(id), input).await
 }
 
 pub(crate) async fn write_off(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -112,7 +100,7 @@ pub(crate) async fn write_off(
     Form(input): Form<DecisionInput>,
 ) -> HtmlResult {
     let id = route.id;
-    decide(&req, &viewer, &config, &headers, Decided::WriteOff(id), input, &chrome).await
+    decide(&req, &viewer, &config, &headers, Decided::WriteOff(id), input).await
 }
 
 /// Records `which`: the list confirms an applied attempt; a refused one is its form again.
@@ -123,7 +111,6 @@ async fn decide(
     headers: &HeaderMap,
     which: Decided,
     input: DecisionInput,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let p: Pilot = req.t();
     let outcome = match which {
@@ -167,5 +154,5 @@ async fn decide(
     let patch = views::RefusedDecision { t, m, viewer, which: &which, draft: &draft, status: &status };
     let posted = Posted { status: status.clone(), which: which.clone(), draft: draft.clone() };
     let page = Check::default();
-    req.invalid(&draft.errors, patch, || render(req, viewer, config, headers, &page, Some(posted), chrome)).await
+    req.invalid(&draft.errors, patch, || render(req, viewer, config, headers, &page, Some(posted))).await
 }
