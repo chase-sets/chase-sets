@@ -259,7 +259,7 @@ describe("Inventory receipt idle-tail timeout", () => {
       });
     const durableCheckpoints = async () => ({
       checkpoints: (
-        await pools.inventory.query(
+        await pools.inventory.query<{ checkpoint_key: string; last_global_position: string }>(
           "SELECT checkpoint_key, last_global_position::text FROM event_subscription_checkpoints ORDER BY checkpoint_key",
         )
       ).rows,
@@ -416,7 +416,9 @@ describe("Inventory receipt idle-tail timeout", () => {
       for (const source of sources.filter((source) => source.sourceContextName === "inventory")) {
         for (const subscription of inventorySourceSubscriptions) {
           const checkpoint = afterReads.checkpoints.find((row) => row.checkpoint_key === subscription.checkpointKey);
-          expect(checkpoint).toBeDefined();
+          if (!checkpoint) {
+            throw new Error(`Missing durable Inventory checkpoint for ${subscription.checkpointKey}.`);
+          }
           expect(BigInt(checkpoint.last_global_position)).toBeGreaterThanOrEqual(BigInt(source.maxGlobalPosition));
         }
       }
