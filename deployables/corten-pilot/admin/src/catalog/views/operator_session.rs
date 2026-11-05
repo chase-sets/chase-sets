@@ -51,7 +51,9 @@ pub fn OperatorSession<'a>(
     let pair = at(url::Pair { key }.href().to_string());
     let disconnect = at(url::Disconnect { key }.href().to_string());
     let page = at(url::Provider { key }.href().to_string());
-    let disconnectable = operator.metadata.as_ref().is_some_and(|m| m.grant.is_some());
+    // As on admin-web, a Disconnect the API answered takes the form away until the next read.
+    let answered = matches!(answer, Some(Answer::Disconnected(outcome, _)) if *outcome != Disconnected::StaleRevision);
+    let disconnectable = !answered && operator.metadata.as_ref().is_some_and(|m| m.grant.is_some());
     let f = DisconnectInput::FIELDS;
     html! {
         <section class={Panel} aria-labelledby="pd-operator-session" data-catalog-operator-session-panel="true">

@@ -9407,12 +9407,14 @@ async fn the_operator_session_pairs_once_with_the_browsers_origin_and_disconnect
     let (status, _, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Extension grant revoked. The record is now revision 3."), "{html}");
+    assert!(!html.contains("data-catalog-operator-session-disconnect"), "an answered Disconnect is not offered again: {html}");
     let mut req =
         post_as("catalog-admin-stale", "/catalog/providers/tcgplayer/operator-session/disconnect", "confirmed=disconnect", false);
     req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
     let (status, _, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(html.contains("it is now revision 4"), "{html}");
+    assert!(html.contains("data-catalog-operator-session-disconnect"), "a conflict can be tried again: {html}");
 
     // Only a platform admin on TCGplayer: anyone else's write sends nothing.
     let before = pilot.calls.lock().unwrap().len();
