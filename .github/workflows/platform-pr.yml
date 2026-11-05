@@ -1960,9 +1960,6 @@ jobs:
 
       - name: Verify required jobs
         env:
-          REQUIRED_PROOF_PATHS_JSON: ${{ needs['change-scope'].outputs.required_proof_paths_json }}
-          CHANGED_FILES_JSON: ${{ needs['change-scope'].outputs.changed_files_json }}
-          CANONICAL_PROOF_RESULT: ${{ needs['canonical-proof-sets'].result }}
           AC4_E2E_REQUIRED: ${{ needs['change-scope'].outputs.e2e_tests_required }}
           AC4_E2E_SUITES_JSON: ${{ needs['change-scope'].outputs.e2e_suites_json }}
         run: |
@@ -1994,7 +1991,6 @@ jobs:
 
           require_job "Known Failure Guard" "${{ needs['known-failure-guard'].result }}" "${{ needs['change-scope'].outputs.known_failure_guard_required }}"
           require_job "Change Scope" "${{ needs['change-scope'].result }}" "${{ needs['change-scope'].outputs.change_scope_required }}"
-          node ./scripts/lib/context-proof-sets.mjs require-result
           require_job "Static Checks" "${{ needs.static.result }}" "${{ needs['change-scope'].outputs.static_required }}"
           require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs['change-scope'].outputs.typecheck_required }}"
           require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests_required }}"
@@ -2019,6 +2015,13 @@ jobs:
           require_job "Terraform Observability Plan" "${{ needs['terraform-observability-plan'].result }}" "${{ needs['change-scope'].outputs.terraform_observability_plan_required }}"
           require_job "Deploy Preview and Smoke" "${{ needs['preview-deploy-smoke'].result }}" "${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}"
           require_job "Compose Boot Smoke" "${{ needs['compose-preview-smoke'].result }}" "${{ needs['change-scope'].outputs.compose_preview_smoke_required }}"
+
+      - name: Verify canonical proof sets
+        env:
+          REQUIRED_PROOF_PATHS_JSON: ${{ needs['change-scope'].outputs.required_proof_paths_json }}
+          CHANGED_FILES_JSON: ${{ needs['change-scope'].outputs.changed_files_json }}
+          CANONICAL_PROOF_RESULT: ${{ needs['canonical-proof-sets'].result }}
+        run: node ./scripts/lib/context-proof-sets.mjs require-result
 
   release-status:
     name: PR Release Status

@@ -396,11 +396,17 @@ describe("canonical proof sets:", () => {
     expect(required.needs).toContain("canonical-proof-sets");
     expect(required.if).toBe("always()");
     expect(required.steps[0].with.ref).toBe("${{ github.sha }}");
-    const aggregate = required.steps.find((step) => step.name === "Verify required jobs");
-    expect(aggregate.env.CANONICAL_PROOF_RESULT).toBe("${{ needs['canonical-proof-sets'].result }}");
-    expect(aggregate.env.REQUIRED_PROOF_PATHS_JSON).toBe(run.env.REQUIRED_PROOF_PATHS_JSON);
-    expect(aggregate.env.CHANGED_FILES_JSON).toBe(run.env.CHANGED_FILES_JSON);
-    expect(aggregate.run).toContain("node ./scripts/lib/context-proof-sets.mjs require-result");
+    const aggregate = required.steps.filter((step) => step.name === "Verify canonical proof sets");
+    expect(aggregate).toEqual([
+      {
+        name: "Verify canonical proof sets",
+        env: {
+          ...run.env,
+          CANONICAL_PROOF_RESULT: "${{ needs['canonical-proof-sets'].result }}",
+        },
+        run: "node ./scripts/lib/context-proof-sets.mjs require-result",
+      },
+    ]);
     expect(workflow.jobs["change-scope"].outputs.required_proof_paths_json).toBe(
       "${{ steps.scope.outputs.required_proof_paths_json }}",
     );
