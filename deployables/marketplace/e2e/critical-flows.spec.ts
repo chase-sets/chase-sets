@@ -24,6 +24,17 @@ type CheckoutSellListLineRow = Readonly<{
   quantity: number;
 }>;
 
+type SellOfferMatchSnapshot = Readonly<{
+  offer_id: string;
+  product_id: string;
+  listing_id: string;
+  listing_visible_quantity: number;
+  quantity_requested: number;
+  offer_stream_version: number;
+  listing_stream_version: number;
+  updated_at: string;
+}>;
+
 type SellListCompositeReviewSnapshot = Readonly<{
   offerReviews: readonly Readonly<{
     lineId: string;
@@ -39,7 +50,7 @@ type SellListCompositeReviewSnapshot = Readonly<{
     status: string;
     message: string | null;
     offers: readonly Readonly<{
-      offer: Readonly<{ offer_id: string; product_id: string }>;
+      offer: SellOfferMatchSnapshot;
       terms: Readonly<{
         basis_amount?: string;
         marketplace_sales_fee_unit_amount: string;
@@ -896,7 +907,41 @@ test.describe("marketplace critical flows", () => {
     const itemPath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
     const itemUrl = new URL(itemPath, page.url());
     const commerceMutations: Request[] = [];
-    const analyticsPosts: Array<{ path: string; origin: string; payload: string | null }> = [];
+    const analyticsPosts: Request[] = [];
+    const analyticsPayloads: Array<{ path: string; origin: string; payload: unknown }> = [];
+    await page.exposeFunction(
+      "captureDeskReviewBeacon",
+      (entry: { path: string; origin: string; body: string | null }) => {
+        let payload: unknown = null;
+        if (entry.body !== null) {
+          try {
+            payload = JSON.parse(entry.body);
+          } catch {
+            payload = null;
+          }
+        }
+        analyticsPayloads.push({ path: entry.path, origin: entry.origin, payload });
+      },
+    );
+    await page.addInitScript(() => {
+      const sendBeacon = navigator.sendBeacon.bind(navigator);
+      const capture = (
+        window as typeof window & {
+          captureDeskReviewBeacon: (entry: { path: string; origin: string; body: string | null }) => Promise<void>;
+        }
+      ).captureDeskReviewBeacon;
+      navigator.sendBeacon = (url, data) => {
+        const target = new URL(url, window.location.href);
+        if (target.origin === window.location.origin && target.pathname === "/analytics/item-detail-rail") {
+          const body = data instanceof Blob ? data.text() : Promise.resolve(typeof data === "string" ? data : null);
+          void body.then(
+            (text) => capture({ path: target.pathname, origin: target.origin, body: text }),
+            () => capture({ path: target.pathname, origin: target.origin, body: null }),
+          );
+        }
+        return sendBeacon(url, data);
+      };
+    });
     const unexpectedPosts: Request[] = [];
     const boundary: Array<{ event: string; path: string; detail?: string | number }> = [];
     const errors: string[] = [];
@@ -905,7 +950,7 @@ test.describe("marketplace critical flows", () => {
       if (request.method() === "POST") {
         const url = new URL(request.url());
         if (url.origin === itemUrl.origin && path === "/analytics/item-detail-rail") {
-          analyticsPosts.push({ path, origin: url.origin, payload: request.postData() });
+          analyticsPosts.push(request);
         } else {
           commerceMutations.push(request);
           if (url.origin !== itemUrl.origin || path.startsWith("/analytics/")) unexpectedPosts.push(request);
@@ -1022,9 +1067,19 @@ test.describe("marketplace critical flows", () => {
         );
         expect(unexpectedPosts, "unexpected analytics or cross-origin POSTs must fail closed").toEqual([]);
         expect(
-          analyticsPosts.every((entry) => entry.payload !== null && entry.payload.length > 0),
-          "observed item-detail telemetry must retain its payload",
-        ).toBe(true);
+          analyticsPosts.length,
+          "the public item flow must retain a server-recorded analytics event",
+        ).toBeGreaterThan(0);
+        await expect
+          .poll(() => analyticsPayloads.length, { message: "retain each actual sendBeacon JSON payload" })
+          .toBe(analyticsPosts.length);
+        for (const [index, request] of analyticsPosts.entries()) {
+          const captured = analyticsPayloads[index];
+          expect(captured).toMatchObject({ path: "/analytics/item-detail-rail", origin: itemUrl.origin });
+          expect(captured.payload).toMatchObject({ event: expect.any(String) });
+          const response = await request.response();
+          expect(response?.status(), "the server must accept and record the actual analytics event").toBe(204);
+        }
         expect(
           boundary.filter((entry) => entry.path.startsWith("/checkout/")),
           "review must not enter a checkout session",
@@ -1032,7 +1087,7 @@ test.describe("marketplace critical flows", () => {
         expect(errors).toEqual([]);
       } finally {
         await testInfo.attach("desk-review-request-boundary", {
-          body: JSON.stringify({ boundary, errors, analyticsPosts }),
+          body: JSON.stringify({ boundary, errors, analyticsPayloads, analyticsPostCount: analyticsPosts.length }),
           contentType: "application/json",
         });
       }
@@ -1080,6 +1135,7 @@ test.describe("marketplace critical flows", () => {
     expect(addedLine, "the public Add to Sell List journey must create one identifiable line").toBeDefined();
     expect(isAddedProduct(addedLine!)).toBe(true);
     expect(addedLine!.quantity).toBe(1);
+    const compositeReadAt = new Date().toISOString();
     const composite = (await readJson(
       "/api/marketplace/account/sell-list/composite-review",
     )) as SellListCompositeReviewSnapshot;
@@ -1087,24 +1143,65 @@ test.describe("marketplace critical flows", () => {
     const requiredOffer = productReview?.offers.find(
       (entry) => entry.offer.offer_id === offerBefore.offer_id && entry.offer.product_id === addedLine!.product_id,
     );
-    await testInfo.attach("desk-review-composite-diagnostic", {
-      body: JSON.stringify({
-        account: "demo-seller",
-        lineId: addedLine!.line_id,
-        productId: addedLine!.product_id,
-        requiredOfferId: offerBefore.offer_id,
-        reviewStatus: productReview?.status ?? "missing",
-        quote: requiredOffer
-          ? {
-              basis: requiredOffer.terms.basis_amount ?? null,
-              fee: requiredOffer.terms.marketplace_sales_fee_unit_amount,
-              net: requiredOffer.terms.seller_net_unit_amount,
-            }
-          : null,
-        payoutReadiness: payoutBefore.status,
-      }),
+    const matchReadAt = new Date().toISOString();
+    const matchResponse = await page.request.get(offerPath);
+    const matchReadStatus = matchResponse.status();
+    const matchedOffer = matchReadStatus === 200 ? ((await matchResponse.json()) as SellOfferMatchSnapshot) : null;
+    const payoutAfterAdd = await readJson(payoutPath);
+    const diagnosticJson = JSON.stringify({
+      account: "demo-seller",
+      lineId: addedLine!.line_id,
+      lineQuantity: addedLine!.quantity,
+      productId: addedLine!.product_id,
+      requiredOfferId: offerBefore.offer_id,
+      reviewStatus: productReview?.status ?? "missing",
+      compositeReadAt,
+      compositeOffers:
+        productReview?.offers.map(({ offer, terms }) => ({
+          offerId: offer.offer_id,
+          listingId: offer.listing_id,
+          listingVisibleQuantity: offer.listing_visible_quantity,
+          quantityRequested: offer.quantity_requested,
+          basis: terms.basis_amount ?? null,
+          fee: terms.marketplace_sales_fee_unit_amount,
+          net: terms.seller_net_unit_amount,
+        })) ?? null,
+      quote: requiredOffer
+        ? {
+            basis: requiredOffer.terms.basis_amount ?? null,
+            fee: requiredOffer.terms.marketplace_sales_fee_unit_amount,
+            net: requiredOffer.terms.seller_net_unit_amount,
+          }
+        : null,
+      payoutReadiness: {
+        status: payoutAfterAdd.status,
+        reason: payoutAfterAdd.missing_requirements,
+        updatedAt: payoutAfterAdd.updated_at,
+      },
+      matchReadAt,
+      matchReadStatus,
+      matchedOffer: matchedOffer
+        ? {
+            offerId: matchedOffer.offer_id,
+            productId: matchedOffer.product_id,
+            listingId: matchedOffer.listing_id,
+            listingVisibleQuantity: matchedOffer.listing_visible_quantity,
+            quantityRequested: matchedOffer.quantity_requested,
+            offerStreamVersion: matchedOffer.offer_stream_version,
+            listingStreamVersion: matchedOffer.listing_stream_version,
+            updatedAt: matchedOffer.updated_at,
+          }
+        : null,
+    });
+    await testInfo.attach("desk-review-composite-diagnostic.json", {
+      body: diagnosticJson,
       contentType: "application/json",
     });
+    console.info("desk-review-composite-diagnostic.json", diagnosticJson);
+    expect([200, 404], "the diagnostic match read must be an actual match or authoritative absence").toContain(
+      matchReadStatus,
+    );
+    expect(payoutAfterAdd, "the public Add must preserve the not-started payout oracle").toEqual(payoutBefore);
     expect(productReview, "the added line must be present in the composite review").toBeDefined();
     expect(productReview!.status, "the required offer must resolve through the public review").toBe("ready");
     expect(requiredOffer, "the required offer and terms must resolve through the public review").toBeDefined();
