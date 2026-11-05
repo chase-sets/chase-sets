@@ -67,6 +67,7 @@ jobs:
       e2e_suite_batches_json: ${{ steps.scope.outputs.e2e_suite_batches_json }}
       exposure_posture_categories: ${{ steps.scope.outputs.exposure_posture_categories }}
       exposure_posture_categories_json: ${{ steps.scope.outputs.exposure_posture_categories_json }}
+      required_proof_paths_json: ${{ steps.scope.outputs.required_proof_paths_json }}
       exposure_posture_changed: ${{ steps.scope.outputs.exposure_posture_changed }}
       integration_risk_required: ${{ steps.scope.outputs.integration_risk_required }}
       integration_risk_reason: ${{ steps.scope.outputs.integration_risk_reason }}
@@ -269,6 +270,28 @@ jobs:
         run: |
           node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
           node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
+
+  canonical-proof-sets:
+    name: Canonical Proof Sets
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.required_proof_paths_json != '[]'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Execute exact canonical proof paths
+        env:
+          REQUIRED_PROOF_PATHS_JSON: ${{ needs['change-scope'].outputs.required_proof_paths_json }}
+          CHANGED_FILES_JSON: ${{ needs['change-scope'].outputs.changed_files_json }}
+        run: node ./scripts/lib/context-proof-sets.mjs run
 
   db-tests:
     name: DB Profile Tests (${{ matrix.db-workspace-group }})
@@ -1916,6 +1939,7 @@ jobs:
       - static
       - typecheck
       - unit-tests
+      - canonical-proof-sets
       - db-tests
       - e2e-tests
       - capture-hermetic-chromium
@@ -1929,8 +1953,16 @@ jobs:
       - preview-deploy-smoke
       - compose-preview-smoke
     steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Verify required jobs
         env:
+          REQUIRED_PROOF_PATHS_JSON: ${{ needs['change-scope'].outputs.required_proof_paths_json }}
+          CHANGED_FILES_JSON: ${{ needs['change-scope'].outputs.changed_files_json }}
+          CANONICAL_PROOF_RESULT: ${{ needs['canonical-proof-sets'].result }}
           AC4_E2E_REQUIRED: ${{ needs['change-scope'].outputs.e2e_tests_required }}
           AC4_E2E_SUITES_JSON: ${{ needs['change-scope'].outputs.e2e_suites_json }}
         run: |
@@ -1962,6 +1994,7 @@ jobs:
 
           require_job "Known Failure Guard" "${{ needs['known-failure-guard'].result }}" "${{ needs['change-scope'].outputs.known_failure_guard_required }}"
           require_job "Change Scope" "${{ needs['change-scope'].result }}" "${{ needs['change-scope'].outputs.change_scope_required }}"
+          node ./scripts/lib/context-proof-sets.mjs require-result
           require_job "Static Checks" "${{ needs.static.result }}" "${{ needs['change-scope'].outputs.static_required }}"
           require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs['change-scope'].outputs.typecheck_required }}"
           require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests_required }}"

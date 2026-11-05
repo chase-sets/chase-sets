@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { batchBrowserE2eSuiteIds, e2eSuites, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
+import { resolveRequiredProofPaths } from "./lib/context-proof-sets.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
@@ -610,6 +611,7 @@ export function classifyChanges({
     composeSmokeRequired,
     exposurePostureChanged: exposurePostureCategories.size > 0,
     exposurePostureCategories: [...exposurePostureCategories].sort(),
+    requiredProofPaths: resolveRequiredProofPaths({ changedFiles: normalizedFiles, baseDir }),
   };
 }
 
@@ -704,6 +706,12 @@ function fullScopeForUnavailableChangeSet(workspaces, reason) {
     composeSmokeRequired: true,
     exposurePostureChanged: true,
     exposurePostureCategories: Object.keys(exposurePosturePatterns).sort(),
+    requiredProofPaths: resolveRequiredProofPaths({
+      changedFiles: workspaces
+        .filter((workspace) => workspace.root === "bounded-contexts")
+        .map((workspace) => `bounded-contexts/${workspace.dirName}/context.json`),
+      baseDir: repoRoot,
+    }),
   };
 }
 
@@ -782,6 +790,7 @@ export function toOutputMap(scope) {
     exposure_posture_changed: String(scope.exposurePostureChanged),
     exposure_posture_categories: scope.exposurePostureCategories.join(","),
     exposure_posture_categories_json: JSON.stringify(scope.exposurePostureCategories),
+    required_proof_paths_json: JSON.stringify(scope.requiredProofPaths),
   };
 }
 
