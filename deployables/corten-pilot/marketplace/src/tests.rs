@@ -17165,7 +17165,13 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
         return Some(answer);
     }
     let query = uri.query().unwrap_or_default();
-    let connection = |id: &str, status: &str| json!({ "connectionId": id, "providerKey": "tcgplayer", "environment": "sandbox", "status": status, "createdAt": "2026-10-29T08:00:00.000Z" });
+    let allowed = |status: &str| match status {
+        "pending-setup" => json!(["disconnect"]),
+        "active" => json!(["pause", "disconnect"]),
+        "paused" => json!(["resume", "disconnect"]),
+        _ => json!([]),
+    };
+    let connection = |id: &str, status: &str| json!({ "connectionId": id, "providerKey": "tcgplayer", "environment": "sandbox", "status": status, "createdAt": "2026-10-29T08:00:00.000Z", "allowedActions": allowed(status) });
     let status_of = |id: &str| match id {
         "conn_pending" => Some("pending-setup"),
         "conn_active" => Some("active"),
@@ -17194,8 +17200,14 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
                     .into_response()
             }
         }
+        ("GET", "/api/channels/connections/providers") => {
+            Json(json!({ "items": [{ "providerKey": "tcgplayer", "environment": "sandbox" }] })).into_response()
+        }
         ("POST", "/api/channels/connections") if body.contains("\"providerKey\":\"tcgplayer\"") => {
             committed(StatusCode::CREATED, "channels", "49", connection("conn_new", "pending-setup"))
+        }
+        ("POST", "/api/channels/connections") => {
+            refusal(StatusCode::BAD_REQUEST, "provider-setup-unavailable", "provider-setup-unavailable")
         }
         ("GET", "/api/channels/publication") => {
             Json(json!({ "items": [{ "connectionId": "conn_active", "providerKey": "tcgplayer",
@@ -17520,7 +17532,9 @@ async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connectio
     {
         assert!(words.contains(expected), "{expected}: {words}");
     }
-    assert!(html.contains(r#"<option value="tcgplayer">tcgplayer</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="tcgplayer">tcgplayer</option>"#), "Channels' providers: {html}");
+    let reads: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(reads.iter().any(|p| p == "/api/channels/connections/providers"), "{reads:?}");
     assert!(html.contains(r#"href="/account/channels" aria-current="page""#), "{html}");
     assert!(html.contains(r#"href="/account/channels?status=pending-setup""#), "{html}");
     assert!(
@@ -17538,9 +17552,11 @@ async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connectio
     let (status, _, html) = pilot.send(get("/account/channels?status=disconnected", Some("channeler"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
     assert!(text(&html).contains("Connections could not be loaded"), "{html}");
-    // A reader cannot connect.
+    // A reader cannot connect, and the providers are not read for them.
+    let before = pilot.stand.calls.lock().unwrap().len();
     let (_, _, html) = pilot.send(get(CHANNELS_SCREEN, Some("channel_reader"))).await;
     assert!(html.contains("conn_active") && !html.contains("Connect a channel"), "{html}");
+    assert!(!pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.path.ends_with("/providers")));
 
     // A connection: its status and the actions it allows; setup on the locations not archived.
     let (status, _, html) = pilot.send(get("/account/channels/conn_active", Some("channeler"))).await;
@@ -17574,12 +17590,12 @@ async fn channels_connects_pauses_activates_and_says_what_was_refused() {
     let (status, headers, _) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=tcgplayer", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/channels/conn_new?after_write="));
-    // A provider the seller may not connect is refused before Channels sees it.
-    let calls = pilot.stand.calls.lock().unwrap().len();
+    // A provider the seller may not connect is Channels' to refuse: the list says so.
     let (status, _, html) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=ebay", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Connection action failed."), "{html}");
-    assert!(!pilot.stand.calls.lock().unwrap()[calls..].iter().any(|c| c.method == Method::POST));
+    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.method == Method::POST).map(|c| c.body.clone());
+    assert_eq!(sent.as_deref(), Some(r#"{"providerKey":"ebay"}"#), "the provider chosen, as sent");
     let (status, _, _) = pilot.send(post(CHANNELS_SCREEN, "channel_reader", "providerKey=tcgplayer", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 

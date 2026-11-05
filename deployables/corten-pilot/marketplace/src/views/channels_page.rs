@@ -93,7 +93,7 @@ pub fn ChannelsPage<'a>(t: ChannelsMsg, p: Pilot, screen: &'a ChannelsScreen) ->
                             <span class={Strong}>{t.connections_provider()}</span>
                             <select class={Control} name={f.provider_key} required>
                                 for provider in &screen.providers {
-                                    <option value={*provider}>{*provider}</option>
+                                    <option value={provider}>{provider}</option>
                                 }
                             </select>
                         </label>
@@ -186,7 +186,7 @@ fn Badges<'a>(t: ChannelsMsg, connection: &'a ChannelConnection) -> impl Render 
 pub fn ChannelConnectionPage<'a>(t: ChannelsMsg, p: Pilot, screen: &'a ConnectionScreen) -> impl Render {
     let connection = &screen.connection;
     let here = url::ChannelConnection { id: &connection.connection_id, place: Default::default() }.href();
-    let allowed = if screen.manage { actions(&connection.status) } else { &[] };
+    let allowed = if screen.manage { actions(connection) } else { Vec::new() };
     let f = ConnectionForm::FIELDS;
     html! {
         <div class={Page}>
@@ -215,7 +215,7 @@ pub fn ChannelConnectionPage<'a>(t: ChannelsMsg, p: Pilot, screen: &'a Connectio
                         <p class={Muted}>{t.connections_actions_none()}</p>
                     } else {
                         <div class={Row}>
-                            for action in allowed {
+                            for action in &allowed {
                                 <form class={Inline} method="post" action={&here}>
                                     <button
                                         type="submit"

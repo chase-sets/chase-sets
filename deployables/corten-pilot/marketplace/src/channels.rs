@@ -7,11 +7,11 @@
 //! `/account/channels/publication/{id}`): its settings, the listings recorded as blocked, and the
 //! mappings to review with Accept, Reject and Revoke.
 //!
-//! Reading needs `channels.view` and writing `channels.manage` (`ChannelsMember`). Which providers a
-//! seller may connect and which actions a connection allows are copied here from marketplace's
-//! web layer until the Channels API returns them
-//! ([chase-sets/chase-sets#10778](https://github.com/chase-sets/chase-sets/issues/10778)):
-//! `PROVIDERS` and `actions`. A write goes to the connection with its receipt; a refusal is the page
+//! Reading needs `channels.view` and writing `channels.manage` (`ChannelsMember`). Channels says
+//! which providers the seller may connect (`GET /api/channels/connections/providers`, read only for a
+//! seller with `channels.manage`, as Channels answers none to the rest) and which actions each
+//! connection allows (its `allowedActions`); Connect sends the provider chosen and Channels refuses
+//! one it cannot connect. A write goes to the connection with its receipt; a refusal is the page
 //! with Channels' words for it (422), a failure the same with a 502. A connection's drift, health,
 //! pairing and operation log are on marketplace for now.
 //!
@@ -60,36 +60,12 @@ use crate::{
 /// The statuses a connection has, in the filter's order.
 pub const STATUSES: [&str; 4] = ["pending-setup", "active", "paused", "disconnected"];
 
-/// The providers a seller may connect, and the environment each is for: marketplace's registry,
-/// whose setup is resolved on its server (#10778 asks the Channels API to answer this).
-const PROVIDERS: [(&str, &str); 2] = [("tcgplayer", "sandbox"), ("tcgplayer", "production")];
+/// The connection commands the page offers, of those Channels says a connection allows.
+pub const ACTIONS: [&str; 3] = ["pause", "resume", "disconnect"];
 
-/// The channel environment this deployment connects to (`mapDeploymentEnvironment`): production
-/// for `DEPLOYMENT_ENVIRONMENT=production`, the sandbox for every other.
-fn environment() -> &'static str {
-    match std::env::var("DEPLOYMENT_ENVIRONMENT").as_deref().map(str::trim) {
-        Ok("production") => "production",
-        _ => "sandbox",
-    }
-}
-
-/// The providers this seller may connect: none without `channels.manage`.
-pub fn providers(viewer: &Viewer) -> Vec<&'static str> {
-    if !viewer.actor.can(CHANNELS_MANAGE) {
-        return Vec::new();
-    }
-    let environment = environment();
-    PROVIDERS.iter().filter(|(_, e)| *e == environment).map(|(key, _)| *key).collect()
-}
-
-/// What a connection in `status` allows (`allowedChannelConnectionActions`; #10778).
-pub fn actions(status: &str) -> &'static [&'static str] {
-    match status {
-        "pending-setup" => &["disconnect"],
-        "active" => &["pause", "disconnect"],
-        "paused" => &["resume", "disconnect"],
-        _ => &[],
-    }
+/// The actions `connection` allows that the page offers, in Channels' order.
+pub fn actions(connection: &ChannelConnection) -> Vec<&'static str> {
+    connection.allowed_actions.iter().filter_map(|a| ACTIONS.iter().find(|known| **known == a.as_str()).copied()).collect()
 }
 
 /// The list's address: the status shown (none: every connection not disconnected) and the page.
@@ -207,7 +183,8 @@ pub struct ChannelsScreen {
     /// Channels' page; `None` when the read failed.
     pub page: Option<ChannelConnectionPage>,
     pub place: ListPlace,
-    pub providers: Vec<&'static str>,
+    /// The providers Channels says the seller may connect.
+    pub providers: Vec<String>,
     /// What Connect was refused for.
     pub connect_error: Option<String>,
 }
@@ -248,18 +225,23 @@ async fn render_list(
 ) -> HtmlResult {
     let t: ChannelsMsg = req.t();
     let caller = config.platform.caller(headers, config.proto, None);
-    let (page, status) = match caller.channel_connections(place.status(), place.cursor()).await {
-        Ok(page) => (Some(page), status),
+    let manage = viewer.actor.can(CHANNELS_MANAGE);
+    let (connections, providers) = tokio::join!(caller.channel_connections(place.status(), place.cursor()), async {
+        if manage { caller.channel_providers().await } else { Ok(Vec::new()) }
+    });
+    let read = connections.and_then(|page| providers.map(|providers| (page, providers)));
+    let (page, providers, status) = match read {
+        Ok((page, providers)) => (Some(page), providers.into_iter().map(|p| p.provider_key).collect(), status),
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
             return read_failed(req, Some(viewer), error, None);
         }
         Err(error) => {
             tracing::warn!("the channel connections' read failed: {error}");
-            (None, StatusCode::BAD_GATEWAY)
+            (None, Vec::new(), StatusCode::BAD_GATEWAY)
         }
     };
-    let screen = ChannelsScreen { page, place, providers: providers(viewer), connect_error };
+    let screen = ChannelsScreen { page, place, providers, connect_error };
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.connections_meta_title()} head={noindex()}>
             <views::ChannelsPage t={t} p={req.t()} screen={&screen} />
@@ -301,9 +283,6 @@ pub(crate) async fn connect(
             status,
         )
     };
-    if !providers(&viewer).contains(&provider) {
-        return refused(StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.connect_channel(provider).await {
         Ok((connection, receipt)) => req.redirect(&connection_url(&connection.connection_id, receipt.as_ref())),

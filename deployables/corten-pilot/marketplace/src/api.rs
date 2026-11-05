@@ -8848,6 +8848,22 @@ pub struct ChannelConnection {
     /// `pending-setup`, `active`, `paused` or `disconnected`.
     pub status: String,
     pub created_at: String,
+    /// What the connection allows now: `pause`, `resume` or `disconnect`, in Channels' order.
+    pub allowed_actions: Vec<String>,
+}
+
+/// A provider this seller may connect (`ChannelProviderIdentity`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChannelProvider {
+    pub provider_key: String,
+    /// `sandbox` or `production`.
+    pub environment: String,
+}
+
+#[derive(Deserialize)]
+struct ChannelProviderList {
+    items: Vec<ChannelProvider>,
 }
 
 /// A page of connections (`ChannelConnectionPage`).
@@ -8975,6 +8991,9 @@ pub trait ChannelCalls {
     /// disconnected), from `cursor`.
     async fn channel_connections(&self, status: Option<&str>, cursor: Option<&str>) -> Result<ChannelConnectionPage, ApiError>;
     async fn channel_connection(&self, id: &str) -> Result<ChannelConnection, ApiError>;
+    /// The providers this seller may connect in this deployment's environment (none without
+    /// `channels.manage`).
+    async fn channel_providers(&self) -> Result<Vec<ChannelProvider>, ApiError>;
     /// Connect a provider: the new connection, pending setup.
     async fn connect_channel(&self, provider: &str) -> Result<(ChannelConnection, Option<Receipt>), ApiError>;
     /// `pause`, `resume` or `disconnect` a connection.
@@ -9016,6 +9035,10 @@ impl ChannelCalls for Caller<'_> {
 
     async fn channel_connection(&self, id: &str) -> Result<ChannelConnection, ApiError> {
         self.read(&format!("{CHANNEL_CONNECTIONS}/{}", segment(id)), CHANNELS).await
+    }
+
+    async fn channel_providers(&self) -> Result<Vec<ChannelProvider>, ApiError> {
+        Ok(self.read::<ChannelProviderList>(&format!("{CHANNEL_CONNECTIONS}/providers"), CHANNELS).await?.items)
     }
 
     async fn connect_channel(&self, provider: &str) -> Result<(ChannelConnection, Option<Receipt>), ApiError> {
