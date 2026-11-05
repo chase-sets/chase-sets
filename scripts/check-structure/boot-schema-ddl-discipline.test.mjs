@@ -440,6 +440,58 @@ export const exampleSchemaMigrations = [{
       expect(retainedUpgradeKeys({ baseSource, currentSource: withBootExpansion })).toEqual([]);
     });
 
+    it.each(["inline template", "inline single quote", "inline double quote", "named template", "boot template"])(
+      "fails closed on an escaped early reader in an %s",
+      (shape) => {
+        const normalizer = "UPDATE synthetic_review_rows SET value = 0 WHERE value IS NULL";
+        const add = "ALTER TABLE synthetic_review_rows ADD COLUMN IF NOT EXISTS revision bigint DEFAULT 0";
+        const boot = (column = "") =>
+          `export const exampleSchemaSql = \`CREATE TABLE IF NOT EXISTS synthetic_review_rows (id text PRIMARY KEY, value bigint${column});\`;`;
+        const ledger = (extra = "") => `export const exampleSchemaMigrations = [
+          { migrationId: "normalize", statements: [\`${normalizer}\`] },
+          ${extra}
+        ];`;
+        const baseSource = `${boot()}\n${ledger()}`;
+        const reader = String.raw`UPDATE synthetic_review_rows SET value = \u0072evision`;
+        const quote = shape === "inline single quote" ? "'" : shape === "inline double quote" ? '"' : "`";
+        const literal = `${quote}${reader}; ${add}${quote}`;
+        const statement = shape === "named template" ? "earlyReaderSql" : literal;
+        const currentSource =
+          shape === "boot template"
+            ? `${boot(", revision bigint DEFAULT 0")}\n${ledger(`{ migrationId: "add_revision", statements: [\`${add}\`] },`)}\nexport const otherSchemaSql = \`${reader}\`;`
+            : `${shape === "named template" ? `const earlyReaderSql = ${literal};\n` : ""}${boot(", revision bigint DEFAULT 0")}\n${ledger(`{ migrationId: "add_revision", statements: [${statement}] },`)}`;
+
+        expect(retainedUpgradeKeys({ baseSource, currentSource })).toEqual(["synthetic_review_rows.revision"]);
+      },
+    );
+
+    it.each([
+      "DO $$ BEGIN PERFORM revision FROM synthetic_review_rows; END $$;",
+      "CALL hidden_reader()",
+      "EXECUTE 'SELECT revision FROM synthetic_review_rows'",
+    ])("rejects an opaque sibling ledger statement: %s", (statement) => {
+      const { baseSource, currentSource } = orderedRevisionSources();
+      const source = currentSource.replaceAll("settlement_account_risk_sources", "synthetic_review_rows");
+      const base = baseSource.replaceAll("settlement_account_risk_sources", "synthetic_review_rows");
+      const sibling = `\nexport const otherSchemaMigrations = [{ migrationId: "early_reader", statements: [\`${statement}\`] }];
+        export const executionOrder = [...otherSchemaMigrations, ...exampleSchemaMigrations];`;
+      expect(retainedUpgradeKeys({ baseSource: base, currentSource: `${source}${sibling}` })).toEqual([
+        "synthetic_review_rows.revision",
+      ]);
+      const afterSafeStatement = sibling.replace("statements: [", "statements: [`SELECT 1`, ");
+      expect(retainedUpgradeKeys({ baseSource: base, currentSource: `${source}${afterSafeStatement}` })).toEqual([
+        "synthetic_review_rows.revision",
+      ]);
+    });
+
+    it("accepts independent safe sibling statements", () => {
+      const { baseSource, currentSource } = orderedRevisionSources();
+      const sibling = `export const otherSchemaMigrations = [{ migrationId: "independent", statements: [
+        \`SELECT 1\`, \`UPDATE other_sources SET value = 0 WHERE value IS NULL\`
+      ] }];`;
+      expect(retainedUpgradeKeys({ baseSource, currentSource: `${currentSource}\n${sibling}` })).toEqual([]);
+    });
+
     it.each([
       [
         "another table's normalizers",

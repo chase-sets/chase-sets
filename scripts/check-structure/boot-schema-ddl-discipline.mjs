@@ -120,12 +120,13 @@ export function extractExportedBootSchemaSqlTemplates(source) {
     if (!initializer || !(ts.isNoSubstitutionTemplateLiteral(initializer) || ts.isTemplateExpression(initializer))) {
       return [];
     }
+    const sql = source.slice(initializer.getStart(sourceFile) + 1, initializer.end - 1);
     return [
       {
         name: declaration.name.text,
-        sql: source.slice(initializer.getStart(sourceFile) + 1, initializer.end - 1),
+        sql,
         startLine: lineNumberAt(source.slice(0, initializer.getStart(sourceFile) + 1)),
-        ...(ts.isTemplateExpression(initializer) ? { valid: false } : {}),
+        ...(ts.isTemplateExpression(initializer) || sql !== initializer.text ? { valid: false } : {}),
       },
     ];
   });
@@ -188,8 +189,10 @@ export function extractSchemaMigrationStatements(source) {
           valid = false;
           continue;
         }
+        const sql = source.slice(value.getStart(sourceFile) + 1, value.end - 1);
+        if (sql !== value.text) valid = false;
         sqlStatements.push({
-          sql: source.slice(value.getStart(sourceFile) + 1, value.end - 1),
+          sql,
           startLine: lineNumberAt(source.slice(0, value.getStart(sourceFile))),
         });
       }
@@ -396,7 +399,12 @@ function hasOrderedRetainedColumnProof({ baseSource, currentSource, tableName, c
     extractSchemaMigrationStatements(currentSource).some(
       (migration) =>
         migration.ledgerName !== ledgerName &&
-        (!migration.valid || migration.statements.some(({ sql }) => columnPattern.test(maskSqlNonExecutableText(sql)))),
+        (!migration.valid ||
+          migration.statements.some(({ sql }) =>
+            maskSqlNonExecutableText(sql)
+              .split(";")
+              .some((statement) => columnPattern.test(statement) || /^\s*(?:DO|CALL|EXECUTE)\b/i.test(statement)),
+          )),
     )
   )
     return false;
