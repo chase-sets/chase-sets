@@ -1,11 +1,19 @@
 #!/usr/bin/env node
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { basename, dirname } from "node:path";
 import process from "node:process";
 import { inflateRawSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import { classifyPrScope } from "./lib/pr-scope-policy-v1.mjs";
+import {
+  collectStagingLineageMapping,
+  isStagingLineageInstant,
+  joinQualificationStaging,
+  validateStagingAdvisorySummary,
+  validateStagingDeployment,
+} from "./release-health-github-metadata.mjs";
 import { parseCircuitMarker, thresholdForObservations } from "./release-health-merge-group-failure-signatures.mjs";
 import {
   evaluateMergeQualificationPolicy,
@@ -278,6 +286,18 @@ async function collectSourceData({ options, policy, client, queryStart }) {
   });
 
   const qualification = await collectQualificationEvidence({ options, client });
+  if (qualification.schemaVersion === "delivery-health-qualification/v2") {
+    await collectStagingEvidence({
+      options,
+      policy,
+      client,
+      window,
+      qualification,
+      actualRuns,
+      releaseRecordsByRun,
+      jobsByRun,
+    });
+  }
 
   return {
     pulls,
@@ -339,6 +359,13 @@ async function collectQualificationEvidence({ options, client }) {
     }
     const currentPolicy = evaluateMergeQualificationPolicy(currentContent, { now });
     if (!currentPolicy.enabled) return evidence;
+    Object.assign(evidence, {
+      schemaVersion: "delivery-health-qualification/v2",
+      enabledAt: currentPolicy.policy.enabledAt,
+      candidates: [],
+      stagingEvidence: [],
+      stagingJoins: [],
+    });
     evidence.status = "complete";
     const listing = await listMergeQualificationAdvisoryRuns({ repository, requestJson, now });
     if (listing.errors.length) throw new Error(listing.errors[0]);
@@ -468,6 +495,7 @@ async function collectQualificationEvidence({ options, client }) {
             candidate.builtImageDigest !== decision.builtImageDigest
           )
             throw new Error("qualification_candidate_invalid");
+          evidence.candidates.push(candidate);
         }
         const terminal = await readMergeQualificationTerminalRecords({
           decision,
@@ -565,6 +593,258 @@ async function collectQualificationEvidence({ options, client }) {
   return evidence;
 }
 
+export function readStagingAdvisoryArchive(bytes) {
+  const entries = unzipJsonEntries(bytes, { include: (name) => name === "summary.json", maxEntryBytes: 64 * 1024 });
+  if (entries.size !== 1) throw new Error("staging-summary-missing");
+  const payload = entries.get("summary.json");
+  const summaryJson = new TextDecoder("utf-8", { fatal: true }).decode(payload);
+  const summary = JSON.parse(summaryJson);
+  if (validateStagingAdvisorySummary(summary).length) throw new Error("staging-summary-invalid");
+  return { summary, summaryJson, summarySha256: createHash("sha256").update(payload).digest("hex") };
+}
+
+async function collectStagingEvidence({
+  options,
+  policy,
+  client,
+  window,
+  qualification,
+  actualRuns,
+  releaseRecordsByRun,
+  jobsByRun,
+}) {
+  const reason = (code) => qualification.reasons.push(`qualification:staging:${code}`);
+  const stagingRequired = actualRuns.some((run) =>
+    (jobsByRun.get(String(run.id)) ?? []).some(
+      (job) =>
+        job.name === "Deploy Staging" &&
+        job.conclusion !== "skipped" &&
+        Date.parse(job.started_at) >= Date.parse(qualification.enabledAt),
+    ),
+  );
+  const cache = new Map();
+  try {
+    const runs = await fetchWorkflowRuns(
+      client,
+      policy.collection.workflowSources.stagingAdvisoryEvidence,
+      window,
+      policy.collection.maxPages,
+    );
+    if (runs.length > 1024) throw new Error("staging-run-cap");
+    for (const run of runs) {
+      if (qualification.stagingEvidence.length >= 1024) {
+        reason("record-cap");
+        break;
+      }
+      try {
+        if (isStagingLineageInstant(run.created_at) && Date.parse(run.created_at) < Date.parse(qualification.enabledAt))
+          continue;
+        if (
+          run.repository?.full_name !== options.repository ||
+          run.path !== ".github/workflows/platform-staging-advisory-evidence.yml" ||
+          !decimalIdentity(run.id) ||
+          !decimalIdentity(run.run_attempt) ||
+          !decimalIdentity(run.workflow_id) ||
+          run.status !== "completed"
+        )
+          throw new Error("run-invalid");
+        const artifacts = await client.paginate(
+          `/actions/runs/${run.id}/artifacts?per_page=100`,
+          (payload) => payload?.artifacts,
+          {
+            source: `staging-artifacts:${run.id}`,
+            maxPages: policy.collection.maxPages,
+            requireTotal: true,
+          },
+        );
+        const selected = artifacts.filter(
+          (artifact) => artifact.name === `staging-advisory-evidence-${run.id}-${run.run_attempt}`,
+        );
+        if (selected.length !== 1) throw new Error("artifact-missing-or-ambiguous");
+        const artifact = selected[0];
+        if (
+          artifact.expired !== false ||
+          !decimalIdentity(artifact.id) ||
+          String(artifact.workflow_run?.id) !== String(run.id) ||
+          !Number.isSafeInteger(artifact.size_in_bytes) ||
+          artifact.size_in_bytes < 1 ||
+          artifact.size_in_bytes > EPHEMERAL_ARCHIVE_MAX_BYTES
+        )
+          throw new Error("artifact-invalid");
+        const bytes = await readBoundedQualificationArchive(
+          await client.request(`/actions/artifacts/${artifact.id}/zip`, { advisory: true }),
+        );
+        if (
+          bytes.length !== artifact.size_in_bytes ||
+          artifact.digest !== `sha256:${createHash("sha256").update(bytes).digest("hex")}`
+        )
+          throw new Error("archive-digest-mismatch");
+        const parsed = readStagingAdvisoryArchive(bytes);
+        if (
+          parsed.summary.releaseCommit !== run.head_sha ||
+          !isStagingLineageInstant(run.created_at) ||
+          !isStagingLineageInstant(run.updated_at) ||
+          !isStagingLineageInstant(artifact.created_at) ||
+          !isStagingLineageInstant(artifact.expires_at) ||
+          Date.parse(parsed.summary.checkedAt) < Date.parse(run.created_at) ||
+          Date.parse(parsed.summary.checkedAt) > Date.parse(run.updated_at) ||
+          Date.parse(parsed.summary.checkedAt) > Date.parse(artifact.created_at) ||
+          Date.parse(artifact.created_at) > Date.parse(options.checkedAt) ||
+          Date.parse(artifact.expires_at) <= Date.parse(options.checkedAt)
+        )
+          throw new Error("run-identity-mismatch");
+        const matchingRuns = actualRuns.filter((deployRun) =>
+          (releaseRecordsByRun.get(String(deployRun.id)) ?? []).some(
+            (record) =>
+              record.schemaVersion === "release-health/v1" && record.releaseCommit === parsed.summary.releaseCommit,
+          ),
+        );
+        if (!matchingRuns.length) {
+          qualification.stagingEvidence.push({
+            ...stagingEvidenceIdentity(options.repository, run, artifact),
+            ...parsed,
+            deployment: null,
+          });
+          reason(parsed.summary.freshness.status === "unknown" ? "orphan-unknown-freshness" : "orphan");
+          continue;
+        }
+        for (const deployRun of matchingRuns) {
+          const jobs = await fetchRunJobs(client, deployRun.id, policy.collection.maxPages, deployRun.run_attempt);
+          const stageJobs = jobs.filter((job) => job.name === "Deploy Staging");
+          if (stageJobs.length !== 1) throw new Error("deploy-job-ambiguous");
+          const job = stageJobs[0];
+          if (job.conclusion === "skipped") continue;
+          const records = (releaseRecordsByRun.get(String(deployRun.id)) ?? []).filter(
+            (record) =>
+              record.schemaVersion === "release-health/v1" &&
+              record.releaseCommit === parsed.summary.releaseCommit &&
+              String(record.workflowRunId) === String(deployRun.id) &&
+              String(record.workflowRunAttempt) === String(deployRun.run_attempt),
+          );
+          if (
+            records.length !== 1 ||
+            records[0].staging?.applied !== true ||
+            records[0].queue?.mergeSha !== parsed.summary.releaseCommit
+          )
+            throw new Error("deploy-record-invalid");
+          if (
+            deployRun.repository?.full_name !== options.repository ||
+            deployRun.path !== ".github/workflows/platform-production.yml" ||
+            deployRun.event !== "workflow_dispatch" ||
+            deployRun.head_sha !== parsed.summary.releaseCommit ||
+            String(job.run_id) !== String(deployRun.id) ||
+            String(job.run_attempt) !== String(deployRun.run_attempt) ||
+            job.head_sha !== deployRun.head_sha ||
+            job.status !== "completed"
+          )
+            throw new Error("deploy-identity-invalid");
+          const requiredSteps = [
+            "Activate immutable release before staging mutation",
+            "Verify immutable active release image",
+            "Deploy staging Kubernetes release",
+          ].map((name) => {
+            const steps = (job.steps ?? []).filter((step) => step.name === name);
+            if (
+              steps.length !== 1 ||
+              steps[0].status !== "completed" ||
+              steps[0].conclusion !== "success" ||
+              !isStagingLineageInstant(steps[0].started_at) ||
+              !isStagingLineageInstant(steps[0].completed_at) ||
+              Date.parse(steps[0].started_at) < Date.parse(job.started_at) ||
+              Date.parse(steps[0].started_at) > Date.parse(steps[0].completed_at) ||
+              Date.parse(steps[0].completed_at) > Date.parse(job.completed_at)
+            )
+              throw new Error("deploy-step-invalid");
+            return steps[0];
+          });
+          if (
+            requiredSteps.some(
+              (step, index) =>
+                index > 0 && Date.parse(step.started_at) < Date.parse(requiredSteps[index - 1].completed_at),
+            )
+          )
+            throw new Error("deploy-step-order-invalid");
+          const deployment = {
+            repository: options.repository,
+            workflowId: String(deployRun.workflow_id),
+            workflowPath: deployRun.path,
+            runId: String(deployRun.id),
+            runAttempt: String(deployRun.run_attempt),
+            jobId: String(job.id),
+            startedAt: job.started_at,
+            completedAt: job.completed_at,
+            appliedAt: requiredSteps[2].completed_at,
+            releaseCommit: parsed.summary.releaseCommit,
+            imageDigest: parsed.summary.freshness.observed.platformImageDigest,
+            result: records[0].staging.result,
+            mapping: null,
+          };
+          if (validateStagingDeployment(deployment).length) throw new Error("deploy-evidence-invalid");
+          if (parsed.summary.freshness.status !== "fresh") reason("freshness-unknown");
+          const candidates = qualification.candidates.filter(
+            (candidate) => candidate.candidateTreeSha && candidate.builtImageDigest === deployment.imageDigest,
+          );
+          if (!candidates.length) {
+            qualification.stagingEvidence.push({
+              ...stagingEvidenceIdentity(options.repository, run, artifact),
+              ...parsed,
+              deployment,
+            });
+            if (!qualification.attempts.some((attempt) => attempt.status === "not-required")) reason("orphan");
+          }
+          for (const candidate of candidates) {
+            if (qualification.stagingEvidence.length >= 1024) throw new Error("staging-record-cap");
+            let mapping = null;
+            try {
+              mapping = await collectStagingLineageMapping({
+                repository: options.repository,
+                releaseCommit: deployment.releaseCommit,
+                candidate,
+                client,
+                cache,
+              });
+            } catch {
+              /* Missing lineage stays unknown. */
+            }
+            qualification.stagingEvidence.push({
+              ...stagingEvidenceIdentity(options.repository, run, artifact),
+              ...parsed,
+              deployment: { ...deployment, mapping },
+            });
+          }
+        }
+      } catch {
+        reason(`${decimalIdentity(run.id) ?? "unknown"}/${decimalIdentity(run.run_attempt) ?? "unknown"}:invalid`);
+      }
+    }
+  } catch {
+    reason("collection-incomplete");
+  }
+  qualification.stagingJoins = joinQualificationStaging({
+    repository: options.repository,
+    events: qualification.events,
+    candidates: qualification.candidates,
+    staging: qualification.stagingEvidence,
+  });
+  for (const join of qualification.stagingJoins) {
+    if (stagingRequired && ["unknown", "ambiguous"].includes(join.status))
+      reason(`${join.runId}/${join.runAttempt}:${join.reason}`);
+  }
+  qualification.reasons = [...new Set(qualification.reasons)];
+  if (qualification.reasons.length) qualification.status = "partial";
+}
+
+function stagingEvidenceIdentity(repository, run, artifact) {
+  return {
+    repository,
+    workflowId: String(run.workflow_id),
+    workflowPath: run.path,
+    runId: String(run.id),
+    runAttempt: String(run.run_attempt),
+    artifactId: String(artifact.id),
+  };
+}
+
 export async function readBoundedQualificationArchive(response) {
   const length = response.headers?.get?.("content-length");
   if (
@@ -607,7 +887,7 @@ export function readQualificationArchive(bytes, fileName = "event.json") {
 export function buildDeliveryHealth(input) {
   const generatedAt = normalizeIso(input.checkedAt);
   if (!generatedAt) throw new Error("checkedAt must be an ISO date.");
-  const normalized = normalizeSource(input.source);
+  const normalized = normalizeSource(input.source, input.repository);
   const windows = buildWindows(generatedAt, input.policy.windows);
   const summaries = Object.fromEntries(
     Object.entries(windows).map(([name, window]) => [name, summarizeWindow(normalized, window, input.policy)]),
@@ -705,7 +985,7 @@ function pickRate(metric) {
   return { numerator: metric.numerator, denominator: metric.denominator, successRate: metric.successRate };
 }
 
-function normalizeSource(source = {}) {
+function normalizeSource(source = {}, repository) {
   const combinedDeployRuns = Array.isArray(source.deployRuns) ? source.deployRuns : [];
   return {
     pulls: Array.isArray(source.pulls) ? source.pulls : [],
@@ -718,7 +998,7 @@ function normalizeSource(source = {}) {
     circuits: Array.isArray(source.circuits) ? source.circuits : [],
     artifactFailures: Array.isArray(source.artifactFailures) ? source.artifactFailures : [],
     sourceFailures: Array.isArray(source.sourceFailures) ? source.sourceFailures : [],
-    qualification: normalizeQualificationEvidence(source.qualification),
+    qualification: normalizeQualificationEvidence(source.qualification, repository),
     collection: {
       ephemeralArtifacts: source.collection?.ephemeralArtifacts === true,
       firstAttemptCollectionComplete: source.collection?.firstAttemptCollectionComplete === true,
@@ -771,7 +1051,7 @@ function emptyQualificationEvidence() {
   };
 }
 
-function normalizeQualificationEvidence(value) {
+function normalizeQualificationEvidence(value, repository) {
   if (value === undefined) return emptyQualificationEvidence();
   const invalid = () => ({
     ...emptyQualificationEvidence(),
@@ -782,8 +1062,11 @@ function normalizeQualificationEvidence(value) {
     !value ||
     typeof value !== "object" ||
     Array.isArray(value) ||
-    value.schemaVersion !== "delivery-health-qualification/v1" ||
-    Object.keys(value).sort().join(",") !== "attempts,events,producerEvents,reasons,schemaVersion,status" ||
+    !["delivery-health-qualification/v1", "delivery-health-qualification/v2"].includes(value.schemaVersion) ||
+    Object.keys(value).sort().join(",") !==
+      (value.schemaVersion === "delivery-health-qualification/v2"
+        ? "attempts,candidates,enabledAt,events,producerEvents,reasons,schemaVersion,stagingEvidence,stagingJoins,status"
+        : "attempts,events,producerEvents,reasons,schemaVersion,status") ||
     !["disabled", "complete", "partial"].includes(value.status) ||
     ["attempts", "events", "producerEvents", "reasons"].some(
       (key) => !Array.isArray(value[key]) || value[key].length > 1024,
@@ -791,6 +1074,49 @@ function normalizeQualificationEvidence(value) {
     value.reasons.some((reason) => typeof reason !== "string" || !/^qualification:[a-z0-9_:/-]{1,160}$/.test(reason))
   )
     return invalid();
+  if (value.schemaVersion === "delivery-health-qualification/v2") {
+    if (
+      value.status === "disabled" ||
+      !isStagingLineageInstant(value.enabledAt) ||
+      ["candidates", "stagingEvidence", "stagingJoins"].some(
+        (key) => !Array.isArray(value[key]) || value[key].length > 1024,
+      ) ||
+      value.events.some((event) => validateMergeQualificationEvent(event).length) ||
+      (repository &&
+        [...value.candidates, ...value.events, ...value.stagingEvidence].some(
+          (entry) => entry?.repository !== repository,
+        )) ||
+      value.candidates.some((candidate) => validateMergeQualificationCandidate(candidate).length) ||
+      new Set(value.candidates.map((candidate) => `${candidate.runId}/${candidate.runAttempt}`)).size !==
+        value.candidates.length ||
+      value.stagingEvidence.some((entry) => !validStagingEvidence(entry)) ||
+      value.events.some(
+        (event) =>
+          event?.identityAvailable &&
+          !value.candidates.some(
+            (candidate) =>
+              candidate.repository === event.repository &&
+              candidate.workflowId === event.parentWorkflowId &&
+              candidate.workflowPath === event.parentWorkflowPath &&
+              candidate.runId === event.parentRunId &&
+              candidate.runAttempt === event.parentRunAttempt &&
+              candidate.candidateSha === event.candidateSha &&
+              candidate.candidateTreeSha === event.candidateTreeSha &&
+              candidate.builtImageDigest === event.builtImageDigest,
+          ),
+      ) ||
+      JSON.stringify(value.stagingJoins) !==
+        JSON.stringify(
+          joinQualificationStaging({
+            repository: repository ?? value.events[0]?.repository ?? value.stagingEvidence[0]?.repository,
+            events: value.events,
+            candidates: value.candidates,
+            staging: value.stagingEvidence,
+          }),
+        )
+    )
+      return invalid();
+  }
   const identities = new Set();
   for (const attempt of value.attempts) {
     const fields =
@@ -860,6 +1186,39 @@ function normalizeQualificationEvidence(value) {
   )
     return invalid();
   return value;
+}
+
+function validStagingEvidence(entry) {
+  return (
+    entry &&
+    typeof entry === "object" &&
+    !Array.isArray(entry) &&
+    Object.keys(entry).sort().join(",") ===
+      "artifactId,deployment,repository,runAttempt,runId,summary,summaryJson,summarySha256,workflowId,workflowPath" &&
+    typeof entry.repository === "string" &&
+    /^[\w.-]{1,100}\/[\w.-]{1,100}$/.test(entry.repository) &&
+    ["workflowId", "runId", "runAttempt", "artifactId"].every((key) => decimalIdentity(entry[key]) === entry[key]) &&
+    entry.workflowPath === ".github/workflows/platform-staging-advisory-evidence.yml" &&
+    typeof entry.summarySha256 === "string" &&
+    /^[a-f0-9]{64}$/.test(entry.summarySha256) &&
+    typeof entry.summaryJson === "string" &&
+    Buffer.byteLength(entry.summaryJson, "utf8") <= 64 * 1024 &&
+    createHash("sha256").update(entry.summaryJson, "utf8").digest("hex") === entry.summarySha256 &&
+    sameStagingSummary(entry.summaryJson, entry.summary) &&
+    !validateStagingAdvisorySummary(entry.summary).length &&
+    (entry.deployment === null ||
+      (!validateStagingDeployment(entry.deployment).length &&
+        entry.deployment.repository === entry.repository &&
+        entry.deployment.releaseCommit === entry.summary.releaseCommit))
+  );
+}
+
+function sameStagingSummary(json, summary) {
+  try {
+    return JSON.stringify(JSON.parse(json)) === JSON.stringify(summary);
+  } catch {
+    return false;
+  }
 }
 
 function buildWindows(end, policy) {
@@ -1417,6 +1776,20 @@ export function renderDeliveryHealthMarkdown(record) {
       `| ${attempt.runId} / ${attempt.runAttempt} | ${attempt.conclusion ?? "pending"} | ${attempt.status} | ${attempt.terminalState ?? "unknown"} | ${attempt.eligible ?? "unknown"} | ${attempt.classifierClass ?? "unknown"} | ${attempt.identityAvailable ?? "unknown"} |`,
     );
   }
+  if (record.qualification.schemaVersion === "delivery-health-qualification/v2") {
+    lines.push(
+      "",
+      "### Qualification staging lineage",
+      "",
+      "| Advisory attempt | Status | Reason | Candidate | Final merge | Staging attempt | Evidence attempt | Image digest |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    );
+    for (const join of record.qualification.stagingJoins) {
+      lines.push(
+        `| ${join.runId} / ${join.runAttempt} | ${join.status} | ${join.reason} | ${join.candidateSha ?? "unknown"} | ${join.mergeSha ?? "unknown"} | ${join.stagingRunId ?? "unknown"} / ${join.stagingRunAttempt ?? "unknown"} | ${join.evidenceRunId ?? "unknown"} / ${join.evidenceRunAttempt ?? "unknown"} | ${join.imageDigest ?? "unknown"} |`,
+      );
+    }
+  }
   lines.push(
     "",
     "### First-attempt workflow success (advisory)",
@@ -1969,12 +2342,18 @@ async function fetchWorkflowRuns(client, workflow, window, maxPages) {
   );
 }
 
-async function fetchRunJobs(client, runId, maxPages) {
-  return client.paginate(`/actions/runs/${runId}/jobs?filter=all&per_page=100`, (payload) => payload?.jobs, {
-    source: `jobs:${runId}`,
-    maxPages,
-    requireTotal: true,
-  });
+async function fetchRunJobs(client, runId, maxPages, runAttempt = null) {
+  return client.paginate(
+    runAttempt === null
+      ? `/actions/runs/${runId}/jobs?filter=all&per_page=100`
+      : `/actions/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100`,
+    (payload) => payload?.jobs,
+    {
+      source: `jobs:${runId}`,
+      maxPages,
+      requireTotal: true,
+    },
+  );
 }
 
 export async function fetchPullFiles(client, pullNumber, maxPages) {
@@ -2528,7 +2907,7 @@ function validatePolicy(policy) {
     collection.generatedPaths.some((path) => typeof path !== "string" || path.length < 1 || path.length > 256) ||
     !collection.workflowSources ||
     Object.keys(collection.workflowSources).sort().join(",") !==
-      "ephemeralVerification,platformDeploy,platformPr,releaseDispatch" ||
+      "ephemeralVerification,platformDeploy,platformPr,releaseDispatch,stagingAdvisoryEvidence" ||
     Object.values(collection.workflowSources).some(
       (workflow) => typeof workflow !== "string" || !/^[A-Za-z0-9._-]{1,128}\.ya?ml$/.test(workflow),
     )

@@ -1,4 +1,5 @@
 import { deflateRawSync } from "node:zlib";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,6 +18,7 @@ import {
   readEphemeralVerificationArchive,
   readBoundedQualificationArchive,
   readQualificationArchive,
+  readStagingAdvisoryArchive,
   renderSliMarker,
   unzipJsonEntries,
   validateEphemeralVerificationRecord,
@@ -31,6 +33,8 @@ import {
 import { SUBCOMMANDS } from "./ops.mjs";
 
 let policy;
+let stagingFixture;
+let realStagingFixture;
 
 const qualificationRepository = "chase-sets/chase-sets";
 const qualificationCheckedAt = "2026-07-21T12:00:00.000Z";
@@ -44,7 +48,9 @@ function qualificationTransport({
   terminalState = "passed",
   orphan = false,
   lateAdvisory = false,
+  repository = qualificationRepository,
 } = {}) {
+  const qualificationRepository = repository;
   const ledger = [];
   const policyContent = JSON.stringify({
     schemaVersion: "merge-qualification-policy/v1",
@@ -232,14 +238,291 @@ function qualificationTransport({
     else throw new Error(`Unexpected synthetic request ${path}${parsed.search}`);
     return new Response(JSON.stringify(body), { status: 200 });
   };
-  return { fetchImpl, ledger, decision, built, archives, loss };
+  return { fetchImpl, ledger, decision, built, archives, loss, candidate: candidate.record, parent };
+}
+
+function stagingQualificationTransport({ defect = null } = {}) {
+  const fixture = stagingFixture;
+  const base = qualificationTransport({ repository: fixture.repository });
+  const candidate = base.candidate;
+  const image = {
+    releaseCommit: fixture.releaseCommit,
+    platformImage: `registry.example.invalid/synthetic-platform:${fixture.releaseCommit}`,
+    platformImageDigest: candidate.builtImageDigest,
+  };
+  const summary = {
+    schemaVersion: "staging-advisory-evidence/v2",
+    checkedAt: fixture.checkedAt,
+    ...image,
+    admission: { outcome: "admitted", error: "" },
+    freshness: {
+      status: "fresh",
+      reason: "synthetic complete window",
+      requested: { ...image },
+      observed: { ...image, supersedingIdentity: false },
+      publicationAt: fixture.checkedAt,
+      windowCensus: { admissionAt: "2026-07-21T10:30:00.000Z", publicationAt: fixture.checkedAt, overlaps: [] },
+    },
+    postWindow: { outcome: "success", error: "" },
+    scenarioSeed: { outcome: "success" },
+    marketplaceE2e: { outcome: "success" },
+    failedPhases: [],
+  };
+  const deployRun = {
+    id: Number(fixture.deployRunId),
+    run_attempt: 1,
+    workflow_id: Number(fixture.deployWorkflowId),
+    path: ".github/workflows/platform-production.yml",
+    repository: { full_name: fixture.repository },
+    head_sha: fixture.releaseCommit,
+    event: "workflow_dispatch",
+    status: "completed",
+    conclusion: "success",
+    created_at: fixture.deployStartedAt,
+    updated_at: fixture.deployCompletedAt,
+  };
+  const evidenceRun = {
+    id: Number(fixture.evidenceRunId),
+    run_attempt: 1,
+    workflow_id: Number(fixture.evidenceWorkflowId),
+    path: ".github/workflows/platform-staging-advisory-evidence.yml",
+    repository: { full_name: fixture.repository },
+    head_sha: fixture.releaseCommit,
+    event: "workflow_dispatch",
+    status: "completed",
+    conclusion: "success",
+    created_at: "2026-07-21T10:30:00.000Z",
+    updated_at: fixture.checkedAt,
+  };
+  const step = (name, started_at, completed_at) => ({
+    name,
+    status: "completed",
+    conclusion: "success",
+    started_at,
+    completed_at,
+  });
+  const job = {
+    id: Number(fixture.deployJobId),
+    run_id: deployRun.id,
+    run_attempt: deployRun.run_attempt,
+    head_sha: deployRun.head_sha,
+    name: "Deploy Staging",
+    status: "completed",
+    conclusion: "success",
+    started_at: fixture.deployStartedAt,
+    completed_at: fixture.deployCompletedAt,
+    steps: [
+      step(
+        "Activate immutable release before staging mutation",
+        "2026-07-21T10:16:00.000Z",
+        "2026-07-21T10:16:01.000Z",
+      ),
+      step("Verify immutable active release image", "2026-07-21T10:17:00.000Z", "2026-07-21T10:17:01.000Z"),
+      step("Deploy staging Kubernetes release", "2026-07-21T10:18:00.000Z", fixture.deployAppliedAt),
+    ],
+  };
+  if (defect === "skipped-job") job.conclusion = "skipped";
+  if (defect === "wrong-job-attempt") job.run_attempt = 2;
+  if (defect === "wrong-job-commit") job.head_sha = "2".repeat(40);
+  if (defect === "wrong-job-run") job.run_id = 6001;
+  if (defect === "skipped-deploy-step") job.steps[2].conclusion = "skipped";
+  if (defect === "green-resolver-only")
+    job.steps = [step("Resolve Release", fixture.deployStartedAt, fixture.deployAppliedAt)];
+  if (defect === "duplicate-step") job.steps.push(structuredClone(job.steps[2]));
+  if (defect === "unknown-freshness") summary.freshness.status = "unknown";
+  if (defect === "malformed-summary") summary.freshness.observed.privateMarker = "PRIVATE_SECRET_MARKER";
+  const releaseRecord = {
+    schemaVersion: "release-health/v1",
+    releaseCommit: fixture.releaseCommit,
+    workflowRunId: fixture.deployRunId,
+    workflowRunAttempt: fixture.deployRunAttempt,
+    checkedAt: fixture.deployCompletedAt,
+    deploymentRequired: true,
+    dispatch: { source: "automatic", runId: "5500", attempt: "1", reason: null },
+    staging: {
+      result: "success",
+      applied: true,
+      startedAt: fixture.deployStartedAt,
+      completedAt: fixture.deployCompletedAt,
+    },
+    queue: { mergeSha: fixture.releaseCommit },
+  };
+  if (defect === "queue-candidate-substitution") releaseRecord.queue.mergeSha = candidate.candidateSha;
+  if (defect === "pre-activation-evidence") {
+    evidenceRun.created_at = "2026-07-19T10:30:00.000Z";
+    job.started_at = "2026-07-19T10:15:00.000Z";
+    job.completed_at = "2026-07-19T10:25:00.000Z";
+    job.steps = job.steps.map((entry) => ({
+      ...entry,
+      started_at: entry.started_at.replace("2026-07-21", "2026-07-19"),
+      completed_at: entry.completed_at.replace("2026-07-21", "2026-07-19"),
+    }));
+  }
+  const summaryText = JSON.stringify(summary);
+  let entries = [["summary.json", summaryText, 8]];
+  if (defect === "nested-summary") entries = [["nested/summary.json", summaryText, 8]];
+  if (defect === "missing-summary") entries = [["notes.json", "{}", 8]];
+  if (defect === "duplicate-summary") entries.push(["summary.json", summaryText, 8]);
+  if (defect === "unsafe-zip") entries.push(["../unsafe.json", "{}", 0]);
+  if (defect === "bad-json") entries = [["summary.json", "{invalid", 8]];
+  if (defect === "oversized-summary")
+    entries = [["summary.json", summaryText + " ".repeat(64 * 1024 + 1 - Buffer.byteLength(summaryText)), 8]];
+  if (defect === "summary-cap-boundary")
+    entries = [["summary.json", summaryText + " ".repeat(64 * 1024 - Buffer.byteLength(summaryText)), 8]];
+  if (defect === "large-sibling") entries.push(["sibling.json", "x".repeat(11 * 1024 * 1024), 0]);
+  const archive = buildZip(entries);
+  const artifact = {
+    id: Number(fixture.artifactId),
+    name: `staging-advisory-evidence-${fixture.evidenceRunId}-${fixture.evidenceRunAttempt}`,
+    expired: false,
+    created_at: "2026-07-21T11:00:01.000Z",
+    expires_at: "2026-08-20T11:00:01.000Z",
+    size_in_bytes: archive.length,
+    workflow_run: { id: evidenceRun.id },
+    digest: `sha256:${createHash("sha256").update(archive).digest("hex")}`,
+  };
+  if (defect === "expired-artifact") artifact.expired = true;
+  if (defect === "wrong-artifact-run") artifact.workflow_run.id = 7001;
+  if (defect === "wrong-artifact-digest") artifact.digest = `sha256:${"0".repeat(64)}`;
+  if (defect === "oversized-archive") artifact.size_in_bytes = 256 * 1024 * 1024 + 1;
+  const response = (body, headers) => new Response(JSON.stringify(body), { headers });
+  const fetchImpl = async (url, request = {}) => {
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace(`/repos/${fixture.repository}`, "");
+    const track = () => base.ledger.push({ path, search: parsed.search, method: request.method ?? "GET" });
+    if (path.includes("/workflows/platform-staging-advisory-evidence.yml/runs")) {
+      track();
+      if (defect === "truncated-staging-runs") return response({ total_count: 1000, workflow_runs: [evidenceRun] });
+      if (defect === "missing-staging-total") return response({ workflow_runs: [evidenceRun] });
+      return response({
+        total_count: defect === "omitted-staging-gather" ? 0 : 1,
+        workflow_runs: defect === "omitted-staging-gather" ? [] : [evidenceRun],
+      });
+    }
+    if (path.includes("/workflows/platform-production.yml/runs")) {
+      track();
+      return response({ total_count: 1, workflow_runs: [deployRun] });
+    }
+    if (path === "/actions/runs/6000/jobs" || path === "/actions/runs/6000/attempts/1/jobs") {
+      track();
+      return response({ total_count: 1, jobs: [job] });
+    }
+    if (path === "/actions/runs/6000/artifacts") {
+      track();
+      return response({
+        total_count: 1,
+        artifacts: [{ id: 601, name: "staging-release-health", size_in_bytes: 100, expired: false }],
+      });
+    }
+    if (path === "/actions/artifacts/601/zip") {
+      track();
+      return new Response(buildZip([["staging-release.json", JSON.stringify(releaseRecord), 8]]));
+    }
+    if (path === "/actions/runs/7000/artifacts") {
+      track();
+      if (
+        [
+          "paged-artifacts",
+          "changed-artifact-total",
+          "malformed-artifact-link",
+          "shifted-artifact-page",
+          "duplicate-artifact-id",
+        ].includes(defect)
+      ) {
+        const page = Number(parsed.searchParams.get("page"));
+        const siblings = Array.from({ length: 100 }, (_, index) => ({
+          id: 800 + index,
+          name: `synthetic-sibling-${index}`,
+        }));
+        const headers = {};
+        if (page === 1) {
+          const next = new URL(parsed);
+          next.searchParams.set("page", "2");
+          if (defect === "shifted-artifact-page") next.searchParams.set("per_page", "10");
+          headers.link = defect === "malformed-artifact-link" ? "invalid-link" : `<${next.href}>; rel="next"`;
+        }
+        return response(
+          {
+            total_count: defect === "changed-artifact-total" && page === 2 ? 102 : 101,
+            artifacts:
+              page === 1 ? siblings : [defect === "duplicate-artifact-id" ? { ...artifact, id: 800 } : artifact],
+          },
+          headers,
+        );
+      }
+      const artifacts =
+        defect === "omitted-staging-artifact"
+          ? []
+          : defect === "duplicate-artifact"
+            ? [artifact, { ...artifact, id: 702 }]
+            : [artifact];
+      return response({ total_count: defect === "truncated-artifacts" ? 101 : artifacts.length, artifacts });
+    }
+    if (path === "/actions/artifacts/701/zip") {
+      track();
+      return new Response(archive);
+    }
+    if (path === `/git/commits/${candidate.candidateSha}` || path === `/git/commits/${fixture.releaseCommit}`) {
+      track();
+      return response({
+        sha: path.split("/").at(-1),
+        tree: { sha: candidate.candidateTreeSha },
+        parents: [{ sha: candidate.queueBaseSha }],
+      });
+    }
+    if (path === "/actions/runs/4000") {
+      track();
+      return response({
+        ...base.parent,
+        run_attempt: defect === "superseded-attempt" ? 2 : 1,
+        workflow_id: defect === "wrong-latest-workflow" ? 12 : base.parent.workflow_id,
+        conclusion: defect === "contradictory-latest-result" ? "failure" : base.parent.conclusion,
+      });
+    }
+    if (path === `/commits/${fixture.releaseCommit}/pulls`) {
+      track();
+      return response([{ id: 1, number: 1 }]);
+    }
+    if (path === "/pulls/1") {
+      track();
+      return response({
+        number: 1,
+        head: { sha: defect === "superseded-pr" ? "2".repeat(40) : candidate.pullRequests[0].headSha },
+        base: { ref: "main", repo: { full_name: fixture.repository } },
+        merge_commit_sha: fixture.releaseCommit,
+        merged_at: fixture.mergedAt,
+      });
+    }
+    if (path === "/issues/1/timeline") {
+      track();
+      return response([
+        {
+          ...(defect === "identityless-timeline" ? {} : { id: 1 }),
+          event: "added_to_merge_queue",
+          created_at: fixture.queuedAt,
+        },
+        {
+          ...(defect === "identityless-timeline" ? {} : { id: 2 }),
+          event: "merged",
+          commit_id: fixture.releaseCommit,
+          created_at: fixture.mergedAt,
+        },
+      ]);
+    }
+    if (defect === "omitted-s-gather" && path.includes("/workflows/platform-merge-qualification.yml/runs")) {
+      track();
+      return response({ total_count: 0, workflow_runs: [] });
+    }
+    return base.fetchImpl(url, request);
+  };
+  return { ...base, fetchImpl, summary, archive, releaseRecord };
 }
 
 describe("canonical advisory collection", () => {
   const collect = async (fixture) =>
     collectDeliveryHealth(
       {
-        repository: qualificationRepository,
+        repository: fixture.candidate?.repository ?? qualificationRepository,
         checkedAt: qualificationCheckedAt,
         publicationMode: "hourly",
         updateIssues: false,
@@ -248,6 +531,225 @@ describe("canonical advisory collection", () => {
       },
       { policy },
     );
+
+  it("scheduled collection joins S records without replacing source", async () => {
+    const workflow = await readFile(
+      new URL("../.github/workflows/platform-delivery-health.yml", import.meta.url),
+      "utf8",
+    );
+    expect(workflow).toContain("pnpm run ops -- release-health:delivery-health");
+    expect(workflow).toContain("--update-issues true");
+    expect(SUBCOMMANDS["release-health:delivery-health"].script).toBe("release-health-delivery-health.mjs");
+    const fixture = stagingQualificationTransport();
+    expect(buildMergeQualificationCandidate(stagingFixture.candidateInput).record).toEqual(fixture.candidate);
+    const directory = await mkdtemp(join(tmpdir(), "synthetic-staging-lineage-command-"));
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(fixture.fetchImpl);
+    try {
+      const out = join(directory, "health.json");
+      const markdownOut = join(directory, "health.md");
+      const summaryOut = join(directory, "summary.md");
+      expect(
+        await runDeliveryHealthCommand(
+          [
+            "--repository",
+            stagingFixture.repository,
+            "--checked-at",
+            qualificationCheckedAt,
+            "--out",
+            out,
+            "--markdown-out",
+            markdownOut,
+            "--github-summary",
+            summaryOut,
+            "--update-issues",
+            "false",
+          ],
+          {},
+          { policy },
+        ),
+      ).toBe(0);
+      const record = JSON.parse(await readFile(out, "utf8"));
+      expect(record.qualification).toMatchObject({
+        schemaVersion: "delivery-health-qualification/v2",
+        status: "complete",
+        candidates: [fixture.candidate],
+        stagingJoins: [
+          {
+            status: "joined",
+            candidateSha: fixture.candidate.candidateSha,
+            mergeSha: stagingFixture.releaseCommit,
+            stagingRunId: "6000",
+            evidenceRunId: "7000",
+          },
+        ],
+      });
+      expect(record.qualification.events).toEqual([fixture.built.event]);
+      expect(record.qualification.stagingEvidence[0].summary).toEqual(fixture.summary);
+      const markdown = await readFile(markdownOut, "utf8");
+      expect(markdown).toContain("5000 / 1 | joined | staging-lineage-joined");
+      expect(markdown).toContain(stagingFixture.releaseCommit);
+      expect(markdown).toContain(`| ${fixture.candidate.builtImageDigest} |`);
+      expect(await readFile(summaryOut, "utf8")).toContain("6000 / 1 | 7000 / 1");
+      expect(
+        fixture.ledger.some((entry) => entry.path.includes("/workflows/platform-staging-advisory-evidence.yml/runs")),
+      ).toBe(true);
+      expect(fixture.ledger.some((entry) => entry.path === "/actions/artifacts/701/zip")).toBe(true);
+      expect(fixture.ledger.some((entry) => entry.path === "/actions/runs/6000/attempts/1/jobs")).toBe(true);
+      expect(fixture.ledger.some((entry) => entry.path === "/actions/artifacts/500/zip")).toBe(true);
+      expect(fixture.ledger.some((entry) => entry.path === "/issues/1/timeline")).toBe(true);
+      expect(fixture.ledger.every((entry) => entry.method === "GET" || entry.path === "/graphql")).toBe(true);
+    } finally {
+      spy.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
+    for (const defect of ["omitted-staging-gather", "omitted-staging-artifact", "omitted-s-gather", "superseded-pr"]) {
+      const omitted = await collect(stagingQualificationTransport({ defect }));
+      expect(
+        omitted.record.qualification.stagingJoins.some((entry) => entry.status === "joined"),
+        defect,
+      ).toBe(false);
+      if (defect !== "omitted-s-gather") expect(omitted.record.qualification.status, defect).toBe("partial");
+    }
+  });
+
+  it("reads exact real transport ZIP bytes as unknown orphan evidence without inventing S", async () => {
+    const real = realStagingFixture;
+    const archive = Buffer.from(real.archiveBase64, "base64");
+    expect(createHash("sha256").update(archive).digest("hex")).toBe(real.archiveSha256);
+    const parsed = readStagingAdvisoryArchive(archive);
+    expect(parsed.summarySha256).toBe(real.summarySha256);
+    expect(createHash("sha256").update(real.summaryJson, "utf8").digest("hex")).toBe(real.summarySha256);
+    expect(parsed.summary).toEqual(JSON.parse(real.summaryJson));
+    expect(parsed.summary.platformImageDigest).toBe(
+      "sha256:053ea5cc75fb22d233bda8cb7f6cc47f68267a7fe7565d755a13fd748a605c00",
+    );
+    expect(parsed.summary.freshness.status).toBe("unknown");
+    expect(parsed.summary.postWindow.outcome).toBe("failure");
+    const producer = await readFile(
+      new URL("../.github/workflows/platform-staging-advisory-evidence.yml", import.meta.url),
+      "utf8",
+    );
+    expect(producer).toContain(
+      'schemaVersion:"staging-advisory-evidence/v2",checkedAt:$checkedAt,releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest',
+    );
+    expect(producer).toContain("name: staging-advisory-evidence-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(producer).toContain("path: artifacts/staging-advisory-evidence/summary.json");
+    expect(real.deployJob.steps.find((step) => step.name === "Deploy staging Kubernetes release")).toMatchObject({
+      status: "completed",
+      conclusion: "success",
+    });
+    const ledger = [];
+    const result = await collectDeliveryHealth(
+      {
+        repository: real.evidenceRun.repository.full_name,
+        checkedAt: "2026-11-05T12:00:00Z",
+        publicationMode: "hourly",
+        updateIssues: false,
+        sleep: async () => {},
+        fetchImpl: async (url) => {
+          const path = new URL(url).pathname.replace("/repos/chase-sets/chase-sets", "");
+          ledger.push(path);
+          const response = (body) => new Response(JSON.stringify(body));
+          if (path === "/graphql")
+            return response({
+              data: { search: { issueCount: 0, nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } },
+            });
+          if (path.startsWith("/contents/"))
+            return response({
+              encoding: "base64",
+              content: Buffer.from(
+                JSON.stringify({
+                  schemaVersion: "merge-qualification-policy/v1",
+                  enabled: true,
+                  owner: "synthetic-transport-control",
+                  ceiling: { dollarCeilingUsd: 25, maxQualificationsPerDay: 20 },
+                  enabledAt: "2026-10-20T00:00:00Z",
+                  expiresAt: "2026-11-10T00:00:00Z",
+                }),
+              ).toString("base64"),
+            });
+          if (path.includes("/workflows/platform-staging-advisory-evidence.yml/runs"))
+            return response({ total_count: 1, workflow_runs: [real.evidenceRun] });
+          if (path.includes("/workflows/")) return response({ total_count: 0, workflow_runs: [] });
+          if (path === "/search/issues") return response({ total_count: 0, items: [] });
+          if (path === `/actions/runs/${real.evidenceRun.id}/artifacts`)
+            return response({ total_count: 1, artifacts: [real.artifact] });
+          if (path === `/actions/artifacts/${real.artifact.id}/zip`) return new Response(archive);
+          throw new Error(`unexpected real replay request ${path}`);
+        },
+      },
+      { policy },
+    );
+    expect(result.record.qualification).toMatchObject({
+      status: "partial",
+      events: [],
+      candidates: [],
+      stagingJoins: [],
+      reasons: ["qualification:staging:orphan-unknown-freshness"],
+      stagingEvidence: [{ deployment: null, summarySha256: real.summarySha256 }],
+    });
+    expect(ledger).toContain(`/actions/artifacts/${real.artifact.id}/zip`);
+    expect(result.markdown).toContain("qualification:staging:orphan-unknown-freshness");
+  });
+
+  it("staging source refuses unsafe archives, incomplete artifacts and nonexecuted deployment authority", async () => {
+    expect(
+      (await collect(stagingQualificationTransport({ defect: "large-sibling" }))).record.qualification.stagingJoins[0]
+        .status,
+    ).toBe("joined");
+    for (const defect of ["summary-cap-boundary", "paged-artifacts", "identityless-timeline"])
+      expect(
+        (await collect(stagingQualificationTransport({ defect }))).record.qualification.stagingJoins[0].status,
+        defect,
+      ).toBe("joined");
+    for (const defect of [
+      "nested-summary",
+      "missing-summary",
+      "duplicate-summary",
+      "unsafe-zip",
+      "bad-json",
+      "oversized-summary",
+      "expired-artifact",
+      "wrong-artifact-run",
+      "wrong-artifact-digest",
+      "oversized-archive",
+      "duplicate-artifact",
+      "truncated-artifacts",
+      "truncated-staging-runs",
+      "missing-staging-total",
+      "changed-artifact-total",
+      "malformed-artifact-link",
+      "shifted-artifact-page",
+      "duplicate-artifact-id",
+      "skipped-deploy-step",
+      "wrong-job-attempt",
+      "wrong-job-commit",
+      "wrong-job-run",
+      "green-resolver-only",
+      "duplicate-step",
+      "unknown-freshness",
+      "malformed-summary",
+      "superseded-attempt",
+      "wrong-latest-workflow",
+      "contradictory-latest-result",
+      "queue-candidate-substitution",
+    ]) {
+      const result = await collect(stagingQualificationTransport({ defect }));
+      expect(result.record.qualification.status, defect).toBe("partial");
+      expect(
+        result.record.qualification.stagingJoins.some((entry) => entry.status === "joined"),
+        defect,
+      ).toBe(false);
+      expect(JSON.stringify(result), defect).not.toContain("PRIVATE_SECRET_MARKER");
+    }
+    const skipped = await collect(stagingQualificationTransport({ defect: "skipped-job" }));
+    expect(skipped.record.qualification.status).toBe("complete");
+    expect(skipped.record.qualification.stagingJoins[0].status).toBe("unknown");
+    const preActivation = await collect(stagingQualificationTransport({ defect: "pre-activation-evidence" }));
+    expect(preActivation.record.qualification.status).toBe("complete");
+    expect(preActivation.record.qualification.reasons).toEqual([]);
+    expect(preActivation.record.qualification.stagingJoins[0].status).toBe("unknown");
+  });
 
   it("scheduled collection reaches render without replacing source", async () => {
     const workflow = await readFile(
@@ -514,6 +1016,99 @@ describe("canonical advisory collection", () => {
     expect(malformed.record.slis.every((sli) => sli.status === "insufficient-data")).toBe(true);
     expect(JSON.stringify(invalid)).not.toContain("PRIVATE_SECRET_MARKER");
     expect(health(valid.record.qualification).record.slis).toEqual(legacy.record.slis);
+  });
+
+  it("mixed windows isolate an eligible malformed lineage record beside complete legacy v1 evidence", async () => {
+    const joined = await collect(stagingQualificationTransport());
+    const source = representativeSource();
+    const legacyRecords = structuredClone(source.deployRuns);
+    const health = (qualification) =>
+      buildDeliveryHealth({
+        checkedAt: "2026-07-18T12:00:00.000Z",
+        publicationMode: "hourly",
+        repository: stagingFixture.repository,
+        policy,
+        source: { ...source, qualification },
+        apiStatus: {},
+      });
+    const baseline = health(undefined);
+    expect(health(joined.record.qualification).record.slis).toEqual(baseline.record.slis);
+    const mixed = structuredClone(joined.record.qualification);
+    const malformed = structuredClone(mixed.stagingEvidence[0]);
+    malformed.deployment.mapping.release.pullRequests[0].extra = "PRIVATE_SECRET_MARKER";
+    mixed.stagingEvidence.push(malformed);
+    const refused = health(mixed);
+    expect(refused.record.completeness.reasons).toEqual(["qualification:record-invalid"]);
+    expect(refused.record.slis.every((sli) => sli.status === "insufficient-data")).toBe(true);
+    expect(JSON.stringify(refused)).not.toContain("PRIVATE_SECRET_MARKER");
+    mixed.stagingEvidence.pop();
+    expect(health(mixed).record.slis).toEqual(baseline.record.slis);
+    expect(source.deployRuns).toEqual(legacyRecords);
+    expect(joined.record.qualification.stagingEvidence[0].deployment.mapping.release.mergeSha).toBe(
+      stagingFixture.releaseCommit,
+    );
+    const legacy = qualificationTransport({ repository: stagingFixture.repository });
+    const v1 = structuredClone((await collect(legacy)).record.qualification);
+    v1.schemaVersion = "delivery-health-qualification/v1";
+    delete v1.enabledAt;
+    delete v1.candidates;
+    delete v1.stagingEvidence;
+    delete v1.stagingJoins;
+    expect(health(v1).record.slis).toEqual(baseline.record.slis);
+  });
+
+  it("refuses future, open, inconsistent and oversized persisted lineage envelopes", async () => {
+    const valid = (await collect(stagingQualificationTransport())).record.qualification;
+    const health = (qualification) =>
+      buildDeliveryHealth({
+        checkedAt: qualificationCheckedAt,
+        publicationMode: "hourly",
+        repository: stagingFixture.repository,
+        policy,
+        source: { qualification },
+        apiStatus: {},
+      });
+    for (const mutate of [
+      (value) => {
+        value.schemaVersion = "delivery-health-qualification/v999";
+      },
+      (value) => {
+        value.extra = "PRIVATE_SECRET_MARKER";
+      },
+      (value) => {
+        value.enabledAt = "2026-02-30T00:00:00Z";
+      },
+      (value) => {
+        value.stagingEvidence[0].summarySha256 = "0".repeat(64);
+      },
+      (value) => {
+        value.stagingEvidence[0].summaryJson += " ";
+      },
+      (value) => {
+        value.stagingEvidence[0].workflowPath = ".github/workflows/other.yml";
+      },
+      (value) => {
+        value.stagingEvidence[0].deployment.mapping.release.pullRequests[0].mergedAt = "2026-02-30T00:00:00Z";
+      },
+      (value) => {
+        value.stagingJoins[0].mergeSha = value.candidates[0].candidateSha;
+      },
+      (value) => {
+        value.candidates[0].repository = "synthetic-other/fixture";
+      },
+      (value) => {
+        value.stagingEvidence = Array(1025).fill(value.stagingEvidence[0]);
+      },
+      (value) => {
+        value.stagingJoins = [];
+      },
+    ]) {
+      const value = structuredClone(valid);
+      mutate(value);
+      const result = health(value);
+      expect(result.record.completeness.reasons).toEqual(["qualification:record-invalid"]);
+      expect(JSON.stringify(result)).not.toContain("PRIVATE_SECRET_MARKER");
+    }
   });
 
   it("default-off real-scale command preserves legacy alerts, old retries and independent last-N cohorts", async () => {
@@ -841,6 +1436,15 @@ describe("canonical advisory collection", () => {
 
 beforeAll(async () => {
   policy = await readDeliveryHealthPolicy();
+  stagingFixture = JSON.parse(
+    await readFile(new URL("./fixtures/release-health/synthetic-staging-lineage.json", import.meta.url), "utf8"),
+  );
+  realStagingFixture = JSON.parse(
+    await readFile(
+      new URL("./fixtures/release-health/real-staging-advisory-evidence-40606948173.json", import.meta.url),
+      "utf8",
+    ),
+  );
 });
 
 describe("first-attempt workflow success", () => {
