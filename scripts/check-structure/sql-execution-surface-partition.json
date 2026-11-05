@@ -385,6 +385,7 @@
     "bounded-contexts/platform-operations/features/reported-content/read-model/queries.ts",
     "bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts",
     "bounded-contexts/platform-operations/features/risk-alerts/read-model/queries.ts",
+    "bounded-contexts/platform-operations/features/seller-compliance-cohorts/read-model/cohort-store.ts",
     "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/projection.ts",
     "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/queries.ts",
     "bounded-contexts/platform-operations/features/support-requests/api/runtime.ts",
@@ -527,13 +528,14 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 299,
+    "count": 302,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
       "bounded-contexts/auth/support/ucp-support/oauth.ts": 5,
       "bounded-contexts/authenticity/features/cases/api/route.ts": 3,
       "bounded-contexts/catalog/features/alias-equivalence/api/route.ts": 2,
+      "bounded-contexts/catalog/features/attention-queue/api/route.ts": 3,
       "bounded-contexts/catalog/features/blueprints/api/route.ts": 1,
       "bounded-contexts/catalog/features/catalog-items/api/route.ts": 1,
       "bounded-contexts/catalog/features/categories/api/route.ts": 1,

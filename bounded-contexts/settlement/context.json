@@ -1,6 +1,14 @@
 {
   "contextName": "settlement",
   "packageName": "@chase-sets/settlement",
+  "requiredProofSets": [
+    {
+      "version": 1,
+      "ownerContext": "marketplace",
+      "proofSetId": "marketplace.offer-match-seller-control-fresh-read-forms",
+      "reason": "Settlement checkout risk changes must retain Marketplace seller-control fresh-read proof."
+    }
+  ],
   "localeCatalogs": ["contracts/localization/locales/en/settlement.ts"],
   "ownedNouns": ["wallet", "wallet-adjustment", "payout", "payout-readiness", "ledger-entry"],
   "streamPrefix": "settlement.",
