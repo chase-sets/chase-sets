@@ -657,6 +657,30 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # Rebuilds the closed market-following journey package from the reporter
+      # record; see docs/runbooks/playwright-e2e.md. A refusal fails the job.
+      - name: Prepare journey package
+        id: journey-package
+        if: ${{ !cancelled() && steps.e2e-producer.outcome != 'skipped' }}
+        env:
+          JOURNEY_PACKAGE_PRODUCER_OUTCOME: ${{ steps.e2e-producer.outcome }}
+          JOURNEY_PACKAGE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
+          JOURNEY_PACKAGE_CHECKOUT_SHA: ${{ steps.responsive-evidence-checkout.outputs.checkout-commit }}
+          JOURNEY_PACKAGE_CHECKOUT_TREE: ${{ steps.responsive-evidence-checkout.outputs.checkout-tree }}
+          JOURNEY_PACKAGE_CHECK_RUN_ID: ${{ job.check_run_id }}
+          JOURNEY_PACKAGE_JOB_INDEX: ${{ strategy.job-index }}
+          JOURNEY_PACKAGE_SUITE_BATCH: ${{ matrix.suite_batch }}
+        run: node ./scripts/prepare-journey-package.mjs
+
+      - name: Upload journey package
+        if: ${{ !cancelled() && steps.journey-package.outputs.publish == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.journey-package.outputs.artifact-name }}
+          path: artifacts/journey-package
+          if-no-files-found: error
+          retention-days: 14
+
   build:
     name: Build
     runs-on: ubuntu-latest
