@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, test } from "vitest";
@@ -43,10 +43,12 @@ function assertExactScriptsPartition({ canonicalFiles, remainderFiles, completeF
   assert.equal(first.filter((file) => file === canonicalRecordTest).length, 1);
 }
 
-function scriptsCommandPartition() {
+function scriptsCommandPartition(command) {
   const packageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
-  const command = packageJson.scripts["test:scripts"];
-  const [canonicalPhase, remainderPhase] = command.split(" && ");
+  command ??= packageJson.scripts["test:scripts"];
+  const phases = command.split(" && ");
+  assert.equal(phases.length, 2, "scripts command must contain exactly two complete phase invocations");
+  const [canonicalPhase, remainderPhase] = phases;
   const canonicalCommand = packageJson.scripts["test:canonical-record"];
   const completeFiles = trackedScriptsTestFiles();
   const include = defineScriptsTestConfig().test.include;
@@ -70,6 +72,25 @@ function scriptsCommandPartition() {
     remainderFiles: includesScripts.filter((file) => !excludes.includes(file)),
     completeFiles: includesScripts,
   };
+}
+
+function runInertScriptsPhases(canonicalExit, remainderExit) {
+  const packageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  const command = packageJson.scripts["test:scripts"];
+  const canonicalPhase = "pnpm run test:canonical-record";
+  const remainderPhase = command.match(
+    /vitest run --config \.\/vitest\.scripts\.config\.mjs --exclude scripts\/canonical-record\.test\.mjs/,
+  )?.[0];
+  assert.ok(remainderPhase, "scripts command must contain the complement invocation");
+  const syntheticPhase = (name, exit) =>
+    `"${process.execPath}" -e "console.log('synthetic-${name}');process.exit(${exit})"`;
+  const inertCommand = command
+    .replace(canonicalPhase, syntheticPhase("canonical", canonicalExit))
+    .replace(remainderPhase, syntheticPhase("complement", remainderExit));
+  const result = spawnSync(inertCommand, { cwd: repoRoot, encoding: "utf8", shell: true });
+  assert.ifError(result.error);
+  assert.equal(result.stderr, "");
+  return { status: result.status, trace: result.stdout.trim().split(/\r?\n/) };
 }
 
 afterEach(() => {
@@ -114,6 +135,16 @@ test("runs canonical scripts first and enrolls the exact remaining test compleme
 test("rejects canonical omission, duplication, and a second-file exclusion", () => {
   const partition = scriptsCommandPartition();
   const secondFile = partition.remainderFiles[0];
+  const packageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  const command = packageJson.scripts["test:scripts"];
+
+  for (const changedCommand of [
+    command.replace("pnpm run test:canonical-record && ", ""),
+    `${command} && pnpm run test:canonical-record`,
+    `${command} --exclude ${secondFile}`,
+  ]) {
+    assert.throws(() => assertExactScriptsPartition(scriptsCommandPartition(changedCommand)));
+  }
 
   assert.throws(() =>
     assertExactScriptsPartition({
@@ -133,6 +164,27 @@ test("rejects canonical omission, duplication, and a second-file exclusion", () 
       remainderFiles: partition.remainderFiles.filter((file) => file !== secondFile),
     }),
   );
+});
+
+test("runs both inert scripts phases in order and preserves success", () => {
+  assert.deepEqual(runInertScriptsPhases(0, 0), {
+    status: 0,
+    trace: ["synthetic-canonical", "synthetic-complement"],
+  });
+});
+
+test("preserves inert canonical failure without running the complement", () => {
+  assert.deepEqual(runInertScriptsPhases(17, 0), {
+    status: 17,
+    trace: ["synthetic-canonical"],
+  });
+});
+
+test("preserves inert complement failure after canonical success", () => {
+  assert.deepEqual(runInertScriptsPhases(0, 19), {
+    status: 19,
+    trace: ["synthetic-canonical", "synthetic-complement"],
+  });
 });
 
 test("applies the lane profile once to every shared-config consumer and the scripts battery", () => {
