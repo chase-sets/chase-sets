@@ -34,6 +34,7 @@ mod item_list;
 mod item_page;
 mod list_page;
 mod observation_page;
+mod provider_page;
 mod reference_records;
 mod reference_types;
 mod scope_list;
@@ -76,6 +77,7 @@ pub use list_page::{
     RefRecordRow, RefTypeRow, Search, Table, TemplateRow, TextFilter,
 };
 pub use observation_page::{ObservationPage, ReviewForm, observation_page};
+pub use provider_page::{ProviderPage, ProviderRefusal};
 pub use reference_records::{
     RecordDraft, RefChoices, RefRecordCreateDialog, RefRecordEditDialog, RefRecordForms, ref_record_actions, ref_record_list,
     ref_record_page, ref_record_rows, ref_record_transitions,
@@ -100,6 +102,7 @@ pub const COMPONENTS: &[Component] = &[
     ObservationPage,
     IntegrationsPage,
     DailyPage,
+    ProviderPage,
     AttentionPanel,
     PreviewDialog,
     ItemForm,

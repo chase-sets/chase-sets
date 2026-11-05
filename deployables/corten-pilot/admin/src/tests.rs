@@ -140,6 +140,11 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             return Json(json!({ "actor": { "userId": "usr_1", "accountId": "acc_platform", "roleKey": "platform-admin", "permissions": permissions } }))
                 .into_response();
         }
+        if cookie.contains("chase_sets_session=catalog-admin") {
+            let permissions = ["catalog.view", "catalog.manage"];
+            return Json(json!({ "actor": { "userId": "usr_1", "accountId": "acc_platform", "roleKey": "platform-admin", "permissions": permissions } }))
+                .into_response();
+        }
         return if cookie.contains("chase_sets_session=access-staff") {
             actor(&["accounts.view", "security.manage", "memberships.view"])
         } else if cookie.contains("chase_sets_session=accounts-only") {
@@ -328,6 +333,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         return workbench_surface(surface, uri.query().unwrap_or_default());
     }
     if let Some(answer) = daily_command(&method, uri.path(), &body) {
+        return answer;
+    }
+    if let Some(answer) = provider_api(&method, uri.path()) {
         return answer;
     }
     if let Some(rest) = uri.path().strip_prefix(SHOPPING_API) {
@@ -7153,6 +7161,9 @@ fn workbench_surface(surface: &str, query: &str) -> Response {
     if surface == "daily" {
         return daily_surface(&location);
     }
+    if surface == "health" && location.starts_with("/catalog/providers/") {
+        return provider_surface(&location);
+    }
     let down = location.contains("providerKey=down");
     let link = |key: &str, label: &str, href: &str, kind: &str| {
         json!({ "key": key, "label": label, "href": href, "kind": kind, "summary": format!("{label} summary"),
@@ -7380,6 +7391,294 @@ fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
     Some(answer)
 }
 
+/// The Catalog API's composed health surface for a provider's page (`location=/catalog/providers/
+/// {key}?...`): TCGplayer with a degraded transport, an active profile that can become a draft,
+/// two versions with rollback blocked and deprecate and retire offered, one unit, and a failed job.
+fn provider_surface(location: &str) -> Response {
+    let selected = if location.contains("profileVersion=2026.06.23") { "2026.06.23" } else { "2026.07.13" };
+    let job = location.contains("jobId=job_9").then_some("job_9");
+    let op = |operation: &str, label: &str, state: &str, blockers: &[&str]| {
+        json!({ "operation": operation, "label": label, "description": format!("{label} description."),
+            "commandKey": format!("provider-profile.{operation}"), "providerKey": "tcgplayer", "profileVersion": selected,
+            "lifecycle": "active", "active": true, "state": state, "blockers": blockers,
+            "impact": { "referencedObservationCount": 3, "impactedCatalogItemCount": 2, "externalReferenceCount": 1,
+                "sampleObservationIds": ["obs_1"] } })
+    };
+    let version = |key: &str, version: &str, name: &str| {
+        json!({ "providerKey": "tcgplayer", "profileKey": key, "profileVersion": version, "displayName": name,
+            "lifecycle": "active", "active": true, "referenceCount": 4,
+            "href": format!("/catalog/providers/tcgplayer?profileVersion={version}") })
+    };
+    Json(json!({
+        "readModelFailures": [],
+        "readModel": {
+            "routeContext": { "providerKey": "tcgplayer", "unitKey": null, "jobId": job, "profileVersion": selected },
+            "readiness": { "freshness": "fresh", "blockers": [], "providerTransport": [], "rolloutEnabled": true, "rbacAllowed": true },
+            "healthTriage": { "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
+                "providers": [{ "providerKey": "tcgplayer", "status": "degraded", "credentialReadiness": "ready",
+                    "credentialReadinessState": "configured", "apiReachability": "ready", "optionQueryHealth": "degraded",
+                    "rateLimitStatus": "ready", "payloadAcquisition": "ready", "latestDiagnosticText": "Option queries are slow." }],
+                "units": [{ "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer", "status": "blocked" }] },
+            "providerScope": { "providers": [{ "providerKey": "tcgplayer", "units": [{ "unitKey": "tcgplayer:pokemon:card",
+                "productDomain": "pokemon", "productForm": "card", "importScopes": ["set-name"],
+                "activeProfile": { "profileVersion": "2026.07.13" } }] }] },
+            "profileAuthoring": {
+                "selectedProfile": { "providerKey": "tcgplayer", "profileKey": "pokemon-card", "profileVersion": selected,
+                    "displayName": "TCGplayer Pokemon Cards", "lifecycle": "active", "active": true,
+                    "connectorKind": "tcgplayer-automation-client", "capabilities": ["source-observation-import"],
+                    "supportedScopes": ["set-name", "product"], "languageOptions": ["en"], "mappingOutputKind": "pokemon-card",
+                    "hasExecutableMappingContract": true, "mappingFingerprint": null,
+                    "sourceContract": { "owner": "chase-sets/catalog", "repository": "chase-sets/chase-sets", "fixtureSetVersion": "v3" },
+                    "fixtures": { "fixtureRoot": "fixtures/tcgplayer", "coveredFlows": ["normal", "partial"], "liveProviderCallsAllowed": false },
+                    "validation": { "status": "valid", "latestDiagnosticText": null },
+                    "migrationEvidence": { "state": "not-recorded", "recordedAt": null }, "authoringAudit": {} },
+                "cloneDraft": { "sourceProviderKey": "tcgplayer", "sourceProfileVersion": selected,
+                    "targetProfileVersion": format!("{selected}-draft"), "state": "available", "blockers": [] },
+                "sectionWorkspaces": [{}, {}]
+            },
+            "lifecycleRecovery": { "freshness": "fresh",
+                "summary": { "activeJobs": 0, "affectedReferences": 4, "downstreamProfileReferences": 1, "impactedCatalogItems": 2, "blockers": 1 },
+                "profiles": [version("pokemon-card", "2026.07.13", "TCGplayer Pokemon Cards"),
+                    version("one-piece-card", "2026.06.23", "TCGplayer One Piece Cards")],
+                "operations": [op("activation", "Activation recovery", "available", &[]),
+                    op("rollback", "Rollback profile", "blocked", &["profile-lifecycle-conflict"]),
+                    op("deprecate", "Deprecate profile", "available", &[]), op("retire", "Retire profile", "available", &[])],
+                "recentAuditEvents": [],
+                "strictRetirement": { "requiredDisposition": "complete-removal", "forbiddenSupportPaths": ["raw-json"] } },
+            "importJobs": { "freshness": "fresh", "activeJobCount": 0, "failedJobCount": 1, "jobs": [{ "jobId": "job_9",
+                "state": "failed", "operatorStatus": "Failed", "summary": "Pull stopped at page 3.", "completed": 3, "total": 10,
+                "progressPercent": 30, "providerKey": "tcgplayer", "createdAt": "2026-11-04T09:00:00.000Z", "failureGroups": [],
+                "retryAvailable": true, "resumeAvailable": false, "cancelAvailable": false,
+                "sourceObservationReviewHref": "/catalog/integrations?jobId=job_9", "auditEvidenceUrl": "/catalog/integrations/health",
+                "result": { "observedCount": 12, "skippedCount": 1, "failedCount": 2 }, "blockers": [] }] }
+        }
+    }))
+    .into_response()
+}
+
+/// The refresh schedules and a provider's commands: TCGplayer's schedule runs on its own, Lorcast's
+/// is paused and its run fails at the provider (the API's 502); a deprecate of 2026.06.23 is refused
+/// as a lifecycle conflict.
+fn provider_api(method: &Method, path: &str) -> Option<Response> {
+    let schedule = |key: &str, paused: bool, status: &str| {
+        json!({ "providerKey": key, "scheduleEnabled": true, "manualOnly": false, "intervalMs": 86_400_000, "paused": paused,
+            "nextRunAt": "2026-11-05T12:00:00.000Z", "lastRunCompletedAt": "2026-11-04T12:00:00.000Z",
+            "lastRunStatus": status, "lastRunError": null })
+    };
+    if let Some(rest) = path.strip_prefix("/api/catalog/provider-scope-discovery/refresh-schedule") {
+        return Some(match (method.as_str(), rest) {
+            ("GET", "") => {
+                Json(json!({ "items": [schedule("tcgplayer", false, "succeeded"), schedule("lorcast", true, "failed")] }))
+                    .into_response()
+            }
+            ("POST", "/lorcast/run") => {
+                refusal(StatusCode::BAD_GATEWAY, "provider_refresh_failed", "The provider refresh run failed.")
+            }
+            ("POST", "/tcgplayer/pause" | "/tcgplayer/run" | "/lorcast/resume") => written(StatusCode::OK, "schedule_1"),
+            _ => refusal(StatusCode::NOT_FOUND, "not_found", "No such schedule command."),
+        });
+    }
+    let rest = path.strip_prefix("/api/catalog/source-observations/provider-profiles/")?;
+    if *method != Method::POST {
+        return None;
+    }
+    Some(match rest {
+        "tcgplayer/2026.07.13/clone" => {
+            let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+            let headers = [("chase-sets-commit-position", "43".to_owned()), ("chase-sets-commit-receipt", receipt)];
+            let draft = json!({ "providerKey": "tcgplayer", "profileVersion": "2026.07.13-draft" });
+            (StatusCode::CREATED, headers, Json(draft)).into_response()
+        }
+        "tcgplayer/2026.06.23/deprecate" => {
+            refusal(StatusCode::CONFLICT, "profile_lifecycle_conflict", "That profile version is still referenced.")
+        }
+        _ => written(StatusCode::OK, "profile_1"),
+    })
+}
+
+fn provider_writes(pilot: &Pilot) -> Vec<String> {
+    let calls = pilot.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.method == Method::POST && (c.path.contains("/provider-profiles/") || c.path.contains("/refresh-schedule")))
+        .map(|c| c.path.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn provider_detail_draws_the_apis_health_surface_for_the_provider_with_its_schedule_and_commands() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer?profileVersion=2026.07.13", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        integrations_calls(&pilot).contains(
+            &"/api/catalog/source-observations/workbench-surfaces/health?location=%2Fcatalog%2Fproviders%2Ftcgplayer%3FprofileVersion%3D2026.07.13%26providerKey%3Dtcgplayer"
+                .to_owned()
+        ),
+        "the page's address with the provider added (chase-sets/chase-sets#11050): {:?}",
+        integrations_calls(&pilot)
+    );
+    assert!(html.contains(r#"data-catalog-provider-detail="true""#) && html.contains("Option queries are slow."), "{html}");
+    // Only this provider's schedule, with Pause and Run now for a manager.
+    assert!(html.contains(r#"data-catalog-provider-refresh-schedule-row="tcgplayer""#), "{html}");
+    assert!(!html.contains(r#"data-catalog-provider-refresh-schedule-row="lorcast""#), "another provider's: {html}");
+    assert!(html.contains(r#"action="/catalog/providers/tcgplayer/refresh?profileVersion=2026.07.13""#), "{html}");
+    assert!(
+        html.contains(r#"value="pause""#) && html.contains(r#"value="run""#) && !html.contains(r#"value="resume""#),
+        "{html}"
+    );
+    // The draft the API offers, from the selected version.
+    assert!(html.contains(r#"data-catalog-primary-workbench-command="provider-profile.clone""#), "{html}");
+    assert!(html.contains(r#"value="2026.07.13-draft""#), "{html}");
+    // The history, and each lifecycle operation but activation, whose box confirms its own command.
+    assert!(
+        html.contains("TCGplayer One Piece Cards")
+            && html.contains(r#"href="/catalog/providers/tcgplayer?profileVersion=2026.06.23""#),
+        "{html}"
+    );
+    assert!(!html.contains(r#"data-catalog-lifecycle-command="activation""#), "activation is validation readiness's: {html}");
+    for op in ["rollback", "deprecate", "retire"] {
+        assert!(html.contains(&format!(r#"data-catalog-lifecycle-command="{op}""#)), "{op}: {html}");
+    }
+    assert!(html.contains(r#"value="confirm:provider-profile.retire:tcgplayer:2026.07.13""#), "{html}");
+    let rollback = html.find(r#"value="confirm:provider-profile.rollback:tcgplayer:2026.07.13""#).unwrap();
+    assert!(html[rollback..].split('>').next().unwrap().contains("disabled"), "a blocked rollback: {html}");
+    // The unit, and the failed job with its counts and Retry.
+    assert!(html.contains("tcgplayer:pokemon:card"), "{html}");
+    assert!(html.contains(r#"data-catalog-provider-job-disclosure="job_9""#), "{html}");
+    assert!(html.contains(r#"action="/catalog/providers/tcgplayer/jobs/job_9?profileVersion=2026.07.13""#), "{html}");
+    assert!(html.contains(r#"value="retry""#) && !html.contains(r#"value="cancel""#), "{html}");
+    // Section editing and the Operator session stay on admin-web; this viewer is not offered the session.
+    assert!(html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer?profileVersion=2026.07.13""#), "{html}");
+    assert!(!html.contains("Operator session"), "{html}");
+
+    let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
+    assert!(section.contains(".provider-page__schedule-row") && section.contains(".provider-page__job-pair"), "{section}");
+}
+
+#[tokio::test]
+async fn a_reader_sees_provider_detail_without_its_commands_and_a_platform_admin_is_offered_the_session() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"value="pause""#) && !html.contains(r#"value="retry""#), "{html}");
+    let clone = html.find(r#"data-catalog-primary-workbench-command="provider-profile.clone""#);
+    assert!(clone.is_none_or(|at| html[at..at + html[at..].find("</form>").unwrap()].contains("disabled")), "{html}");
+    let retire = html.find(r#"value="confirm:provider-profile.retire:tcgplayer:2026.07.13""#).unwrap();
+    assert!(html[retire..].split('>').next().unwrap().contains("disabled"), "{html}");
+    let (status, _, _) =
+        pilot.send(post_as("catalog-reader", "/catalog/providers/tcgplayer/refresh", "command=pause", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage, as the API asks");
+    assert!(provider_writes(&pilot).is_empty());
+
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Operator session"), "a platform admin on TCGplayer (chase-sets/chase-sets#11050): {html}");
+    let (status, _, html) = pilot.send(get("/catalog/providers/lorcast", Some("catalog-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("Operator session"), "{html}");
+    assert!(
+        html.contains(r#"data-catalog-provider-refresh-schedule-row="lorcast""#) && html.contains(r#"value="resume""#),
+        "{html}"
+    );
+}
+
+#[tokio::test]
+async fn each_provider_command_sends_the_apis_path_and_lands_on_the_page() {
+    let pilot = Pilot::new().await;
+    let at = "profileVersion=2026.07.13";
+    let landed = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    let (status, headers, _) =
+        pilot.send(post(&format!("/catalog/providers/tcgplayer/refresh?{at}"), "command=pause", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        landed(&headers).starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=paused&after_write=")),
+        "{}",
+        landed(&headers)
+    );
+    let (_, headers, _) = pilot.send(post(&format!("/catalog/providers/tcgplayer/refresh?{at}"), "command=run", false)).await;
+    assert!(landed(&headers).contains("done=ran"));
+    let (status, headers, _) = pilot
+        .send(post(
+            &format!("/catalog/providers/tcgplayer/draft?{at}"),
+            "sourceProfileVersion=2026.07.13&targetProfileVersion=",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        landed(&headers).starts_with("/catalog/providers/tcgplayer?profileVersion=2026.07.13-draft&done=drafted&after_write="),
+        "the draft the API made, read after its write: {}",
+        landed(&headers)
+    );
+    let confirm = "confirm%3Aprovider-profile.retire%3Atcgplayer%3A2026.07.13";
+    let (status, headers, _) = pilot
+        .send(post(
+            &format!("/catalog/providers/tcgplayer/lifecycle?{at}"),
+            &format!("operation=retire&profileVersion=2026.07.13&confirmation={confirm}"),
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(landed(&headers).contains("done=retired"));
+    let (_, headers, _) =
+        pilot.send(post(&format!("/catalog/providers/tcgplayer/jobs/job_9?{at}"), "command=retry", false)).await;
+    assert!(landed(&headers).contains("jobId=job_9") && landed(&headers).contains("done=queued"), "{}", landed(&headers));
+    assert_eq!(
+        provider_writes(&pilot),
+        [
+            "/api/catalog/provider-scope-discovery/refresh-schedule/tcgplayer/pause",
+            "/api/catalog/provider-scope-discovery/refresh-schedule/tcgplayer/run",
+            "/api/catalog/source-observations/provider-profiles/tcgplayer/2026.07.13/clone",
+            "/api/catalog/source-observations/provider-profiles/tcgplayer/2026.07.13/retire",
+        ]
+    );
+    let clone = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/clone")).cloned().unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&clone.body).unwrap(), json!({ "targetProfileVersion": "", "lifecycle": "draft" }));
+
+    // The page it lands on says so.
+    let (status, _, html) = pilot.send(get(&format!("/catalog/providers/tcgplayer?{at}&done=retired"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"role="status""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_refused_provider_command_is_the_page_again_with_its_reason() {
+    let pilot = Pilot::new().await;
+    // Without its box, or with another version's, a lifecycle command does not reach the API
+    // (chase-sets/chase-sets#11049).
+    let at = "/catalog/providers/tcgplayer/lifecycle";
+    let (status, _, html) = pilot.send(post(at, "operation=retire&profileVersion=2026.07.13", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"data-catalog-provider-detail="true""#) && html.contains(r#"role="alert""#), "{html}");
+    let other = "confirm%3Aprovider-profile.retire%3Atcgplayer%3A2026.06.23";
+    let (status, _, patch) =
+        pilot.send(post(at, &format!("operation=retire&profileVersion=2026.07.13&confirmation={other}"), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(!patch.contains("data-catalog-provider-detail"), "only the notice: {patch}");
+    let (status, _, _) = pilot.send(post(at, "operation=activate&profileVersion=2026.07.13", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "an operation the page does not offer");
+    assert!(provider_writes(&pilot).is_empty(), "none reaches the API");
+
+    // The API's refusal, in its words.
+    let confirm = "confirm%3Aprovider-profile.deprecate%3Atcgplayer%3A2026.06.23";
+    let (status, _, html) = pilot
+        .send(post(
+            &format!("{at}?profileVersion=2026.06.23"),
+            &format!("operation=deprecate&profileVersion=2026.06.23&confirmation={confirm}"),
+            false,
+        ))
+        .await;
+    assert_ne!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(html.contains("That profile version is still referenced."), "{html}");
+    // A run that fails at the provider is said, not dropped (chase-sets/chase-sets#11051).
+    let (status, _, html) = pilot.send(post("/catalog/providers/lorcast/refresh", "command=run", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"role="alert""#), "{html}");
+    let (status, _, _) = pilot.send(post("/catalog/providers/lorcast/refresh", "command=stop", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a command the form does not offer");
+}
+
 fn integrations_calls(pilot: &Pilot) -> Vec<String> {
     pilot.calls.lock().unwrap().iter().filter(|c| c.path.contains("/workbench-surfaces/")).map(|c| c.path.clone()).collect()
 }
@@ -7425,10 +7724,7 @@ async fn integration_health_draws_the_apis_composed_surface_for_its_address() {
     );
     assert!(html.contains("Pull stopped at page 3.") && html.contains("Audit lifecycle partial"), "{html}");
     assert!(html.contains(r#"href="/catalog/source-observations/obs_1""#), "the pilot's observation page: {html}");
-    assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer""#),
-        "a page the pilot does not serve: {html}"
-    );
+    assert!(html.contains(r#"href="/catalog/providers/tcgplayer""#), "the pilot's provider page: {html}");
     assert!(html.contains(r#"aria-hidden="true">Ingestion unit</span>"#), "a stacked row names its cells: {html}");
 }
 
@@ -7684,10 +7980,7 @@ async fn provider_connections_need_a_platform_admin_and_show_each_connections_fr
     assert!(html.contains(">Aging<") && html.contains("(2 min ago)") && !html.contains(">Fresh<"), "the API's: {html}");
     assert!(html.contains(">Stale<") && html.contains("(3 min ago)"), "{html}");
     assert!(html.contains("Seller account acc_9") && html.contains(">Expired<") && html.contains(">Paused<"), "{html}");
-    assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/providers/lorcast""#) && !html.contains("/account/channels/chc_1"),
-        "{html}"
-    );
+    assert!(html.contains(r#"href="/catalog/providers/lorcast""#) && !html.contains("/account/channels/chc_1"), "{html}");
     assert!(html.contains("Read-only; no operator action"), "{html}");
 }
 

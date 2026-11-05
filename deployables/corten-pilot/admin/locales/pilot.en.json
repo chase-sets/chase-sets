@@ -159,5 +159,33 @@
     "done": "(done)",
     "not_started": "(not started)",
     "blocked": "(blocked)"
+  },
+  "provider": {
+    "run_failed": "The refresh ran and failed. The schedule's last run says why.",
+    "paused_title": "Refresh paused",
+    "paused_description": "The provider's scheduled source-option refresh is paused until it is resumed.",
+    "resumed_title": "Refresh resumed",
+    "resumed_description": "The provider's source options refresh on their schedule again.",
+    "ran_title": "Refresh ran",
+    "ran_description": "The provider's source options were refreshed now, and the next scheduled run moved on.",
+    "elsewhere": "Profile sections, validation readiness and activation are edited on admin-web.",
+    "elsewhere_open": "Open this provider on admin-web",
+    "operator_session": "The Operator session section opens on admin-web.",
+    "operator_session_open": "Open the Operator session on admin-web",
+    "versions": "{count} versions",
+    "downstream": "{count} downstream profile refs",
+    "blocker_count": "{count} blockers",
+    "samples": "{count} samples",
+    "external_refs": "{count} external refs",
+    "op_provider": "Provider",
+    "op_version": "Profile version",
+    "op_lifecycle": "Lifecycle",
+    "op_active": "Active profile",
+    "yes": "yes",
+    "no": "no",
+    "not_selected": "not selected",
+    "required_disposition": "Required disposition",
+    "forbidden_paths": "Forbidden support paths",
+    "job_details": "Details for {job}"
   }
 }

@@ -30,6 +30,7 @@
 //! | `GET /catalog/reference-types?...` and its writes | the reference types list and a type's page (`reference_types`) |
 //! | `GET /catalog/reference-records?...` and its writes | the reference records list and a record's page (`reference_records`) |
 //! | `GET /catalog/source-observations/{id}` and its review | a Source Observation (`observation`) |
+//! | `GET /catalog/providers/{key}` and its commands | a provider's page (`provider`) |
 //!
 //! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
 //! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
@@ -57,6 +58,7 @@ pub mod integrations;
 pub mod item;
 pub mod items;
 pub mod observation;
+pub mod provider;
 pub mod reference_records;
 pub mod reference_types;
 pub mod scope;
@@ -442,6 +444,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = observation::url::area(area, shared.clone());
     let area = integrations::url::area(area, shared.clone());
     let area = daily::url::area(area, shared.clone());
+    let area = provider::url::area(area, shared.clone());
     let area = sync_batches::url::area(area, shared.clone());
     let area = attention::url::area(area, shared.clone());
     let area = categories::url::area(area, shared.clone());
@@ -1169,6 +1172,7 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
         | Kind::AttentionQueue
         | Kind::AliasReview
         | Kind::ProviderScopeMappings
+        | Kind::ProviderScopeDiscovery
         | Kind::SourceObservations => Vec::new(),
     };
     actions.into_iter().find(|(value, _)| *value == action).map_or(action, |(_, label)| label)

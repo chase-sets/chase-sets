@@ -131,10 +131,10 @@ What each screen covers and leaves out, screen by screen, is in the
 
 ### Not ported
 
-Every page route marketplace-web, admin-web and public-web declare is served here except two of
-admin-web's Catalog integrations pages, `/catalog/integrations/observation-evidence/{id}` and
-`/catalog/providers/{providerKey}` (compared with each host's route records on 2026-11-01), whose
-links go to admin-web. The Catalog API composes the integrations surfaces
+Every page route marketplace-web, admin-web and public-web declare is served here (compared with
+each host's route records on 2026-11-01). admin-web's
+`/catalog/integrations/observation-evidence/{id}` is a JSON resource for its evidence sheet, which
+opens on admin-web. The Catalog API composes the integrations surfaces
 ([chase-sets/chase-sets#11038 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/pull/11038)),
 and the pilot draws Integration health, Settings and Settings' older `governance` address from it
 ([admin/src/catalog/integrations.rs](admin/src/catalog/integrations.rs)), and the daily
@@ -142,7 +142,12 @@ and the pilot draws Integration health, Settings and Settings' older `governance
 pages need that API to answer. The daily workbench starts a scope's Catalog sync, retries, resumes
 and cancels import jobs, and defers or rejects Source Observations, each a form that works
 without JavaScript. Previewing and promoting, merge candidate edits and the evidence sheets open
-on admin-web until the Catalog API refuses a stale preview itself.
+on admin-web until the Catalog API refuses a stale preview itself. Provider detail,
+`/catalog/providers/{providerKey}` ([admin/src/catalog/provider.rs](admin/src/catalog/provider.rs)),
+draws the same composed read for the provider with its refresh schedule, and pauses, resumes and
+runs the refresh, makes a draft profile, rolls back, deprecates and retires a version with its
+confirmation, and retries, resumes and cancels a job; profile section editing, validation
+readiness and the Operator session open on admin-web.
 marketplace-web's `/items/{id}/market-history` is a JSON resource for its client; the pilot draws
 the Sales tab's history on the server.
 
@@ -274,6 +279,9 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10507 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/issues/10507) | [admin/src/catalog/attention.rs](admin/src/catalog/attention.rs), [admin/src/catalog/scope.rs](admin/src/catalog/scope.rs), [admin/src/catalog/views/scope_page.rs](admin/src/catalog/views/scope_page.rs) |
 | [chase-sets/chase-sets#11045 [catalog] Refuse a Source Observation promotion whose preview is stale in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11045) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#11047 [catalog] Return the daily workbench's stage states, status banners and review pager links from the surface read](https://github.com/chase-sets/chase-sets/issues/11047) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
+| [chase-sets/chase-sets#11049 [catalog] Require the confirmation for provider profile rollback, deprecate and retire in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11049) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
+| [chase-sets/chase-sets#11050 [catalog] Compose provider detail from its own path in the Catalog API, with the provider's refresh schedule and Operator session access](https://github.com/chase-sets/chase-sets/issues/11050) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
+| [chase-sets/chase-sets#11051 [catalog] Provider detail's Pause, Resume and Run now say nothing when the API refuses them or the run fails](https://github.com/chase-sets/chase-sets/issues/11051) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
 | [chase-sets/chase-sets#10524 Release a realtime stream's lease when the client drops it before the headers](https://github.com/chase-sets/chase-sets/issues/10524) | [platform/src/realtime.rs](platform/src/realtime.rs) |
 | [chase-sets/chase-sets#10530 Give removing draft Catalog Items a bulk preview and job like the other item bulk actions](https://github.com/chase-sets/chase-sets/issues/10530) | [admin/src/catalog/items.rs](admin/src/catalog/items.rs) |
 | [chase-sets/chase-sets#10537 Let the Catalog Item Set Image URLs dialog take one URL per line](https://github.com/chase-sets/chase-sets/issues/10537) | [scripts/smoke-item.mjs](scripts/smoke-item.mjs) |
