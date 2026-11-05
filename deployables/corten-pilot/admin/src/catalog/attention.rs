@@ -408,36 +408,32 @@ fn catalog_key(key: &str) -> Option<String> {
     Some(out)
 }
 
-/// An item's message arguments as the API sends them, for `t.by_key`: the item's own and, for a
-/// name they lack, its title's. The title's are a workaround for chase-sets/chase-sets#10569 (an
-/// alias candidate's detail has `{type}`, which the API sends only with the title); remove them
-/// when it lands.
+/// An item's message arguments as the API sends them, for `t.by_key`.
 pub struct Params<'a> {
     own: &'a Map<String, Value>,
-    title: Option<&'a Map<String, Value>>,
 }
 
 impl<'a> Params<'a> {
     /// A title's arguments.
     pub fn title(item: &'a AttentionItem) -> Self {
-        Params { own: &item.title_params, title: None }
+        Params { own: &item.title_params }
     }
 
-    /// A detail's arguments, then the title's.
+    /// A detail's arguments.
     pub fn detail(item: &'a AttentionItem) -> Self {
-        Params { own: &item.detail_params, title: Some(&item.title_params) }
+        Params { own: &item.detail_params }
     }
 
     /// A resolution's label, which has none.
     pub fn none() -> Self {
         static EMPTY: std::sync::LazyLock<Map<String, Value>> = std::sync::LazyLock::new(Map::new);
-        Params { own: &EMPTY, title: None }
+        Params { own: &EMPTY }
     }
 }
 
 impl Args for Params<'_> {
     fn arg(&self, name: &str, write: &mut dyn FnMut(&dyn Display)) -> bool {
-        self.own.arg(name, write) || self.title.is_some_and(|title| title.arg(name, write))
+        self.own.arg(name, write)
     }
 }
 
@@ -509,7 +505,7 @@ mod tests {
             "catalog.features.attentionQueue.item.aliasCandidate.title",
             json!({ "alias": "Elsa & Anna", "type": "printed-name" }),
             "catalog.features.attentionQueue.item.aliasCandidate.detail",
-            json!({ "provider": "tcgplayer", "confidence": 0.92 }),
+            json!({ "provider": "tcgplayer", "type": "printed-name", "confidence": 0.92 }),
         );
         let title = Params::title(&alias);
         assert_eq!(shown(t, &alias.title_key, &title).to_string(), "Review alias Elsa & Anna", "a string without its quotes");
@@ -520,7 +516,19 @@ mod tests {
         assert_eq!(
             shown(t, &alias.detail_key, &detail).to_string(),
             "tcgplayer · printed-name · confidence 0.92",
-            "{{type}} from the title's params"
+            "the detail's own {{type}}"
+        );
+        let title_only = item(
+            "catalog.features.attentionQueue.item.aliasCandidate.title",
+            json!({ "alias": "Elsa & Anna", "type": "printed-name" }),
+            "catalog.features.attentionQueue.item.aliasCandidate.detail",
+            json!({ "provider": "tcgplayer", "confidence": 0.92 }),
+        );
+        let detail = Params::detail(&title_only);
+        assert_eq!(
+            shown(t, &title_only.detail_key, &detail).to_string(),
+            title_only.detail_key,
+            "a detail is drawn from its own arguments, not the title's"
         );
 
         let stale = item(
