@@ -8,3 +8,4 @@ describe("Identity seed compatibility surface", () => {
     expect(demoIdentitySeedIds).toBe(contractDemoIds);
   });
 });
+// Never-merged hosted probe for W3 enrollment selection; this PR is closed unmerged.
