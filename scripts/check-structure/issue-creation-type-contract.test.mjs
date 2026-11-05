@@ -57,7 +57,7 @@ const reviewedSites = {
   "scripts/guest-buy-now-freshness-probe.mjs": 4,
   "scripts/issue-form-labels.mjs": 1,
   "scripts/issue-readiness.mjs": 2,
-  "scripts/label-registry.mjs": 5,
+  "scripts/label-registry.mjs": 4,
   "scripts/lib/synthetic-account-invitations.mjs": 3,
   "scripts/marketplace-production-proof-topology-evidence.mjs": 18,
   "scripts/merge-qualification.mjs": 1,
@@ -118,7 +118,7 @@ const reviewedSiteContexts = {
   "scripts/guest-buy-now-freshness-probe.mjs": "2faa364ba0e4b78dee01b4002df76145288c0ff4441d70bdf8a5c4ce4733ea38",
   "scripts/issue-form-labels.mjs": "685730538343e74f740e9a91d792adc0bf59597da76d723371afc6650066f7c9",
   "scripts/issue-readiness.mjs": "e4fb71671a3abf36f950490ed03fa845a556cd27d45e449297bfe54110971472",
-  "scripts/label-registry.mjs": "a129eef58941b57a3ff0d865ad849797391fb3ff99b86a1e30a5a93e77d9ed4a",
+  "scripts/label-registry.mjs": "360cfce61b3c98e79c1c20e867d22b8aa1a758a311866a4afd348dd1ed183248",
   "scripts/lib/synthetic-account-invitations.mjs": "39497c2c3996892252430b8a4eafd95bb35a48cb7a172fc1247c06e7def35069",
   "scripts/marketplace-production-proof-topology-evidence.mjs":
     "d9afa69618c0fc844e2b6c82bd1ad7b74784eeea07b3a975b78721852ef879d6",

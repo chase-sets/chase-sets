@@ -289,11 +289,6 @@ Every one of these was created for a single workstream and outlived it — 55 of
 them accumulated across finished June milestones and had to be swept. Sequencing
 inside a workstream is what an epic's chain DAG is for.
 
-Existing banned-family and stray labels are registered by exact name as
-`grandfathered-frozen` in the registry. They may remain on existing issues but
-must never be newly applied, recreated, or renamed. Their convergence is future
-operator work owned by [#6174](https://github.com/chase-sets/chase-sets/issues/6174).
-
 `full-pr-battery` is not a live or registered label. Its existing
 `platform-pr.yml` condition is therefore inactive rather than an alternate
 charter member.
