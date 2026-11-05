@@ -28,11 +28,11 @@ pub fn OfferEconomicsPage<'a>(o: Ops, snapshot: &'a Snapshot) -> impl Render {
     let share = ratio_percent(s.locked_gmv_share_ratio.as_deref()).unwrap_or_else(|| o.oe_not_available().to_owned());
     let schedule = match &s.standard_schedule_source.schedule_label {
         Some(label) => o
-            .oe_standard_schedule_description(
+            .oe_standard_schedule_description(crate::text::ops::OeStandardScheduleDescription {
                 label,
-                &format!("{:.2}", s.standard_fee_percentage_bps as f64 / 100.0),
-                &usd(o, &s.standard_fee_fixed_amount),
-            )
+                percent: &format!("{:.2}", s.standard_fee_percentage_bps as f64 / 100.0),
+                fixed: &usd(o, &s.standard_fee_fixed_amount),
+            })
             .to_string(),
         None => o.oe_standard_schedule_unavailable().to_owned(),
     };
@@ -46,7 +46,9 @@ pub fn OfferEconomicsPage<'a>(o: Ops, snapshot: &'a Snapshot) -> impl Render {
             </header>
             <section class={Card} aria-labelledby="oe-window">
                 <h2 class={Heading} id="oe-window">{o.oe_window()}</h2>
-                <p class={Muted}>{o.oe_window_range(&date(o, &s.from), &date(o, &s.to)).to_string()}</p>
+                <p class={Muted}>
+                    {o.oe_window_range(crate::text::ops::OeWindowRange { from: &date(o, &s.from), to: &date(o, &s.to) }).to_string()}
+                </p>
             </section>
             <div class={Stats}>
                 <Figure label={o.oe_listings_created()} value={n(s.listings_created_count)} />

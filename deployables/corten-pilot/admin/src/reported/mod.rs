@@ -314,8 +314,12 @@ async fn draw(
         .map(|origin| format!("{origin}/account/listings/{}", segment(&item.target_id)));
     let screen = ItemScreen { item, marketplace_href, refusal, catching_up };
     let t: Ops = req.t();
-    let title =
-        t.reported_detail_meta_title(&views::target_type(t, &screen.item.target_type), &screen.item.target_id).to_string();
+    let title = t
+        .reported_detail_meta_title(crate::text::ops::ReportedDetailMetaTitle {
+            target_type: &views::target_type(t, &screen.item.target_type),
+            target_id: &screen.item.target_id,
+        })
+        .to_string();
     let view = html! { <views::ItemPage t={t} p={req.t()} screen={&screen} /> };
     req.screen_with_status(
         status,

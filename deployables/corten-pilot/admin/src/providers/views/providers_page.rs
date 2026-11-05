@@ -89,7 +89,8 @@ fn observed(o: Ops, row: &Connection) -> (String, Option<String>, &'static str) 
     let at = row.observed_at.as_deref().unwrap_or("");
     let at =
         parse_timestamp(at).map_or_else(|| at.to_owned(), |w| o.date_time(w, DateStyle::Medium, TimeStyle::Short).to_string());
-    let when = seconds.map(|s| o.pc_observed(&at, (s / 60.0).floor() as i64).to_string());
+    let when = seconds
+        .map(|s| o.pc_observed(crate::text::ops::PcObserved { timestamp: &at, minutes: (s / 60.0).floor() as i64 }).to_string());
     (words.to_owned(), when, tone)
 }
 

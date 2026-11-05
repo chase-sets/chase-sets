@@ -84,7 +84,7 @@ pub fn WaitlistPage<'a>(t: Gro, screen: &'a WaitlistScreen) -> impl Render {
                     for wave in &m.wave_fill {
                         <Figure
                             label={&t.admin_wave_fill_wave(wave.wave_number).to_string()}
-                            value={t.admin_wave_fill_value(wave.admitted_count, wave.capacity).to_string()}
+                            value={t.admin_wave_fill_value(crate::text::gro::AdminWaveFillValue { admitted_count: wave.admitted_count, capacity: wave.capacity }).to_string()}
                         />
                     }
                 </div>
@@ -191,7 +191,9 @@ pub fn WaitlistPage<'a>(t: Gro, screen: &'a WaitlistScreen) -> impl Render {
                         </KitTable>
                     </div>
                 }
-                <p class={Muted}>{t.admin_count_summary(screen.signups.count, screen.signups.total)}</p>
+                <p class={Muted}>
+                    {t.admin_count_summary(crate::text::gro::AdminCountSummary { count: screen.signups.count, total: screen.signups.total })}
+                </p>
             </section>
         </div>
     }

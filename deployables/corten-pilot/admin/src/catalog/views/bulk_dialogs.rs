@@ -35,7 +35,7 @@ pub fn PreviewDialog<'a>(t: Cat, p: Pilot, shown: Previewed<'a>) -> impl Patch {
     let f = BulkInput::FIELDS;
     html! {
         let title = t.bulk_preview_title(shown.label).to_string();
-        let description = shown.preview.map(|v| t.bulk_preview_description(v.ready_count, v.blocked_count).to_string());
+        let description = shown.preview.map(|v| t.bulk_preview_description(crate::text::cat::BulkPreviewDescription { ready: v.ready_count, blocked: v.blocked_count }).to_string());
         let ready = shown.preview.is_some_and(|v| v.ready_count > 0);
         let ids: &[String] = match shown.preview {
             Some(preview) if shown.input.mode != "filter" => &preview.ids,
@@ -112,7 +112,7 @@ fn JobStatus<'a>(t: Cat, p: Pilot, job: Option<&'a Job>) -> impl Render {
             }
             Some(Job { result: Some(outcome), status, .. }) if status == "completed" => {
                 <p class={Summary}>
-                    {t.bulk_result_description(outcome.succeeded_count, outcome.skipped_count, outcome.failed_count)}
+                    {t.bulk_result_description(crate::text::cat::BulkResultDescription { succeeded: outcome.succeeded_count, skipped: outcome.skipped_count, failed: outcome.failed_count })}
                 </p>
                 <Candidates t={t} candidates={&outcome.candidates} />
             }
@@ -120,7 +120,9 @@ fn JobStatus<'a>(t: Cat, p: Pilot, job: Option<&'a Job>) -> impl Render {
                 let progress = &job.progress;
                 <div class={Progress} role="status">
                     <StatusPill status={progress.status.as_deref().unwrap_or(&job.status)} toned={false} />
-                    <span>{t.bulk_progress(progress.completed, progress.total)}</span>
+                    <span>
+                        {t.bulk_progress(crate::text::cat::BulkProgress { completed: progress.completed, total: progress.total })}
+                    </span>
                     if let Some(name) = &progress.current_name {
                         <span>{t.bulk_progress_current(name)}</span>
                     }
@@ -150,7 +152,9 @@ pub fn Candidates<'a>(t: Cat, candidates: &'a [Candidate]) -> impl Render {
                 }
             </Table>
             if candidates.len() > shown.len() {
-                <p class={Summary}>{t.bulk_truncated(shown.len(), candidates.len())}</p>
+                <p class={Summary}>
+                    {t.bulk_truncated(crate::text::cat::BulkTruncated { shown: shown.len(), total: candidates.len() })}
+                </p>
             }
         }
     }

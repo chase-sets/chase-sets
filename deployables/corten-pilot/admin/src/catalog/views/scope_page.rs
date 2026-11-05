@@ -89,7 +89,12 @@ pub fn ScopePage<C: Render>(children: C) -> impl Render {
 #[component(css = ScopePage)]
 fn ScopeHeader<'a>(t: Cat, p: Pilot, screen: &'a ScopeScreen, refused: Option<&'a str>) -> impl Render {
     let s = &screen.scope;
-    let eyebrow = t.scope_detail_eyebrow(&s.product_domain, &s.scope_kind).to_string();
+    let eyebrow = t
+        .scope_detail_eyebrow(crate::text::cat::ScopeDetailEyebrow {
+            product_domain: &s.product_domain,
+            scope_kind: &s.scope_kind,
+        })
+        .to_string();
     html! {
         <div class={Header}>
             <p class={Eyebrow}>{&eyebrow}</p>
@@ -597,9 +602,20 @@ fn JobRow<'a>(t: Cat, job: &'a ReviewJob) -> impl Render {
     } else {
         t.scope_detail_candidate_review_jobs_kind_defer()
     };
-    let progress = t.scope_detail_candidate_review_jobs_progress(job.progress.completed, job.progress.total).to_string();
+    let progress = t
+        .scope_detail_candidate_review_jobs_progress(crate::text::cat::ScopeDetailCandidateReviewJobsProgress {
+            completed: job.progress.completed,
+            total: job.progress.total,
+        })
+        .to_string();
     let counts = job.result.as_ref().map(|r| {
-        t.scope_detail_candidate_review_jobs_counts(r.promoted, r.deferred, r.skipped_not_eligible, r.failed).to_string()
+        t.scope_detail_candidate_review_jobs_counts(crate::text::cat::ScopeDetailCandidateReviewJobsCounts {
+            promoted: r.promoted,
+            deferred: r.deferred,
+            skipped: r.skipped_not_eligible,
+            failed: r.failed,
+        })
+        .to_string()
     });
     let mut items: Vec<&str> = Vec::new();
     for outcome in job.result.iter().flat_map(|r| &r.outcomes) {
@@ -669,7 +685,12 @@ fn review_tone(status: &str) -> Tone {
 fn EditionsPart<'a>(t: Cat, action: &'a str, editions: &'a [Edition], manage: bool) -> impl Render {
     let linked = editions.iter().filter(|e| e.link == Link::Linked).count();
     let pending: usize = editions.iter().map(|e| e.pending.len()).sum();
-    let status = t.scope_detail_language_editions_status(linked, editions.len()).to_string();
+    let status = t
+        .scope_detail_language_editions_status(crate::text::cat::ScopeDetailLanguageEditionsStatus {
+            linked,
+            total: editions.len(),
+        })
+        .to_string();
     let stats = [
         (t.scope_detail_language_editions_stat_editions(), editions.len()),
         (t.scope_detail_language_editions_stat_linked(), linked),
@@ -1042,7 +1063,12 @@ pub fn InboxHeader<'a>(t: Cat, summary: &'a str, tone: InboxTone) -> impl Render
 #[component(css = ScopePage)]
 pub fn InboxRow<'a>(t: Cat, group: &'a crate::catalog::coverage::Group) -> impl Render {
     let review = crate::catalog::coverage::url::CoveragePage { id: &group.scope_record_id, at: Default::default() }.href();
-    let pending = t.inbox_pending_count(group.counts.total, group.counts.high_confidence).to_string();
+    let pending = t
+        .inbox_pending_count(crate::text::cat::InboxPendingCount {
+            total: group.counts.total,
+            high_confidence: group.counts.high_confidence,
+        })
+        .to_string();
     let (status, tone) = if group.is_draft_canonical_record {
         (t.inbox_new_canonical_record(), Tone::Warning)
     } else {

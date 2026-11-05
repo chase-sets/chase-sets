@@ -148,8 +148,19 @@ pub fn ref_record_list<'a>(
     .into_iter()
     .filter_map(|(name, set)| set.as_deref().map(|v| (name.untyped(), v)))
     .collect();
-    let type_labels: Vec<(String, String)> =
-        types.iter().map(|ty| (ty.key.clone(), t.ref_record_list_reference_type_option(&ty.name, &ty.key).to_string())).collect();
+    let type_labels: Vec<(String, String)> = types
+        .iter()
+        .map(|ty| {
+            (
+                ty.key.clone(),
+                t.ref_record_list_reference_type_option(crate::text::cat::RefRecordListReferenceTypeOption {
+                    name: &ty.name,
+                    key: &ty.key,
+                })
+                .to_string(),
+            )
+        })
+        .collect();
     html! {
         let type_options: Vec<(&str, &str)> = type_labels.iter().map(|(k, l)| (k.as_str(), l.as_str())).collect();
         <ListPage title={title}>
@@ -269,7 +280,8 @@ fn attributes_summary(t: Cat, attributes: &serde_json::Value) -> String {
                         Value::Number(_) | Value::Bool(_) => value.to_string(),
                         _ => serde_json::to_string(value).unwrap_or_default(),
                     };
-                    t.ref_form_attribute_summary_entry(key, &value).to_string()
+                    t.ref_form_attribute_summary_entry(crate::text::cat::RefFormAttributeSummaryEntry { key, value: &value })
+                        .to_string()
                 })
                 .collect()
         })

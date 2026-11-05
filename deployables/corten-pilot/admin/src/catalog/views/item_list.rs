@@ -257,7 +257,7 @@ pub fn item_changes<'a>(t: Cat, query: &'a url::ItemQuery, pending: Pending) -> 
 fn ItemChanges<'a>(t: Cat, query: &'a url::ItemQuery, pending: Pending) -> impl Render {
     let entity = t.item_list_catalog_items();
     let text = if pending.count > 0 {
-        t.realtime_changed(pending.count, entity).to_string()
+        t.realtime_changed(crate::text::cat::RealtimeChanged { count: pending.count, entity_name: entity }).to_string()
     } else {
         t.realtime_sync_required(entity).to_string()
     };
@@ -446,11 +446,22 @@ pub fn ItemPreviewDialog<'a>(
     let (title, description, note) = match preview {
         Some(ItemPreview::Publish(v)) => {
             let taken = if input.mode == "filter" { t.item_list_matching_drafts() } else { t.item_list_selected_items() };
-            let description = t.item_list_bulk_preview_description(taken, v.ready_count, v.blocked_count).to_string();
+            let description = t
+                .item_list_bulk_preview_description(crate::text::cat::ItemListBulkPreviewDescription {
+                    scope: taken,
+                    ready: v.ready_count,
+                    blocked: v.blocked_count,
+                })
+                .to_string();
             (t.item_list_bulk_publish_preview().to_owned(), Some(description), Some(t.item_list_bulk_partial_success_note()))
         }
         Some(ItemPreview::Edit(v)) => {
-            let description = t.item_list_bulk_edit_preview_description(v.ready_count, v.blocked_count).to_string();
+            let description = t
+                .item_list_bulk_edit_preview_description(crate::text::cat::ItemListBulkEditPreviewDescription {
+                    ready: v.ready_count,
+                    blocked: v.blocked_count,
+                })
+                .to_string();
             (
                 t.item_list_bulk_edit_preview_title(label).to_string(),
                 Some(description),
@@ -459,7 +470,13 @@ pub fn ItemPreviewDialog<'a>(
         }
         Some(ItemPreview::Lifecycle(v)) => (
             t.bulk_preview_title(label).to_string(),
-            Some(t.bulk_preview_description(v.ready_count, v.blocked_count).to_string()),
+            Some(
+                t.bulk_preview_description(crate::text::cat::BulkPreviewDescription {
+                    ready: v.ready_count,
+                    blocked: v.blocked_count,
+                })
+                .to_string(),
+            ),
             None,
         ),
         None if publish => (t.item_list_bulk_publish_preview().to_owned(), None, None),
@@ -557,7 +574,9 @@ fn PublishTable<'a>(t: Cat, candidates: &'a [PublishCandidate]) -> impl Render {
                 }
             </Table>
             if candidates.len() > shown.len() {
-                <p class={Note}>{t.item_list_bulk_preview_truncated(shown.len(), candidates.len())}</p>
+                <p class={Note}>
+                    {t.item_list_bulk_preview_truncated(crate::text::cat::ItemListBulkPreviewTruncated { shown: shown.len(), total: candidates.len() })}
+                </p>
             }
         }
     }
@@ -596,7 +615,9 @@ fn EditTable<'a>(t: Cat, candidates: &'a [EditCandidate]) -> impl Render {
                 }
             </Table>
             if candidates.len() > shown.len() {
-                <p class={Note}>{t.item_list_bulk_preview_truncated(shown.len(), candidates.len())}</p>
+                <p class={Note}>
+                    {t.item_list_bulk_preview_truncated(crate::text::cat::ItemListBulkPreviewTruncated { shown: shown.len(), total: candidates.len() })}
+                </p>
             }
         }
     }
@@ -652,7 +673,7 @@ pub fn ItemJobOutcome<'a>(t: Cat, job: &'a Job<serde_json::Value>) -> impl Rende
                     let f = ItemBulkInput::FIELDS;
                     let action = url::ItemsBulk { query: Default::default() }.href();
                     <p class={Note}>
-                        {t.item_list_bulk_result_description(outcome.published_count, outcome.failed_count, outcome.skipped_count)}
+                        {t.item_list_bulk_result_description(crate::text::cat::ItemListBulkResultDescription { published: outcome.published_count, failed: outcome.failed_count, skipped: outcome.skipped_count })}
                     </p>
                     <PublishTable t={t} candidates={&outcome.candidates} />
                     if !retry.is_empty() {
@@ -672,7 +693,7 @@ pub fn ItemJobOutcome<'a>(t: Cat, job: &'a Job<serde_json::Value>) -> impl Rende
             _ => {
                 if let Some(outcome) = job.read::<EditOutcome>().result {
                     <p class={Note}>
-                        {t.item_list_bulk_edit_result_description(outcome.succeeded_count, outcome.skipped_count, outcome.failed_count)}
+                        {t.item_list_bulk_edit_result_description(crate::text::cat::ItemListBulkEditResultDescription { succeeded: outcome.succeeded_count, skipped: outcome.skipped_count, failed: outcome.failed_count })}
                     </p>
                     <EditTable t={t} candidates={&outcome.candidates} />
                 }

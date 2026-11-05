@@ -407,7 +407,12 @@ fn OrderView<'a>(
         Side::Buyer => t.detail_buyer(),
         Side::Seller => t.detail_seller(),
     };
-    let title = t.detail_order_title(facts.label, &order.display_reference).to_string();
+    let title = t
+        .detail_order_title(crate::text::orders_msg::DetailOrderTitle {
+            projection_label: facts.label,
+            order_reference: &order.display_reference,
+        })
+        .to_string();
     let counterparty = t.detail_counterparty_description(facts.counterparty()).to_string();
     let money = facts.money();
     let outcome_title = match side {
@@ -706,7 +711,12 @@ fn Callout<'a>(t: OrdersMsg, facts: &'a Known<'a>, opportunity: &'a ReviewOpport
     let published = opportunity.revealed && opportunity.active_review_revealed_at.is_some();
     let heading = match active {
         Some(_) => t.callout_your_account_review_is_already_active().to_owned(),
-        None => t.callout_ready_for_counterparty_review(transaction, counterparty).to_string(),
+        None => t
+            .callout_ready_for_counterparty_review(crate::text::orders_msg::CalloutReadyForCounterpartyReview {
+                transaction_label: transaction,
+                counterparty_role: counterparty,
+            })
+            .to_string(),
     };
     html! {
         <div class={(Card, Tinted)}>

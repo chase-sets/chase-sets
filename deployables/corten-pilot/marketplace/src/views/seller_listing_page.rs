@@ -587,7 +587,9 @@ fn Checklist<'a>(t: SellerListingMsg, readiness: &'a EvidenceReadiness) -> impl 
             <li class={Check}>
                 <p class={Strong}>{t.evidence_minimum_photo_count(c.minimum_photo_count)}</p>
                 <span class={State} data-done={enough}>{state(enough)}</span>
-                <p class={Muted}>{t.evidence_photo_count_progress(c.active_photo_count, c.minimum_photo_count)}</p>
+                <p class={Muted}>
+                    {t.evidence_photo_count_progress(crate::text::seller_listing_msg::EvidencePhotoCountProgress { present: c.active_photo_count, required: c.minimum_photo_count })}
+                </p>
                 if !enough {
                     <p>{t.coverage_min_photo_count_unmet()}</p>
                 }
@@ -603,7 +605,9 @@ fn Checklist<'a>(t: SellerListingMsg, readiness: &'a EvidenceReadiness) -> impl 
                         <p class={Tags}>
                             <span class={Tag}>{&required.slot_id}</span>
                             if let (Some(w), Some(h)) = (required.minimum_width_pixels, required.minimum_height_pixels) {
-                                <span class={Tag}>{t.evidence_minimum_dimensions(w, h)}</span>
+                                <span class={Tag}>
+                                    {t.evidence_minimum_dimensions(crate::text::seller_listing_msg::EvidenceMinimumDimensions { width: w, height: h })}
+                                </span>
                             }
                         </p>
                     }
@@ -634,7 +638,7 @@ fn FeeHistory<'a>(t: SellerListingMsg, p: Pilot, listing: &'a SellerListing, fee
                         <li>
                             <p class={Strong}>{fee_event(t, &e.event_type)}</p>
                             <p class={Hint}>
-                                {t.page_fee_history_recorded(e.stream_version, &when(t, e.recorded_at.as_deref()))}
+                                {t.page_fee_history_recorded(crate::text::seller_listing_msg::PageFeeHistoryRecorded { version: e.stream_version, recorded_at: &when(t, e.recorded_at.as_deref()) })}
                             </p>
                             <dl class={Lines}>
                                 <div>

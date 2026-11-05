@@ -119,7 +119,7 @@ fn QueueParts<'a>(t: Ops, queue: &'a Queue) -> impl Render {
                     <p class={Muted}>{t.attention_degraded_description()}</p>
                     for health in &unavailable {
                         <p class={Unavailable}>
-                            {t.attention_source_unavailable(source(t, &health.id), health.reason.as_deref().unwrap_or(""))}
+                            {t.attention_source_unavailable(crate::text::ops::AttentionSourceUnavailable { source: source(t, &health.id), reason: health.reason.as_deref().unwrap_or("") })}
                         </p>
                     }
                 </div>

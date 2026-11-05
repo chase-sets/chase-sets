@@ -321,7 +321,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                                             </td>
                                             <td>
                                                 <CellLabel>{t.mh_counts()}</CellLabel>
-                                                {t.mh_reconciliation_counts(row.checked_count, row.reconciled_count, row.error_count)}
+                                                {t.mh_reconciliation_counts(crate::text::com::MhReconciliationCounts { checked: row.checked_count, reconciled: row.reconciled_count, errors: row.error_count })}
                                             </td>
                                             <td>
                                                 <CellLabel>{t.mh_completed()}</CellLabel>
@@ -367,8 +367,12 @@ fn PayoutStatus<'a>(t: Com, row: &'a Payout) -> impl Render {
 fn retries(t: Com, row: &Payout) -> String {
     let n = row.retry_count;
     match &row.next_retry_at {
-        Some(at) if n == 1 => t.po_retry_attempt_next_singular(n, &when(t, at)).to_string(),
-        Some(at) => t.po_retry_attempt_next_plural(n, &when(t, at)).to_string(),
+        Some(at) if n == 1 => t
+            .po_retry_attempt_next_singular(crate::text::com::PoRetryAttemptNextSingular { count: n, next_at: &when(t, at) })
+            .to_string(),
+        Some(at) => t
+            .po_retry_attempt_next_plural(crate::text::com::PoRetryAttemptNextPlural { count: n, next_at: &when(t, at) })
+            .to_string(),
         None if n == 1 => t.po_retry_attempt_singular(n).to_string(),
         None if n > 0 => t.po_retry_attempt_plural(n).to_string(),
         None => t.po_none().to_owned(),
@@ -412,12 +416,7 @@ fn RunPart<'a>(t: Com, p: Pilot, run: Option<&'a Run>, view: &'a url::View) -> i
                     <p class={Muted}>{message}</p>
                 }
                 <p class={Muted}>
-                    {t.po_reconciliation_summary(
-                        run.result.as_ref().map_or(run.progress.completed, |r| r.checked),
-                        run.result.as_ref().map_or(0, |r| r.reconciled),
-                        run.result.as_ref().map_or(0, |r| r.ignored),
-                        run.result.as_ref().map_or(0, |r| r.skipped),
-                    )}
+                    {t.po_reconciliation_summary(crate::text::com::PoReconciliationSummary { checked: run.result.as_ref().map_or(run.progress.completed, |r| r.checked), reconciled: run.result.as_ref().map_or(0, |r| r.reconciled), ignored: run.result.as_ref().map_or(0, |r| r.ignored), skipped: run.result.as_ref().map_or(0, |r| r.skipped) })}
                 </p>
                 if let Some(result) = run.result.as_ref().filter(|r| !r.errors.is_empty()) {
                     <p class={(Muted, Words)}>

@@ -378,7 +378,9 @@ async fn api_keys(
 pub fn machine(t: Acc, known: Option<&'static str>, family: &str, value: &str) -> String {
     match (known, humanized(value)) {
         (Some(word), _) => word.to_owned(),
-        (None, Some(human)) => t.value_unrecognized_with_value(family, &human).to_string(),
+        (None, Some(human)) => {
+            t.value_unrecognized_with_value(crate::text::acc::ValueUnrecognizedWithValue { family, value: &human }).to_string()
+        }
         (None, None) => t.value_unrecognized(family).to_string(),
     }
 }

@@ -535,7 +535,9 @@ fn BlockedListings<'a>(t: ChannelsMsg, detail: &'a ChannelPublication) -> impl R
                 if blocked.total > shown {
                     <div class={Banner} data-tone="warning">
                         <p class={Strong}>{t.publication_blocked_truncated_title()}</p>
-                        <p>{t.publication_blocked_truncated_description(shown, blocked.total)}</p>
+                        <p>
+                            {t.publication_blocked_truncated_description(crate::text::channels_msg::PublicationBlockedTruncatedDescription { shown, total: blocked.total })}
+                        </p>
                     </div>
                 }
                 <ul class={Cards} role="list">
@@ -741,7 +743,11 @@ fn ManualSync<'a>(t: ChannelsMsg, id: &'a str, panel: &'a ManualSyncPanel, said:
                     <div>
                         <dt>{t.manual_sync_metric_lease()}</dt>
                         match panel.lease_countdown_ms {
-                            Some(ms) => { <dd>{t.manual_sync_lease_value(ms / 60_000, ms % 60_000 / 1_000)}</dd> }
+                            Some(ms) => {
+                                <dd>
+                                    {t.manual_sync_lease_value(crate::text::channels_msg::ManualSyncLeaseValue { minutes: ms / 60_000, seconds: ms % 60_000 / 1_000 })}
+                                </dd>
+                            }
                             None => { <dd>{t.manual_sync_lease_none()}</dd> }
                         }
                     </div>
@@ -912,11 +918,7 @@ fn Receipt<'a>(t: ChannelsMsg, receipt: &'a IngestReceipt) -> impl Render {
                     }
                 </p>
                 <p>
-                    {t.manual_sync_receipt_ingested_description(
-                        outcome.snapshot_id.as_deref().unwrap_or_default(),
-                        outcome.snapshot_generation.unwrap_or_default(),
-                        outcome.parsed_row_count.unwrap_or_default(),
-                    )}
+                    {t.manual_sync_receipt_ingested_description(crate::text::channels_msg::ManualSyncReceiptIngestedDescription { snapshot_id: outcome.snapshot_id.as_deref().unwrap_or_default(), snapshot_generation: outcome.snapshot_generation.unwrap_or_default(), parsed_row_count: outcome.parsed_row_count.unwrap_or_default() })}
                 </p>
             </div>
         } else {

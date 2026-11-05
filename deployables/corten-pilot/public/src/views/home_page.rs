@@ -143,11 +143,11 @@ fn HeroCopy(t: HomeMsg, p: Pilot, variant: Variant, shown: bool) -> impl Render 
                 </h1>
                 <p class={HeroDescription}>{description}</p>
             </div>
-            <div class={HighlightOne} aria-label={p.home_highlight()}>
+            <div class={HighlightOne} role="group" aria-label={p.home_highlight()}>
                 <span class={HighlightLabel}>{first_label}</span>
                 <span class={HighlightValue}>{first_value}</span>
             </div>
-            <div class={Highlights} aria-label={p.home_highlights()}>
+            <div class={Highlights} role="group" aria-label={p.home_highlights()}>
                 for (label, value) in highlights {
                     <div class={Highlight}>
                         <div class={HighlightLabel}>{label}</div>
@@ -489,7 +489,12 @@ fn Founders<'a>(t: HomeMsg, screen: &'a Screen) -> impl Render {
 /// full form.
 #[component(css = HomePage)]
 fn FinalCta<'a>(t: HomeMsg, screen: &'a Screen) -> impl Render {
-    let byline = t.home_final_cta_byline(t.home_founder_story_name(), t.home_founder_story_role()).to_string();
+    let byline = t
+        .home_final_cta_byline(crate::text::home_msg::HomeFinalCtaByline {
+            name: t.home_founder_story_name(),
+            role: t.home_founder_story_role(),
+        })
+        .to_string();
     html! {
         <section class={Section} data-section="final_cta">
             <div class={TwoColumns}>

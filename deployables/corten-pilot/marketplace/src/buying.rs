@@ -524,8 +524,12 @@ pub(crate) async fn buy(
         "lockedListingId": listing.listing_id,
     });
     if is_guest(session) {
-        let available =
-            t.route_inventory_option_label(summary.as_deref().unwrap_or(&item.title), available(&listing)).to_string();
+        let available = t
+            .route_inventory_option_label(crate::text::item_msg::RouteInventoryOptionLabel {
+                product_summary: summary.as_deref().unwrap_or(&item.title),
+                available_quantity: available(&listing),
+            })
+            .to_string();
         let entry = guest_checkout(&source, &listing, &available, t.route_confirmed_at_checkout());
         return crate::checkout_start::buy_as_guest(&req, session, &config, &headers, &uri, &entry, &input.attempt).await;
     }

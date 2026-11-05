@@ -388,7 +388,7 @@ fn Items<'a>(t: InventoryMsg, p: Pilot, screen: &'a InventoryScreen) -> impl Ren
                         {p.inventory_previous()}
                     </a>
                 }
-                <span>{p.inventory_page_of(current, pages)}</span>
+                <span>{p.inventory_page_of(crate::text::pilot::InventoryPageOf { page: current, pages })}</span>
                 if offset + limit < page.total {
                     <a class={(Button, Secondary)} href={screen.place.at(offset + limit)} rel="next">{p.inventory_next()}</a>
                 }
@@ -454,11 +454,16 @@ pub fn SaleOutcome<'a>(t: InventoryMsg, outcome: &'a Outcome, verified: Option<V
     };
     let verified_complete = complete && fresh.is_some();
     let message = if complete {
-        fresh.map(|available| t.sale_completed(outcome.applied, available).to_string())
+        fresh.map(|available| {
+            t.sale_completed(crate::text::inventory_msg::SaleCompleted { count: outcome.applied, available }).to_string()
+        })
     } else if outcome.applied == 0 {
         Some(t.sale_refused(outcome.refused).to_string())
     } else {
-        Some(t.sale_partial(outcome.applied, outcome.refused).to_string())
+        Some(
+            t.sale_partial(crate::text::inventory_msg::SalePartial { applied: outcome.applied, refused: outcome.refused })
+                .to_string(),
+        )
     };
     html! {
         <div

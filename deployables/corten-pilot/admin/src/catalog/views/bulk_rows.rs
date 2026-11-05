@@ -44,7 +44,7 @@ pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
 ) -> impl Patch {
     let (form, count, preview, clear) = refs();
     let f = BulkInput::FIELDS;
-    let matching = t.bulk_matching(bar.total, bar.entity).to_string();
+    let matching = t.bulk_matching(crate::text::cat::BulkMatching { count: bar.total, entity_name: bar.entity }).to_string();
     let sel = js::Selection { form, count, preview, clear };
     html! {
         <div

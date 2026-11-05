@@ -275,10 +275,10 @@ fn Row<'a>(t: RepricingMsg, row: &'a Recommendation, manage: bool, busy: bool, f
             </td>
             <td data-label={t.recs_signals()}>
                 <span>
-                    {t.recs_offer_signal(&row.active_offer_count.to_string(), &money(t, row.highest_offer_price_amount, cur)).to_string()}
+                    {t.recs_offer_signal(crate::text::repricing_msg::RecsOfferSignal { offers: &row.active_offer_count.to_string(), highest: &money(t, row.highest_offer_price_amount, cur) }).to_string()}
                 </span>
                 <span class={Hint}>
-                    {t.recs_fulfillment_signal(&row.delivered_quantity.to_string(), &row.returned_quantity.to_string()).to_string()}
+                    {t.recs_fulfillment_signal(crate::text::repricing_msg::RecsFulfillmentSignal { delivered: &row.delivered_quantity.to_string(), returned: &row.returned_quantity.to_string() }).to_string()}
                 </span>
                 if let Some(error) = &row.last_error {
                     <span class={Hint} data-tone="danger">{error}</span>

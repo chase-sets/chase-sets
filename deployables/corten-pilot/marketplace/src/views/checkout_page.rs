@@ -66,7 +66,15 @@ fn estimate(t: CheckoutMsg, screen: &Screen) -> Option<String> {
     let e = &group.delivery_estimate;
     let option = shipping_label(t, screen.session.shipping_option.as_deref().unwrap_or("standard"));
     let window = format!("{} - {}", e.earliest_date, e.latest_date);
-    Some(t.page_delivery_estimate_summary(option, &window, &e.package_count.to_string(), &e.service_level).to_string())
+    Some(
+        t.page_delivery_estimate_summary(crate::text::checkout_msg::PageDeliveryEstimateSummary {
+            shipping_option: option,
+            window: &window,
+            package_count: &e.package_count.to_string(),
+            service_level: &e.service_level,
+        })
+        .to_string(),
+    )
 }
 
 /// A line's price from the preview (`previewLineForSessionLine`): the cart line's, the listing's,
@@ -307,12 +315,24 @@ fn PageNotice<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
             (t.page_payment_quote_required(), t.page_payment_quote_required_description().to_owned(), "info")
         }
         Notice::ReviewUpdated => (t.page_review_updated(), t.page_review_updated_description().to_owned(), "success"),
-        Notice::FastCheckout { address, method } => {
-            (t.page_fast_checkout_ready(), t.page_fast_checkout_ready_description(address, method).to_string(), "success")
-        }
-        Notice::SavedPayment { address, method } => {
-            (t.page_saved_payment_step_ready(), t.page_saved_payment_step_ready_description(address, method).to_string(), "info")
-        }
+        Notice::FastCheckout { address, method } => (
+            t.page_fast_checkout_ready(),
+            t.page_fast_checkout_ready_description(crate::text::checkout_msg::PageFastCheckoutReadyDescription {
+                address_label: address,
+                payment_method_category: method,
+            })
+            .to_string(),
+            "success",
+        ),
+        Notice::SavedPayment { address, method } => (
+            t.page_saved_payment_step_ready(),
+            t.page_saved_payment_step_ready_description(crate::text::checkout_msg::PageSavedPaymentStepReadyDescription {
+                address_label: address,
+                payment_method_category: method,
+            })
+            .to_string(),
+            "info",
+        ),
         Notice::SavedAddress(address) => {
             (t.page_saved_address_ready(), t.page_saved_address_ready_description(address).to_string(), "info")
         }
@@ -664,7 +684,7 @@ fn PaymentPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                         <p class={Strong}>{t.page_payment_review_next()}</p>
                         if let Some(w) = &screen.wallet {
                             <p>
-                                {t.page_payment_review_next_with_wallet(&w.available_balance_amount, &w.currency_code.to_uppercase())}
+                                {t.page_payment_review_next_with_wallet(crate::text::checkout_msg::PagePaymentReviewNextWithWallet { amount: &w.available_balance_amount, currency: &w.currency_code.to_uppercase() })}
                             </p>
                         } else {
                             <p>{t.page_payment_review_next_description()}</p>

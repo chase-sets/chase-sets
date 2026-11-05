@@ -244,7 +244,13 @@ fn options_label(t: Cat, options: Option<&Vec<SelectedOption>>) -> String {
     match options {
         Some(options) if !options.is_empty() => options
             .iter()
-            .map(|o| t.item_selected_option_reference(&o.dimension_id, &o.option_id).to_string())
+            .map(|o| {
+                t.item_selected_option_reference(crate::text::cat::ItemSelectedOptionReference {
+                    dimension_id: &o.dimension_id,
+                    option_id: &o.option_id,
+                })
+                .to_string()
+            })
             .collect::<Vec<_>>()
             .join(", "),
         _ => t.item_all_product_options().to_owned(),
@@ -634,7 +640,7 @@ fn FieldValues<'a>(
                             <td>{&row.label}</td>
                             <td>
                                 if let Some(reference) = row.reference {
-                                    let label = t.item_reference_value_aria(&row.label, &reference.name).to_string();
+                                    let label = t.item_reference_value_aria(crate::text::cat::ItemReferenceValueAria { label: &row.label, value: &reference.name }).to_string();
                                     <button
                                         type="button"
                                         class={Cue}
@@ -1186,13 +1192,28 @@ pub fn FieldValueForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FieldValueInput>,
         .fields
         .iter()
         .map(|field| {
-            (field.field_id.clone(), t.item_field_option(&field.name, &field.key).to_string(), field.value_type == "reference")
+            (
+                field.field_id.clone(),
+                t.item_field_option(crate::text::cat::ItemFieldOption { name: &field.name, key: &field.key }).to_string(),
+                field.value_type == "reference",
+            )
         })
         .collect();
     let references: Vec<(String, String, bool)> = choices
         .references
         .iter()
-        .map(|r| (r.reference_record_id.clone(), t.item_reference_record_option(&r.name, &r.type_key, &r.key).to_string(), false))
+        .map(|r| {
+            (
+                r.reference_record_id.clone(),
+                t.item_reference_record_option(crate::text::cat::ItemReferenceRecordOption {
+                    name: &r.name,
+                    type_key: &r.type_key,
+                    key: &r.key,
+                })
+                .to_string(),
+                false,
+            )
+        })
         .collect();
     html! {
         <form class={(Form, FieldValue)} id={ids::FIELD} method="post" action={&action} data-patch>
@@ -1375,7 +1396,15 @@ pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, c
         .items
         .iter()
         .map(|item| {
-            (item.catalog_item_id.clone(), t.item_catalog_item_option(&item.title, &item.catalog_item_id).to_string(), false)
+            (
+                item.catalog_item_id.clone(),
+                t.item_catalog_item_option(crate::text::cat::ItemCatalogItemOption {
+                    title: &item.title,
+                    id: &item.catalog_item_id,
+                })
+                .to_string(),
+                false,
+            )
         })
         .collect();
     html! {

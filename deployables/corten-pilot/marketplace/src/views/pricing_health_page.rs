@@ -95,7 +95,11 @@ fn goal_explanation(t: RepricingMsg, goal: &HealthGoal) -> String {
         .map(|f| t.by_key(&format!("health.goals.feature.{}", snake(f)), &none).map_or_else(|| f.clone(), |m| m.to_string()))
         .collect();
     let parameters: Vec<String> = goal.parameters.iter().map(|(k, v)| format!("{k}: {v}")).collect();
-    t.health_goals_explanation_generic(&features.join(", "), &parameters.join(", ")).to_string()
+    t.health_goals_explanation_generic(crate::text::repricing_msg::HealthGoalsExplanationGeneric {
+        features: &features.join(", "),
+        parameters: &parameters.join(", "),
+    })
+    .to_string()
 }
 
 /// A catalog key's part as `scripts/export.mjs` writes it: `storeWinShare` is `store_win_share`.
@@ -172,13 +176,7 @@ pub fn PricingHealthPage<'a>(t: RepricingMsg, screen: &'a HealthScreen) -> impl 
                 <div class={Banner} data-tone="success" role="status" data-pricing-health-applied>
                     <p class={Strong}>{t.health_goals_applied()}</p>
                     <p>
-                        {t.health_goals_applied_description(
-                            &count(t, applied.revision),
-                            &count(t, applied.movement.raised),
-                            &count(t, applied.movement.lowered),
-                            &count(t, applied.movement.held),
-                            &count(t, applied.alerts.floor_binding),
-                        )}
+                        {t.health_goals_applied_description(crate::text::repricing_msg::HealthGoalsAppliedDescription { revision: &count(t, applied.revision), raised: &count(t, applied.movement.raised), lowered: &count(t, applied.movement.lowered), held: &count(t, applied.movement.held), floor_binding: &count(t, applied.alerts.floor_binding) })}
                     </p>
                 </div>
             }
@@ -308,7 +306,11 @@ fn Reasons<'a>(t: RepricingMsg, values: &'a BTreeMap<String, u64>) -> impl Rende
 }
 
 fn listings_units(t: RepricingMsg, c: &HealthCount) -> String {
-    t.health_population_value(&count(t, c.listing_count), &count(t, c.unit_count)).to_string()
+    t.health_population_value(crate::text::repricing_msg::HealthPopulationValue {
+        listings: &count(t, c.listing_count),
+        units: &count(t, c.unit_count),
+    })
+    .to_string()
 }
 
 #[component(css = PricingHealthPage)]
@@ -364,7 +366,12 @@ fn Summary<'a>(t: RepricingMsg, health: &'a HealthSummary, run: Option<&'a Healt
 fn CurrencyCard<'a>(t: RepricingMsg, currency: &'a str, summary: &'a HealthCurrency) -> impl Render {
     let m = move |amount: &str| money(t, amount, currency);
     let risk = move |c: &HealthCount| {
-        t.health_risk_value(&count(t, c.listing_count), &count(t, c.unit_count), &m(&c.value_amount)).to_string()
+        t.health_risk_value(crate::text::repricing_msg::HealthRiskValue {
+            listings: &count(t, c.listing_count),
+            units: &count(t, c.unit_count),
+            value: &m(&c.value_amount),
+        })
+        .to_string()
     };
     let c = &summary.coverage;
     let stale = summary.curve_age.stale_count > 0;
@@ -399,14 +406,7 @@ fn CurrencyCard<'a>(t: RepricingMsg, currency: &'a str, summary: &'a HealthCurre
                 <div>
                     <dt>{t.health_s3()}</dt>
                     <dd>
-                        {t.health_coverage_value(
-                            &count(t, c.listing_count),
-                            &count(t, c.listing_total),
-                            &percent(t, c.listing_ratio),
-                            &count(t, c.unit_count),
-                            &count(t, c.unit_total),
-                            &percent(t, c.unit_ratio),
-                        )}
+                        {t.health_coverage_value(crate::text::repricing_msg::HealthCoverageValue { modeled: &count(t, c.listing_count), population: &count(t, c.listing_total), listing_share: &percent(t, c.listing_ratio), modeled_units: &count(t, c.unit_count), units: &count(t, c.unit_total), unit_share: &percent(t, c.unit_ratio) })}
                     </dd>
                 </div>
                 <div>
@@ -420,23 +420,19 @@ fn CurrencyCard<'a>(t: RepricingMsg, currency: &'a str, summary: &'a HealthCurre
                 <div>
                     <dt>{t.health_s4()}</dt>
                     <dd>
-                        {t.health_age_value(
-                            &number(t, summary.curve_age.newest_age_days),
-                            &number(t, summary.curve_age.oldest_age_days),
-                            &count(t, summary.curve_age.stale_count),
-                        )}
+                        {t.health_age_value(crate::text::repricing_msg::HealthAgeValue { newest: &number(t, summary.curve_age.newest_age_days), oldest: &number(t, summary.curve_age.oldest_age_days), stale: &count(t, summary.curve_age.stale_count) })}
                     </dd>
                 </div>
                 <div>
                     <dt>{t.health_s5()}</dt>
                     <dd>
-                        {t.health_wait_value(&number(t, summary.expected_wait.median_days), &number(t, summary.expected_wait.p90_days))}
+                        {t.health_wait_value(crate::text::repricing_msg::HealthWaitValue { median: &number(t, summary.expected_wait.median_days), p90: &number(t, summary.expected_wait.p90_days) })}
                     </dd>
                 </div>
                 <div>
                     <dt>{t.health_s6()}</dt>
                     <dd data-health-s6>
-                        {t.health_sales_value(&count(t, summary.expected_sales.listing_count), &m(&summary.expected_sales.value_amount))}
+                        {t.health_sales_value(crate::text::repricing_msg::HealthSalesValue { listings: &count(t, summary.expected_sales.listing_count), value: &m(&summary.expected_sales.value_amount) })}
                     </dd>
                 </div>
                 <div>
@@ -454,11 +450,7 @@ fn CurrencyCard<'a>(t: RepricingMsg, currency: &'a str, summary: &'a HealthCurre
                 <div>
                     <dt>{t.health_s8()}</dt>
                     <dd>
-                        {t.health_profit_value(
-                            &number(t, summary.profit_per_day.value),
-                            currency,
-                            &number(t, summary.profit_per_day.cycle_days),
-                        )}
+                        {t.health_profit_value(crate::text::repricing_msg::HealthProfitValue { value: &number(t, summary.profit_per_day.value), currency, cycle: &number(t, summary.profit_per_day.cycle_days) })}
                     </dd>
                 </div>
                 <div>
@@ -645,7 +637,7 @@ fn Candidate<'a>(
                 {c.listing_count.map_or_else(|| unavailable.to_owned(), |n| n.to_string())}
             </td>
             <td data-label={t.health_goals_target_revision()} class={Code}>
-                {t.health_goals_target_revision_value(&c.target_policy_id, &c.target_revision.to_string())}
+                {t.health_goals_target_revision_value(crate::text::repricing_msg::HealthGoalsTargetRevisionValue { policy: &c.target_policy_id, revision: &c.target_revision.to_string() })}
             </td>
             <td data-label={t.health_goals_requested_at()}>{when(t, &c.requested_at)}</td>
             <td data-label={t.health_goals_body_hash()} class={Code}>{&c.body_hash}</td>
@@ -705,21 +697,23 @@ fn ApplyGoal<'a>(
             <dialog id={ApplyGoalDialogId(&c.dry_run_id)} class={Dialog} aria-labelledby={&ask}>
                 <h2 id={&ask} class={PartTitle}>{t.health_goals_confirm_title()}</h2>
                 <div class={Confirm}>
-                    <p>{t.health_goals_confirm_policy(policy, &revision.to_string(), hash)}</p>
-                    <p>{t.health_goals_confirm_goal(&c.goal_id, &c.goal_version.to_string())}</p>
+                    <p>
+                        {t.health_goals_confirm_policy(crate::text::repricing_msg::HealthGoalsConfirmPolicy { policy, revision: &revision.to_string(), hash })}
+                    </p>
+                    <p>
+                        {t.health_goals_confirm_goal(crate::text::repricing_msg::HealthGoalsConfirmGoal { goal: &c.goal_id, version: &c.goal_version.to_string() })}
+                    </p>
                     <p>{t.health_goals_confirm_parameters(&parameters)}</p>
                     <p>{t.health_goals_confirm_body_hash(&c.body_hash)}</p>
                     <p>
-                        {t.health_goals_confirm_movement(
-                            &c.raised.unwrap_or(0).to_string(),
-                            &c.lowered.unwrap_or(0).to_string(),
-                            &c.held.unwrap_or(0).to_string(),
-                        )}
+                        {t.health_goals_confirm_movement(crate::text::repricing_msg::HealthGoalsConfirmMovement { raised: &c.raised.unwrap_or(0).to_string(), lowered: &c.lowered.unwrap_or(0).to_string(), held: &c.held.unwrap_or(0).to_string() })}
                     </p>
                     <p>
                         {t.health_goals_confirm_guardrails(&json(Some(c.guardrails.as_ref().unwrap_or(&serde_json::Value::Array(Vec::new())))))}
                     </p>
-                    <p>{t.health_goals_confirm_currency_floor(currency, &json(c.floor.as_ref()))}</p>
+                    <p>
+                        {t.health_goals_confirm_currency_floor(crate::text::repricing_msg::HealthGoalsConfirmCurrencyFloor { currency, floor: &json(c.floor.as_ref()) })}
+                    </p>
                 </div>
                 <form class={(Row, Actions)} method="post" action={url::PricingHealth { place: Place::of(policy) }}>
                     <input type="hidden" name={f.policy_id} value={policy}>
@@ -758,7 +752,7 @@ fn Grades<'a>(t: RepricingMsg, grades: &'a [HealthGrade]) -> impl Render {
                 for g in grades {
                     <article class={Card}>
                         <h3 class={PartTitle}>
-                            {t.health_grades_identity(&g.goal_id, &g.goal_version.to_string(), &g.forecast_kind, &number(t, Some(g.horizon_days)), &g.model)}
+                            {t.health_grades_identity(crate::text::repricing_msg::HealthGradesIdentity { goal: &g.goal_id, version: &g.goal_version.to_string(), kind: &g.forecast_kind, horizon: &number(t, Some(g.horizon_days)), model: &g.model })}
                         </h3>
                         <p class={Muted}>{t.health_grades_platform()}</p>
                         <p>

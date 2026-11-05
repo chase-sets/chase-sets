@@ -116,8 +116,18 @@ fn language(t: SearchMsg, code: &str) -> String {
 fn filter_label(t: SearchMsg, facets: &[Facet], filter: &Filter) -> String {
     let facet = facets.iter().find(|f| Kind::read(&f.kind) == Some(filter.kind) && f.id == filter.id);
     match facet.and_then(|f| f.values.iter().find(|v| v.id == filter.value).map(|v| (f, v))) {
-        Some((facet, value)) => t.page_dynamic_filter_label(&facet.label, &value.label).to_string(),
-        None => t.page_dynamic_filter_label(&filter.id, &filter.value).to_string(),
+        Some((facet, value)) => t
+            .page_dynamic_filter_label(crate::text::search_msg::PageDynamicFilterLabel {
+                facet: &facet.label,
+                value: &value.label,
+            })
+            .to_string(),
+        None => t
+            .page_dynamic_filter_label(crate::text::search_msg::PageDynamicFilterLabel {
+                facet: &filter.id,
+                value: &filter.value,
+            })
+            .to_string(),
     }
 }
 
@@ -191,9 +201,14 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
     let total = results.total.unwrap_or(results.items.len() as u64);
     let summary = (!failed).then(|| {
         if results.items.len() as u64 != total {
-            t.page_results_summary_showing(results.items.len(), total, category).to_string()
+            t.page_results_summary_showing(crate::text::search_msg::PageResultsSummaryShowing {
+                shown: results.items.len(),
+                count: total,
+                category,
+            })
+            .to_string()
         } else {
-            t.page_results_summary(total, category).to_string()
+            t.page_results_summary(crate::text::search_msg::PageResultsSummary { count: total, category }).to_string()
         }
     });
     let heading = if !terms.q.trim().is_empty() {
@@ -529,7 +544,7 @@ fn CategoryChoice<'a>(t: SearchMsg, category: &'a SearchCategory, terms: &'a Ter
     html! {
         <li>
             <a href={&category_href(&category.slug, terms)} aria-current={current.then_some("page")}>
-                {t.page_category_count_label(&category.name, count)}
+                {t.page_category_count_label(crate::text::search_msg::PageCategoryCountLabel { category: &category.name, count })}
             </a>
         </li>
     }
@@ -689,7 +704,9 @@ fn ItemCard<'a>(t: SearchMsg, item: &'a SearchItem, index: usize, action: &'a st
     let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
     let href = url::Item { slug, state: Address::default(), after: Default::default() }.href();
     let identity = match card.subtitle.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(subtitle) => t.identity_title_and_subtitle(&card.title, subtitle).to_string(),
+        Some(subtitle) => t
+            .identity_title_and_subtitle(crate::text::search_msg::IdentityTitleAndSubtitle { title: &card.title, subtitle })
+            .to_string(),
         None => t.identity_title(&card.title).to_string(),
     };
     let image = similar_image(card);
@@ -853,7 +870,9 @@ pub fn ResultCard<'a>(
     };
     let href = at(Market::Buy);
     let identity = match card.subtitle.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(subtitle) => t.identity_title_and_subtitle(&card.title, subtitle).to_string(),
+        Some(subtitle) => t
+            .identity_title_and_subtitle(crate::text::search_msg::IdentityTitleAndSubtitle { title: &card.title, subtitle })
+            .to_string(),
         None => t.identity_title(&card.title).to_string(),
     };
     let image = similar_image(card);

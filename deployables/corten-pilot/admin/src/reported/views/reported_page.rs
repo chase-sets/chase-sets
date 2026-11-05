@@ -205,7 +205,9 @@ pub fn ReportedPage<'a>(t: Ops, screen: &'a QueueScreen) -> impl Render {
                     </KitTable>
                 </div>
             }
-            <p class={Muted}>{t.reported_count_summary(screen.queue.count, screen.queue.total)}</p>
+            <p class={Muted}>
+                {t.reported_count_summary(crate::text::ops::ReportedCountSummary { count: screen.queue.count, total: screen.queue.total })}
+            </p>
         </section>
     }
 }
@@ -228,9 +230,9 @@ pub fn ItemPage<'a>(t: Ops, p: Pilot, screen: &'a ItemScreen) -> impl Render {
     let f = ActionForm::FIELDS;
     let here = url::Item { target_type: &item.target_type, target_id: &item.target_id, after_write: None, recorded: None };
     html! {
-        let title = t.reported_detail_title(&kind, &item.target_id).to_string();
+        let title = t.reported_detail_title(crate::text::ops::ReportedDetailTitle { target_type: &kind, target_id: &item.target_id }).to_string();
         let owner = item.target_owner_account_id.clone().unwrap_or_else(|| t.reported_not_set().to_owned());
-        let last = item.last_action.as_deref().map(|a| t.reported_last_action(action(t, a).1, &when(t, item.last_action_at.as_deref())).to_string());
+        let last = item.last_action.as_deref().map(|a| t.reported_last_action(crate::text::ops::ReportedLastAction { action: action(t, a).1, timestamp: &when(t, item.last_action_at.as_deref()) }).to_string());
         <crate::views::PageHeader eyebrow={t.reported_eyebrow()} title={&title} description={t.reported_detail_description()} />
         <div class={Links}>
             <a class={(Button, Secondary)} href={url::Reported::default()}>{t.reported_back()}</a>
@@ -295,7 +297,9 @@ pub fn ItemPage<'a>(t: Ops, p: Pilot, screen: &'a ItemScreen) -> impl Render {
                         <li class={ReportCard}>
                             <p class={Strong}>{&report.reason}</p>
                             <p class={Words}>{report.details.as_deref().unwrap_or(t.reported_no_details())}</p>
-                            <p class={Muted}>{t.reported_report_attribution(who, &when(t, Some(&report.submitted_at)))}</p>
+                            <p class={Muted}>
+                                {t.reported_report_attribution(crate::text::ops::ReportedReportAttribution { reporter_kind: who, timestamp: &when(t, Some(&report.submitted_at)) })}
+                            </p>
                         </li>
                     }
                 </ul>
@@ -485,7 +489,9 @@ pub fn RisksPage<'a>(t: Ops, screen: &'a RisksScreen) -> impl Render {
                     </KitTable>
                 </div>
             }
-            <p class={Muted}>{t.risk_count_summary(screen.queue.count, screen.queue.total)}</p>
+            <p class={Muted}>
+                {t.risk_count_summary(crate::text::ops::RiskCountSummary { count: screen.queue.count, total: screen.queue.total })}
+            </p>
         </section>
     }
 }
@@ -524,7 +530,7 @@ pub fn AlertPage<'a>(t: Ops, p: Pilot, screen: &'a AlertScreen) -> impl Render {
     let here = risk_url::Alert { alert_id: &alert.alert_id, after_write: None, recorded: None };
     html! {
         let title = t.risk_detail_title(&kind).to_string();
-        let last = alert.last_action.as_deref().map(|a| t.risk_last_action(&risk_action(t, a), &risk_when(t, alert.last_action_at.as_deref())).to_string());
+        let last = alert.last_action.as_deref().map(|a| t.risk_last_action(crate::text::ops::RiskLastAction { action: &risk_action(t, a), timestamp: &risk_when(t, alert.last_action_at.as_deref()) }).to_string());
         <crate::views::PageHeader eyebrow={t.risk_eyebrow()} title={&title} description={t.risk_detail_description()} />
         <div class={Links}>
             <a class={(Button, Secondary)} href={risk_url::Risks::default()}>{t.risk_back()}</a>

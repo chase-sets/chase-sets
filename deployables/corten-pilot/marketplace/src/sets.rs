@@ -43,7 +43,12 @@ pub(crate) async fn page(
     let t: SearchMsg = req.t();
     let canonical = format!("{}{}", marketplace_origin(), url::Set { slug: &set.slug }.href());
     let title = t.set_card_list_meta_title(&set.name).to_string();
-    let description = t.set_browse_card_list_description(&set.name, set.item_count).to_string();
+    let description = t
+        .set_browse_card_list_description(crate::text::search_msg::SetBrowseCardListDescription {
+            name: &set.name,
+            count: set.item_count,
+        })
+        .to_string();
     let breadcrumb = breadcrumb(t, &set, &canonical);
     let (og_title, og_description) = (title.as_str(), description.as_str());
     let head = html! {

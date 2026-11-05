@@ -94,7 +94,9 @@ fn scope(t: RepricingMsg, scope: Option<&RepricingScope>) -> String {
 fn budget(t: RepricingMsg, used: u64, cap: Option<u64>) -> String {
     let used = count(t, used);
     match cap {
-        Some(cap) => t.shared_budget_capped(&used, &count(t, cap)).to_string(),
+        Some(cap) => t
+            .shared_budget_capped(crate::text::repricing_msg::SharedBudgetCapped { used: &used, cap: &count(t, cap) })
+            .to_string(),
         None => t.shared_budget_uncapped(&used).to_string(),
     }
 }
@@ -771,7 +773,7 @@ fn DryRunPart<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Rende
                 </div>
             } else if let Some(summary) = summary {
                 <p class={Muted}>
-                    {t.editor_preview_completed(&when(t, run.completed_at.as_deref().unwrap_or(&run.updated_at)), &count(t, summary.listings_evaluated))}
+                    {t.editor_preview_completed(crate::text::repricing_msg::EditorPreviewCompleted { time: &when(t, run.completed_at.as_deref().unwrap_or(&run.updated_at)), count: &count(t, summary.listings_evaluated) })}
                 </p>
                 if summary.listings_evaluated == 0 {
                     <div class={Banner} data-tone="info"><p>{t.editor_preview_empty()}</p></div>
@@ -919,9 +921,13 @@ fn condition(t: RepricingMsg, p: Pilot, condition: &RepricingCondition) -> Strin
         RepricingCondition::CompetingListingCountAtLeast { count } => {
             t.body_condition_competing_listing_count_at_least(&num(*count)).to_string()
         }
-        RepricingCondition::ScheduleWindow { days_of_week, start_time, end_time } => {
-            t.body_condition_schedule_window(start_time, end_time, &days_of_week.len().to_string()).to_string()
-        }
+        RepricingCondition::ScheduleWindow { days_of_week, start_time, end_time } => t
+            .body_condition_schedule_window(crate::text::repricing_msg::BodyConditionScheduleWindow {
+                start_time,
+                end_time,
+                day_count: &days_of_week.len().to_string(),
+            })
+            .to_string(),
         RepricingCondition::Other => p.repricing_unknown_setting().to_owned(),
     }
 }
@@ -934,7 +940,9 @@ fn goal(t: RepricingMsg, id: &str, parameters: &std::collections::BTreeMap<Strin
         "target-horizon" => t.goal_target_horizon(&at("horizonDays")).to_string(),
         "profit-per-day" => t.goal_profit_per_day().to_owned(),
         "hold-value" => t.goal_hold_value().to_owned(),
-        "cash-target" => t.goal_cash_target(&at("amount"), &at("days")).to_string(),
+        "cash-target" => t
+            .goal_cash_target(crate::text::repricing_msg::GoalCashTarget { amount: &at("amount"), days: &at("days") })
+            .to_string(),
         other => other.to_owned(),
     }
 }
@@ -963,7 +971,9 @@ fn anchor_chain(t: RepricingMsg, p: Pilot, chain: &[RepricingAnchor]) -> String 
     let Some(last) = words.next() else {
         return t.activity_anchor_none().to_owned();
     };
-    words.fold(last, |rest, first| t.body_anchor_then(&first, &rest).to_string())
+    words.fold(last, |rest, first| {
+        t.body_anchor_then(crate::text::repricing_msg::BodyAnchorThen { first: &first, rest: &rest }).to_string()
+    })
 }
 
 /// A rule's summary (`summarizeRepricingRule`): each setting's name and words.
@@ -986,9 +996,12 @@ fn rule_summary(t: RepricingMsg, p: Pilot, rule: &RepricingRule) -> Vec<(&'stati
     };
     let floor = match &d.floor {
         RepricingFloor::Absolute { amount } => money(t, amount, cur),
-        RepricingFloor::CostBasisPlusMargin { margin_percent, absolute_fallback_amount } => {
-            t.body_floor_cost_basis_plus_margin(&num(*margin_percent), &money(t, absolute_fallback_amount, cur)).to_string()
-        }
+        RepricingFloor::CostBasisPlusMargin { margin_percent, absolute_fallback_amount } => t
+            .body_floor_cost_basis_plus_margin(crate::text::repricing_msg::BodyFloorCostBasisPlusMargin {
+                percent: &num(*margin_percent),
+                amount: &money(t, absolute_fallback_amount, cur),
+            })
+            .to_string(),
         RepricingFloor::Other => unknown(),
     };
     let ceiling = match &d.ceiling {
@@ -1056,9 +1069,12 @@ fn outcome_tone(outcome: &str) -> &'static str {
 fn price(t: RepricingMsg, trace: &RepricingTrace, currency: Option<&str>) -> String {
     let current = money(t, &trace.current_price_amount, currency);
     match trace.target_price_amount.as_deref() {
-        Some(target) if target != trace.current_price_amount => {
-            t.activity_price_change(&current, &money(t, target, currency)).to_string()
-        }
+        Some(target) if target != trace.current_price_amount => t
+            .activity_price_change(crate::text::repricing_msg::ActivityPriceChange {
+                current: &current,
+                target: &money(t, target, currency),
+            })
+            .to_string(),
         _ => current,
     }
 }
@@ -1227,7 +1243,15 @@ fn ActivityPart<'a>(t: RepricingMsg, screen: &'a PolicyScreen) -> impl Render {
     let chips: Vec<(String, String, bool)> = FILTERS
         .iter()
         .map(|f| {
-            (at(Some(f), None), t.activity_filter_label(&filter_name(t, f), &counted(f)).to_string(), screen.filter == Some(*f))
+            (
+                at(Some(f), None),
+                t.activity_filter_label(crate::text::repricing_msg::ActivityFilterLabel {
+                    label: &filter_name(t, f),
+                    count: &counted(f),
+                })
+                .to_string(),
+                screen.filter == Some(*f),
+            )
         })
         .collect();
     let shown = counts.is_some();

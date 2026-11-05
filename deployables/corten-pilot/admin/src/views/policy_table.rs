@@ -23,7 +23,8 @@ fn summary(t: Msg, policy: &Payload) -> String {
         Some(value) => t.list_insurance_value_threshold(value.to_string()).to_string(),
         None => none.to_owned(),
     };
-    t.list_requirement_summary(parcel, join(signature), insurance).to_string()
+    t.list_requirement_summary(crate::text::msg::ListRequirementSummary { parcel, signature: join(signature), insurance })
+        .to_string()
 }
 
 /// One of the list's groups (active, drafts, retired), or its empty state. On a phone each policy is
@@ -120,7 +121,7 @@ pub fn Pagination<'a>(p: Pilot, screen: &'a Screen) -> impl Render {
         if show {
             <nav class={Pages} aria-label={p.pages_label()}>
                 if page > 1 { <a class={Open} href={at(page - 1)} rel="prev">{p.pages_previous()}</a> }
-                <span>{p.pages_current(page, pages)}</span>
+                <span>{p.pages_current(crate::text::pilot::PagesCurrent { page, pages })}</span>
                 if page < pages { <a class={Open} href={at(page + 1)} rel="next">{p.pages_next()}</a> }
             </nav>
         }

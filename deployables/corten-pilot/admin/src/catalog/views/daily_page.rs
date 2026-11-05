@@ -66,16 +66,23 @@ fn stage_description(t: Cat, stage: Stage) -> &'static str {
     }
 }
 
-/// A stage's summary line (`buildFlowStages`' `summary`). A message's arguments are positional, in
-/// the order its English text first uses them (todd-skelton/corten#860), so each call here was
-/// checked against its text.
+/// A stage's summary line (`buildFlowStages`' `summary`).
 fn stage_summary(t: Cat, model: &Daily, stage: Stage) -> String {
     let review = &model.source_observation_review;
     match stage {
         Stage::RunSync => t
-            .wb_stage_run_sync_summary(model.import_jobs.active_job_count, review.counts.observed, review.counts.changed)
+            .wb_stage_run_sync_summary(crate::text::cat::WbStageRunSyncSummary {
+                active: model.import_jobs.active_job_count,
+                observed: review.counts.observed,
+                changed: review.counts.changed,
+            })
             .to_string(),
-        Stage::Review => t.wb_stage_review_summary(review.counts.changed, review.promotion_ready_count).to_string(),
+        Stage::Review => t
+            .wb_stage_review_summary(crate::text::cat::WbStageReviewSummary {
+                changed: review.counts.changed,
+                ready: review.promotion_ready_count,
+            })
+            .to_string(),
         Stage::Create => match &model.promotion_result {
             Some(result) => t.wb_stage_create_summary(result.promoted_catalog_item_ids.len()).to_string(),
             None => t.wb_stage_create_summary_pending().to_owned(),
@@ -433,7 +440,7 @@ fn usage(t: Cat, job: &ImportJob) -> Vec<String> {
         t.wb_jobs_usage_pages(&n(usage.page_count)).to_string(),
     ];
     if let (Some(hits), Some(misses)) = (usage.cache_hit_count, usage.cache_miss_count) {
-        lines.push(t.wb_jobs_usage_cache(hits, misses).to_string());
+        lines.push(t.wb_jobs_usage_cache(crate::text::cat::WbJobsUsageCache { hits, misses }).to_string());
     }
     lines
 }
@@ -480,7 +487,7 @@ fn JobsModule<'a>(t: Cat, req: &'a Req, model: &'a Daily, context: &'a str, mana
                                 };
                                 let state = state_label(&job.state);
                                 let operator = t.wb_jobs_operator_status(&state_label(&job.operator_status)).to_string();
-                                let progress = t.wb_jobs_progress_value(job.completed, job.total, job.progress_percent).to_string();
+                                let progress = t.wb_jobs_progress_value(crate::text::cat::WbJobsProgressValue { completed: job.completed, total: job.total, percent: job.progress_percent }).to_string();
                                 let created = t.wb_jobs_created(&when(t, &job.created_at)).to_string();
                                 let started = t.wb_jobs_started(&job.started_at.as_deref().map_or_else(|| t.wb_jobs_not_started().to_owned(), |at| when(t, at))).to_string();
                                 let lines = usage(t, job);
@@ -518,7 +525,7 @@ fn JobsModule<'a>(t: Cat, req: &'a Req, model: &'a Daily, context: &'a str, mana
                                         } else {
                                             <span class={Badges}>
                                                 for group in &job.failure_groups {
-                                                    let label = t.wb_jobs_failure_group(&group.label, group.count).to_string();
+                                                    let label = t.wb_jobs_failure_group(crate::text::cat::WbJobsFailureGroup { label: &group.label, count: group.count }).to_string();
                                                     <Pill
                                                         text={&label}
                                                         tone={if group.severity == "error" { "danger" } else { "warning" }}
@@ -759,7 +766,15 @@ fn ReviewModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &
     let current = (pagination.offset / limit + 1) as usize;
     let range_start = if pagination.total == 0 { 0 } else { pagination.offset + 1 };
     let range_end = (pagination.offset + limit).min(pagination.total);
-    let pager_summary = t.wb_review_pager_summary(range_start, range_end, pagination.total, current, pages).to_string();
+    let pager_summary = t
+        .wb_review_pager_summary(crate::text::cat::WbReviewPagerSummary {
+            range_start,
+            range_end,
+            total: pagination.total,
+            current_page: current,
+            page_count: pages,
+        })
+        .to_string();
     let action = at(&daily::url::Review.href(), context);
     let f = ReviewInput::FIELDS;
     let reviewable = review.rows.iter().any(ReviewRow::reviewable);
@@ -769,7 +784,8 @@ fn ReviewModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &
     let scope = review.filters.iter().find(|f| f.key == "setId").and_then(|f| f.value.clone()).unwrap_or_default();
     let elsewhere = admin_web(&at("/catalog/integrations", context)).map(|u| u.to_string());
     let in_scope = t.wb_review_status(pagination.total).to_string();
-    let filtered = t.wb_review_empty_filtered(&status, &scope, total).to_string();
+    let filtered =
+        t.wb_review_empty_filtered(crate::text::cat::WbReviewEmptyFiltered { status: &status, scope: &scope, total }).to_string();
     html! {
         <Module
             id="wb-review"
@@ -903,7 +919,12 @@ fn review_page(context: &str, limit: u64, n: usize) -> Box<dyn Href> {
 
 #[component(css = DailyPage)]
 fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage: bool) -> impl Render {
-    let external = t.wb_review_table_external(&row.provider_key, &row.external_key).to_string();
+    let external = t
+        .wb_review_table_external(crate::text::cat::WbReviewTableExternal {
+            provider: &row.provider_key,
+            external: &row.external_key,
+        })
+        .to_string();
     let status = state_label(&row.status);
     let changed = t.wb_review_table_changed(&when(t, row.source_updated_at.as_deref().unwrap_or(&row.changed_at))).to_string();
     let duplicates = t.wb_review_duplicate_count(row.duplicate_count).to_string();

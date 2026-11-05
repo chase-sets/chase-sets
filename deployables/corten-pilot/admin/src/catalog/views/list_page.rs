@@ -416,7 +416,7 @@ pub fn Pager<'a>(t: Cat, p: Pilot, page: u32, pages: u32, previous: Option<&'a s
                 if let Some(href) = previous {
                     <a class={View} href={href} rel="prev">{t.list_previous()}</a>
                 }
-                <span>{p.pages_current(page, pages)}</span>
+                <span>{p.pages_current(crate::text::pilot::PagesCurrent { page, pages })}</span>
                 if let Some(href) = next {
                     <a class={View} href={href} rel="next">{t.list_next()}</a>
                 }

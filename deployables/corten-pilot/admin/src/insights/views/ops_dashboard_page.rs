@@ -121,7 +121,9 @@ fn Trend<'a>(o: Ops, p: Pilot, series: &'a [Point]) -> impl Render {
             </svg>
             <ul class={Hidden} id="od-trend-points">
                 for point in series {
-                    <li>{o.od_chart_point_label(&date(o, &point.day), &usd(o, &point.gmv_amount)).to_string()}</li>
+                    <li>
+                        {o.od_chart_point_label(crate::text::ops::OdChartPointLabel { date: &date(o, &point.day), amount: &usd(o, &point.gmv_amount) }).to_string()}
+                    </li>
                 }
             </ul>
         } else {
@@ -167,7 +169,9 @@ pub fn OpsDashboardPage<'a>(o: Ops, p: Pilot, screen: &'a OpsScreen) -> impl Ren
                     </label>
                     <button class={Button} type="submit">{o.projections_apply_filters()}</button>
                 </form>
-                <p class={Muted}>{o.oe_window_range(&date(o, &s.from), &date(o, &s.to)).to_string()}</p>
+                <p class={Muted}>
+                    {o.oe_window_range(crate::text::ops::OeWindowRange { from: &date(o, &s.from), to: &date(o, &s.to) }).to_string()}
+                </p>
             </section>
             <div class={Stats}>
                 <Figure label={o.od_gmv()} value={usd(o, &s.summary.gmv_amount)} />

@@ -74,7 +74,9 @@ pub fn status(t: Acc, value: &str) -> String {
     let family = t.auth_value_family_session_status();
     match (known, super::humanized(value)) {
         (Some(word), _) => word.to_owned(),
-        (None, Some(human)) => t.auth_value_unrecognized_with_value(family, &human).to_string(),
+        (None, Some(human)) => t
+            .auth_value_unrecognized_with_value(crate::text::acc::AuthValueUnrecognizedWithValue { family, value: &human })
+            .to_string(),
         (None, None) => t.auth_value_unrecognized(family).to_string(),
     }
 }

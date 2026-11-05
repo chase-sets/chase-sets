@@ -290,7 +290,7 @@ pub fn Reputation<'a>(t: CartMsg, seller: &'a Seller<'a>) -> impl Render {
             <span class={Name}>{seller.name}</span>
             match seller.rating {
                 Some((rating, count)) => {
-                    <span class={Rating} aria-label={t.page_seller_reputation_label()}>
+                    <span class={Rating} role="group" aria-label={t.page_seller_reputation_label()}>
                         <span aria-hidden="true">"\u{2605}"</span> " "
                         <strong>{format!("{rating:.1}")}</strong> " " {format!("({count})")}
                     </span>

@@ -700,7 +700,12 @@ pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crat
     let offered = screen.offered();
     let offered_seller = offered.and_then(|o| o.seller_display_name.as_deref().map(|name| crate::cart::Seller::of(name, o)));
     let offer_title = match &offered_seller {
-        Some(seller) => t.page_optimization_switch_to_seller_title(&savings, seller.name).to_string(),
+        Some(seller) => t
+            .page_optimization_switch_to_seller_title(crate::text::cart_msg::PageOptimizationSwitchToSellerTitle {
+                savings: &savings,
+                seller: seller.name,
+            })
+            .to_string(),
         None => t.page_optimization_available_title(&savings).to_string(),
     };
     let context = if screen.ready() || readiness.is_none() {

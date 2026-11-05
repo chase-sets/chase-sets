@@ -477,7 +477,7 @@ fn MembershipRow<'a>(t: Acc, p: Pilot, id: &'a str, account: &'a str, m: &'a Mem
                             target={&m.membership_id}
                             label={t.membership_detail_revoke()}
                             title={&t.membership_detail_revoke_confirm_title(who).to_string()}
-                            description={&t.membership_detail_revoke_confirm_description(who, account).to_string()}
+                            description={&t.membership_detail_revoke_confirm_description(crate::text::acc::MembershipDetailRevokeConfirmDescription { user: who, account }).to_string()}
                             confirm={t.membership_detail_revoke_confirm_action()}
                             small={true}
                         />
@@ -535,7 +535,7 @@ fn InvitationRow<'a>(t: Acc, p: Pilot, id: &'a str, account: &'a str, i: &'a Inv
                             target={&i.invitation_id}
                             label={t.invitation_detail_cancel()}
                             title={&t.invitation_detail_cancel_confirm_title(&i.email).to_string()}
-                            description={&t.invitation_detail_cancel_confirm_description(&i.email, account).to_string()}
+                            description={&t.invitation_detail_cancel_confirm_description(crate::text::acc::InvitationDetailCancelConfirmDescription { email: &i.email, account }).to_string()}
                             confirm={t.invitation_detail_cancel_confirm_action()}
                             small={true}
                         />
@@ -822,7 +822,9 @@ fn Audit<'a>(t: Acc, hub: &'a Hub) -> impl Render {
                 for event in &hub.audit_events {
                     <li>
                         <p class={Strong}>{audit_title(&event.event_type)}</p>
-                        <p class={Muted}>{t.account_audit_event_description(&event.stream_id, &event.performed_by_user_id)}</p>
+                        <p class={Muted}>
+                            {t.account_audit_event_description(crate::text::acc::AccountAuditEventDescription { stream_id: &event.stream_id, performed_by_user_id: &event.performed_by_user_id })}
+                        </p>
                         <p class={Muted}>{when(t, Some(&event.recorded_at))}</p>
                     </li>
                 }
@@ -892,7 +894,9 @@ pub fn SessionPage<'a>(t: Acc, p: Pilot, screen: &'a SessionScreen) -> impl Rend
                     <form method="post" action={&action}>
                         <input type="hidden" name={f.intent} value="revoke">
                         <h3>{&confirm_title}</h3>
-                        <p>{t.session_detail_revoke_confirm_description(user, account)}</p>
+                        <p>
+                            {t.session_detail_revoke_confirm_description(crate::text::acc::SessionDetailRevokeConfirmDescription { user, account })}
+                        </p>
                         <div class={Buttons}>
                             <button type="button" class={(Button, Secondary)} command="close" commandfor={&revoke}>
                                 {p.access_close()}

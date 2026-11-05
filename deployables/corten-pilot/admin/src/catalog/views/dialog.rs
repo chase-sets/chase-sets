@@ -393,8 +393,19 @@ pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
 ) -> impl Patch {
     let f = RefRecordInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
-    let mut type_labels: Vec<(String, String)> =
-        types.iter().map(|ty| (ty.key.clone(), t.ref_record_reference_type_option(&ty.name, &ty.key).to_string())).collect();
+    let mut type_labels: Vec<(String, String)> = types
+        .iter()
+        .map(|ty| {
+            (
+                ty.key.clone(),
+                t.ref_record_reference_type_option(crate::text::cat::RefRecordReferenceTypeOption {
+                    name: &ty.name,
+                    key: &ty.key,
+                })
+                .to_string(),
+            )
+        })
+        .collect();
     // A record whose type is no longer active keeps it: the select does not change it unasked.
     if !i.type_key.is_empty() && !type_labels.iter().any(|(key, _)| *key == i.type_key) {
         type_labels.insert(0, (i.type_key.clone(), i.type_key.clone()));
@@ -402,7 +413,17 @@ pub fn RefRecordForm<'a, I: Id + AttrValue + Copy>(
     let mut record_labels: Vec<(String, String)> = records
         .iter()
         .filter(|r| r.reference_record_id != own)
-        .map(|r| (r.reference_record_id.clone(), t.ref_record_reference_record_option(&r.name, &r.type_key, &r.key).to_string()))
+        .map(|r| {
+            (
+                r.reference_record_id.clone(),
+                t.ref_record_reference_record_option(crate::text::cat::RefRecordReferenceRecordOption {
+                    name: &r.name,
+                    type_key: &r.type_key,
+                    key: &r.key,
+                })
+                .to_string(),
+            )
+        })
         .collect();
     let rows = i.rows();
     // A row's record that is not among the choices (past the 500 read, or not read yet) is still

@@ -207,7 +207,9 @@ pub fn FeedbackPage<'a>(t: Sup, p: Pilot, screen: &'a ListScreen) -> impl Render
                     </div>
                 </form>
             }
-            <p class={Muted}>{t.fb_count_summary(screen.entries.count, screen.entries.total)}</p>
+            <p class={Muted}>
+                {t.fb_count_summary(crate::text::sup::FbCountSummary { count: screen.entries.count, total: screen.entries.total })}
+            </p>
         </section>
     }
 }
@@ -326,7 +328,7 @@ pub fn FeedbackItemPage<'a>(t: Sup, p: Pilot, screen: &'a ItemScreen) -> impl Re
                                 <li class={NoteCard}>
                                     <p class={Words}>{&note.body}</p>
                                     <p class={Muted}>
-                                        {t.fb_operator_note_attribution(&note.recorded_by_user_id, &when(t, Some(&note.recorded_at)))}
+                                        {t.fb_operator_note_attribution(crate::text::sup::FbOperatorNoteAttribution { user: &note.recorded_by_user_id, timestamp: &when(t, Some(&note.recorded_at)) })}
                                     </p>
                                 </li>
                             }
@@ -350,7 +352,7 @@ pub fn FeedbackItemPage<'a>(t: Sup, p: Pilot, screen: &'a ItemScreen) -> impl Re
                     } else {
                         <ul class={Related}>
                             for (entity, href) in &screen.related {
-                                let label = t.fb_related_entity_label(&entity.entity_type, &entity.id).to_string();
+                                let label = t.fb_related_entity_label(crate::text::sup::FbRelatedEntityLabel { r#type: &entity.entity_type, id: &entity.id }).to_string();
                                 <li>
                                     if let Some(href) = href {
                                         <a class={(Button, Secondary, Words)} href={href} target="_blank" rel="noreferrer">

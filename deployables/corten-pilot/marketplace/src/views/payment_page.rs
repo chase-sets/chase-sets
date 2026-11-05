@@ -279,7 +279,9 @@ fn Summary<'a>(t: PaymentMsg, payment: &'a AccountPayment) -> impl Render {
                 </li>
                 <li>
                     <p class={Strong}>{t.purchase_coverage()}</p>
-                    <p class={Muted}>{t.covers_purchases(&count.to_string(), purchases)}</p>
+                    <p class={Muted}>
+                        {t.covers_purchases(crate::text::payment_msg::CoversPurchases { count: &count.to_string(), purchase_label: purchases })}
+                    </p>
                 </li>
                 <li>
                     <p class={Strong}>{t.fee_transparency()}</p>
@@ -386,7 +388,9 @@ fn SupportDetails<'a>(t: PaymentMsg, payment: &'a AccountPayment) -> impl Render
             <details class={Fold} open={payment.failure_code.is_some()}>
                 <summary>
                     <span class={Strong}>{t.support_details()}</span>
-                    <span class={Muted}>{t.provider_events_status_summary(&count, &payment.processor_status)}</span>
+                    <span class={Muted}>
+                        {t.provider_events_status_summary(crate::text::payment_msg::ProviderEventsStatusSummary { count: &count, status: &payment.processor_status })}
+                    </span>
                 </summary>
                 <dl class={Facts}>
                     <div>

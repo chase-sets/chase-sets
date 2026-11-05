@@ -310,7 +310,9 @@ fn Summary<'a>(t: CheckoutMsg, screen: &'a StartScreen) -> impl Render {
                     None => {
                         <div>
                             <dt>{t.start_cart()}</dt>
-                            <dd>{t.start_item_count(screen.cart_count, label)}</dd>
+                            <dd>
+                                {t.start_item_count(crate::text::checkout_msg::StartItemCount { count: screen.cart_count, item_label: label })}
+                            </dd>
                         </div>
                     }
                 }

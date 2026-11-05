@@ -175,7 +175,12 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
     };
     let eyebrow = if seller { t.detail_seller() } else { t.detail_buyer() };
     let title = t.detail_shipment(&s.display_reference).to_string();
-    let description = t.detail_order_with_counterpart(&display_reference(&s.order_id), counterpart).to_string();
+    let description = t
+        .detail_order_with_counterpart(crate::text::shipments_msg::DetailOrderWithCounterpart {
+            order_reference: &display_reference(&s.order_id),
+            counterpart,
+        })
+        .to_string();
     let back = match side {
         Side::Buyer => crate::app::url::Shipments.href(),
         Side::Seller => crate::app::url::SaleShipments::default().href(),
@@ -415,7 +420,12 @@ fn Diagnostics<'a>(t: ShipmentsMsg, shipment: &'a ShipmentDetail, policy: Option
         None => s.label_status.clone(),
     };
     let outcome = match &s.postage_provider_name {
-        Some(name) => t.detail_provider_name_mode(name, s.postage_provider_mode.as_deref().unwrap_or("")).to_string(),
+        Some(name) => t
+            .detail_provider_name_mode(crate::text::shipments_msg::DetailProviderNameMode {
+                provider_name: name,
+                provider_mode: s.postage_provider_mode.as_deref().unwrap_or(""),
+            })
+            .to_string(),
         None => t.detail_not_selected_yet_4().to_owned(),
     };
     let facts = vec![
@@ -476,7 +486,12 @@ fn Diagnostics<'a>(t: ShipmentsMsg, shipment: &'a ShipmentDetail, policy: Option
 fn Operation<'a>(t: ShipmentsMsg, operation: &'a PostageOperation) -> impl Render {
     let o = operation;
     let value = |v: &Option<String>| or_not_recorded(t, v.as_deref());
-    let heading = t.detail_operation_kind_status(&o.operation_kind, &o.status).to_string();
+    let heading = t
+        .detail_operation_kind_status(crate::text::shipments_msg::DetailOperationKindStatus {
+            operation_kind: &o.operation_kind,
+            status: &o.status,
+        })
+        .to_string();
     let facts = vec![
         fact(t.detail_usps_service(), value(&o.requested_service_level)),
         fact(t.detail_delivery_confirmation(), value(&o.requested_delivery_confirmation)),
@@ -490,7 +505,9 @@ fn Operation<'a>(t: ShipmentsMsg, operation: &'a PostageOperation) -> impl Rende
         fact(t.detail_shipping_evidence_tier(), value(&o.shipping_evidence_tier)),
     ];
     let override_note = o.address_override_changed_side.as_ref().map(|side| match &o.address_override_reason {
-        Some(reason) => t.detail_address_override_with_reason(side, reason).to_string(),
+        Some(reason) => t
+            .detail_address_override_with_reason(crate::text::shipments_msg::DetailAddressOverrideWithReason { side, reason })
+            .to_string(),
         None => t.detail_address_override_with_side(side).to_string(),
     });
     html! {
@@ -516,9 +533,9 @@ fn Event<'a>(t: ShipmentsMsg, event: &'a PostageProviderEvent) -> impl Render {
     let e = event;
     let value = |v: &Option<String>| or_not_recorded(t, v.as_deref());
     html! {
-        let title = t.detail_provider_event_kind_status(&e.event_kind, &e.status).to_string();
+        let title = t.detail_provider_event_kind_status(crate::text::shipments_msg::DetailProviderEventKindStatus { event_kind: &e.event_kind, status: &e.status }).to_string();
         let facts = vec![
-        fact(t.detail_postage_provider(), t.detail_provider_name_mode(&e.provider_name, &e.provider_mode).to_string()),
+        fact(t.detail_postage_provider(), t.detail_provider_name_mode(crate::text::shipments_msg::DetailProviderNameMode { provider_name: &e.provider_name, provider_mode: &e.provider_mode }).to_string()),
         fact(t.detail_tracking(), value(&e.tracking_identifier)),
         fact(t.detail_provider_processing_result(), value(&e.processing_result)),
         fact(t.detail_provider_status_detail(), value(&e.status_detail)),

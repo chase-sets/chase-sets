@@ -113,7 +113,7 @@ pub fn RecoveredPage<'a>(t: Com, p: Pilot, screen: &'a RecoveredScreen) -> impl 
                     </KitTable>
                 </div>
                 <p class={Muted}>
-                    {t.rr_recovery_summary(&usd(t, &m.gross_value), &usd(t, &m.disposition_cost), &usd(t, &m.net_recovered_value))}
+                    {t.rr_recovery_summary(crate::text::com::RrRecoverySummary { gross: &usd(t, &m.gross_value), cost: &usd(t, &m.disposition_cost), net: &usd(t, &m.net_recovered_value) })}
                 </p>
             </section>
             <section class={Card} aria-labelledby="rr-queue">
@@ -185,7 +185,7 @@ pub fn RecoveredPage<'a>(t: Com, p: Pilot, screen: &'a RecoveredScreen) -> impl 
                 }
                 if let Some((item, status)) = &screen.done {
                     <p class={Success} role="status">
-                        {t.rr_action_completed(item, status.as_deref().unwrap_or(t.rr_action_updated()))}
+                        {t.rr_action_completed(crate::text::com::RrActionCompleted { id: item, status: status.as_deref().unwrap_or(t.rr_action_updated()) })}
                     </p>
                 }
                 <form class={Form} method="post">

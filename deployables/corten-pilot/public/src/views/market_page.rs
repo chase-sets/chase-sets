@@ -76,7 +76,14 @@ impl Group {
         let chart = Chart::of(points);
         let price = |v: f64| money(t, Some(&format!("{v:.2}")), code);
         let summary = match &chart {
-            Chart::Plot(plot) => p.chart_summary(&page.title, plot.count, &price(plot.min), &price(plot.max)).to_string(),
+            Chart::Plot(plot) => p
+                .chart_summary(crate::text::pilot::ChartSummary {
+                    name: &page.title,
+                    count: plot.count,
+                    min: &price(plot.min),
+                    max: &price(plot.max),
+                })
+                .to_string(),
             Chart::Empty | Chart::Insufficient => String::new(),
         };
         let (history, stats) = match code.filter(|_| several) {

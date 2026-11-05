@@ -135,7 +135,12 @@ pub fn CommandCenterPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, scre
 #[component(css = CommandCenterPage)]
 fn Bucket<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, bucket: &'a CommandCenterBucket, writes: bool) -> impl Render {
     let heading = format!("bucket-{}", bucket.id);
-    let title = t.center_bucket_with_count(bucket_title(t, &bucket.id), bucket.count).to_string();
+    let title = t
+        .center_bucket_with_count(crate::text::shipments_msg::CenterBucketWithCount {
+            bucket: bucket_title(t, &bucket.id),
+            count: bucket.count,
+        })
+        .to_string();
     html! {
         <section class={Bucket} aria-labelledby={&heading}>
             <h2 id={&heading} class={SectionTitle}>{&title}</h2>
@@ -153,7 +158,13 @@ fn Bucket<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, bucket: &'a Command
 fn ItemCard<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, item: &'a CommandCenterItem, writes: bool) -> impl Render {
     let id = item.shipment_id.as_str();
     let buyer = item.buyer_display_name.as_deref().filter(|b| !b.is_empty()).unwrap_or(t.center_buyer_unknown());
-    let summary = t.center_summary(buyer, item.total_quantity, item.line_count).to_string();
+    let summary = t
+        .center_summary(crate::text::shipments_msg::CenterSummary {
+            buyer,
+            quantity: item.total_quantity,
+            lines: item.line_count,
+        })
+        .to_string();
     let open = url::SaleShipment { id, place: Default::default() }.href();
     let disclosed: Vec<(ShipmentAction, &str)> =
         item.plan.disclosed.iter().filter_map(|a| action_label(t, *a).map(|label| (*a, label))).collect();

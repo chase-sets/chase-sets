@@ -313,7 +313,12 @@ fn Row<'a>(t: ImportsMsg, row: &'a ImportRow, batch: &'a str, offset: u64, resol
     let reference = row.external_reference.as_ref();
     let name = reference.and_then(|r| r.display_name.as_deref().or(Some(r.external_key.as_str()))).unwrap_or(t.page_native_row());
     let detail = match reference {
-        Some(r) => t.page_external_reference(&r.provider_key, &r.external_key).to_string(),
+        Some(r) => t
+            .page_external_reference(crate::text::imports_msg::PageExternalReference {
+                provider: &r.provider_key,
+                key: &r.external_key,
+            })
+            .to_string(),
         None => row.row_fingerprint.clone(),
     };
     let quantity = row
@@ -471,7 +476,9 @@ fn FixDialog<'a>(
                 <h2 id="import-fix-title" class={PartTitle}>{t.page_resolve_import_row(row.row_number)}</h2>
                 <a ref={back} class={(Button, Ghost, Small)} href={&close}>{t.page_close()}</a>
             </div>
-            <p id="import-fix-progress" class={Muted}>{t.page_resolve_progress(fixing.position, fixing.total)}</p>
+            <p id="import-fix-progress" class={Muted}>
+                {t.page_resolve_progress(crate::text::imports_msg::PageResolveProgress { position: fixing.position, total: fixing.total })}
+            </p>
             if !row.validation_errors.is_empty() {
                 <ul class={Errors}>
                     for message in &row.validation_errors {

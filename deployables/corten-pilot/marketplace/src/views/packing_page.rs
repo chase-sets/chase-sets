@@ -83,7 +83,8 @@ fn status_tone(status: &str) -> &'static str {
 fn item_count(t: ShipmentsMsg, quantity: u64, lines: u64) -> String {
     let item = if quantity == 1 { t.packing_item() } else { t.packing_items_label() };
     let line = if lines == 1 { t.packing_line() } else { t.packing_lines() };
-    t.packing_item_count(quantity, item, lines, line).to_string()
+    t.packing_item_count(crate::text::shipments_msg::PackingItemCount { quantity, item_label: item, lines, line_label: line })
+        .to_string()
 }
 
 /// Where it goes, a line each (`addressLines`). The API's snapshot may be empty (`{}`), so each
@@ -158,7 +159,12 @@ fn PackingView<'a>(
 ) -> impl Render {
     let at = stage(s);
     let buyer = s.buyer_display_name.as_deref().unwrap_or(&s.buyer_account_id);
-    let description = t.packing_description(&display_reference(&s.order_id), buyer).to_string();
+    let description = t
+        .packing_description(crate::text::shipments_msg::PackingDescription {
+            order_reference: &display_reference(&s.order_id),
+            buyer,
+        })
+        .to_string();
     let step = |current: bool, done: bool| {
         if done {
             StepState::Done(p.steps_done())
@@ -387,7 +393,7 @@ fn Progress<'a>(t: ShipmentsMsg, s: &'a ShipmentDetail) -> impl Patch {
     let total = s.total_quantity;
     let checked = if at.packed { total } else { packed };
     let percent = if at.packed { 100 } else { (checked * 100 + total / 2).checked_div(total).unwrap_or(0) };
-    let label = t.packing_progress(checked, total).to_string();
+    let label = t.packing_progress(crate::text::shipments_msg::PackingProgress { checked, total }).to_string();
     html! {
         <div id={PackingProgressId} class={Progress} data-tone={if all || at.packed { "success" } else { "accent" }}>
             if at.packing || at.packed {
@@ -485,7 +491,7 @@ fn LineItem<'a>(
                     value={if checked { 0 } else { line.quantity }}
                     role="checkbox"
                     aria-checked={if checked { "true" } else { "false" }}
-                    aria-label={t.packing_line_checked(line.quantity, &line.item_title)}
+                    aria-label={t.packing_line_checked(crate::text::shipments_msg::PackingLineChecked { quantity: line.quantity, title: &line.item_title })}
                 ></button>
                 <div class={LineText}>
                     <p class={Strong}>{&line.item_title}</p>
@@ -500,7 +506,9 @@ fn LineItem<'a>(
                 </div>
                 <div class={Count}>
                     <p class={Strong}>{format!("\u{d7}{}", line.quantity)}</p>
-                    <p class={Muted}>{t.packing_line_quantity_detail(packed, line.quantity)}</p>
+                    <p class={Muted}>
+                        {t.packing_line_quantity_detail(crate::text::shipments_msg::PackingLineQuantityDetail { packed, total: line.quantity })}
+                    </p>
                     if line.quantity > 1 {
                         <div class={Stepper}>
                             <button
@@ -587,7 +595,9 @@ fn Footer<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, s: &'a
     html! {
         <div id={PackingFooterId} class={Footer}>
             <div class={Stack}>
-                <p class={Strong}>{t.packing_progress(packed, s.total_quantity)}</p>
+                <p class={Strong}>
+                    {t.packing_progress(crate::text::shipments_msg::PackingProgress { checked: packed, total: s.total_quantity })}
+                </p>
                 <p class={Muted} id="packing-finish-note">
                     {if all { t.packing_complete_ready() } else { t.packing_complete_disabled() }}
                 </p>

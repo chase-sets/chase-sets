@@ -44,7 +44,11 @@ fn attention(t: Acc, home: &access::api::Home) -> Vec<Attention> {
         kind: t.home_pending_invitation(),
         account: i.account_label().to_owned(),
         detail: t
-            .home_pending_invitation_detail(&i.email, &access::role(t, &i.role_key), &when(t, Some(&i.expires_at)))
+            .home_pending_invitation_detail(crate::text::acc::HomePendingInvitationDetail {
+                email: &i.email,
+                role: &access::role(t, &i.role_key),
+                expires_at: &when(t, Some(&i.expires_at)),
+            })
             .to_string(),
         href: hub(&i.account_id, Tab::Team),
     });
@@ -52,7 +56,11 @@ fn attention(t: Acc, home: &access::api::Home) -> Vec<Attention> {
         kind: t.home_api_key_rotation(),
         account: if k.account_display_name.is_empty() { k.account_id.clone() } else { k.account_display_name.clone() },
         detail: t
-            .home_api_key_rotation_detail(&k.key.name, k.key.user_label(), &when(t, k.rotation_due_at.as_deref()))
+            .home_api_key_rotation_detail(crate::text::acc::HomeApiKeyRotationDetail {
+                name: &k.key.name,
+                user: k.key.user_label(),
+                due_at: &when(t, k.rotation_due_at.as_deref()),
+            })
             .to_string(),
         href: hub(&k.account_id, Tab::ApiAccess),
     });
@@ -65,7 +73,12 @@ fn attention(t: Acc, home: &access::api::Home) -> Vec<Attention> {
     let review = a.memberships_awaiting_review.iter().map(|m| Attention {
         kind: t.home_membership_review(),
         account: m.account_label().to_owned(),
-        detail: t.home_membership_review_detail(m.user_label(), &access::role(t, &m.role_key)).to_string(),
+        detail: t
+            .home_membership_review_detail(crate::text::acc::HomeMembershipReviewDetail {
+                user: m.user_label(),
+                role: &access::role(t, &m.role_key),
+            })
+            .to_string(),
         href: hub(&m.account_id, Tab::Team),
     });
     invitations.chain(keys).chain(suspended).chain(review).collect()
@@ -279,7 +292,7 @@ fn ListFrame<'a, C: Render>(
             if previous.is_some() || next.is_some() {
                 <nav class={Pages} aria-label={p.pages_label()}>
                     if let Some(href) = &previous { <a class={Open} href={href} rel="prev">{p.pages_previous()}</a> }
-                    <span>{p.pages_current(page, pages)}</span>
+                    <span>{p.pages_current(crate::text::pilot::PagesCurrent { page, pages })}</span>
                     if let Some(href) = &next { <a class={Open} href={href} rel="next">{p.pages_next()}</a> }
                 </nav>
             }

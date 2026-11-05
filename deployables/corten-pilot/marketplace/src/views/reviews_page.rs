@@ -208,7 +208,11 @@ fn Empty<'a>(title: &'a str, description: &'a str) -> impl Render {
 #[component(css = ReviewsPage)]
 fn Distribution<'a>(t: ReviewsMsg, title: &'a str, side: &'a Side) -> impl Render {
     let count = if side.ratings != side.reviews {
-        t.summary_rating_and_review_count(side.ratings, side.reviews).to_string()
+        t.summary_rating_and_review_count(crate::text::reviews_msg::SummaryRatingAndReviewCount {
+            rating_count: side.ratings,
+            review_count: side.reviews,
+        })
+        .to_string()
     } else if side.reviews > 0 {
         side.reviews.to_string()
     } else {

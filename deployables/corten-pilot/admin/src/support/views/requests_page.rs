@@ -124,9 +124,15 @@ fn Deadline<'a>(t: Sup, due: Option<&'a str>, now: SystemTime) -> impl Render {
             let (overdue, value, unit) = countdown(when_due, now);
             <span class={Stack}>
                 if overdue {
-                    <Tag words={&t.ops_deadline_overdue(value, unit).to_string()} tone="danger" />
+                    <Tag
+                        words={&t.ops_deadline_overdue(crate::text::sup::OpsDeadlineOverdue { value, unit }).to_string()}
+                        tone="danger"
+                    />
                 } else {
-                    <Tag words={&t.ops_deadline_due(value, unit).to_string()} tone="warning" />
+                    <Tag
+                        words={&t.ops_deadline_due(crate::text::sup::OpsDeadlineDue { value, unit }).to_string()}
+                        tone="warning"
+                    />
                 }
                 <span class={Small}>{when(t, Some(text))}</span>
             </span>
@@ -215,7 +221,9 @@ pub fn RequestsPage<'a>(t: Sup, p: Pilot, screen: &'a QueueScreen, now: SystemTi
                 } else {
                     <Tag words={t.ops_success()} tone="success" />
                 }
-                <p class={Strong}>{t.ops_escalation_result(e.escalated, e.skipped)}</p>
+                <p class={Strong}>
+                    {t.ops_escalation_result(crate::text::sup::OpsEscalationResult { escalated: e.escalated, skipped: e.skipped })}
+                </p>
                 if e.capped {
                     <p class={Muted}>{t.ops_escalation_capped(e.total)}</p>
                 }
@@ -289,7 +297,9 @@ pub fn RequestsPage<'a>(t: Sup, p: Pilot, screen: &'a QueueScreen, now: SystemTi
                 </ul>
             }
             <div class={Count}>
-                <p class={Strong}>{t.ops_queue_count(screen.queue.count, screen.queue.total)}</p>
+                <p class={Strong}>
+                    {t.ops_queue_count(crate::text::sup::OpsQueueCount { count: screen.queue.count, total: screen.queue.total })}
+                </p>
                 <form method="post" action={&here}>
                     <button type="submit" class={Button} disabled={screen.unavailable}>{t.ops_escalate_overdue()}</button>
                 </form>
@@ -329,7 +339,7 @@ pub fn RequestsPage<'a>(t: Sup, p: Pilot, screen: &'a QueueScreen, now: SystemTi
             if previous.is_some() || next.is_some() {
                 <nav class={Pages} aria-label={p.pages_label()}>
                     if let Some(href) = &previous { <a class={Open} href={href} rel="prev">{p.pages_previous()}</a> }
-                    <span>{p.pages_current(page, pages)}</span>
+                    <span>{p.pages_current(crate::text::pilot::PagesCurrent { page, pages })}</span>
                     if let Some(href) = &next { <a class={Open} href={href} rel="next">{p.pages_next()}</a> }
                 </nav>
             }
@@ -381,7 +391,7 @@ fn QueueRow<'a>(t: Sup, row: &'a Row, screen: &'a QueueScreen, now: SystemTime, 
             </td>
             <td>
                 <CellLabel>{t.ops_checklist()}</CellLabel>
-                {t.ops_checklist_summary(satisfied, required)}
+                {t.ops_checklist_summary(crate::text::sup::OpsChecklistSummary { satisfied, required })}
             </td>
             <td>
                 <CellLabel>{t.ops_action()}</CellLabel>
@@ -851,7 +861,7 @@ fn CaseForm<'a>(t: Sup, action: CaseAction, detail: &'a Detail, href: &'a str) -
                         <select name={f.responsibility_finding} required>
                             for reason in reasons {
                                 <option value={&format!("{}|{}", reason.responsibility, reason.code)}>
-                                    {t.ops_resolve_responsibility_reason_option(&reason.operator_label, &reason.responsibility)}
+                                    {t.ops_resolve_responsibility_reason_option(crate::text::sup::OpsResolveResponsibilityReasonOption { reason: &reason.operator_label, responsibility: &reason.responsibility })}
                                 </option>
                             }
                         </select>

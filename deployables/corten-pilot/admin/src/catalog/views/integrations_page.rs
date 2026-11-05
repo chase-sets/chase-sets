@@ -229,10 +229,16 @@ fn credits(t: Cat, budget: &UsageBudget) -> String {
     let unit = budget.credit_unit.as_deref().unwrap_or("");
     match (budget.credit_balance, budget.credit_allowance) {
         (None, _) => t.wb_health_usage_not_reported().to_owned(),
-        (Some(balance), None) => t.wb_health_usage_credits_balance(number(balance), unit).to_string(),
-        (Some(balance), Some(allowance)) => {
-            t.wb_health_usage_credits_allowance(number(balance), number(allowance), unit).to_string()
-        }
+        (Some(balance), None) => t
+            .wb_health_usage_credits_balance(crate::text::cat::WbHealthUsageCreditsBalance { balance: number(balance), unit })
+            .to_string(),
+        (Some(balance), Some(allowance)) => t
+            .wb_health_usage_credits_allowance(crate::text::cat::WbHealthUsageCreditsAllowance {
+                balance: number(balance),
+                allowance: number(allowance),
+                unit,
+            })
+            .to_string(),
     }
 }
 
@@ -427,7 +433,7 @@ fn HealthWorkspace<'a>(t: Cat, health: &'a HealthTriage) -> impl Render {
                         <tbody>
                             for row in &health.units {
                                 let scope = format!("{} / {}/{}", row.provider_key, row.product_domain, row.product_form);
-                                let counts = t.wb_health_diagnostic_counts(row.diagnostic_counts.error, row.diagnostic_counts.warning, row.diagnostic_counts.info).to_string();
+                                let counts = t.wb_health_diagnostic_counts(crate::text::cat::WbHealthDiagnosticCounts { errors: row.diagnostic_counts.error, warnings: row.diagnostic_counts.warning, infos: row.diagnostic_counts.info }).to_string();
                                 let facts = t.wb_health_observation_facts(row.observation_facts).to_string();
                                 let dry_tone = if row.dry_run_status == "completed" { "success" } else { "danger" };
                                 let unit_status = health_label(t, &row.status);
@@ -555,7 +561,7 @@ fn HealthWorkspace<'a>(t: Cat, health: &'a HealthTriage) -> impl Render {
             } else {
                 for control in &active {
                     let owner = t.wb_health_rollout_owner_metric(&control.metric_key).to_string();
-                    let description = t.wb_health_rollout_description(&control.message, &owner, &control.next_action).to_string();
+                    let description = t.wb_health_rollout_description(crate::text::cat::WbHealthRolloutDescription { message: &control.message, owner_metric: &owner, next_action: &control.next_action }).to_string();
                     <Banner
                         tone={if control.status == "blocked" { "danger" } else { "warning" }}
                         title={&control.control_id}

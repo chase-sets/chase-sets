@@ -138,8 +138,13 @@ fn ListError<'a>(t: Cat, message: &'a str) -> impl Render {
 pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRecord) -> impl Render {
     let s = row;
     let domain = format!("{} · {}", s.product_domain, s.scope_kind);
-    let coverage = (!s.language_editions.is_empty())
-        .then(|| t.scopes_coverage_editions(s.language_editions.len(), s.language_editions.join(", ")).to_string());
+    let coverage = (!s.language_editions.is_empty()).then(|| {
+        t.scopes_coverage_editions(crate::text::cat::ScopesCoverageEditions {
+            count: s.language_editions.len(),
+            editions: s.language_editions.join(", "),
+        })
+        .to_string()
+    });
     let (promotion, promotion_tone) = match row.promotion_readiness {
         Promotion::Unpublished => (t.scopes_promotion_unpublished(), Tone::Warning),
         Promotion::Live => (t.scopes_promotion_live(), Tone::Success),

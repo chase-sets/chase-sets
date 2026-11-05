@@ -238,7 +238,7 @@ fn Head<'a>(t: Cat, p: Pilot, model: &'a Model, key: &'a str) -> impl Render {
         "blocked" | "unavailable" => t.pd_header_blocked_title(),
         _ => t.pd_header_degraded_title(),
     };
-    let summary = t.pd_header_units(units.len(), blocked).to_string();
+    let summary = t.pd_header_units(crate::text::cat::PdHeaderUnits { count: units.len(), blocked }).to_string();
     let or_none = |v: Option<&String>| v.cloned().unwrap_or_else(|| t.wb_not_selected().to_owned());
     let items = [
         (t.wb_health_capability_api(), or_none(row.map(|r| &r.api_reachability))),
@@ -889,13 +889,18 @@ fn Outcome<'a>(t: Cat, job: &'a ImportJob) -> impl Render {
             usage_lines.push(t.wb_jobs_usage_requests(&n(u.actual_request_count)).to_string());
             usage_lines.push(t.wb_jobs_usage_pages(&n(u.page_count)).to_string());
             if let (Some(hits), Some(misses)) = (u.cache_hit_count, u.cache_miss_count) {
-                usage_lines.push(t.wb_jobs_usage_cache(hits, misses).to_string());
+                usage_lines.push(t.wb_jobs_usage_cache(crate::text::cat::WbJobsUsageCache { hits, misses }).to_string());
             }
         }
     }
     let progress = [
         t.wb_jobs_operator_status(&state_label(&job.operator_status)).to_string(),
-        t.wb_jobs_progress_value(job.completed, job.total, job.progress_percent).to_string(),
+        t.wb_jobs_progress_value(crate::text::cat::WbJobsProgressValue {
+            completed: job.completed,
+            total: job.total,
+            percent: job.progress_percent,
+        })
+        .to_string(),
     ];
     let counts = [
         (t.wb_import_operations_observed(), result.map_or_else(|| unavailable.to_owned(), |r| n(r.observed_count))),
@@ -920,7 +925,7 @@ fn Outcome<'a>(t: Cat, job: &'a ImportJob) -> impl Render {
                     } else {
                         <span class={Badges}>
                             for group in &job.failure_groups {
-                                let label = t.wb_jobs_failure_group(&failure_label(t, &group.key, &group.label), group.count).to_string();
+                                let label = t.wb_jobs_failure_group(crate::text::cat::WbJobsFailureGroup { label: &failure_label(t, &group.key, &group.label), count: group.count }).to_string();
                                 <Pill text={&label} tone={if group.severity == "error" { "danger" } else { "warning" }} />
                             }
                         </span>

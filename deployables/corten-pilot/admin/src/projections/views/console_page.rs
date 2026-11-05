@@ -203,7 +203,11 @@ fn Health<'a>(t: Ops, screen: &'a Screen) -> impl Render {
         (t.projections_running_operations(), count(t, ops.map_or(&zero, |s| &s.running_count))),
         (
             t.projections_active_workers(),
-            t.projections_active_worker_summary(console.active_worker_count, console.stale_worker_count).to_string(),
+            t.projections_active_worker_summary(crate::text::ops::ProjectionsActiveWorkerSummary {
+                active: console.active_worker_count,
+                stale: console.stale_worker_count,
+            })
+            .to_string(),
         ),
     ];
     html! {
@@ -525,7 +529,7 @@ fn Operations<'a>(t: Ops, rows: Vec<&'a Operation>, filters: &'a url::Filters) -
                             for operation in rows.iter() {
                                 let details = url::Projections { filters: filters.select(Some(&operation.operation_id)) }.href();
                                 let target = t
-                                    .projections_operation_target(&operation.context_name, operation.target().unwrap_or(t.projections_all()))
+                                    .projections_operation_target(crate::text::ops::ProjectionsOperationTarget { context: &operation.context_name, target: operation.target().unwrap_or(t.projections_all()) })
                                     .to_string();
                                 <tr>
                                     <td data-label={head[0]}>

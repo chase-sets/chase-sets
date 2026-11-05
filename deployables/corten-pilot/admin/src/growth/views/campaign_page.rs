@@ -38,7 +38,9 @@ fn Progress<'a>(t: Gro, label: &'a str, count: u64, goal: u64, met: bool) -> imp
         <div class={Goal}>
             <div class={Line}>
                 <span class={Strong}>{label}</span>
-                <span class={Muted}>{t.admin_campaign_analytics_admission_bar_progress_value(count, goal)}</span>
+                <span class={Muted}>
+                    {t.admin_campaign_analytics_admission_bar_progress_value(crate::text::gro::AdminCampaignAnalyticsAdmissionBarProgressValue { count, goal })}
+                </span>
             </div>
             <progress
                 class={(Bar, if met { Met } else { Open })}

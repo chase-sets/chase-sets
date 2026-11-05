@@ -46,7 +46,12 @@ pub fn OrderReviewPage<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScree
     let o = &screen.opportunity;
     let counterparty = o.subject_display_name.as_deref().unwrap_or(&o.subject_account_id);
     let role = if o.author_role == "buyer" { "seller" } else { "buyer" };
-    let description = t.write_feedback_description(role, &o.order_id).to_string();
+    let description = t
+        .write_feedback_description(crate::text::reviews_msg::WriteFeedbackDescription {
+            counterparty_role: role,
+            order_id: &o.order_id,
+        })
+        .to_string();
     html! {
         <div class={Page}>
             <header class={Header}>

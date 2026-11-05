@@ -69,7 +69,14 @@ pub fn reason(t: Gro, value: &str) -> String {
         "missing-returns-policy" => t.gs_exclusion_reason_missing_returns_policy(),
         "missing-product-measure" => t.gs_exclusion_reason_missing_product_measure(),
         "not-crawlable" => t.gs_exclusion_reason_not_crawlable(),
-        other => return t.gs_unrecognized_reason_with_value(t.gs_exclusion_reason_family(), other).to_string(),
+        other => {
+            return t
+                .gs_unrecognized_reason_with_value(crate::text::gro::GsUnrecognizedReasonWithValue {
+                    family: t.gs_exclusion_reason_family(),
+                    value: other,
+                })
+                .to_string();
+        }
     };
     known.to_owned()
 }
@@ -189,7 +196,7 @@ fn JobPart<'a>(t: Gro, id: &'a str, job: Option<&'a Job>) -> impl Render {
             <div class={(Stats, Six)}>
                 <Figure
                     label={t.gs_job_processed()}
-                    value={t.gs_job_processed_value(progress.completed, progress.total).to_string()}
+                    value={t.gs_job_processed_value(crate::text::gro::GsJobProcessedValue { completed: progress.completed, total: progress.total }).to_string()}
                 />
                 <Figure label={t.gs_job_submitted()} value={n(progress.submitted)} />
                 <Figure label={t.gs_job_skipped()} value={n(progress.skipped)} />
@@ -234,7 +241,12 @@ fn Detail<'a>(t: Gro, row: &'a Row, view: &'a url::View) -> impl Render {
         Some(title) => title.to_owned(),
         None => t.gs_untitled_listing(&row.listing_id).to_string(),
     };
-    let issues = t.gs_issue_summary(row.active_issue_count, row.unknown_issue_code_count).to_string();
+    let issues = t
+        .gs_issue_summary(crate::text::gro::GsIssueSummary {
+            active: row.active_issue_count,
+            unknown: row.unknown_issue_code_count,
+        })
+        .to_string();
     html! {
         <section class={Card} aria-labelledby="gs-detail">
             <div class={Line}>
@@ -382,7 +394,9 @@ fn FeedRow<'a>(t: Gro, row: &'a Row, screen: &'a ShoppingScreen) -> impl Render 
                     words={row.diagnostic_status.as_deref().unwrap_or(t.gs_unknown())}
                     tone={diagnostic_tone(row.diagnostic_status.as_deref())}
                 />
-                <p class={Small}>{t.gs_issue_summary(row.active_issue_count, row.unknown_issue_code_count).to_string()}</p>
+                <p class={Small}>
+                    {t.gs_issue_summary(crate::text::gro::GsIssueSummary { active: row.active_issue_count, unknown: row.unknown_issue_code_count }).to_string()}
+                </p>
             </td>
             <td>
                 <CellLabel>{t.gs_owners()}</CellLabel>
@@ -409,7 +423,7 @@ fn notice(t: Gro, queued: &url::Queued) -> Option<String> {
         ("maintenance", job) => {
             let total = queued.total.as_deref().unwrap_or("0");
             Some(match job {
-                Some(job) => t.gs_maintenance_queued(job, total).to_string(),
+                Some(job) => t.gs_maintenance_queued(crate::text::gro::GsMaintenanceQueued { job_id: job, total }).to_string(),
                 None => t.gs_maintenance_previewed(total).to_string(),
             })
         }
@@ -432,7 +446,13 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
     let projections = crate::projections::url::Projections {
         filters: crate::projections::url::Filters { context_name: Some("discovery".into()), ..Default::default() },
     };
-    let headline = t.gs_eligibility_headline(s.eligible_rows, s.total_rows, s.excluded_rows).to_string();
+    let headline = t
+        .gs_eligibility_headline(crate::text::gro::GsEligibilityHeadline {
+            eligible: s.eligible_rows,
+            total: s.total_rows,
+            excluded: s.excluded_rows,
+        })
+        .to_string();
     html! {
         <div class={Page}>
             <header class={Header}>

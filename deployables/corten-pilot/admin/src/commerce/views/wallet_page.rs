@@ -181,7 +181,7 @@ fn Approval<'a>(
         let amount = money(t, &row.amount, &row.currency_code);
         let approve = dialog_id("approve", &row.adjustment_id);
         let reject = dialog_id("reject", &row.adjustment_id);
-        let description = t.wa_approval_approve_description(&amount, label).to_string();
+        let description = t.wa_approval_approve_description(crate::text::com::WaApprovalApproveDescription { amount: &amount, account: label }).to_string();
         if own {
             <div class={(Banner, Warning)}>
                 <p class={Strong}>{t.wa_approval_you_requested_this_adjustment()}</p>
@@ -246,7 +246,7 @@ fn Reversal<'a>(t: Com, screen: &'a WalletScreen, row: &'a Adjustment, label: &'
         let action = url::Wallet { id: &screen.account_id, view: screen.route_view() };
         let amount = money(t, &row.amount, &row.currency_code);
         let id = dialog_id("reverse", &row.adjustment_id);
-        let description = t.wa_reversal_confirm_description(&amount, label).to_string();
+        let description = t.wa_reversal_confirm_description(crate::text::com::WaReversalConfirmDescription { amount: &amount, account: label }).to_string();
         <Ask
             id={&id}
             label={t.wa_reversal_reverse()}
@@ -370,7 +370,7 @@ fn Request<'a>(t: Com, screen: &'a WalletScreen, sign_in: &'a str) -> impl Rende
                 let debit = preview.direction == "debit";
                 let direction = direction_label(t, &preview.direction).to_lowercase();
                 let elevation: Vec<&str> = preview.elevation_reasons.iter().map(|r| elevation_label(t, r)).collect();
-                let confirm = t.wa_flow_confirm_description(&direction, &amount, label, &after).to_string();
+                let confirm = t.wa_flow_confirm_description(crate::text::com::WaFlowConfirmDescription { direction: &direction, amount: &amount, account: label, after: &after }).to_string();
                 <div class={(Card, Raised)}>
                     <h3 class={Strong}>{t.wa_flow_preview_title()}</h3>
                     <dl class={Pairs}>
