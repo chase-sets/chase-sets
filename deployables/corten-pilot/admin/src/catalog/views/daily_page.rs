@@ -23,8 +23,8 @@ use super::integrations_page::{
 use crate::{
     catalog::{
         daily::{
-            self, Candidate, Daily, DailyScreen, Governance, Health, ImportJob, JobInput, Ran, ReviewInput, ReviewRow, Said,
-            Stage, StageState, SyncInput, at, with_query,
+            self, CANDIDATE_COMMANDS, Candidate, CandidateInput, Daily, DailyScreen, Governance, Health, ImportJob, JobInput,
+            Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, at, with_query,
         },
         integrations,
     },
@@ -222,7 +222,7 @@ pub fn DailyPage<'a>(
                                     <JobsModule t={t} req={req} model={model} context={context} manage={screen.manage} />
                                 }
                                 Stage::Review => {
-                                    <CandidatesModule t={t} p={p} model={model} context={context} />
+                                    <CandidatesModule t={t} p={p} model={model} context={context} manage={screen.manage} />
                                     <ReviewModule t={t} p={p} req={req} model={model} context={context} manage={screen.manage} />
                                 }
                                 Stage::Create => {
@@ -614,9 +614,10 @@ fn candidate_tone(status: &str) -> &'static str {
 }
 
 /// Merged candidate review (`CatalogIntegrationMergeCandidateReviewModule`): each candidate's
-/// identity, sources, status and readiness; its evidence and commands open on admin-web.
+/// identity, sources, status and readiness, and the ignore and defer the API offers it; its
+/// evidence, edit, split and promotion open on admin-web.
 #[component(css = DailyPage)]
-fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) -> impl Render {
+fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
     let merge = &model.merge_candidate_review;
     let ready = t.wb_merge_ready_count(merge.counts.ready).to_string();
     let elsewhere = admin_web(&at("/catalog/integrations", context)).map(|u| u.to_string());
@@ -644,11 +645,12 @@ fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) ->
                                 <th scope="col">{t.wb_merge_table_sources()}</th>
                                 <th scope="col">{t.wb_merge_table_status()}</th>
                                 <th scope="col">{t.wb_merge_table_readiness()}</th>
+                                <th scope="col">{t.wb_table_action()}</th>
                             </tr>
                         </thead>
                         <tbody>
                             for row in &merge.rows {
-                                <CandidateRow t={t} row={row} />
+                                <CandidateRow t={t} row={row} context={context} manage={manage} />
                             }
                         </tbody>
                     </table>
@@ -665,14 +667,29 @@ fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) ->
     }
 }
 
+/// A candidate's row. Its ignore and defer are one form's buttons, each disabled unless the API
+/// offers it (admin-web's `MergeCandidateActionButton`), with the blockers of those it does not.
 #[component(css = DailyPage)]
-fn CandidateRow<'a>(t: Cat, row: &'a Candidate) -> impl Render {
+fn CandidateRow<'a>(t: Cat, row: &'a Candidate, context: &'a str, manage: bool) -> impl Render {
     let intent = state_label(&row.proposed_mapping.promotion_intent);
     let sources = t.wb_merge_sources_count(row.source_count).to_string();
     let status = state_label(&row.status);
     let blocking = t.wb_merge_conflicts_blocking(row.conflicts.blocking).to_string();
     let warnings = t.wb_merge_conflicts_warning(row.conflicts.warnings).to_string();
     let readiness = state_label(&row.promote_readiness.state);
+    let commands: Vec<_> = CANDIDATE_COMMANDS
+        .iter()
+        .filter_map(|(key, word)| row.actions.iter().find(|a| a.key == *key).map(|a| (a, *word)))
+        .collect();
+    let mut blocked: Vec<String> = Vec::new();
+    for (action, _) in &commands {
+        for blocker in &action.blockers {
+            if blocker != "unsupported-command" && !blocked.contains(blocker) {
+                blocked.push(blocker.clone());
+            }
+        }
+    }
+    let action = at(&daily::url::MergeCandidate { id: &row.candidate_id }.href(), context);
     html! {
         <tr data-catalog-merge-candidate={&row.candidate_id}>
             <td>
@@ -710,6 +727,38 @@ fn CandidateRow<'a>(t: Cat, row: &'a Candidate) -> impl Render {
                     <Pill text={&readiness} tone={if row.promote_readiness.state == "ready" { "success" } else { "warning" }} />
                     if !row.promote_readiness.blockers.is_empty() {
                         <Blockers t={t} blockers={&row.promote_readiness.blockers} />
+                    }
+                </span>
+            </td>
+            <td>
+                <CellLabel>{t.wb_table_action()}</CellLabel>
+                <span class={CellBlock}>
+                    if manage && !commands.is_empty() {
+                        <form
+                            method="post"
+                            action={&action}
+                            class={Row}
+                            data-patch
+                            data-catalog-primary-workbench-command="candidate"
+                        >
+                            for (entry, word) in &commands {
+                                let label = if *word == "ignore" { t.wb_merge_action_ignore() } else { t.wb_merge_action_defer() };
+                                let aria = t.wb_merge_action_aria(crate::text::cat::WbMergeActionAria { action: label, candidate: &row.identity_label }).to_string();
+                                <button
+                                    type="submit"
+                                    class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
+                                    name={CandidateInput::FIELDS.command}
+                                    value={*word}
+                                    aria-label={&aria}
+                                    disabled={!entry.open()}
+                                >
+                                    {label}
+                                </button>
+                            }
+                        </form>
+                    }
+                    if !blocked.is_empty() {
+                        <Blockers t={t} blockers={&blocked} />
                     }
                 </span>
             </td>

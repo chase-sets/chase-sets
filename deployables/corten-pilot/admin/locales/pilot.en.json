@@ -145,7 +145,7 @@
     "sync_no_profile": "No active profile",
     "sync_no_unit": "No unit key",
     "sync_include": "Include {name}",
-    "candidates_elsewhere": "Candidate evidence, edits and promotion run on admin-web.",
+    "candidates_elsewhere": "Candidate evidence, edits, splits and promotion run on admin-web.",
     "candidates_open": "Open the candidates on admin-web",
     "review_select": "Select",
     "review_note": "Defer and Reject act on the checked observations. A reject needs a reason.",

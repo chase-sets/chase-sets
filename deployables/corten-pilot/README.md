@@ -140,8 +140,9 @@ and the pilot draws Integration health, Settings and Settings' older `governance
 ([admin/src/catalog/integrations.rs](admin/src/catalog/integrations.rs)), and the daily
 `/catalog/integrations` workbench ([admin/src/catalog/daily.rs](admin/src/catalog/daily.rs)); those
 pages need that API to answer. The daily workbench starts a scope's Catalog sync, retries, resumes
-and cancels import jobs, and defers or rejects Source Observations, each a form that works
-without JavaScript. Previewing and promoting, merge candidate edits and the evidence sheets open
+and cancels import jobs, defers or rejects Source Observations, and ignores or defers a merge
+candidate, each a form that works without JavaScript. Previewing and promoting, merge candidate
+edits and splits, and the evidence sheets open
 on admin-web until the Catalog API refuses a stale preview itself. Provider detail,
 `/catalog/providers/{providerKey}` ([admin/src/catalog/provider.rs](admin/src/catalog/provider.rs)),
 draws the same composed read for the provider with its refresh schedule, and pauses, resumes and

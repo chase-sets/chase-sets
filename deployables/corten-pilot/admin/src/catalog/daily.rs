@@ -10,17 +10,19 @@
 //! | `POST /catalog/integrations/catalog-sync?<context>` | starts a Catalog sync of the scope with the checked provider units |
 //! | `POST /catalog/integrations/jobs/{id}?<context>` | retries, resumes or cancels an import job |
 //! | `POST /catalog/integrations/review?<context>` | defers or rejects the checked Source Observations |
+//! | `POST /catalog/integrations/candidates/{id}?<context>` | ignores or defers a merge candidate |
 //!
 //! The context is the address's query as admin-web names it (`providerKey`, `unitKey`,
 //! `importScope`, `filter.status`, `reviewOffset` and the rest); the pilot passes it to the API
 //! as the surface's location without reading it, and every command's form carries it so its
 //! redirect lands on the same working set. A command's body is the API's own
 //! (`POST /source-observations/catalog-sync-scope/runs`, `.../integration-jobs/{id}/{command}`,
-//! `.../bulk-defer/jobs`, `.../bulk-reject/jobs`); the API decides what each allows.
+//! `.../bulk-defer/jobs`, `.../bulk-reject/jobs`, `.../admin/merge-candidates/{id}/{ignore,defer}`); the API
+//! decides what each allows.
 //!
 //! Preview and promote stay on admin-web: the API does not yet refuse a stale preview itself
-//! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. Merge candidate edits,
-//! the evidence sheets and the deferred panels (source options, import preview, the sync run's
+//! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. Merge candidate edits and
+//! splits (which send the candidate's snapshots), the evidence sheets and the deferred panels (source options, import preview, the sync run's
 //! progress, alias review) open on admin-web too.
 //!
 //! Workaround (chase-sets/chase-sets#11047): the read model does not carry the stages' states, the
@@ -67,12 +69,19 @@ pub mod url {
     /// Defers or rejects the checked Source Observations.
     #[route("/catalog/integrations/review", post = crate::catalog::daily::review)]
     pub struct Review;
+
+    /// Ignores or defers a merge candidate.
+    #[route("/catalog/integrations/candidates/{id}", post = crate::catalog::daily::candidate)]
+    pub struct MergeCandidate<'a> {
+        pub id: &'a str,
+    }
 }
 
 /// What a command did, for the page it redirects to (admin-web's `CatalogCommandFeedbackBanner`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ran {
-    /// A job the API queued: a sync, a retry, a resume, a defer or a reject.
+    /// A command the API accepted: a sync, a retry, a resume, a defer, a reject, or a merge
+    /// candidate's ignore or defer (admin-web says `job-queued` for each).
     Queued,
     Cancelled,
 }
@@ -414,6 +423,7 @@ pub struct Candidate {
     pub conflicts: Conflicts,
     pub promote_readiness: Readied,
     pub proposed_mapping: Mapping,
+    pub actions: Vec<Action>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -845,6 +855,51 @@ pub(crate) async fn review(
         Some((rest, body)) => {
             let caller = config.platform.caller(&headers, config.proto, None);
             command(&caller, Method::POST, Kind::SourceObservations, rest, Some(&body)).await
+        }
+        None => Sent::Refused(super::not_offered(req.t())),
+    };
+    answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
+}
+
+/// A merge candidate's command: `ignore` or `defer`.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default)]
+pub struct CandidateInput {
+    pub command: String,
+}
+
+/// The merge candidate commands the pilot sends; promote, edit and split stay on admin-web.
+pub const CANDIDATE_COMMANDS: [(&str, &str); 2] = [("candidate.ignore", "ignore"), ("candidate.defer", "defer")];
+
+impl CandidateInput {
+    /// The command's path segment and the API's body: the reason admin-web sends for it
+    /// (`candidateActionReason`). `None` for a command the form does not offer.
+    pub fn command(&self, t: Cat) -> Option<(&'static str, Value)> {
+        let (word, label) = match self.command.as_str() {
+            "ignore" => ("ignore", t.wb_merge_action_ignore()),
+            "defer" => ("defer", t.wb_merge_action_defer()),
+            _ => return None,
+        };
+        Some((word, json!({ "reason": t.wb_merge_action_reason(label).to_string() })))
+    }
+}
+
+pub(crate) async fn candidate(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Params(route): Params<url::MergeCandidate<'_>>,
+    Form(input): Form<CandidateInput>,
+) -> HtmlResult {
+    let context = context_of(&uri);
+    let t: Cat = req.t();
+    let sent = match input.command(t) {
+        Some((word, body)) => {
+            let caller = config.platform.caller(&headers, config.proto, None);
+            let rest = format!("/admin/merge-candidates{}", under(&route.id, &[word]));
+            command(&caller, Method::POST, Kind::SourceObservations, &rest, Some(&body)).await
         }
         None => Sent::Refused(super::not_offered(req.t())),
     };

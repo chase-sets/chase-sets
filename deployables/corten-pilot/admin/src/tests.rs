@@ -7465,7 +7465,10 @@ fn daily_surface(location: &str) -> Response {
                 "candidateId": "cand_1", "identityFingerprint": "pokemon:sv1:001", "identityLabel": "Sprigatito 001",
                 "sourceCount": 2, "sources": [{ "providerKey": "tcgplayer", "observationId": "obs_1", "externalKey": null }],
                 "status": "ready", "conflicts": { "blocking": 0, "warnings": 1 },
-                "promoteReadiness": { "state": "ready", "blockers": [] }, "proposedMapping": { "promotionIntent": "create" } }] },
+                "promoteReadiness": { "state": "ready", "blockers": [] }, "proposedMapping": { "promotionIntent": "create" },
+                "actions": [{ "key": "candidate.promote", "state": "available", "blockers": [] },
+                    { "key": "candidate.ignore", "state": "available", "blockers": [] },
+                    { "key": "candidate.defer", "state": "blocked", "blockers": ["source-projection-stale"] }] }] },
             "promotionPreview": { "previewId": null, "blockers": [], "destructiveCount": 0 },
             "promotionResult": null,
             "actions": [{ "key": "observation.defer", "state": "available", "blockers": [] },
@@ -7493,6 +7496,10 @@ fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
             }
         }
         "/bulk-defer/jobs" => written(StatusCode::ACCEPTED, "bulk_1"),
+        "/admin/merge-candidates/cand_1/ignore" | "/admin/merge-candidates/cand_1/defer" => written(StatusCode::OK, "cand_1"),
+        "/admin/merge-candidates/cand_gone/ignore" => {
+            refusal(StatusCode::NOT_FOUND, "candidate_not_found", "That merge candidate no longer exists.")
+        }
         "/bulk-reject/jobs" => {
             if sent["reason"].as_str().is_none_or(str::is_empty) {
                 refusal(StatusCode::BAD_REQUEST, "reason_required", "A reason is required to reject observations.")
@@ -7924,7 +7931,7 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     assert!(!html.contains("data-catalog-daily-governance-status"), "{html}");
 
     // Each command's form patches the page with JavaScript and posts without it.
-    assert_eq!(html.matches("data-patch").count(), 3, "the sync's, the job's and the review's: {html}");
+    assert_eq!(html.matches("data-patch").count(), 4, "the sync's, the job's, the candidate's and the review's: {html}");
     // The sync's form carries the working set, the scope and every unit, the eligible one checked.
     assert!(html.contains(r#"action="/catalog/integrations/catalog-sync?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{html}");
     assert!(
@@ -8054,6 +8061,66 @@ async fn each_command_sends_the_apis_body_and_lands_on_the_working_set() {
     );
     let reject: Value = serde_json::from_str(&writes[4].body).unwrap();
     assert_eq!(reject, json!({ "observationIds": ["obs_1"], "reason": "Duplicate" }));
+}
+
+#[tokio::test]
+async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason_and_the_rest_stays_on_admin_web() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let start = html.find(r#"data-catalog-primary-workbench-command="candidate""#).unwrap();
+    let form = &html[html[..start].rfind("<form").unwrap()..start + html[start..].find("</form>").unwrap()];
+    assert!(
+        form.contains(r#"action="/catalog/integrations/candidates/cand_1?providerKey=tcgplayer&amp;unitKey=pokemon""#),
+        "{form}"
+    );
+    assert!(form.contains("data-patch"), "{form}");
+    let ignore = form.find(r#"value="ignore""#).unwrap();
+    assert!(!form[form[..ignore].rfind("<button").unwrap()..].split('>').next().unwrap().contains("disabled"), "{form}");
+    assert!(form.contains(r#"aria-label="Ignore: Sprigatito 001""#), "{form}");
+    let defer = form.find(r#"value="defer""#).unwrap();
+    assert!(
+        form[form[..defer].rfind("<button").unwrap()..].split('>').next().unwrap().contains("disabled"),
+        "a blocked defer: {form}"
+    );
+    assert!(!form.contains(r#"value="promote""#), "promotion stays on admin-web (chase-sets/chase-sets#11045): {form}");
+
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"data-catalog-primary-workbench-command="candidate""#), "not the reader's: {html}");
+    let (status, _, _) =
+        pilot.send(post_as("catalog-reader", "/catalog/integrations/candidates/cand_1", "command=ignore", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, headers, _) =
+        pilot.send(post(&format!("/catalog/integrations/candidates/cand_1?{at}"), "command=ignore", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with(&format!("/catalog/integrations?{at}&done=queued")));
+    let (_, headers, _) =
+        pilot.send(post(&format!("/catalog/integrations/candidates/cand_1?{at}"), "command=defer", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let writes = daily_writes(&pilot);
+    let paths: Vec<&str> = writes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "/api/catalog/source-observations/admin/merge-candidates/cand_1/ignore",
+            "/api/catalog/source-observations/admin/merge-candidates/cand_1/defer",
+        ]
+    );
+    let sent: Value = serde_json::from_str(&writes[0].body).unwrap();
+    assert_eq!(sent, json!({ "reason": "Ignore from the scope-first Catalog sync workbench." }));
+    let sent: Value = serde_json::from_str(&writes[1].body).unwrap();
+    assert_eq!(sent, json!({ "reason": "Defer from the scope-first Catalog sync workbench." }));
+
+    let (status, _, html) = pilot.send(post("/catalog/integrations/candidates/cand_gone", "command=ignore", false)).await;
+    assert_ne!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(html.contains("That merge candidate no longer exists."), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post("/catalog/integrations/candidates/cand_1", "command=promote", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a command the form does not offer");
+    assert_eq!(daily_writes(&pilot).len(), before, "it does not reach the API");
 }
 
 #[tokio::test]
