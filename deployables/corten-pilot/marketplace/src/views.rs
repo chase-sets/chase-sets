@@ -14,6 +14,7 @@ use crate::{
     app::url,
     auth::{Session, Viewer},
     cart::CartScreen,
+    chrome::{CartCount, ErrorPageCount},
     form::LocationInput,
     locations::Screen,
     recovery::{Check, Status},
@@ -431,9 +432,11 @@ pub fn Frame<'a, H: Render, C: Render>(
 
 /// The page for a failed request, in the layout (`App::error_page`), for who is asking: a member's
 /// shell and theme, a visitor's shell, and no shell when the session could not be read. Under
-/// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`. Corten waits for
-/// no layout read here: the cart's count is drawn only if its read is in already.
-pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Session>>) -> HtmlResult {
+/// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`. Corten starts no
+/// layout read here, so for a failure the cart read does not share (a 4xx) the page reads the count
+/// itself and gives it (`ErrorPageCount`, corten-run/corten#877); for any other it is drawn only if
+/// its read is in already.
+pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Session>>, count: ErrorPageCount) -> HtmlResult {
     let p: Pilot = req.t();
     // Each case is named, so a case Corten adds stops this compiling.
     let (title, text) = match &failure {
@@ -456,6 +459,21 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
     };
     let detail = failure.detail().map(str::to_owned);
     let viewer = session.as_ref().and_then(|Caller(session)| session.viewer());
+    let cart = match &failure {
+        Failure::NotFound | Failure::Refused { .. } | Failure::CrossSite | Failure::WrongMethod | Failure::Rejected { .. } => {
+            count.read().await
+        }
+        Failure::Failed { status, .. } if status.is_client_error() => count.read().await,
+        Failure::Failed { .. }
+        | Failure::Panicked { .. }
+        | Failure::TimedOut
+        | Failure::Unidentified { .. }
+        | Failure::Offline => None,
+    };
+    let give = |page: corten::HtmlResponse| match cart {
+        Some(cart) => page.give::<CartCount>(Some(cart)),
+        None => page,
+    };
     // An account refused the seller's listings may not manage listings: marketplace's "Account
     // access required" page (`AccountAccessRequiredPage`), back to the page asked for.
     if let (Failure::Refused { .. }, Some(viewer)) = (&failure, viewer)
@@ -463,11 +481,13 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
     {
         let t: crate::text::ListingNewMsg = req.t();
         let back = req.path().to_owned();
-        return req.page(html! {
-            <Layout req={&req} viewer={Some(viewer)} title={t.route_account_access_required_title()} head="">
-                <ListingAccessRequired t={t} back={&back} />
-            </Layout>
-        });
+        return req
+            .page(html! {
+                <Layout req={&req} viewer={Some(viewer)} title={t.route_account_access_required_title()} head="">
+                    <ListingAccessRequired t={t} back={&back} />
+                </Layout>
+            })
+            .map(give);
     }
     // Who is asking is unknown when the session could not be read: no shell, not a visitor's.
     let shell = !matches!(failure, Failure::Unidentified { .. });
@@ -480,6 +500,7 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
             }
         </Frame>
     })
+    .map(give)
 }
 
 /// A page that could not be drawn: its title and what to do.

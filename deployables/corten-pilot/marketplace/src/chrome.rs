@@ -7,9 +7,16 @@
 //! handler takes or passes it. A client navigation or a `data-patch` answer keeps the header, so
 //! nothing is started for them. A page without JavaScript has the count in its HTML. The cart page
 //! reads the cart itself and gives the count it found (`cart::render`), so its `GET` starts none.
-use std::future::Future;
+use std::{convert::Infallible, future::Future};
 
-use corten::{LayoutRead, axum::http::request::Parts, prelude::*};
+use corten::{
+    LayoutRead,
+    axum::{
+        extract::{FromRequestParts, Request},
+        http::request::Parts,
+    },
+    prelude::*,
+};
 
 use crate::{
     api::Checkout as _,
@@ -41,6 +48,34 @@ impl LayoutRead for CartCount {
 
     fn view(count: &Option<u64>) -> impl Render + '_ {
         html! { <CartBadge count={*count} /> }
+    }
+}
+
+/// The cart's count for the error page, which Corten starts no layout read for: the request's head,
+/// read only for a failure the cart read does not share (`views::error_page`), and given to the
+/// page (`HtmlResponse::give`). Corten draws a read on the error page only if it is in already,
+/// so a not-found address or a refusal would lose the count (corten-run/corten#877).
+pub struct ErrorPageCount {
+    head: Parts,
+    config: Shared,
+}
+
+impl ErrorPageCount {
+    /// The count, read now.
+    pub async fn read(&self) -> Option<u64> {
+        Some(count(&self.head, &self.config).await)
+    }
+}
+
+impl FromRequestParts<Shared> for ErrorPageCount {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, config: &Shared) -> Result<Self, Infallible> {
+        // The head with its extensions: Corten keeps the request's one lookup of who is asking there.
+        let mut head = Request::new(()).into_parts().0;
+        (head.method, head.uri, head.headers, head.extensions) =
+            (parts.method.clone(), parts.uri.clone(), parts.headers.clone(), parts.extensions.clone());
+        Ok(ErrorPageCount { head, config: config.clone() })
     }
 }
 

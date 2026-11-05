@@ -2793,6 +2793,25 @@ async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
     assert_eq!(guest_cart_reads(&pilot).len(), reads, "nothing read without a guest cart");
 }
 
+/// Corten's error page starts no layout read (corten-run/corten#877): for a 404 or a refusal the
+/// page reads the count itself, so the shell has it as on every other page.
+#[tokio::test]
+async fn a_not_found_or_refused_page_draws_the_carts_count() {
+    let pilot = Pilot::new().await;
+    let total = cart("buyer")["count"].as_u64().unwrap().to_string();
+    let (status, _, html) = pilot.send(get("/no-such-page", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a member's 404: {html}");
+    let mut req = get("/no-such-page", None);
+    req.headers_mut().insert(header::COOKIE, GUEST_LINES.parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a visitor's guest cart: {html}");
+    let (status, _, html) = pilot.send(get(SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "a refused page: {html}");
+}
+
 #[tokio::test]
 async fn the_nav_count_after_an_add_waits_for_the_adds_receipt() {
     let pilot = Pilot::new().await;
