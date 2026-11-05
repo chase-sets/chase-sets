@@ -9,21 +9,28 @@ import { requiredJobs, verifyRequiredJobs } from "./pr-checks/required-jobs.mjs"
 const fixture = JSON.parse(readFileSync("scripts/fixtures/workflow-composition/platform-pr.json", "utf8"));
 const before = fixture.workflow;
 const after = parse(readFileSync(".github/workflows/platform-pr.yml", "utf8"));
-const bash = process.platform === "win32"
-  ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
-  : "bash";
+const bash =
+  process.platform === "win32"
+    ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
+    : "bash";
 const step = (workflow, id, name) => workflow.jobs[id].steps.find((entry) => entry.name === name);
 const requirements = ["true", "false", "", "unknown"];
 const results = ["success", "failure", "cancelled", "skipped", "", "unknown"];
-const policyCases = requiredJobs.filter(([, , field]) => field).flatMap(([id, name, key]) =>
-  requirements.flatMap((requirement) => results.map((result) => [id, key, requirement, result, name])));
+const policyCases = requiredJobs
+  .filter(([, , field]) => field)
+  .flatMap(([id, name, key]) =>
+    requirements.flatMap((requirement) => results.map((result) => [id, key, requirement, result, name])),
+  );
 const baselineResults = new Map();
 
 beforeAll(() => {
   const original = step(before, "pr-required", "Verify required jobs").run;
   const policy = original.match(/^require_job\(\) \{\n[\s\S]+?^\}/m)?.[0];
   expect(policy).toBeTruthy();
-  const names = requiredJobs.filter(([, , field]) => field).map(([, name]) => JSON.stringify(name)).join(" ");
+  const names = requiredJobs
+    .filter(([, , field]) => field)
+    .map(([, name]) => JSON.stringify(name))
+    .join(" ");
   const command = `${policy}\nset +e\nfor name in ${names}; do
     for requirement in ${requirements.map(JSON.stringify).join(" ")}; do
       for result in ${results.map(JSON.stringify).join(" ")}; do
@@ -38,9 +45,12 @@ beforeAll(() => {
   const fields = execution.output.split("\0");
   expect(fields.pop()).toBe("");
   expect(fields).toHaveLength(policyCases.length * 2);
-  policyCases.forEach((row, index) => baselineResults.set(JSON.stringify(row), {
-    status: Number(fields[index * 2]), error: fields[index * 2 + 1],
-  }));
+  policyCases.forEach((row, index) =>
+    baselineResults.set(JSON.stringify(row), {
+      status: Number(fields[index * 2]),
+      error: fields[index * 2 + 1],
+    }),
+  );
 });
 const scopeInputs = {
   PR_SCOPE_EVENT_NAME: "${{ github.event_name }}",
@@ -54,21 +64,56 @@ const operations = [
   ["change-scope", "Resolve changed surface", "bash scripts/pr-checks/change-scope.sh", scopeInputs],
   ["static", "Installed-boundary controls", "bash scripts/pr-checks/static-checks.sh controls", {}],
   ["static", "Require full source checks", "bash scripts/pr-checks/static-checks.sh require-source", {}],
-  ["unit-tests", "Run non-DB tests", "bash scripts/pr-checks/unit-tests.sh", {
-    UNIT_TEST_WORKSPACES: "${{ needs['change-scope'].outputs.unit_test_workspaces }}",
-    UNIT_TEST_SHARD: "${{ matrix.shard }}",
-  }],
+  [
+    "unit-tests",
+    "Run non-DB tests",
+    "bash scripts/pr-checks/unit-tests.sh",
+    {
+      UNIT_TEST_WORKSPACES: "${{ needs['change-scope'].outputs.unit_test_workspaces }}",
+      UNIT_TEST_SHARD: "${{ matrix.shard }}",
+    },
+  ],
   ["db-tests", "Raise PostgreSQL lock table capacity for DB Profile", "bash scripts/pr-checks/db-tests.sh prepare", {}],
-  ["db-tests", "Select platform API evidence before running tests", "bash scripts/pr-checks/db-tests.sh select", { DB_WORKSPACE_GROUP: "${{ matrix.db-workspace-group }}" }],
+  [
+    "db-tests",
+    "Select platform API evidence before running tests",
+    "bash scripts/pr-checks/db-tests.sh select",
+    { DB_WORKSPACE_GROUP: "${{ matrix.db-workspace-group }}" },
+  ],
   ["db-tests", "Capture post-failure PostgreSQL state", "bash scripts/pr-checks/db-tests.sh diagnostics", {}],
-  ["capture-hermetic-chromium", "Install Playwright Chromium", "bash scripts/pr-checks/capture-hermetic-chromium.sh install", {}],
-  ["capture-hermetic-chromium", "Prove three synthetic Chromium capture cases", "bash scripts/pr-checks/capture-hermetic-chromium.sh prove", {}],
+  [
+    "capture-hermetic-chromium",
+    "Install Playwright Chromium",
+    "bash scripts/pr-checks/capture-hermetic-chromium.sh install",
+    {},
+  ],
+  [
+    "capture-hermetic-chromium",
+    "Prove three synthetic Chromium capture cases",
+    "bash scripts/pr-checks/capture-hermetic-chromium.sh prove",
+    {},
+  ],
   ["e2e-tests", "Capture responsive evidence checkout identity", "bash scripts/pr-checks/e2e-tests.sh checkout", {}],
   ["e2e-tests", "Resolve Playwright Chromium cache", "bash scripts/pr-checks/e2e-tests.sh cache", {}],
-  ["e2e-tests", "Run marketplace e2e suites", "bash scripts/pr-checks/e2e-tests.sh run", { E2E_SUITE_BATCH: "${{ matrix.suite_batch }}" }],
-  ["pr-required", "Verify required jobs", "node scripts/pr-checks/required-jobs.mjs", { PR_REQUIRED_NEEDS_JSON: "${{ toJSON(needs) }}" }],
+  [
+    "e2e-tests",
+    "Run marketplace e2e suites",
+    "bash scripts/pr-checks/e2e-tests.sh run",
+    { E2E_SUITE_BATCH: "${{ matrix.suite_batch }}" },
+  ],
+  [
+    "pr-required",
+    "Verify required jobs",
+    "node scripts/pr-checks/required-jobs.mjs",
+    { PR_REQUIRED_NEEDS_JSON: "${{ toJSON(needs) }}" },
+  ],
   ["release-status", "Add status to job summary", "node ./scripts/pr-release-status.mjs summary", {}],
-  ["release-status", "Update PR release status comment", "node ./scripts/pr-release-status.mjs comment", { PR_NUMBER: "${{ github.event.pull_request.number }}" }],
+  [
+    "release-status",
+    "Update PR release status comment",
+    "node ./scripts/pr-release-status.mjs comment",
+    { PR_NUMBER: "${{ github.event.pull_request.number }}" },
+  ],
 ];
 
 function runBash(run, env = {}) {
@@ -79,7 +124,9 @@ function runBash(run, env = {}) {
 
 function needsFixture(required = "true") {
   const needs = Object.fromEntries(requiredJobs.map(([id]) => [id, { result: "success" }]));
-  needs["change-scope"].outputs = Object.fromEntries(requiredJobs.filter(([, , key]) => key).map(([, , key]) => [key, required]));
+  needs["change-scope"].outputs = Object.fromEntries(
+    requiredJobs.filter(([, , key]) => key).map(([, , key]) => [key, required]),
+  );
   needs["change-scope"].outputs.e2e_tests_required = "true";
   return needs;
 }
@@ -95,9 +142,14 @@ function oldRequiredRun(needs) {
 
 describe("workflow composition contract inventory", () => {
   it("binds the parsed before fixture to immutable workflow history", () => {
-    const source = execFileSync("git", ["show", `${fixture.sourceHead}:.github/workflows/platform-pr.yml`], { encoding: "utf8" });
+    const source = execFileSync("git", ["show", `${fixture.sourceHead}:.github/workflows/platform-pr.yml`], {
+      encoding: "utf8",
+    });
     const baseline = parse(source.replace(/ \(#\d+\)/g, ""));
-    expect(before).toEqual({ ...baseline, jobs: Object.fromEntries(Object.keys(before.jobs).map((id) => [id, baseline.jobs[id]])) });
+    expect(before).toEqual({
+      ...baseline,
+      jobs: Object.fromEntries(Object.keys(before.jobs).map((id) => [id, baseline.jobs[id]])),
+    });
   });
 
   it("pins parsed authority, outputs, secrets, artifacts and consumers at every touched owner", () => {
@@ -126,25 +178,42 @@ describe("workflow composition contract inventory", () => {
       expect(current, id).toEqual(original);
     }
     expect(after.jobs["canonical-proof-sets"]).toEqual(before.jobs["canonical-proof-sets"]);
-    expect(step(after, "pr-required", "Verify canonical proof sets")).toEqual(step(before, "pr-required", "Verify canonical proof sets"));
+    expect(step(after, "pr-required", "Verify canonical proof sets")).toEqual(
+      step(before, "pr-required", "Verify canonical proof sets"),
+    );
   });
 
-  it.each(operations.filter(([, , call]) => call.startsWith("bash ")))("moves the complete behavior without a second inline owner: %s / %s", (id, name, call, inputs) => {
-    const current = step(after, id, name);
-    let expected = step(before, id, name).run;
-    if (!expected.endsWith("\n")) expected += "\n";
-    for (const [key, value] of Object.entries(inputs)) expected = expected.replaceAll(value, `$${key}`);
-    if (name === "Prove three synthetic Chromium capture cases") {
-      expected = expected.replace(/node --input-type=module -e '\n[\s\S]+?\n' "\$RUNNER_TEMP\/ac4-chromium.json"/, 'node scripts/pr-checks/hermetic-chromium-receipt.mjs "$RUNNER_TEMP/ac4-chromium.json"');
-    }
-    const actual = stageRun(current);
-    expect(actual, call).toBe(id === "unit-tests" ? "set -euo pipefail\n" + expected : expected);
-    expect(current.run).not.toMatch(/\n|require_job|if |case /);
-  });
+  it.each(operations.filter(([, , call]) => call.startsWith("bash ")))(
+    "moves the complete behavior without a second inline owner: %s / %s",
+    (id, name, call, inputs) => {
+      const current = step(after, id, name);
+      let expected = step(before, id, name).run;
+      if (!expected.endsWith("\n")) expected += "\n";
+      for (const [key, value] of Object.entries(inputs)) expected = expected.replaceAll(value, `$${key}`);
+      if (name === "Prove three synthetic Chromium capture cases") {
+        expected = expected.replace(
+          /node --input-type=module -e '\n[\s\S]+?\n' "\$RUNNER_TEMP\/ac4-chromium.json"/,
+          'node scripts/pr-checks/hermetic-chromium-receipt.mjs "$RUNNER_TEMP/ac4-chromium.json"',
+        );
+      }
+      const actual = stageRun(current);
+      expect(actual, call).toBe(id === "unit-tests" ? "set -euo pipefail\n" + expected : expected);
+      expect(current.run).not.toMatch(/\n|require_job|if |case /);
+    },
+  );
 
   it("retains every required-policy row and the isolated canonical proof owner", () => {
-    const calls = [...step(before, "pr-required", "Verify required jobs").run.matchAll(/^\s*require_job "([^"]+)" "([^"]+)" "([^"]+)"$/gm)]
-      .map(([, name, resultArgument, requiredArgument]) => ({ name, helper: "require_job", resultArgument, requiredArgument, line: `require_job "${name}" "${resultArgument}" "${requiredArgument}"` }));
+    const calls = [
+      ...step(before, "pr-required", "Verify required jobs").run.matchAll(
+        /^\s*require_job "([^"]+)" "([^"]+)" "([^"]+)"$/gm,
+      ),
+    ].map(([, name, resultArgument, requiredArgument]) => ({
+      name,
+      helper: "require_job",
+      resultArgument,
+      requiredArgument,
+      line: `require_job "${name}" "${resultArgument}" "${requiredArgument}"`,
+    }));
     expect(requiredJobCalls(step(after, "pr-required", "Verify required jobs"))).toEqual(calls);
     expect(after.jobs["pr-required"].needs).toContain("canonical-proof-sets");
     expect(step(after, "canonical-proof-sets", "Execute exact canonical proof paths").env).toEqual({
@@ -156,53 +225,88 @@ describe("workflow composition contract inventory", () => {
 });
 
 describe("workflow extraction authority parity", () => {
-  it.each(["pull_request", "merge_group", "push"])("consumes identical ranges and first-parent options for %s", (event) => {
-    for (const missing of [false, true]) {
-      const env = {
-        PR_SCOPE_EVENT_NAME: event, PR_SCOPE_PR_BASE: missing ? "" : "pr-base", PR_SCOPE_MERGE_BASE: missing ? "" : "merge-base",
-        PR_SCOPE_MERGE_HEAD: missing ? "" : "merge-head", PR_SCOPE_BEFORE: missing ? "" : "before", PR_SCOPE_SHA: "checkout-sha",
-      };
-      let original = step(before, "change-scope", "Resolve changed surface").run;
-      for (const [key, expression] of Object.entries(scopeInputs)) original = original.replaceAll(expression, env[key]);
-      const stubs = 'git() { if [ "$1" = rev-parse ]; then echo origin-main; else echo root-commit; fi; }; node() { printf "<%s>\\n" "$@"; };\n';
-      const expected = runBash(stubs + original, env);
-      const actual = runBash(stubs + '. scripts/pr-checks/change-scope.sh', env);
-      expect(actual).toEqual(expected);
-      expect(actual.status).toBe(0);
-      expect(actual.output.includes("<--first-parent>")).toBe(event !== "push");
-    }
-  });
+  it.each(["pull_request", "merge_group", "push"])(
+    "consumes identical ranges and first-parent options for %s",
+    (event) => {
+      for (const missing of [false, true]) {
+        const env = {
+          PR_SCOPE_EVENT_NAME: event,
+          PR_SCOPE_PR_BASE: missing ? "" : "pr-base",
+          PR_SCOPE_MERGE_BASE: missing ? "" : "merge-base",
+          PR_SCOPE_MERGE_HEAD: missing ? "" : "merge-head",
+          PR_SCOPE_BEFORE: missing ? "" : "before",
+          PR_SCOPE_SHA: "checkout-sha",
+        };
+        let original = step(before, "change-scope", "Resolve changed surface").run;
+        for (const [key, expression] of Object.entries(scopeInputs))
+          original = original.replaceAll(expression, env[key]);
+        const stubs =
+          'git() { if [ "$1" = rev-parse ]; then echo origin-main; else echo root-commit; fi; }; node() { printf "<%s>\\n" "$@"; };\n';
+        const expected = runBash(stubs + original, env);
+        const actual = runBash(stubs + ". scripts/pr-checks/change-scope.sh", env);
+        expect(actual).toEqual(expected);
+        expect(actual.status).toBe(0);
+        expect(actual.output.includes("<--first-parent>")).toBe(event !== "push");
+      }
+    },
+  );
 
   it("retains zero-base root resolution and passes unit-only selection as one argument", () => {
-    const env = { PR_SCOPE_EVENT_NAME: "pull_request", PR_SCOPE_PR_BASE: "000000", PR_SCOPE_SHA: "head", PR_SCOPE_MERGE_BASE: "", PR_SCOPE_MERGE_HEAD: "", PR_SCOPE_BEFORE: "" };
-    const result = runBash('git() { echo root-commit; }; node() { printf "<%s>\\n" "$@"; }; . scripts/pr-checks/change-scope.sh', env);
+    const env = {
+      PR_SCOPE_EVENT_NAME: "pull_request",
+      PR_SCOPE_PR_BASE: "000000",
+      PR_SCOPE_SHA: "head",
+      PR_SCOPE_MERGE_BASE: "",
+      PR_SCOPE_MERGE_HEAD: "",
+      PR_SCOPE_BEFORE: "",
+    };
+    const result = runBash(
+      'git() { echo root-commit; }; node() { printf "<%s>\\n" "$@"; }; . scripts/pr-checks/change-scope.sh',
+      env,
+    );
     expect(result.status).toBe(0);
     expect(result.output).toContain("<--base=root-commit>");
-    const unit = runBash('node() { printf "<%s>\\n" "$@"; }; . scripts/pr-checks/unit-tests.sh', { UNIT_TEST_WORKSPACES: "@test/one,@test/two", UNIT_TEST_SHARD: "2" });
+    const unit = runBash('node() { printf "<%s>\\n" "$@"; }; . scripts/pr-checks/unit-tests.sh', {
+      UNIT_TEST_WORKSPACES: "@test/one,@test/two",
+      UNIT_TEST_SHARD: "2",
+    });
     expect(unit.status).toBe(0);
     expect(unit.output.match(/<--workspace-list=@test\/one,@test\/two>/g)).toHaveLength(2);
     expect(unit.output.match(/<--shard=2\/2>/g)).toHaveLength(2);
   });
 
   it.each(policyCases)(
-    "matches the original required-result policy: %s / %s / %s / %s", (id, key, requirement, result, name) => {
-        const needs = needsFixture();
-        needs[id].result = result;
-        needs["change-scope"].outputs[key] = requirement;
-        const original = baselineResults.get(JSON.stringify([id, key, requirement, result, name]));
-        let error;
-        try { verifyRequiredJobs(needs, "true", '["tcgplayer_connector_extension"]'); } catch (caught) { error = caught; }
-        expect(error ? 1 : 0, `${id}/${result}: ${original.error}`).toBe(original.status);
-        if (error) expect(original.error.trim()).toBe(error.message);
-  });
+    "matches the original required-result policy: %s / %s / %s / %s",
+    (id, key, requirement, result, name) => {
+      const needs = needsFixture();
+      needs[id].result = result;
+      needs["change-scope"].outputs[key] = requirement;
+      const original = baselineResults.get(JSON.stringify([id, key, requirement, result, name]));
+      let error;
+      try {
+        verifyRequiredJobs(needs, "true", '["tcgplayer_connector_extension"]');
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error ? 1 : 0, `${id}/${result}: ${original.error}`).toBe(original.status);
+      if (error) expect(original.error.trim()).toBe(error.message);
+    },
+  );
 
   it("retains full aggregate execution parity beyond the isolated policy function", () => {
     for (const result of ["success", "skipped", "failure"]) {
       const needs = needsFixture();
       needs["compose-preview-smoke"].result = result;
-      const original = runBash(oldRequiredRun(needs), { AC4_E2E_REQUIRED: "true", AC4_E2E_SUITES_JSON: '["tcgplayer_connector_extension"]' });
+      const original = runBash(oldRequiredRun(needs), {
+        AC4_E2E_REQUIRED: "true",
+        AC4_E2E_SUITES_JSON: '["tcgplayer_connector_extension"]',
+      });
       let error;
-      try { verifyRequiredJobs(needs, "true", '["tcgplayer_connector_extension"]'); } catch (caught) { error = caught; }
+      try {
+        verifyRequiredJobs(needs, "true", '["tcgplayer_connector_extension"]');
+      } catch (caught) {
+        error = caught;
+      }
       expect(error ? 1 : 0).toBe(original.status);
       if (error) expect(original.error.trim()).toBe(error.message);
     }
@@ -219,7 +323,9 @@ describe("workflow extraction authority parity", () => {
       expect(() => verifyRequiredJobs(needs, "true", '["tcgplayer_connector_extension"]')).not.toThrow();
       expect(after.jobs["pr-required"].needs).not.toContain("release-qualification-scope-advisory");
     }
-    expect(step(after, "release-status", "Update PR release status comment").if).toBe("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(step(after, "release-status", "Update PR release status comment").if).toBe(
+      "github.event.pull_request.head.repo.full_name == github.repository",
+    );
     expect(step(after, "release-status", "Update PR release status comment").env.GH_TOKEN).toBe("${{ github.token }}");
     expect(after.jobs["pr-required"].if).toBe("always()");
     expect(after.concurrency).toEqual(before.concurrency);
@@ -229,10 +335,21 @@ describe("workflow extraction authority parity", () => {
 
   it("executes the actual JSON consumer and fails closed with missing or malformed needs", () => {
     for (const raw of ["", "null", "{}", "not-json"]) {
-      const result = spawnSync(process.execPath, ["scripts/pr-checks/required-jobs.mjs"], { encoding: "utf8", env: { ...process.env, PR_REQUIRED_NEEDS_JSON: raw, AC4_E2E_REQUIRED: "true", AC4_E2E_SUITES_JSON: "[]" } });
+      const result = spawnSync(process.execPath, ["scripts/pr-checks/required-jobs.mjs"], {
+        encoding: "utf8",
+        env: { ...process.env, PR_REQUIRED_NEEDS_JSON: raw, AC4_E2E_REQUIRED: "true", AC4_E2E_SUITES_JSON: "[]" },
+      });
       expect(result.status).toBe(1);
     }
-    const result = spawnSync(process.execPath, ["scripts/pr-checks/required-jobs.mjs"], { encoding: "utf8", env: { ...process.env, PR_REQUIRED_NEEDS_JSON: JSON.stringify(needsFixture()), AC4_E2E_REQUIRED: "true", AC4_E2E_SUITES_JSON: '["tcgplayer_connector_extension"]' } });
+    const result = spawnSync(process.execPath, ["scripts/pr-checks/required-jobs.mjs"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PR_REQUIRED_NEEDS_JSON: JSON.stringify(needsFixture()),
+        AC4_E2E_REQUIRED: "true",
+        AC4_E2E_SUITES_JSON: '["tcgplayer_connector_extension"]',
+      },
+    });
     expect(result.status, result.stderr).toBe(0);
   });
 });

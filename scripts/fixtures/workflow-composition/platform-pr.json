@@ -5,9 +5,7 @@
     "on": {
       "pull_request": null,
       "merge_group": {
-        "types": [
-          "checks_requested"
-        ]
+        "types": ["checks_requested"]
       }
     },
     "permissions": {
@@ -178,10 +176,7 @@
           "BOUNDARY_HEAD_SHA": "${{ github.event.pull_request.head.sha || github.sha }}"
         },
         "timeout-minutes": 30,
-        "needs": [
-          "change-scope",
-          "static-source"
-        ],
+        "needs": ["change-scope", "static-source"],
         "if": "always() && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.static_required == 'true'",
         "steps": [
           {
@@ -259,10 +254,7 @@
         "strategy": {
           "fail-fast": false,
           "matrix": {
-            "shard": [
-              1,
-              2
-            ]
+            "shard": [1, 2]
           }
         },
         "steps": [
@@ -325,10 +317,7 @@
           "fail-fast": false,
           "max-parallel": 2,
           "matrix": {
-            "db-workspace-group": [
-              "api",
-              "other"
-            ]
+            "db-workspace-group": ["api", "other"]
           }
         },
         "services": {
@@ -339,9 +328,7 @@
               "POSTGRES_PASSWORD": "postgres",
               "POSTGRES_DB": "postgres"
             },
-            "ports": [
-              "5432:5432"
-            ],
+            "ports": ["5432:5432"],
             "options": "--health-cmd \"pg_isready -U postgres -d postgres\" --health-interval 10s --health-timeout 5s --health-retries 5"
           }
         },
@@ -683,11 +670,7 @@
         "runs-on": "ubuntu-latest",
         "timeout-minutes": 5,
         "if": "always() && github.event_name == 'pull_request'",
-        "needs": [
-          "change-scope",
-          "preview-deploy-smoke",
-          "pr-required"
-        ],
+        "needs": ["change-scope", "preview-deploy-smoke", "pr-required"],
         "steps": [
           {
             "uses": "actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10"

@@ -387,7 +387,9 @@ describe("isolated 13c diagnostic selection (AC4/AC5)", () => {
     expect(platform).toContain(
       "        run: bash scripts/pr-checks/static-checks.sh controls\n\n      - name: Remove owned provider browser boundary\n        if: always()\n",
     );
-    expect(stageOperation("scripts/pr-checks/static-checks.sh", "controls")).toContain("node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs\n");
+    expect(stageOperation("scripts/pr-checks/static-checks.sh", "controls")).toContain(
+      "node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs\n",
+    );
     expect(stageOperation("scripts/pr-checks/static-checks.sh", "controls")).not.toContain("--diagnostic");
     expect(platform).not.toContain("--diagnostic");
   });

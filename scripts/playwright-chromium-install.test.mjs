@@ -555,7 +555,9 @@ describe("Playwright Chromium installer primitive", () => {
     expect(job.steps.filter((step) => /playwright install/.test(step.run ?? ""))).toEqual([]);
     const required = workflow.jobs["pr-required"];
     expect(required.needs).toContain("e2e-tests");
-    expect(required.steps.find((step) => step.name === "Verify required jobs").run).toBe("node scripts/pr-checks/required-jobs.mjs");
+    expect(required.steps.find((step) => step.name === "Verify required jobs").run).toBe(
+      "node scripts/pr-checks/required-jobs.mjs",
+    );
     expect(requiredJobs).toContainEqual(["e2e-tests", "E2E Tests", "e2e_tests_required"]);
   });
 

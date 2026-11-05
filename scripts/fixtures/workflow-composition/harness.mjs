@@ -2,14 +2,24 @@ import { readFileSync } from "node:fs";
 import { requiredJobs } from "../../pr-checks/required-jobs.mjs";
 
 export function requiredJobCalls(step) {
-  if (step.run !== "node scripts/pr-checks/required-jobs.mjs" || step.env.PR_REQUIRED_NEEDS_JSON !== "${{ toJSON(needs) }}") {
+  if (
+    step.run !== "node scripts/pr-checks/required-jobs.mjs" ||
+    step.env.PR_REQUIRED_NEEDS_JSON !== "${{ toJSON(needs) }}"
+  ) {
     throw new Error("Required-job caller is not bound to the real needs input");
   }
   return requiredJobs.map(([id, name, requirement]) => {
     const result = ["static", "typecheck", "build"].includes(id) ? `needs.${id}.result` : `needs['${id}'].result`;
     const resultArgument = `\${{ ${result} }}`;
-    const requiredArgument = requirement === null ? "$capture_required" : `\${{ needs['change-scope'].outputs.${requirement} }}`;
-    return { name, helper: "require_job", resultArgument, requiredArgument, line: `require_job "${name}" "${resultArgument}" "${requiredArgument}"` };
+    const requiredArgument =
+      requirement === null ? "$capture_required" : `\${{ needs['change-scope'].outputs.${requirement} }}`;
+    return {
+      name,
+      helper: "require_job",
+      resultArgument,
+      requiredArgument,
+      line: `require_job "${name}" "${resultArgument}" "${requiredArgument}"`,
+    };
   });
 }
 

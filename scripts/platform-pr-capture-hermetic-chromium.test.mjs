@@ -24,7 +24,12 @@ function runGate(required, suites, result) {
   );
   const execution = spawnSync(process.execPath, ["scripts/pr-checks/required-jobs.mjs"], {
     encoding: "utf8",
-    env: { ...process.env, PR_REQUIRED_NEEDS_JSON: JSON.stringify(needs), AC4_E2E_REQUIRED: required, AC4_E2E_SUITES_JSON: suites },
+    env: {
+      ...process.env,
+      PR_REQUIRED_NEEDS_JSON: JSON.stringify(needs),
+      AC4_E2E_REQUIRED: required,
+      AC4_E2E_SUITES_JSON: suites,
+    },
   });
   if (execution.error) throw execution.error;
   return { status: execution.status, output: execution.stdout + execution.stderr };
@@ -104,7 +109,12 @@ describe("Capture Hermetic Chromium hosted proof", () => {
       '--outputFile.json="$RUNNER_TEMP/ac4-chromium.json"',
     ])
       expect(stageRun(proof)).toContain(fragment);
-    expect(JSON.stringify(job) + stageRun(install) + stageRun(proof) + readFileSync("scripts/pr-checks/hermetic-chromium-receipt.mjs", "utf8")).not.toMatch(/secrets\.|continue-on-error|passWithNoTests|--retry|--testTimeout/);
+    expect(
+      JSON.stringify(job) +
+        stageRun(install) +
+        stageRun(proof) +
+        readFileSync("scripts/pr-checks/hermetic-chromium-receipt.mjs", "utf8"),
+    ).not.toMatch(/secrets\.|continue-on-error|passWithNoTests|--retry|--testTimeout/);
   });
 
   it.each(["success", "failure", "skipped", "cancelled", "", "unknown"])(
@@ -148,7 +158,9 @@ describe("Capture Hermetic Chromium hosted proof", () => {
     status: "passed",
   }));
   function assertReceipt(assertions, success = true) {
-    expect(stageRun(job.steps[4])).toContain('node scripts/pr-checks/hermetic-chromium-receipt.mjs "$RUNNER_TEMP/ac4-chromium.json"');
+    expect(stageRun(job.steps[4])).toContain(
+      'node scripts/pr-checks/hermetic-chromium-receipt.mjs "$RUNNER_TEMP/ac4-chromium.json"',
+    );
     const script = readFileSync("scripts/pr-checks/hermetic-chromium-receipt.mjs", "utf8");
     expect(script).toBeTruthy();
     const messages = [];

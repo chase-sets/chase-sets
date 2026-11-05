@@ -100,7 +100,11 @@ export async function summarizePrReleaseStatus(env = process.env, source = "arti
   await appendFile(env.GITHUB_STEP_SUMMARY, await readFile(source, "utf8"));
 }
 
-export async function commentPrReleaseStatus(env = process.env, execute = execFileSync, source = "artifacts/pr-release-status.md") {
+export async function commentPrReleaseStatus(
+  env = process.env,
+  execute = execFileSync,
+  source = "artifacts/pr-release-status.md",
+) {
   const body = await readFile(source, "utf8");
   const comments = execute(
     "gh",

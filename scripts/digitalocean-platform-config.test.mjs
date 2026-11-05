@@ -2272,8 +2272,12 @@ function evaluateRequiredWorkflowCall(call, { templateValues, targetedHeavyRequi
   };
   const result = resolveArgument(call.resultArgument);
   if (call.helper === "require_job") {
-    try { requireJob(call.name ?? "Required job", result, resolveArgument(call.requiredArgument)); return true; }
-    catch { return false; }
+    try {
+      requireJob(call.name ?? "Required job", result, resolveArgument(call.requiredArgument));
+      return true;
+    } catch {
+      return false;
+    }
   }
   const affected = resolveArgument(call.requiredArgument) === "true";
   const required = call.helper === "require_targeted_heavy_job" ? targetedHeavyRequired && affected : affected;
@@ -3942,7 +3946,9 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
     expect(dbProfileJob).toContain("run: bash scripts/pr-checks/db-tests.sh prepare");
-    expect(stageOperation("scripts/pr-checks/db-tests.sh", "prepare")).toContain("target_max_locks_per_transaction=512");
+    expect(stageOperation("scripts/pr-checks/db-tests.sh", "prepare")).toContain(
+      "target_max_locks_per_transaction=512",
+    );
     expect(dbProfileJob).toContain("id: platform-api-selected");
     const idIdx = dbProfileJob.indexOf("id: platform-api-selected");
     const runIdx = dbProfileJob.indexOf("- name: Run DB-profile tests");
@@ -3983,9 +3989,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(job.if).toBe("needs['change-scope'].outputs.unit_tests_required == 'true'");
     const execution = job.steps.find((step) => step.name === "Run non-DB tests");
     expect(execution.run).toBe("bash scripts/pr-checks/unit-tests.sh");
-    expect(execution.env).toEqual({ UNIT_TEST_WORKSPACES: "${{ needs['change-scope'].outputs.unit_test_workspaces }}", UNIT_TEST_SHARD: "${{ matrix.shard }}" });
-    expect(stageRun(execution)).toContain('node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="$UNIT_TEST_WORKSPACES" --shard=$UNIT_TEST_SHARD/2');
-    expect(stageRun(execution)).toContain('node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="$UNIT_TEST_WORKSPACES" --shard=$UNIT_TEST_SHARD/2');
+    expect(execution.env).toEqual({
+      UNIT_TEST_WORKSPACES: "${{ needs['change-scope'].outputs.unit_test_workspaces }}",
+      UNIT_TEST_SHARD: "${{ matrix.shard }}",
+    });
+    expect(stageRun(execution)).toContain(
+      'node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="$UNIT_TEST_WORKSPACES" --shard=$UNIT_TEST_SHARD/2',
+    );
+    expect(stageRun(execution)).toContain(
+      'node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="$UNIT_TEST_WORKSPACES" --shard=$UNIT_TEST_SHARD/2',
+    );
     expect(stageRun(execution)).toContain("--concurrency=4");
 
     for (const jobId of ["preview-deploy-smoke", "compose-preview-smoke", "pr-required"]) {
@@ -4112,7 +4125,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     for (const requirement of ["true", "false", "", "unknown"]) {
       for (const result of ["success", "skipped", "failure", "cancelled", "", "unknown"]) {
-        const admitted = requirement === "true" ? result === "success" : requirement === "false" && ["success", "skipped"].includes(result);
+        const admitted =
+          requirement === "true"
+            ? result === "success"
+            : requirement === "false" && ["success", "skipped"].includes(result);
         if (admitted) expect(() => requireJobFunction("DB Profile Tests", result, requirement)).not.toThrow();
         else expect(() => requireJobFunction("DB Profile Tests", result, requirement)).toThrow();
       }
@@ -4236,7 +4252,9 @@ describe("DigitalOcean platform configuration", () => {
       expect(runtimeSecretsStep).toContain(`export ${environmentName}="\${TF_VAR_${terraformName}`);
     }
 
-    expect(workflowRequiredCall(requiredJob, "Deploy Preview and Smoke").requiredArgument).toBe("${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}");
+    expect(workflowRequiredCall(requiredJob, "Deploy Preview and Smoke").requiredArgument).toBe(
+      "${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}",
+    );
     expect(requiredJob).not.toContain("github.event.pull_request.head.repo.full_name == github.repository");
   });
 
