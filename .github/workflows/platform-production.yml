@@ -2831,12 +2831,17 @@ jobs:
           if [ -n "$existing_issue" ]; then
             gh issue comment "$existing_issue" --repo "${GITHUB_REPOSITORY}" --body "$body"
           else
-            gh issue create \
-              --repo "${GITHUB_REPOSITORY}" \
-              --title "$title" \
-              --body "$body" \
-              --label "kind:ops" \
-              --label "area:infrastructure"
+            created_type="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+              -f type=Bug \
+              -f title="$title" \
+              -f body="$body" \
+              -f 'labels[]=kind:ops' \
+              -f 'labels[]=area:infrastructure' \
+              --jq '.type | select(.is_enabled == true) | .name')"
+            if [ "$created_type" != "Bug" ]; then
+              echo "ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response." >&2
+              exit 1
+            fi
           fi
 
   record-staging-release-health:
@@ -5228,11 +5233,12 @@ jobs:
             echo "Updated incident issue #${existing_issue}."
           else
             issue_create_args=(
-              --repo "${GITHUB_REPOSITORY}" \
-              --title "${title}" \
-              --body "${body}" \
-              --label "kind:ops" \
-              --label "area:infrastructure"
+              --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+              -f type=Bug \
+              -f title="${title}" \
+              -f body="${body}" \
+              -f 'labels[]=kind:ops' \
+              -f 'labels[]=area:infrastructure'
             )
 
             incident_milestone_title="Incidents"
@@ -5242,12 +5248,16 @@ jobs:
             )"
 
             if [ -n "${incident_milestone_number}" ]; then
-              issue_create_args+=(--milestone "${incident_milestone_title}")
+              issue_create_args+=(-F milestone="${incident_milestone_number}")
             else
               echo "Open incident milestone '${incident_milestone_title}' was not found; creating issue without a milestone."
             fi
 
-            gh issue create "${issue_create_args[@]}"
+            created_type="$(gh api "${issue_create_args[@]}" --jq '.type | select(.is_enabled == true) | .name')"
+            if [ "$created_type" != "Bug" ]; then
+              echo "ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response." >&2
+              exit 1
+            fi
           fi
 
   notify-production-rollback-incident:
@@ -5305,11 +5315,12 @@ jobs:
             echo "Updated rollback incident issue #${existing_issue}."
           else
             issue_create_args=(
-              --repo "${GITHUB_REPOSITORY}" \
-              --title "${title}" \
-              --body "${body}" \
-              --label "kind:ops" \
-              --label "area:infrastructure"
+              --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+              -f type=Bug \
+              -f title="${title}" \
+              -f body="${body}" \
+              -f 'labels[]=kind:ops' \
+              -f 'labels[]=area:infrastructure'
             )
 
             incident_milestone_title="Incidents"
@@ -5319,10 +5330,14 @@ jobs:
             )"
 
             if [ -n "${incident_milestone_number}" ]; then
-              issue_create_args+=(--milestone "${incident_milestone_title}")
+              issue_create_args+=(-F milestone="${incident_milestone_number}")
             fi
 
-            gh issue create "${issue_create_args[@]}"
+            created_type="$(gh api "${issue_create_args[@]}" --jq '.type | select(.is_enabled == true) | .name')"
+            if [ "$created_type" != "Bug" ]; then
+              echo "ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response." >&2
+              exit 1
+            fi
           fi
 
   close-resolved-deploy-incidents:

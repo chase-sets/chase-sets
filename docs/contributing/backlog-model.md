@@ -44,6 +44,14 @@ human evidence. This grants no provider or production authorization.
 `test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The native
 Epic issue type is the only Epic signal.
 
+Headless registration uses `gh api --method POST repos/chase-sets/chase-sets/issues -f type=<Slice|Bug|Decision|Probe> ... --jq .type.name`.
+Replace the type placeholder with the accepted work form and `...` with the
+title, body, labels and milestone fields. `gh issue create` cannot set type.
+Capture the create response and fail registration unless its native type
+matches the requested name and `is_enabled` is true; never repair by PATCH.
+Machine alerts use native `Bug`, including incidents in Operations.
+Guard: `scripts/check-structure/issue-creation-type-contract.test.mjs`.
+
 Deliberately **not** adopted: *story*, *story points*, *velocity*, *sprints*.
 A slice already carries scope fence, acceptance criteria with evidence methods,
 a verification plan, and a predicted file footprint — strictly more information

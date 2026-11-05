@@ -186,12 +186,11 @@ jobs:
         run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
 
   reporter:
-    name: Report Coverage Failure (non-blocking)
+    name: Report Coverage Failure
     needs: [coverage-fast, coverage-db, coverage-summary]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
     permissions:
       contents: read
       issues: write

@@ -1969,7 +1969,10 @@ describe("canonical SLI issues", () => {
       ],
       json: async (path, request) => {
         calls.push({ path, request });
-        return { number: path === "/issues" ? 57 : Number(path.split("/").at(-1)) };
+        return {
+          number: path === "/issues" ? 57 : Number(path.split("/").at(-1)),
+          type: { name: "Bug", is_enabled: true },
+        };
       },
     };
     const record = {
