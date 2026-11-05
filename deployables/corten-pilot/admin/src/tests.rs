@@ -7653,6 +7653,10 @@ async fn a_refused_command_is_the_page_again_with_the_apis_reason() {
         "only the notice: {patch}"
     );
     assert_eq!(html.matches("A reason is required to reject observations.").count(), 1, "the refusal is said once: {html}");
+    assert!(
+        html.contains(r#"<div class="alert__alert alert__destructive" role="alert"><p>A reason is required to reject observations.</p></div>"#),
+        "in the kit's alert, its one live region: {html}"
+    );
 
     let (status, _, html) = pilot.send(post("/catalog/integrations/catalog-sync?providerKey=tcgplayer", "units=a", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");

@@ -36,11 +36,17 @@ use crate::{
 #[derive(Id, Clone, Copy)]
 pub struct DailyRefusalId;
 
-/// A refused command's message, where the page's notice goes.
+/// A refused command's message, where the page's notice goes, in the kit's destructive alert.
+/// Workaround (todd-skelton/corten#861): `form_message()` is its own `role="alert"`, so
+/// inside the kit's `Alert` it is two nested alerts; the alert takes the message's text.
 #[component(css = DailyPage)]
 pub fn DailyRefusal<'a>(errors: &'a Errors) -> impl Patch {
     html! {
-        <div class={Notice} id={DailyRefusalId}>{errors.form_message()}</div>
+        <div class={Notice} id={DailyRefusalId}>
+            if let Some(message) = errors.form() {
+                <Alert variant={AlertVariant::Destructive}><p>{message}</p></Alert>
+            }
+        </div>
     }
 }
 
@@ -60,7 +66,9 @@ fn stage_description(t: Cat, stage: Stage) -> &'static str {
     }
 }
 
-/// A stage's summary line (`buildFlowStages`' `summary`).
+/// A stage's summary line (`buildFlowStages`' `summary`). A message's arguments are positional, in
+/// the order its English text first uses them (todd-skelton/corten#860), so each call here was
+/// checked against its text.
 fn stage_summary(t: Cat, model: &Daily, stage: Stage) -> String {
     let review = &model.source_observation_review;
     match stage {
@@ -879,7 +887,9 @@ fn ReviewModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &
     }
 }
 
-/// The review's page `n` (from 1) of the working set `context`.
+/// The review's page `n` (from 1) of the working set `context`, owned: the kit's `Pagination` ties
+/// a named closure's borrow to its links' lifetime (todd-skelton/corten#862), so an inline closure
+/// calls this.
 // Workaround (chase-sets/chase-sets#11047): a page's link, as admin-web's pager builds it.
 fn review_page(context: &str, limit: u64, n: usize) -> Box<dyn Href> {
     let offset = ((n as u64).saturating_sub(1) * limit).to_string();
