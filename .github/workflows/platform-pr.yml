@@ -67,6 +67,8 @@ jobs:
       e2e_suite_batches_json: ${{ steps.scope.outputs.e2e_suite_batches_json }}
       exposure_posture_categories: ${{ steps.scope.outputs.exposure_posture_categories }}
       exposure_posture_categories_json: ${{ steps.scope.outputs.exposure_posture_categories_json }}
+      required_proof_paths_json: ${{ steps.scope.outputs.required_proof_paths_json }}
+      required_proof_selection_mode: ${{ fromJson(steps.scope.outputs.scope_json).requiredProofSelectionMode || '' }}
       exposure_posture_changed: ${{ steps.scope.outputs.exposure_posture_changed }}
       integration_risk_required: ${{ steps.scope.outputs.integration_risk_required }}
       integration_risk_reason: ${{ steps.scope.outputs.integration_risk_reason }}
@@ -269,6 +271,29 @@ jobs:
         run: |
           node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
           node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
+
+  canonical-proof-sets:
+    name: Canonical Proof Sets
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.required_proof_paths_json != '[]'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Execute exact canonical proof paths
+        env:
+          REQUIRED_PROOF_PATHS_JSON: ${{ needs['change-scope'].outputs.required_proof_paths_json }}
+          CHANGED_FILES_JSON: ${{ needs['change-scope'].outputs.changed_files_json }}
+          REQUIRED_PROOF_SELECTION_MODE: ${{ needs['change-scope'].outputs.required_proof_selection_mode }}
+        run: node ./scripts/lib/context-proof-sets.mjs run
 
   db-tests:
     name: DB Profile Tests (${{ matrix.db-workspace-group }})
@@ -1916,6 +1941,7 @@ jobs:
       - static
       - typecheck
       - unit-tests
+      - canonical-proof-sets
       - db-tests
       - e2e-tests
       - capture-hermetic-chromium
@@ -1929,6 +1955,11 @@ jobs:
       - preview-deploy-smoke
       - compose-preview-smoke
     steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Verify required jobs
         env:
           AC4_E2E_REQUIRED: ${{ needs['change-scope'].outputs.e2e_tests_required }}
@@ -1986,6 +2017,14 @@ jobs:
           require_job "Terraform Observability Plan" "${{ needs['terraform-observability-plan'].result }}" "${{ needs['change-scope'].outputs.terraform_observability_plan_required }}"
           require_job "Deploy Preview and Smoke" "${{ needs['preview-deploy-smoke'].result }}" "${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}"
           require_job "Compose Boot Smoke" "${{ needs['compose-preview-smoke'].result }}" "${{ needs['change-scope'].outputs.compose_preview_smoke_required }}"
+
+      - name: Verify canonical proof sets
+        env:
+          REQUIRED_PROOF_PATHS_JSON: ${{ needs['change-scope'].outputs.required_proof_paths_json }}
+          CHANGED_FILES_JSON: ${{ needs['change-scope'].outputs.changed_files_json }}
+          REQUIRED_PROOF_SELECTION_MODE: ${{ needs['change-scope'].outputs.required_proof_selection_mode }}
+          CANONICAL_PROOF_RESULT: ${{ needs['canonical-proof-sets'].result }}
+        run: node ./scripts/lib/context-proof-sets.mjs require-result
 
   release-status:
     name: PR Release Status
