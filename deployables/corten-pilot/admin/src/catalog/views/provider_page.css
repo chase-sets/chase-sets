@@ -38,13 +38,6 @@
 .notice:empty {
   display: none;
 }
-.note {
-  margin: 0;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-2);
-}
 .card-head {
   display: flex;
   flex-wrap: wrap;

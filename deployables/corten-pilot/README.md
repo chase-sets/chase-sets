@@ -155,7 +155,13 @@ row's sheet a disclosure, and saves migration evidence and activates a version f
 decision. Its profile section workspaces
 ([admin/src/catalog/sections.rs](admin/src/catalog/sections.rs)) draw each of the selected version's
 fifteen sections, in its group, as a disclosure with its form, drawn from the fields the read model
-describes, and save one through the API's section command; the Operator session opens on admin-web.
+describes, and save one through the API's section command. A platform admin on TCGplayer gets its
+Operator session ([admin/src/catalog/operator_session.rs](admin/src/catalog/operator_session.rs)):
+the extension grant's status, Pair extension, whose answer shows the grant once (`no-store`, handed
+to the operator extension first with JavaScript), and Disconnect behind its box. Each write carries
+the browser's `Origin`, which the API checks against the forwarded host, so it succeeds only where
+the API trusts that host (`CHASE_SETS_TRUST_FORWARDED_HEADERS`, set by the platform's deploys;
+locally, a proxy that sets `Host` from it).
 marketplace-web's `/items/{id}/market-history` is a JSON resource for its client; the pilot draws
 the Sales tab's history on the server.
 

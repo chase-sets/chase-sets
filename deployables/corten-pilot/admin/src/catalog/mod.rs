@@ -58,6 +58,7 @@ pub mod integrations;
 pub mod item;
 pub mod items;
 pub mod observation;
+pub mod operator_session;
 pub mod provider;
 pub mod reference_records;
 pub mod reference_types;

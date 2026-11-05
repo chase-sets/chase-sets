@@ -340,6 +340,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(answer) = provider_api(&method, uri.path(), &body) {
         return answer;
     }
+    if let Some(answer) = operator_session_api(&method, uri.path(), &headers) {
+        return answer;
+    }
     if let Some(rest) = uri.path().strip_prefix(SHOPPING_API) {
         return shopping_api(&method, rest, uri.query().unwrap_or_default(), &body);
     }
@@ -7731,6 +7734,35 @@ fn validation_readiness(selected: &str) -> Value {
     })
 }
 
+/// Catalog's operator-session routes. A write without the page's own origin is refused, as the API
+/// refuses one; the session `catalog-admin-old` stands for a sign-in older than ten minutes and
+/// `catalog-admin-stale` for a grant record that changed before Disconnect ran.
+fn operator_session_api(method: &Method, path: &str, headers: &HeaderMap) -> Option<Response> {
+    let rest = path.strip_prefix("/api/catalog/operator-session")?;
+    let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let flat = |status: StatusCode, code: &str| (status, Json(json!({ "code": code }))).into_response();
+    Some(match (method.as_str(), rest) {
+        ("GET", "") => Json(json!({ "revision": 2, "storedAt": null, "browserExpiresAt": null, "custodyAvailable": false,
+            "grant": { "active": true, "createdAt": "2026-11-01T10:00:00.000Z", "idleExpiresAt": "2026-12-01T10:00:00.000Z",
+                "lastUsedAt": "2026-11-04T10:00:00.000Z" } }))
+        .into_response(),
+        (_, "" | "/grant") if origin.is_empty() => flat(StatusCode::FORBIDDEN, "forbidden"),
+        (_, "" | "/grant") if cookie.contains("=catalog-admin-old") => flat(StatusCode::BAD_REQUEST, "step_up_required"),
+        ("POST", "/grant") => {
+            Json(json!({ "grant": OPERATOR_GRANT, "idleExpiresAt": "2026-12-05T10:00:00.000Z" })).into_response()
+        }
+        ("DELETE", "") if cookie.contains("=catalog-admin-stale") => {
+            (StatusCode::CONFLICT, Json(json!({ "outcome": "stale-revision", "revision": 4 }))).into_response()
+        }
+        ("DELETE", "") => Json(json!({ "outcome": "cleared", "revision": 3 })).into_response(),
+        _ => flat(StatusCode::NOT_FOUND, "not-found"),
+    })
+}
+
+/// The grant the operator-session mock mints: 43 base64url characters, as Catalog's.
+const OPERATOR_GRANT: &str = "Q2hhc2VTZXRzT3BlcmF0b3JHcmFudEZvclRlc3RzXzA";
+
 /// The refresh schedules and a provider's commands: TCGplayer's schedule runs on its own, Lorcast's
 /// is paused and its run fails at the provider (the API's 502); a deprecate of 2026.06.23 is refused
 /// as a lifecycle conflict. Migration evidence with a blank text is refused, as the API's section
@@ -7861,7 +7893,7 @@ async fn provider_detail_draws_the_apis_health_surface_for_the_provider_with_its
     assert!(html.contains(r#"data-catalog-provider-job-disclosure="job_9""#), "{html}");
     assert!(html.contains(r#"action="/catalog/providers/tcgplayer/jobs/job_9?profileVersion=2026.07.13""#), "{html}");
     assert!(html.contains(r#"value="retry""#) && !html.contains(r#"value="cancel""#), "{html}");
-    // Section editing and the Operator session stay on admin-web; this viewer is not offered the session.
+    // This viewer is not offered the Operator session.
     assert!(html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer?profileVersion=2026.07.13""#), "{html}");
     assert!(!html.contains("Operator session"), "{html}");
 
@@ -7887,6 +7919,7 @@ async fn a_reader_sees_provider_detail_without_its_commands_and_a_platform_admin
     let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-admin"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Operator session"), "a platform admin on TCGplayer (chase-sets/chase-sets#11050): {html}");
+    assert!(html.contains(r#"action="/catalog/providers/tcgplayer/operator-session/pair""#), "{html}");
     let (status, _, html) = pilot.send(get("/catalog/providers/lorcast", Some("catalog-admin"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(!html.contains("Operator session"), "{html}");
@@ -9324,4 +9357,67 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(provider_writes(&pilot).len(), before);
+}
+
+#[tokio::test]
+async fn the_operator_session_pairs_once_with_the_browsers_origin_and_disconnects_behind_its_box() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let panel = &html[html.find(r#"data-catalog-operator-session-panel="true""#).unwrap()..];
+    let panel = &panel[..panel.find("</section>").unwrap()];
+    assert!(panel.contains("Extension grant") && panel.contains("Active") && panel.contains("Revision"), "{panel}");
+    assert!(!panel.contains("Stored at") && !panel.contains("Browser expiry"), "custody instants are never drawn: {panel}");
+    assert!(panel.contains(r#"action="/catalog/providers/tcgplayer/operator-session/disconnect""#), "{panel}");
+    assert!(panel.contains(r#"name="confirmed" value="disconnect" required"#), "{panel}");
+
+    // Pair: the browser's origin goes along, and the answer is the page with the grant, kept by nothing.
+    let mut req = post_as("catalog-admin", "/catalog/providers/tcgplayer/operator-session/pair", "", false);
+    req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
+    req.headers_mut().insert("sec-fetch-site", "same-origin".parse().unwrap());
+    let (status, headers, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    let sent =
+        pilot.calls.lock().unwrap().iter().rev().find(|c| c.path == "/api/catalog/operator-session/grant").cloned().unwrap();
+    assert_eq!(sent.method, Method::POST);
+    assert_eq!(sent.headers[header::ORIGIN], "http://localhost:7790");
+    assert_eq!(sent.headers["sec-fetch-site"], "same-origin");
+    assert!(html.contains(&format!(r#"<code id="operator-grant">{OPERATOR_GRANT}</code>"#)), "{html}");
+    assert!(html.contains(r#"data-pending="true""#) && html.contains("operator_session.handoff"), "the script's handoff: {html}");
+    assert!(html.contains("This grant is shown once."), "{html}");
+
+    // A sign-in that is too old is refused before anything is minted, with Sign in again.
+    let mut req = post_as("catalog-admin-old", "/catalog/providers/tcgplayer/operator-session/pair", "", false);
+    req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("This action needs a recent sign-in.") && html.contains("Sign in again"), "{html}");
+    assert!(!html.contains(OPERATOR_GRANT), "{html}");
+
+    // Disconnect needs its box; then it says what the API did, and a changed record is a conflict.
+    let before = pilot.calls.lock().unwrap().iter().filter(|c| c.method == Method::DELETE).count();
+    let (status, _, _) =
+        pilot.send(post_as("catalog-admin", "/catalog/providers/tcgplayer/operator-session/disconnect", "", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(pilot.calls.lock().unwrap().iter().filter(|c| c.method == Method::DELETE).count(), before);
+    let mut req =
+        post_as("catalog-admin", "/catalog/providers/tcgplayer/operator-session/disconnect", "confirmed=disconnect", false);
+    req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Extension grant revoked. The record is now revision 3."), "{html}");
+    let mut req =
+        post_as("catalog-admin-stale", "/catalog/providers/tcgplayer/operator-session/disconnect", "confirmed=disconnect", false);
+    req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(html.contains("it is now revision 4"), "{html}");
+
+    // Only a platform admin on TCGplayer: anyone else's write sends nothing.
+    let before = pilot.calls.lock().unwrap().len();
+    let (status, _, _) =
+        pilot.send(post_as("catalog-admin", "/catalog/providers/lorcast/operator-session/pair", "", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(pilot.calls.lock().unwrap()[before..].iter().all(|c| !c.path.starts_with("/api/catalog/operator-session")));
 }

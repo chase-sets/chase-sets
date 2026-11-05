@@ -17,6 +17,8 @@
 //! | `POST /catalog/providers/{key}/evidence?<context>` | records migration evidence ([`super::validation`]) |
 //! | `POST /catalog/providers/{key}/activate?<context>` | activates a profile version ([`super::validation`]) |
 //! | `POST /catalog/providers/{key}/sections/{section}?<context>` | saves a profile section ([`super::sections`]) |
+//! | `POST /catalog/providers/{key}/operator-session/pair?<context>` | pairs the operator extension ([`super::operator_session`]) |
+//! | `POST /catalog/providers/{key}/operator-session/disconnect?<context>` | revokes the extension grant ([`super::operator_session`]) |
 //!
 //! The context is the address's query as admin-web names it (`profileVersion`, `unitKey`,
 //! `jobId`); the pilot passes it to the API without reading it. A command's body is the API's own
@@ -27,13 +29,14 @@
 //!
 //! Validation readiness (provider readiness, fixtures, dry runs, semantic compare, activation
 //! readiness and the activation decision) is drawn from the same read ([`super::validation`]), and
-//! so are the profile's section workspaces, each saved by its own form ([`super::sections`]). The
-//! Operator session section opens on admin-web.
+//! so are the profile's section workspaces, each saved by its own form ([`super::sections`]). A
+//! platform admin on TCGplayer also gets the Operator session ([`super::operator_session`]), read
+//! beside the surface.
 //!
 //! Workarounds, each to remove when its issue lands:
 //! 1. chase-sets/chase-sets#11050: the surface read takes the provider only from the location's
 //!    query, so `location` adds `providerKey`; the read carries no refresh schedule, so `schedule`
-//!    lists every provider's and keeps this one; and who is offered the Operator session section
+//!    lists every provider's and keeps this one; and who is offered the Operator session
 //!    (`operator_session`) is copied from admin-web's loader.
 //! 2. chase-sets/chase-sets#11049: the API's lifecycle commands take no confirmation, so
 //!    `LifecycleInput::confirmed` checks the one the form carries before the pilot sends one.
@@ -104,6 +107,18 @@ pub mod url {
     pub struct Section<'a> {
         pub key: &'a str,
         pub section: &'a str,
+    }
+
+    /// Mints an operator extension grant. Its answer carries the grant, so nothing may keep it.
+    #[route("/catalog/providers/{key}/operator-session/pair", post = crate::catalog::operator_session::pair, no_store)]
+    pub struct Pair<'a> {
+        pub key: &'a str,
+    }
+
+    /// Revokes every active operator extension grant.
+    #[route("/catalog/providers/{key}/operator-session/disconnect", post = crate::catalog::operator_session::disconnect, no_store)]
+    pub struct Disconnect<'a> {
+        pub key: &'a str,
     }
 
     /// Retries, resumes or cancels one of the provider's import jobs.
@@ -431,15 +446,15 @@ impl Schedule {
 }
 
 /// What the page draws: the provider, the read model, its refresh schedule (none when it could not
-/// be read), whether the viewer may run the commands, and whether the Operator session section
-/// is offered.
+/// be read), whether the viewer may run the commands, and the Operator session's status when it is
+/// offered.
 #[derive(Clone, Debug, Default, Serialize, ToJson)]
 pub struct ProviderScreen {
     pub key: String,
     pub read: ProviderRead,
     pub schedule: Option<Vec<Schedule>>,
     pub manage: bool,
-    pub operator_session: bool,
+    pub operator_session: Option<super::operator_session::Operator>,
 }
 
 /// What the page says at its top: a command's outcome, or its refusal.
@@ -495,29 +510,62 @@ async fn render(
     receipt: Option<Receipt>,
     said: Option<Said<'_>>,
     refused: bool,
+    operator: Option<(&super::operator_session::Answer, StatusCode)>,
 ) -> HtmlResult {
     let location = location(key, context);
-    let (read, schedule) = tokio::join!(read(config, headers, &location, receipt.as_ref()), schedule(config, headers, key));
+    let offered = operator_session(&viewer.role_key, key);
+    let session = async {
+        match offered {
+            true => {
+                Some(super::operator_session::Operator { metadata: super::operator_session::metadata(config, headers).await })
+            }
+            false => None,
+        }
+    };
+    let (read, schedule, session) =
+        tokio::join!(read(config, headers, &location, receipt.as_ref()), schedule(config, headers, key), session);
     let read = match read {
         Ok(read) => read,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
-    let screen = ProviderScreen {
-        key: key.to_owned(),
-        read,
-        schedule,
-        manage: manages(viewer),
-        operator_session: operator_session(&viewer.role_key, key),
-    };
+    let screen = ProviderScreen { key: key.to_owned(), read, schedule, manage: manages(viewer), operator_session: session };
     let t: Cat = req.t();
     let p: Pilot = req.t();
     let view = html! {
-        <super::views::ProviderPage t={t} p={p} req={req} screen={&screen} context={context} said={said.as_ref()} />
+        <super::views::ProviderPage
+            t={t}
+            p={p}
+            req={req}
+            screen={&screen}
+            context={context}
+            said={said.as_ref()}
+            operator={operator.map(|(answer, _)| answer)}
+        />
     };
     let page = html! {
         <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_provider()} head="">{view}</crate::views::Layout>
     };
-    if refused { req.page(page) } else { req.screen(&screen, page) }
+    match operator {
+        // A write's answer: the page itself, never its screen data, since Pair's carries the grant.
+        Some((_, status)) => req.page_with_status(status, page),
+        None if refused => req.page(page),
+        None => req.screen(&screen, page),
+    }
+}
+
+/// An Operator session write's answer: the page, with what came of it in the panel.
+#[expect(clippy::too_many_arguments, reason = "a page's inputs and who is asking, as `render`'s")]
+pub(super) async fn drawn_with(
+    req: &Req,
+    staff: &Staff<CatalogAccess>,
+    config: &Shared,
+    headers: &HeaderMap,
+    key: &str,
+    context: &str,
+    answer: &super::operator_session::Answer,
+    status: StatusCode,
+) -> HtmlResult {
+    render(req, &staff.viewer, config, headers, key, context, None, None, false, Some((answer, status))).await
 }
 
 /// A query value the address carries (the last command's receipt and outcome), decoded.
@@ -537,7 +585,7 @@ pub(crate) async fn page(
     let receipt = Receipt::from_param(param(&uri, "after_write").as_deref());
     let said = param(&uri, "done").as_deref().and_then(Done::of).map(Said::Done);
     let context = daily::context_of(&uri);
-    render(&req, &staff.viewer, &config, &headers, &route.key, &context, receipt, said, false).await
+    render(&req, &staff.viewer, &config, &headers, &route.key, &context, receipt, said, false, None).await
 }
 
 /// The redirect after a command the API accepted: the page again with the write's receipt and
@@ -577,7 +625,7 @@ pub(super) async fn again(
 ) -> HtmlResult {
     let form = super::views::ProviderRefusal { errors: &errors };
     req.invalid(&errors, form, || {
-        render(req, &staff.viewer, config, headers, key, context, None, Some(Said::Refused(&errors)), true)
+        render(req, &staff.viewer, config, headers, key, context, None, Some(Said::Refused(&errors)), true, None)
     })
     .await
 }

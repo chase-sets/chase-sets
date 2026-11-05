@@ -19,6 +19,7 @@ use platform::ui::{
 
 use super::{
     integrations_page::{Banner, Blockers, Cell, Empty, Metric, Module, Pairs, Pill, maybe_when, state_label, transport, when},
+    operator_session::OperatorSession,
     profile_sections::ProfileSections,
     validation::Validation,
 };
@@ -143,12 +144,18 @@ pub fn ProviderPage<'a>(
     screen: &'a ProviderScreen,
     context: &'a str,
     said: Option<&'a Said<'a>>,
+    operator: Option<&'a crate::catalog::operator_session::Answer>,
 ) -> impl Render {
     let model = &screen.read.read_model;
     let key = screen.key.as_str();
     let admin = admin_web(&at(&provider::url::Provider { key }.href().to_string(), context)).map(|uri| uri.to_string());
     let sections = model.profile_authoring.section_workspaces.len();
     let version = model.profile_authoring.selected_profile.as_ref().map_or("", |s| s.profile_version.as_str());
+    // Signing in again comes back to this provider's page, as admin-web's literal return does.
+    let sign_in =
+        crate::sign_in::url::SignIn { ask: crate::sign_in::Ask::back_to(&provider::url::Provider { key }.href().to_string()) }
+            .href()
+            .to_string();
     html! {
         <div class={Page} data-catalog-provider-detail="true">
             <header class={Header}>
@@ -176,14 +183,16 @@ pub fn ProviderPage<'a>(
                 None => { <div class={Notice} id={ProviderRefusalId}></div> }
             }
             <Head t={t} p={p} model={model} key={key} />
-            if screen.operator_session {
-                <p class={Note}>
-                    {p.provider_operator_session()}
-                    " "
-                    if let Some(admin) = &admin {
-                        <a href={admin}>{p.provider_operator_session_open()}</a>
-                    }
-                </p>
+            if let Some(session) = &screen.operator_session {
+                <OperatorSession
+                    t={t}
+                    p={p}
+                    key={key}
+                    context={context}
+                    operator={session}
+                    answer={operator}
+                    sign_in={&sign_in}
+                />
             }
             if let Some(schedules) = &screen.schedule {
                 <SchedulePanel t={t} req={req} key={key} context={context} schedules={schedules} manage={screen.manage} />

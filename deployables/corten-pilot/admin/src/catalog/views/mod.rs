@@ -34,6 +34,7 @@ mod item_list;
 mod item_page;
 mod list_page;
 mod observation_page;
+mod operator_session;
 mod profile_sections;
 mod provider_page;
 mod reference_records;
@@ -79,6 +80,7 @@ pub use list_page::{
     RefRecordRow, RefTypeRow, Search, Table, TemplateRow, TextFilter,
 };
 pub use observation_page::{ObservationPage, ReviewForm, observation_page};
+pub use operator_session::OperatorSession;
 pub use profile_sections::ProfileSections;
 pub use provider_page::{ProviderPage, ProviderRefusal};
 pub use reference_records::{
@@ -109,6 +111,7 @@ pub const COMPONENTS: &[Component] = &[
     ProviderPage,
     Validation,
     ProfileSections,
+    OperatorSession,
     AttentionPanel,
     PreviewDialog,
     ItemForm,
@@ -126,6 +129,7 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::textarea::Textarea,
     corten_ui::Toaster,
     corten_ui::ComboBox,
+    corten_ui::CopyButton,
     corten_ui::dialog::COMPONENT,
 ];
 
