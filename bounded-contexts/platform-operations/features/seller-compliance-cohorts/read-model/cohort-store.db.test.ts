@@ -39,7 +39,7 @@ const policy: SellerComplianceCohortPolicyValue = {
   qualifyingGrossCents: "500000",
   disclosureGrossCents: "2000000",
   windowMonths: 1,
-  lookbackMonths: 2,
+  lookbackMonths: 1,
   comparisonIsInclusive: true,
   saleUnit: "captured-order",
   qualifyingGrossBasis: "item-gross",
