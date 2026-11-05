@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve } from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
@@ -284,26 +284,88 @@ function contextInventory(root = ".") {
   );
 }
 
-function assertCreatorCallers(workflow, path) {
+function assertCreatorCallers(workflow, path, readSource = read) {
   const aliases = Object.entries(SUBCOMMANDS)
     .filter(([, command]) => scriptCreators.some(([file]) => file === `scripts/${command.script}`))
     .map(([alias]) => alias);
-  let count = 0;
-  for (const job of Object.values(workflow.jobs ?? {})) {
-    for (const step of job.steps ?? []) {
+  const creatorFiles = scriptCreators.map(([file]) => file);
+  function unresolved(location) {
+    throw new Error(`Unresolved or ambiguous creator forwarding: ${location}`);
+  }
+  function workspacePath(value, directory, location) {
+    if (typeof value !== "string" || typeof directory !== "string") unresolved(location);
+    const rooted = /^(?:\$\{\{\s*github\.workspace\s*\}\}|\$\{GITHUB_WORKSPACE\}|\$GITHUB_WORKSPACE)(?:\/|$)/.test(
+      value,
+    );
+    const expanded = value.replace(/\$\{\{\s*github\.workspace\s*\}\}|\$\{GITHUB_WORKSPACE\}|\$GITHUB_WORKSPACE/g, ".");
+    if (/[$`]|^[\\/]|^[A-Za-z]:/.test(expanded) || /[$`]/.test(directory)) unresolved(location);
+    const result = posix.normalize(posix.join(rooted ? "." : directory, expanded));
+    if (result === ".." || result.startsWith("../")) unresolved(location);
+    return result;
+  }
+  function callsScript(run, directory, location) {
+    const candidates = (run.match(/"[^"\n]*"|'[^'\n]*'|[^\s;&|()<>]+/g) ?? [])
+      .map((token) => token.replace(/^["']|["']$/g, ""))
+      .filter((token) => creatorFiles.some((file) => token.endsWith(file.split("/").at(-1))));
+    const aliasCall = aliases.some((alias) => run.includes(alias));
+    if (!candidates.length && !aliasCall) return false;
+    // Shell directory changes and computed paths need explicit review rather
+    // than guessing which creator a command will invoke.
+    if (/(?:^|[;\n&|])\s*(?:cd|pushd|popd)\b/.test(run)) unresolved(location);
+    for (const token of candidates) {
+      const effectiveDirectory = workspacePath(directory, ".", location);
+      if (!creatorFiles.includes(workspacePath(token, effectiveDirectory, location))) unresolved(location);
+    }
+    return true;
+  }
+  function actionCallsCreator(reference, location, chain) {
+    const directory = workspacePath(reference, ".", location);
+    if (chain.includes(directory)) unresolved(`${location} (composite cycle)`);
+    const manifests = ["action.yml", "action.yaml"].flatMap((name) => {
+      try {
+        const source = readSource(`${directory}/${name}`);
+        return typeof source === "string" ? [source] : [];
+      } catch (error) {
+        if (error.code === "ENOENT") return [];
+        throw error;
+      }
+    });
+    if (manifests.length !== 1) unresolved(location);
+    const action = parse(manifests[0]);
+    if (action?.runs?.using !== "composite" || !Array.isArray(action.runs.steps)) unresolved(location);
+    // Composite run steps default to the workspace, not the action directory.
+    return inspectSteps(action.runs.steps, {}, ".", `${location} -> ${directory}`, [...chain, directory]) > 0;
+  }
+  function inspectSteps(steps, job, defaultDirectory, location, chain = []) {
+    let count = 0;
+    for (const [index, step] of steps.entries()) {
+      const boundary = `${location} step ${index + 1}`;
       const run = step.run ?? "";
-      const scriptCall =
-        scriptCreators.some(([file]) => run.includes(file)) || aliases.some((alias) => run.includes(alias));
+      const directory = step["working-directory"] ?? defaultDirectory;
+      const scriptCall = callsScript(run, directory, boundary);
       const shellCreate = creationSites(run).some((site) => site.kind === "issue-target");
-      if (step.uses !== "./.github/actions/report-scheduled-workflow-alert" && !scriptCall && !shellCreate) continue;
+      const inlineCreate = creationSites(step.with?.script ?? "").some((site) =>
+        ["cli", "graphql", "octokit", "issue-target"].includes(site.kind),
+      );
+      const actionCall =
+        typeof step.uses === "string" && step.uses.startsWith("./")
+          ? actionCallsCreator(step.uses, boundary, chain)
+          : false;
+      if (!scriptCall && !shellCreate && !inlineCreate && !actionCall) continue;
       count += 1;
-      expect(job["continue-on-error"], path).toBeUndefined();
-      expect(step["continue-on-error"], path).toBeUndefined();
+      expect(job["continue-on-error"], boundary).toBeUndefined();
+      expect(step["continue-on-error"], boundary).toBeUndefined();
       // Shell creators' close-only branches may return 0 before creation; the
       // actual create probes above exercise the other branch. Command callers
       // have no such branch and may not normalize the command's error.
-      if (scriptCall) expect(run, path).not.toMatch(/\|\|\s*(?:true|:|exit\s+0)|set\s+\+e|exit\s+0/);
+      if (scriptCall) expect(run, boundary).not.toMatch(/\|\|\s*(?:true|:|exit\s+0)|set\s+\+e|exit\s+0/);
     }
+    return count;
+  }
+  let count = 0;
+  for (const [jobId, job] of Object.entries(workflow.jobs ?? {})) {
+    const directory = job.defaults?.run?.["working-directory"] ?? workflow.defaults?.run?.["working-directory"] ?? ".";
+    count += inspectSteps(job.steps ?? [], job, directory, `${path} ${jobId}`);
   }
   return count;
 }
@@ -701,7 +763,7 @@ describe("issue creation type contract", () => {
       count += assertCreatorCallers(workflow, path);
       for (const [jobId, job] of Object.entries(workflow.jobs ?? {})) {
         for (const [stepIndex, step] of (job.steps ?? []).entries()) {
-          const isolated = { jobs: { [jobId]: { ...job, steps: [step] } } };
+          const isolated = { ...workflow, jobs: { [jobId]: { ...job, steps: [step] } } };
           if (!assertCreatorCallers(isolated, path)) continue;
           for (const boundary of ["job", "step"]) {
             const mutant = structuredClone(workflow);
@@ -713,6 +775,111 @@ describe("issue creation type contract", () => {
       }
     }
     expect(count).toBeGreaterThanOrEqual(47);
+  });
+
+  it.each(["step", "job-default", "workflow-default", "step-overrides-job", "job-overrides-workflow"])(
+    "resolves relative creator scripts through the effective %s working directory",
+    (scope) => {
+      const workflow = { jobs: { reporter: { steps: [{ run: "node release-lock-monitor.mjs" }] } } };
+      const job = workflow.jobs.reporter;
+      const step = job.steps[0];
+      if (scope === "workflow-default" || scope === "job-overrides-workflow")
+        workflow.defaults = { run: { "working-directory": scope === "workflow-default" ? "scripts" : "wrong" } };
+      if (["job-default", "step-overrides-job", "job-overrides-workflow"].includes(scope))
+        job.defaults = { run: { "working-directory": scope === "step-overrides-job" ? "wrong" : "scripts" } };
+      if (["step", "step-overrides-job"].includes(scope)) step["working-directory"] = "scripts";
+      const before = hash(JSON.stringify(workflow));
+      expect(assertCreatorCallers(workflow, "synthetic-relative.yml")).toBe(1);
+      for (const boundary of ["job", "step", "shell"]) {
+        const mutant = structuredClone(workflow);
+        if (boundary === "shell") mutant.jobs.reporter.steps[0].run += " || true";
+        else (boundary === "job" ? mutant.jobs.reporter : mutant.jobs.reporter.steps[0])["continue-on-error"] = true;
+        expect(
+          () => assertCreatorCallers(mutant, "synthetic-relative.yml"),
+          `RELATIVE_${boundary}_SUPPRESSION`,
+        ).toThrow();
+      }
+      expect(hash(JSON.stringify(workflow)), "restored relative fixture hash").toBe(before);
+    },
+  );
+
+  it.each(["shared-action", "relative-script"])(
+    "follows nested local composites to the %s boundary and rejects every suppressed forwarding node",
+    (target) => {
+      const wrapper = ".github/actions/synthetic-wrapper/action.yml";
+      const nested = ".github/actions/synthetic-nested/action.yml";
+      const leaf =
+        target === "shared-action"
+          ? { uses: "./.github/actions/report-scheduled-workflow-alert" }
+          : { shell: "bash", "working-directory": "scripts", run: "node release-lock-monitor.mjs" };
+      const sources = new Map([
+        [wrapper, { runs: { using: "composite", steps: [{ uses: "./.github/actions/synthetic-nested" }] } }],
+        [nested, { runs: { using: "composite", steps: [leaf] } }],
+      ]);
+      const reader = (path) => (sources.has(path) ? JSON.stringify(sources.get(path)) : read(path));
+      const workflow = { jobs: { reporter: { steps: [{ uses: "./.github/actions/synthetic-wrapper" }] } } };
+      const before = hash(JSON.stringify([...sources]));
+      expect(assertCreatorCallers(workflow, "synthetic-wrapper.yml", reader)).toBe(1);
+      for (const boundary of ["job", "caller", wrapper, nested]) {
+        const mutant = structuredClone(workflow);
+        let step;
+        if (boundary === "job") step = mutant.jobs.reporter;
+        else if (boundary === "caller") step = mutant.jobs.reporter.steps[0];
+        else step = sources.get(boundary).runs.steps[0];
+        step["continue-on-error"] = true;
+        try {
+          expect(
+            () => assertCreatorCallers(mutant, "synthetic-wrapper.yml", reader),
+            `COMPOSITE_SUPPRESSION ${boundary}`,
+          ).toThrow();
+        } finally {
+          delete step["continue-on-error"];
+        }
+      }
+      if (target === "relative-script") {
+        leaf.run += " || true";
+        try {
+          expect(
+            () => assertCreatorCallers(workflow, "synthetic-wrapper.yml", reader),
+            "COMPOSITE_SHELL_SUPPRESSION",
+          ).toThrow();
+        } finally {
+          leaf.run = "node release-lock-monitor.mjs";
+        }
+      }
+      expect(hash(JSON.stringify([...sources])), "restored composite fixture hash").toBe(before);
+      expect(assertCreatorCallers(workflow, "synthetic-wrapper.yml", reader)).toBe(1);
+    },
+  );
+
+  it("fails closed on unresolved or ambiguous creator forwarding", () => {
+    for (const step of [
+      { uses: "./.github/actions/synthetic-missing" },
+      { uses: "./.github/actions/${{ inputs.wrapper }}" },
+      { run: "node release-lock-monitor.mjs", "working-directory": "${{ inputs.directory }}" },
+      { run: "node scripts/other/release-lock-monitor.mjs" },
+      { run: "cd scripts\nnode release-lock-monitor.mjs" },
+      { run: "node $CREATOR/release-lock-monitor.mjs" },
+    ]) {
+      expect(() => assertCreatorCallers({ jobs: { reporter: { steps: [step] } } }, "synthetic-unresolved.yml")).toThrow(
+        "Unresolved or ambiguous creator forwarding",
+      );
+    }
+    const workflow = { jobs: { reporter: { steps: [{ uses: "./.github/actions/synthetic-cycle" }] } } };
+    const cycle = JSON.stringify({
+      runs: { using: "composite", steps: [{ uses: "./.github/actions/synthetic-cycle" }] },
+    });
+    expect(() =>
+      assertCreatorCallers(workflow, "synthetic-cycle.yml", (path) =>
+        path.endsWith("action.yml") ? cycle : undefined,
+      ),
+    ).toThrow("composite cycle");
+    const ambiguous = JSON.stringify({
+      runs: { using: "composite", steps: [{ run: "node scripts/release-lock-monitor.mjs" }] },
+    });
+    expect(() => assertCreatorCallers(workflow, "synthetic-ambiguous.yml", () => ambiguous)).toThrow(
+      "Unresolved or ambiguous creator forwarding",
+    );
   });
   it("sets Bug at the shared action create boundary and rejects missing, disabled and wrong native types", async () => {
     const script = parse(read(actionPath)).runs.steps[0].with.script;
