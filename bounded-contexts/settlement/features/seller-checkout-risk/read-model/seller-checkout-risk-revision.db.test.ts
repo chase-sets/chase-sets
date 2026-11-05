@@ -204,7 +204,7 @@ describeDb("seller checkout risk source revision persistence", () => {
   }
   const oldModule = {
     ...settlementModule,
-    schemaSql: settlementModule.schemaSql.replace("  revision bigint NOT NULL DEFAULT 0,", ""),
+    schemaSql: settlementModule.schemaSql,
     schemaMigrations: settlementModule.schemaMigrations!.filter(
       (migration) => migration.migrationId !== matrix.revisionMigration,
     ),

@@ -43,14 +43,18 @@ describe("seller checkout risk authority contract", () => {
   });
 
   it("registers every AC and enrolls revision persistence exactly once in DB, never Unit", () => {
-    expect(Object.keys(matrix.acceptanceTests)).toEqual(["AC1", "AC2", "AC3", "AC4"]);
+    expect(Object.keys(matrix.acceptanceTests)).toEqual(["AC1", "AC2", "AC3", "AC4", "AC5", "AC6"]);
     expect(matrix.dbWriterCases).toHaveLength(10);
     const pkg = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
-    const fixture = "features/seller-checkout-risk/read-model/seller-checkout-risk-revision.db.test.ts";
-    expect(pkg.scripts["test:db"].split(" ").filter((word: string) => word === fixture)).toHaveLength(1);
-    expect(
-      pkg.scripts["test:unit"].split("--exclude ").filter((word: string) => word.startsWith(fixture)),
-    ).toHaveLength(1);
+    for (const fixture of [
+      "features/seller-checkout-risk/read-model/seller-checkout-risk-revision.db.test.ts",
+      "tests/schema-upgrade.db.test.ts",
+    ]) {
+      expect(pkg.scripts["test:db"].split(" ").filter((word: string) => word === fixture)).toHaveLength(1);
+      expect(
+        pkg.scripts["test:unit"].split("--exclude ").filter((word: string) => word.startsWith(fixture)),
+      ).toHaveLength(1);
+    }
   });
 
   it("reads an account once and preserves the real revision and timestamp", async () => {

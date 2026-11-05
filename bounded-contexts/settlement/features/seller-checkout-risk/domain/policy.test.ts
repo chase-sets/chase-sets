@@ -39,7 +39,8 @@ describe("seller checkout risk v1 policy", () => {
       .trim()
       .split("\n")
       .map((line) => line.trim().split(/\s+/)[0]);
-    expect(columns.sort()).toEqual(["account_id", "revision", "updated_at", ...Object.keys(facts)].sort());
+    expect(columns.sort()).toEqual(["account_id", "updated_at", ...Object.keys(facts)].sort());
+    expect(schema.match(/ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0/g)).toHaveLength(1);
     expect(evaluateSellerCheckoutRisk()).toEqual({ status: "clear", reasonCode: null });
   });
 

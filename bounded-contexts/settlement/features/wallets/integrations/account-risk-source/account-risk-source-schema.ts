@@ -3,7 +3,6 @@ import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 export const settlementAccountRiskSourceSchemaSql = `
 CREATE TABLE IF NOT EXISTS settlement_account_risk_sources (
   account_id text PRIMARY KEY,
-  revision bigint NOT NULL DEFAULT 0,
   account_created_at timestamptz NULL,
   trusted_seller boolean NOT NULL DEFAULT false,
   manual_payout_review boolean NOT NULL DEFAULT false,

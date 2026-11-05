@@ -1,14 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import type { SellerCheckoutRiskOwner, SellerCheckoutRiskResult } from "../domain/contract";
 import { readSellerCheckoutRisk } from "./queries";
 
-const probePath = fileURLToPath(
-  new URL("../../../../../artifacts/11014/tests/authority-timing-probe.json", import.meta.url),
-);
 const owner: SellerCheckoutRiskOwner = { kind: "account", accountId: "acc_01JSELLER000000000000000000" };
 const row = { account_id: owner.accountId, revision: 7, updated_at: "2026-10-29T14:00:00.000Z" };
 type ProbeEntry = Readonly<{
@@ -19,6 +13,28 @@ type ProbeEntry = Readonly<{
 }>;
 
 describe("seller checkout risk authority timing", () => {
+  it("captures a fresh readiness snapshot after an anonymous-to-account identity transition", async () => {
+    const source = vi.fn(async () => row);
+    const anonymous = { kind: "anonymous", anonymousSellListId: "anon_synthetic" } as const;
+    const previous = await readSellerCheckoutRisk(source, anonymous);
+    expect(previous).toMatchObject({ rowState: "absent", sourceRevision: 0, sourceTimestamp: null });
+    expect(source).not.toHaveBeenCalled();
+    const current = await readSellerCheckoutRisk(source, owner);
+    expect(current).toMatchObject({ rowState: "present", sourceRevision: 7, sourceTimestamp: row.updated_at });
+    expect(source.mock.calls).toEqual([[owner.accountId]]);
+    expect(previous).toMatchObject({ rowState: "absent", sourceRevision: 0 });
+    console.info(
+      `SELLER_CHECKOUT_RISK_IDENTITY_TRANSITION ${JSON.stringify({
+        evidence: "synthetic internal readiness recapture, not downstream caller enforcement",
+        runId: randomUUID(),
+        previousOwner: anonymous,
+        owner,
+        previous,
+        current,
+      })}`,
+    );
+  });
+
   it("captures changed facts/stamps and unavailable before-confirm authority for the same trusted owner", async () => {
     const scenarios = [];
     for (const failure of ["changed-facts", "failed-source", "undecodable-source"] as const) {
@@ -88,8 +104,6 @@ describe("seller checkout risk authority timing", () => {
       runId: randomUUID(),
       scenarios,
     };
-    mkdirSync(path.dirname(probePath), { recursive: true });
-    writeFileSync(probePath, `${JSON.stringify(probe, null, 2)}\n`);
-    expect(JSON.parse(readFileSync(probePath, "utf8"))).toEqual(probe);
+    console.info(`SELLER_CHECKOUT_RISK_AUTHORITY_TIMING ${JSON.stringify(probe)}`);
   });
 });
