@@ -4160,6 +4160,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(callers.sort()).toEqual([
         "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts",
         "deployables/platform-api/scripts/db-enrollment-workload.mjs",
+        "scripts/change-scope.mjs",
+        "scripts/change-scope.test.mjs",
       ]);
       const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8")) as {
         scripts: Record<string, string>;

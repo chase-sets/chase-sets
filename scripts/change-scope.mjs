@@ -99,32 +99,30 @@ export const platformApiEnrollmentSelectors = Object.freeze({
   }),
 });
 
-const platformApiEnrollmentBindingSections = new Set([
-  "W1 case identities",
-  "W1 census",
-  "W1 file",
-  "W1 partition",
-  "W2 file",
-  "W3 file",
-  "W3 json",
-  "W3 selection",
-]);
+const platformApiEnrollmentBindingSections = new Set(["W1 file", "W2 file", "W3 file", "W3 json"]);
 const platformApiEnrollmentCache = new Map();
 const platformApiConfigCache = new Map();
 
 function platformApiConfigClosure(baseDir) {
   const configPath = path.join(baseDir, "deployables", "platform-api", "vitest.config.ts");
-  let configSignature = "missing";
-  try {
-    configSignature = String(statSync(configPath).mtimeMs);
-  } catch {}
+  const signature = (files) =>
+    files
+      .map((file) => {
+        try {
+          const stat = statSync(file);
+          return `${file}:${stat.mtimeMs}:${stat.size}`;
+        } catch {
+          return `${file}:missing`;
+        }
+      })
+      .join("|");
   const cached = platformApiConfigCache.get(configPath);
-  if (cached?.signature === configSignature) return cached.paths;
+  if (cached && cached.signature === signature(cached.files)) return cached.paths;
   const seen = new Set();
   const queue = [configPath];
   while (queue.length > 0) {
     const current = queue.shift();
-    if (seen.has(current) || !existsSync(current)) continue;
+    if (seen.has(current)) continue;
     seen.add(current);
     let source;
     try {
@@ -135,11 +133,12 @@ function platformApiConfigClosure(baseDir) {
     for (const match of source.matchAll(/(?:from|import)\s*\(?\s*["'](\.[^"']+)["']/g)) {
       const raw = path.resolve(path.dirname(current), match[1]);
       const resolved = [raw, `${raw}.ts`, `${raw}.mjs`, `${raw}.js`, path.join(raw, "index.ts")].find(existsSync);
-      if (resolved) queue.push(resolved);
+      queue.push(resolved ?? raw);
     }
   }
   const paths = new Set([...seen].map((filePath) => normalizeFilePath(path.relative(baseDir, filePath))));
-  platformApiConfigCache.set(configPath, { signature: configSignature, paths });
+  const files = [...seen];
+  platformApiConfigCache.set(configPath, { signature: signature(files), files, paths });
   return paths;
 }
 
@@ -156,7 +155,8 @@ function platformApiEnrollmentBaseline(baseDir) {
   const signature = names
     .map((name) => {
       try {
-        return `${name}:${statSync(path.join(fixtureDir, name)).mtimeMs}`;
+        const stat = statSync(path.join(fixtureDir, name));
+        return `${name}:${stat.mtimeMs}:${stat.size}`;
       } catch {
         return `${name}:missing`;
       }
@@ -170,17 +170,32 @@ function platformApiEnrollmentBaseline(baseDir) {
   for (const name of names) {
     try {
       const baseline = JSON.parse(readFileSync(path.join(fixtureDir, name), "utf8"));
-      if (baseline.schema !== platformApiEnrollmentSelectors.schema || !Array.isArray(baseline.bindings)) {
+      if (
+        baseline.schema !== platformApiEnrollmentSelectors.schema ||
+        !Array.isArray(baseline.bindings) ||
+        baseline.bindings.length === 0
+      ) {
         available = false;
         continue;
       }
       for (const binding of baseline.bindings) {
-        if (!Array.isArray(binding) || typeof binding[0] !== "string") {
+        if (
+          !Array.isArray(binding) ||
+          binding.length !== 3 ||
+          typeof binding[0] !== "string" ||
+          typeof binding[1] !== "string" ||
+          binding[2] === undefined ||
+          binding[2] === null
+        ) {
           available = false;
           continue;
         }
         if (platformApiEnrollmentBindingSections.has(binding[0]) && typeof binding[1] === "string")
           paths.add(normalizeFilePath(binding[1]));
+        if (binding[0] === "W3 selection") {
+          if (typeof binding[2].manifest === "string") paths.add(normalizeFilePath(binding[2].manifest));
+          else available = false;
+        }
         if (binding[0] === "W4 alias" && typeof binding[2] === "string")
           aliasTargets.add(normalizeFilePath(binding[2]));
       }
@@ -210,7 +225,6 @@ function isPlatformApiEnrollmentMember(filePath, baseline) {
   if (baseline.paths.has(filePath) || baseline.aliasOwners.has(filePath) || baseline.configPaths.has(filePath))
     return true;
   if (platformApiEnrollmentSelectors.w3.exact.includes(filePath)) return true;
-  if (platformApiEnrollmentSelectors.w2.some((pattern) => new RegExp(pattern).test(filePath))) return true;
   return platformApiEnrollmentSelectors.w3.patterns.some(({ include, exclude }) => {
     return new RegExp(include).test(filePath) && (!exclude || !new RegExp(exclude).test(filePath));
   });
