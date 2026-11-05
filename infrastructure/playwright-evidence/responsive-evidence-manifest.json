@@ -7,9 +7,17 @@
       "id": "desk-offers-grid-390",
       "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
       "testTitle": "demo seller reviews populated Desk offers responsively without mutation @marketplace-checkout",
-      "route": { "name": "Desk offers", "path": "/account/desk/offers" },
-      "fixture": { "identity": "demo-seller-off_seed_charizard_base_set_high_roller" },
-      "viewport": { "width": 390, "height": 844 },
+      "route": {
+        "name": "Desk offers",
+        "path": "/account/desk/offers"
+      },
+      "fixture": {
+        "identity": "demo-seller-off_seed_charizard_base_set_high_roller"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
       "target": {
         "identity": "visible-sell-list-review-grid",
         "selector": "[data-testid='sell-list-review-grid']",
@@ -21,13 +29,18 @@
           "scope": "target",
           "selector": ":scope",
           "property": "width",
-          "assertion": { "minimum": 1, "maximum": 390 }
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
         },
         {
           "identity": "no-document-overflow",
           "scope": "document",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "desk-offers-grid-390"
@@ -37,9 +50,17 @@
       "id": "desk-offers-grid-1280",
       "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
       "testTitle": "demo seller reviews populated Desk offers responsively without mutation @marketplace-checkout",
-      "route": { "name": "Desk offers", "path": "/account/desk/offers" },
-      "fixture": { "identity": "demo-seller-off_seed_charizard_base_set_high_roller" },
-      "viewport": { "width": 1280, "height": 900 },
+      "route": {
+        "name": "Desk offers",
+        "path": "/account/desk/offers"
+      },
+      "fixture": {
+        "identity": "demo-seller-off_seed_charizard_base_set_high_roller"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
       "target": {
         "identity": "visible-sell-list-review-grid",
         "selector": "[data-testid='sell-list-review-grid']",
@@ -51,13 +72,18 @@
           "scope": "target",
           "selector": ":scope",
           "property": "width",
-          "assertion": { "minimum": 1, "maximum": 1280 }
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
         },
         {
           "identity": "no-document-overflow",
           "scope": "document",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "desk-offers-grid-1280"
@@ -67,9 +93,17 @@
       "id": "desk-offers-sheet-390",
       "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
       "testTitle": "demo seller reviews populated Desk offers responsively without mutation @marketplace-checkout",
-      "route": { "name": "Desk offers", "path": "/account/desk/offers" },
-      "fixture": { "identity": "demo-seller-off_seed_charizard_base_set_high_roller" },
-      "viewport": { "width": 390, "height": 844 },
+      "route": {
+        "name": "Desk offers",
+        "path": "/account/desk/offers"
+      },
+      "fixture": {
+        "identity": "demo-seller-off_seed_charizard_base_set_high_roller"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
       "target": {
         "identity": "populated-offers-and-terms-sheet",
         "selector": "[role='dialog']",
@@ -81,13 +115,18 @@
           "scope": "target",
           "selector": ":scope",
           "property": "width",
-          "assertion": { "minimum": 1, "maximum": 390 }
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
         },
         {
           "identity": "no-document-overflow",
           "scope": "document",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "desk-offers-sheet-390"
@@ -97,9 +136,17 @@
       "id": "desk-offers-sheet-1280",
       "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
       "testTitle": "demo seller reviews populated Desk offers responsively without mutation @marketplace-checkout",
-      "route": { "name": "Desk offers", "path": "/account/desk/offers" },
-      "fixture": { "identity": "demo-seller-off_seed_charizard_base_set_high_roller" },
-      "viewport": { "width": 1280, "height": 900 },
+      "route": {
+        "name": "Desk offers",
+        "path": "/account/desk/offers"
+      },
+      "fixture": {
+        "identity": "demo-seller-off_seed_charizard_base_set_high_roller"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
       "target": {
         "identity": "populated-offers-and-terms-sheet",
         "selector": "[role='dialog']",
@@ -111,16 +158,109 @@
           "scope": "target",
           "selector": ":scope",
           "property": "width",
-          "assertion": { "minimum": 1, "maximum": 1280 }
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
         },
         {
           "identity": "no-document-overflow",
           "scope": "document",
           "property": "horizontal-overflow",
-          "assertion": { "maximum": 0 }
+          "assertion": {
+            "maximum": 0
+          }
         }
       ],
       "artifact": "desk-offers-sheet-1280"
+    },
+    {
+      "kind": "claim",
+      "id": "checkout-recovery-390",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "authenticated buy checkout session satisfies redesign contracts @marketplace-checkout @browser-e2e-seed",
+      "route": {
+        "name": "seeded checkout recovery",
+        "path": "/checkout/buy/session/chk_seed_started_cart"
+      },
+      "fixture": {
+        "identity": "authenticated-checkout-recovery:seeded-started-cart:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "checkout-recovery-panel",
+        "selector": "section.grid.rounded-tokenLg:has(> div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
+        "populatedSelector": ":scope h2, :scope > div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary, :scope a"
+      },
+      "measurements": [
+        {
+          "identity": "recovery-panel-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "recovery-panel-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        }
+      ],
+      "artifact": "checkout-recovery-390"
+    },
+    {
+      "kind": "claim",
+      "id": "checkout-recovery-1024",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "authenticated buy checkout session satisfies redesign contracts @marketplace-checkout @browser-e2e-seed",
+      "route": {
+        "name": "seeded checkout recovery",
+        "path": "/checkout/buy/session/chk_seed_started_cart"
+      },
+      "fixture": {
+        "identity": "authenticated-checkout-recovery:seeded-started-cart:v1"
+      },
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "target": {
+        "identity": "checkout-recovery-panel",
+        "selector": "section.grid.rounded-tokenLg:has(> div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
+        "populatedSelector": ":scope h2, :scope > div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary, :scope a"
+      },
+      "measurements": [
+        {
+          "identity": "recovery-panel-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "recovery-panel-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1024
+          }
+        }
+      ],
+      "artifact": "checkout-recovery-1024"
     },
     {
       "kind": "claim",

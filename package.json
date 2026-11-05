@@ -109,7 +109,7 @@
     "verify": "pnpm run sync:workspace-metadata && pnpm run verify:static && pnpm run verify:typecheck && pnpm run verify:test && pnpm run verify:test-db && pnpm run verify:build",
     "verify:ci-local": "node ./scripts/verify-ci-local.mjs",
     "verify:metadata": "node ./scripts/sync-workspace-metadata.mjs --check",
-    "test:scripts": "vitest run --config ./vitest.scripts.config.mjs",
+    "test:scripts": "pnpm run test:canonical-record && vitest run --config ./vitest.scripts.config.mjs --exclude scripts/canonical-record.test.mjs",
     "test:canonical-record": "vitest run --config ./vitest.scripts.config.mjs scripts/canonical-record.test.mjs --maxWorkers=1 --fileParallelism=false --silent=false",
     "check:kb-reference-ratchet": "node ./scripts/check-structure/kb-reference-ratchet.mjs",
     "check:static": "pnpm run verify:static",

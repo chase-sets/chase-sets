@@ -899,6 +899,11 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("Your Sell List is empty");
     expect(markup).toContain("Add selected offers or products");
     expect(markup).toContain("Browse products");
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    expect(container.querySelector("section div.m-0.mx-auto.max-w-xl")?.className).toContain(
+      "m-0 mx-auto max-w-xl text-sm leading-6 text-secondary",
+    );
     expect(markup).not.toContain("Expected seller payout");
     expect(markup).not.toContain("Continue to seller checkout");
   });
