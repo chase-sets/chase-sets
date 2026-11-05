@@ -96,6 +96,7 @@ jobs:
       local_checks: ${{ steps.scope.outputs.local_checks }}
       terraform: ${{ steps.scope.outputs.terraform }}
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
+      unit_test_workspaces: ${{ steps.scope.outputs.unit_test_workspaces }}
       workflow_lint: ${{ steps.scope.outputs.workflow_lint }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -269,8 +270,8 @@ jobs:
 
       - name: Run non-DB tests
         run: |
-          node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
-          node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
+          node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.unit_test_workspaces }}" --shard=${{ matrix.shard }}/2
+          node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.unit_test_workspaces }}" --shard=${{ matrix.shard }}/2
 
   canonical-proof-sets:
     name: Canonical Proof Sets

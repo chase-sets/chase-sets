@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import {
   classifyChanges,
+  platformApiEnrollmentSelectors,
   deriveStaticChangedFiles,
   listChangedFiles,
   parseNameStatusZ,
@@ -15,10 +16,12 @@ import {
   toOutputMap,
 } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import { selectVerifyStaticGuardTests } from "./verify-static-surfaces.mjs";
+import { ciGatePlanOutputMap, createCiGatePlan } from "./ci-gate-plan.mjs";
 import {
   canonicalProofCommands,
   requireCanonicalProofResult,
@@ -1242,6 +1245,7 @@ const baseCapturedOutputMapKeyOrder = [
   "docs_only",
   "local_checks",
   "unit_tests",
+  "unit_test_workspaces",
   "db_tests",
   "e2e_tests",
   "e2e_suites",
@@ -1291,6 +1295,7 @@ function baseCapturedSchedulerFanoutOutputMap(changedFiles) {
     docs_only: "false",
     local_checks: "true",
     unit_tests: "true",
+    unit_test_workspaces: baseCapturedAllWorkspacesCsv,
     db_tests: "false",
     ...baseCapturedQuietGateOutputs,
   };
@@ -1305,6 +1310,7 @@ function baseCapturedNoWorkspaceOutputMap(changedFiles, overrides = {}) {
     docs_only: "false",
     local_checks: "true",
     unit_tests: "false",
+    unit_test_workspaces: "",
     db_tests: "false",
     ...baseCapturedQuietGateOutputs,
     ...overrides,
@@ -1412,6 +1418,8 @@ const dbTestsOldVersusNewCorpus = [
       docs_only: "false",
       local_checks: "true",
       unit_tests: "true",
+      unit_test_workspaces:
+        "@chase-sets/app-admin-web,@chase-sets/app-marketplace-web,@chase-sets/app-platform-api,@chase-sets/app-platform-worker,@chase-sets/app-public-web,@chase-sets/app-tcgplayer-connector-extension,@chase-sets/auth,@chase-sets/channels,@chase-sets/checkout,@chase-sets/discovery,@chase-sets/marketplace-seed-testing,@chase-sets/notifications,@chase-sets/ordering,@chase-sets/payments,@chase-sets/platform-runtime,@chase-sets/pricing,@chase-sets/settlement",
       db_tests: "true",
       ...baseCapturedQuietGateOutputs,
       build: "true",
@@ -1449,6 +1457,7 @@ const dbTestsOldVersusNewCorpus = [
       docs_only: "false",
       local_checks: "true",
       unit_tests: "true",
+      unit_test_workspaces: "@chase-sets/app-platform-api",
       db_tests: "true",
       ...baseCapturedQuietGateOutputs,
       e2e_tests: "true",
@@ -1737,6 +1746,67 @@ const baseChangeScope = await (async () => {
   }
 })();
 
+async function loadEnrollmentClassifier(commit) {
+  let source = execFileSync("git", ["show", `${commit}:scripts/change-scope.mjs`], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  source = source.replace(
+    /from "(\.\/[^\"]+)"/g,
+    (_match, specifier) => `from ${JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts", specifier)).href)}`,
+  );
+  const directory = mkdtempSync(path.join(tmpdir(), "platform-enrollment-base-"));
+  try {
+    const file = path.join(directory, "change-scope.mjs");
+    writeFileSync(file, source);
+    return await import(pathToFileURL(file).href);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+const enrollmentIncidentBase = await loadEnrollmentClassifier("6c6d070455f22fe483371c69fe9c9bd5a55e1088");
+const enrollmentMergedBase = await loadEnrollmentClassifier("779b02514492f0a41a162d3b5226c08d6b545e62");
+
+function withEnrollmentRepository(check) {
+  const baseDir = mkdtempSync(path.join(tmpdir(), "platform-enrollment-git-"));
+  const git = (...args) =>
+    execFileSync(
+      "git",
+      ["-c", "core.autocrlf=false", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", ...args],
+      { cwd: baseDir, encoding: "utf8", windowsHide: true },
+    ).trim();
+  const write = (file, content) => {
+    const target = path.join(baseDir, file);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  };
+  const commit = () => {
+    git("add", "--all");
+    git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Synthetic enrollment operation");
+    return git("rev-parse", "HEAD");
+  };
+  const baselinePath = "deployables/platform-api/__tests__/fixtures/db-enrollment-workload-1.json";
+  const baseline = {
+    schema: "db-enrollment-workload/v1",
+    bindings: [["W3 file", "synthetic/member.ts", "a".repeat(64)]],
+  };
+  const workspaces = [
+    workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog"),
+    workspace(baseDir, "deployables", "platform-api", "@test/platform-api"),
+  ];
+  try {
+    git("init", "--quiet", "--initial-branch=main");
+    git("config", "diff.renames", "true");
+    write(baselinePath, JSON.stringify(baseline));
+    write("deployables/platform-api/vitest.config.ts", 'export * from "../../scripts/shared.mjs";\n');
+    write("scripts/shared.mjs", "export const shared = true;\n");
+    return check({ baseDir, git, write, commit, baselinePath, baseline, workspaces });
+  } finally {
+    rmSync(baseDir, { recursive: true, force: true });
+  }
+}
+
 const publicPresenceWorkspaceName = "@chase-sets/public-presence";
 
 // AC1's historical, cited and unrelated real paths: each omitted Public
@@ -1775,6 +1845,10 @@ function withPublicPresenceAffected(names) {
 // turns on. An empty diff, and an empty list that requires DB tests (the
 // all-DB sweep), keep their captured outputs.
 function withRenderedCopyOutput(output) {
+  output = {
+    unit_test_workspaces: output.unit_test_workspaces ?? output.affected_workspaces,
+    ...output,
+  };
   const batches = JSON.parse(output.e2e_suite_batches_json);
   const owners = new Set(renderedCopyTuples.map((tuple) => tuple.suite));
   return {
@@ -1788,15 +1862,36 @@ function withRenderedCopyOutput(output) {
 
 function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
   baseOutputMap = withCanonicalProofOutput(withRenderedCopyOutput(baseOutputMap));
+  const changedFiles = JSON.parse(baseOutputMap.changed_files_json);
+  const platformApiUnit =
+    changedFiles.includes(".github/workflows/platform-pr.yml") || changedFiles.includes("pnpm-lock.yaml");
   const affected = JSON.parse(baseOutputMap.affected_workspaces_json);
   if (
-    JSON.parse(baseOutputMap.changed_files_json).length === 0 ||
-    (baseOutputMap.db_tests === "true" && affected.length === 0)
+    platformApiUnit &&
+    baseOutputMap.db_tests === "true" &&
+    affected.every((name) => name === publicPresenceWorkspaceName)
   ) {
-    return baseOutputMap;
+    return {
+      ...baseOutputMap,
+      affected_workspaces: "",
+      affected_workspaces_json: "[]",
+      directly_affected_workspaces_json: "[]",
+      unit_tests: "true",
+      unit_test_workspaces: "@chase-sets/app-platform-api",
+    };
+  }
+  if (changedFiles.length === 0 || (baseOutputMap.db_tests === "true" && affected.length === 0 && !platformApiUnit)) {
+    return platformApiUnit
+      ? { ...baseOutputMap, unit_tests: "true", unit_test_workspaces: "@chase-sets/app-platform-api" }
+      : baseOutputMap;
   }
   const nextAffected = withPublicPresenceAffected(affected);
   const direct = JSON.parse(baseOutputMap.directly_affected_workspaces_json);
+  const unitWorkspaces = (baseOutputMap.unit_test_workspaces ?? baseOutputMap.affected_workspaces)
+    .split(",")
+    .filter(Boolean);
+  const nextUnitWorkspaces = withPublicPresenceAffected(unitWorkspaces);
+  if (platformApiUnit) nextUnitWorkspaces.push("@chase-sets/app-platform-api");
   return {
     ...baseOutputMap,
     affected_workspaces: nextAffected.join(","),
@@ -1805,6 +1900,7 @@ function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
       direct.includes(publicPresenceWorkspaceName) ? direct : [...direct, publicPresenceWorkspaceName].sort(),
     ),
     unit_tests: "true",
+    unit_test_workspaces: [...new Set(nextUnitWorkspaces)].sort().join(","),
   };
 }
 
@@ -1815,8 +1911,26 @@ function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
 // runners sweep every DB workspace.
 function expectedPublicPresenceEnrollment(base, workspaces) {
   base = { ...base, requiredProofPaths: expectedRequiredProofPaths(base.changedFiles) };
-  if (base.changedFiles.length === 0 || (base.dbTestsRequired && base.affectedWorkspaces.length === 0)) {
+  const platformApiUnit =
+    base.changedFiles.includes(".github/workflows/platform-pr.yml") || base.changedFiles.includes("pnpm-lock.yaml");
+  if (base.changedFiles.length === 0) {
     return base;
+  }
+  if (base.dbTestsRequired && base.affectedWorkspaces.length === 0) {
+    return platformApiUnit ? { ...base, unitTestsRequired: true } : base;
+  }
+  if (
+    platformApiUnit &&
+    base.dbTestsRequired &&
+    base.affectedWorkspaces.every((name) => name === publicPresenceWorkspaceName)
+  ) {
+    return {
+      ...base,
+      affectedWorkspaces: [],
+      directlyAffectedWorkspaces: [],
+      directlyTestOnlyAffectedWorkspaces: [],
+      unitTestsRequired: true,
+    };
   }
   const withPublicPresence = (names) => [...new Set([...names, publicPresenceWorkspaceName])];
   const affected = new Set(withPublicPresence(base.affectedWorkspaces));
@@ -1836,9 +1950,11 @@ function expectOnlyPublicPresenceEnrollmentDelta(changedFiles) {
   const expected = expectedPublicPresenceEnrollment(base, workspaces);
   const label = JSON.stringify(changedFiles);
   expect(head, label).toEqual(expected);
-  expect(toGithubOutputMap(head), label).toEqual(
-    withCanonicalProofOutput(withRenderedCopyOutput(baseChangeScope.toGithubOutputMap(expected))),
-  );
+  expect(toGithubOutputMap(head), label).toEqual({
+    ...withCanonicalProofOutput(withRenderedCopyOutput(baseChangeScope.toGithubOutputMap(expected))),
+    unit_tests: toGithubOutputMap(head).unit_tests,
+    unit_test_workspaces: toGithubOutputMap(head).unit_test_workspaces,
+  });
   return { base, head };
 }
 
@@ -2078,7 +2194,7 @@ describe("change-scope", () => {
       const scope = classifyChanges({ changedFiles });
       expect(scope.dbTestsRequired).toBe(true);
       expect(scope.affectedWorkspaces).toEqual([]);
-      expect(scope.unitTestsRequired).toBe(false);
+      expect(scope.unitTestsRequired).toBe(true);
     }
     // Explicit delta: the removed exact-path branch enrolled Public Presence
     // before DB selection, narrowing this sweep to a workspace without DB tests.
@@ -2093,7 +2209,7 @@ describe("change-scope", () => {
       affectedWorkspaces: [],
       directlyAffectedWorkspaces: [],
       directlyTestOnlyAffectedWorkspaces: [],
-      unitTestsRequired: false,
+      unitTestsRequired: true,
       requiredProofPaths: [],
     });
   });
@@ -3945,5 +4061,257 @@ describe("change-scope", () => {
     ".github/workflows/platform-production-lock-monitor.yml",
   ])("classifies %s as rollout policy", (file) => {
     expect(classifyChanges({ changedFiles: [file] }).exposurePostureCategories).toContain("rollout-policy");
+  });
+
+  it("selects Platform API Unit Tests for the observed W3 seed member without widening workspace or DB scope", () => {
+    const changedFiles = ["bounded-contexts/catalog/features/source-observations/api/seeding/seed.db.test.ts"];
+    const options = { changedFiles, workspaces: listWorkspacePackages({ repoRoot }), baseDir: repoRoot };
+    const scope = classifyChanges(options);
+    const prior = enrollmentIncidentBase.classifyChanges(options);
+
+    expect(prior.affectedWorkspaces).not.toContain("@chase-sets/app-platform-api");
+    expect(scope.unitTestWorkspaces).toContain("@chase-sets/app-platform-api");
+    expect(scope.affectedWorkspaces).not.toContain("@chase-sets/app-platform-api");
+    expect(scope.dbTestsRequired).toBe(enrollmentMergedBase.classifyChanges(options).dbTestsRequired);
+    expect(() => expect(prior.affectedWorkspaces).toContain("@chase-sets/app-platform-api")).toThrow();
+  });
+
+  it("selects every committed baseline member and W4 input and names the incident-base misses", () => {
+    const baselineFiles = execFileSync(
+      "git",
+      ["ls-files", "--", "deployables/platform-api/__tests__/fixtures/db-enrollment-workload-*.json"],
+      { cwd: repoRoot, encoding: "utf8", maxBuffer: GIT_LISTING_MAX_BUFFER },
+    )
+      .trim()
+      .split("\n");
+    expect(baselineFiles.length).toBeGreaterThan(0);
+    const workspaces = listWorkspacePackages({ repoRoot });
+    const members = new Set();
+    const w4 = new Set([
+      "deployables/platform-api/vitest.config.ts",
+      "vitest.shared.mjs",
+      "scripts/workspace-source-aliases.mjs",
+      "scripts/lib/repo.mjs",
+      "scripts/lib/heavy-slot.mjs",
+      ".github/workflows/platform-pr.yml",
+    ]);
+    for (const file of baselineFiles) {
+      const baseline = JSON.parse(readFileSync(path.join(repoRoot, file), "utf8"));
+      for (const [section, key, value] of baseline.bindings) {
+        if (["W1 file", "W2 file", "W3 file", "W3 json"].includes(section)) members.add(key);
+        if (section === "W3 selection") members.add(value.manifest);
+        if (section === "W4 alias") {
+          const owner = workspaces.find(({ dir }) =>
+            value.startsWith(`${path.relative(repoRoot, dir).replaceAll("\\", "/")}/`),
+          );
+          expect(owner, `${file}: ${value}`).toBeDefined();
+          w4.add(`${path.relative(repoRoot, owner.dir).replaceAll("\\", "/")}/package.json`);
+        }
+      }
+    }
+    const misses = [];
+    for (const file of [...new Set([...members, ...w4, "pnpm-lock.yaml"])].sort()) {
+      const options = { changedFiles: [file], workspaces, baseDir: repoRoot };
+      expect(classifyChanges(options).unitTestWorkspaces, file).toContain("@chase-sets/app-platform-api");
+      if (
+        !enrollmentIncidentBase.classifyChanges(options).affectedWorkspaces.includes("@chase-sets/app-platform-api")
+      ) {
+        misses.push(file);
+      }
+    }
+    console.info("Platform API enrollment incident-base misses:", JSON.stringify(misses));
+    expect(misses).toEqual([
+      ".github/workflows/platform-pr.yml",
+      "bounded-contexts/authenticity/package.json",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack-asset-references.test.ts",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/observation-pack.test.ts",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/product-asset-normalization.test.ts",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.test.ts",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/seed-migration.test.ts",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/seed.db.test.ts",
+      "bounded-contexts/catalog/features/source-observations/api/seeding/seed.test.ts",
+      "bounded-contexts/channels/features/connections/tests/browser-state-fixture.test-data.ts",
+      "bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts",
+      "bounded-contexts/identity/features/account-management/tests/browser-test-support.ts",
+      "bounded-contexts/identity/support/seed-support/ids.test.ts",
+      "bounded-contexts/identity/support/seed-support/market-following-verification.test.ts",
+      "scripts/lib/heavy-slot.mjs",
+      "scripts/lib/repo.mjs",
+      "scripts/workspace-source-aliases.mjs",
+    ]);
+  });
+
+  it.each(["delete", "rename", "add", "config closure", "committed baseline"])(
+    "selects Platform API through listChangedFiles for %s in a temporary repository",
+    (operation) =>
+      withEnrollmentRepository(({ baseDir, git, write, commit, baselinePath, baseline, workspaces }) => {
+        const member = "bounded-contexts/catalog/features/source-observations/api/seeding/seed.db.test.ts";
+        write(member, "export const member = true;\n");
+        const base = commit();
+        classifyChanges({ baseDir, workspaces, changedFiles: ["README.md"] });
+        let selectedPath = member;
+        if (operation === "delete") git("rm", member);
+        if (operation === "rename") {
+          selectedPath = "bounded-contexts/catalog/features/source-observations/api/moved.test.ts";
+          git("mv", member, selectedPath);
+        }
+        if (operation === "add") {
+          selectedPath = "bounded-contexts/catalog/features/source-observations/api/seeding/new.test.ts";
+          write(selectedPath, "export const added = true;\n");
+        }
+        if (operation === "config closure") {
+          selectedPath = "scripts/new-config-input.mjs";
+          write("scripts/shared.mjs", 'export * from "./new-config-input.mjs";\n');
+          write(selectedPath, "export const config = true;\n");
+        }
+        if (operation === "committed baseline") {
+          selectedPath = "synthetic/baseline-only.ts";
+          write(
+            baselinePath,
+            JSON.stringify({
+              ...baseline,
+              bindings: [...baseline.bindings, ["W2 file", selectedPath, "b".repeat(64)]],
+            }),
+          );
+          write(selectedPath, "export const historical = true;\n");
+          commit();
+          write(selectedPath, "export const historical = false;\n");
+        }
+        const head = commit();
+        for (const firstParent of [false, true]) {
+          const changedFiles = listChangedFiles(base, head, { cwd: baseDir, firstParent });
+          expect(changedFiles).toContain(selectedPath);
+          expect(classifyChanges({ baseDir, workspaces, changedFiles }).unitTestWorkspaces).toContain(
+            "@test/platform-api",
+          );
+          expect(
+            classifyChanges({ baseDir, workspaces, changedFiles: [operation === "rename" ? member : selectedPath] })
+              .unitTestWorkspaces,
+          ).toContain("@test/platform-api");
+        }
+      }),
+  );
+
+  it("preserves every merged-base output byte except unit selection and its required flag across the old-versus-new corpus", () => {
+    const workspaces = listWorkspacePackages({ repoRoot });
+    for (const { changedFiles } of publicPresenceEnrollmentCorpus) {
+      const options = { changedFiles, workspaces, baseDir: repoRoot };
+      const previous = enrollmentMergedBase.toOutputMap(enrollmentMergedBase.classifyChanges(options));
+      const { unit_test_workspaces, ...candidate } = toOutputMap(classifyChanges(options));
+      const { unit_tests: previousUnit, ...previousRest } = previous;
+      const { unit_tests: candidateUnit, ...candidateRest } = candidate;
+      expect(JSON.stringify(candidateRest), JSON.stringify(changedFiles)).toBe(JSON.stringify(previousRest));
+      const units = unit_test_workspaces.split(",").filter(Boolean);
+      const previousUnits = previous.affected_workspaces.split(",").filter(Boolean);
+      expect(candidateUnit).toBe(String(previousUnit === "true" || units.includes("@chase-sets/app-platform-api")));
+      expect(units.filter((name) => name !== "@chase-sets/app-platform-api")).toEqual(
+        previousUnits.filter((name) => name !== "@chase-sets/app-platform-api"),
+      );
+      expect(units).toEqual(expect.arrayContaining(previousUnits));
+    }
+  });
+
+  it.each([
+    ["malformed JSON", "{"],
+    ["wrong schema", JSON.stringify({ schema: "wrong", bindings: [] })],
+    ["missing bindings", JSON.stringify({ schema: "db-enrollment-workload/v1" })],
+    ["empty bindings", JSON.stringify({ schema: "db-enrollment-workload/v1", bindings: [] })],
+    ["partial member", JSON.stringify({ schema: "db-enrollment-workload/v1", bindings: [["W3 file"]] })],
+  ])("fails closed for %s even alongside a readable baseline", (_name, bytes) =>
+    withEnrollmentRepository(({ baseDir, write, workspaces }) => {
+      write("deployables/platform-api/__tests__/fixtures/db-enrollment-workload-2.json", bytes);
+      const scope = classifyChanges({ baseDir, workspaces, changedFiles: ["README.md"] });
+      expect(scope.unitTestWorkspaces).toContain("@test/platform-api");
+      expect(scope.affectedWorkspaces).toEqual([]);
+      expect(scope.dbTestsRequired).toBe(false);
+    }),
+  );
+
+  it("fails closed for an unreadable baseline alongside a readable baseline", () =>
+    withEnrollmentRepository(({ baseDir, workspaces }) => {
+      mkdirSync(path.join(baseDir, "deployables/platform-api/__tests__/fixtures/db-enrollment-workload-2.json"));
+      expect(classifyChanges({ baseDir, workspaces, changedFiles: ["README.md"] }).unitTestWorkspaces).toContain(
+        "@test/platform-api",
+      );
+    }));
+
+  it("selects Platform API and both CI unit gates for image-only mirror and digest commits through listChangedFiles", () =>
+    withEnrollmentRepository(({ baseDir, write, commit, workspaces }) => {
+      const workflow = ".github/workflows/platform-pr.yml";
+      const images = [
+        "pgvector/pgvector:pg16",
+        "ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a",
+        `ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:${"a".repeat(64)}`,
+      ];
+      const writeImage = (image) =>
+        write(workflow, `jobs:\n  db-tests:\n    services:\n      postgres:\n        image: ${image}\n`);
+      writeImage(images[0]);
+      let base = commit();
+      for (const image of images.slice(1)) {
+        writeImage(image);
+        const head = commit();
+        for (const firstParent of [false, true]) {
+          const changedFiles = listChangedFiles(base, head, { cwd: baseDir, firstParent });
+          expect(changedFiles).toEqual([workflow]);
+          const scope = classifyChanges({ baseDir, workspaces, changedFiles });
+          const prior = enrollmentIncidentBase.classifyChanges({ baseDir, workspaces, changedFiles });
+          expect(toOutputMap(scope)).toMatchObject({
+            affected_workspaces: "",
+            unit_test_workspaces: "@test/platform-api",
+            unit_tests: "true",
+            db_tests: "true",
+          });
+          expect(enrollmentIncidentBase.toOutputMap(prior).unit_tests).toBe("false");
+          for (const mode of ["pull-request", "merge-group"]) {
+            const inputs = { mode, provenance: "same-repository", labels: [] };
+            expect(ciGatePlanOutputMap(createCiGatePlan({ ...inputs, scope })).unit_tests_required).toBe("true");
+            expect(ciGatePlanOutputMap(createCiGatePlan({ ...inputs, scope: prior })).unit_tests_required).toBe(
+              "false",
+            );
+          }
+        }
+        base = head;
+      }
+    }));
+
+  it.each([
+    "bounded-contexts/catalog/features/source-observations/api/runtime-promotion-outcome.db.test.ts",
+    "bounded-contexts/identity/tests/account-route-loader.test.ts",
+    "bounded-contexts/identity/GLOSSARY.md",
+    "scripts/clean-logs.mjs",
+  ])("does not select Platform API for the negative-control path %s", (file) => {
+    expect(classifyChanges({ changedFiles: [file] }).unitTestWorkspaces).not.toContain("@chase-sets/app-platform-api");
+  });
+
+  it("fails closed when the enrollment baseline is unavailable", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const platformApi = workspace(baseDir, "deployables", "platform-api", "@test/platform-api");
+    const scope = classifyChanges({ baseDir, changedFiles: ["README.md"], workspaces: [platformApi] });
+
+    expect(scope.affectedWorkspaces).toEqual([]);
+    expect(scope.unitTestWorkspaces).toEqual(["@test/platform-api"]);
+    expect(scope.unitTestsRequired).toBe(true);
+  });
+
+  it("keeps the carried selector projection aligned with the authority vocabulary", () => {
+    const authority = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          'import { bootstrapDbWorkloadSelectors } from "./deployables/platform-api/scripts/db-enrollment-workload.mjs"; process.stdout.write(JSON.stringify(bootstrapDbWorkloadSelectors));',
+        ],
+        { cwd: repoRoot, encoding: "utf8" },
+      ),
+    );
+    expect(platformApiEnrollmentSelectors).toEqual(authority);
+    const assertParity = (projection) => expect(projection.w3).toEqual(authority.w3);
+    expect(() =>
+      assertParity({ ...platformApiEnrollmentSelectors, w3: { ...platformApiEnrollmentSelectors.w3, patterns: [] } }),
+    ).toThrow();
+    expect(() =>
+      assertParity({ ...platformApiEnrollmentSelectors, w3: { ...platformApiEnrollmentSelectors.w3, exact: [] } }),
+    ).toThrow();
   });
 });
