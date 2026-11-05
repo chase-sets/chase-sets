@@ -1,5 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 import { logMarketplaceSeedContractGap } from "./support/seed-contract-gap";
@@ -259,8 +260,16 @@ test.describe("buy funnel redesign — defect verification", () => {
 
   test("buy cart with seeded items shows Estimated total and passes all redesign contracts @marketplace-checkout @browser-e2e-seed", async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(120_000);
+
+    await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
+    const fallbackResponseBytes: Promise<number>[] = [];
+    page.on("response", (response) => {
+      if (response.url().includes("/fake-cdn/assets/pokemon-card-back.png") && response.status() === 200) {
+        fallbackResponseBytes.push(response.body().then((body) => body.byteLength));
+      }
+    });
 
     await authenticateSeededBuyer(page);
     await waitForAccountRoute(page, "/account/cart");
@@ -309,9 +318,85 @@ test.describe("buy funnel redesign — defect verification", () => {
       ).toBe(true);
     }
 
+    const fallbackImages = page.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']");
+    await expect(
+      fallbackImages.first(),
+      "the populated cart must visibly render its image-less line with the optimized fallback",
+    ).toBeVisible();
+    await expect
+      .poll(() => fallbackImages.first().evaluate((image) => (image as HTMLImageElement).naturalWidth), {
+        message: "the cart fallback must decode to a non-zero natural width",
+      })
+      .toBeGreaterThan(0);
+
+    const lineImageStates = await cartLines.evaluateAll((lines) =>
+      lines.map((line) => {
+        const images = Array.from(line.querySelectorAll<HTMLImageElement>("img"));
+        const fallbackPath = "/fake-cdn/assets/pokemon-card-back.png";
+        return {
+          fallbackCount: images.filter((image) => image.src.includes(fallbackPath)).length,
+          realImageCount: images.filter((image) => image.src && !image.src.includes(fallbackPath)).length,
+        };
+      }),
+    );
+    const imageLessLineCount = lineImageStates.filter(({ realImageCount }) => realImageCount === 0).length;
+    const fallbackLineCount = lineImageStates.filter(({ fallbackCount }) => fallbackCount > 0).length;
+    expect(fallbackLineCount, "every image-less seeded line must use the optimized fallback").toBe(imageLessLineCount);
+    expect(
+      lineImageStates.every(({ realImageCount, fallbackCount }) => realImageCount === 0 || fallbackCount === 0),
+      "real-image cart lines must not be replaced by the fallback URL",
+    ).toBe(true);
+
+    const observedFallbackBytes = await Promise.all(fallbackResponseBytes);
+    expect(observedFallbackBytes.length, "the cart fallback must be requested over the network").toBeGreaterThan(0);
+    expect(
+      Math.max(...observedFallbackBytes),
+      "every uncached cart fallback response must fit the AC1 byte budget",
+    ).toBeLessThanOrEqual(65_536);
+
     await assertSingleNoticeAtATime(page, "cart with lines");
 
     await captureScreenshot(page, "cart-with-lines");
+  });
+
+  async function assertCartFallbackResponsive(page: Page, width: number, height: number) {
+    await page.setViewportSize({ width, height });
+    await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
+    const fallbackResponseBytes: Promise<number>[] = [];
+    page.on("response", (response) => {
+      if (response.url().includes("/fake-cdn/assets/pokemon-card-back.png") && response.status() === 200) {
+        fallbackResponseBytes.push(response.body().then((body) => body.byteLength));
+      }
+    });
+    await authenticateSeededBuyer(page);
+    await waitForAccountRoute(page, "/account/cart");
+    const fallbackImage = page.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']").first();
+    await expect(fallbackImage).toBeVisible();
+    await expect
+      .poll(() => fallbackImage.evaluate((image) => (image as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+    const box = await fallbackImage.boundingBox();
+    expect(box, `cart fallback must have geometry at ${width}px`).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+    expect(box!.height).toBeGreaterThan(0);
+    await fallbackImage.evaluate((image) => image.setAttribute("data-fallback-evidence-target", "cart"));
+    const bytes = await Promise.all(fallbackResponseBytes);
+    expect(bytes.length).toBeGreaterThan(0);
+    expect(Math.max(...bytes)).toBeLessThanOrEqual(65_536);
+  }
+
+  test("cart fallback responsive evidence at 390px @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }, testInfo) => {
+    await assertCartFallbackResponsive(page, 390, 844);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "cart-fallback-390" });
+  });
+
+  test("cart fallback responsive evidence at 1024px @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }, testInfo) => {
+    await assertCartFallbackResponsive(page, 1024, 768);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "cart-fallback-1024" });
   });
 
   // ── 4. Checkout session surface (unauthenticated recovery) ────────────────
@@ -319,6 +404,13 @@ test.describe("buy funnel redesign — defect verification", () => {
   test("buy checkout session shows access-recovery surface for missing access — not root error @marketplace-checkout", async ({
     page,
   }) => {
+    const diagnostics: string[] = [];
+    page.on("console", (message) => {
+      if (/hydration|cannot be a descendant|did not match/i.test(message.text())) diagnostics.push(message.text());
+    });
+    page.on("pageerror", (error) => {
+      if (/hydration|cannot be a descendant|did not match/i.test(error.message)) diagnostics.push(error.message);
+    });
     // This is the canonical composition seam test from critical-flows, extended
     // to also verify the redesign contracts hold on the recovery surface.
     const response = await page.goto("/checkout/buy/session/chk_e2e_missing_access", {
@@ -331,6 +423,11 @@ test.describe("buy funnel redesign — defect verification", () => {
     await expect(page.getByText("Your payment has not started.").first()).toBeVisible();
     await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
 
+    expect(diagnostics).toEqual([]);
+    await expect(page.locator("[role='status']")).toHaveCount(1);
+    await expect(page.locator("section div.m-0.mx-auto.max-w-xl")).toBeVisible();
+    await expect(page.locator("section a").first()).toBeVisible();
+
     // Redesign contract: no "Price at checkout" on the recovery surface.
     await assertNoPriceAtCheckoutText(page, "checkout session recovery");
 
@@ -341,20 +438,25 @@ test.describe("buy funnel redesign — defect verification", () => {
 
   test("authenticated buy checkout session satisfies redesign contracts @marketplace-checkout @browser-e2e-seed", async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(120_000);
 
+    const diagnostics: string[] = [];
+    const pageErrors: string[] = [];
+    page.on("console", (message) => {
+      if (/hydrat|cannot be a descendant|cannot contain|did not match|validateDOMNesting/i.test(message.text())) {
+        diagnostics.push(message.text());
+      }
+    });
+    page.on("pageerror", (error) => pageErrors.push(error.message));
     await authenticateSeededBuyer(page);
     await waitForAccountRoute(page, "/account/cart");
 
-    const sessionResponse = await page.goto(
-      `/checkout/buy/session/${marketplaceBrowserE2eSeedContract.cart.startedSessionId}`,
-      {
-        waitUntil: "domcontentloaded",
-      },
-    );
+    const recoveryPath = `/checkout/buy/session/${marketplaceBrowserE2eSeedContract.cart.startedSessionId}`;
+    const sessionResponse = await page.goto(recoveryPath, { waitUntil: "domcontentloaded" });
     expect(sessionResponse, "checkout session should return a page response").not.toBeNull();
     expect(sessionResponse!.status(), "checkout session should not be a server error").toBeLessThan(500);
+    expect(new URL(page.url()).pathname).toBe(recoveryPath);
     await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
 
     // Defect 1: "Price at checkout" must be absent.
@@ -366,6 +468,66 @@ test.describe("buy funnel redesign — defect verification", () => {
     // the reachable checkout-session boundary. Assert it hard.
     await expect(page.getByRole("heading", { name: /^Secure checkout$/i }).first()).toBeVisible();
 
+    const recoveryHeading = page.getByRole("heading", { name: /^(Preparing checkout|Checkout needs attention)$/i });
+    await expect(recoveryHeading).toBeVisible();
+    const heading = await recoveryHeading.innerText();
+    expect(sessionResponse!.status()).toBe(heading === "Preparing checkout" ? 202 : 400);
+    const panel = page.locator("section.grid.rounded-tokenLg").filter({ has: recoveryHeading });
+    const description = panel.locator(":scope > div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary");
+    const status = page.getByRole("status");
+    await expect(status).toHaveCount(1);
+    await expect(status).toHaveAttribute("aria-live", "polite");
+    await expect(status).toHaveAttribute("aria-atomic", "true");
+    await expect(description).toBeVisible();
+    await expect(description).not.toHaveText("");
+    const primaryAction = panel.getByRole("link", {
+      name: heading === "Preparing checkout" ? "Refresh checkout" : "View Buy Cart",
+      exact: true,
+    });
+    await expect(primaryAction).toBeVisible();
+    await expect(primaryAction).toHaveAttribute(
+      "href",
+      heading === "Preparing checkout" ? recoveryPath : "/account/cart",
+    );
+    await expect(panel.getByRole("link", { name: "Browse marketplace", exact: true })).toBeVisible();
+    const statusNode = await status.elementHandle();
+    expect(statusNode).not.toBeNull();
+    const captures: { width: number; heading: string; description: string; announcement: string | null }[] = [];
+    async function recordCapturedState(width: number) {
+      await expect(status).toHaveCount(1);
+      expect(await status.evaluate((node, original) => node === original, statusNode!)).toBe(true);
+      await expect(description).toBeVisible();
+      await expect(description).not.toHaveText("");
+      await expect(primaryAction).toBeVisible();
+      captures.push({
+        width,
+        heading: await recoveryHeading.innerText(),
+        description: await description.innerText(),
+        announcement: await status.textContent(),
+      });
+    }
+    try {
+      await captureResponsiveEvidence({ page, testInfo, claimId: "checkout-recovery-390", routePath: recoveryPath });
+      await recordCapturedState(390);
+      await captureResponsiveEvidence({ page, testInfo, claimId: "checkout-recovery-1024", routePath: recoveryPath });
+      await recordCapturedState(1024);
+      expect(diagnostics).toEqual([]);
+      expect(pageErrors).toEqual([]);
+      await testInfo.attach("seeded-checkout-recovery-load", {
+        body: JSON.stringify({
+          route: recoveryPath,
+          observedRoute: new URL(page.url()).pathname,
+          status: sessionResponse!.status(),
+          captures,
+          diagnostics,
+          pageErrors,
+        }),
+        contentType: "application/json",
+      });
+    } finally {
+      await statusNode?.dispose();
+    }
+
     // The payment-ready buyer stepper (Contact/Delivery/Shipping/Payment/Review) only
     // renders once checkout deciders start payment. browser-e2e wires no payment provider,
     // so the seeded started-cart session stays on the "Secure checkout" readiness surface
@@ -374,7 +536,7 @@ test.describe("buy funnel redesign — defect verification", () => {
     // payment-ready stepper actually rendered (real/staging env); otherwise log the gap
     // loudly and assert the reachable readiness surface.
     const checkoutSteps = page.locator("[aria-label='Checkout steps']");
-    if (await checkoutSteps.isVisible({ timeout: 15_000 }).catch(() => false)) {
+    if (await checkoutSteps.isVisible({ timeout: 15_000 })) {
       await expect(page.getByText(/^Contact$/i).first()).toBeVisible();
       await expect(page.getByText(/^Delivery$/i).first()).toBeVisible();
       await expect(page.getByText(/^Shipping$/i).first()).toBeVisible();

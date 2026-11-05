@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import {
   classifyChanges,
   deriveStaticChangedFiles,
@@ -18,6 +19,404 @@ import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import { selectVerifyStaticGuardTests } from "./verify-static-surfaces.mjs";
+import {
+  canonicalProofCommands,
+  requireCanonicalProofResult,
+  resolveRequiredProofPaths,
+  unavailableChangeSetSelectionMode,
+  validateRequiredProofPaths,
+} from "./lib/context-proof-sets.mjs";
+
+const settlementProofPaths = [
+  "bounded-contexts/marketplace/features/offers/api/route.test.ts",
+  "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
+  "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx",
+  "bounded-contexts/marketplace/tests/account-offer-match-recovery-route.test.tsx",
+  "bounded-contexts/marketplace/tests/account-offers-route.test.ts",
+].map((testPath) => ({
+  version: 1,
+  ownerContext: "marketplace",
+  proofSetId: "marketplace.offer-match-seller-control-fresh-read-forms",
+  path: testPath,
+}));
+
+function expectedRequiredProofPaths(changedFiles) {
+  return changedFiles.some((file) => file.startsWith("bounded-contexts/settlement/")) ? settlementProofPaths : [];
+}
+
+function withCanonicalProofOutput(output) {
+  const { scope_json: scopeJson, ...existing } = output;
+  const requiredProofPaths = expectedRequiredProofPaths(JSON.parse(output.changed_files_json));
+  return {
+    ...existing,
+    required_proof_paths_json: JSON.stringify(requiredProofPaths),
+    ...(scopeJson === undefined
+      ? {}
+      : { scope_json: JSON.stringify({ ...JSON.parse(scopeJson), requiredProofPaths }) }),
+  };
+}
+
+function withProofRepository(check) {
+  const baseDir = mkdtempSync(path.join(tmpdir(), "canonical-proof-sets-"));
+  const reference = { version: 1, ownerContext: "seller", proofSetId: "seller.control", reason: "Fresh-read proof" };
+  const testPath = "bounded-contexts/seller/features/control.test.ts";
+  const source = { contextName: "buyer", requiredProofSets: [reference] };
+  const owner = {
+    contextName: "seller",
+    mutationConsistencyInventory: [{ id: "seller.control", owner: "seller", proof: { tests: [testPath] } }],
+  };
+  const write = (file, value) => {
+    const destination = path.join(baseDir, file);
+    mkdirSync(path.dirname(destination), { recursive: true });
+    writeFileSync(destination, typeof value === "string" ? value : JSON.stringify(value));
+  };
+  const save = () => {
+    write("bounded-contexts/buyer/context.json", source);
+    write("bounded-contexts/seller/context.json", owner);
+  };
+  write(testPath, "export {};");
+  write("bounded-contexts/seller/package.json", { name: "@chase-sets/seller" });
+  write("bounded-contexts/seller/tests/vitest.config.mjs", "export default {};");
+  save();
+  try {
+    return check({ baseDir, source, owner, reference, testPath, write, save });
+  } finally {
+    rmSync(baseDir, { recursive: true, force: true });
+  }
+}
+
+describe("canonical proof sets:", () => {
+  it("canonical proof sets: resolves the canonical Settlement inventory without a workspace edge", () => {
+    const changedFiles = ["bounded-contexts/settlement/features/wallets/api/runtime.ts"];
+    const workspaces = listWorkspacePackages({ repoRoot });
+    const scope = classifyChanges({ changedFiles, workspaces, baseDir: repoRoot });
+    const previous = baseChangeScope.classifyChanges({ changedFiles, workspaces, baseDir: repoRoot });
+    expect(scope).toEqual({
+      ...expectedPublicPresenceEnrollment(previous, workspaces),
+      requiredProofPaths: settlementProofPaths,
+    });
+    expect(scope.requiredProofPaths).toEqual(settlementProofPaths);
+    expect(scope.affectedWorkspaces).not.toContain("@chase-sets/marketplace");
+    expect(toOutputMap(scope).affected_workspaces).toBe(scope.affectedWorkspaces.join(","));
+    expect(JSON.parse(toOutputMap(scope).affected_workspaces_json)).toEqual(scope.affectedWorkspaces);
+    expect(JSON.parse(toOutputMap(scope).required_proof_paths_json)).toEqual(settlementProofPaths);
+    expect(canonicalProofCommands(scope.requiredProofPaths)).toEqual([
+      [
+        "--filter",
+        "@chase-sets/marketplace",
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        "./tests/vitest.config.mjs",
+        "features/offers/api/route.test.ts",
+        "features/offers/api/runtime.test.ts",
+        "features/offers/ui/offer-match-list-page.test.tsx",
+        "tests/account-offer-match-recovery-route.test.tsx",
+        "tests/account-offers-route.test.ts",
+      ],
+    ]);
+    const metadata = JSON.parse(readFileSync(path.join(repoRoot, "bounded-contexts/settlement/context.json"), "utf8"));
+    expect(metadata.requiredProofSets).toEqual([
+      {
+        version: 1,
+        ownerContext: "marketplace",
+        proofSetId: "marketplace.offer-match-seller-control-fresh-read-forms",
+        reason: expect.stringMatching(/\S/),
+      },
+    ]);
+    expect(metadata.allowedContextDependencies).not.toContain("@chase-sets/marketplace");
+  });
+
+  it("canonical proof sets: leaves undeclared changes empty and preserves every existing output key in order", () => {
+    const scope = classifyChanges({ changedFiles: ["bounded-contexts/identity/api.ts"] });
+    expect(scope.requiredProofPaths).toEqual([]);
+    expect(toOutputMap(scope).required_proof_paths_json).toBe("[]");
+    expect(Object.keys(toOutputMap(scope))).toEqual([...baseCapturedOutputMapKeyOrder, "required_proof_paths_json"]);
+    expect(Object.keys(toGithubOutputMap(scope))).toEqual([
+      ...baseCapturedOutputMapKeyOrder,
+      "required_proof_paths_json",
+      "scope_json",
+    ]);
+  });
+
+  it("canonical proof sets: resolves directly, sorts owner ID and path, and coalesces shared requirements", () => {
+    withProofRepository(({ baseDir, source, owner, reference, write, save }) => {
+      owner.mutationConsistencyInventory.push({
+        id: "seller.alpha",
+        owner: "seller",
+        proof: { tests: ["bounded-contexts/seller/z.test.ts", "bounded-contexts/seller/a.test.ts"] },
+      });
+      source.requiredProofSets.unshift({ ...reference, proofSetId: "seller.alpha" });
+      write("bounded-contexts/seller/z.test.ts", "export {};");
+      write("bounded-contexts/seller/a.test.ts", "export {};");
+      owner.requiredProofSets = [{ ...reference, ownerContext: "missing", proofSetId: "not-traversed" }];
+      write("bounded-contexts/another/context.json", source);
+      write("bounded-contexts/alpha/context.json", {
+        contextName: "alpha",
+        mutationConsistencyInventory: [
+          { id: "alpha.control", owner: "alpha", proof: { tests: ["bounded-contexts/alpha/control.test.ts"] } },
+        ],
+      });
+      write("bounded-contexts/alpha/control.test.ts", "export {};");
+      source.requiredProofSets.push({ version: 1, ownerContext: "alpha", proofSetId: "alpha.control" });
+      save();
+      const paths = resolveRequiredProofPaths({
+        changedFiles: ["bounded-contexts/buyer/api.ts", "bounded-contexts/another/api.ts"],
+        baseDir,
+      });
+      expect(paths.map(({ proofSetId, path: testPath }) => [proofSetId, testPath])).toEqual([
+        ["alpha.control", "bounded-contexts/alpha/control.test.ts"],
+        ["seller.alpha", "bounded-contexts/seller/a.test.ts"],
+        ["seller.alpha", "bounded-contexts/seller/z.test.ts"],
+        ["seller.control", "bounded-contexts/seller/features/control.test.ts"],
+      ]);
+    });
+  });
+
+  it.each([
+    [
+      "unsupported version",
+      (f) => {
+        f.reference.version = 2;
+      },
+    ],
+    [
+      "missing version",
+      (f) => {
+        delete f.reference.version;
+      },
+    ],
+    [
+      "missing owner",
+      (f) => {
+        delete f.reference.ownerContext;
+      },
+    ],
+    [
+      "missing ID",
+      (f) => {
+        delete f.reference.proofSetId;
+      },
+    ],
+    [
+      "extra field",
+      (f) => {
+        f.reference.tests = [];
+      },
+    ],
+    [
+      "blank reason",
+      (f) => {
+        f.reference.reason = " ";
+      },
+    ],
+    [
+      "non-array declaration",
+      (f) => {
+        f.source.requiredProofSets = {};
+      },
+    ],
+    [
+      "empty declaration",
+      (f) => {
+        f.source.requiredProofSets = [];
+      },
+    ],
+    [
+      "duplicate reference",
+      (f) => {
+        f.source.requiredProofSets.push({ ...f.reference });
+      },
+    ],
+    [
+      "absent owner",
+      (f) => {
+        f.reference.ownerContext = "missing";
+      },
+    ],
+    [
+      "owner traversal",
+      (f) => {
+        f.reference.ownerContext = "../seller";
+      },
+    ],
+    [
+      "unknown ID",
+      (f) => {
+        f.reference.proofSetId = "seller.unknown";
+      },
+    ],
+    [
+      "duplicate ID",
+      (f) => {
+        f.owner.mutationConsistencyInventory.push(f.owner.mutationConsistencyInventory[0]);
+      },
+    ],
+    [
+      "wrong canonical owner",
+      (f) => {
+        f.owner.mutationConsistencyInventory[0].owner = "other";
+      },
+    ],
+    [
+      "missing tests",
+      (f) => {
+        delete f.owner.mutationConsistencyInventory[0].proof.tests;
+      },
+    ],
+    [
+      "empty tests",
+      (f) => {
+        f.owner.mutationConsistencyInventory[0].proof.tests = [];
+      },
+    ],
+    [
+      "duplicate test",
+      (f) => {
+        f.owner.mutationConsistencyInventory[0].proof.tests.push(f.testPath);
+      },
+    ],
+    [
+      "absolute test",
+      (f) => {
+        f.owner.mutationConsistencyInventory[0].proof.tests = ["/outside.test.ts"];
+      },
+    ],
+    [
+      "traversing test",
+      (f) => {
+        f.owner.mutationConsistencyInventory[0].proof.tests = ["bounded-contexts/seller/../outside.test.ts"];
+      },
+    ],
+    [
+      "non-test",
+      (f) => {
+        f.owner.mutationConsistencyInventory[0].proof.tests = ["bounded-contexts/seller/api.ts"];
+      },
+    ],
+    [
+      "runner option test",
+      (f) => {
+        f.owner.mutationConsistencyInventory[0].proof.tests = ["bounded-contexts/seller/--option.test.ts"];
+      },
+    ],
+    [
+      "foreign test",
+      (f) => {
+        f.owner.mutationConsistencyInventory[0].proof.tests = ["bounded-contexts/buyer/api.test.ts"];
+      },
+    ],
+    [
+      "stale test",
+      (f) => {
+        f.owner.mutationConsistencyInventory[0].proof.tests = ["bounded-contexts/seller/missing.test.ts"];
+      },
+    ],
+  ])("canonical proof sets: rejects %s metadata before execution", (_name, mutate) => {
+    withProofRepository((fixture) => {
+      mutate(fixture);
+      fixture.save();
+      expect(() =>
+        resolveRequiredProofPaths({ changedFiles: ["bounded-contexts/buyer/api.ts"], baseDir: fixture.baseDir }),
+      ).toThrow(/Canonical proof sets:/);
+    });
+  });
+
+  it("canonical proof sets: accepts optional reason and rejects malformed metadata", () => {
+    withProofRepository(({ baseDir, reference, write, save }) => {
+      delete reference.reason;
+      save();
+      expect(resolveRequiredProofPaths({ changedFiles: ["bounded-contexts/buyer/api.ts"], baseDir })).toHaveLength(1);
+      for (const malformed of ["{", "null", "[]", "1"]) {
+        write("bounded-contexts/buyer/context.json", malformed);
+        expect(() => resolveRequiredProofPaths({ changedFiles: ["bounded-contexts/buyer/api.ts"], baseDir })).toThrow(
+          /malformed metadata/,
+        );
+      }
+    });
+  });
+
+  it("canonical proof sets: rejects missing malformed stale different or empty hosted output", () => {
+    withProofRepository(({ baseDir, testPath, write, owner, save }) => {
+      const input = { changedFiles: ["bounded-contexts/buyer/api.ts"], baseDir };
+      const expected = [{ version: 1, ownerContext: "seller", proofSetId: "seller.control", path: testPath }];
+      expect(validateRequiredProofPaths({ ...input, pathsJson: JSON.stringify(expected) })).toEqual(expected);
+      for (const pathsJson of [
+        undefined,
+        "",
+        "{",
+        "{}",
+        "null",
+        "[]",
+        JSON.stringify([{}]),
+        JSON.stringify([...expected, ...expected]),
+        JSON.stringify([{ ...expected[0], extra: true }]),
+        JSON.stringify([{ ...expected[0], version: 2 }]),
+        JSON.stringify([{ ...expected[0], proofSetId: "stale" }]),
+      ]) {
+        expect(() => validateRequiredProofPaths({ ...input, pathsJson }), String(pathsJson)).toThrow(
+          /Canonical proof sets:/,
+        );
+      }
+      write("bounded-contexts/seller/next.test.ts", "export {};");
+      owner.mutationConsistencyInventory[0].proof.tests.push("bounded-contexts/seller/next.test.ts");
+      save();
+      expect(() => validateRequiredProofPaths({ ...input, pathsJson: JSON.stringify(expected) })).toThrow(
+        /stale or different/,
+      );
+      expect(() => canonicalProofCommands(expected, path.join(baseDir, "missing"))).toThrow(/metadata/);
+    });
+    expect(validateRequiredProofPaths({ pathsJson: "[]", changedFiles: ["README.md"] })).toEqual([]);
+    expect(() => validateRequiredProofPaths({ pathsJson: "[ ]", changedFiles: ["README.md"] })).toThrow(/exactly/);
+  });
+
+  it("canonical proof sets: requires the named job independently of green Unit results", () => {
+    expect(() => requireCanonicalProofResult(settlementProofPaths, "success")).not.toThrow();
+    expect(() => requireCanonicalProofResult([], "skipped")).not.toThrow();
+    for (const result of ["skipped", "failure", "cancelled", "", undefined]) {
+      expect(() => requireCanonicalProofResult(settlementProofPaths, result)).toThrow(/required job/);
+    }
+    for (const result of ["failure", "cancelled", ""]) expect(() => requireCanonicalProofResult([], result)).toThrow();
+  });
+
+  it("canonical proof sets: pins exact-head invocation and fail-closed workflow aggregation", () => {
+    const workflow = parseYaml(readFileSync(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8"));
+    const job = workflow.jobs["canonical-proof-sets"];
+    expect(job.name).toBe("Canonical Proof Sets");
+    expect(job.needs).toBe("change-scope");
+    expect(job.if).toBe("needs['change-scope'].outputs.required_proof_paths_json != '[]'");
+    expect(job.steps[0].with.ref).toBe("${{ github.sha }}");
+    const run = job.steps.find((step) => step.run);
+    expect(run.run).toBe("node ./scripts/lib/context-proof-sets.mjs run");
+    expect(run.env).toEqual({
+      REQUIRED_PROOF_PATHS_JSON: "${{ needs['change-scope'].outputs.required_proof_paths_json }}",
+      CHANGED_FILES_JSON: "${{ needs['change-scope'].outputs.changed_files_json }}",
+      REQUIRED_PROOF_SELECTION_MODE: "${{ needs['change-scope'].outputs.required_proof_selection_mode }}",
+    });
+    const required = workflow.jobs["pr-required"];
+    expect(required.needs).toContain("canonical-proof-sets");
+    expect(required.if).toBe("always()");
+    expect(required.steps[0].with.ref).toBe("${{ github.sha }}");
+    const aggregate = required.steps.filter((step) => step.name === "Verify canonical proof sets");
+    expect(aggregate).toEqual([
+      {
+        name: "Verify canonical proof sets",
+        env: {
+          ...run.env,
+          CANONICAL_PROOF_RESULT: "${{ needs['canonical-proof-sets'].result }}",
+        },
+        run: "node ./scripts/lib/context-proof-sets.mjs require-result",
+      },
+    ]);
+    expect(workflow.jobs["change-scope"].outputs.required_proof_paths_json).toBe(
+      "${{ steps.scope.outputs.required_proof_paths_json }}",
+    );
+    expect(workflow.jobs["change-scope"].outputs.required_proof_selection_mode).toBe(
+      "${{ fromJson(steps.scope.outputs.scope_json).requiredProofSelectionMode || '' }}",
+    );
+  });
+});
 
 describe("changed-path parsing and derivation", () => {
   it("parses added, deleted, and rename name-status records", () => {
@@ -210,6 +609,7 @@ it.each([
   expect(result.fallbackReason).toBe(reason);
   expect(result.scope).toMatchObject({
     changedFiles: [],
+    requiredProofSelectionMode: unavailableChangeSetSelectionMode,
     localChecksRequired: true,
     unitTestsRequired: true,
     dbTestsRequired: true,
@@ -226,6 +626,140 @@ it.each([
   expect(toOutputMap(result.scope).integration_risk_reason).toContain(reason);
 });
 
+it.each([
+  [
+    "synthetic-parent-lookup-failed",
+    {
+      firstParent: true,
+      exec: () => {
+        throw new Error("rev-list unavailable");
+      },
+    },
+  ],
+  ["synthetic-parent-lookup-empty", { firstParent: true, exec: () => "" }],
+  [
+    "merge-base-failed",
+    {
+      exec: (_command, args) => {
+        if (args[0] === "merge-base") throw new Error("merge-base unavailable");
+        return "";
+      },
+    },
+  ],
+  ["merge-base-empty", { exec: (_command, args) => (args[0] === "merge-base" ? "" : "") }],
+  [
+    "diff-failed",
+    {
+      exec: (_command, args) => {
+        if (args[0] === "merge-base") return "abc123\n";
+        throw new Error("diff unavailable");
+      },
+    },
+  ],
+  ["diff-empty", { exec: (_command, args) => (args[0] === "merge-base" ? "abc123\n" : "") }],
+  ["diff-invalid", { exec: (_command, args) => (args[0] === "merge-base" ? "abc123\n" : null) }],
+  ["scope-derivation-failed", { unexpectedError: true }],
+])("canonical proof sets: round-trips unavailable selection for %s", (reason, fixture) => {
+  withProofRepository(({ baseDir, testPath, write }) => {
+    write("bounded-contexts/buyer/package.json", { name: "@chase-sets/buyer" });
+    const workspaces = listWorkspacePackages({ repoRoot: baseDir, roots: ["bounded-contexts"] });
+    expect(workspaces).toHaveLength(2);
+    const options = { ...fixture, execFileSync: fixture.exec, workspaces, baseDir };
+    if (fixture.unexpectedError) {
+      Object.defineProperty(options, "cwd", {
+        get() {
+          throw new Error("synthetic unexpected derivation error");
+        },
+      });
+    }
+    const result = resolveChangeScope("base", "head", options);
+    expect(result.fallbackReason).toBe(reason);
+    const output = toGithubOutputMap(result.scope);
+    const scope = JSON.parse(output.scope_json);
+    const expected = [{ version: 1, ownerContext: "seller", proofSetId: "seller.control", path: testPath }];
+    expect(scope.changedFiles).toEqual([]);
+    expect(scope.affectedWorkspaces).toEqual(["@chase-sets/buyer", "@chase-sets/seller"]);
+    expect(scope.requiredProofSelectionMode).toBe(unavailableChangeSetSelectionMode);
+    expect(scope.requiredProofPaths).toEqual(expected);
+    const validation = {
+      pathsJson: output.required_proof_paths_json,
+      changedFiles: JSON.parse(output.changed_files_json),
+      selectionMode: scope.requiredProofSelectionMode,
+      baseDir,
+    };
+    const paths = validateRequiredProofPaths(validation);
+    expect(paths).toEqual(expected);
+    expect(canonicalProofCommands(paths, baseDir)[0].slice(7)).toEqual(["features/control.test.ts"]);
+    expect(() => requireCanonicalProofResult(paths, "success")).not.toThrow();
+    for (const result of ["skipped", "failure", "cancelled"]) {
+      expect(() => requireCanonicalProofResult(paths, result)).toThrow(/required job/);
+    }
+    expect(() => validateRequiredProofPaths({ ...validation, pathsJson: "[]" })).toThrow(/stale or different/);
+    expect(() => validateRequiredProofPaths({ ...validation, selectionMode: undefined })).toThrow(/stale or different/);
+  });
+});
+
+it("canonical proof sets: shares fallback validation before run and require-result", () => {
+  const { scope } = resolveChangeScope("synthetic-base", "synthetic-head", {
+    execFileSync() {
+      throw new Error("synthetic unavailable change set");
+    },
+  });
+  const env = {
+    ...process.env,
+    REQUIRED_PROOF_PATHS_JSON: JSON.stringify(scope.requiredProofPaths),
+    CHANGED_FILES_JSON: JSON.stringify(scope.changedFiles),
+    REQUIRED_PROOF_SELECTION_MODE: scope.requiredProofSelectionMode,
+    CANONICAL_PROOF_RESULT: "success",
+  };
+  const cli = (mode, override = {}) =>
+    spawnSync(process.execPath, ["scripts/lib/context-proof-sets.mjs", mode], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: { ...env, ...override },
+    });
+  expect(scope.requiredProofPaths).toEqual(settlementProofPaths);
+  expect(cli("require-result").status).toBe(0);
+  for (const mode of ["run", "require-result"]) {
+    const result = cli(mode, { REQUIRED_PROOF_PATHS_JSON: "[]" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("stale or different canonical proof paths");
+    expect(result.stdout).not.toContain("Canonical proof invocation");
+  }
+});
+
+it("canonical proof sets: retains source-context validation for the fallback inventory", () => {
+  withProofRepository(({ baseDir, write }) => {
+    write("bounded-contexts/invalid_context/package.json", { name: "@chase-sets/invalid_context" });
+    expect(() =>
+      resolveRequiredProofPaths({ changedFiles: [], selectionMode: unavailableChangeSetSelectionMode, baseDir }),
+    ).toThrow(/invalid source context/);
+  });
+});
+
+it("canonical proof sets: keeps an ordinary unrelated empty selection valid", () => {
+  expect(
+    validateRequiredProofPaths({
+      pathsJson: "[]",
+      changedFiles: ["bounded-contexts/identity/api.ts"],
+      baseDir: repoRoot,
+    }),
+  ).toEqual([]);
+  expect(resolveRequiredProofPaths({ changedFiles: [], baseDir: repoRoot })).toEqual([]);
+  expect(() => requireCanonicalProofResult([], "skipped")).not.toThrow();
+  for (const selectionMode of ["unknown", null, 1]) {
+    expect(() => resolveRequiredProofPaths({ changedFiles: [], selectionMode })).toThrow(
+      /unsupported proof selection mode/,
+    );
+  }
+  expect(() =>
+    resolveRequiredProofPaths({
+      changedFiles: ["bounded-contexts/settlement/api.ts"],
+      selectionMode: unavailableChangeSetSelectionMode,
+    }),
+  ).toThrow(/must retain empty changed paths/);
+});
+
 it("enables first-parent scope for both hosted PR merge events", () => {
   const workflow = readFileSync(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8");
   expect(workflow).toContain(
@@ -237,7 +771,12 @@ it("enables first-parent scope for both hosted PR merge events", () => {
 
 async function importChangeScopeVariant(source) {
   const directory = mkdtempSync(path.join(tmpdir(), "change-scope-mutant-"));
-  for (const specifier of ["./e2e-suites.mjs", "./lib/repo.mjs", "./lib/risk-policy-v1.mjs"]) {
+  for (const specifier of [
+    "./e2e-suites.mjs",
+    "./lib/repo.mjs",
+    "./lib/risk-policy-v1.mjs",
+    "./lib/context-proof-sets.mjs",
+  ]) {
     const quoted = JSON.stringify(specifier);
     if (!source.includes(quoted)) throw new Error(`Mutant source no longer imports ${specifier}`);
     source = source.replace(quoted, JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts", specifier)).href));
@@ -253,7 +792,7 @@ async function importChangeScopeVariant(source) {
 
 it("kills a source mutant that removes unavailable-scope widening", async () => {
   const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
-  const mutation = "scope: fullScopeForUnavailableChangeSet(workspaces, reason),";
+  const mutation = "scope: fullScopeForUnavailableChangeSet(workspaces, reason, baseDir),";
   const mutatedSource = source.replace(mutation, "scope: classifyChanges({ changedFiles: [], workspaces, baseDir }),");
   expect(mutatedSource).not.toBe(source);
   const mutant = await importChangeScopeVariant(mutatedSource);
@@ -721,6 +1260,8 @@ const baseCapturedOutputMapKeyOrder = [
   "exposure_posture_categories",
   "exposure_posture_categories_json",
 ];
+
+const currentOutputMapKeyOrder = [...baseCapturedOutputMapKeyOrder, "required_proof_paths_json"];
 
 const baseCapturedQuietGateOutputs = {
   e2e_tests: "false",
@@ -1246,7 +1787,7 @@ function withRenderedCopyOutput(output) {
 }
 
 function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
-  baseOutputMap = withRenderedCopyOutput(baseOutputMap);
+  baseOutputMap = withCanonicalProofOutput(withRenderedCopyOutput(baseOutputMap));
   const affected = JSON.parse(baseOutputMap.affected_workspaces_json);
   if (
     JSON.parse(baseOutputMap.changed_files_json).length === 0 ||
@@ -1273,6 +1814,7 @@ function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
 // that requires DB tests, because an empty list is how both DB-profile
 // runners sweep every DB workspace.
 function expectedPublicPresenceEnrollment(base, workspaces) {
+  base = { ...base, requiredProofPaths: expectedRequiredProofPaths(base.changedFiles) };
   if (base.changedFiles.length === 0 || (base.dbTestsRequired && base.affectedWorkspaces.length === 0)) {
     return base;
   }
@@ -1294,7 +1836,9 @@ function expectOnlyPublicPresenceEnrollmentDelta(changedFiles) {
   const expected = expectedPublicPresenceEnrollment(base, workspaces);
   const label = JSON.stringify(changedFiles);
   expect(head, label).toEqual(expected);
-  expect(toGithubOutputMap(head), label).toEqual(withRenderedCopyOutput(baseChangeScope.toGithubOutputMap(expected)));
+  expect(toGithubOutputMap(head), label).toEqual(
+    withCanonicalProofOutput(withRenderedCopyOutput(baseChangeScope.toGithubOutputMap(expected))),
+  );
   return { base, head };
 }
 
@@ -1550,6 +2094,7 @@ describe("change-scope", () => {
       directlyAffectedWorkspaces: [],
       directlyTestOnlyAffectedWorkspaces: [],
       unitTestsRequired: false,
+      requiredProofPaths: [],
     });
   });
 
@@ -1558,7 +2103,7 @@ describe("change-scope", () => {
     const output = toGithubOutputMap(scope);
 
     expect(JSON.parse(output.scope_json)).toEqual(scope);
-    expect(Object.keys(output)).toEqual([...baseCapturedOutputMapKeyOrder, "scope_json"]);
+    expect(Object.keys(output)).toEqual([...currentOutputMapKeyOrder, "scope_json"]);
   });
 
   it.each([
@@ -2408,7 +2953,7 @@ describe("change-scope", () => {
       const scope = classifyChanges({ changedFiles: testCase.changedFiles });
       const outputs = toOutputMap(scope);
 
-      expect(Object.keys(outputs)).toEqual(baseCapturedOutputMapKeyOrder);
+      expect(Object.keys(outputs)).toEqual(currentOutputMapKeyOrder);
       expect(outputs.db_tests).toBe(testCase.expectedDbTests);
       expect(outputs).toEqual(
         withPublicPresenceEnrollmentOutputs({ ...testCase.baseOutputMap, db_tests: testCase.expectedDbTests }),
