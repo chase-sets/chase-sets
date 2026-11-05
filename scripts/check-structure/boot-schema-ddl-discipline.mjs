@@ -202,6 +202,12 @@ export function extractSchemaMigrationStatements(source) {
         startLine: lineNumberAt(source.slice(0, (array ?? block).getStart(sourceFile))),
         statements: sqlStatements,
         valid,
+        orderedProofEligible: [...properties].every(
+          ([name, value]) =>
+            name === "migrationId" ||
+            name === "statements" ||
+            (name === "description" && (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value))),
+        ),
       };
     });
     if (migrations.some((migration) => !migration.valid)) {
@@ -235,6 +241,65 @@ function unwrapExpression(expression) {
     expression = expression.expression;
   }
   return expression;
+}
+
+function hasCompleteOrderedProofSource(source) {
+  const sourceFile = ts.createSourceFile("schema.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  if (sourceFile.parseDiagnostics.length !== 0) return false;
+  const templates = extractExportedBootSchemaSqlTemplates(source);
+  const ledgers = extractSchemaMigrationLedgers(source);
+  const migrations = extractSchemaMigrationStatements(source);
+  if (new Set(migrations.map(({ migrationId }) => migrationId)).size !== migrations.length) return false;
+  const bindings = new Set();
+  for (const statement of sourceFile.statements) {
+    if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEmptyStatement(statement))
+      continue;
+    if (ts.isImportDeclaration(statement) && statement.importClause?.isTypeOnly) continue;
+    if (
+      ts.isExportDeclaration(statement) &&
+      (statement.isTypeOnly ||
+        (statement.exportClause &&
+          ts.isNamedExports(statement.exportClause) &&
+          statement.exportClause.elements.every((element) => element.isTypeOnly)))
+    )
+      continue;
+    if (
+      !ts.isVariableStatement(statement) ||
+      (statement.declarationList.flags & ts.NodeFlags.BlockScoped) !== ts.NodeFlags.Const ||
+      statement.modifiers?.some((modifier) => modifier.kind !== ts.SyntaxKind.ExportKeyword)
+    )
+      return false;
+    const exported = statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || bindings.has(declaration.name.text)) return false;
+      const name = declaration.name.text;
+      bindings.add(name);
+      const initializer = unwrapExpression(declaration.initializer);
+      if (!initializer) return false;
+      if (exported && name.endsWith("SchemaSql")) {
+        const records = templates.filter((template) => template.name === name);
+        if (records.length !== 1 || records[0].valid === false) return false;
+      } else if (exported && name.endsWith("SchemaMigrations")) {
+        if (ledgers.filter((ledger) => ledger.name === name).length !== 1) return false;
+        if (
+          migrations.some(
+            (migration) => migration.ledgerName === name && (!migration.valid || !migration.orderedProofEligible),
+          )
+        )
+          return false;
+      } else if (
+        !ts.isStringLiteral(initializer) &&
+        !ts.isNoSubstitutionTemplateLiteral(initializer) &&
+        !ts.isNumericLiteral(initializer) &&
+        initializer.kind !== ts.SyntaxKind.TrueKeyword &&
+        initializer.kind !== ts.SyntaxKind.FalseKeyword &&
+        initializer.kind !== ts.SyntaxKind.NullKeyword
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 export function extractBootSchemaTableColumns(source) {
@@ -337,6 +402,7 @@ export function findBootSchemaRetainedUpgradeViolations({ baseSource, currentSou
 }
 
 function hasOrderedRetainedColumnProof({ baseSource, currentSource, tableName, columnName }) {
+  if (!hasCompleteOrderedProofSource(baseSource) || !hasCompleteOrderedProofSource(currentSource)) return false;
   const templates = extractExportedBootSchemaSqlTemplates(currentSource);
   if (
     templates.some((template) => template.valid === false) ||

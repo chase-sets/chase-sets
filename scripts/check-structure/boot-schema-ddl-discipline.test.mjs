@@ -492,6 +492,166 @@ export const exampleSchemaMigrations = [{
       expect(retainedUpgradeKeys({ baseSource, currentSource: `${currentSource}\n${sibling}` })).toEqual([]);
     });
 
+    describe("complete ordered proof admission", () => {
+      it.each([
+        ["double string", '"SELECT revision FROM settlement_account_risk_sources"'],
+        ["single string", "'SELECT revision FROM settlement_account_risk_sources'"],
+        ["named template", "earlySql"],
+        ["opaque call", "wrap(`SELECT revision FROM settlement_account_risk_sources`)"],
+        ["concatenation", "'SELECT revision ' + 'FROM settlement_account_risk_sources'"],
+        ["conditional", "condition ? `SELECT revision FROM settlement_account_risk_sources` : ''"],
+        ["tagged template", "sql`SELECT revision FROM settlement_account_risk_sources`"],
+        ["property access", "sqlParts.reader"],
+        ["element access", "sqlParts['reader']"],
+        ["non-null wrapper", "(`SELECT revision FROM settlement_account_risk_sources`)!"],
+        ["type assertion wrapper", "<string>`SELECT revision FROM settlement_account_risk_sources`"],
+        ["inert unsupported initializer", '"SELECT 1"'],
+      ])("refuses an unproved boot initializer: %s", (_label, initializer) => {
+        const { baseSource, currentSource } = orderedRevisionSources();
+        const sibling = `const earlySql = \`SELECT revision FROM settlement_account_risk_sources\`;
+          export const otherSchemaSql = ${initializer};`;
+        expect(retainedUpgradeKeys({ baseSource, currentSource: `${currentSource}\n${sibling}` })).toEqual([
+          "settlement_account_risk_sources.revision",
+        ]);
+      });
+
+      it.each([
+        ["export let", "export let otherSchemaSql = `SELECT 1`;"],
+        ["export var", "export var otherSchemaSql = `SELECT 1`;"],
+        ["local export alias", "const earlySql = `SELECT 1`; export { earlySql as otherSchemaSql };"],
+        ["same-name local export", "const otherSchemaSql = `SELECT 1`; export { otherSchemaSql };"],
+        ["re-export", "export { earlySql as otherSchemaSql } from './other.js';"],
+        ["export star", "export * from './other.js';"],
+        ["namespace re-export", "export * as other from './other.js';"],
+        ["object binding", "export const { otherSchemaSql } = { otherSchemaSql: `SELECT 1` };"],
+        ["renamed object binding", "export const { reader: otherSchemaSql } = parts;"],
+        ["array binding", "export const [otherSchemaSql] = parts;"],
+        ["multiple declarators", "export const safeSchemaSql = `SELECT 1`, otherSchemaSql = wrap(`SELECT 1`);"],
+        ["missing initializer", "export const otherSchemaSql: string;"],
+        ["duplicate local name", "const earlySql = `SELECT 1`; const earlySql = `SELECT 1`;"],
+        ["duplicate ledger", "export const exampleSchemaMigrations = [];"],
+        ["missing ledger initializer", "export const otherSchemaMigrations: readonly unknown[];"],
+        ["let ledger", "export let otherSchemaMigrations = [];"],
+        ["ledger alias", "const otherSchemaMigrations = []; export { otherSchemaMigrations };"],
+        ["opaque ledger", "export const otherSchemaMigrations = loadMigrations();"],
+        [
+          "cross-ledger duplicate migration id",
+          'export const otherSchemaMigrations = [{ migrationId: "add_revision", statements: ["SELECT 1"] }];',
+        ],
+        ["ledger composition", "export const executionOrder = [...exampleSchemaMigrations];"],
+        ["boot composition", "export const executionSql = exampleSchemaSql + `SELECT 1`;"],
+        ["ledger mutation", "exampleSchemaMigrations.push({ migrationId: 'hidden', statements: ['SELECT 1'] });"],
+        ["nested mutation", "exampleSchemaMigrations[0].statements[0] = 'SELECT revision';"],
+        ["unresolved execution", "runBoot(exampleSchemaSql);"],
+        ["runtime import", "import './mutation.js';"],
+        ["ambient runtime declaration", "export declare const otherSchemaSql = `SELECT 1`;"],
+        ["resource-management declaration", "await using disposable = `SELECT 1`;"],
+        ["function export", "export function otherSchemaSql() { return 'SELECT 1'; }"],
+        ["parse diagnostics", "export const unfinished = ;"],
+      ])("refuses incomplete declaration or execution evidence: %s", (_label, sibling) => {
+        const { baseSource, currentSource } = orderedRevisionSources();
+        expect(retainedUpgradeKeys({ baseSource, currentSource: `${currentSource}\n${sibling}` })).toEqual([
+          "settlement_account_risk_sources.revision",
+        ]);
+      });
+
+      it.each([
+        [
+          "reader dataStep",
+          'dataStep: async (db) => { await db.query("SELECT revision FROM settlement_account_risk_sources"); }',
+        ],
+        ["inert dataStep", "dataStep: async () => {}"],
+        ["undefined dataStep", "dataStep: undefined"],
+        ["unknown member", "execute: async () => {}"],
+        ["inert unknown member", "futureOption: false"],
+        ["executable description", "description: describeMigration()"],
+        ["description getter", "get description() { return 'inert'; }"],
+        ["spread", "...extraMembers"],
+      ])("refuses every unresolved migration member: %s", (_label, member) => {
+        const { baseSource, currentSource } = orderedRevisionSources();
+        const paired = currentSource.replace('migrationId: "add_revision",', `migrationId: "add_revision", ${member},`);
+        const sibling = `export const otherSchemaMigrations = [{ migrationId: "independent", ${member}, statements: [\`SELECT 1\`] }];`;
+        for (const source of [paired, `${sibling}\n${currentSource}`, `${currentSource}\n${sibling}`]) {
+          expect(retainedUpgradeKeys({ baseSource, currentSource: source })).toEqual([
+            "settlement_account_risk_sources.revision",
+          ]);
+        }
+      });
+
+      it("does not turn dataStep or unknown members into a global DDL error", () => {
+        for (const member of ["dataStep: async () => {}", "futureOption: false"]) {
+          const source = `export const exampleSchemaMigrations = [{ migrationId: "data", ${member}, statements: [\`SELECT 1\`] }];`;
+          expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([]);
+        }
+        const { baseSource, currentSource } = orderedRevisionSources();
+        const ordinary = currentSource.replace(
+          "review_count integer\n  );",
+          "review_count integer\n  ); ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS revision bigint;",
+        );
+        expect(retainedUpgradeKeys({ baseSource, currentSource: `${ordinary}\nrunBoot();` })).toEqual([]);
+      });
+
+      it("admits supported wrappers, multiple declarations, literal metadata and type-only exports", () => {
+        const { baseSource, currentSource } = orderedRevisionSources();
+        const inert = `import type { BcSchemaMigration } from './contracts.js';
+          export type { OtherSchemaSql } from './types.js';
+          export type * from './types.js';
+          export { type OtherSchemaMigrations } from './types.js';
+          interface SchemaShape { sql: string }
+          type Shape = SchemaShape;
+          export const safeSchemaSql = (\`SELECT 1\` as string), anotherSchemaSql = (\`SELECT 2\` satisfies string);`;
+        const supported = `${inert}\n${currentSource.replace('migrationId: "add_revision",', 'migrationId: "add_revision", description: ("Add revision" as const),')}`;
+        expect(retainedUpgradeKeys({ baseSource, currentSource: supported })).toEqual([]);
+      });
+
+      it("refuses incomplete baseline evidence without changing the immutable SQL bytes", () => {
+        const { baseSource, currentSource } = orderedRevisionSources();
+        const unresolved = "\nexport const otherSchemaSql = wrap(`SELECT 1`);";
+        expect(retainedUpgradeKeys({ baseSource: `${baseSource}${unresolved}`, currentSource })).toEqual([
+          "settlement_account_risk_sources.revision",
+        ]);
+      });
+
+      it("reaches completeness refusal through changed schema scanner discovery", async () => {
+        const repoRoot = await mkdtemp(path.join(os.tmpdir(), "chase-sets-ddl-discipline-"));
+        const relativeFilePath =
+          "bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts";
+        const filePath = path.join(repoRoot, relativeFilePath);
+        const { baseSource, currentSource } = orderedRevisionSources();
+        await mkdir(path.dirname(filePath), { recursive: true });
+        await writeFile(filePath, baseSource, "utf8");
+        try {
+          const git = (args) => execFileSync("git", args, { cwd: repoRoot, stdio: "pipe" });
+          git(["init"]);
+          git(["add", relativeFilePath]);
+          git([
+            "-c",
+            "user.name=Schema Test",
+            "-c",
+            "user.email=schema@example.invalid",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-m",
+            "test: base schema",
+          ]);
+          git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+          await writeFile(filePath, `${currentSource}\nexport const otherSchemaSql = "SELECT 1";`, "utf8");
+          expect(
+            await findBootSchemaDdlDisciplineViolations({ repoRoot, changedFilePaths: [relativeFilePath] }),
+          ).toEqual([
+            expect.objectContaining({
+              file: relativeFilePath,
+              message: expect.stringContaining("has no idempotent boot ADD COLUMN expansion"),
+            }),
+          ]);
+          expect(await findBootSchemaDdlDisciplineViolations({ repoRoot, changedFilePaths: [] })).toEqual([]);
+        } finally {
+          await rm(repoRoot, { recursive: true, force: true });
+        }
+      });
+    });
+
     it.each([
       [
         "another table's normalizers",
