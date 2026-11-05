@@ -27,7 +27,7 @@ export function MarketplaceEmptyState({
       </Center>
       <Stack gap={2}>
         <h2 className="m-0 text-xl font-bold text-foreground">{title}</h2>
-        <p className="m-0 mx-auto max-w-xl text-sm leading-6 text-secondary">{description}</p>
+        <div className="m-0 mx-auto max-w-xl text-sm leading-6 text-secondary">{description}</div>
       </Stack>
       {trustCue ? <div className="mx-auto w-full max-w-2xl text-left">{trustCue}</div> : null}
       {recommendationActions ? (
