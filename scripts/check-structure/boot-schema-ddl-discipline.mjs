@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
 
 const riskyBootDdlPatterns = [
   {
@@ -114,72 +115,123 @@ const migrationCreateIndexPattern = /\bCREATE\s+(?:UNIQUE\s+)?INDEX\b(?!\s+CONCU
 const lockTimeoutPattern = /\bSET\s+(?:LOCAL\s+)?lock_timeout\s*=/i;
 
 export function extractExportedBootSchemaSqlTemplates(source) {
-  const templates = [];
-  const exportPattern = /export\s+const\s+([A-Za-z0-9_]*SchemaSql)\s*=\s*`/g;
-
-  for (const match of source.matchAll(exportPattern)) {
-    const templateStart = match.index + match[0].length;
-    let templateEnd = templateStart;
-    while (templateEnd < source.length) {
-      if (source[templateEnd] === "`" && source[templateEnd - 1] !== "\\") {
-        break;
-      }
-      templateEnd += 1;
+  return exportedSchemaDeclarations(source, "SchemaSql").flatMap(({ declaration, sourceFile }) => {
+    const initializer = unwrapExpression(declaration.initializer);
+    if (!initializer || !(ts.isNoSubstitutionTemplateLiteral(initializer) || ts.isTemplateExpression(initializer))) {
+      return [];
     }
-
-    templates.push({
-      name: match[1],
-      sql: source.slice(templateStart, templateEnd),
-      startLine: lineNumberAt(source.slice(0, templateStart)),
-    });
-  }
-
-  return templates;
+    return [
+      {
+        name: declaration.name.text,
+        sql: source.slice(initializer.getStart(sourceFile) + 1, initializer.end - 1),
+        startLine: lineNumberAt(source.slice(0, initializer.getStart(sourceFile) + 1)),
+        ...(ts.isTemplateExpression(initializer) ? { valid: false } : {}),
+      },
+    ];
+  });
 }
 
 export function extractSchemaMigrationLedgers(source) {
-  const ledgers = [];
-  const exportPattern = /export\s+const\s+([A-Za-z0-9_]*SchemaMigrations)(?::[^=]+)?\s*=\s*\[/g;
-
-  for (const match of source.matchAll(exportPattern)) {
-    const ledgerStart = match.index + match[0].length - 1;
-    const ledgerEnd = findBalancedEnd(source, ledgerStart, "[", "]");
-    if (ledgerEnd === -1) {
-      continue;
+  return exportedSchemaDeclarations(source, "SchemaMigrations").flatMap(({ declaration, sourceFile }) => {
+    const initializer = unwrapExpression(declaration.initializer);
+    if (!initializer || !ts.isArrayLiteralExpression(initializer)) {
+      return [];
     }
-
-    ledgers.push({
-      name: match[1],
-      body: source.slice(ledgerStart + 1, ledgerEnd),
-      startLine: lineNumberAt(source.slice(0, ledgerStart + 1)),
-    });
-  }
-
-  return ledgers;
+    const start = initializer.getStart(sourceFile) + 1;
+    return [
+      {
+        name: declaration.name.text,
+        body: source.slice(start, initializer.end - 1),
+        startLine: lineNumberAt(source.slice(0, start)),
+      },
+    ];
+  });
 }
 
 export function extractSchemaMigrationStatements(source) {
-  const constants = extractTopLevelSqlConstants(source);
   const statements = [];
-
-  for (const ledger of extractSchemaMigrationLedgers(source)) {
-    const migrationBlocks = extractMigrationBlocks(ledger);
-    for (const block of migrationBlocks) {
-      const statementsArray = extractStatementsArray(block);
-      if (!statementsArray) {
-        continue;
+  for (const { declaration, sourceFile } of exportedSchemaDeclarations(source, "SchemaMigrations")) {
+    const constants = new Map();
+    for (const statement of sourceFile.statements) {
+      if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+      for (const constant of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(constant.name)) continue;
+        const value = unwrapExpression(constant.initializer);
+        constants.set(constant.name.text, constants.has(constant.name.text) ? null : value);
       }
-
-      const migrationStatements = extractStatementsFromArray(statementsArray, constants);
-      statements.push({
-        ledgerName: ledger.name,
-        startLine: statementsArray.startLine,
-        statements: migrationStatements,
-      });
     }
+    const ledger = unwrapExpression(declaration.initializer);
+    const blocks = ledger && ts.isArrayLiteralExpression(ledger) ? ledger.elements : [declaration];
+    const ids = new Set();
+    const migrations = blocks.map((block) => {
+      const properties = new Map();
+      let valid = sourceFile.parseDiagnostics.length === 0 && ts.isObjectLiteralExpression(block);
+      for (const property of ts.isObjectLiteralExpression(block) ? block.properties : []) {
+        if (!ts.isPropertyAssignment(property) || !property.name || !ts.isIdentifier(property.name)) {
+          valid = false;
+          continue;
+        }
+        if (properties.has(property.name.text)) valid = false;
+        properties.set(property.name.text, unwrapExpression(property.initializer));
+      }
+      const id = properties.get("migrationId");
+      const migrationId = id && ts.isStringLiteral(id) ? id.text : null;
+      if (!migrationId || ids.has(migrationId)) valid = false;
+      ids.add(migrationId);
+      const array = properties.get("statements");
+      if (!array || !ts.isArrayLiteralExpression(array) || array.elements.length === 0) valid = false;
+      const sqlStatements = [];
+      for (const element of array && ts.isArrayLiteralExpression(array) ? array.elements : []) {
+        const expression = unwrapExpression(element);
+        const value = ts.isIdentifier(expression) ? constants.get(expression.text) : expression;
+        if (!value || !(ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value))) {
+          valid = false;
+          continue;
+        }
+        sqlStatements.push({
+          sql: source.slice(value.getStart(sourceFile) + 1, value.end - 1),
+          startLine: lineNumberAt(source.slice(0, value.getStart(sourceFile))),
+        });
+      }
+      return {
+        ledgerName: declaration.name.text,
+        migrationId,
+        startLine: lineNumberAt(source.slice(0, (array ?? block).getStart(sourceFile))),
+        statements: sqlStatements,
+        valid,
+      };
+    });
+    if (migrations.some((migration) => !migration.valid)) {
+      for (const migration of migrations) migration.valid = false;
+    }
+    statements.push(...migrations);
   }
-
   return statements;
+}
+
+function exportedSchemaDeclarations(source, suffix) {
+  const sourceFile = ts.createSourceFile("schema.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return sourceFile.statements.flatMap((statement) => {
+    if (
+      !ts.isVariableStatement(statement) ||
+      !(statement.declarationList.flags & ts.NodeFlags.Const) ||
+      !statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    )
+      return [];
+    return statement.declarationList.declarations
+      .filter((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text.endsWith(suffix))
+      .map((declaration) => ({ declaration, sourceFile }));
+  });
+}
+
+function unwrapExpression(expression) {
+  while (
+    expression &&
+    (ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression) || ts.isParenthesizedExpression(expression))
+  ) {
+    expression = expression.expression;
+  }
+  return expression;
 }
 
 export function extractBootSchemaTableColumns(source) {
@@ -262,7 +314,11 @@ export function findBootSchemaRetainedUpgradeViolations({ baseSource, currentSou
 
     const expandedColumns = bootExpansionColumns.get(tableName) ?? new Set();
     for (const columnName of currentColumns) {
-      if (baseColumns.has(columnName) || expandedColumns.has(columnName)) {
+      if (
+        baseColumns.has(columnName) ||
+        expandedColumns.has(columnName) ||
+        hasOrderedRetainedColumnProof({ baseSource, currentSource, tableName, columnName })
+      ) {
         continue;
       }
 
@@ -277,6 +333,122 @@ export function findBootSchemaRetainedUpgradeViolations({ baseSource, currentSou
   return violations;
 }
 
+function hasOrderedRetainedColumnProof({ baseSource, currentSource, tableName, columnName }) {
+  const templates = extractExportedBootSchemaSqlTemplates(currentSource);
+  if (
+    templates.some((template) => template.valid === false) ||
+    new Set(templates.map(({ name }) => name)).size !== templates.length
+  )
+    return false;
+  const tablePattern = new RegExp(
+    `^CREATE\\s+(?:UNLOGGED\\s+)?TABLE\\s+IF\\s+NOT\\s+EXISTS\\s+${escapeRegExp(tableName)}\\s*\\(`,
+    "i",
+  );
+  const columnPattern = new RegExp(`\\b${escapeRegExp(columnName)}\\b`, "i");
+  const tableReferencePattern = new RegExp(`\\b${escapeRegExp(tableName)}\\b`, "i");
+  const bootAlterPattern = new RegExp(
+    `^ALTER\\s+TABLE(?:\\s+IF\\s+EXISTS)?(?:\\s+ONLY)?\\s+${escapeRegExp(tableName)}\\s+([\\s\\S]+)$`,
+    "i",
+  );
+  const bootStatements = templates.flatMap((template) =>
+    maskSqlNonExecutableText(template.sql)
+      .split(";")
+      .filter((sql) => sql.trim())
+      .map((sql) => ({ template, sql: sql.trim() })),
+  );
+  const creates = bootStatements.filter(({ sql }) => tablePattern.test(sql));
+  if (
+    creates.length !== 1 ||
+    bootStatements.some(({ sql }) => {
+      if (tablePattern.test(sql)) return false;
+      if (columnPattern.test(sql) || /^(?:DO|CALL|EXECUTE)\b/i.test(sql)) return true;
+      if (!tableReferencePattern.test(sql)) return false;
+      const alter = bootAlterPattern.exec(sql);
+      return (
+        !alter ||
+        splitTopLevelCommaClauses(alter[1]).some(
+          (clause) => !/^\s*ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+[A-Za-z_][A-Za-z0-9_]*\s+[A-Za-z_]/i.test(clause),
+        )
+      );
+    })
+  )
+    return false;
+  const createSql = creates[0].sql;
+  const columnsStart = tablePattern.exec(createSql)[0].length - 1;
+  const columnsEnd = findBalancedEnd(createSql, columnsStart, "(", ")");
+  const declarationPattern = new RegExp(`^\\s*"?${escapeRegExp(columnName)}"?\\s+[A-Za-z_]`, "i");
+  if (
+    columnsEnd === -1 ||
+    splitTopLevelCommaClauses(createSql.slice(columnsStart + 1, columnsEnd)).filter((clause) =>
+      declarationPattern.test(clause),
+    ).length !== 1
+  )
+    return false;
+  const ledgerName = creates[0].template.name.replace(/SchemaSql$/, "SchemaMigrations");
+  const currentLedgers = extractSchemaMigrationLedgers(currentSource).filter((ledger) => ledger.name === ledgerName);
+  const baseLedgers = extractSchemaMigrationLedgers(baseSource).filter((ledger) => ledger.name === ledgerName);
+  if (currentLedgers.length !== 1 || baseLedgers.length !== 1) return false;
+  const current = extractSchemaMigrationStatements(currentSource).filter(
+    (migration) => migration.ledgerName === ledgerName,
+  );
+  const base = extractSchemaMigrationStatements(baseSource).filter((migration) => migration.ledgerName === ledgerName);
+  if (
+    extractSchemaMigrationStatements(currentSource).some(
+      (migration) =>
+        migration.ledgerName !== ledgerName &&
+        (!migration.valid || migration.statements.some(({ sql }) => columnPattern.test(maskSqlNonExecutableText(sql)))),
+    )
+  )
+    return false;
+  if (base.length === 0 || current.length <= base.length || [...base, ...current].some((migration) => !migration.valid))
+    return false;
+  for (let index = 0; index < base.length; index += 1) {
+    if (
+      base[index].migrationId !== current[index].migrationId ||
+      JSON.stringify(base[index].statements.map(({ sql }) => sql)) !==
+        JSON.stringify(current[index].statements.map(({ sql }) => sql))
+    )
+      return false;
+  }
+  const ordered = current.flatMap((migration, index) =>
+    migration.statements.flatMap(({ sql }) =>
+      maskSqlNonExecutableText(sql)
+        .split(";")
+        .filter((statement) => statement.trim())
+        .map((statement) => ({ migrationIndex: index, sql: statement.trim() })),
+    ),
+  );
+  const alterPattern = new RegExp(`^ALTER\\s+TABLE(?:\\s+ONLY)?\\s+${escapeRegExp(tableName)}\\s+([\\s\\S]+)$`, "i");
+  const addPattern = new RegExp(
+    `^ADD\\s+COLUMN\\s+IF\\s+NOT\\s+EXISTS\\s+${escapeRegExp(columnName)}\\s+[A-Za-z_][A-Za-z0-9_]*(?:\\b|\\[)`,
+    "i",
+  );
+  const anyAddPattern = new RegExp(
+    `^ADD\\s+(?:COLUMN\\s+)?(?:IF\\s+NOT\\s+EXISTS\\s+)?${escapeRegExp(columnName)}\\b`,
+    "i",
+  );
+  const additions = ordered.flatMap((statement, index) => {
+    const alter = alterPattern.exec(statement.sql);
+    return alter
+      ? splitTopLevelCommaClauses(alter[1])
+          .filter((clause) => anyAddPattern.test(clause.trim()))
+          .map((clause) => ({ index, valid: addPattern.test(clause.trim()) }))
+      : [];
+  });
+  if (additions.length !== 1 || !additions[0].valid) return false;
+  const addition = additions[0].index;
+  if (ordered[addition].migrationIndex < base.length) return false;
+  const before = ordered.slice(0, addition);
+  const normalizerPattern = new RegExp(
+    `^UPDATE\\s+${escapeRegExp(tableName)}\\s+SET\\b[\\s\\S]*\\bWHERE\\b[\\s\\S]*\\bIS\\s+NULL\\b`,
+    "i",
+  );
+  return (
+    before.some(({ migrationIndex, sql }) => migrationIndex < base.length && normalizerPattern.test(sql)) &&
+    before.every(({ sql }) => !columnPattern.test(sql) && !/^(?:DO|CALL|EXECUTE|SELECT|INSERT)\b/i.test(sql))
+  );
+}
+
 export function findSchemaMigrationDdlSafetyViolationsInSource(source, { baseSource } = {}) {
   const baseStatementSql = new Set(
     baseSource
@@ -287,6 +459,15 @@ export function findSchemaMigrationDdlSafetyViolationsInSource(source, { baseSou
   );
 
   return extractSchemaMigrationStatements(source).flatMap((migration) => {
+    if (!migration.valid) {
+      return [
+        {
+          line: migration.startLine,
+          message:
+            "schema migration ledger cannot be fully resolved from unique migration IDs and literal statements; opaque or malformed source cannot prove DDL safety.",
+        },
+      ];
+    }
     const migrationHasLockTimeout = migration.statements.some((statement) => lockTimeoutPattern.test(statement.sql));
     const migrationHasValidatedConstraint = migration.statements.some((statement) =>
       validateConstraintPattern.test(statement.sql),
@@ -574,95 +755,6 @@ function maskSqlNonExecutableText(sql) {
   return masked.join("");
 }
 
-function extractTopLevelSqlConstants(source) {
-  const constants = new Map();
-  const constPattern = /const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:`|"|')/g;
-
-  for (const match of source.matchAll(constPattern)) {
-    const quote = match[0][match[0].length - 1];
-    const valueStart = match.index + match[0].length;
-    const valueEnd = findStringEnd(source, valueStart, quote);
-    if (valueEnd === -1) {
-      continue;
-    }
-
-    constants.set(match[1], {
-      sql: source.slice(valueStart, valueEnd),
-      startLine: lineNumberAt(source.slice(0, valueStart)),
-    });
-  }
-
-  return constants;
-}
-
-function extractMigrationBlocks(ledger) {
-  const blocks = [];
-  let index = 0;
-  while (index < ledger.body.length) {
-    if (ledger.body[index] !== "{") {
-      index += 1;
-      continue;
-    }
-
-    const end = findBalancedEnd(ledger.body, index, "{", "}");
-    if (end === -1) {
-      break;
-    }
-
-    const body = ledger.body.slice(index + 1, end);
-    if (/\bstatements\s*:/.test(body)) {
-      blocks.push({
-        body,
-        startLine: ledger.startLine + countNewlines(ledger.body.slice(0, index + 1)),
-      });
-    }
-    index = end + 1;
-  }
-  return blocks;
-}
-
-function extractStatementsArray(block) {
-  const statementsMatch = /\bstatements\s*:\s*\[/.exec(block.body);
-  if (!statementsMatch) {
-    return null;
-  }
-
-  const arrayStart = statementsMatch.index + statementsMatch[0].length - 1;
-  const arrayEnd = findBalancedEnd(block.body, arrayStart, "[", "]");
-  if (arrayEnd === -1) {
-    return null;
-  }
-
-  return {
-    body: block.body.slice(arrayStart + 1, arrayEnd),
-    startLine: block.startLine + countNewlines(block.body.slice(0, arrayStart + 1)),
-  };
-}
-
-function extractStatementsFromArray(statementsArray, constants) {
-  const statements = [];
-  const tokenPattern = /(?:`(?:\\.|[^`])*`)|(?:"(?:\\.|[^"])*")|(?:'(?:\\.|[^'])*')|[A-Za-z_][A-Za-z0-9_]*/g;
-
-  for (const match of statementsArray.body.matchAll(tokenPattern)) {
-    const token = match[0];
-    const tokenLine = statementsArray.startLine + countNewlines(statementsArray.body.slice(0, match.index));
-    if (token.startsWith("`") || token.startsWith('"') || token.startsWith("'")) {
-      statements.push({
-        sql: token.slice(1, -1),
-        startLine: tokenLine,
-      });
-      continue;
-    }
-
-    const constant = constants.get(token);
-    if (constant) {
-      statements.push(constant);
-    }
-  }
-
-  return statements;
-}
-
 function splitSqlStatements(sql) {
   const statements = [];
   let statementStart = 0;
@@ -778,15 +870,6 @@ function findBalancedEnd(source, startIndex, open, close) {
     }
   }
 
-  return -1;
-}
-
-function findStringEnd(source, startIndex, quote) {
-  for (let index = startIndex; index < source.length; index += 1) {
-    if (source[index] === quote && source[index - 1] !== "\\") {
-      return index;
-    }
-  }
   return -1;
 }
 

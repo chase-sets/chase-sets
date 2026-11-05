@@ -42,6 +42,27 @@ function retainedUpgradeKeys({ baseSource, currentSource }) {
   );
 }
 
+function orderedRevisionSources() {
+  const normalizers = [
+    "UPDATE settlement_account_risk_sources SET trusted_seller = false WHERE trusted_seller IS NULL",
+    "UPDATE settlement_account_risk_sources SET review_count = 0 WHERE review_count IS NULL",
+  ];
+  const schema = `CREATE TABLE IF NOT EXISTS settlement_account_risk_sources (
+    account_id text PRIMARY KEY, trusted_seller boolean, review_count integer
+  );`;
+  const ledger = `export const exampleSchemaMigrations = [
+    { migrationId: "normalize_flags", statements: [\`${normalizers[0]}\`] },
+    { migrationId: "normalize_counts", statements: [\`SET LOCAL lock_timeout = '2s'; ${normalizers[1]};\`] },
+  ];`;
+  const baseSource = `${bootSchemaSource(schema)}\n${ledger}`;
+  const expansion =
+    "ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0";
+  const currentSource = baseSource
+    .replace("account_id text PRIMARY KEY,", "account_id text PRIMARY KEY, revision bigint NOT NULL DEFAULT 0,")
+    .replace(/\];$/, `{ migrationId: "add_revision", statements: [\`${expansion}\`] },\n];`);
+  return { baseSource, currentSource, normalizers, expansion };
+}
+
 describe("boot schema DDL discipline", () => {
   it("extracts all five Pricing Product Line migration statements without opaque transformations", async () => {
     const source = await readFile(
@@ -239,6 +260,242 @@ export const exampleSchemaMigrations = [{
     expect(
       findBootSchemaRetainedUpgradeViolations({ baseSource: retainedSource, currentSource: repairedSource }),
     ).toEqual([]);
+  });
+
+  describe("ordered source validation", () => {
+    it("accepts the ordered account-risk revision without a boot ADD", () => {
+      const { baseSource, currentSource, normalizers, expansion } = orderedRevisionSources();
+      const boot = extractExportedBootSchemaSqlTemplates(currentSource);
+      expect(boot).toHaveLength(1);
+      expect(boot[0].name).toBe("exampleSchemaSql");
+      expect(boot[0].sql).toContain("revision bigint NOT NULL DEFAULT 0");
+      expect(boot[0].sql).not.toContain("ADD COLUMN");
+      const migrations = extractSchemaMigrationStatements(currentSource);
+      expect(migrations.map((migration) => migration.ledgerName)).toEqual(Array(3).fill("exampleSchemaMigrations"));
+      expect(migrations.slice(0, 2)).toEqual(extractSchemaMigrationStatements(baseSource));
+      normalizers.forEach((sql, index) => {
+        expect(migrations[index].statements[0].sql).toContain(sql);
+        expect(migrations[index].statements[0].sql).not.toContain("revision");
+      });
+      expect(migrations[2].statements[0].sql).toBe(expansion);
+      expect(findBootSchemaLedgerConvergenceViolations({ baseSource, currentSource })).toEqual([]);
+      expect(findBootSchemaRetainedUpgradeViolations({ baseSource, currentSource })).toEqual([]);
+      expect(findSchemaMigrationDdlSafetyViolationsInSource(currentSource, { baseSource })).toEqual([]);
+      expect(findBootSchemaRetainedUpgradeViolations({ baseSource: currentSource, currentSource })).toEqual([]);
+    });
+
+    it.each([
+      ["missing ledger", (source) => source.slice(0, source.indexOf("export const exampleSchemaMigrations"))],
+      ["wrong ledger", (source) => source.replace("exampleSchemaMigrations", "otherSchemaMigrations")],
+      [
+        "wrong table",
+        (source) => source.replace("ALTER TABLE settlement_account_risk_sources", "ALTER TABLE other_sources"),
+      ],
+      ["wrong column", (source) => source.replace("EXISTS revision", "EXISTS other_revision")],
+      ["non-idempotent ADD", (source) => source.replace("ADD COLUMN IF NOT EXISTS revision", "ADD COLUMN revision")],
+      ["missing type", (source) => source.replace("EXISTS revision bigint NOT NULL DEFAULT 0", "EXISTS revision")],
+      [
+        "duplicate migration id",
+        (source) => source.replace('migrationId: "add_revision"', 'migrationId: "normalize_flags"'),
+      ],
+      ["missing migration id", (source) => source.replace('migrationId: "add_revision",', "")],
+      [
+        "duplicate ADD",
+        (source) =>
+          source.replace(
+            "EXISTS revision bigint NOT NULL DEFAULT 0",
+            "EXISTS revision bigint; ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS revision bigint",
+          ),
+      ],
+      [
+        "changed immutable normalizer",
+        (source) => source.replace("SET trusted_seller = false", "SET trusted_seller = true"),
+      ],
+      [
+        "unresolved statement",
+        (source) => source.replace("statements: [`ALTER TABLE", "statements: [missingSql, `ALTER TABLE"),
+      ],
+      [
+        "opaque statement expression",
+        (source) =>
+          source
+            .replace("statements: [`ALTER TABLE", "statements: [wrap(`ALTER TABLE")
+            .replace("DEFAULT 0`]", "DEFAULT 0`)]"),
+      ],
+      ["interpolated SQL", (source) => source.replace("EXISTS revision bigint", "EXISTS ${column} bigint")],
+      [
+        "interpolated boot SQL",
+        (source) => source.replace("review_count integer\n  );", "review_count integer\n  ); ${consumer}"),
+      ],
+      [
+        "duplicate exported ledger",
+        (source) => `${source}\n${source.slice(source.indexOf("export const exampleSchemaMigrations"))}`,
+      ],
+      [
+        "duplicate boot column",
+        (source) => source.replace("account_id text PRIMARY KEY,", "account_id text PRIMARY KEY, revision bigint,"),
+      ],
+      [
+        "duplicate boot export",
+        (source) =>
+          `${source}\nexport const exampleSchemaSql = \`CREATE TABLE IF NOT EXISTS other_sources (id text);\`;`,
+      ],
+      [
+        "commented ledger",
+        (source) => source.replace("export const exampleSchemaMigrations", "// export const exampleSchemaMigrations"),
+      ],
+      [
+        "string ledger",
+        (source) =>
+          `${source.slice(0, source.indexOf("export const exampleSchemaMigrations"))}\nconst fake = ${JSON.stringify(source.slice(source.indexOf("export const exampleSchemaMigrations")))};`,
+      ],
+      ["commented ADD", (source) => source.replace("`ALTER TABLE", "`-- ALTER TABLE")],
+      [
+        "quoted ADD",
+        (source) => source.replace("`ALTER TABLE", "`SELECT 'ALTER TABLE").replace("DEFAULT 0`]", "DEFAULT 0'`]"),
+      ],
+      [
+        "dollar-quoted ADD",
+        (source) => source.replace("`ALTER TABLE", "`DO $$ ALTER TABLE").replace("DEFAULT 0`]", "DEFAULT 0 $$`]"),
+      ],
+      [
+        "boot consumer",
+        (source) =>
+          source.replace(
+            "review_count integer\n  );",
+            "review_count integer\n  ); CREATE INDEX IF NOT EXISTS risk_revision_idx ON settlement_account_risk_sources (revision);",
+          ),
+      ],
+      [
+        "later boot template consumer",
+        (source) =>
+          `${source}\nexport const otherSchemaSql = \`CREATE INDEX IF NOT EXISTS risk_revision_idx ON settlement_account_risk_sources (revision);\`;`,
+      ],
+      [
+        "implicit boot consumer",
+        (source) => `${source}\nexport const otherSchemaSql = \`SELECT * FROM settlement_account_risk_sources;\`;`,
+      ],
+      [
+        "opaque earlier ledger consumer",
+        (source) => source.replace("`ALTER TABLE", "`DO $$ BEGIN PERFORM hidden_writer(); END $$; ALTER TABLE"),
+      ],
+      [
+        "sibling ledger consumer",
+        (source) =>
+          `${source}\nexport const otherSchemaMigrations = [{ migrationId: "other_writer", statements: [\`UPDATE settlement_account_risk_sources SET revision = 1\`] }];`,
+      ],
+      [
+        "duplicate non-idempotent ADD",
+        (source) =>
+          source.replace(
+            "DEFAULT 0`]",
+            "DEFAULT 0; ALTER TABLE settlement_account_risk_sources ADD COLUMN revision bigint`]",
+          ),
+      ],
+      [
+        "writer before ADD in the same statement",
+        (source) =>
+          source.replace("`ALTER TABLE", "`UPDATE settlement_account_risk_sources SET revision = 1; ALTER TABLE"),
+      ],
+    ])("rejects %s evidence", (_label, change) => {
+      const { baseSource, currentSource } = orderedRevisionSources();
+      expect(retainedUpgradeKeys({ baseSource, currentSource: change(currentSource) })).toEqual([
+        "settlement_account_risk_sources.revision",
+      ]);
+    });
+
+    it("rejects an ADD moved ahead of either immutable normalizer", () => {
+      const { baseSource, currentSource, expansion } = orderedRevisionSources();
+      const addition = `{ migrationId: "add_revision", statements: [\`${expansion}\`] },`;
+      const withoutAddition = currentSource.replace(addition, "");
+      for (const id of ["normalize_flags", "normalize_counts"]) {
+        const outOfOrder = withoutAddition.replace(`{ migrationId: "${id}"`, `${addition}\n{ migrationId: "${id}"`);
+        expect(retainedUpgradeKeys({ baseSource, currentSource: outOfOrder })).toEqual([
+          "settlement_account_risk_sources.revision",
+        ]);
+      }
+    });
+
+    it("accepts a later writer but checks every earlier statement", () => {
+      const { baseSource, currentSource } = orderedRevisionSources();
+      const writer = "UPDATE settlement_account_risk_sources SET revision = revision + 1";
+      const laterWriter = currentSource.replace("DEFAULT 0`]", `DEFAULT 0; ${writer}\`]`);
+      expect(retainedUpgradeKeys({ baseSource, currentSource: laterWriter })).toEqual([]);
+      const earlierWriter = currentSource.replace(
+        'migrationId: "add_revision", statements: [',
+        `migrationId: "add_revision", statements: [\`${writer}\`, `,
+      );
+      expect(retainedUpgradeKeys({ baseSource, currentSource: earlierWriter })).toEqual([
+        "settlement_account_risk_sources.revision",
+      ]);
+    });
+
+    it("accepts named literal statements and independent idempotent boot expansions", () => {
+      const { baseSource, currentSource, expansion } = orderedRevisionSources();
+      const named = `const addRevisionSql = \`${expansion}\`;\n${currentSource.replace(`\`${expansion}\``, "addRevisionSql")}`;
+      const withBootExpansion = named.replace(
+        "review_count integer\n  );",
+        "review_count integer\n  ); ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS review_count integer;",
+      );
+      expect(retainedUpgradeKeys({ baseSource, currentSource: withBootExpansion })).toEqual([]);
+    });
+
+    it.each([
+      [
+        "another table's normalizers",
+        (source) => source.replaceAll("UPDATE settlement_account_risk_sources", "UPDATE other_sources"),
+      ],
+      ["ordinary writers", (source) => source.replaceAll(/ WHERE [a-z_]+ IS NULL/g, "")],
+      [
+        "commented normalizers",
+        (source) =>
+          source.replaceAll("UPDATE settlement_account_risk_sources", "-- UPDATE settlement_account_risk_sources"),
+      ],
+    ])("does not infer immutable normalization from %s", (_label, change) => {
+      const { baseSource, currentSource } = orderedRevisionSources();
+      expect(retainedUpgradeKeys({ baseSource: change(baseSource), currentSource: change(currentSource) })).toEqual([
+        "settlement_account_risk_sources.revision",
+      ]);
+    });
+  });
+
+  it("ordinary unprotected retained column fails", () => {
+    const baseSource = bootSchemaSource("CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);");
+    const currentBoot = bootSchemaSource(
+      "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY, status text NULL);",
+    );
+    for (const statement of [
+      "SELECT 1",
+      "ALTER TABLE other_pages ADD COLUMN IF NOT EXISTS status text NULL",
+      "ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS status text NULL",
+      "UPDATE other_pages SET status = NULL; ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS status text NULL",
+    ]) {
+      const currentSource = `${currentBoot}\nexport const exampleSchemaMigrations = [
+        { migrationId: "add_status", statements: [\`${statement}\`] }
+      ];`;
+      expect(findBootSchemaRetainedUpgradeViolations({ baseSource, currentSource })).toEqual([
+        expect.objectContaining({
+          tableName: "example_pages",
+          columnName: "status",
+          message: expect.stringContaining("has no idempotent boot ADD COLUMN expansion"),
+        }),
+      ]);
+    }
+  });
+
+  it("fails migration safety closed on opaque statement expressions", () => {
+    const source = `export const exampleSchemaMigrations = [
+      { migrationId: "opaque", statements: [transform(\`DROP TABLE example_pages\`)] }
+    ];`;
+    expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([
+      expect.objectContaining({ message: expect.stringContaining("cannot prove DDL safety") }),
+    ]);
+  });
+
+  it("retains destructive boot DDL detection in an interpolated template", () => {
+    const source =
+      "export const exampleSchemaSql = `${extraSql} UPDATE example_pages SET value = 1; DROP TABLE example_pages;`;";
+    expect(findInlineViolations(source)).toEqual(["DROP", "UPDATE"]);
   });
 
   describe("retained-schema boot expansion SQL recognition", () => {

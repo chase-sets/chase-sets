@@ -50,6 +50,21 @@ When adding a migration:
 5. Add or update tests that prove the migration is recorded once and does not stay in boot-time schema SQL.
 6. Document any rollback or restore expectation in the owning architecture/runbook doc.
 
+## Retained Columns And Ordered Normalizers
+
+Boot `*SchemaSql` runs before ledger migrations. Ordinarily, adding a column to an existing table's fresh `CREATE TABLE IF NOT EXISTS` requires both an idempotent boot `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` and a reachable exported migration ADD. A CREATE alone does not upgrade a retained table, and a ledger ADD alone does not protect an earlier boot consumer.
+
+There is one source-validated ordering case: an immutable legacy normalizer must run before the column is added. Fresh CREATE may include the column, but retained tables must reach the normalizers with it absent; the ledger then adds it before later writers use it. Do not add a boot expansion that reverses that order.
+
+R99 derives this proof automatically, without a declaration file, waiver, or table allowlist:
+
+1. `extractExportedBootSchemaSqlTemplates(source)` reads exported literal `*SchemaSql` templates. Exactly one executable CREATE owns the table. Every exported boot template is inspected; no other boot statement may reference the new column. Independent idempotent ADDs for older columns are allowed, but other boot consumers of the table, including implicit `SELECT *` consumers, cannot establish safety. Opaque `DO`, `CALL`, and `EXECUTE` statements cannot supply proof.
+2. The owner `exampleSchemaSql` pairs with `exampleSchemaMigrations`. `extractSchemaMigrationStatements(source)` reads every migration and statement in that exported ledger's source order, including multiple SQL statements in one literal and references to top-level literal SQL constants. IDs must be nonempty and unique. Unresolved expressions, interpolations, malformed objects, duplicate properties, and duplicate ledgers cannot supply proof.
+3. `findBootSchemaRetainedUpgradeViolations({ baseSource, currentSource })` compares the retained baseline with the new source. The baseline ledger must be an unchanged prefix: identical migration IDs and complete statement arrays. At least one baseline UPDATE normalizer with a `WHERE ... IS NULL` predicate must target the exact retained table. All these immutable statements precede the new ADD, and no earlier statement may reference the new column. Earlier opaque execution, SELECTs, and INSERTs are conservatively rejected rather than inferring their dependencies.
+4. Exactly one executable, typed `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for the exact table and column must occur in an appended migration in that same ledger. A merely present ADD, an ADD on another table, an ADD in another ledger, or moving the ADD ahead of a normalizer is insufficient. Comments and SQL strings are not executable ordering evidence. Sibling ledgers cannot establish relative order for consumers of that column, so references there fail the proof too.
+
+Later ledger writers may use the column only after the ADD. All ordinary boot-write, destructive-DDL, migration lock-safety, and ledger-convergence rules still apply. Keep retained-database tests that observe column absence at each legacy normalizer and verify that a second boot skips those migrations without changing rows; source validation is not a substitute for that runtime proof.
+
 ## Lock Discipline For Required Columns
 
 Migrations run from the bootstrap job while the previous API fleet is still serving reads, so every statement competes with live ACCESS SHARE locks. Two rules follow (enforced by the structure gate, rule R99):
