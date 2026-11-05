@@ -339,6 +339,8 @@ describe("AC5 logging probe", () => {
       "$arg_token",
       "$http_referer",
       "$http_x_original_uri",
+      "${request_uri}",
+      "${args}",
     ].map((variable) => [
       variable,
       (backend) => {
@@ -346,9 +348,28 @@ describe("AC5 logging probe", () => {
       },
     ]),
     [
+      "quoted ${request_uri}",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] += 'map "${request_uri}" $unsafe { default x; }\n';
+      },
+    ],
+    [
+      "quoted ${args}",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] += 'map "${args}" $unsafe { default x; }\n';
+      },
+    ],
+    [
       "extra access_log in another context",
       (backend) => {
         backend.extraConfigMaps[0].data["default.conf"] += "server { access_log off; }\n";
+      },
+    ],
+    [
+      "mid-token hash",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] +=
+          "default_type text/plain#; access_log /dev/stdout combined;\n";
       },
     ],
     [

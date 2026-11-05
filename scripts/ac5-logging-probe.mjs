@@ -691,8 +691,8 @@ function nginxStatements(source) {
       continue;
     }
     if (char === "#") {
-      flush();
-      comment = true;
+      if (token === "") comment = true;
+      else token += char;
       continue;
     }
     if (/\s/.test(char)) {
@@ -745,7 +745,7 @@ export function qualifyChart(source) {
   ];
   const logging = statements?.filter(([name]) => expected.some(([directive]) => name === directive));
   const unsafe =
-    /\$(?:request|request_uri|args|query_string|is_args|arg_[a-z0-9_]+|http_referer|http_x_original_uri)\b/i;
+    /\$\{?(?:request|request_uri|args|query_string|is_args|arg_[a-z0-9_]+|http_referer|http_x_original_uri)(?:\}|\b)/i;
   const annotation = backend?.podAnnotations?.[MAINTENANCE_ANNOTATION];
   if (
     backend?.enabled !== true ||
