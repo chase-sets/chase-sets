@@ -24,12 +24,12 @@ use crate::{
     views::link_to,
 };
 
-fn when(t: Cat, at: &str) -> String {
+pub(super) fn when(t: Cat, at: &str) -> String {
     parse_timestamp(at).map_or_else(|| at.to_owned(), |w| t.date_time(w, DateStyle::Medium, TimeStyle::Short).to_string())
 }
 
 /// A time, or "not selected" without one (`formatWorkspaceDateTime`).
-fn maybe_when(t: Cat, at: Option<&str>) -> String {
+pub(super) fn maybe_when(t: Cat, at: Option<&str>) -> String {
     match at.filter(|at| !at.is_empty()) {
         Some(at) => when(t, at),
         None => t.wb_not_selected().to_owned(),
@@ -37,7 +37,7 @@ fn maybe_when(t: Cat, at: Option<&str>) -> String {
 }
 
 /// admin-web's `stateLabel` on the governance page: words, the first capitalized.
-fn state_label(value: &str) -> String {
+pub(super) fn state_label(value: &str) -> String {
     let words = value.split('-').collect::<Vec<_>>().join(" ");
     let mut chars = words.chars();
     chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
@@ -51,7 +51,7 @@ fn words(value: &str) -> String {
 /// A badge in one of the design system's tones: the kit's soft badge (admin-web's accent is the
 /// info tone), or an outlined one for neutral.
 #[component]
-fn Pill<'a>(text: &'a str, tone: &'static str) -> impl Render {
+pub(super) fn Pill<'a>(text: &'a str, tone: &'static str) -> impl Render {
     let (tone, emphasis) = match tone {
         "success" => (BadgeTone::Success, BadgeEmphasis::Soft),
         "warning" => (BadgeTone::Warning, BadgeEmphasis::Soft),
@@ -64,7 +64,7 @@ fn Pill<'a>(text: &'a str, tone: &'static str) -> impl Render {
 
 /// A banner in a tone (`OperationalStatusBanner`).
 #[component(css = IntegrationsPage)]
-fn Banner<'a>(tone: &'static str, title: &'a str, description: &'a str) -> impl Render {
+pub(super) fn Banner<'a>(tone: &'static str, title: &'a str, description: &'a str) -> impl Render {
     let variant = match tone {
         "success" => AlertVariant::Success,
         "danger" => AlertVariant::Destructive,
@@ -83,7 +83,7 @@ fn Banner<'a>(tone: &'static str, title: &'a str, description: &'a str) -> impl 
 
 /// A metric (`MetricStrip`'s item).
 #[component(css = IntegrationsPage)]
-fn Metric<'a>(label: &'a str, value: String, trend: String) -> impl Render {
+pub(super) fn Metric<'a>(label: &'a str, value: String, trend: String) -> impl Render {
     html! {
         <div class={Metric}>
             <dt>{label}</dt>
@@ -95,7 +95,7 @@ fn Metric<'a>(label: &'a str, value: String, trend: String) -> impl Render {
 
 /// Labelled values (`KeyValueList`).
 #[component(css = IntegrationsPage)]
-fn Pairs<'a>(items: &'a [(&'a str, String)]) -> impl Render {
+pub(super) fn Pairs<'a>(items: &'a [(&'a str, String)]) -> impl Render {
     html! {
         <dl class={Pairs}>
             for (key, value) in items {
@@ -110,7 +110,7 @@ fn Pairs<'a>(items: &'a [(&'a str, String)]) -> impl Render {
 
 /// An empty table's words (`DataTable`'s empty state).
 #[component(css = IntegrationsPage)]
-fn Empty<'a>(title: &'a str, description: &'a str) -> impl Render {
+pub(super) fn Empty<'a>(title: &'a str, description: &'a str) -> impl Render {
     html! {
         <div class={Nothing}>
             <p class={Strong}>{title}</p>
@@ -121,7 +121,7 @@ fn Empty<'a>(title: &'a str, description: &'a str) -> impl Render {
 
 /// A part of a workspace (`WorkflowModule`): its heading, description and status, then its content.
 #[component(css = IntegrationsPage)]
-fn Module<'a, C: Render>(
+pub(super) fn Module<'a, C: Render>(
     id: &'a str,
     title: &'a str,
     description: &'a str,
@@ -145,7 +145,7 @@ fn Module<'a, C: Render>(
 
 /// A cell's title, description and detail (`WorkbenchDataCell`).
 #[component(css = IntegrationsPage)]
-fn Cell<'a>(title: &'a str, description: Option<&'a str>, detail: Option<&'a str>) -> impl Render {
+pub(super) fn Cell<'a>(title: &'a str, description: Option<&'a str>, detail: Option<&'a str>) -> impl Render {
     html! {
         <span class={CellText}>
             <span class={(Strong, Words)}>{title}</span>
@@ -163,7 +163,7 @@ fn Cell<'a>(title: &'a str, description: Option<&'a str>, detail: Option<&'a str
 /// one is an alert or runbook the API already held to its approved observability hosts, so it goes
 /// out as the API wrote it.
 #[component(css = IntegrationsPage)]
-fn Evidence<'a>(req: &'a Req, href: &'a str, label: &'a str) -> impl Render {
+pub(super) fn Evidence<'a>(req: &'a Req, href: &'a str, label: &'a str) -> impl Render {
     let to = if href.starts_with("https://") { Some(href.to_owned()) } else { link_to(req, href) };
     html! {
         match to {
@@ -201,7 +201,7 @@ fn readiness_tone(status: &str) -> &'static str {
     }
 }
 
-fn freshness_tone(status: &str) -> &'static str {
+pub(super) fn freshness_tone(status: &str) -> &'static str {
     match status {
         "fresh" => "success",
         "unavailable" => "danger",
@@ -933,7 +933,7 @@ fn LinksTable<'a>(t: Cat, req: &'a Req, links: &'a [EvidenceLink]) -> impl Rende
 }
 
 /// A blocker's label and group (`getCatalogPrimaryWorkbenchBlockerCopy`).
-fn blocker(t: Cat, category: &str) -> Option<(&'static str, &'static str)> {
+pub(super) fn blocker(t: Cat, category: &str) -> Option<(&'static str, &'static str)> {
     Some(match category {
         "permission-denied" => (t.wb_copy_permission_denied(), "permission"),
         "authorization-denied" => (t.wb_copy_authorization_denied(), "permission"),
@@ -1001,7 +1001,7 @@ fn blocker(t: Cat, category: &str) -> Option<(&'static str, &'static str)> {
 }
 
 /// A blocker's tone by its group (`blockerTone`).
-fn blocker_tone(group: &str) -> &'static str {
+pub(super) fn blocker_tone(group: &str) -> &'static str {
     match group {
         "permission" | "rollout" | "security-privacy" | "retirement" => "danger",
         _ => "warning",
@@ -1010,7 +1010,7 @@ fn blocker_tone(group: &str) -> &'static str {
 
 /// A row's blockers (`BlockerBadges`): each once, by its label, or none.
 #[component(css = IntegrationsPage)]
-fn Blockers<'a>(t: Cat, blockers: &'a [String]) -> impl Render {
+pub(super) fn Blockers<'a>(t: Cat, blockers: &'a [String]) -> impl Render {
     let mut seen: Vec<&str> = Vec::new();
     for b in blockers {
         if !seen.contains(&b.as_str()) {
@@ -1365,11 +1365,21 @@ fn GovernanceWorkspace<'a>(t: Cat, p: Pilot, req: &'a Req, governance: &'a Gover
     }
 }
 
-/// A surface's page: the shell (`CatalogWorkbenchShell`) around its workspaces, in admin-web's order.
-#[component(css)]
-pub fn IntegrationsPage<'a>(t: Cat, req: &'a Req, surface: Surface, model: &'a ReadModel) -> impl Render {
-    let review = &model.source_observation_review;
-    let back = link_to(req, &model.health_triage.return_to_primary_href);
+/// The shell's numbers (`CatalogWorkbenchShell`'s metric strip): the review wave's counts, the
+/// import jobs and the promotion's draft item updates.
+pub(super) struct Counts<'a> {
+    pub observed: u64,
+    pub changed: u64,
+    pub ready: u64,
+    pub active_jobs: u64,
+    pub freshness: &'a str,
+    pub destructive: u64,
+}
+
+/// The shell (`CatalogWorkbenchShell`) around a surface's workspaces: the header, with the way back
+/// to the import workbench on a supporting surface, and the four metrics.
+#[component(css = IntegrationsPage)]
+pub(super) fn Shell<'a, C: Render>(t: Cat, back: Option<String>, counts: Counts<'a>, children: C) -> impl Render {
     html! {
         <div class={Page} data-catalog-primary-workbench>
             <header class={Header}>
@@ -1389,25 +1399,45 @@ pub fn IntegrationsPage<'a>(t: Cat, req: &'a Req, surface: Surface, model: &'a R
             <dl class={Metrics}>
                 <Metric
                     label={t.wb_metric_observed()}
-                    value={review.counts.observed.to_string()}
-                    trend={t.wb_metric_changed(review.counts.changed).to_string()}
+                    value={counts.observed.to_string()}
+                    trend={t.wb_metric_changed(counts.changed).to_string()}
                 />
                 <Metric
                     label={t.wb_metric_ready_for_preview()}
-                    value={review.promotion_ready_count.to_string()}
+                    value={counts.ready.to_string()}
                     trend={t.wb_metric_promotion_candidates().to_owned()}
                 />
                 <Metric
                     label={t.wb_metric_active_jobs()}
-                    value={model.import_jobs.active_job_count.to_string()}
-                    trend={t.wb_metric_job_view(&model.import_jobs.freshness).to_string()}
+                    value={counts.active_jobs.to_string()}
+                    trend={t.wb_metric_job_view(counts.freshness).to_string()}
                 />
                 <Metric
                     label={t.wb_item_updates()}
-                    value={model.promotion_preview.destructive_count.to_string()}
+                    value={counts.destructive.to_string()}
                     trend={t.wb_metric_fail_closed().to_owned()}
                 />
             </dl>
+            {children}
+        </div>
+    }
+}
+
+/// A surface's page: the shell (`CatalogWorkbenchShell`) around its workspaces, in admin-web's order.
+#[component(css)]
+pub fn IntegrationsPage<'a>(t: Cat, req: &'a Req, surface: Surface, model: &'a ReadModel) -> impl Render {
+    let review = &model.source_observation_review;
+    let counts = Counts {
+        observed: review.counts.observed,
+        changed: review.counts.changed,
+        ready: review.promotion_ready_count,
+        active_jobs: model.import_jobs.active_job_count,
+        freshness: &model.import_jobs.freshness,
+        destructive: model.promotion_preview.destructive_count,
+    };
+    let back = link_to(req, &model.health_triage.return_to_primary_href);
+    html! {
+        <Shell t={t} back={back} counts={counts}>
             match surface {
                 Surface::Health => {
                     <AuditWorkspace t={t} req={req} audit={&model.audit_evidence} id="wb" />
@@ -1423,6 +1453,6 @@ pub fn IntegrationsPage<'a>(t: Cat, req: &'a Req, surface: Surface, model: &'a R
                     />
                 }
             }
-        </div>
+        </Shell>
     }
 }

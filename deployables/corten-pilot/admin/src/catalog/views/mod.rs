@@ -25,6 +25,7 @@ mod bulk_rows;
 mod categories;
 mod components;
 mod coverage;
+mod daily_page;
 mod detail_page;
 mod dialog;
 mod display_templates;
@@ -50,6 +51,7 @@ pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
 pub use categories::{CategoryForms, category_actions, category_list, category_page, category_rows, category_transitions};
 pub use components::{ComponentForms, component_list, component_page, component_rows};
 pub use coverage::{coverage_inbox, coverage_page};
+pub use daily_page::{DailyPage, DailyRefusal};
 pub use detail_page::{
     ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, RemoveForm, Transition,
 };
@@ -97,6 +99,7 @@ pub const COMPONENTS: &[Component] = &[
     SyncBatchPage,
     ObservationPage,
     IntegrationsPage,
+    DailyPage,
     AttentionPanel,
     PreviewDialog,
     ItemForm,
@@ -106,6 +109,10 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::badge::Badge,
     platform::ui::button::Button,
     platform::ui::card::Card,
+    platform::ui::checkbox::Checkbox,
+    platform::ui::input::Input,
+    platform::ui::pagination::Pagination,
+    platform::ui::steps::Steps,
     corten_ui::Toaster,
     corten_ui::ComboBox,
     corten_ui::dialog::COMPONENT,

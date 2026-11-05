@@ -50,6 +50,7 @@ pub mod blueprints;
 pub mod categories;
 pub mod components;
 pub mod coverage;
+pub mod daily;
 pub mod display_templates;
 pub mod form;
 pub mod integrations;
@@ -440,6 +441,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = coverage::url::area(area, shared.clone());
     let area = observation::url::area(area, shared.clone());
     let area = integrations::url::area(area, shared.clone());
+    let area = daily::url::area(area, shared.clone());
     let area = sync_batches::url::area(area, shared.clone());
     let area = attention::url::area(area, shared.clone());
     let area = categories::url::area(area, shared.clone());

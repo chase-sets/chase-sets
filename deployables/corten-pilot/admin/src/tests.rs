@@ -327,6 +327,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(surface) = uri.path().strip_prefix("/api/catalog/source-observations/workbench-surfaces/") {
         return workbench_surface(surface, uri.query().unwrap_or_default());
     }
+    if let Some(answer) = daily_command(&method, uri.path(), &body) {
+        return answer;
+    }
     if let Some(rest) = uri.path().strip_prefix(SHOPPING_API) {
         return shopping_api(&method, rest, uri.query().unwrap_or_default(), &body);
     }
@@ -7128,7 +7131,7 @@ fn provider_connections() -> Response {
 /// `providerKey=down` is a read model built without the control-plane overview (its panels say
 /// they are unavailable); `providerKey=broken` fails the read.
 fn workbench_surface(surface: &str, query: &str) -> Response {
-    if !matches!(surface, "governance" | "health") {
+    if !matches!(surface, "daily" | "governance" | "health") {
         return refusal(
             StatusCode::NOT_FOUND,
             "invalid_workbench_surface",
@@ -7146,6 +7149,9 @@ fn workbench_surface(surface: &str, query: &str) -> Response {
     };
     if location.contains("providerKey=broken") {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "The read failed.");
+    }
+    if surface == "daily" {
+        return daily_surface(&location);
     }
     let down = location.contains("providerKey=down");
     let link = |key: &str, label: &str, href: &str, kind: &str| {
@@ -7251,6 +7257,129 @@ fn workbench_surface(surface: &str, query: &str) -> Response {
     .into_response()
 }
 
+/// The Catalog API's composed daily surface (`workbench-surfaces/daily?location=`): a Pokemon
+/// card scope with one eligible unit and one blocked one, a failed job to retry, a page of 25 of 30
+/// observations to review (one observed, one promoted), a merge candidate, a degraded provider
+/// transport, and the defer and reject commands open. `providerKey=stopped` is a context behind
+/// the import kill switch, with nothing to review; its location's `section` is the route's.
+fn daily_surface(location: &str) -> Response {
+    let stopped = location.contains("providerKey=stopped");
+    let section = location.split(['?', '&']).find_map(|p| p.strip_prefix("section=")).unwrap_or_default();
+    let status_filter = location.split(['?', '&']).find_map(|p| p.strip_prefix("filter.status="));
+    let rows = if stopped {
+        json!([])
+    } else {
+        json!([
+            { "observationId": "obs_1", "providerKey": "tcgplayer", "externalKey": "sv1-001", "displayName": "Sprigatito",
+              "status": "changed", "sourceUpdatedAt": null, "changedAt": "2026-11-04T09:00:00.000Z",
+              "factSummaryPreview": ["number 001", "rarity common"], "payloadSummary": "12 fields", "redactionSummary": "no secrets",
+              "duplicateCount": 1, "promotionReadiness": { "state": "eligible", "blockers": [] }, "actions": [] },
+            { "observationId": "obs_2", "providerKey": "tcgplayer", "externalKey": "sv1-002", "displayName": "Floragato",
+              "status": "promoted", "sourceUpdatedAt": "2026-11-03T09:00:00.000Z", "changedAt": "2026-11-03T09:00:00.000Z",
+              "factSummaryPreview": [], "payloadSummary": "11 fields", "redactionSummary": "no secrets",
+              "duplicateCount": 0, "promotionReadiness": { "state": "blocked", "blockers": ["promotion-conflict"] }, "actions": [] }
+        ])
+    };
+    Json(json!({
+        "readModelFailures": [],
+        "readModel": {
+            "routeContext": { "section": section },
+            "readiness": {
+                "freshness": "fresh",
+                "blockers": if stopped { json!(["kill-switch-active"]) } else { json!([]) },
+                "providerTransport": ["throttle"],
+                "rolloutEnabled": !stopped, "rbacAllowed": true
+            },
+            "catalogSync": {
+                "status": if stopped { "blocked" } else { "ready" },
+                "scope": { "productDomain": "pokemon", "productForm": "card", "languageCode": "en",
+                    "reference": { "kind": "expansion", "scopeRecordId": "sr_sv1" }, "label": "Pokemon cards, Scarlet & Violet",
+                    "hasConcreteScope": true },
+                "preview": { "status": "ready", "startAllowed": true, "explanation": "Pull the selected units for this set.",
+                    "estimate": { "totalEstimatedRequestCount": 40, "estimateReason": null,
+                        "creditConsumingProviders": [{ "providerKey": "tcgplayer", "displayName": "TCGplayer" }] },
+                    "units": [
+                        { "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "displayName": "Pokemon singles",
+                          "profileVersion": "3", "role": "primary", "requirement": "optional", "selected": true,
+                          "eligibility": "eligible", "blockers": [] },
+                        { "providerKey": "lorcast", "unitKey": "lorcast:pokemon:card", "displayName": "Lorcast cards",
+                          "profileVersion": null, "role": "supplemental", "requirement": "optional", "selected": false,
+                          "eligibility": "ineligible", "blockers": [{ "code": "active-profile-missing", "message": "No active profile." }] }
+                    ] },
+                "action": { "key": "scope.sync", "state": if stopped { "blocked" } else { "available" },
+                    "blockers": if stopped { json!(["kill-switch-active"]) } else { json!([]) } }
+            },
+            "importJobs": { "freshness": "fresh", "activeJobCount": 1, "failedJobCount": 1, "jobs": [{
+                "jobId": "job_1", "state": "failed", "operatorStatus": "failed", "summary": "Pull stopped at page 3.",
+                "completed": 3, "total": 10, "progressPercent": 30, "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer",
+                "importScope": "sv1", "profileVersion": "3", "profileSnapshot": { "profileKey": "tcgplayer-cards", "profileVersion": "3" },
+                "scopeMatchesRoute": true, "createdAt": "2026-11-04T08:00:00.000Z", "startedAt": "2026-11-04T08:01:00.000Z",
+                "failureGroups": [{ "key": "transport", "label": "Transport", "count": 2, "severity": "error" }],
+                "retryAvailable": true, "resumeAvailable": false, "cancelAvailable": true,
+                "sourceObservationReviewHref": "/catalog/integrations?providerKey=tcgplayer&importJobId=job_1",
+                "auditEvidenceUrl": "/catalog/integrations/health",
+                "result": { "usage": { "actualRequestCount": 12, "pageCount": 3, "cacheHitCount": 4, "cacheMissCount": 8 } },
+                "blockers": [] }] },
+            "sourceObservationReview": {
+                "freshness": "fresh",
+                "counts": { "observed": 12, "changed": 3, "promoted": 14, "rejected": 1, "blocked": 1, "eligible": 4 },
+                "promotionReadyCount": if stopped { 0 } else { 4 },
+                "filters": [{ "key": "status", "label": "Status", "value": status_filter, "serverApplied": true },
+                    { "key": "setId", "label": "Set", "value": "sv1", "serverApplied": true }],
+                "pagination": { "limit": 25, "offset": 0, "total": if stopped { 0 } else { 30 } },
+                "rows": rows
+            },
+            "mergeCandidateReview": { "freshness": "fresh", "counts": { "total": 1, "ready": 1, "conflict": 0 }, "rows": [{
+                "candidateId": "cand_1", "identityFingerprint": "pokemon:sv1:001", "identityLabel": "Sprigatito 001",
+                "sourceCount": 2, "sources": [{ "providerKey": "tcgplayer", "observationId": "obs_1", "externalKey": null }],
+                "status": "ready", "conflicts": { "blocking": 0, "warnings": 1 },
+                "promoteReadiness": { "state": "ready", "blockers": [] }, "proposedMapping": { "promotionIntent": "create" } }] },
+            "promotionPreview": { "previewId": null, "blockers": [], "destructiveCount": 0 },
+            "promotionResult": null,
+            "actions": [{ "key": "observation.defer", "state": "available", "blockers": [] },
+                { "key": "observation.reject", "state": "available", "blockers": [] }]
+        }
+    }))
+    .into_response()
+}
+
+/// The daily workbench's commands: a sync with no unit selected is refused, as is a job the API
+/// no longer has (`job_gone`) and a reject without a reason; the rest are queued.
+fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
+    let rest = path.strip_prefix("/api/catalog/source-observations")?;
+    if *method != Method::POST {
+        return None;
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let answer = match rest {
+        "/catalog-sync-scope/runs" => {
+            let selected = &sent["scope"]["providerParticipation"]["selectedUnitKeys"];
+            if selected.as_array().is_none_or(Vec::is_empty) {
+                refusal(StatusCode::BAD_REQUEST, "invalid_scope", "Select at least one provider unit to sync.")
+            } else {
+                written(StatusCode::ACCEPTED, "run_1")
+            }
+        }
+        "/bulk-defer/jobs" => written(StatusCode::ACCEPTED, "bulk_1"),
+        "/bulk-reject/jobs" => {
+            if sent["reason"].as_str().is_none_or(str::is_empty) {
+                refusal(StatusCode::BAD_REQUEST, "reason_required", "A reason is required to reject observations.")
+            } else {
+                written(StatusCode::ACCEPTED, "bulk_2")
+            }
+        }
+        _ => {
+            let job = rest.strip_prefix("/integration-jobs/")?;
+            if job.starts_with("job_gone/") {
+                refusal(StatusCode::NOT_FOUND, "job_not_found", "That import job no longer exists.")
+            } else {
+                written(StatusCode::ACCEPTED, "job_1")
+            }
+        }
+    };
+    Some(answer)
+}
+
 fn integrations_calls(pilot: &Pilot) -> Vec<String> {
     pilot.calls.lock().unwrap().iter().filter(|c| c.path.contains("/workbench-surfaces/")).map(|c| c.path.clone()).collect()
 }
@@ -7275,8 +7404,8 @@ async fn integration_health_draws_the_apis_composed_surface_for_its_address() {
         "its metrics: {html}"
     );
     assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer""#),
-        "back to the import workbench, on admin-web until the pilot serves it: {html}"
+        html.contains(r#"href="/catalog/integrations?providerKey=tcgplayer""#),
+        "back to the import workbench, which the pilot serves: {html}"
     );
     assert!(html.contains("Integration health triage") && html.contains("Audit timeline"), "both workspaces: {html}");
     let audit = html.find("Audit timeline").unwrap();
@@ -7342,6 +7471,202 @@ async fn an_unreadable_projection_says_so_in_its_panel_and_a_failed_read_is_the_
     assert_ne!(status, StatusCode::OK);
     let (status, _, _) = pilot.send(get("/catalog/integrations/health", Some("reader"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view, as the API asks");
+}
+
+fn daily_writes(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c.method == Method::POST && c.path.starts_with("/api/catalog/source-observations/"))
+        .cloned()
+        .collect()
+}
+
+#[tokio::test]
+async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(
+        integrations_calls(&pilot),
+        [
+            "/api/catalog/source-observations/workbench-surfaces/daily?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon"
+        ],
+        "the page's own address is the surface's location"
+    );
+    assert!(html.contains("<title>Catalog Integrations"), "{html}");
+    // The stages share a name, so one is open at a time; with rows to review, Review is.
+    assert_eq!(html.matches(r#"name="wb-stage""#).count(), 3, "{html}");
+    let review = html.find(r#"data-catalog-import-workflow-stage="review-changes""#).unwrap();
+    let open = &html[html[..review].rfind("<details").unwrap()..review];
+    assert!(open.contains(" open"), "the review stage opens: {open}");
+    let sync = html.find(r#"data-catalog-import-workflow-stage="run-sync""#).unwrap();
+    assert!(!html[html[..sync].rfind("<details").unwrap()..sync].contains(" open"), "{html}");
+    assert!(html.contains(r#"aria-current="step""#), "the kit's steps mark the open one: {html}");
+    assert!(html.contains(r#"data-catalog-daily-health-status="degraded""#), "a degraded transport: {html}");
+    assert!(!html.contains("data-catalog-daily-governance-status"), "{html}");
+
+    // Each command's form patches the page with JavaScript and posts without it.
+    assert_eq!(html.matches("data-patch").count(), 3, "the sync's, the job's and the review's: {html}");
+    // The sync's form carries the working set, the scope and every unit, the eligible one checked.
+    assert!(html.contains(r#"action="/catalog/integrations/catalog-sync?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{html}");
+    assert!(
+        html.contains(r#"name="units" value="tcgplayer:pokemon:card""#) && html.contains(r#"value="lorcast:pokemon:card""#),
+        "{html}"
+    );
+    let eligible = html.find(r#"name="selected" value="tcgplayer:pokemon:card""#).unwrap();
+    assert!(html[eligible..].split('>').next().unwrap().contains("checked"), "{html}");
+    let blocked = html.find(r#"name="selected" value="lorcast:pokemon:card""#).unwrap();
+    assert!(html[blocked..].split('>').next().unwrap().contains("disabled"), "an ineligible unit: {html}");
+    assert!(html.contains("No active profile.") && html.contains("TCGplayer"), "its blocker and the credit provider: {html}");
+
+    // The failed job offers what the API says it allows.
+    assert!(html.contains(r#"action="/catalog/integrations/jobs/job_1?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{html}");
+    assert!(html.contains(r#"name="command" value="retry""#) && html.contains(r#"name="command" value="cancel""#), "{html}");
+    assert!(!html.contains(r#"value="resume""#), "{html}");
+    assert!(html.contains("3/10 work units, 30% complete") && html.contains("Cache: 4 hits, 8 misses"), "{html}");
+
+    // Review: a box for the reviewable row only, the status links, the pager and the bulk actions.
+    assert!(html.contains(r#"name="observation" value="obs_1""#) && !html.contains(r#"value="obs_2""#), "{html}");
+    assert!(html.contains(r#"href="/catalog/source-observations/obs_1""#), "the pilot's observation page: {html}");
+    assert!(
+        html.contains(r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;filter.status=observed""#),
+        "a status link keeps the working set: {html}"
+    );
+    assert!(
+        html.contains(r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;reviewOffset=25""#),
+        "the next page: {html}"
+    );
+    assert!(html.contains("1–25 of 30 (page 1 of 2)"), "{html}");
+    assert!(html.contains(r#"name="action" value="defer""#) && html.contains(r#"name="action" value="reject""#), "{html}");
+    assert!(html.contains(r#"name="reason""#), "{html}");
+    assert!(!html.contains(r#"value="promote""#), "promotion stays on admin-web (chase-sets/chase-sets#11045): {html}");
+    assert!(
+        html.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon""#),
+        "candidates and the preview open on admin-web: {html}"
+    );
+    assert!(html.contains("Sprigatito 001"), "the merge candidate: {html}");
+
+    let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
+    assert!(
+        section.contains(".daily-page__stage-box") && section.contains(".steps__"),
+        "the page's and the kit's rules: {section}"
+    );
+}
+
+#[tokio::test]
+async fn a_reader_sees_the_workbench_without_its_commands_and_a_stop_is_said() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"name="observation""#) && !html.contains(r#"name="command""#), "{html}");
+    let start = html.find(r#"data-catalog-primary-workbench-command="scope.sync""#).unwrap();
+    let form = &html[start..start + html[start..].find("</form>").unwrap()];
+    assert!(form.contains("disabled"), "Start is not the reader's: {form}");
+
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=stopped&section=import-jobs", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-daily-governance-status="stopped""#), "{html}");
+    assert!(html.contains(r#"href="/catalog/integrations/settings?providerKey=stopped&amp;section=import-jobs""#), "{html}");
+    let sync = html.find(r#"data-catalog-import-workflow-stage="run-sync""#).unwrap();
+    assert!(html[html[..sync].rfind("<details").unwrap()..sync].contains(" open"), "the route's section: {html}");
+    assert!(html.contains(">Kill switch active<"), "the flow's blocker: {html}");
+
+    let (status, _, _) =
+        pilot.send(post_as("catalog-reader", "/catalog/integrations/review", "action=defer&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage, as the API asks");
+    assert!(daily_writes(&pilot).is_empty());
+}
+
+#[tokio::test]
+async fn each_command_sends_the_apis_body_and_lands_on_the_working_set() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let body = "productDomain=pokemon&productForm=card&languageCode=en&referenceKind=expansion&scopeRecordId=sr_sv1\
+        &units=tcgplayer%3Apokemon%3Acard&units=lorcast%3Apokemon%3Acard&selected=tcgplayer%3Apokemon%3Acard";
+    let (status, headers, _) = pilot.send(post(&format!("/catalog/integrations/catalog-sync?{at}"), body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(landed.starts_with(&format!("/catalog/integrations?{at}&done=queued&after_write=")), "{landed}");
+    let sent: Value = serde_json::from_str(&daily_writes(&pilot)[0].body).unwrap();
+    assert_eq!(daily_writes(&pilot)[0].path, "/api/catalog/source-observations/catalog-sync-scope/runs");
+    let scope = &sent["scope"];
+    assert_eq!(scope["scopeVersion"], "catalog-sync-scope-v2");
+    assert_eq!(scope["providerParticipation"]["selectedUnitKeys"], json!(["tcgplayer:pokemon:card"]));
+    assert_eq!(scope["providerParticipation"]["excludedUnitKeys"], json!(["lorcast:pokemon:card"]));
+    assert_eq!(scope["reference"], json!({ "kind": "expansion", "scopeRecordId": "sr_sv1" }));
+
+    // The page it lands on says so, and reads after the write.
+    let before = pilot.calls.lock().unwrap().len();
+    let (status, _, html) = pilot.send(get(&landed, Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"role="status""#), "the outcome: {html}");
+    let read =
+        pilot.calls.lock().unwrap()[before..].iter().find(|c| c.path.contains("/workbench-surfaces/daily")).cloned().unwrap();
+    assert!(read.headers.contains_key("chase-sets-read-after-write"), "the receipt it carried: {:?}", read.headers);
+    assert!(read.path.ends_with("%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon"), "{}", read.path);
+
+    let (status, headers, _) = pilot.send(post(&format!("/catalog/integrations/jobs/job_1?{at}"), "command=retry", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let (_, headers, _) = pilot.send(post(&format!("/catalog/integrations/jobs/job_1?{at}"), "command=cancel", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=cancelled"));
+    let (_, headers, _) =
+        pilot.send(post(&format!("/catalog/integrations/review?{at}"), "action=defer&observation=obs_1", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let (_, headers, _) = pilot
+        .send(post(&format!("/catalog/integrations/review?{at}"), "action=reject&observation=obs_1&reason=Duplicate", false))
+        .await;
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let writes = daily_writes(&pilot);
+    let paths: Vec<&str> = writes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "/api/catalog/source-observations/catalog-sync-scope/runs",
+            "/api/catalog/source-observations/integration-jobs/job_1/retry",
+            "/api/catalog/source-observations/integration-jobs/job_1/cancel",
+            "/api/catalog/source-observations/bulk-defer/jobs",
+            "/api/catalog/source-observations/bulk-reject/jobs",
+        ]
+    );
+    let defer: Value = serde_json::from_str(&writes[3].body).unwrap();
+    assert_eq!(
+        defer,
+        json!({ "observationIds": ["obs_1"], "reason": "Deferred from the primary workbench; observation remains in review." })
+    );
+    let reject: Value = serde_json::from_str(&writes[4].body).unwrap();
+    assert_eq!(reject, json!({ "observationIds": ["obs_1"], "reason": "Duplicate" }));
+}
+
+#[tokio::test]
+async fn a_refused_command_is_the_page_again_with_the_apis_reason() {
+    let pilot = Pilot::new().await;
+    let at = "/catalog/integrations/review?providerKey=tcgplayer";
+    let (status, _, html) = pilot.send(post(at, "action=reject&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("A reason is required to reject observations.") && html.contains(r#"name="wb-stage""#), "{html}");
+    let (status, _, patch) = pilot.send(post(at, "action=reject&observation=obs_1", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(
+        patch.contains("A reason is required to reject observations.") && !patch.contains("wb-stage"),
+        "only the notice: {patch}"
+    );
+    assert_eq!(html.matches("A reason is required to reject observations.").count(), 1, "the refusal is said once: {html}");
+
+    let (status, _, html) = pilot.send(post("/catalog/integrations/catalog-sync?providerKey=tcgplayer", "units=a", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Select at least one provider unit to sync."), "{html}");
+    let (status, _, html) =
+        pilot.send(post("/catalog/integrations/jobs/job_gone?providerKey=tcgplayer", "command=retry", false)).await;
+    assert_ne!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(html.contains("That import job no longer exists."), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post("/catalog/integrations/jobs/job_1", "command=promote", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a command the form does not offer");
+    let (status, _, _) = pilot.send(post("/catalog/integrations/review", "action=promote&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(daily_writes(&pilot).len(), before, "neither reaches the API");
 }
 
 #[tokio::test]
