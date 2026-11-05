@@ -60,7 +60,8 @@
     "support-requests",
     "csat-dashboard",
     "seller-compliance-sales",
-    "account-appeals"
+    "account-appeals",
+    "seller-compliance-cohorts"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
   "publicExports": [
@@ -1496,6 +1497,11 @@
       "classification": "slice",
       "purpose": "Own the private Account Appeal lifecycle and the Appealable Enforcement Action registry: branded seller/operator/action capabilities, deterministic state decisions, expected-version command appends, and the owner-attributed immutable tuple each source enforcement fact records.",
       "expectedConsumers": ["Internal platform-operations module composition", "Future seller and operator appeal routes"]
+    },
+    "seller-compliance-cohorts": {
+      "classification": "slice",
+      "purpose": "Own the pure seller-compliance-cohorts evaluator: decode the cohort policy and compute the rolling-window verdict over seller-compliance-sales facts.",
+      "expectedConsumers": ["Internal platform-operations module composition"]
     }
   },
   "runtimeDeployables": ["platform-worker"],
