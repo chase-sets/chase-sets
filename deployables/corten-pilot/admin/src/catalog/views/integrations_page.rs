@@ -1006,6 +1006,21 @@ pub(super) fn blocker(t: Cat, category: &str) -> Option<(&'static str, &'static 
     })
 }
 
+/// A provider transport category's label (`getCatalogPrimaryWorkbenchProviderTransportCopy`).
+pub(super) fn transport(t: Cat, category: &str) -> Option<&'static str> {
+    Some(match category {
+        "rate-limit" => t.wb_copy_rate_limit_cooldown(),
+        "throttle" => t.wb_copy_provider_throttle(),
+        "quota" => t.wb_copy_provider_quota_exhausted(),
+        "timeout" => t.wb_copy_provider_timeout(),
+        "pagination-failure" => t.wb_copy_provider_pagination_failed(),
+        "partial-data" => t.wb_copy_partial_provider_data(),
+        "stale-cache" => t.wb_copy_stale_provider_cache(),
+        "degraded-provider" => t.wb_copy_provider_degraded(),
+        _ => return None,
+    })
+}
+
 /// A blocker's tone by its group (`blockerTone`).
 pub(super) fn blocker_tone(group: &str) -> &'static str {
     match group {

@@ -337,7 +337,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(answer) = daily_command(&method, uri.path(), &body) {
         return answer;
     }
-    if let Some(answer) = provider_api(&method, uri.path()) {
+    if let Some(answer) = provider_api(&method, uri.path(), &body) {
         return answer;
     }
     if let Some(rest) = uri.path().strip_prefix(SHOPPING_API) {
@@ -7540,6 +7540,8 @@ fn provider_surface(location: &str) -> Response {
     Json(json!({
         "readModelFailures": [],
         "readModel": {
+            "generatedAt": "2026-11-05T12:00:00.000Z",
+            "validationReadiness": validation_readiness(selected),
             "routeContext": { "providerKey": "tcgplayer", "unitKey": null, "jobId": job, "profileVersion": selected },
             "readiness": { "freshness": "fresh", "blockers": [], "providerTransport": [], "rolloutEnabled": true, "rbacAllowed": true },
             "healthTriage": { "freshness": "fresh", "generatedAt": "2026-11-04T12:00:00.000Z",
@@ -7573,7 +7575,9 @@ fn provider_surface(location: &str) -> Response {
                     op("deprecate", "Deprecate profile", "available", &[]), op("retire", "Retire profile", "available", &[])],
                 "recentAuditEvents": [],
                 "strictRetirement": { "requiredDisposition": "complete-removal", "forbiddenSupportPaths": ["raw-json"] } },
-            "importJobs": { "freshness": "fresh", "activeJobCount": 0, "failedJobCount": 1, "jobs": [{ "jobId": "job_9",
+            "importJobs": { "freshness": "fresh", "activeJobCount": 0, "failedJobCount": 1,
+                "selectedScope": { "readiness": { "adapterReadiness": "ready", "credentialReadiness": "not-required" } },
+                "jobs": [{ "jobId": "job_9",
                 "state": "failed", "operatorStatus": "Failed", "summary": "Pull stopped at page 3.", "completed": 3, "total": 10,
                 "progressPercent": 30, "providerKey": "tcgplayer", "createdAt": "2026-11-04T09:00:00.000Z", "failureGroups": [],
                 "retryAvailable": true, "resumeAvailable": false, "cancelAvailable": false,
@@ -7584,10 +7588,73 @@ fn provider_surface(location: &str) -> Response {
     .into_response()
 }
 
+/// The validation readiness of the selected version: a fixture flow with a diagnostic, a dry run's
+/// proof, a changed mapping section, an activation check that is blocked, and a decision that needs
+/// migration evidence before it can activate (whose evidence can be saved).
+fn validation_readiness(selected: &str) -> Value {
+    json!({
+        "status": "blocked",
+        "summary": { "readyFixtureFlows": 1, "totalFixtureFlows": 2, "blockedFixtureFlows": 1, "dryRunEvidenceCount": 1,
+            "semanticChangeCount": 1, "unchangedSectionCount": 1, "blockingReadinessChecks": 1, "auditEvidenceCount": 0 },
+        "fixtureFlows": [
+            { "flow": "normal", "label": "Normal", "status": "ready", "payloadFile": "normal.json", "payloadPath": "fixtures/tcgplayer/normal.json",
+              "expectedStatus": "observed", "expectedDiagnosticPaths": [], "expectedHashEvidencePaths": ["card.hash"],
+              "expectedMergeEvidencePaths": [], "expectedPromotionCommands": ["CreateCatalogItem"], "samplePayloadAvailable": true,
+              "diagnostics": [], "actionState": "available", "blockers": [] },
+            { "flow": "partial", "label": "Partial", "status": "blocked", "payloadFile": null, "payloadPath": null,
+              "expectedStatus": null, "expectedDiagnosticPaths": ["card.number"], "expectedHashEvidencePaths": [],
+              "expectedMergeEvidencePaths": [], "expectedPromotionCommands": [], "samplePayloadAvailable": false,
+              "diagnostics": [{ "path": "card.number", "diagnosticText": "The partial fixture has no card number.", "severity": "error" }],
+              "actionState": "blocked", "blockers": ["fixture-validation-blocked"] }
+        ],
+        "dryRunEvidence": [{ "externalKey": "sv1-001", "sourceUrl": "https://example.test/cards/sv1-001", "sourceHash": "sha256:abc",
+            "status": "completed",
+            "normalizedFacts": [{ "key": "name", "value": "Sprigatito" }, { "key": "number", "value": "001" },
+                { "key": "rarity", "value": "common" }, { "key": "set", "value": "sv1" }, { "key": "language", "value": "en" }],
+            "redactionSummary": [{ "label": "Payload body", "value": "not retained" }],
+            "duplicateCandidates": [{ "key": "dup.0", "label": "Merge evidence 1", "path": "duplicatePrevention.0", "summary": "mergeIdentity",
+                "owner": "catalog-merge-evidence", "uses": ["merge-identity"], "diagnostics": [] }],
+            "selectedOptions": [],
+            "promotionCommandPreview": [{ "commandName": "CreateCatalogItem", "inputs": [{ "key": "title", "label": "title",
+                "path": "promotionCommandPlan.title", "summary": "card.name", "owner": null, "uses": [], "diagnostics": [] }] }],
+            "diagnostics": [], "auditEvidence": [] }],
+        "semanticCompare": {
+            "mappingFingerprint": { "candidate": "fp_new", "active": "fp_old", "changed": true },
+            "activationImpact": ["Card numbers map from a new path."],
+            "fixtureCoverage": [{ "flow": "normal", "status": "ready" }, { "flow": "partial", "status": "blocked" }],
+            "sections": [{ "sectionKey": "catalog-field-mapping", "domainConcept": "catalog field mapping", "status": "warning",
+                "changeCount": 1, "changes": [{ "path": "fields.number", "label": "Card number", "candidateSummary": "card.localId",
+                    "activeSummary": "card.number", "changed": true, "severity": "warning",
+                    "activationImpact": "Card numbers map from a new path." }] }],
+            "unchangedSections": [{ "sectionKey": "basics", "domainConcept": "profile identity" }]
+        },
+        "activationReadiness": { "status": "blocked", "requiresMigrationEvidence": true, "referenceCount": 4,
+            "groups": [{ "domainConcept": "Migration Evidence", "status": "blocked", "checks": [{ "checkKey": "migration:evidence",
+                "code": "activation-migration-evidence", "sectionKey": "migration-evidence", "status": "blocked",
+                "path": "migrationEvidence.evidenceText",
+                "diagnosticText": "Source Observation mapping fingerprint changes require explicit migration evidence before activation.",
+                "severity": "error", "remediation": "Record migration evidence, then retry activation.",
+                "blockingBehavior": "block", "flow": null }] }] },
+        "activationDecision": { "status": "blocked", "actionState": "blocked", "blockers": ["migration-evidence-missing"],
+            "saveEvidenceState": "available", "saveEvidenceBlockers": [],
+            "activationCommandKey": "provider-profile.activate", "evidenceCommandKey": "provider-profile.edit-section",
+            "workspaceHref": format!("/catalog/providers/tcgplayer?profileVersion={selected}"),
+            "providerKey": "tcgplayer", "profileVersion": selected, "lifecycle": "draft", "importEligibility": "blocked",
+            "affectedReferences": { "referenceCount": 4, "requiresMigrationEvidence": true,
+                "replayImplications": ["4 existing references may need replay or reapply review after activation."] },
+            "migrationEvidence": { "state": "required", "evidenceText": "", "fixtureRunId": null,
+                "mappingFingerprintBefore": "fp_old", "mappingFingerprintAfter": "fp_new", "recordedAt": null, "recordedByUserId": null },
+            "auditConsequences": { "auditEvidenceUrl": "/catalog/integrations/health?providerKey=tcgplayer",
+                "eventNames": ["activation-readiness-evaluated", "profile-activated"],
+                "summary": "Activation records readiness evaluation and profile activation audit evidence." } }
+    })
+}
+
 /// The refresh schedules and a provider's commands: TCGplayer's schedule runs on its own, Lorcast's
 /// is paused and its run fails at the provider (the API's 502); a deprecate of 2026.06.23 is refused
-/// as a lifecycle conflict.
-fn provider_api(method: &Method, path: &str) -> Option<Response> {
+/// as a lifecycle conflict. Migration evidence with a blank text is refused, as the API's section
+/// check does, and activating 2026.06.23 is refused for its missing evidence.
+fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
     let schedule = |key: &str, paused: bool, status: &str| {
         json!({ "providerKey": key, "scheduleEnabled": true, "manualOnly": false, "intervalMs": 86_400_000, "paused": paused,
             "nextRunAt": "2026-11-05T12:00:00.000Z", "lastRunCompletedAt": "2026-11-04T12:00:00.000Z",
@@ -7607,6 +7674,19 @@ fn provider_api(method: &Method, path: &str) -> Option<Response> {
         });
     }
     let rest = path.strip_prefix("/api/catalog/source-observations/provider-profiles/")?;
+    if *method == Method::PATCH && rest.ends_with("/sections/migration-evidence") {
+        let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        let text = sent["command"]["migrationEvidence"]["evidenceText"].as_str().unwrap_or_default();
+        return Some(if text.trim().is_empty() {
+            refusal(
+                StatusCode::BAD_REQUEST,
+                "invalid_profile_section_command",
+                "migrationEvidence.evidenceText must be a non-empty string.",
+            )
+        } else {
+            written(StatusCode::OK, "profile_1")
+        });
+    }
     if *method != Method::POST {
         return None;
     }
@@ -7620,6 +7700,11 @@ fn provider_api(method: &Method, path: &str) -> Option<Response> {
         "tcgplayer/2026.06.23/deprecate" => {
             refusal(StatusCode::CONFLICT, "profile_lifecycle_conflict", "That profile version is still referenced.")
         }
+        "tcgplayer/2026.06.23/activate" => refusal(
+            StatusCode::BAD_REQUEST,
+            "profile_activation_blocked",
+            "Source Observation mapping fingerprint changes require explicit migration evidence before activation.",
+        ),
         _ => written(StatusCode::OK, "profile_1"),
     })
 }
@@ -7628,7 +7713,7 @@ fn provider_writes(pilot: &Pilot) -> Vec<String> {
     let calls = pilot.calls.lock().unwrap();
     calls
         .iter()
-        .filter(|c| c.method == Method::POST && (c.path.contains("/provider-profiles/") || c.path.contains("/refresh-schedule")))
+        .filter(|c| c.method != Method::GET && (c.path.contains("/provider-profiles/") || c.path.contains("/refresh-schedule")))
         .map(|c| c.path.clone())
         .collect()
 }
@@ -7805,6 +7890,111 @@ async fn a_refused_provider_command_is_the_page_again_with_its_reason() {
     assert!(html.contains(r#"role="alert""#), "{html}");
     let (status, _, _) = pilot.send(post("/catalog/providers/lorcast/refresh", "command=stop", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a command the form does not offer");
+}
+
+#[tokio::test]
+async fn provider_detail_draws_validation_readiness_and_its_activation_decision() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer?profileVersion=2026.07.13", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-validation-readiness="true""#), "{html}");
+    // Provider readiness from the selected scope, and each row's sheet a disclosure with its evidence.
+    assert!(html.contains("Provider readiness is ready") && html.contains("Not Required"), "{html}");
+    assert!(html.contains(r#"data-catalog-validation-fixture="partial""#), "{html}");
+    assert!(html.contains("The partial fixture has no card number."), "a flow's diagnostic: {html}");
+    assert!(html.contains(r#"data-catalog-validation-dry-run="sv1-001""#) && html.contains("1 more"), "{html}");
+    assert!(html.contains(r#"data-catalog-validation-section="catalog-field-mapping""#), "{html}");
+    assert!(html.contains("Card numbers map from a new path."), "{html}");
+    assert!(html.contains("Record migration evidence, then retry activation."), "a check's remediation: {html}");
+    // The decision: blocked on migration evidence, which can be saved; activation cannot run yet.
+    assert!(html.contains("Activation decision is blocked"), "{html}");
+    let evidence = html.find(r#"data-catalog-validation-evidence-form="true""#).unwrap();
+    let form = &html[html[..evidence].rfind("<form").unwrap()..evidence + html[evidence..].find("</form>").unwrap()];
+    assert!(form.contains(r#"action="/catalog/providers/tcgplayer/evidence?profileVersion=2026.07.13""#), "{form}");
+    assert!(form.contains(r#"value="fp_old""#) && form.contains(r#"value="fp_new""#), "{form}");
+    assert!(
+        form.contains(r#"name="migrationRecordedAt" value="2026-11-05T12:00:00.000Z""#),
+        "the read's time, as admin-web sends it (chase-sets/chase-sets#11068): {form}"
+    );
+    assert!(form.contains("required") && !form.contains("disabled"), "{form}");
+    let activate = html.find(r#"data-catalog-activate-profile-form="true""#).unwrap();
+    let form = &html[activate..activate + html[activate..].find("</form>").unwrap()];
+    assert!(form.contains("disabled"), "a blocked activation: {form}");
+    // The section's stylesheet is the area's.
+    let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
+    assert!(section.contains(".validation__checklist") && section.contains(".validation__sheet"), "{section}");
+
+    // A reader sees it all without a form to send.
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let evidence = html.find(r#"data-catalog-validation-evidence-form="true""#).unwrap();
+    assert!(html[evidence..evidence + html[evidence..].find("</form>").unwrap()].contains("disabled"), "{html}");
+}
+
+#[tokio::test]
+async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis_refusal() {
+    let pilot = Pilot::new().await;
+    let at = "profileVersion=2026.07.13";
+    let landed = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    let form = "profileVersion=2026.07.13&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=\
+                &migrationFingerprintBefore=fp_old&migrationFingerprintAfter=fp_new&migrationRecordedAt=2026-11-05T12%3A00%3A00.000Z";
+    let (status, headers, _) = pilot.send(post(&format!("/catalog/providers/tcgplayer/evidence?{at}"), form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        landed(&headers).starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=evidence-saved&after_write=")),
+        "{}",
+        landed(&headers)
+    );
+    let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/migration-evidence")).cloned().unwrap();
+    assert_eq!(sent.method, Method::PATCH);
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
+            "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null, "mappingFingerprintBefore": "fp_old",
+            "mappingFingerprintAfter": "fp_new", "recordedAt": "2026-11-05T12:00:00.000Z" } } })
+    );
+    let (status, headers, _) =
+        pilot.send(post(&format!("/catalog/providers/tcgplayer/activate?{at}"), "profileVersion=2026.07.13", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(landed(&headers).contains("done=activated"), "{}", landed(&headers));
+    assert_eq!(
+        provider_writes(&pilot),
+        [
+            "/api/catalog/source-observations/provider-profiles/tcgplayer/2026.07.13/sections/migration-evidence",
+            "/api/catalog/source-observations/provider-profiles/tcgplayer/2026.07.13/activate",
+        ]
+    );
+    let (status, _, html) =
+        pilot.send(get(&format!("/catalog/providers/tcgplayer?{at}&done=evidence-saved"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Migration evidence saved"), "{html}");
+
+    // A blank text is the API's to refuse, in its words (chase-sets/chase-sets#11068: admin-web sends a
+    // fixed sentence instead), and so is an activation it will not run.
+    let (status, _, html) = pilot
+        .send(post(
+            &format!("/catalog/providers/tcgplayer/evidence?{at}"),
+            "profileVersion=2026.07.13&migrationEvidenceText=+++",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("migrationEvidence.evidenceText must be a non-empty string."), "{html}");
+    let (status, _, patch) = pilot
+        .send(post("/catalog/providers/tcgplayer/activate?profileVersion=2026.06.23", "profileVersion=2026.06.23", true))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(patch.contains("require explicit migration evidence before activation"), "{patch}");
+    assert!(!patch.contains("data-catalog-provider-detail"), "only the notice: {patch}");
+
+    // Without a version, nothing is sent; a reader may not send either.
+    let before = provider_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post("/catalog/providers/tcgplayer/activate", "profileVersion=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) =
+        pilot.send(post_as("catalog-reader", "/catalog/providers/tcgplayer/activate", "profileVersion=2026.07.13", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(provider_writes(&pilot).len(), before);
 }
 
 fn integrations_calls(pilot: &Pilot) -> Vec<String> {

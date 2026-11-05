@@ -41,6 +41,7 @@ mod scope_list;
 mod scope_page;
 mod status_pill;
 mod sync_batches;
+mod validation;
 
 pub use attention_panel::{AttentionBanner, AttentionPanel, AttentionSheet, park_form};
 pub use blueprints::{
@@ -87,6 +88,7 @@ pub use scope_list::{ScopeRowView, scope_list};
 pub use scope_page::{AliasReviewPart, CoveragePart, InboxHeader, InboxRow, InboxTone, Refused, Rows, ScopePage, scope_page};
 pub use status_pill::{StatusPill, Tone, TonePill};
 pub use sync_batches::{SyncBatchPage, sync_batch_page};
+pub use validation::Validation;
 
 /// The area's components: its stylesheet, the UI kit's the integrations surfaces use, and
 /// corten-ui's toaster and combobox scripts.
@@ -103,6 +105,7 @@ pub const COMPONENTS: &[Component] = &[
     IntegrationsPage,
     DailyPage,
     ProviderPage,
+    Validation,
     AttentionPanel,
     PreviewDialog,
     ItemForm,
@@ -116,6 +119,7 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::input::Input,
     platform::ui::pagination::Pagination,
     platform::ui::steps::Steps,
+    platform::ui::textarea::Textarea,
     corten_ui::Toaster,
     corten_ui::ComboBox,
     corten_ui::dialog::COMPONENT,

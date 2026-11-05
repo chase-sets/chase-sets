@@ -14,6 +14,8 @@
 //! | `POST /catalog/providers/{key}/draft?<context>` | creates a draft from the selected profile version |
 //! | `POST /catalog/providers/{key}/lifecycle?<context>` | rolls back, deprecates or retires a profile version |
 //! | `POST /catalog/providers/{key}/jobs/{id}?<context>` | retries, resumes or cancels an import job |
+//! | `POST /catalog/providers/{key}/evidence?<context>` | records migration evidence ([`super::validation`]) |
+//! | `POST /catalog/providers/{key}/activate?<context>` | activates a profile version ([`super::validation`]) |
 //!
 //! The context is the address's query as admin-web names it (`profileVersion`, `unitKey`,
 //! `jobId`); the pilot passes it to the API without reading it. A command's body is the API's own
@@ -22,8 +24,9 @@
 //! each allows. A refusal is drawn on the page, and so is a refresh run that failed
 //! (chase-sets/chase-sets#11051: admin-web drops both).
 //!
-//! Profile section editing, validation readiness (fixtures, dry runs, semantic checks, activation)
-//! and the Operator session section open on admin-web.
+//! Validation readiness (provider readiness, fixtures, dry runs, semantic compare, activation
+//! readiness and the activation decision) is drawn from the same read ([`super::validation`]).
+//! Profile section editing and the Operator session section open on admin-web.
 //!
 //! Workarounds, each to remove when its issue lands:
 //! 1. chase-sets/chase-sets#11050: the surface read takes the provider only from the location's
@@ -82,6 +85,18 @@ pub mod url {
         pub key: &'a str,
     }
 
+    /// Records migration evidence on the activation decision's profile version.
+    #[route("/catalog/providers/{key}/evidence", post = crate::catalog::validation::evidence)]
+    pub struct Evidence<'a> {
+        pub key: &'a str,
+    }
+
+    /// Activates the activation decision's profile version.
+    #[route("/catalog/providers/{key}/activate", post = crate::catalog::validation::activate)]
+    pub struct Activate<'a> {
+        pub key: &'a str,
+    }
+
     /// Retries, resumes or cancels one of the provider's import jobs.
     #[route("/catalog/providers/{key}/jobs/{id}", post = crate::catalog::provider::job)]
     pub struct Job<'a> {
@@ -102,10 +117,12 @@ pub enum Done {
     Retired,
     Queued,
     Cancelled,
+    EvidenceSaved,
+    Activated,
 }
 
 impl Done {
-    pub const ALL: [(Done, &'static str); 9] = [
+    pub const ALL: [(Done, &'static str); 11] = [
         (Done::Paused, "paused"),
         (Done::Resumed, "resumed"),
         (Done::Ran, "ran"),
@@ -115,6 +132,8 @@ impl Done {
         (Done::Retired, "retired"),
         (Done::Queued, "queued"),
         (Done::Cancelled, "cancelled"),
+        (Done::EvidenceSaved, "evidence-saved"),
+        (Done::Activated, "activated"),
     ];
 
     pub fn word(self) -> &'static str {
@@ -138,6 +157,7 @@ pub struct ProviderRead {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Model {
+    pub generated_at: Option<String>,
     pub route_context: RouteContext,
     pub readiness: Readiness,
     pub health_triage: Triage,
@@ -145,6 +165,7 @@ pub struct Model {
     pub profile_authoring: Authoring,
     pub lifecycle_recovery: Recovery,
     pub import_jobs: ImportJobs,
+    pub validation_readiness: super::validation::Validation,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -534,7 +555,7 @@ fn landed(
 
 /// A refused command: the page with the API's words (or the pilot's), patched in place with
 /// JavaScript.
-async fn again(
+pub(super) async fn again(
     req: &Req,
     staff: &Staff<CatalogAccess>,
     config: &Shared,
@@ -555,7 +576,7 @@ async fn again(
     clippy::too_many_arguments,
     reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
 )]
-async fn answer(
+pub(super) async fn answer(
     req: &Req,
     staff: &Staff<CatalogAccess>,
     config: &Shared,
@@ -788,7 +809,7 @@ mod tests {
             assert_eq!(Done::of(word), Some(done));
             assert_eq!(done.word(), word);
         }
-        assert_eq!(Done::of("activated"), None);
+        assert_eq!(Done::of("promoted"), None);
     }
 
     #[test]

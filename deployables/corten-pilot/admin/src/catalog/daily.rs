@@ -256,6 +256,8 @@ pub struct ImportJobs {
     pub active_job_count: u64,
     pub failed_job_count: u64,
     pub jobs: Vec<ImportJob>,
+    /// The import scope's readiness, which provider detail's validation readiness shows.
+    pub selected_scope: Option<super::validation::SelectedScope>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]

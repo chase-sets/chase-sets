@@ -910,6 +910,7 @@ const outputs = [
         ["catalog.features.sourceObservations.ui.auditEvidence.", "wb_audit"],
         ["catalog.features.sourceObservations.ui.providerDetail.", "pd"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.profile.", "wb_profile"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.validation.", "wb_validation"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.key.", "wb_key"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.command.count.", "wb_count"],
         ["catalog.features.sourceObservations.ui.lifecycleRecovery.", "recovery"],

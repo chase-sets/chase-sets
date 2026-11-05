@@ -1,10 +1,11 @@
 //! Provider detail (admin-web's `CatalogProviderDetailPage`): the provider's header with its
 //! transport readiness, the refresh schedule, the selected profile's evidence and its draft, the
-//! version history with its lifecycle actions, the units it takes part in and its recent jobs, in
-//! admin-web's order. Every command is a form that posts to the pilot and lands back on the page;
-//! a lifecycle action needs its box checked, and a refusal is drawn at the top, patched in place
-//! with JavaScript. A job's details are a disclosure, so they open without a script. Each table
-//! stacks on a phone, a row a block of labelled lines.
+//! validation readiness and its activation decision ([`super::validation`]), the version history
+//! with its lifecycle actions, the units it takes part in and its recent jobs, in admin-web's order.
+//! Every command is a form that posts to the pilot and lands back on the page; a lifecycle action
+//! needs its box checked, and a refusal is drawn at the top, patched in place with JavaScript. A
+//! job's details are a disclosure, so they open without a script. Each table stacks on a phone, a
+//! row a block of labelled lines.
 use corten::prelude::*;
 use platform::ui::{
     accordion::Accordion,
@@ -16,7 +17,10 @@ use platform::ui::{
     table::{CellLabel, Table, TableLayout},
 };
 
-use super::integrations_page::{Banner, Blockers, Cell, Empty, Metric, Module, Pairs, Pill, maybe_when, state_label, when};
+use super::{
+    integrations_page::{Banner, Blockers, Cell, Empty, Metric, Module, Pairs, Pill, maybe_when, state_label, transport, when},
+    validation::Validation,
+};
 use crate::{
     catalog::{
         daily::{ImportJob, JobInput, at},
@@ -53,6 +57,8 @@ fn outcome(t: Cat, p: Pilot, done: Done) -> (&'static str, &'static str) {
         Done::Retired => (t.feedback_retired_title(), t.feedback_retired_description()),
         Done::Queued => (t.feedback_queued_title(), t.feedback_queued_description()),
         Done::Cancelled => (t.feedback_cancelled_title(), t.feedback_cancelled_description()),
+        Done::EvidenceSaved => (p.validation_evidence_saved(), p.validation_evidence_saved_description()),
+        Done::Activated => (t.feedback_activation_title(), t.feedback_activation_description()),
     }
 }
 
@@ -113,18 +119,7 @@ fn failure_label(t: Cat, key: &str, label: &str) -> String {
     let Some(category) = key.strip_prefix("provider-transport-") else {
         return label.to_owned();
     };
-    let words = match category {
-        "rate-limit" => t.wb_copy_rate_limit_cooldown(),
-        "throttle" => t.wb_copy_provider_throttle(),
-        "quota" => t.wb_copy_provider_quota_exhausted(),
-        "timeout" => t.wb_copy_provider_timeout(),
-        "pagination-failure" => t.wb_copy_provider_pagination_failed(),
-        "partial-data" => t.wb_copy_partial_provider_data(),
-        "stale-cache" => t.wb_copy_stale_provider_cache(),
-        "degraded-provider" => t.wb_copy_provider_degraded(),
-        other => return t.wb_jobs_failure_transport(other).to_string(),
-    };
-    t.wb_jobs_failure_transport(words).to_string()
+    t.wb_jobs_failure_transport(transport(t, category).unwrap_or(category)).to_string()
 }
 
 /// A list, or the words for none (`joinOrFallback`).
@@ -212,6 +207,7 @@ pub fn ProviderPage<'a>(
                     </p>
                 </Module>
             }
+            <Validation t={t} p={p} req={req} model={model} key={key} context={context} manage={screen.manage} />
             <History t={t} p={p} req={req} model={model} key={key} context={context} manage={screen.manage} />
             <Units t={t} model={model} key={key} />
             <Jobs t={t} p={p} req={req} model={model} key={key} context={context} manage={screen.manage} />

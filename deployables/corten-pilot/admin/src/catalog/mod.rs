@@ -64,6 +64,7 @@ pub mod reference_types;
 pub mod scope;
 pub mod scopes;
 pub mod sync_batches;
+pub mod validation;
 pub mod views;
 
 use crate::{
