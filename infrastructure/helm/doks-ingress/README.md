@@ -68,7 +68,8 @@ error output is discarded with `error-log-path: /dev/null`; access fields and
 controller logs continue to classify failures. When present, the ratified maintenance
 default backend logs only method, URI pathname, status, `X-Code` and `X-Request-ID`,
 with `error_log /dev/null`. The AC5 probe qualifies either the absent topology or
-that ratified backend and its separate log sink; controller default-backend access
+that ratified backend (`defaultBackend.enabled: true`) and its separate log sink;
+controller default-backend access
 logging remains disabled in both. Re-enabling the controller error stream or adding a query-bearing
 token requires a new security decision.
 
