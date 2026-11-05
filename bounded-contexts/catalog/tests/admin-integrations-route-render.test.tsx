@@ -78,9 +78,15 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("../support/request-support/api-client", () => ({
-  createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
-}));
+vi.mock("../support/request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../features/source-observations/tests/integrations-surface-read-test-client")
+  >("../features/source-observations/tests/integrations-surface-read-test-client");
+  return {
+    createCatalogRequestApiClient: (request: Request) =>
+      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+  };
+});
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   isTransientAuthResolutionError: mockIsTransientAuthResolutionError,
@@ -472,29 +478,39 @@ describe("Catalog integrations route", () => {
     );
   });
 
-  it("retries transient auth resolution before rendering the shared importer", async () => {
+  it("takes catalog.manage from the Catalog API's surface read without resolving the actor in the loader", async () => {
+    // The Catalog API decides catalog.manage from its own request actor, so a
+    // warming auth API in the admin loader can no longer deny the importer.
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
-    const transientAuthError = new Error("auth api warming");
-    mockIsTransientAuthResolutionError.mockImplementation((error) => error === transientAuthError);
-    mockResolveActorFromAuthApi
-      .mockRejectedValueOnce(transientAuthError)
-      .mockResolvedValueOnce({ permissions: ["catalog.view", "catalog.manage"] });
+    const requestUrl = "https://admin.example/catalog/integrations?providerKey=tcgdex";
+    mockIsTransientAuthResolutionError.mockReturnValue(true);
+    mockResolveActorFromAuthApi.mockRejectedValue(new Error("auth api warming"));
+    const getCatalogPrimaryWorkbenchSurface = vi.fn().mockResolvedValue({
+      readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+        requestUrl,
+        scopes,
+        profileReviews,
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      }),
+      readModelFailures: [],
+      catalogSyncScope: null,
+    });
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
-      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
-      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
-      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      getCatalogPrimaryWorkbenchSurface,
+      getCatalogPrimaryWorkbenchDeferredSourceOptions: vi.fn().mockRejectedValue(new Error("not under test")),
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });
 
     const routeData = await loader({
-      request: new Request("https://admin.example/catalog/integrations?providerKey=tcgdex"),
+      request: new Request(requestUrl),
       params: {},
       context: {},
     } as Parameters<typeof loader>[0]);
 
-    expect(mockResolveActorFromAuthApi).toHaveBeenCalledTimes(2);
+    expect(getCatalogPrimaryWorkbenchSurface).toHaveBeenCalledWith("daily", "/catalog/integrations?providerKey=tcgdex");
+    expect(mockResolveActorFromAuthApi).not.toHaveBeenCalled();
     expect(
       routeData.readModel.actions.find((actionEntry) => actionEntry.key === "scope.import")?.blockers,
     ).not.toContain("permission-denied");

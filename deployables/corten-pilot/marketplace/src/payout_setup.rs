@@ -329,7 +329,7 @@ pub(crate) async fn session(
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<url::PayoutSetupSession>,
-) -> NoStore<JsonResult<Session>> {
+) -> JsonResult<Session> {
     let session = match route.which.which.as_deref() {
         Some("management") => ConnectSession::Management,
         Some("notifications") => ConnectSession::Notifications,
@@ -345,7 +345,7 @@ pub(crate) async fn session(
         Ok(_) => Session { secret: None, code: Some("missing_secret".into()), message: None },
         Err(error) => refused(error),
     };
-    NoStore(Ok(Json(answer)))
+    Ok(Json(answer))
 }
 
 fn refused(error: ApiError) -> Session {

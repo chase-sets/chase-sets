@@ -1606,7 +1606,14 @@ describe("Catalog primary workbench admin contracts", () => {
     const adminFiles = readdirSync(adminDirectory).filter((file) => file.startsWith("primary-workbench-"));
     expect(adminFiles.filter((file) => file.endsWith("-implementation.ts"))).toEqual([]);
     expect(adminFiles.sort()).toEqual(
-      [...workbenchOwners().map(ownerFile), facadeFile, "primary-workbench-admin-contracts.test.ts"].sort(),
+      [
+        ...workbenchOwners().map(ownerFile),
+        facadeFile,
+        "primary-workbench-admin-contracts.test.ts",
+        // The API's composition of the workbench for one surface; it builds the read model the
+        // contracts above validate rather than owning any of them.
+        "primary-workbench-surface-read.ts",
+      ].sort(),
     );
 
     const functionOwners = new Map<string, WorkbenchOwner[]>();

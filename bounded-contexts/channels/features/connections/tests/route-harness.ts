@@ -13,6 +13,7 @@ import {
   type ChannelConnectionStatus,
   type PublicChannelConnection,
 } from "../domain/contracts";
+import { allowedChannelConnectionActions } from "../domain/domain";
 
 export const routeAccountId = "account-1";
 export const foreignAccountId = "account-2";
@@ -66,7 +67,11 @@ export function createFakeConnectionServices(seed: readonly FakeConnectionRecord
   ): PublicChannelConnection {
     const record = require_(accountId, connectionId);
     if (!from.includes(record.status)) throw new ChannelConnectionError("invalid-transition");
-    const updated: FakeConnectionRecord = { ...record, status: to };
+    const updated: FakeConnectionRecord = {
+      ...record,
+      status: to,
+      allowedActions: allowedChannelConnectionActions(to),
+    };
     connections.set(connectionId, updated);
     return { ...updated };
   }

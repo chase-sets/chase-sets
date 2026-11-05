@@ -21,6 +21,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { parseAdmissionIdentity } from "@chase-sets/order-groups";
 import { ShipmentAdmissionBusyError } from "../domain/common";
 import { ShipmentHistoryPoisonedError } from "../domain/mutation-attempt";
+import { runShipmentCommandCenterAction } from "../ui/command-center-route-adapter";
 
 describe("Shipment Group admission authority", () => {
   const now = "2026-10-04T00:00:00.000Z";
@@ -887,6 +888,33 @@ async function recordFraudSignal(harness: Awaited<ReturnType<typeof raceHarness>
 const overLengthCancellationReason = "x".repeat(4097);
 
 describe("fulfillment shipment runtime", () => {
+  it("refuses a stale command-center exception for a cancelled shipment and keeps it cancelled", async () => {
+    const harness = await raceHarness("cancelled");
+    const before = harness.readAllEvents().filter((event) => event.streamId === "fulfillment.shipment-shp_race");
+    const api = {
+      raiseShipmentException: (
+        shipmentId: string,
+        body: { exceptionType: string; notes: string | null },
+        mutationAttemptId: string,
+      ) =>
+        harness.services.raiseShipmentException(
+          { shipmentId, sellerAccountId: "acc_seller", ...body, mutationAttemptId },
+          harness.context,
+        ),
+    };
+    const form = new FormData();
+    form.set("shipmentId", "shp_race");
+    form.set("mutationAttemptId", "218f47d2-9d2a-4d68-8f33-6fb718c7829c");
+
+    const outcome = await runShipmentCommandCenterAction(api as never, "raise-exception", form);
+
+    expect(outcome).toEqual({ ok: false, error: "Shipment mutation was refused safely (shipment-cancelled)." });
+    const after = harness.readAllEvents().filter((event) => event.streamId === "fulfillment.shipment-shp_race");
+    expect(after).toEqual(before);
+    expect(after.some((event) => event.eventType === "fulfillment.shipment.exception-raised")).toBe(false);
+    expect(after.at(-1)?.eventType).toBe("fulfillment.shipment.cancelled");
+  });
+
   it.each(["packing", "awaiting-label", "label-attached", "dispatched", "delivered", "returned", "exception"] as const)(
     "records one verbatim order-cancellation conflict from %s through the real seam",
     async (status) => {

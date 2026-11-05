@@ -131,14 +131,18 @@ What each screen covers and leaves out, screen by screen, is in the
 
 ### Not ported
 
-Every page route marketplace-web, admin-web and public-web declare is served here except admin-web's
-Catalog integrations: `/catalog/integrations` with its `governance`, `settings` and `health` tabs,
-`/catalog/integrations/observation-evidence/{id}` and `/catalog/providers/{providerKey}` (compared
-with each host's route records on 2026-11-01). Their read model is composed in admin-web's loader,
-and these routes change before the API owns it:
-[chase-sets/chase-sets#10507 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/issues/10507)
-waits on [chase-sets/chase-sets#9074 Cut over Catalog routes and every live retired-URL caller to v2](https://github.com/chase-sets/chase-sets/issues/9074)
-and [chase-sets/chase-sets#9076 Delete the v1 Catalog module graph and migrate its surviving type consumers](https://github.com/chase-sets/chase-sets/issues/9076).
+Every page route marketplace-web, admin-web and public-web declare is served here except two of
+admin-web's Catalog integrations pages, `/catalog/integrations/observation-evidence/{id}` and
+`/catalog/providers/{providerKey}` (compared with each host's route records on 2026-11-01), whose
+links go to admin-web. The Catalog API composes the integrations surfaces
+([chase-sets/chase-sets#11038 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/pull/11038)),
+and the pilot draws Integration health, Settings and Settings' older `governance` address from it
+([admin/src/catalog/integrations.rs](admin/src/catalog/integrations.rs)), and the daily
+`/catalog/integrations` workbench ([admin/src/catalog/daily.rs](admin/src/catalog/daily.rs)); those
+pages need that API to answer. The daily workbench starts a scope's Catalog sync, retries, resumes
+and cancels import jobs, and defers or rejects Source Observations, each a form that works
+without JavaScript. Previewing and promoting, merge candidate edits and the evidence sheets open
+on admin-web until the Catalog API refuses a stale preview itself.
 marketplace-web's `/items/{id}/market-history` is a JSON resource for its client; the pilot draws
 the Sales tab's history on the server.
 
@@ -209,7 +213,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `88107571` (Corten `main` on 2026-11-04). No release is tagged. The
+`Cargo.toml` pins Corten to `62f3199f` (Corten `main` on 2026-11-04). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
 [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten pin") and in `git log -- deployables/corten-pilot/Cargo.toml`.
@@ -249,6 +253,9 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 | Gap | Workaround | Remove when |
 |---|---|---|
 | [todd-skelton/corten#580 A layout value read the guide's way is passed through every handler and helper that can draw the layout, so one cart count touched 172 handlers in a real app](https://github.com/todd-skelton/corten/issues/580) | `chrome::Chrome` is an extractor on every handler that can draw the layout (writes included), lent to the helpers that draw it, with a `OnceCell` so each branch awaits one read; synchronous closures take the awaited count; the cart page takes no `Chrome` and draws its own count (`cart::render`) | Corten starts a layout read once for the app, or an `Ahead` can be awaited from several places: drop `Chrome` from the handlers or its cell |
+| [todd-skelton/corten#860 A catalog message with two or more arguments takes them by position, so a swapped pair or a reworded default message compiles and draws the wrong sentence](https://github.com/todd-skelton/corten/issues/860) | None in code: each multi-argument message the daily workbench calls was checked by hand against its English text ([admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs)) | Messages take named arguments: rewrite those calls with the names |
+| [todd-skelton/corten#861 Errors::form_message() is always its own role=alert, so a form's refusal in the kit's destructive Alert is two nested alerts](https://github.com/todd-skelton/corten/issues/861) | `DailyRefusal` draws `errors.form()`'s text inside the kit's destructive `Alert` ([admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs)) | The kit has one live region for a form's message: use it |
+| [todd-skelton/corten#862 The kit's Pagination ties its link closure's borrow to the links' lifetime, so a named closure that returns a borrowed link does not compile](https://github.com/todd-skelton/corten/issues/862) | `review_page` returns an owned `Box<dyn Href>`, called from an inline closure ([admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs)) | `Pagination` separates the two lifetimes: a named closure can borrow |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 
@@ -264,13 +271,14 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#8830 Complete Sell List Offer lines from inventory when the seller has no Listing](https://github.com/chase-sets/chase-sets/issues/8830) | [scripts/smoke-market-item-sell.mjs](scripts/smoke-market-item-sell.mjs), [marketplace/src/selling.rs](marketplace/src/selling.rs) |
 | [chase-sets/chase-sets#10505 [checkout] Build and keep the Sell List review plan in the Checkout API](https://github.com/chase-sets/chase-sets/issues/10505) | [marketplace/src/sell_list.rs](marketplace/src/sell_list.rs), [marketplace/src/sell_checkout.rs](marketplace/src/sell_checkout.rs) |
 | [chase-sets/chase-sets#3494 [deployables] P2: Web route behavior leaks — analytics endpoint to discovery, cart/theme policy to contexts, catalog permission middleware to catalog](https://github.com/chase-sets/chase-sets/issues/3494) | [marketplace/src/site.rs](marketplace/src/site.rs) |
-| [chase-sets/chase-sets#10507 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/issues/10507) | [admin/src/catalog/attention.rs](admin/src/catalog/attention.rs), [admin/src/catalog/scope.rs](admin/src/catalog/scope.rs), [admin/src/catalog/scopes.rs](admin/src/catalog/scopes.rs), [admin/src/catalog/views/scope_page.rs](admin/src/catalog/views/scope_page.rs) |
+| [chase-sets/chase-sets#10507 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/issues/10507) | [admin/src/catalog/attention.rs](admin/src/catalog/attention.rs), [admin/src/catalog/scope.rs](admin/src/catalog/scope.rs), [admin/src/catalog/views/scope_page.rs](admin/src/catalog/views/scope_page.rs) |
+| [chase-sets/chase-sets#11045 [catalog] Refuse a Source Observation promotion whose preview is stale in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11045) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
+| [chase-sets/chase-sets#11047 [catalog] Return the daily workbench's stage states, status banners and review pager links from the surface read](https://github.com/chase-sets/chase-sets/issues/11047) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#10524 Release a realtime stream's lease when the client drops it before the headers](https://github.com/chase-sets/chase-sets/issues/10524) | [platform/src/realtime.rs](platform/src/realtime.rs) |
 | [chase-sets/chase-sets#10530 Give removing draft Catalog Items a bulk preview and job like the other item bulk actions](https://github.com/chase-sets/chase-sets/issues/10530) | [admin/src/catalog/items.rs](admin/src/catalog/items.rs) |
 | [chase-sets/chase-sets#10537 Let the Catalog Item Set Image URLs dialog take one URL per line](https://github.com/chase-sets/chase-sets/issues/10537) | [scripts/smoke-item.mjs](scripts/smoke-item.mjs) |
 | [chase-sets/chase-sets#10538 Stop concurrent Product Contents edits from silently dropping each other's lines](https://github.com/chase-sets/chase-sets/issues/10538) | [admin/src/catalog/item.rs](admin/src/catalog/item.rs) |
 | [chase-sets/chase-sets#10549 Wait only on a Catalog Item's own projections when reading it after a write](https://github.com/chase-sets/chase-sets/issues/10549) | [scripts/smoke-item.mjs](scripts/smoke-item.mjs) |
-| [chase-sets/chase-sets#10565 Filter Scope Records by language edition across every page, not only the page shown](https://github.com/chase-sets/chase-sets/issues/10565) | [admin/src/catalog/scopes.rs](admin/src/catalog/scopes.rs) |
 | [chase-sets/chase-sets#10569 Show the alias type in a Catalog attention queue alias candidate's detail instead of {type}](https://github.com/chase-sets/chase-sets/issues/10569) | [admin/src/catalog/attention.rs](admin/src/catalog/attention.rs) |
 | [chase-sets/chase-sets#10572 Let the seed seller record the seeded restock decision instead of Restock decision not found](https://github.com/chase-sets/chase-sets/issues/10572) | [scripts/smoke-restock.mjs](scripts/smoke-restock.mjs) |
 | [chase-sets/chase-sets#10576 Draw each cart line's readiness from the cart read instead of recomputing it in the cart page](https://github.com/chase-sets/chase-sets/issues/10576) | [marketplace/src/cart.rs](marketplace/src/cart.rs) |

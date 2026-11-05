@@ -25,9 +25,11 @@ mod bulk_rows;
 mod categories;
 mod components;
 mod coverage;
+mod daily_page;
 mod detail_page;
 mod dialog;
 mod display_templates;
+mod integrations_page;
 mod item_list;
 mod item_page;
 mod list_page;
@@ -49,6 +51,7 @@ pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
 pub use categories::{CategoryForms, category_actions, category_list, category_page, category_rows, category_transitions};
 pub use components::{ComponentForms, component_list, component_page, component_rows};
 pub use coverage::{coverage_inbox, coverage_page};
+pub use daily_page::{DailyPage, DailyRefusal};
 pub use detail_page::{
     ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, RemoveForm, Transition,
 };
@@ -58,6 +61,7 @@ pub use dialog::{
     TemplateForm, Toasts, Trigger, value_kinds, value_types,
 };
 pub use display_templates::{TemplateForms, template_list, template_page, template_rows, template_transitions};
+pub use integrations_page::IntegrationsPage;
 pub use item_list::{
     DraftsDialog, ItemDialog, ItemForm, ItemJobOutcome, ItemParts, ItemPreview, ItemPreviewDialog, Pending, item_changes,
     item_list, item_live, item_operations, item_rows,
@@ -82,7 +86,8 @@ pub use scope_page::{AliasReviewPart, CoveragePart, InboxHeader, InboxRow, Inbox
 pub use status_pill::{StatusPill, Tone, TonePill};
 pub use sync_batches::{SyncBatchPage, sync_batch_page};
 
-/// The area's components: its stylesheet, and corten-ui's toaster and combobox scripts.
+/// The area's components: its stylesheet, the UI kit's the integrations surfaces use, and
+/// corten-ui's toaster and combobox scripts.
 pub const COMPONENTS: &[Component] = &[
     StatusPill,
     ListPage,
@@ -93,10 +98,21 @@ pub const COMPONENTS: &[Component] = &[
     ScopePage,
     SyncBatchPage,
     ObservationPage,
+    IntegrationsPage,
+    DailyPage,
     AttentionPanel,
     PreviewDialog,
     ItemForm,
     ItemPage,
+    platform::ui::accordion::Accordion,
+    platform::ui::alert::Alert,
+    platform::ui::badge::Badge,
+    platform::ui::button::Button,
+    platform::ui::card::Card,
+    platform::ui::checkbox::Checkbox,
+    platform::ui::input::Input,
+    platform::ui::pagination::Pagination,
+    platform::ui::steps::Steps,
     corten_ui::Toaster,
     corten_ui::ComboBox,
     corten_ui::dialog::COMPONENT,

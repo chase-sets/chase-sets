@@ -16,8 +16,8 @@
 //! them. Every write is a form that works without JavaScript and answers with the page after it
 //! (its receipt and the toast), or the page again with the API's refusal (422).
 //!
-//! Not ported: the import-to-promotion workspace, which admin-web composes in its web server
-//! (chase-sets/chase-sets#10507); the section links to admin-web's page for it.
+//! Not ported: the import-to-promotion workspace (the integrations daily surface, which the Catalog
+//! API composes once chase-sets/chase-sets#10507 lands); the section links to admin-web's page for it.
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
@@ -26,13 +26,12 @@ use futures_util::future::join3;
 use platform::receipt::Receipt;
 use serde::Serialize;
 use serde_json::{Value, json};
-use time::OffsetDateTime;
 
 use super::{
     Sent,
     api::{AliasCandidate, AliasReview, Catalog as _, Coverage, Kind, ReviewJob, ReviewJobs, ScopeRecord, Written, under},
     command, manages, receipt,
-    scopes::{self, Promotion, Sync},
+    scopes::{Promotion, Sync},
     views,
 };
 use crate::{
@@ -320,9 +319,8 @@ fn editions(scope: &ScopeRecord, review: &AliasReview) -> Vec<Edition> {
 }
 
 /// Workaround for chase-sets/chase-sets#10703: the journey (`scope-journey-overview.ts`), from the
-/// scope, its editions and whether their review could be read. Promotion and sync are the scopes
-/// list's (chase-sets/chase-sets#10507).
-fn journey(scope: &ScopeRecord, editions: Option<&[Edition]>, review_failed: bool, now: OffsetDateTime) -> Journey {
+/// scope, its editions and whether their review could be read. Promotion and sync are the API's.
+fn journey(scope: &ScopeRecord, editions: Option<&[Edition]>, review_failed: bool) -> Journey {
     let count = scope.language_editions.len();
     // A scope with one edition is its own canonical identity: linked, nothing to review.
     let (linked, pending) = match editions {
@@ -331,8 +329,7 @@ fn journey(scope: &ScopeRecord, editions: Option<&[Edition]>, review_failed: boo
         }
         None => (count, 0),
     };
-    let row = scopes::row(scope.clone(), now);
-    let (promotion, sync) = (row.promotion, row.sync);
+    let (promotion, sync) = (scope.promotion_readiness, scope.sync_freshness);
     let condition = if count == 0 {
         Condition::Empty
     } else if review_failed {
@@ -391,7 +388,7 @@ async fn jobs(caller: &Caller<'_>, id: &str, cursor: Option<&str>) -> Option<Job
 
 /// The page's reads: the scope, then its coverage, jobs and (with more than one edition) the
 /// alias review of its Reference Record, together.
-async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>, now: OffsetDateTime) -> Result<ScopeScreen, ApiError> {
+async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>) -> Result<ScopeScreen, ApiError> {
     let scope: ScopeRecord = caller.get(Kind::ScopeRecords, id).await?;
     let review = async {
         if scope.language_editions.len() <= 1 {
@@ -412,7 +409,7 @@ async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>, now: Offset
             (Some(editions(&scope, &AliasReview::default())), true)
         }
     };
-    let journey = journey(&scope, editions.as_deref(), alias_review_failed, now);
+    let journey = journey(&scope, editions.as_deref(), alias_review_failed);
     Ok(ScopeScreen { scope, journey, coverage, jobs, editions, alias_review_failed })
 }
 
@@ -475,7 +472,7 @@ async fn render(
 ) -> HtmlResult {
     let receipt = Receipt::from_param(at.after_write.as_deref());
     let caller = caller(config, headers, receipt.as_ref());
-    let view = match screen(&caller, id, at.jobs.as_deref(), OffsetDateTime::now_utc()).await {
+    let view = match screen(&caller, id, at.jobs.as_deref()).await {
         Ok(view) => view,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
@@ -686,9 +683,16 @@ pub(crate) async fn aliases(
 mod tests {
     use super::*;
     use crate::catalog::api::AutoAccept;
-    use time::format_description::well_known::Rfc3339;
 
-    fn scope(editions: &[&str], status: &str, updated_at: &str) -> ScopeRecord {
+    /// A scope as the API answers it: `status` is its lifecycle, `sync` the freshness the API
+    /// measured.
+    fn scope(editions: &[&str], status: &str, sync: Sync) -> ScopeRecord {
+        let promotion = match status {
+            "active" => Promotion::Live,
+            "archived" => Promotion::Archived,
+            "deprecated" => Promotion::Deprecated,
+            _ => Promotion::Unpublished,
+        };
         ScopeRecord {
             scope_record_id: "scp_1".into(),
             reference_record_id: "ref_1".into(),
@@ -698,7 +702,9 @@ mod tests {
             official_set_code: None,
             language_editions: editions.iter().map(|e| (*e).into()).collect(),
             lifecycle_status: status.into(),
-            updated_at: updated_at.into(),
+            updated_at: "2026-10-25T00:00:00Z".into(),
+            promotion_readiness: promotion,
+            sync_freshness: sync,
         }
     }
 
@@ -718,8 +724,6 @@ mod tests {
         }
     }
 
-    const NOW: &str = "2026-10-25T00:00:00Z";
-
     #[test]
     fn editions_put_the_canonical_first_and_link_by_an_accepted_alias_of_this_scope_only() {
         let review = AliasReview {
@@ -731,7 +735,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let editions = editions(&scope(&["ja", "fr", "en", "de", "ja"], "active", NOW), &review);
+        let editions = editions(&scope(&["ja", "fr", "en", "de", "ja"], "active", Sync::Fresh), &review);
         let shown: Vec<(&str, Link, usize, usize)> =
             editions.iter().map(|e| (e.language_code.as_str(), e.link, e.pending.len(), e.accepted.len())).collect();
         assert_eq!(
@@ -747,9 +751,7 @@ mod tests {
 
     #[test]
     fn the_journey_condition_follows_admin_webs_order() {
-        let now = OffsetDateTime::parse(NOW, &Rfc3339).unwrap();
-        let fresh = "2026-10-20T00:00:00Z";
-        let stale = "2026-09-01T00:00:00Z";
+        let (fresh, stale) = (Sync::Fresh, Sync::Stale);
         let pending = [Edition {
             language_code: "ja".into(),
             canonical: false,
@@ -757,7 +759,7 @@ mod tests {
             pending: vec![candidate("a", "ja", "pending", "ref_1")],
             accepted: Vec::new(),
         }];
-        let of = |s: &ScopeRecord, editions: Option<&[Edition]>, failed| journey(s, editions, failed, now);
+        let of = |s: &ScopeRecord, editions: Option<&[Edition]>, failed| journey(s, editions, failed);
         assert_eq!(of(&scope(&[], "active", fresh), None, false).condition, Condition::Empty);
         assert_eq!(of(&scope(&["en", "ja"], "active", fresh), Some(&pending), true).condition, Condition::PartialFailure);
         assert_eq!(of(&scope(&["en", "ja"], "archived", fresh), Some(&pending), false).condition, Condition::Blocked);
@@ -776,11 +778,10 @@ mod tests {
 
     #[test]
     fn the_screen_is_written_as_serde_writes_it() {
-        let now = OffsetDateTime::parse(NOW, &Rfc3339).unwrap();
-        let s = scope(&["en", "ja"], "active", NOW);
+        let s = scope(&["en", "ja"], "active", Sync::Fresh);
         let review = AliasReview { candidates: vec![candidate("a", "ja", "pending", "ref_1")], ..Default::default() };
         let editions = editions(&s, &review);
-        let journey = journey(&s, Some(&editions), false, now);
+        let journey = journey(&s, Some(&editions), false);
         let screen = ScopeScreen {
             scope: s,
             journey,

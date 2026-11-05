@@ -125,8 +125,9 @@ pub fn Rows<'a, C: Render>(label: &'a str, head: &'a [&'a str], children: C) -> 
     }
 }
 
-/// Workaround for chase-sets/chase-sets#10507: the import-to-promotion workspace is composed in
-/// admin-web's server, so the section links there.
+/// The import-to-promotion workspace is the integrations daily surface, which the pilot does not
+/// draw yet (chase-sets/chase-sets#10507 moves its composition to the API), so the section links to
+/// admin-web's.
 #[component(css = ScopePage)]
 fn WorkspacePart<'a>(p: Pilot, href: &'a str) -> impl Render {
     html! {
