@@ -21,7 +21,7 @@ const originalLaneMode = process.env.CHASE_SETS_LANE_MODE;
 const canonicalRecordTest = "scripts/canonical-record.test.mjs";
 
 function trackedScriptsTestFiles() {
-  return execFileSync("git", ["ls-files", "--", "scripts/**/*.test.mjs"], {
+  return execFileSync("git", ["ls-files", "--", "scripts/*.test.mjs", "scripts/**/*.test.mjs"], {
     cwd: repoRoot,
     encoding: "utf8",
     maxBuffer: GIT_LISTING_MAX_BUFFER,
