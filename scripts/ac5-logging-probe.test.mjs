@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   MAX_LOG_BYTES,
   STAGING_CONTEXT,
@@ -16,6 +17,7 @@ import {
   main,
   overallVerdict,
   parseArgs,
+  qualifyChart,
   selectReadyPods,
   serializeEvidence,
   toRfc3339,
@@ -24,6 +26,39 @@ import {
 
 const userAgent = "ac5-probe/synthetic";
 const sentinels = ["ac5-q-synthetic", "ac5-r-synthetic"];
+const annotationKey = "chase-sets.com/maintenance-config-sha256";
+const annotation = "d".repeat(64);
+const r4RequestId = "ac5-synthetic-r4";
+const backendLine = `2026-10-26T19:32:07Z GET /probe 404 - ${r4RequestId}`;
+const absentChart = stringifyYaml({
+  controller: {
+    config: {
+      "log-format-upstream": "$request_method $uri $status",
+      "error-log-path": "/dev/null",
+    },
+  },
+});
+function ratifiedChart() {
+  const document = parseYaml(absentChart);
+  document.defaultBackend = {
+    enabled: true,
+    podAnnotations: { [annotationKey]: annotation },
+    extraConfigMaps: [
+      {
+        name: "ingress-nginx-maintenance",
+        data: {
+          "default.conf": `# $request_uri and access_log off; are comments only\nlog_format maintenance_pathname '$request_method $uri $status $http_x_code $http_x_request_id';\nserver { access_log /dev/stdout maintenance_pathname; error_log /dev/null; }\n`,
+        },
+      },
+    ],
+  };
+  return stringifyYaml(document);
+}
+function editRatified(change) {
+  const document = parseYaml(ratifiedChart());
+  change(document.defaultBackend, document);
+  return stringifyYaml(document);
+}
 const requests = [
   { name: "R1", status: 200, exit: 0 },
   { name: "R2", status: 200, exit: 0 },
@@ -68,8 +103,9 @@ function mainFixture(overrides = {}) {
   const output = join(outputDir, "evidence.json");
   const sha = "a".repeat(40);
   const digest = `sha256:${"b".repeat(64)}`;
-  const chart = readFileSync("infrastructure/helm/doks-ingress/ingress-nginx-values.yaml", "utf8");
-  const logFormat = chart.match(/log-format-upstream:\s*'([^']+)'/)?.[1];
+  const chart = overrides.ratified ? ratifiedChart() : absentChart;
+  const chartDocument = parseYaml(chart);
+  const logFormat = chartDocument.controller.config["log-format-upstream"];
   const pod = (name, namespace, labels) => ({
     metadata: { name, namespace, labels },
     status: {
@@ -112,7 +148,12 @@ function mainFixture(overrides = {}) {
       ],
     },
     controllerPods: {
-      items: [pod("controller-1", "ingress-nginx", { "app.kubernetes.io/name": "ingress-nginx" })],
+      items: [
+        pod("controller-1", "ingress-nginx", {
+          "app.kubernetes.io/name": "ingress-nginx",
+          "app.kubernetes.io/component": "controller",
+        }),
+      ],
     },
     configMap: { data: { "log-format-upstream": logFormat, "error-log-path": "/dev/null" } },
     collector: collectorConfig(),
@@ -120,14 +161,32 @@ function mainFixture(overrides = {}) {
     ingress: { items: [{ spec: { rules: [{ host: "staging.example.test" }] } }] },
     inventory: { items: [] },
   };
+  if (overrides.ratified) {
+    data.backendDeployment = structuredClone(data.deployment);
+    data.maintenance = { data: chartDocument.defaultBackend.extraConfigMaps[0].data };
+    const backend = pod("backend-1", "ingress-nginx", {
+      "app.kubernetes.io/name": "ingress-nginx",
+      "app.kubernetes.io/component": "default-backend",
+    });
+    backend.metadata.annotations = { [annotationKey]: annotation };
+    data.backendPods = { items: [backend] };
+    data.controllerPods.items.push(structuredClone(backend));
+    data.inventory.items = [
+      ["Deployment", "ingress-nginx-defaultbackend"],
+      ["Service", "ingress-nginx-defaultbackend"],
+      ["ConfigMap", "ingress-nginx-maintenance"],
+    ].map(([kind, name]) => ({ kind, metadata: { name, namespace: "ingress-nginx" } }));
+  }
   overrides.change?.(data);
   let clock = Date.parse("2026-10-26T19:32:00Z");
   const calls = [];
   const json = (value) => ({ stdout: JSON.stringify(value), stderr: "" });
-  const runner = async (command, args) => {
-    calls.push({ command, args });
+  const runner = async (command, args, settings) => {
+    calls.push({ command, args, settings });
     const actual = command === "kubectl" ? args.slice(1) : args;
     if (overrides.accessFailure?.(command, actual)) throw Object.assign(new Error("access denied"), { code: 1 });
+    const readOutput = overrides.readOutput?.(command, actual);
+    if (readOutput) return readOutput;
     if (command === "gh") return json(args[1] === "view" ? data.deploy : data.deployRuns);
     if (command === "git") {
       if (overrides.nonAncestor) throw Object.assign(new Error("not ancestor"), { code: 1 });
@@ -141,6 +200,18 @@ function mainFixture(overrides = {}) {
       return { stdout: r4 ? "404" : args.includes("--request") ? "413" : "200", stderr: "" };
     }
     if (actual[0] === "logs") {
+      clock += overrides.logReadDurationMs ?? 0;
+      if (actual[1].startsWith("backend-")) {
+        if (overrides.backendReadFailure) throw Object.assign(new Error("denied"), { code: 1 });
+        if (overrides.backendReadLimited) return { stdout: "x".repeat(MAX_LOG_BYTES), stderr: "" };
+        const request = calls.filter((call) => call.command === "curl").at(-1);
+        const id = request.args.find((arg) => arg.startsWith("X-Request-ID: "))?.slice(14);
+        return {
+          stdout:
+            overrides.backendLogsByPod?.[actual[1]] ?? overrides.backendLogs ?? backendLine.replace(r4RequestId, id),
+          stderr: "",
+        };
+      }
       const curl = calls.find((call) => call.command === "curl");
       const ua = curl.args.find((arg) => arg.startsWith("User-Agent: ")).slice(12);
       return {
@@ -149,24 +220,38 @@ function mainFixture(overrides = {}) {
       };
     }
     if (actual[1] === "daemonset") return json(data.daemonSet);
-    if (actual[1] === "configmap") return json(actual[2].endsWith("-observability") ? data.collector : data.configMap);
-    if (actual[1] === "deployment") return json(data.deployment);
+    if (actual[1] === "configmap")
+      return json(
+        actual[2] === "ingress-nginx-maintenance"
+          ? data.maintenance
+          : actual[2].endsWith("-observability")
+            ? data.collector
+            : data.configMap,
+      );
+    if (actual[1] === "deployment")
+      return json(actual[2] === "ingress-nginx-defaultbackend" ? data.backendDeployment : data.deployment);
     if (actual[1] === "pods") {
       if (actual[3] === "chase-sets-platform" && overrides.marketplacePodsOutput !== undefined)
         return { stdout: overrides.marketplacePodsOutput, stderr: "" };
       if (actual[3] === "chase-sets-platform" && overrides.marketplacePodsTruncated)
         throw Object.assign(new Error("truncated marketplace pod response"), { code: 1 });
-      return json(actual[3] === "chase-sets-platform" ? data.marketplacePods : data.controllerPods);
+      return json(
+        actual[3] === "chase-sets-platform"
+          ? data.marketplacePods
+          : actual.includes("app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=default-backend")
+            ? data.backendPods
+            : data.controllerPods,
+      );
     }
     if (actual[1] === "service") return json(data.service);
     if (actual[1] === "ingress") return json(data.ingress);
     if (actual[1].startsWith("deployments,")) return json(data.inventory);
     throw new Error("unexpected fixture command");
   };
-  if (overrides.chart) {
+  {
     const chartDir = join(outputDir, "infrastructure/helm/doks-ingress");
     mkdirSync(chartDir, { recursive: true });
-    writeFileSync(join(chartDir, "ingress-nginx-values.yaml"), overrides.chart(chart));
+    writeFileSync(join(chartDir, "ingress-nginx-values.yaml"), overrides.chart ? overrides.chart(chart) : chart);
   }
   return {
     calls,
@@ -190,7 +275,7 @@ function mainFixture(overrides = {}) {
         ],
         {
           runner,
-          root: overrides.chart ? outputDir : undefined,
+          root: outputDir,
           randomBytes: () => Buffer.from("0123456789abcdef", "hex"),
           now: () => clock,
           sleep: async (ms) => {
@@ -214,7 +299,7 @@ async function expectQualificationStop(fixture, code) {
     expect(stderr).toHaveBeenCalledExactlyOnceWith(`INCONCLUSIVE ${code}`);
     expect(fixture.calls.some((call) => call.command === "curl")).toBe(false);
     expect(fixture.evidence()).toEqual({
-      schemaVersion: "ac5-logging-probe/v2",
+      schemaVersion: "ac5-logging-probe/v3",
       overall: "INCONCLUSIVE",
       refusal: code,
     });
@@ -225,6 +310,508 @@ async function expectQualificationStop(fixture, code) {
 }
 
 describe("AC5 logging probe", () => {
+  it("qualifies the repository chart under its own topology", () => {
+    const source = readFileSync("infrastructure/helm/doks-ingress/ingress-nginx-values.yaml", "utf8");
+    const topology = Object.hasOwn(parseYaml(source), "defaultBackend") ? "ratified" : "absent";
+    expect(qualifyChart(source).topology).toBe(topology);
+    console.log(`repository chart topology=${topology}`);
+  });
+
+  it("qualifies the ratified default backend shape", () => {
+    expect(qualifyChart(ratifiedChart())).toMatchObject({ topology: "ratified", maintenanceAnnotation: annotation });
+    expect(
+      qualifyChart(
+        editRatified((backend) => {
+          backend.extraConfigMaps[0].data["default.conf"] += "# $args $arg_token $request access_log /tmp/unsafe;\n";
+        }),
+      ).topology,
+    ).toBe("ratified");
+    expect(qualifyChart(absentChart).topology).toBe("absent");
+  });
+
+  it.each([
+    ...[
+      "$request",
+      "$request_uri",
+      "$args",
+      "$query_string",
+      "$is_args",
+      "$arg_token",
+      "$http_referer",
+      "$http_x_original_uri",
+    ].map((variable) => [
+      variable,
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] += `map ${variable} $unsafe { default x; }\n`;
+      },
+    ]),
+    [
+      "extra access_log in another context",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] += "server { access_log off; }\n";
+      },
+    ],
+    [
+      "missing access_log",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] = backend.extraConfigMaps[0].data["default.conf"].replace(
+          "access_log /dev/stdout maintenance_pathname;",
+          "",
+        );
+      },
+    ],
+    [
+      "missing error_log",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] = backend.extraConfigMaps[0].data["default.conf"].replace(
+          "error_log /dev/null;",
+          "",
+        );
+      },
+    ],
+    [
+      "non-null error_log",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] = backend.extraConfigMaps[0].data["default.conf"].replace(
+          "error_log /dev/null;",
+          "error_log /tmp/error.log;",
+        );
+      },
+    ],
+    [
+      "second log_format",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] += "log_format extra '$uri';\n";
+      },
+    ],
+    [
+      "wrong format",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] = backend.extraConfigMaps[0].data["default.conf"].replace(
+          "$request_method $uri",
+          "$uri $request_method",
+        );
+      },
+    ],
+    [
+      "disabled",
+      (backend) => {
+        backend.enabled = false;
+      },
+    ],
+    [
+      "wrong map name",
+      (backend) => {
+        backend.extraConfigMaps[0].name = "other";
+      },
+    ],
+    [
+      "extra map",
+      (backend) => {
+        backend.extraConfigMaps.push(structuredClone(backend.extraConfigMaps[0]));
+      },
+    ],
+    [
+      "missing config",
+      (backend) => {
+        delete backend.extraConfigMaps[0].data["default.conf"];
+      },
+    ],
+    [
+      "missing annotation",
+      (backend) => {
+        delete backend.podAnnotations[annotationKey];
+      },
+    ],
+    [
+      "invalid annotation",
+      (backend) => {
+        backend.podAnnotations[annotationKey] = "not-a-digest";
+      },
+    ],
+    [
+      "unclosed quote",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] += "return 'unsafe;";
+      },
+    ],
+    [
+      "missing semicolon",
+      (backend) => {
+        backend.extraConfigMaps[0].data["default.conf"] = backend.extraConfigMaps[0].data["default.conf"].replace(
+          "error_log /dev/null;",
+          "error_log /dev/null",
+        );
+      },
+    ],
+  ])("refuses unratified default backend %s", async (_name, change) => {
+    await expectQualificationStop(
+      mainFixture({ ratified: true, chart: () => editRatified(change) }),
+      "ac5_chart_default_backend_unratified",
+    );
+  });
+
+  it.each([
+    [
+      "logging key false",
+      (chart) => chart.replace("controller:", 'controller:\n  enable-access-log-for-default-backend: "false"'),
+      "ac5_chart_default_backend_artifact_present",
+    ],
+    [
+      "logging key true",
+      (chart) => chart.replace("controller:", 'controller:\n  enable-access-log-for-default-backend: "true"'),
+      "ac5_chart_default_backend_artifact_present",
+    ],
+    ["duplicate key", (chart) => `${chart}\ndefaultBackend: {}\n`, "ac5_chart_config_invalid"],
+    ["parse error", () => "controller: [", "ac5_chart_config_invalid"],
+  ])("refuses unratified default backend %s", async (_name, chart, code) => {
+    await expectQualificationStop(mainFixture({ ratified: true, chart }), code);
+  });
+
+  it.each([
+    ["ingress-nginx-defaultbackend", {}],
+    ["other-default-backend", {}],
+    ["other-maintenance", {}],
+    ["innocent-name", { "app.kubernetes.io/component": "default-backend" }],
+  ])("refuses real default-backend names when absent: %s", async (name, labels) => {
+    await expectQualificationStop(
+      mainFixture({
+        change: (data) => {
+          data.inventory.items = [{ metadata: { name, labels } }];
+        },
+      }),
+      "ac5_chart_inventory_forbidden_resource",
+    );
+  });
+
+  it.each([
+    [
+      "rollout",
+      "ac5_default_backend_workload_incomplete",
+      (data) => {
+        data.backendDeployment.status.updatedReplicas = 0;
+      },
+    ],
+    [
+      "config data",
+      "ac5_default_backend_config_mismatch",
+      (data) => {
+        data.maintenance.data = { ...data.maintenance.data, extra: "unexpected" };
+      },
+    ],
+    [
+      "no Ready pods",
+      "ac5_default_backend_ready_pods_missing",
+      (data) => {
+        data.backendPods.items[0].status.conditions = [];
+      },
+    ],
+    [
+      "wrong component",
+      "ac5_default_backend_ready_pods_missing",
+      (data) => {
+        data.backendPods.items[0].metadata.labels["app.kubernetes.io/component"] = "controller";
+      },
+    ],
+    [
+      "wrong namespace",
+      "ac5_default_backend_ready_pods_missing",
+      (data) => {
+        data.backendPods.items[0].metadata.namespace = "elsewhere";
+      },
+    ],
+    [
+      "annotation",
+      "ac5_default_backend_annotation_mismatch",
+      (data) => {
+        data.backendPods.items[0].metadata.annotations = {};
+      },
+    ],
+    [
+      "second Ready pod annotation",
+      "ac5_default_backend_annotation_mismatch",
+      (data) => {
+        const pod = structuredClone(data.backendPods.items[0]);
+        pod.metadata.name = "backend-2";
+        pod.metadata.annotations = {};
+        data.backendPods.items.push(pod);
+      },
+    ],
+    [
+      "pagination",
+      "ac5_default_backend_pods_incomplete",
+      (data) => {
+        data.backendPods.metadata = { continue: "next" };
+      },
+    ],
+    [
+      "missing inventory",
+      "ac5_default_backend_inventory_mismatch",
+      (data) => {
+        data.inventory.items.pop();
+      },
+    ],
+    [
+      "extra inventory",
+      "ac5_default_backend_inventory_mismatch",
+      (data) => {
+        data.inventory.items.push({
+          kind: "Deployment",
+          metadata: { name: "other-maintenance", namespace: "ingress-nginx" },
+        });
+      },
+    ],
+    [
+      "inventory namespace",
+      "ac5_default_backend_inventory_mismatch",
+      (data) => {
+        data.inventory.items[0].metadata.namespace = "elsewhere";
+      },
+    ],
+    [
+      "duplicate inventory",
+      "ac5_default_backend_inventory_mismatch",
+      (data) => {
+        data.inventory.items[0] = data.inventory.items[1];
+      },
+    ],
+  ])("stops INCONCLUSIVE before requests for ratified %s", async (_name, code, change) => {
+    await expectQualificationStop(mainFixture({ ratified: true, change }), code);
+  });
+
+  it.each([
+    ["default_backend_workload", "deployment", "ingress-nginx-defaultbackend"],
+    ["default_backend_config", "configmap", "ingress-nginx-maintenance"],
+    ["default_backend_pods", "pods", "-n"],
+  ])("stops INCONCLUSIVE before requests for ratified denied %s", async (label, kind, name) => {
+    await expectQualificationStop(
+      mainFixture({
+        ratified: true,
+        accessFailure: (command, args) =>
+          command === "kubectl" &&
+          args[1] === kind &&
+          args[2] === name &&
+          (kind !== "pods" ||
+            args.includes("app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=default-backend")),
+      }),
+      `ac5_${label}_read_incomplete`,
+    );
+  });
+
+  it.each(
+    [
+      ["default_backend_workload", "deployment", "ingress-nginx-defaultbackend"],
+      ["default_backend_config", "configmap", "ingress-nginx-maintenance"],
+      ["default_backend_pods", "pods", "-n"],
+    ].flatMap(([label, kind, name]) => [
+      [label, kind, name, "byte limited", "x".repeat(MAX_LOG_BYTES), "read_incomplete"],
+      [label, kind, name, "malformed", "{invalid", "json_invalid"],
+    ]),
+  )(
+    "stops INCONCLUSIVE before requests for ratified %s %s %s %s",
+    async (label, kind, name, _failure, stdout, reason) => {
+      await expectQualificationStop(
+        mainFixture({
+          ratified: true,
+          readOutput: (command, args) =>
+            command === "kubectl" &&
+            args[1] === kind &&
+            args[2] === name &&
+            (kind !== "pods" ||
+              args.includes("app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=default-backend"))
+              ? { stdout, stderr: "" }
+              : undefined,
+        }),
+        `ac5_${label}_${reason}`,
+      );
+    },
+  );
+
+  it.each([
+    ["one attributed line", backendLine, "PASS"],
+    ["missing", "", "INCONCLUSIVE"],
+    ["duplicate", `${backendLine}\n${backendLine}`, "INCONCLUSIVE"],
+    ["path-only", backendLine.replace(r4RequestId, "other"), "INCONCLUSIVE"],
+    ["wrong code", backendLine.replace("404", "200"), "INCONCLUSIVE"],
+    ["wrong x-code", backendLine.replace("404 -", "404 503"), "INCONCLUSIVE"],
+    ["query", backendLine.replace("/probe", "/probe?token=x"), "FAIL"],
+    ["fragment", backendLine.replace("/probe", "/probe#x"), "FAIL"],
+    ["referrer", `${backendLine} referrer: https://example.test/`, "FAIL"],
+    ["bare referrer URL", `${backendLine} https://example.test/`, "FAIL"],
+    ["diagnostic sentinel", `${backendLine}\n2026-10-26T19:32:08Z error ${sentinels[0]}`, "FAIL"],
+    ...["token=secret?x=1", 'quote"\\\tsecret', "#fragment"].map((sentinel) => [
+      `adversarial ${sentinel}`,
+      `${backendLine}\n2026-10-26T19:32:08Z diagnostic ${sentinel}`,
+      "FAIL",
+      sentinel,
+    ]),
+  ])("classifies the default-backend sink: %s", (_name, lines, status, sentinel) => {
+    const rows = classify({
+      topology: "ratified",
+      r4RequestId,
+      defaultBackendLogs: complete(lines),
+      ...(sentinel ? { sentinels: [...sentinels, sentinel] } : {}),
+    });
+    expect(rows.defaultBackend.status).toBe(status);
+    expect(rows.controllerDefault.status).toBe("PASS");
+  });
+
+  it("requires R4 success and all six rows in ratified records", () => {
+    const rows = classify({
+      topology: "ratified",
+      r4RequestId,
+      defaultBackendLogs: complete(backendLine),
+      requests: requests.map((request) => (request.name === "R4" ? { ...request, status: 500 } : request)),
+    });
+    expect(rows.defaultBackend.status).toBe("INCONCLUSIVE");
+    expect(overallVerdict(classify(), "ratified")).toBe("INCONCLUSIVE");
+    const record = JSON.parse(serializeEvidence({ topology: "ratified", rows: classify() }));
+    expect(record.topology).toBe("ratified");
+    expect(record.schemaVersion).toBe("ac5-logging-probe/v3");
+    expect(record.rows.defaultBackend).toMatchObject({ status: "INCONCLUSIVE", reasons: ["row missing"] });
+    expect(record.overall).toBe("INCONCLUSIVE");
+  });
+
+  it.each(["denied", "limited"])("makes every ratified row INCONCLUSIVE for %s backend reads", async (failure) => {
+    const fixture = mainFixture({
+      ratified: true,
+      backendReadFailure: failure === "denied",
+      backendReadLimited: failure === "limited",
+    });
+    try {
+      const result = await fixture.run();
+      expect(Object.values(result.rows)).toHaveLength(6);
+      expect(Object.values(result.rows).every((row) => row.status === "INCONCLUSIVE")).toBe(true);
+      expect(fixture.evidence().reads.find((read) => read.pod === "backend-1").complete).toBe(false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("passes a full ratified-topology run", async () => {
+    const fixture = mainFixture({ ratified: true });
+    try {
+      const result = await fixture.run();
+      expect(result.overall).toBe("PASS");
+      expect(result.rows.defaultBackend).toMatchObject({ status: "PASS", controls: { r4: 1 } });
+      expect(result.rows.controllerDefault).toMatchObject({ status: "PASS", controls: { r4: 0 } });
+      const curls = fixture.calls.filter((call) => call.command === "curl");
+      expect(curls.slice(0, 3).every((call) => !call.args.some((arg) => arg.startsWith("X-Request-ID:")))).toBe(true);
+      expect(curls[3].args).toContain("X-Request-ID: ac5-0123456789abcdef-r4");
+      expect(fixture.calls.filter((call) => call.args[1] === "logs").map((call) => call.args[2])).toEqual([
+        "controller-1",
+        "marketplace-1",
+        "backend-1",
+      ]);
+      expect(
+        fixture.calls.filter((call) => call.args[1] === "logs").every((call) => call.settings.timeout === 30_000),
+      ).toBe(true);
+      expect(fixture.evidence()).toMatchObject({
+        topology: "ratified",
+        qualification: { controllerReady: ["controller-1"], defaultBackendReady: ["backend-1"] },
+      });
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it.each([false, true])("reads every Ready backend pod and scans each sink (leak=%s)", async (leak) => {
+    const fixture = mainFixture({
+      ratified: true,
+      change: (data) => {
+        const ready = structuredClone(data.backendPods.items[0]);
+        ready.metadata.name = "backend-2";
+        const unready = structuredClone(ready);
+        unready.metadata.name = "backend-unready";
+        unready.status.conditions = [];
+        data.backendPods.items.push(ready, unready);
+      },
+      backendLogsByPod: { "backend-2": leak ? "2026-10-26T19:32:08Z diagnostic ac5-q-0123456789abcdef-r1" : "" },
+    });
+    try {
+      const result = await fixture.run();
+      expect(result.rows.defaultBackend.status).toBe(leak ? "FAIL" : "PASS");
+      expect(fixture.evidence().qualification.defaultBackendReady).toEqual(["backend-1", "backend-2"]);
+      expect(fixture.evidence().reads.map((read) => read.pod)).toEqual([
+        "controller-1",
+        "marketplace-1",
+        "backend-1",
+        "backend-2",
+      ]);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("does not start a backend read after the total read budget is exhausted", async () => {
+    const fixture = mainFixture({ ratified: true, logReadDurationMs: 150_000 });
+    try {
+      const result = await fixture.run();
+      expect(result.overall).toBe("INCONCLUSIVE");
+      expect(fixture.calls.filter((call) => call.args[1] === "logs")).toHaveLength(2);
+      expect(fixture.evidence().reads.at(-1)).toMatchObject({ pod: "backend-1", complete: false, timedOut: true });
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("keeps the ratified controller-default negative evidence requirement", () => {
+    const line = `2026-10-26T19:32:07Z - - - "GET /probe HTTP/2.0" 404 1 "${userAgent}"`;
+    const rows = classify({
+      topology: "ratified",
+      r4RequestId,
+      defaultBackendLogs: complete(backendLine),
+      controllerLogs: complete(`${controllerLines}\n${line}`),
+    });
+    expect(rows.controllerDefault.status).toBe("FAIL");
+    expect(rows.defaultBackend.status).toBe("PASS");
+  });
+
+  it("keeps the absent-topology contract", async () => {
+    const fixture = mainFixture();
+    try {
+      expect((await fixture.run()).overall).toBe("PASS");
+      const nonce = "0123456789abcdef";
+      const expected = [
+        ["R1", "GET", "/sign-in", "staging.example.test"],
+        ["R2", "GET", "/api/health", "staging.example.test"],
+        ["R3", "POST", "/sign-in", "staging.example.test"],
+        ["R4", "GET", "/probe", "unknown.example.test"],
+      ].map(([name, method, path, host]) => [
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "10",
+        "--max-redirs",
+        "0",
+        ...(name === "R4" ? ["--insecure"] : []),
+        "--output",
+        process.platform === "win32" ? "NUL" : "/dev/null",
+        "--write-out",
+        "%{http_code}",
+        "--resolve",
+        `${host}:443:192.0.2.10`,
+        "--header",
+        `Referer: https://example.test/?code=ac5-r-${nonce}-${name.toLowerCase()}`,
+        "--header",
+        `User-Agent: ac5-probe/${nonce}`,
+        ...(method === "POST" ? ["--request", "POST", "--header", "Content-Length: 1048577"] : []),
+        `https://${host}${path}?probe=ac5-q-${nonce}-${name.toLowerCase()}`,
+      ]);
+      expect(fixture.calls.filter((call) => call.command === "curl").map((call) => call.args)).toEqual(expected);
+      expect(Object.keys(fixture.evidence().rows)).toEqual([
+        "web",
+        "ingressAccess",
+        "ingressError",
+        "controllerDefault",
+        "collector",
+      ]);
+      expect(fixture.evidence()).toMatchObject({ topology: "absent", qualification: { defaultBackendReady: [] } });
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("parses the documented kebab-case CLI and rejects unknown flags (F3)", () => {
     const options = parseArgs([
       "--deploy-run-id",
@@ -405,7 +992,7 @@ describe("AC5 logging probe", () => {
       expect(result.overall).toBe("FAIL");
       expect(process.exitCode).toBe(1);
       expect(fixture.evidence()).toEqual({
-        schemaVersion: "ac5-logging-probe/v2",
+        schemaVersion: "ac5-logging-probe/v3",
         overall: "FAIL",
         refusal: "evidence contained a probe sentinel and was not retained",
       });
@@ -582,11 +1169,7 @@ describe("AC5 logging probe", () => {
   });
 
   it.each([
-    [
-      "chart default backend",
-      "ac5_chart_default_backend_artifact_present",
-      (chart) => `${chart}\ndefaultBackend: {}\n`,
-    ],
+    ["chart default backend", "ac5_chart_default_backend_unratified", (chart) => `${chart}\ndefaultBackend: {}\n`],
     ["invalid chart config", "ac5_chart_config_invalid", (chart) => chart.replace("/dev/null", "/tmp/error.log")],
   ])("stops INCONCLUSIVE before requests for %s (F1, F2)", async (_name, code, chart) => {
     await expectQualificationStop(mainFixture({ chart }), code);
@@ -740,6 +1323,7 @@ describe("AC5 logging probe", () => {
       await expect(fixture.run()).resolves.toMatchObject({ overall: "PASS", exitCode: 0 });
       expect(Object.keys(fixture.evidence().qualification).sort()).toEqual([
         "controllerReady",
+        "defaultBackendReady",
         "deployRunId",
         "fixMergeSha",
         "marketplaceReady",
