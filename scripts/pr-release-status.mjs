@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -95,8 +96,49 @@ function parseBoolean(value) {
   );
 }
 
+export async function summarizePrReleaseStatus(env = process.env, source = "artifacts/pr-release-status.md") {
+  await appendFile(env.GITHUB_STEP_SUMMARY, await readFile(source, "utf8"));
+}
+
+export async function commentPrReleaseStatus(env = process.env, execute = execFileSync, source = "artifacts/pr-release-status.md") {
+  const body = await readFile(source, "utf8");
+  const comments = execute(
+    "gh",
+    [
+      "api",
+      `repos/${env.GITHUB_REPOSITORY}/issues/${env.PR_NUMBER}/comments`,
+      "--jq",
+      '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- chase-sets-pr-release-status -->"))) | .id',
+    ],
+    { encoding: "utf8" },
+  );
+  const commentId = comments.trimEnd().split("\n").at(-1)?.trim();
+  execute(
+    "gh",
+    [
+      "api",
+      "--method",
+      commentId ? "PATCH" : "POST",
+      commentId
+        ? `repos/${env.GITHUB_REPOSITORY}/issues/comments/${commentId}`
+        : `repos/${env.GITHUB_REPOSITORY}/issues/${env.PR_NUMBER}/comments`,
+      "-f",
+      `body=${body.replace(/\n+$/, "")}`,
+    ],
+    { stdio: ["ignore", "ignore", "inherit"] },
+  );
+}
+
 async function main(argv, env = process.env) {
   try {
+    if (argv[0] === "summary") {
+      await summarizePrReleaseStatus(env);
+      return 0;
+    }
+    if (argv[0] === "comment") {
+      await commentPrReleaseStatus(env);
+      return 0;
+    }
     const markdown = await writePrReleaseStatus(parsePrReleaseStatusArgs(argv, env));
     console.log(markdown);
     return 0;

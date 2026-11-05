@@ -107,36 +107,14 @@ jobs:
 
       - name: Resolve changed surface
         id: scope
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="${{ github.event.pull_request.base.sha }}"
-            head="${{ github.sha }}"
-          elif [ "${{ github.event_name }}" = "merge_group" ]; then
-            base="${{ github.event.merge_group.base_sha }}"
-            head="${{ github.event.merge_group.head_sha }}"
-          else
-            base="${{ github.event.before }}"
-            head="${{ github.sha }}"
-          fi
-
-          if [ -z "$head" ]; then
-            head="${{ github.sha }}"
-          fi
-          if [ -z "$base" ]; then
-            base="$(git rev-parse origin/main)"
-          fi
-
-          if [[ "$base" =~ ^0+$ ]]; then
-            base="$(git rev-list --max-parents=0 "$head")"
-          fi
-
-          first_parent=""
-          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "merge_group" ]; then
-            first_parent="--first-parent"
-          fi
-
-          node ./scripts/change-scope.mjs github-output --base="${base}" --head="${head}" $first_parent
+        env:
+          PR_SCOPE_EVENT_NAME: ${{ github.event_name }}
+          PR_SCOPE_PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_SCOPE_MERGE_BASE: ${{ github.event.merge_group.base_sha }}
+          PR_SCOPE_MERGE_HEAD: ${{ github.event.merge_group.head_sha }}
+          PR_SCOPE_BEFORE: ${{ github.event.before }}
+          PR_SCOPE_SHA: ${{ github.sha }}
+        run: bash scripts/pr-checks/change-scope.sh
 
       - name: Resolve shared gate plan
         id: gate-plan
@@ -207,21 +185,7 @@ jobs:
         run: node scripts/provider-browser-install-timeout.mjs
 
       - name: Installed-boundary controls
-        run: |
-          python3 scripts/provider-object-disposition/browser-boundary/ownership.test.py
-          python3 scripts/provider-object-disposition/browser-boundary/ownership-race.test.py
-          python3 scripts/provider-object-disposition/browser-boundary/identity-controls.test.py
-          python3 scripts/provider-object-disposition/browser-boundary/native-variants.test.py
-          python3 scripts/provider-object-disposition/browser-boundary/peer-observe.test.py
-          python3 scripts/provider-object-disposition/browser-boundary/ownership-stimulus.test.py
-          python3 scripts/provider-object-disposition/browser-boundary/path-stimulus.test.py
-          python3 scripts/provider-object-disposition/browser-boundary/path-fixtures.py
-          python3 scripts/provider-object-disposition/browser-boundary/pid-reuse.test.py
-          python3 scripts/provider-object-disposition/browser-boundary/r3-stimulus.test.py
-          python3 scripts/provider-object-disposition/browser-boundary/installer-failure.test.py
-          pnpm exec vitest run --config vitest.scripts.config.mjs scripts/provider-object-disposition/test-window-policy.test.mjs scripts/provider-object-disposition/browser-boundary/bootstrap.test.mjs scripts/provider-object-disposition/browser-boundary/protocol.test.mjs
-          pnpm exec vitest run --config vitest.scripts.config.mjs scripts/provider-object-disposition/test-window-admission.test.mjs scripts/provider-object-disposition/test-window-main.test.mjs scripts/provider-object-disposition/test-window-driver.test.mjs scripts/provider-object-disposition/test-window-packet.test.mjs scripts/provider-object-disposition/publish-test-window.test.mjs scripts/provider-object-disposition/browser-boundary/installation-cycle.test.mjs scripts/provider-object-disposition/browser-boundary/browser-lifecycle-controls.test.mjs
-          node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs
+        run: bash scripts/pr-checks/static-checks.sh controls
 
       - name: Remove owned provider browser boundary
         if: always()
@@ -231,7 +195,7 @@ jobs:
         if: always()
         env:
           SOURCE_RESULT: ${{ needs.static-source.result }}
-        run: test "$SOURCE_RESULT" = success
+        run: bash scripts/pr-checks/static-checks.sh require-source
 
   typecheck:
     name: Typecheck
@@ -269,9 +233,10 @@ jobs:
           install: true
 
       - name: Run non-DB tests
-        run: |
-          node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.unit_test_workspaces }}" --shard=${{ matrix.shard }}/2
-          node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.unit_test_workspaces }}" --shard=${{ matrix.shard }}/2
+        env:
+          UNIT_TEST_WORKSPACES: ${{ needs['change-scope'].outputs.unit_test_workspaces }}
+          UNIT_TEST_SHARD: ${{ matrix.shard }}
+        run: bash scripts/pr-checks/unit-tests.sh
 
   canonical-proof-sets:
     name: Canonical Proof Sets
@@ -338,79 +303,14 @@ jobs:
       - name: Raise PostgreSQL lock table capacity for DB Profile
         env:
           POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
-        run: |
-          set -euo pipefail
-
-          # The eight-file bootstrap DB partition (#6035) runs with bounded
-          # --maxWorkers=3, so up to ~3 x ~20 concurrent multi-context pools
-          # each cascade-drop their schemas in beforeEach. max_locks_per_transaction
-          # is a postmaster-start parameter: ALTER SYSTEM only stages the
-          # change, the shared lock table isn't resized until the postmaster
-          # restarts (a reload/SIGHUP is not sufficient), so this restarts the
-          # service container and confirms the effective setting before any
-          # DB-profile command runs.
-          target_max_locks_per_transaction=512
-          # 300 is bounded headroom, not an observed hosted peak. Workspace
-          # concurrency stays 2; pools allocate clients on demand, not at max.
-          target_max_connections=300
-
-          free -m
-          docker inspect --format 'Memory={{.HostConfig.Memory}} MemorySwap={{.HostConfig.MemorySwap}} ShmSize={{.HostConfig.ShmSize}} (bytes; Memory=0 means no Docker limit)' "$POSTGRES_CONTAINER_ID"
-          docker exec "$POSTGRES_CONTAINER_ID" sh -c '
-            for setting in /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.high /sys/fs/cgroup/memory/memory.limit_in_bytes; do
-              if [ -r "$setting" ]; then printf "%s=" "$setting"; cat "$setting"; fi
-            done'
-
-          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
-            "ALTER SYSTEM SET max_locks_per_transaction = ${target_max_locks_per_transaction};"
-          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
-            "ALTER SYSTEM SET max_connections = ${target_max_connections};"
-          docker restart "$POSTGRES_CONTAINER_ID"
-
-          ready=false
-          for _ in $(seq 1 30); do
-            if docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
-              ready=true
-              break
-            fi
-            sleep 1
-          done
-          if [ "$ready" != "true" ]; then
-            echo "PostgreSQL did not become ready within 30s after restart." >&2
-            docker logs "$POSTGRES_CONTAINER_ID" >&2 || true
-            exit 1
-          fi
-
-          effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')"
-          if [ "$effective" != "$target_max_locks_per_transaction" ]; then
-            echo "Expected max_locks_per_transaction=${target_max_locks_per_transaction} but Postgres reports ${effective}." >&2
-            exit 1
-          fi
-          echo "PostgreSQL max_locks_per_transaction is now ${effective}."
-
-          effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_connections;' | tr -d '[:space:]')"
-          if [ "$effective" != "$target_max_connections" ]; then
-            echo "Expected max_connections=${target_max_connections} but Postgres reports ${effective}." >&2
-            exit 1
-          fi
-          echo "PostgreSQL max_connections is now ${effective}."
-          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
-            'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;'
+        run: bash scripts/pr-checks/db-tests.sh prepare
 
       - name: Select platform API evidence before running tests
         id: platform-api-selected
         env:
           AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}
-        run: |
-          if [[ "${{ matrix.db-workspace-group }}" != "api" ]]; then
-            echo "selected=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ]]; then
-            echo "selected=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "selected=false" >> "$GITHUB_OUTPUT"
-          fi
+          DB_WORKSPACE_GROUP: ${{ matrix.db-workspace-group }}
+        run: bash scripts/pr-checks/db-tests.sh select
 
       - name: Run DB-profile tests
         run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency="$DB_WORKSPACE_CONCURRENCY" --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}
@@ -429,16 +329,7 @@ jobs:
         continue-on-error: true
         env:
           POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
-        run: |
-          mkdir -p "${RUNNER_TEMP}/db-profile-diagnostics"
-          {
-            echo 'Post-failure observation only; not failure-instant or peak attribution.'
-            date -u +'%Y-%m-%dT%H:%M:%SZ'
-            timeout 15s docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
-              'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;' || echo 'PostgreSQL settings unavailable.'
-            timeout 15s docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
-              'SELECT datname, application_name, state, count(*) FROM pg_stat_activity GROUP BY 1,2,3 ORDER BY 4 DESC;' || echo 'PostgreSQL activity unavailable.'
-          } > "${RUNNER_TEMP}/db-profile-diagnostics/post-failure.txt" 2>&1
+        run: bash scripts/pr-checks/db-tests.sh diagnostics
 
       - name: Upload post-failure PostgreSQL state
         if: failure()
@@ -481,43 +372,14 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
           PLAYWRIGHT_INSTALL_SITE: platform-pr-synthetic-capture
           PLAYWRIGHT_INSTALL_POLICY: single-attempt
-        run: |
-          set -euo pipefail
-          test -n "$AC4_SOURCE_SHA"
-          test "$(git rev-parse HEAD)" = "$AC4_SOURCE_SHA"
-          test "${CHASE_SETS_LANE_MODE+x}" != x
-          printf 'AC4 source=%s run=%s attempt=%s job=%s\n' \
-            "$AC4_SOURCE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB"
-          node scripts/playwright-chromium-install.mjs
+        run: bash scripts/pr-checks/capture-hermetic-chromium.sh install
 
       - name: Prove three synthetic Chromium capture cases
         shell: bash
         timeout-minutes: 4
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
-        run: |
-          set -euo pipefail
-          CHASE_SETS_HERMETIC_CHROMIUM=1 xvfb-run --auto-servernum \
-            pnpm --filter @chase-sets/channels run test:unit \
-            features/connector-client/integrations/order-authority-probe/capture.test.ts \
-            -t 'host-attributed hermetic Chromium' \
-            --maxWorkers=1 --no-file-parallelism \
-            --reporter=verbose --reporter=json \
-            --outputFile.json="$RUNNER_TEMP/ac4-chromium.json"
-          node --input-type=module -e '
-          import fs from "node:fs";
-          const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-          const a = r.testResults.flatMap(x => x.assertionResults);
-          const selected = a.filter(x => x.fullName.includes("host-attributed hermetic Chromium"));
-          const names = ["qualified", "canceled", "expired"];
-          if (r.success !== true || selected.length !== 3 ||
-              selected.some(x => x.status !== "passed") ||
-              names.some(n => selected.filter(x => x.fullName.includes("terminal " + n + " with synthetic install/removal")).length !== 1) ||
-              a.some(x => x.status === "passed" && !selected.includes(x))) {
-            throw new Error("AC4 requires exactly the three named Chromium cases to pass");
-          }
-          console.log("AC4: qualified/canceled/expired passed; synthetic only");
-          ' "$RUNNER_TEMP/ac4-chromium.json"
+        run: bash scripts/pr-checks/capture-hermetic-chromium.sh prove
 
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
@@ -546,34 +408,12 @@ jobs:
         id: responsive-evidence-checkout
         env:
           RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
-        run: |
-          set -euo pipefail
-          checkout_commit="$(git rev-parse --verify 'HEAD^{commit}')"
-          checkout_tree="$(git rev-parse --verify 'HEAD^{tree}')"
-          checkout_parents="$(git show -s --diff-merges=off --format=%P HEAD)"
-          executed_base_sha="$(printf '%s\n' "$checkout_parents" | awk '{print $1}')"
-          executed_base_tree="$(git rev-parse --verify "${executed_base_sha}^{tree}")"
-          source_head_tree="$(git rev-parse --verify "${RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA}^{tree}")"
-          {
-            echo "checkout-commit=${checkout_commit}"
-            echo "checkout-tree=${checkout_tree}"
-            echo "checkout-parents=${checkout_parents}"
-            echo "executed-base-sha=${executed_base_sha}"
-            echo "executed-base-tree=${executed_base_tree}"
-            echo "source-head-tree=${source_head_tree}"
-          } >> "$GITHUB_OUTPUT"
+        run: bash scripts/pr-checks/e2e-tests.sh checkout
 
       - name: Resolve Playwright Chromium cache
         id: playwright-chromium
         shell: bash
-        run: |
-          set -euo pipefail
-          version="$(pnpm exec playwright --version | awk '{print $2}')"
-          test -n "$version"
-          browser_path="${RUNNER_TEMP}/playwright-chromium/${RUNNER_OS}/${RUNNER_ARCH}/${version}"
-          echo "browser-path=${browser_path}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "PLAYWRIGHT_BROWSERS_PATH=${browser_path}" >> "$GITHUB_ENV"
+        run: bash scripts/pr-checks/e2e-tests.sh cache
 
       - name: Cache Playwright Chromium
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
@@ -597,9 +437,8 @@ jobs:
           RENDERED_COPY_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
           RENDERED_COPY_JOB_INDEX: ${{ strategy.job-index }}
           PLAYWRIGHT_BROWSERS_PATH: "${{ steps.playwright-chromium.outputs.browser-path }}"
-        run: |
-          set -o pipefail
-          pnpm run test:e2e:suite "${{ matrix.suite_batch }}" 2>&1 | tee "${RUNNER_TEMP}/responsive-evidence-producer.log"
+          E2E_SUITE_BATCH: ${{ matrix.suite_batch }}
+        run: bash scripts/pr-checks/e2e-tests.sh run
 
       - name: Upload rendered-copy observation part
         id: rendered-copy-part-upload
@@ -1963,61 +1802,10 @@ jobs:
 
       - name: Verify required jobs
         env:
+          PR_REQUIRED_NEEDS_JSON: ${{ toJSON(needs) }}
           AC4_E2E_REQUIRED: ${{ needs['change-scope'].outputs.e2e_tests_required }}
           AC4_E2E_SUITES_JSON: ${{ needs['change-scope'].outputs.e2e_suites_json }}
-        run: |
-          set -euo pipefail
-
-          require_job() {
-            local name="$1"
-            local result="$2"
-            local required="$3"
-
-            if [ "$required" != "true" ] && [ "$required" != "false" ]; then
-              echo "${name} has unknown or missing gate-plan requirement '${required}'." >&2
-              exit 1
-            fi
-
-            if [ "$required" = "true" ]; then
-              if [ "$result" != "success" ]; then
-                echo "${name} was required but finished with result '${result}'." >&2
-                exit 1
-              fi
-              return
-            fi
-
-            if [ "$result" != "skipped" ] && [ "$result" != "success" ]; then
-              echo "${name} was not required but finished with unexpected result '${result}'." >&2
-              exit 1
-            fi
-          }
-
-          require_job "Known Failure Guard" "${{ needs['known-failure-guard'].result }}" "${{ needs['change-scope'].outputs.known_failure_guard_required }}"
-          require_job "Change Scope" "${{ needs['change-scope'].result }}" "${{ needs['change-scope'].outputs.change_scope_required }}"
-          require_job "Static Checks" "${{ needs.static.result }}" "${{ needs['change-scope'].outputs.static_required }}"
-          require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs['change-scope'].outputs.typecheck_required }}"
-          require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests_required }}"
-          require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests_required }}"
-          require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests_required }}"
-          capture_required="$(node --input-type=module -e '
-          const required = process.env.AC4_E2E_REQUIRED;
-          const suites = JSON.parse(process.env.AC4_E2E_SUITES_JSON);
-          if (!["true", "false"].includes(required) || !Array.isArray(suites) ||
-              suites.some(suite => typeof suite !== "string" || suite.length === 0)) {
-            throw new Error("Capture Hermetic Chromium has unknown or missing selection");
-          }
-          console.log(required === "true" && suites.includes("tcgplayer_connector_extension"));
-          ')"
-          require_job "Capture Hermetic Chromium" "${{ needs['capture-hermetic-chromium'].result }}" "$capture_required"
-          require_job "Build" "${{ needs.build.result }}" "${{ needs['change-scope'].outputs.build_required }}"
-          require_job "Docker Image Build" "${{ needs['docker-image'].result }}" "${{ needs['change-scope'].outputs.docker_image_required }}"
-          require_job "Workflow Lint" "${{ needs['workflow-lint'].result }}" "${{ needs['change-scope'].outputs.workflow_lint_required }}"
-          require_job "Terraform Preview Plan" "${{ needs['terraform-preview-plan'].result }}" "${{ needs['change-scope'].outputs.terraform_preview_plan_required }}"
-          require_job "Terraform Staging Plan" "${{ needs['terraform-staging-plan'].result }}" "${{ needs['change-scope'].outputs.terraform_staging_plan_required }}"
-          require_job "Terraform Production Plan" "${{ needs['terraform-production-plan'].result }}" "${{ needs['change-scope'].outputs.terraform_production_plan_required }}"
-          require_job "Terraform Observability Plan" "${{ needs['terraform-observability-plan'].result }}" "${{ needs['change-scope'].outputs.terraform_observability_plan_required }}"
-          require_job "Deploy Preview and Smoke" "${{ needs['preview-deploy-smoke'].result }}" "${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}"
-          require_job "Compose Boot Smoke" "${{ needs['compose-preview-smoke'].result }}" "${{ needs['change-scope'].outputs.compose_preview_smoke_required }}"
+        run: node scripts/pr-checks/required-jobs.mjs
 
       - name: Verify canonical proof sets
         env:
@@ -2052,25 +1840,14 @@ jobs:
 
       - name: Add status to job summary
         if: always()
-        run: cat artifacts/pr-release-status.md >> "$GITHUB_STEP_SUMMARY"
+        run: node ./scripts/pr-release-status.mjs summary
 
       - name: Update PR release status comment
         if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          comment_id="$(
-            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- chase-sets-pr-release-status -->"))) | .id' | tail -n 1
-          )"
-          if [ -n "$comment_id" ]; then
-            gh api --method PATCH "repos/${{ github.repository }}/issues/comments/${comment_id}" \
-              -f body="$(cat artifacts/pr-release-status.md)" >/dev/null
-          else
-            gh api --method POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-              -f body="$(cat artifacts/pr-release-status.md)" >/dev/null
-          fi
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node ./scripts/pr-release-status.mjs comment
 
   # Advisory-only release qualification lane classifier (issue #5837).
   # Not a required check: classification outcomes — including fail-closed

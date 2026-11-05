@@ -14,6 +14,8 @@ import {
   validateCachePath,
 } from "./playwright-chromium-install.mjs";
 import { runInstaller } from "./provider-browser-install-timeout.mjs";
+import { stageRun } from "./fixtures/workflow-composition/harness.mjs";
+import { requiredJobs } from "./pr-checks/required-jobs.mjs";
 import { classifyDeploymentRootCause } from "./platform-deploy-incident.mjs";
 
 const directories = [];
@@ -416,8 +418,8 @@ describe("Playwright Chromium installer primitive", () => {
       const consumer = candidate.steps.find((step) => step.name === consumerName);
       expect(install, `${site} install`).toBeTruthy();
       expect(consumer, `${site} consumer`).toBeTruthy();
-      expect(install.run).toContain("node scripts/playwright-chromium-install.mjs");
-      expect(install.run.match(/node scripts\/playwright-chromium-install\.mjs/g)).toHaveLength(attempts);
+      expect(stageRun(install)).toContain("node scripts/playwright-chromium-install.mjs");
+      expect(stageRun(install).match(/node scripts\/playwright-chromium-install\.mjs/g)).toHaveLength(attempts);
       if (attempts === 1 && wf !== "platformPr")
         expect(install.run).toBe("node scripts/playwright-chromium-install.mjs");
       expect(install["timeout-minutes"]).toBe(installMinutes);
@@ -465,7 +467,7 @@ describe("Playwright Chromium installer primitive", () => {
     expect(classifier.run).not.toContain("staging-browser-install-attempts.txt");
     for (const wf of Object.values(workflows)) {
       for (const candidate of Object.values(wf.jobs)) {
-        for (const step of candidate.steps ?? []) expect(step.run ?? "").not.toMatch(/playwright install/);
+        for (const step of candidate.steps ?? []) expect(stageRun(step) ?? "").not.toMatch(/playwright install/);
       }
     }
     expect(rows).toHaveLength(10);
@@ -528,8 +530,8 @@ describe("Playwright Chromium installer primitive", () => {
       at("Run marketplace e2e suites"),
     ]).toEqual([resolveAt + 1, resolveAt + 2, resolveAt + 3]);
     const [resolveStep, cache, install, suites] = job.steps.slice(resolveAt, resolveAt + 4);
-    expect(resolveStep.run).toContain("set -euo pipefail");
-    expect(resolveStep.run).toContain(
+    expect(stageRun(resolveStep)).toContain("set -euo pipefail");
+    expect(stageRun(resolveStep)).toContain(
       'browser_path="${RUNNER_TEMP}/playwright-chromium/${RUNNER_OS}/${RUNNER_ARCH}/${version}"',
     );
     expect(cache.with).toEqual({
@@ -548,14 +550,13 @@ describe("Playwright Chromium installer primitive", () => {
     });
     expect(suites.if).toBeUndefined();
     expect(suites["continue-on-error"]).toBeUndefined();
-    expect(suites.run.startsWith("set -o pipefail\n")).toBe(true);
+    expect(stageRun(suites).startsWith("set -o pipefail\n")).toBe(true);
     expect(suites.env.PLAYWRIGHT_BROWSERS_PATH).toBe("${{ steps.playwright-chromium.outputs.browser-path }}");
     expect(job.steps.filter((step) => /playwright install/.test(step.run ?? ""))).toEqual([]);
     const required = workflow.jobs["pr-required"];
     expect(required.needs).toContain("e2e-tests");
-    expect(required.steps.map((step) => step.run ?? "").join("\n")).toContain(
-      `require_job "E2E Tests" "\${{ needs['e2e-tests'].result }}" "\${{ needs['change-scope'].outputs.e2e_tests_required }}"`,
-    );
+    expect(required.steps.find((step) => step.name === "Verify required jobs").run).toBe("node scripts/pr-checks/required-jobs.mjs");
+    expect(requiredJobs).toContainEqual(["e2e-tests", "E2E Tests", "e2e_tests_required"]);
   });
 
   it("AC1 passes the native 180-second bound and retries one failed attempt sequentially", async () => {

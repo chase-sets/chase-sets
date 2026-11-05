@@ -204,8 +204,10 @@ describe("run-workspaces", () => {
     expect(rootScripts["coverage:fast"]).toContain("--exclude-test-profile=db");
     expect(rootScripts["coverage:fast"]).toContain("test:unit --test-profile=db");
     const workflow = readFileSync(".github/workflows/platform-pr.yml", "utf8");
-    expect(workflow).toContain("test --exclude-test-profile=db");
-    expect(workflow).toContain("test:unit --test-profile=db");
+    expect(workflow).toContain("run: bash scripts/pr-checks/unit-tests.sh");
+    const unitOwner = readFileSync("scripts/pr-checks/unit-tests.sh", "utf8");
+    expect(unitOwner).toContain("test --exclude-test-profile=db");
+    expect(unitOwner).toContain("test:unit --test-profile=db");
     expect(workflow).toContain("DB Profile Tests");
     if (process.env.DISCOVERY_RELEVANCE_SELECTION_OUT)
       writeFileSync(

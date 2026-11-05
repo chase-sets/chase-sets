@@ -765,11 +765,13 @@ it("canonical proof sets: keeps an ordinary unrelated empty selection valid", ()
 
 it("enables first-parent scope for both hosted PR merge events", () => {
   const workflow = readFileSync(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8");
-  expect(workflow).toContain(
-    'if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "merge_group" ]; then',
+  expect(workflow).toContain("run: bash scripts/pr-checks/change-scope.sh");
+  const owner = readFileSync(path.join(repoRoot, "scripts/pr-checks/change-scope.sh"), "utf8");
+  expect(owner).toContain(
+    'if [ "$PR_SCOPE_EVENT_NAME" = "pull_request" ] || [ "$PR_SCOPE_EVENT_NAME" = "merge_group" ]; then',
   );
-  expect(workflow).toContain('first_parent="--first-parent"');
-  expect(workflow).toContain('github-output --base="${base}" --head="${head}" $first_parent');
+  expect(owner).toContain('first_parent="--first-parent"');
+  expect(owner).toContain('github-output --base="${base}" --head="${head}" $first_parent');
 });
 
 async function importChangeScopeVariant(source) {
