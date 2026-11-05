@@ -232,7 +232,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `cafbb903` (Corten `main` on 2026-11-05). No release is tagged. The
+`Cargo.toml` pins Corten to `772f55d9` (Corten `main` on 2026-11-05). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
 [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten pin") and in `git log -- deployables/corten-pilot/Cargo.toml`.
@@ -273,7 +273,6 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 |---|---|---|
 | [corten-run/corten#890 A handler cannot refuse a request the way an extractor does, so its 403 page starts no layout read](https://github.com/corten-run/corten/issues/890) | Corten starts the layout's reads for every other 4xx error page ([corten#877](https://github.com/corten-run/corten/issues/877), pin `ebbbc792`). For a handler's own 4xx, the error page takes `ErrorPageCount`, reads the cart count itself, and gives it with `HtmlResponse::give::<CartCount>` ([marketplace/src/chrome.rs](marketplace/src/chrome.rs), [marketplace/src/views.rs](marketplace/src/views.rs)) | A handler can refuse as an extractor does: return that refusal from the account switch and drop `ErrorPageCount` |
 | [todd-skelton/corten#862 The kit's Pagination ties its link closure's borrow to the links' lifetime, so a named closure that returns a borrowed link does not compile](https://github.com/todd-skelton/corten/issues/862) | `review_page` returns an owned `Box<dyn Href>`, called from an inline closure ([admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs)) | `Pagination` separates the two lifetimes: a named closure can borrow |
-| [corten-run/corten#926 Kit Badge never wraps and is as wide as its text, so a badge holding a long key overflows a phone-width page](https://github.com/corten-run/corten/issues/926) | The daily workbench's filter badges are capped at their row and break anywhere ([admin/src/catalog/views/daily_page.css](admin/src/catalog/views/daily_page.css)) | The kit's Badge stays inside its container: drop the `.badges > *` rule |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 

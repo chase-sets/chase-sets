@@ -92,14 +92,6 @@
   flex-wrap: wrap;
   gap: var(--space-1);
 }
-/* Workaround for corten-run/corten#926: the kit's Badge is nowrap and as wide as its text, so a
-   filter badge naming a provider unit key is wider than a phone. Cap it at the row and let its text
-   break anywhere until the kit does. */
-.badges > * {
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 .stack {
   display: grid;
   gap: var(--space-4);
