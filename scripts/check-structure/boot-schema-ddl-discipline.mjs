@@ -403,6 +403,7 @@ export function findBootSchemaRetainedUpgradeViolations({ baseSource, currentSou
 
 function hasOrderedRetainedColumnProof({ baseSource, currentSource, tableName, columnName }) {
   if (!hasCompleteOrderedProofSource(baseSource) || !hasCompleteOrderedProofSource(currentSource)) return false;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(tableName)) return false;
   const templates = extractExportedBootSchemaSqlTemplates(currentSource);
   if (
     templates.some((template) => template.valid === false) ||
@@ -410,7 +411,7 @@ function hasOrderedRetainedColumnProof({ baseSource, currentSource, tableName, c
   )
     return false;
   const tablePattern = new RegExp(
-    `^CREATE\\s+(?:UNLOGGED\\s+)?TABLE\\s+IF\\s+NOT\\s+EXISTS\\s+${escapeRegExp(tableName)}\\s*\\(`,
+    `^\\s*CREATE\\s+(?:UNLOGGED\\s+)?TABLE\\s+IF\\s+NOT\\s+EXISTS\\s+${escapeRegExp(tableName)}\\s*\\(`,
     "i",
   );
   const columnPattern = new RegExp(`\\b${escapeRegExp(columnName)}\\b`, "i");
@@ -419,16 +420,17 @@ function hasOrderedRetainedColumnProof({ baseSource, currentSource, tableName, c
     `^ALTER\\s+TABLE(?:\\s+IF\\s+EXISTS)?(?:\\s+ONLY)?\\s+${escapeRegExp(tableName)}\\s+([\\s\\S]+)$`,
     "i",
   );
-  const bootStatements = templates.flatMap((template) =>
-    maskSqlNonExecutableText(template.sql)
-      .split(";")
-      .filter((sql) => sql.trim())
-      .map((sql) => ({ template, sql: sql.trim() })),
-  );
+  const bootStatements = [];
+  for (const template of templates) {
+    const statements = readOrderedProofStatements(template.sql);
+    if (!statements) return false;
+    bootStatements.push(...statements.map((statement) => ({ template, ...statement })));
+  }
   const creates = bootStatements.filter(({ sql }) => tablePattern.test(sql));
   if (
     creates.length !== 1 ||
-    bootStatements.some(({ sql }) => {
+    bootStatements.some((statement) => {
+      const sql = maskSqlNonExecutableText(statement.sql).trim();
       if (tablePattern.test(sql)) return false;
       if (columnPattern.test(sql) || /^(?:DO|CALL|EXECUTE)\b/i.test(sql)) return true;
       if (!tableReferencePattern.test(sql)) return false;
@@ -442,17 +444,8 @@ function hasOrderedRetainedColumnProof({ baseSource, currentSource, tableName, c
     })
   )
     return false;
-  const createSql = creates[0].sql;
-  const columnsStart = tablePattern.exec(createSql)[0].length - 1;
-  const columnsEnd = findBalancedEnd(createSql, columnsStart, "(", ")");
-  const declarationPattern = new RegExp(`^\\s*"?${escapeRegExp(columnName)}"?\\s+[A-Za-z_]`, "i");
-  if (
-    columnsEnd === -1 ||
-    splitTopLevelCommaClauses(createSql.slice(columnsStart + 1, columnsEnd)).filter((clause) =>
-      declarationPattern.test(clause),
-    ).length !== 1
-  )
-    return false;
+  const createDefinition = readOrderedCreateColumn(creates[0], tablePattern, columnName);
+  if (createDefinition === null) return false;
   const ledgerName = creates[0].template.name.replace(/SchemaSql$/, "SchemaMigrations");
   const currentLedgers = extractSchemaMigrationLedgers(currentSource).filter((ledger) => ledger.name === ledgerName);
   const baseLedgers = extractSchemaMigrationLedgers(baseSource).filter((ledger) => ledger.name === ledgerName);
@@ -461,19 +454,6 @@ function hasOrderedRetainedColumnProof({ baseSource, currentSource, tableName, c
     (migration) => migration.ledgerName === ledgerName,
   );
   const base = extractSchemaMigrationStatements(baseSource).filter((migration) => migration.ledgerName === ledgerName);
-  if (
-    extractSchemaMigrationStatements(currentSource).some(
-      (migration) =>
-        migration.ledgerName !== ledgerName &&
-        (!migration.valid ||
-          migration.statements.some(({ sql }) =>
-            maskSqlNonExecutableText(sql)
-              .split(";")
-              .some((statement) => columnPattern.test(statement) || /^\s*(?:DO|CALL|EXECUTE)\b/i.test(statement)),
-          )),
-    )
-  )
-    return false;
   if (base.length === 0 || current.length <= base.length || [...base, ...current].some((migration) => !migration.valid))
     return false;
   for (let index = 0; index < base.length; index += 1) {
@@ -484,43 +464,210 @@ function hasOrderedRetainedColumnProof({ baseSource, currentSource, tableName, c
     )
       return false;
   }
-  const ordered = current.flatMap((migration, index) =>
-    migration.statements.flatMap(({ sql }) =>
-      maskSqlNonExecutableText(sql)
-        .split(";")
-        .filter((statement) => statement.trim())
-        .map((statement) => ({ migrationIndex: index, sql: statement.trim() })),
-    ),
-  );
+  const ordered = [];
+  for (const [migrationIndex, migration] of current.entries()) {
+    for (const { sql } of migration.statements) {
+      const statements = readOrderedProofStatements(sql);
+      if (!statements) return false;
+      ordered.push(...statements.map((statement) => ({ migrationIndex, ...statement })));
+    }
+  }
   const alterPattern = new RegExp(`^ALTER\\s+TABLE(?:\\s+ONLY)?\\s+${escapeRegExp(tableName)}\\s+([\\s\\S]+)$`, "i");
-  const addPattern = new RegExp(
-    `^ADD\\s+COLUMN\\s+IF\\s+NOT\\s+EXISTS\\s+${escapeRegExp(columnName)}\\s+[A-Za-z_][A-Za-z0-9_]*(?:\\b|\\[)`,
-    "i",
-  );
   const anyAddPattern = new RegExp(
     `^ADD\\s+(?:COLUMN\\s+)?(?:IF\\s+NOT\\s+EXISTS\\s+)?${escapeRegExp(columnName)}\\b`,
     "i",
   );
   const additions = ordered.flatMap((statement, index) => {
-    const alter = alterPattern.exec(statement.sql);
+    const alter = alterPattern.exec(statement.sql.trim());
     return alter
       ? splitTopLevelCommaClauses(alter[1])
           .filter((clause) => anyAddPattern.test(clause.trim()))
-          .map((clause) => ({ index, valid: addPattern.test(clause.trim()) }))
+          .map(() => ({ index }))
       : [];
   });
-  if (additions.length !== 1 || !additions[0].valid) return false;
+  if (additions.length !== 1) return false;
   const addition = additions[0].index;
   if (ordered[addition].migrationIndex < base.length) return false;
+  const addPattern = new RegExp(
+    `^\\s*ALTER\\s+TABLE\\s+${escapeRegExp(tableName)}\\s+ADD\\s+COLUMN\\s+IF\\s+NOT\\s+EXISTS\\s+(${escapeRegExp(columnName)}\\s+[\\s\\S]+)$`,
+    "i",
+  );
+  const addMatch = addPattern.exec(ordered[addition].sql);
+  if (!addMatch || !isSupportedOrderedColumnDefinition(addMatch[1], columnName)) return false;
+  const addDefinition = ordered[addition].raw.slice(addMatch[0].length - addMatch[1].length).trim();
+  if (createDefinition !== addDefinition) return false;
+  if (
+    !hasPreservedOrderedColumnState({
+      ordered,
+      addition,
+      baseLength: base.length,
+      siblings: extractSchemaMigrationStatements(currentSource).filter(
+        (migration) => migration.ledgerName !== ledgerName,
+      ),
+      tableName,
+      columnName,
+    })
+  )
+    return false;
   const before = ordered.slice(0, addition);
   const normalizerPattern = new RegExp(
     `^UPDATE\\s+${escapeRegExp(tableName)}\\s+SET\\b[\\s\\S]*\\bWHERE\\b[\\s\\S]*\\bIS\\s+NULL\\b`,
     "i",
   );
   return (
-    before.some(({ migrationIndex, sql }) => migrationIndex < base.length && normalizerPattern.test(sql)) &&
-    before.every(({ sql }) => !columnPattern.test(sql) && !/^(?:DO|CALL|EXECUTE|SELECT|INSERT)\b/i.test(sql))
+    before.some(({ migrationIndex, sql }) => migrationIndex < base.length && normalizerPattern.test(sql.trim())) &&
+    before.every(({ sql }) => {
+      const executable = maskSqlNonExecutableText(sql).trim();
+      return !columnPattern.test(executable) && !/^(?:DO|CALL|EXECUTE|SELECT|INSERT)\b/i.test(executable);
+    })
   );
+}
+
+function isSupportedOrderedColumnDefinition(sql, columnName) {
+  const scalar = "(?:-?\\d+(?:\\.\\d+)?|TRUE|FALSE|NULL|'(?:[^'\\\\]|'')*')";
+  const nullability = "(?:NOT\\s+NULL|NULL)";
+  const type = "(?:smallint|integer|bigint|boolean|text|uuid|real|numeric|jsonb|date|timestamptz)";
+  return new RegExp(
+    `^${escapeRegExp(columnName)}\\s+${type}(?:\\s+${nullability})?(?:\\s+DEFAULT\\s+${scalar})?$|^${escapeRegExp(columnName)}\\s+${type}\\s+DEFAULT\\s+${scalar}\\s+${nullability}$`,
+    "i",
+  ).test(sql.trim());
+}
+
+function readOrderedCreateColumn(statement, tablePattern, columnName) {
+  const start = tablePattern.exec(statement.sql)[0].length - 1;
+  const end = findBalancedEnd(statement.sql, start, "(", ")");
+  if (end === -1 || statement.sql.slice(end + 1).trim()) return null;
+  const clauses = splitTopLevelCommaClauses(statement.sql.slice(start + 1, end));
+  const target = new RegExp(`^\\s*"?${escapeRegExp(columnName)}"?\\s+`, "i");
+  const reference = new RegExp(`\\b${escapeRegExp(columnName)}\\b`, "i");
+  const matches = [];
+  let offset = start + 1;
+  for (const clause of clauses) {
+    if (target.test(clause)) {
+      if (!isSupportedOrderedColumnDefinition(clause, columnName)) return null;
+      matches.push(statement.raw.slice(offset, offset + clause.length).trim());
+    } else if (
+      !/^\s*[A-Za-z_][A-Za-z0-9_]*\s+[A-Za-z_]/.test(clause) ||
+      /^\s*(?:CHECK|CONSTRAINT|EXCLUDE|FOREIGN|PRIMARY|UNIQUE|LIKE)\b/i.test(clause) ||
+      reference.test(maskSqlNonExecutableText(clause))
+    ) {
+      return null;
+    }
+    offset += clause.length + 1;
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function hasPreservedOrderedColumnState({ ordered, addition, baseLength, siblings, tableName, columnName }) {
+  for (const [index, statement] of ordered.entries()) {
+    if (index === addition || statement.migrationIndex < baseLength) continue;
+    if (!isSupportedOrderedInertStatement(statement.sql, { tableName, columnName, before: index < addition }))
+      return false;
+  }
+  for (const migration of siblings) {
+    if (!migration.valid) return false;
+    for (const { sql } of migration.statements) {
+      const statements = readOrderedProofStatements(sql);
+      if (!statements) return false;
+      if (
+        statements.some(
+          (statement) => !isSupportedOrderedInertStatement(statement.sql, { tableName, columnName, sibling: true }),
+        )
+      )
+        return false;
+    }
+  }
+  return true;
+}
+
+function isSupportedOrderedInertStatement(sql, { tableName, columnName, before = false, sibling = false }) {
+  const scalar = "(?:-?\\d+(?:\\.\\d+)?|TRUE|FALSE|NULL|'(?:[^'\\\\]|'')*')";
+  const statement = sql.trim();
+  if (/^SET\s+(?:LOCAL\s+)?lock_timeout\s*=\s*'\d+(?:ms|s|min)'$/i.test(statement)) return true;
+  if (new RegExp(`^SELECT\\s+${scalar}$`, "i").test(statement)) return !before;
+  const identifier = "[A-Za-z_][A-Za-z0-9_]*";
+  const update = new RegExp(
+    `^UPDATE\\s+(${identifier})\\s+SET\\s+(${identifier})\\s*=\\s*(${scalar}|${identifier}(?:\\s*\\+\\s*\\d+)?)(?:\\s+WHERE\\s+(${identifier})\\s+IS\\s+NULL)?$`,
+    "i",
+  ).exec(statement);
+  if (!update) return false;
+  if (
+    !new RegExp(`^${scalar}$`, "i").test(update[3]) &&
+    !new RegExp(`^${escapeRegExp(update[2])}(?:\\s*\\+\\s*\\d+)?$`, "i").test(update[3])
+  )
+    return false;
+  if (sibling && update[1].toLowerCase() === tableName) return false;
+  if (before || sibling) {
+    const executable = maskSqlNonExecutableText(statement);
+    if (new RegExp(`\\b${escapeRegExp(columnName)}\\b`, "i").test(executable)) return false;
+  }
+  return true;
+}
+
+function readOrderedProofStatements(sql) {
+  const normalized = sql.split("");
+  const statements = [];
+  const delimiters = [];
+  let start = 0;
+  const append = (end) => {
+    const text = normalized.slice(start, end).join("");
+    if (text.trim()) statements.push({ sql: text, raw: sql.slice(start, end) });
+    start = end + 1;
+  };
+  const blank = (index) => {
+    if (sql[index] !== "\n" && sql[index] !== "\r") normalized[index] = " ";
+  };
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index];
+    if (character === "\\" || character === "$" || character === "`") return null;
+    if (sql.startsWith("--", index)) {
+      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") blank(index++);
+      index -= 1;
+    } else if (sql.startsWith("/*", index)) {
+      let depth = 1;
+      blank(index++);
+      blank(index++);
+      while (index < sql.length && depth) {
+        if (sql.startsWith("/*", index)) {
+          depth += 1;
+          blank(index++);
+          blank(index++);
+        } else if (sql.startsWith("*/", index)) {
+          depth -= 1;
+          blank(index++);
+          blank(index++);
+        } else {
+          blank(index++);
+        }
+      }
+      if (depth) return null;
+      index -= 1;
+    } else if (character === "'" || character === '"') {
+      const quote = character;
+      let closed = false;
+      for (index += 1; index < sql.length; index += 1) {
+        if (sql[index] === "\\") return null;
+        if (sql[index] !== quote) continue;
+        if (sql[index + 1] === quote) {
+          index += 1;
+        } else {
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) return null;
+    } else if (character === "(" || character === "[") {
+      delimiters.push(character === "(" ? ")" : "]");
+    } else if (character === ")" || character === "]") {
+      if (delimiters.pop() !== character) return null;
+    } else if (character === ";") {
+      if (delimiters.length) return null;
+      append(index);
+    }
+  }
+  if (delimiters.length) return null;
+  append(sql.length);
+  return statements;
 }
 
 export function findSchemaMigrationDdlSafetyViolationsInSource(source, { baseSource } = {}) {

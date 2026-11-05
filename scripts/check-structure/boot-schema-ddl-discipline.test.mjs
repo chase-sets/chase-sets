@@ -63,6 +63,141 @@ function orderedRevisionSources() {
   return { baseSource, currentSource, normalizers, expansion };
 }
 
+function orderedTransitionSources({
+  createDefinition = "bigint DEFAULT 0",
+  addDefinition = createDefinition,
+  before = [],
+  after = [],
+  addTail = "",
+  later = [],
+  sibling = [],
+  createTail = "",
+  extraColumns = "",
+  addTarget = "synthetic_ordered_rows",
+  addColumn = "revision",
+  named = false,
+  bootAfter = "",
+} = {}) {
+  const table = "synthetic_ordered_rows";
+  const boot = (extra) =>
+    bootSchemaSource(`CREATE TABLE IF NOT EXISTS ${table} (id text PRIMARY KEY, value bigint${extra})${createTail};`);
+  const entry = (id, statements) =>
+    `{ migrationId: "${id}", statements: [${statements.map((sql) => `\`${sql}\``).join(", ")}] }`;
+  const normalizer = entry("normalize", [`UPDATE ${table} SET value = 0 WHERE value IS NULL`]);
+  const ledger = (entries) => `export const exampleSchemaMigrations = [${entries.join(", ")}];`;
+  const add = `ALTER TABLE ${addTarget} ADD COLUMN IF NOT EXISTS ${addColumn} ${addDefinition}${addTail}`;
+  let currentSource = `${boot(`, revision ${createDefinition}${extraColumns}`)}${bootAfter}\n${ledger([
+    normalizer,
+    entry("add_revision", ["SET LOCAL lock_timeout = '2s'", ...before, add, ...after]),
+    ...(later.length ? [entry("later", later)] : []),
+  ])}`;
+  if (sibling.length) {
+    currentSource += `\nexport const otherSchemaMigrations = [${entry("sibling", sibling)}];`;
+  }
+  if (named) {
+    const sql = after[0];
+    currentSource = `const laterSql = \`${sql}\`;\n${currentSource.replace(`\`${sql}\``, "laterSql")}`;
+  }
+  return { baseSource: `${boot("")}\n${ledger([normalizer])}`, currentSource };
+}
+
+function orderedTransitionNegatives() {
+  const table = "synthetic_ordered_rows";
+  const writer = `UPDATE ${table} SET revision = revision + 1`;
+  return [
+    ["wrong type", { addDefinition: "text DEFAULT 0" }],
+    ["missing default", { addDefinition: "bigint" }],
+    ["extra default", { createDefinition: "bigint", addDefinition: "bigint DEFAULT 0" }],
+    ["different default", { addDefinition: "bigint DEFAULT 1" }],
+    ["missing NOT NULL", { createDefinition: "bigint NOT NULL DEFAULT 0", addDefinition: "bigint DEFAULT 0" }],
+    ["extra NOT NULL", { addDefinition: "bigint NOT NULL DEFAULT 0" }],
+    ["missing explicit NULL", { createDefinition: "bigint NULL DEFAULT 0", addDefinition: "bigint DEFAULT 0" }],
+    ["different equal-length strings", { createDefinition: "text DEFAULT 'ab'", addDefinition: "text DEFAULT 'cd'" }],
+    ["different literal case", { createDefinition: "text DEFAULT 'Ab'", addDefinition: "text DEFAULT 'ab'" }],
+    ["different raw spacing", { addDefinition: "bigint  DEFAULT 0" }],
+    ["unknown matching type", { createDefinition: "custom_scalar" }],
+    ["domain matching type", { createDefinition: "public.custom_domain" }],
+    ["matching precision", { createDefinition: "numeric(10, 2) DEFAULT 0" }],
+    ["differing precision", { createDefinition: "numeric(10, 2)", addDefinition: "numeric(12, 2)" }],
+    ["matching array", { createDefinition: "bigint[]" }],
+    ["differing array", { addDefinition: "bigint[] DEFAULT 0" }],
+    ["matching cast", { createDefinition: "bigint DEFAULT 0::bigint" }],
+    ["differing cast", { addDefinition: "bigint DEFAULT 0::integer" }],
+    ["matching collate", { createDefinition: 'text COLLATE "C"' }],
+    ["matching generated", { createDefinition: "bigint GENERATED ALWAYS AS (1) STORED" }],
+    ["matching identity", { createDefinition: "bigint GENERATED ALWAYS AS IDENTITY" }],
+    ["matching CHECK", { createDefinition: "bigint CHECK (revision >= 0)" }],
+    ["matching REFERENCES", { createDefinition: "bigint REFERENCES other_rows(id)" }],
+    ["matching storage", { createDefinition: "text STORAGE PLAIN" }],
+    ["matching unresolved default", { createDefinition: "bigint DEFAULT hidden_value()" }],
+    ["duplicate target declaration", { extraColumns: ", revision bigint DEFAULT 0" }],
+    ["target table CHECK", { extraColumns: ", CHECK (revision >= 0)" }],
+    ["target table constraint", { extraColumns: ", CONSTRAINT valid_revision CHECK (revision >= 0)" }],
+    ["target-dependent other column", { extraColumns: ", computed bigint GENERATED ALWAYS AS (revision) STORED" }],
+    ["LIKE clause", { extraColumns: ", LIKE other_rows" }],
+    ["INHERITS tail", { createTail: " INHERITS (other_rows)" }],
+    ["partition tail", { createTail: " PARTITION BY HASH (revision)" }],
+    ["unresolved CREATE tail", { createTail: " WITH (fillfactor = 90)" }],
+    [
+      "ambiguous CREATE ownership",
+      { bootAfter: "\nexport const otherSchemaSql = `CREATE TABLE IF NOT EXISTS synthetic_ordered_rows (id text);`;" },
+    ],
+    ["same ALTER DROP", { createDefinition: "bigint", addTail: ", DROP COLUMN revision" }],
+    ["same ALTER ALTER", { createDefinition: "bigint", addTail: ", ALTER COLUMN revision TYPE text" }],
+    ["extra ADD tail tokens", { addTail: " unexpected" }],
+    ["duplicate ADD", { after: [`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS revision bigint DEFAULT 0`] }],
+    ["quoted target table", { addTarget: '"synthetic_ordered_rows"' }],
+    ["qualified target table", { addTarget: "public.synthetic_ordered_rows" }],
+    ["ONLY target table", { addTarget: `ONLY ${table}` }],
+    ["quoted target column", { addColumn: '"revision"' }],
+    ...[
+      ["DROP column", `ALTER TABLE ${table} DROP COLUMN revision`],
+      ["RENAME column", `ALTER TABLE ${table} RENAME COLUMN revision TO removed_revision`],
+      ["TYPE", `ALTER TABLE ${table} ALTER COLUMN revision TYPE text`],
+      ["SET DATA TYPE", `ALTER TABLE ${table} ALTER COLUMN revision SET DATA TYPE text`],
+      ["SET DEFAULT", `ALTER TABLE ${table} ALTER COLUMN revision SET DEFAULT 1`],
+      ["DROP DEFAULT", `ALTER TABLE ${table} ALTER COLUMN revision DROP DEFAULT`],
+      ["SET NOT NULL", `ALTER TABLE ${table} ALTER COLUMN revision SET NOT NULL`],
+      ["DROP NOT NULL", `ALTER TABLE ${table} ALTER COLUMN revision DROP NOT NULL`],
+      ["DROP table", `DROP TABLE ${table}`],
+      ["RENAME table", `ALTER TABLE ${table} RENAME TO removed_rows`],
+      ["SET SCHEMA", `ALTER TABLE ${table} SET SCHEMA elsewhere`],
+      ["other column DDL", `ALTER TABLE ${table} ADD COLUMN harmless bigint`],
+      ["identity suffix", `ALTER TABLE ${table} ALTER COLUMN revision ADD GENERATED ALWAYS AS IDENTITY`],
+      ["constraint suffix", `ALTER TABLE ${table} ADD CONSTRAINT valid CHECK (value >= 0)`],
+      ["opaque DO", "DO $$ BEGIN PERFORM hidden_mutator(); END $$"],
+      ["opaque CALL", "CALL hidden_mutator()"],
+      ["opaque EXECUTE", "EXECUTE 'SELECT 1'"],
+      ["SELECT call", "SELECT hidden_mutator()"],
+      ["writable CTE", `WITH changed AS (DELETE FROM ${table} RETURNING *) SELECT 1`],
+      ["unresolved UPDATE", `UPDATE ${table} SET value = hidden_mutator()`],
+      ["unresolved UPDATE default", `UPDATE ${table} SET value = DEFAULT`],
+      ["unresolved INSERT", "INSERT INTO other_rows VALUES (1)"],
+      ["harmless unknown statement", "VALUES (1)"],
+      ["unresolved setting", "SET search_path = elsewhere"],
+      ["extra statement tail", "SELECT 1 unexpected"],
+    ].map(([name, sql]) => [name, { after: [sql, writer] }]),
+    ["same literal suffix", { addTail: `; ALTER TABLE ${table} DROP COLUMN revision; ${writer}` }],
+    ["named literal suffix", { after: [`ALTER TABLE ${table} DROP COLUMN revision`, writer], named: true }],
+    ["later migration", { later: ["SET LOCAL lock_timeout = '2s'", `DROP TABLE ${table}`, writer] }],
+    ["appended pre-ADD DROP table", { before: [`DROP TABLE ${table}`] }],
+    ["appended pre-ADD RENAME table", { before: [`ALTER TABLE ${table} RENAME TO gone`] }],
+    ["appended pre-ADD SET SCHEMA", { before: [`ALTER TABLE ${table} SET SCHEMA elsewhere`] }],
+    ["appended pre-ADD unknown", { before: ["VALUES (1)"] }],
+    ["sibling table DROP", { sibling: [`DROP TABLE ${table}`] }],
+    ["sibling table RENAME", { sibling: [`ALTER TABLE ${table} RENAME TO gone`] }],
+    ["sibling table SET SCHEMA", { sibling: [`ALTER TABLE ${table} SET SCHEMA elsewhere`] }],
+    ["sibling unknown after inert SQL", { sibling: ["SELECT 1", "VALUES (1)"] }],
+    ["comment hides only a fake ADD", { before: ["/*"], addTail: " */" }],
+    ["unclosed comment", { after: ["/* unfinished"] }],
+    ["unclosed literal", { after: ["SELECT 'unfinished"] }],
+    ["unbalanced delimiter", { addTail: ")" }],
+    ["dollar-quoted boundary", { after: ["SELECT $$safe; hidden$$"] }],
+    ["escaped SQL literal", { after: [String.raw`SELECT E'line\\n'`] }],
+    ["unresolved quoted boundary", { after: ['SELECT "unfinished'] }],
+  ];
+}
+
 describe("boot schema DDL discipline", () => {
   it("extracts all five Pricing Product Line migration statements without opaque transformations", async () => {
     const source = await readFile(
@@ -263,6 +398,90 @@ export const exampleSchemaMigrations = [{
   });
 
   describe("ordered source validation", () => {
+    describe("whole definition and transition admission", () => {
+      it.each(orderedTransitionNegatives())("refuses %s", (_name, options) => {
+        expect(
+          findBootSchemaRetainedUpgradeViolations(orderedTransitionSources(options)).map(
+            ({ columnName }) => columnName,
+          ),
+        ).toContain("revision");
+      });
+
+      it.each([
+        {},
+        { createDefinition: "bigint NOT NULL DEFAULT 0" },
+        { createDefinition: "bigint DEFAULT 0 NOT NULL" },
+        { createDefinition: "text DEFAULT 'a;b,c'" },
+        { createDefinition: "text DEFAULT 'can''t'" },
+        { after: ["UPDATE synthetic_ordered_rows SET revision = revision + 1"] },
+        { before: ["UPDATE synthetic_ordered_rows SET value = 0 WHERE value IS NULL"] },
+        { after: ["SELECT 'literal; comma, DROP TABLE synthetic_ordered_rows'", "SELECT 1"] },
+        { addTail: "; -- comment; comma,\n SELECT 1" },
+        { after: ["/* nested /* ; */ comment */ SELECT 1"] },
+        { after: ["SELECT 1"], named: true },
+        { later: ["UPDATE synthetic_ordered_rows SET revision = revision + 1"] },
+        { sibling: ["SELECT 1", "UPDATE other_rows SET value = 0 WHERE value IS NULL"] },
+      ])("preserves the supported complete sequence: %j", (options) => {
+        expect(findBootSchemaRetainedUpgradeViolations(orderedTransitionSources(options))).toEqual([]);
+      });
+
+      it.each([
+        { addDefinition: "text DEFAULT 0" },
+        { after: ["ALTER TABLE synthetic_ordered_rows DROP COLUMN revision"] },
+        { after: ["ALTER TABLE synthetic_ordered_rows RENAME COLUMN revision TO gone"] },
+      ])("does not substitute another public guard for the ordered proof: %j", (options) => {
+        const sources = orderedTransitionSources(options);
+        expect(findBootSchemaLedgerConvergenceViolations(sources)).toEqual([]);
+        expect(findSchemaMigrationDdlSafetyViolationsInSource(sources.currentSource, sources)).toEqual([]);
+        expect(findBootSchemaRetainedUpgradeViolations(sources).map(({ columnName }) => columnName)).toEqual([
+          "revision",
+        ]);
+      });
+
+      it("reaches definition and suffix refusal through changed schema scanner discovery", async () => {
+        const repoRoot = await mkdtemp(path.join(os.tmpdir(), "chase-sets-ddl-discipline-"));
+        const relativeFilePath =
+          "bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts";
+        const filePath = path.join(repoRoot, relativeFilePath);
+        await mkdir(path.dirname(filePath), { recursive: true });
+        await writeFile(filePath, orderedTransitionSources().baseSource, "utf8");
+        try {
+          const git = (args) => execFileSync("git", args, { cwd: repoRoot, stdio: "pipe" });
+          git(["init"]);
+          git(["add", relativeFilePath]);
+          git([
+            "-c",
+            "user.name=Schema Test",
+            "-c",
+            "user.email=schema@example.invalid",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-m",
+            "test: base schema",
+          ]);
+          git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+          for (const options of [
+            { addDefinition: "text DEFAULT 0" },
+            { after: ["ALTER TABLE synthetic_ordered_rows DROP COLUMN revision"] },
+          ]) {
+            await writeFile(filePath, orderedTransitionSources(options).currentSource, "utf8");
+            expect(
+              await findBootSchemaDdlDisciplineViolations({ repoRoot, changedFilePaths: [relativeFilePath] }),
+            ).toEqual([
+              expect.objectContaining({
+                file: relativeFilePath,
+                message: expect.stringContaining("has no idempotent boot ADD COLUMN expansion"),
+              }),
+            ]);
+          }
+          expect(await findBootSchemaDdlDisciplineViolations({ repoRoot, changedFilePaths: [] })).toEqual([]);
+        } finally {
+          await rm(repoRoot, { recursive: true, force: true });
+        }
+      });
+    });
+
     it("accepts the ordered account-risk revision without a boot ADD", () => {
       const { baseSource, currentSource, normalizers, expansion } = orderedRevisionSources();
       const boot = extractExportedBootSchemaSqlTemplates(currentSource);
