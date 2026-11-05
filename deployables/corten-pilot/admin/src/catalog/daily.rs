@@ -297,6 +297,9 @@ pub struct FailureGroup {
 #[serde(default)]
 pub struct JobResult {
     pub usage: Option<JobUsage>,
+    pub observed_count: Option<u64>,
+    pub skipped_count: Option<u64>,
+    pub failed_count: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]

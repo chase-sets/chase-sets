@@ -1097,6 +1097,7 @@ pub enum Kind {
     AliasReview,
     ProviderScopeMappings,
     SourceObservations,
+    ProviderScopeDiscovery,
 }
 
 impl Kind {
@@ -1117,6 +1118,7 @@ impl Kind {
             Kind::AliasReview => "alias-review",
             Kind::ProviderScopeMappings => "provider-scope-mappings",
             Kind::SourceObservations => "source-observations",
+            Kind::ProviderScopeDiscovery => "provider-scope-discovery",
         }
     }
 }
@@ -1136,6 +1138,9 @@ pub trait Catalog {
     /// A `POST` to `/api/catalog/{kind}{rest}` that answers with `T`: a catalog item bulk
     /// change's preview, or its job.
     async fn post<T: DeserializeOwned>(&self, kind: Kind, rest: &str, body: &Value) -> Result<T, ApiError>;
+    /// A `POST` like `post` that creates what it answers with (a provider profile's draft): the
+    /// answer, and the receipt the next read waits for.
+    async fn post_written<T: DeserializeOwned>(&self, kind: Kind, rest: &str, body: &Value) -> Result<(T, Written), ApiError>;
     async fn job<R: DeserializeOwned>(&self, id: &str) -> Result<Job<R>, ApiError>;
     /// A read of `/api/catalog/{kind}{rest}`, `rest` encoded by the caller (`under`).
     async fn read_at<T: DeserializeOwned>(&self, kind: Kind, rest: &str) -> Result<T, ApiError>;
@@ -1175,6 +1180,12 @@ impl Catalog for Caller<'_> {
         let req = self.request(Method::POST, &format!("{API}/{}{rest}", kind.path()), CATALOG);
         let (answer, _) = self.write(req.json(body)).await?;
         Ok(answer)
+    }
+
+    async fn post_written<T: DeserializeOwned>(&self, kind: Kind, rest: &str, body: &Value) -> Result<(T, Written), ApiError> {
+        let req = self.request(Method::POST, &format!("{API}/{}{rest}", kind.path()), CATALOG);
+        let (answer, receipt) = self.write(req.json(body)).await?;
+        Ok((answer, Written { receipt }))
     }
 
     async fn job<R: DeserializeOwned>(&self, id: &str) -> Result<Job<R>, ApiError> {

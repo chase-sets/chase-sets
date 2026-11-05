@@ -94,7 +94,7 @@ fn observed(o: Ops, row: &Connection) -> (String, Option<String>, &'static str) 
 }
 
 #[component(css = ProvidersPage)]
-fn Part<'a>(o: Ops, which: &'static str, section: &'a Section) -> impl Render {
+fn Part<'a>(o: Ops, req: &'a Req, which: &'static str, section: &'a Section) -> impl Render {
     let (title, description, empty) = match which {
         "catalog" => (o.pc_home_catalog(), o.pc_description_catalog(), o.pc_empty_catalog()),
         _ => (o.pc_home_channels(), o.pc_description_channels(), o.pc_empty_channels()),
@@ -138,7 +138,7 @@ fn Part<'a>(o: Ops, which: &'static str, section: &'a Section) -> impl Render {
                                 </thead>
                                 <tbody>
                                     for row in &section.rows {
-                                        <Line o={o} row={row} />
+                                        <Line o={o} req={req} row={row} />
                                     }
                                 </tbody>
                             </table>
@@ -151,14 +151,14 @@ fn Part<'a>(o: Ops, which: &'static str, section: &'a Section) -> impl Render {
 }
 
 #[component(css = ProvidersPage)]
-fn Line<'a>(o: Ops, row: &'a Connection) -> impl Render {
+fn Line<'a>(o: Ops, req: &'a Req, row: &'a Connection) -> impl Render {
     let (fresh, when, fresh_tone) = observed(o, row);
     let scope = match &row.account_id {
         Some(account) => o.pc_seller_scope(account).to_string(),
         None => o.pc_platform_scope().to_owned(),
     };
-    // A provider's page is admin-web's (the pilot does not serve Catalog's providers).
-    let open = row.destination.as_ref().filter(|_| row.owner == "catalog").and_then(|d| crate::views::admin_web(&d.href));
+    // A Catalog provider's page, the pilot's (`catalog::provider`) or admin-web's for another path.
+    let open = row.destination.as_ref().filter(|_| row.owner == "catalog").and_then(|d| crate::views::link_to(req, &d.href));
     html! {
         <tr>
             <td class={Words}>
@@ -208,15 +208,15 @@ fn Line<'a>(o: Ops, row: &'a Connection) -> impl Render {
 }
 
 #[component(css)]
-pub fn ProvidersPage<'a>(o: Ops, snapshot: &'a Snapshot) -> impl Render {
+pub fn ProvidersPage<'a>(o: Ops, req: &'a Req, snapshot: &'a Snapshot) -> impl Render {
     html! {
         <div class={Page}>
             <header class={Header}>
                 <h1>{o.pc_title()}</h1>
                 <p class={Muted}>{o.pc_description()}</p>
             </header>
-            <Part o={o} which="catalog" section={&snapshot.catalog} />
-            <Part o={o} which="channels" section={&snapshot.channels} />
+            <Part o={o} req={req} which="catalog" section={&snapshot.catalog} />
+            <Part o={o} req={req} which="channels" section={&snapshot.channels} />
         </div>
     }
 }

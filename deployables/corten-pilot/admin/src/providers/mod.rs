@@ -98,7 +98,7 @@ async fn page(
         Err(error) => return read_failed(&req, error, false),
     };
     let o: Ops = req.t();
-    let view = html! { <views::ProvidersPage o={o} snapshot={&snapshot} /> };
+    let view = html! { <views::ProvidersPage o={o} req={&req} snapshot={&snapshot} /> };
     req.screen(
         &snapshot,
         html! {
