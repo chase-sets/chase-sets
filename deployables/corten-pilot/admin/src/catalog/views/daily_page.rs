@@ -8,7 +8,7 @@
 use corten::{Href, Local, prelude::*};
 use platform::ui::{
     accordion::Accordion,
-    alert::{Alert, AlertVariant},
+    alert::{Alert, AlertEmphasis, AlertVariant},
     button::{Button, ButtonSize, ButtonVariant},
     checkbox::Checkbox,
     input::Input,
@@ -44,7 +44,7 @@ pub fn DailyRefusal<'a>(errors: &'a Errors) -> impl Patch {
     html! {
         <div class={Notice} id={DailyRefusalId}>
             if let Some(message) = errors.form() {
-                <Alert variant={AlertVariant::Destructive}><p>{message}</p></Alert>
+                <Alert variant={AlertVariant::Destructive} emphasis={AlertEmphasis::Outline}><p>{message}</p></Alert>
             }
         </div>
     }
@@ -994,7 +994,7 @@ fn CreateModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) -> imp
                 </div>
             }
             if let Some(href) = &elsewhere {
-                <Alert variant={AlertVariant::Info}>
+                <Alert variant={AlertVariant::Info} emphasis={AlertEmphasis::Outline}>
                     <p>{p.integrations_create_elsewhere()}</p>
                     <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href}>
                         {p.integrations_create_open()}
