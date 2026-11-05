@@ -29,6 +29,7 @@ mod daily_page;
 mod detail_page;
 mod dialog;
 mod display_templates;
+mod import_context;
 mod integrations_page;
 mod item_list;
 mod item_page;
@@ -65,6 +66,7 @@ pub use dialog::{
     TemplateForm, Toasts, Trigger, value_kinds, value_types,
 };
 pub use display_templates::{TemplateForms, template_list, template_page, template_rows, template_transitions};
+pub use import_context::ImportContext;
 pub use integrations_page::IntegrationsPage;
 pub use item_list::{
     DraftsDialog, ItemDialog, ItemForm, ItemJobOutcome, ItemParts, ItemPreview, ItemPreviewDialog, Pending, item_changes,
@@ -108,6 +110,7 @@ pub const COMPONENTS: &[Component] = &[
     ObservationPage,
     IntegrationsPage,
     DailyPage,
+    ImportContext,
     ProviderPage,
     Validation,
     ProfileSections,

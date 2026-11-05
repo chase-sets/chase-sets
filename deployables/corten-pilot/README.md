@@ -148,7 +148,12 @@ open on admin-web until the Catalog API refuses a stale preview itself
 merge candidate edits and splits until it applies them to the stored snapshot
 ([chase-sets/chase-sets#11078 [catalog] Apply a merge candidate's edit and split in the Catalog API: the update and split commands store whatever snapshot the page posts](https://github.com/chase-sets/chase-sets/issues/11078)),
 and the evidence sheets until it serves their detail
-([chase-sets/chase-sets#11079 [catalog] Serve a Source Observation's evidence detail from the Catalog API: admin-web's loader works out its promotion readiness and Product contents states](https://github.com/chase-sets/chase-sets/issues/11079)). Provider detail,
+([chase-sets/chase-sets#11079 [catalog] Serve a Source Observation's evidence detail from the Catalog API: admin-web's loader works out its promotion readiness and Product contents states](https://github.com/chase-sets/chase-sets/issues/11079)). Its import context
+bar chooses the provider, unit, scope and profile version from synced source options and reloads or
+force-refreshes them; which field each option kind drives is copied from admin-web until the API
+returns it
+([chase-sets/chase-sets#11080 [catalog] Work out the daily workbench's import scope selects in the Catalog API: admin-web maps option kinds to fields, narrows their options and parses importScope itself](https://github.com/chase-sets/chase-sets/issues/11080)).
+Provider detail,
 `/catalog/providers/{providerKey}` ([admin/src/catalog/provider.rs](admin/src/catalog/provider.rs)),
 draws the same composed read for the provider with its refresh schedule, and pauses, resumes and
 runs the refresh, makes a draft profile, rolls back, deprecates and retires a version with its
@@ -295,6 +300,9 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10507 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/issues/10507) | [admin/src/catalog/attention.rs](admin/src/catalog/attention.rs), [admin/src/catalog/scope.rs](admin/src/catalog/scope.rs), [admin/src/catalog/views/scope_page.rs](admin/src/catalog/views/scope_page.rs) |
 | [chase-sets/chase-sets#11045 [catalog] Refuse a Source Observation promotion whose preview is stale in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11045) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#11047 [catalog] Return the daily workbench's stage states, status banners and review pager links from the surface read](https://github.com/chase-sets/chase-sets/issues/11047) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
+| [chase-sets/chase-sets#11078 [catalog] Apply a merge candidate's edit and split in the Catalog API: the update and split commands store whatever snapshot the page posts](https://github.com/chase-sets/chase-sets/issues/11078) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
+| [chase-sets/chase-sets#11079 [catalog] Serve a Source Observation's evidence detail from the Catalog API: admin-web's loader works out its promotion readiness and Product contents states](https://github.com/chase-sets/chase-sets/issues/11079) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
+| [chase-sets/chase-sets#11080 [catalog] Work out the daily workbench's import scope selects in the Catalog API: admin-web maps option kinds to fields, narrows their options and parses importScope itself](https://github.com/chase-sets/chase-sets/issues/11080) | [admin/src/catalog/import_context.rs](admin/src/catalog/import_context.rs) |
 | [chase-sets/chase-sets#11049 [catalog] Require the confirmation for provider profile rollback, deprecate and retire in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11049) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
 | [chase-sets/chase-sets#11050 [catalog] Compose provider detail from its own path in the Catalog API, with the provider's refresh schedule and Operator session access](https://github.com/chase-sets/chase-sets/issues/11050) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
 | [chase-sets/chase-sets#11051 [catalog] Provider detail's Pause, Resume and Run now say nothing when the API refuses them or the run fails](https://github.com/chase-sets/chase-sets/issues/11051) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |

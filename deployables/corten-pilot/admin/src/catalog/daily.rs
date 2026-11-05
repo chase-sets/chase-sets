@@ -24,8 +24,14 @@
 //! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. Merge candidate edits and
 //! splits open on admin-web until the API applies them to the stored snapshot rather than storing the
 //! page's (chase-sets/chase-sets#11078); the evidence sheets until the API serves their detail
-//! (chase-sets/chase-sets#11079); and the deferred panels (source options, import preview, alias
-//! review) too.
+//! (chase-sets/chase-sets#11079); and the deferred import preview and alias review panels too.
+//!
+//! Above the steps the import context bar ([`super::views::ImportContext`]) chooses the provider,
+//! the unit, the scope and the profile version from the surface's provider scope and its deferred
+//! source options read (`GET .../workbench-surfaces/daily/source-options?location=`), and posts the
+//! options' Reload and Force refresh to `POST /catalog/integrations/source-options?<context>`. Which
+//! field each option kind drives and which options a level offers are copied from admin-web until the
+//! API returns them (chase-sets/chase-sets#11080).
 //!
 //! Beside the surface the page reads the Catalog sync run the address's `jobId` names
 //! (`GET .../catalog-sync-scope/runs/{id}`), where a sync lands, and then the durable sync state of the
@@ -49,7 +55,9 @@ use serde_json::{Value, json};
 use super::{
     Sent,
     api::{Catalog as _, Kind, under},
-    command, manages, receipt,
+    command,
+    import_context::{ProviderScope, ScopeContext, SourceOptions},
+    manages, receipt,
 };
 use crate::{
     api::{Caller, Method, segment},
@@ -83,6 +91,10 @@ pub mod url {
     pub struct MergeCandidate<'a> {
         pub id: &'a str,
     }
+
+    /// Reloads or refreshes the provider's source options, then lands on the working set.
+    #[route("/catalog/integrations/source-options", post = crate::catalog::daily::source_options_refresh)]
+    pub struct SourceOptions;
 }
 
 /// What a command did, for the page it redirects to (admin-web's `CatalogCommandFeedbackBanner`).
@@ -138,13 +150,22 @@ pub struct Daily {
     pub promotion_preview: PromotionPreview,
     pub promotion_result: Option<PromotionResult>,
     pub actions: Vec<Action>,
+    pub provider_scope: ProviderScope,
+    /// The source options' skeleton: their kinds, without the pages the page reads beside it.
+    pub source_options: SourceOptions,
 }
 
-/// The route context the API parsed from the location: only the section, for the open stage.
+/// The route context the API parsed from the location: the section, for the open stage, and the
+/// import context the bar draws.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RouteContext {
     pub section: String,
+    pub provider_key: Option<String>,
+    pub unit_key: Option<String>,
+    pub scope: Option<ScopeContext>,
+    pub import_scope: Option<String>,
+    pub profile_version: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
@@ -738,6 +759,16 @@ pub struct DailyScreen {
     pub run: Option<SyncRun>,
     /// The scope's durable sync state, per provider unit; empty when there is none or it fails.
     pub units: Vec<UnitState>,
+    /// The provider's populated source options; none when that read fails, and the bar draws the
+    /// surface's skeleton.
+    pub options: Option<SourceOptions>,
+}
+
+impl DailyScreen {
+    /// The source options the bar draws.
+    pub fn source_options(&self) -> &SourceOptions {
+        self.options.as_ref().unwrap_or(&self.read.read_model.source_options)
+    }
 }
 
 /// What the page says at its top: a command's outcome, or its refusal.
@@ -762,6 +793,19 @@ async fn sync_run(caller: &Caller<'_>, context: &str) -> Option<SyncRun> {
     let id = context_value(context, "jobId").filter(|id| !id.is_empty())?;
     let rest = format!("/catalog-sync-scope/runs/{}", segment(&id));
     caller.read_at::<SyncRun>(Kind::SourceObservations, &rest).await.ok()
+}
+
+/// The provider's populated source options for the location (admin-web's deferred
+/// `settledSourceOptionsRead`): none when they do not read, where the bar draws the skeleton.
+async fn source_options(config: &Shared, headers: &HeaderMap, location: &str) -> Option<SourceOptions> {
+    let rest = format!("/workbench-surfaces/daily/source-options?location={}", segment(location));
+    match config.platform.caller(headers, config.proto, None).read_at::<SourceOptions>(Kind::SourceObservations, &rest).await {
+        Ok(options) => Some(options),
+        Err(error) => {
+            tracing::warn!("catalog source options read failed: {error}");
+            None
+        }
+    }
 }
 
 /// The durable sync state of the scope the surface names (admin-web's
@@ -796,13 +840,17 @@ async fn render(
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     // The run the address names is read beside the surface; the scope's state needs the scope the
     // surface names, so it follows.
-    let (read, run) = tokio::join!(read(config, headers, &location, receipt.as_ref()), sync_run(&caller, context));
+    let (read, run, options) = tokio::join!(
+        read(config, headers, &location, receipt.as_ref()),
+        sync_run(&caller, context),
+        source_options(config, headers, &location),
+    );
     let read = match read {
         Ok(read) => read,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
     let units = unit_states(&caller, &read).await;
-    let screen = DailyScreen { read, manage: manages(viewer), run, units };
+    let screen = DailyScreen { read, manage: manages(viewer), run, units, options };
     let t: Cat = req.t();
     let p: Pilot = req.t();
     let view = html! {
@@ -1041,6 +1089,61 @@ pub(crate) async fn candidate(
             command(&caller, Method::POST, Kind::SourceObservations, &rest, Some(&body)).await
         }
         None => Sent::Refused(super::not_offered(req.t())),
+    };
+    answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
+}
+
+/// A source options control: `reload` (from the cache), `force-refresh` (one kind, live) or
+/// `force-refresh-all`.
+#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OptionsInput {
+    pub action: String,
+    pub query_kind: String,
+}
+
+impl OptionsInput {
+    /// The location's changes that ask for it (admin-web's `catalogPrimaryWorkbenchSourceOptionHref`),
+    /// or none for an action the bar does not offer.
+    pub fn intent(&self) -> Option<[(&'static str, Option<&str>); 2]> {
+        let action = ["reload", "force-refresh", "force-refresh-all"].into_iter().find(|a| *a == self.action)?;
+        let kind = self.query_kind.trim();
+        let kind = (action != "force-refresh-all" && !kind.is_empty()).then_some(kind);
+        Some([("sourceOptionAction", Some(action)), ("sourceOptionQueryKind", kind)])
+    }
+}
+
+/// Reads the source options with the control's intent, then lands on the working set without it, so
+/// reloading the page never asks the provider again (admin-web strips a Cards refresh's intent once
+/// its read settles). The read is the API's; what it fetched is what the page reads next.
+pub(crate) async fn source_options_refresh(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Form(input): Form<OptionsInput>,
+) -> HtmlResult {
+    let context = context_of(&uri);
+    let Some(intent) = input.intent() else {
+        let errors = super::not_offered(req.t());
+        return answer(&req, &staff, &config, &headers, &context, Sent::Refused(errors), Ran::Queued).await;
+    };
+    let location = at(url::Daily.href().as_str(), &with_query(&context, &intent));
+    let rest = format!("/workbench-surfaces/daily/source-options?location={}", segment(&location));
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let sent = match caller.read_at::<Value>(Kind::SourceObservations, &rest).await {
+        Ok(_) => {
+            let to = at(url::Daily.href().as_str(), &context);
+            return match Local::parse(&to) {
+                Some(local) => req.redirect(&local),
+                None => req.redirect(&url::Daily),
+            };
+        }
+        Err(error) => match crate::app::refused(error) {
+            Ok(errors) => Sent::Refused(errors),
+            Err(denied) => Sent::Denied(denied),
+        },
     };
     answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
 }

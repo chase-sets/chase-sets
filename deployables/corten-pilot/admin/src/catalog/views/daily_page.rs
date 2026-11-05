@@ -181,6 +181,13 @@ pub fn DailyPage<'a>(
                 }
                 None => {}
             }
+            <super::ImportContext
+                t={t}
+                route={&model.route_context}
+                providers={&model.provider_scope}
+                options={screen.source_options()}
+                context={context}
+            />
             let steps: Vec<Step> = flow
                 .iter()
                 .map(|(stage, state)| Step {

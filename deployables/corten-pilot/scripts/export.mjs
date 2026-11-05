@@ -915,6 +915,8 @@ const outputs = [
         ["catalog.features.sourceObservations.ui.primaryWorkbench.command.count.", "wb_count"],
         ["catalog.features.sourceObservations.ui.lifecycleRecovery.", "recovery"],
         ["catalog.features.operatorSession.ui.adminPanel.", "os"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.importContext.", "wb_ctx"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.", "wb_options"],
         ["catalog.features.providerScopeDiscovery.ui.schedulePanel.", "schedule"],
         ["catalog.features.catalogItems.ui.catalogItemListPage.", "item_list"],
         ["catalog.features.catalogItems.ui.catalogItemDetailPage.", "item"],

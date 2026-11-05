@@ -7263,7 +7263,7 @@ fn provider_connections() -> Response {
 /// `providerKey=down` is a read model built without the control-plane overview (its panels say
 /// they are unavailable); `providerKey=broken` fails the read.
 fn workbench_surface(surface: &str, query: &str) -> Response {
-    if !matches!(surface, "daily" | "governance" | "health") {
+    if !matches!(surface, "daily" | "daily/source-options" | "governance" | "health") {
         return refusal(
             StatusCode::NOT_FOUND,
             "invalid_workbench_surface",
@@ -7284,6 +7284,12 @@ fn workbench_surface(surface: &str, query: &str) -> Response {
     }
     if surface == "daily" {
         return daily_surface(&location);
+    }
+    if surface == "daily/source-options" {
+        if location.contains("providerKey=nooptions") {
+            return refusal(StatusCode::SERVICE_UNAVAILABLE, "provider_unavailable", "The provider options could not be read.");
+        }
+        return Json(source_options(true)).into_response();
     }
     if surface == "health" && location.starts_with("/catalog/providers/") {
         return provider_surface(&location);
@@ -7415,13 +7421,27 @@ fn daily_surface(location: &str) -> Response {
               "duplicateCount": 0, "promotionReadiness": { "state": "blocked", "blockers": ["promotion-conflict"] }, "actions": [] }
         ])
     };
-    Json(json!({
+    // Built apart from the surface below so one `json!` stays inside the macro's recursion limit.
+    let context = json!({
+        "routeContext": { "section": section, "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card",
+            "scope": { "languageCode": "en", "expansionId": "sv1", "expansionName": "Scarlet & Violet" },
+            "importScope": "en:sv1", "profileVersion": null },
+        "providerScope": { "providers": [
+            { "providerKey": "lorcast", "displayName": "Lorcast", "units": [
+                { "unitKey": "lorcast:pokemon:card", "productDomain": "pokemon", "productForm": "card", "activeProfile": null }] },
+            { "providerKey": "tcgplayer", "displayName": "TCGplayer", "units": [
+                { "unitKey": "tcgplayer:pokemon:card", "productDomain": "pokemon", "productForm": "card",
+                  "activeProfile": { "profileVersion": "3" } },
+                { "unitKey": "tcgplayer:pokemon:sealed", "productDomain": "pokemon", "productForm": "sealed", "activeProfile": null }] }
+        ] },
+        "sourceOptions": source_options(false)
+    });
+    let mut surface = json!({
         "readModelFailures": [],
         "catalogSyncScope": { "scopeVersion": "catalog-sync-scope-v2", "productDomain": "pokemon", "productForm": "card",
             "languageCode": "en", "reference": { "kind": "expansion", "scopeRecordId": "sr_sv1" },
             "providerParticipation": { "requiredUnitKeys": [], "selectedUnitKeys": ["tcgplayer:pokemon:card"], "excludedUnitKeys": [] } },
         "readModel": {
-            "routeContext": { "section": section },
             "readiness": {
                 "freshness": "fresh",
                 "blockers": if stopped { json!(["kill-switch-active"]) } else { json!([]) },
@@ -7480,8 +7500,43 @@ fn daily_surface(location: &str) -> Response {
             "actions": [{ "key": "observation.defer", "state": "available", "blockers": [] },
                 { "key": "observation.reject", "state": "available", "blockers": [] }]
         }
-    }))
-    .into_response()
+    });
+    let serde_json::Value::Object(context) = context else { unreachable!("the context is an object") };
+    surface["readModel"].as_object_mut().expect("the read model is an object").extend(context);
+    Json(surface).into_response()
+}
+
+/// The daily surface's source options for TCGplayer cards: Language, then Expansion under it
+/// (its English sets and one Japanese), and a Rarity kind no route field takes. `populated` is the
+/// deferred read; without it, the skeleton the surface carries (the kinds and empty pages).
+fn source_options(populated: bool) -> Value {
+    let items = |list: Value| if populated { list } else { json!([]) };
+    let page = |kind: &str, name: &str, scope: &str, list: Value, refresh: bool| {
+        json!({ "queryKind": kind, "displayName": name, "scope": scope, "state": if populated { "cached" } else { "not-requested" },
+            "actionState": "available", "degraded": false, "request": { "providerKey": "tcgplayer" },
+            "page": { "count": list.as_array().map_or(0, Vec::len) }, "cache": { "diagnostics": [] }, "items": items(list),
+            "refreshHref": refresh.then_some("/api/catalog/source-observations/integration-options?forceRefresh=true") })
+    };
+    json!({
+        "status": if populated { "ready" } else { "unavailable" },
+        "summary": { "declaredKinds": 3, "loadedPages": if populated { 3 } else { 0 }, "availableOptions": if populated { 5 } else { 0 } },
+        "optionKinds": [
+            { "queryKind": "languages", "scope": "language", "parentScope": null, "parent": { "scope": null, "missing": false } },
+            { "queryKind": "expansions", "scope": "expansion", "parentScope": "language",
+              "parent": { "scope": "language", "selectedValue": "en", "missing": false } },
+            { "queryKind": "rarities", "scope": "rarity", "parentScope": null, "parent": { "scope": null, "missing": false } }
+        ],
+        "pages": [
+            page("languages", "Language", "language", json!([{ "value": "en", "label": "English" }, { "value": "ja", "label": "Japanese" }]), false),
+            page("expansions", "Expansion", "expansion", json!([
+                { "value": "sv1", "label": "Scarlet & Violet", "parentValue": "en" },
+                { "value": "sv2", "label": "Paldea Evolved", "parentValue": "en" },
+                { "value": "sv1a", "label": "Triplet Beat", "parentValue": "ja" }
+            ]), true),
+            page("rarities", "Rarity", "rarity", json!([]), false)
+        ],
+        "refresh": { "state": "available", "refreshAllHref": "/api/catalog/source-observations/integration-options?forceRefresh=true" }
+    })
 }
 
 /// The Catalog sync run `run_1`: partial, one provider child completed and one failed.
@@ -8245,12 +8300,15 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    let mut calls = integrations_calls(&pilot);
+    calls.sort();
     assert_eq!(
-        integrations_calls(&pilot),
+        calls,
         [
-            "/api/catalog/source-observations/workbench-surfaces/daily?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon"
+            "/api/catalog/source-observations/workbench-surfaces/daily/source-options?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon",
+            "/api/catalog/source-observations/workbench-surfaces/daily?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon",
         ],
-        "the page's own address is the surface's location"
+        "the page's own address is the surface's location, and the source options'"
     );
     assert!(html.contains("<title>Catalog Integrations"), "{html}");
     // The stages share a name, so one is open at a time; with rows to review, Review is.
@@ -8317,6 +8375,95 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
 }
 
 #[tokio::test]
+async fn the_import_context_draws_the_providers_units_and_scope_selects_from_the_source_options() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let start = html.find(r#"data-catalog-import-context-bar="true""#).unwrap();
+    let bar = &html[html[..start].rfind("<details").unwrap()..];
+    let bar = &bar[..bar.find("</details>").unwrap()];
+    // A chosen scope: the bar is its one line, closed, and its form a GET of the workbench.
+    assert!(!bar[..bar.find('>').unwrap()].contains(" open"), "{bar}");
+    assert!(bar.contains("tcgplayer · tcgplayer:pokemon:card · en/sv1 — edit"), "{bar}");
+    assert!(bar.contains(r#"<form method="get" action="/catalog/integrations""#), "{bar}");
+    // The provider's units, the chosen one selected; a provider or unit change clears what hangs on it.
+    assert!(bar.contains(r#"<option value="tcgplayer" selected>TCGplayer</option>"#), "{bar}");
+    assert!(
+        bar.contains(r#"<option value="tcgplayer:pokemon:card" selected>"#)
+            && bar.contains(r#"value="tcgplayer:pokemon:sealed""#),
+        "{bar}"
+    );
+    assert!(!bar.contains(r#"value="lorcast:pokemon:card""#), "another provider's unit: {bar}");
+    assert!(bar.contains(r#"data-clears="unitKey profileVersion importScope productId"#), "{bar}");
+    // A select per mapped option kind, the expansions narrowed to the chosen language.
+    assert!(bar.contains(r#"name="languageCode""#) && bar.contains(r#"name="expansionId""#), "{bar}");
+    assert!(bar.contains(r#"data-query-kind="expansions""#), "{bar}");
+    assert!(!bar.contains(r#"data-query-kind="rarities""#), "a kind no route field takes gets no select: {bar}");
+    assert!(bar.contains(r#"<option value="sv1" selected data-parent="en">"#) && bar.contains(r#"value="sv2""#), "{bar}");
+    assert!(!bar.contains(r#"value="sv1a""#), "a Japanese set under English: {bar}");
+    assert!(
+        bar.contains(
+            r#"<input type="hidden" name="expansionName" value="Scarlet &amp; Violet" disabled data-label-for="expansionId">"#
+        ),
+        "a level's name goes only with the script: {bar}"
+    );
+    assert!(!bar.contains(r#"name="importScope""#), "guided selects replace the text box: {bar}");
+    assert!(bar.contains(r#"name="profileVersion" value="3""#), "the unit's active profile: {bar}");
+    // The source options and their controls post to the pilot with the working set.
+    assert!(
+        bar.contains(r#"data-catalog-source-options-status="ready""#) && bar.contains("5 options · 3/3 groups loaded"),
+        "{bar}"
+    );
+    let refresh = r#"action="/catalog/integrations/source-options?providerKey=tcgplayer&amp;unitKey=pokemon""#;
+    assert_eq!(bar.matches(refresh).count(), 5, "Refresh all, three Reloads and the expansions' Force refresh: {bar}");
+    assert!(bar.contains(r#"name="action" value="force-refresh-all""#), "{bar}");
+
+    // Without the populated read, the skeleton's kinds still draw the selects, with what is chosen.
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=nooptions", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<option value="sv1" selected>sv1</option>"#), "the chosen value, by itself: {html}");
+    assert!(html.contains(r#"data-catalog-source-options-status="unavailable""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_source_options_control_reads_them_with_its_intent_and_lands_without_it() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let before = pilot.calls.lock().unwrap().len();
+    let (status, headers, _) = pilot
+        .send(post(&format!("/catalog/integrations/source-options?{at}"), "action=force-refresh&queryKind=expansions", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], format!("/catalog/integrations?{at}").as_str(), "no intent to send again on reload");
+    let sent: Vec<String> =
+        pilot.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).filter(|path| path != "/api/auth/session").collect();
+    assert_eq!(
+        sent,
+        [
+            "/api/catalog/source-observations/workbench-surfaces/daily/source-options?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon%26sourceOptionAction%3Dforce-refresh%26sourceOptionQueryKind%3Dexpansions"
+        ]
+    );
+    let before = pilot.calls.lock().unwrap().len();
+    let (status, _, _) = pilot
+        .send(post(&format!("/catalog/integrations/source-options?{at}"), "action=force-refresh-all&queryKind=expansions", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent = pilot.calls.lock().unwrap()[before..]
+        .iter()
+        .map(|c| c.path.clone())
+        .find(|path| path.contains("/source-options?"))
+        .unwrap_or_default();
+    assert!(sent.ends_with("sourceOptionAction%3Dforce-refresh-all"), "refresh-all names no kind: {sent}");
+    let before = pilot.calls.lock().unwrap().len();
+    let (status, _, html) = pilot.send(post(&format!("/catalog/integrations/source-options?{at}"), "action=fetch", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(
+        pilot.calls.lock().unwrap()[before..].iter().all(|c| !c.path.contains("sourceOptionAction")),
+        "no read with an intent is sent"
+    );
+}
+
+#[tokio::test]
 async fn a_reader_sees_the_workbench_without_its_commands_and_a_stop_is_said() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("catalog-reader"))).await;
@@ -8367,7 +8514,7 @@ async fn each_command_sends_the_apis_body_and_lands_on_the_working_set() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"role="status""#), "the outcome: {html}");
     let read =
-        pilot.calls.lock().unwrap()[before..].iter().find(|c| c.path.contains("/workbench-surfaces/daily")).cloned().unwrap();
+        pilot.calls.lock().unwrap()[before..].iter().find(|c| c.path.contains("/workbench-surfaces/daily?")).cloned().unwrap();
     assert!(read.headers.contains_key("chase-sets-read-after-write"), "the receipt it carried: {:?}", read.headers);
     assert!(
         read.path.ends_with("%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon%26jobId%3Drun_1"),
