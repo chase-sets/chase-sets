@@ -5323,7 +5323,6 @@ jobs:
               -f 'labels[]=area:infrastructure'
             )
 
-            incident_milestone_title="Incidents"
             incident_milestone_number="$(
               gh api --paginate "repos/${GITHUB_REPOSITORY}/milestones?state=open&per_page=100" \
                 --jq '.[] | select(.title == "Incidents") | .number'

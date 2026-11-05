@@ -99,7 +99,7 @@ const reviewedSiteContexts = {
   ".github/workflows/platform-preview-cleanup.yml": "8799915ac4e6c8f687db7fb98a26d5fe0f4732b4daffeed799232a7510a5875f",
   ".github/workflows/platform-production-stale-helm-recovery.yml":
     "874cc16209c22390554079f4f5232158e578673c4d387afa04fadcac8d0c6e3d",
-  ".github/workflows/platform-production.yml": "fb847d56c97c2b23cffef3626212c10d4e983ad788c6fa39db3ffbcef71441e8",
+  ".github/workflows/platform-production.yml": "0a20e3f646d11cfaa8bb1bbbe66f08badfb4cb295649b54d5fc8b7055021136c",
   ".github/workflows/platform-registry-cleanup.yml": "490369cb5c0eaef5431059f8f7571b4dca0f65e9cf5a962e54894a4496c94d8e",
   ".github/workflows/platform-seed-packs-apply.yml": "c7d398976c70d96686f0197e193ca25328c6b2fb93efba73b189de5aa0b0c082",
   ".github/workflows/platform-staging-advisory-evidence.yml":
