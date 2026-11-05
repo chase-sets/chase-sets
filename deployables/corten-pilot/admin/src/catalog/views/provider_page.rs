@@ -19,6 +19,7 @@ use platform::ui::{
 
 use super::{
     integrations_page::{Banner, Blockers, Cell, Empty, Metric, Module, Pairs, Pill, maybe_when, state_label, transport, when},
+    profile_sections::ProfileSections,
     validation::Validation,
 };
 use crate::{
@@ -59,6 +60,7 @@ fn outcome(t: Cat, p: Pilot, done: Done) -> (&'static str, &'static str) {
         Done::Cancelled => (t.feedback_cancelled_title(), t.feedback_cancelled_description()),
         Done::EvidenceSaved => (p.validation_evidence_saved(), p.validation_evidence_saved_description()),
         Done::Activated => (t.feedback_activation_title(), t.feedback_activation_description()),
+        Done::SectionSaved => (t.feedback_section_title(), t.feedback_section_description()),
     }
 }
 
@@ -146,6 +148,7 @@ pub fn ProviderPage<'a>(
     let key = screen.key.as_str();
     let admin = admin_web(&at(&provider::url::Provider { key }.href().to_string(), context)).map(|uri| uri.to_string());
     let sections = model.profile_authoring.section_workspaces.len();
+    let version = model.profile_authoring.selected_profile.as_ref().map_or("", |s| s.profile_version.as_str());
     html! {
         <div class={Page} data-catalog-provider-detail="true">
             <header class={Header}>
@@ -198,13 +201,16 @@ pub fn ProviderPage<'a>(
                     status={t.wb_profile_sections_count(sections).to_string()}
                     tone="neutral"
                 >
-                    <p class={Muted}>
-                        {p.provider_elsewhere()}
-                        " "
-                        if let Some(admin) = &admin {
-                            <a href={admin}>{p.provider_elsewhere_open()}</a>
-                        }
-                    </p>
+                    <ProfileSections
+                        t={t}
+                        p={p}
+                        groups={&model.profile_authoring.section_groups}
+                        workspaces={&model.profile_authoring.section_workspaces}
+                        version={version}
+                        key={key}
+                        context={context}
+                        manage={screen.manage}
+                    />
                 </Module>
             }
             <Validation t={t} p={p} req={req} model={model} key={key} context={context} manage={screen.manage} />

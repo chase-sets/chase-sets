@@ -63,6 +63,7 @@ pub mod reference_records;
 pub mod reference_types;
 pub mod scope;
 pub mod scopes;
+pub mod sections;
 pub mod sync_batches;
 pub mod validation;
 pub mod views;

@@ -16,6 +16,7 @@
 //! | `POST /catalog/providers/{key}/jobs/{id}?<context>` | retries, resumes or cancels an import job |
 //! | `POST /catalog/providers/{key}/evidence?<context>` | records migration evidence ([`super::validation`]) |
 //! | `POST /catalog/providers/{key}/activate?<context>` | activates a profile version ([`super::validation`]) |
+//! | `POST /catalog/providers/{key}/sections/{section}?<context>` | saves a profile section ([`super::sections`]) |
 //!
 //! The context is the address's query as admin-web names it (`profileVersion`, `unitKey`,
 //! `jobId`); the pilot passes it to the API without reading it. A command's body is the API's own
@@ -25,8 +26,9 @@
 //! (chase-sets/chase-sets#11051: admin-web drops both).
 //!
 //! Validation readiness (provider readiness, fixtures, dry runs, semantic compare, activation
-//! readiness and the activation decision) is drawn from the same read ([`super::validation`]).
-//! Profile section editing and the Operator session section open on admin-web.
+//! readiness and the activation decision) is drawn from the same read ([`super::validation`]), and
+//! so are the profile's section workspaces, each saved by its own form ([`super::sections`]). The
+//! Operator session section opens on admin-web.
 //!
 //! Workarounds, each to remove when its issue lands:
 //! 1. chase-sets/chase-sets#11050: the surface read takes the provider only from the location's
@@ -97,6 +99,13 @@ pub mod url {
         pub key: &'a str,
     }
 
+    /// Saves one section of a profile version.
+    #[route("/catalog/providers/{key}/sections/{section}", post = crate::catalog::sections::save)]
+    pub struct Section<'a> {
+        pub key: &'a str,
+        pub section: &'a str,
+    }
+
     /// Retries, resumes or cancels one of the provider's import jobs.
     #[route("/catalog/providers/{key}/jobs/{id}", post = crate::catalog::provider::job)]
     pub struct Job<'a> {
@@ -119,10 +128,11 @@ pub enum Done {
     Cancelled,
     EvidenceSaved,
     Activated,
+    SectionSaved,
 }
 
 impl Done {
-    pub const ALL: [(Done, &'static str); 11] = [
+    pub const ALL: [(Done, &'static str); 12] = [
         (Done::Paused, "paused"),
         (Done::Resumed, "resumed"),
         (Done::Ran, "ran"),
@@ -134,6 +144,7 @@ impl Done {
         (Done::Cancelled, "cancelled"),
         (Done::EvidenceSaved, "evidence-saved"),
         (Done::Activated, "activated"),
+        (Done::SectionSaved, "section-saved"),
     ];
 
     pub fn word(self) -> &'static str {
@@ -217,14 +228,14 @@ pub struct ActiveProfile {
     pub profile_version: String,
 }
 
-/// `profileAuthoring`: the selected profile, its draft, and its section workspaces (counted here;
-/// they are edited on admin-web).
+/// `profileAuthoring`: the selected profile, its draft, and its section workspaces in their groups.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Authoring {
     pub selected_profile: Option<Profile>,
     pub clone_draft: CloneDraft,
-    pub section_workspaces: Vec<Value>,
+    pub section_groups: Vec<super::sections::Group>,
+    pub section_workspaces: Vec<super::sections::Workspace>,
 }
 
 /// The selected profile version (`ProfileOverview`).

@@ -177,7 +177,6 @@
     "resumed_description": "The provider's source options refresh on their schedule again.",
     "ran_title": "Refresh ran",
     "ran_description": "The provider's source options were refreshed now, and the next scheduled run moved on.",
-    "elsewhere": "Profile sections are edited on admin-web.",
     "elsewhere_open": "Open this provider on admin-web",
     "operator_session": "The Operator session section opens on admin-web.",
     "operator_session_open": "Open the Operator session on admin-web",
@@ -196,6 +195,15 @@
     "required_disposition": "Required disposition",
     "forbidden_paths": "Forbidden support paths",
     "job_details": "Details for {job}"
+  },
+  "sections": {
+    "domain": "Domain",
+    "dirty": "Dirty state",
+    "stale": "Stale state",
+    "diagnostics": "Diagnostics",
+    "semantic": "Semantic changes",
+    "readiness": "Readiness checks",
+    "not_selected": "Not selected"
   },
   "validation": {
     "proofs": "proofs",

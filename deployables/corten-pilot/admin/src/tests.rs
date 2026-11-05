@@ -7564,6 +7564,41 @@ fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
     Some(answer)
 }
 
+/// Provider detail's section groups (`profileAuthoring.sectionGroups`).
+fn section_groups() -> Value {
+    json!([{ "key": "profile-foundation", "label": "Profile foundation", "sections": ["basics", "fixtures"] }])
+}
+
+/// Two of provider detail's section workspaces: one the API lets be saved, one it does not.
+fn section_workspaces() -> Value {
+    json!([
+        { "sectionKey": "basics", "displayName": "Basics", "groupLabel": "Profile foundation",
+            "description": "The profile's name and scopes.", "domainConcept": "Provider profile", "status": "valid",
+            "editable": true, "actionState": "available", "blockers": [], "dirtyState": "clean", "staleState": "fresh",
+            "saveOutcome": "not-submitted", "anchorId": "profile-section-basics", "semanticChangeCount": 0,
+            "readinessCheckCount": 2, "diagnostics": [],
+            "fields": [
+                { "key": "displayName", "label": "Display name", "value": "TCGplayer Pokemon Cards", "control": "text",
+                    "required": true, "disabled": false, "helpText": null, "options": [] },
+                { "key": "status", "label": "Status", "value": "active", "control": "select", "required": true,
+                    "disabled": false, "helpText": null,
+                    "options": [{ "value": "active", "label": "Active" }, { "value": "planned", "label": "Planned" }] },
+                { "key": "capabilities", "label": "Capabilities", "value": "source-observation-import", "control": "tags",
+                    "required": false, "disabled": true, "helpText": "Comma-separated.", "options": [] }
+            ] },
+        { "sectionKey": "fixtures", "displayName": "Fixtures", "groupLabel": "Profile foundation",
+            "description": "Recorded provider payloads.", "domainConcept": "Fixture set", "status": "error",
+            "editable": false, "actionState": "blocked", "blockers": ["profile-lifecycle-conflict"], "dirtyState": "clean",
+            "staleState": "fresh", "saveOutcome": "not-submitted", "anchorId": "profile-section-fixtures",
+            "semanticChangeCount": 1, "readinessCheckCount": 0,
+            "diagnostics": [{ "path": "fixtures.coveredFlows", "diagnosticText": "The stale flow has no fixture.", "severity": "error" }],
+            "fields": [
+                { "key": "liveProviderCallsAllowed", "label": "Live provider calls", "value": "false", "control": "checkbox",
+                    "required": false, "disabled": true, "helpText": null, "options": [] }
+            ] }
+    ])
+}
+
 /// The Catalog API's composed health surface for a provider's page (`location=/catalog/providers/
 /// {key}?...`): TCGplayer with a degraded transport, an active profile that can become a draft,
 /// two versions with rollback blocked and deprecate and retire offered, one unit, and a failed job.
@@ -7609,7 +7644,8 @@ fn provider_surface(location: &str) -> Response {
                     "migrationEvidence": { "state": "not-recorded", "recordedAt": null }, "authoringAudit": {} },
                 "cloneDraft": { "sourceProviderKey": "tcgplayer", "sourceProfileVersion": selected,
                     "targetProfileVersion": format!("{selected}-draft"), "state": "available", "blockers": [] },
-                "sectionWorkspaces": [{}, {}]
+                "sectionGroups": section_groups(),
+                "sectionWorkspaces": section_workspaces()
             },
             "lifecycleRecovery": { "freshness": "fresh",
                 "summary": { "activeJobs": 0, "affectedReferences": 4, "downstreamProfileReferences": 1, "impactedCatalogItems": 2, "blockers": 1 },
@@ -7719,6 +7755,25 @@ fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
         });
     }
     let rest = path.strip_prefix("/api/catalog/source-observations/provider-profiles/")?;
+    if *method == Method::GET && rest == "tcgplayer/2026.07.13/authoring" {
+        return Some(
+            Json(json!({ "review": { "providerKey": "tcgplayer", "profileVersion": "2026.07.13", "displayName": "TCGplayer Pokemon Cards",
+                "status": "active", "capabilities": ["source-observation-import"], "supportedScopes": ["set-name"], "languageOptions": ["en"] } }))
+            .into_response(),
+        );
+    }
+    if *method == Method::PATCH && rest == "tcgplayer/2026.07.13/sections/basics" {
+        let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        return Some(if sent["command"]["displayName"] == "Stale" {
+            refusal(
+                StatusCode::CONFLICT,
+                "profile_section_conflict",
+                "Catalog provider profile section 'basics' has changed; reload before saving.",
+            )
+        } else {
+            written(StatusCode::OK, "profile_1")
+        });
+    }
     if *method == Method::PATCH && rest.ends_with("/sections/migration-evidence") {
         let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
         let text = sent["command"]["migrationEvidence"]["evidenceText"].as_str().unwrap_or_default();
@@ -9192,4 +9247,81 @@ async fn the_offline_page_is_the_same_for_everyone() {
         assert!(!page.contains("<nav"), "{page}");
         assert_eq!(pilot.calls.lock().unwrap().len(), before);
     }
+}
+
+#[tokio::test]
+async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored_profile() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer?profileVersion=2026.07.13", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Profile foundation") && !html.contains("Profile sections are edited on admin-web."), "{html}");
+    let section = |key: &str| {
+        let at = html.find(&format!(r#"data-catalog-profile-section-workspace="{key}""#)).unwrap();
+        html[at..at + html[at..].find("</details>").unwrap()].to_owned()
+    };
+    let basics = section("basics");
+    assert!(basics.contains(r#"action="/catalog/providers/tcgplayer/sections/basics?profileVersion=2026.07.13""#), "{basics}");
+    assert!(basics.contains(r#"name="profileVersion" value="2026.07.13""#), "{basics}");
+    assert!(basics.contains(r#"name="displayName" value="TCGplayer Pokemon Cards" required"#), "{basics}");
+    assert!(basics.contains(r#"<option value="active" selected>Active</option>"#), "{basics}");
+    // A field the API disables is disabled, so it is not sent and its stored value stays.
+    let tags = &basics[basics.find(r#"name="capabilities""#).unwrap()..];
+    assert!(tags[..tags.find('>').unwrap()].contains("disabled"), "{basics}");
+    assert!(basics.contains("Comma-separated."), "{basics}");
+    let save = &basics[basics.find(r#"type="submit""#).unwrap()..];
+    assert!(!save[..save.find('>').unwrap()].contains("disabled"), "{basics}");
+    // A section the API will not take has every control and its save disabled, and says why.
+    let fixtures = section("fixtures");
+    assert!(fixtures.contains("The stale flow has no fixture.") && fixtures.contains("fixtures.coveredFlows"), "{fixtures}");
+    assert!(fixtures.contains(r#"type="checkbox" name="liveProviderCallsAllowed" value="true" disabled"#), "{fixtures}");
+    let save = &fixtures[fixtures.find(r#"type="submit""#).unwrap()..];
+    assert!(save[..save.find('>').unwrap()].contains("disabled"), "{fixtures}");
+
+    // A save reads the version's authoring model and sends the posted fields over the stored ones.
+    let at = "profileVersion=2026.07.13";
+    let (status, headers, _) = pilot
+        .send(post(
+            &format!("/catalog/providers/tcgplayer/sections/basics?{at}"),
+            "profileVersion=2026.07.13&displayName=+Pokemon+Singles+&status=planned",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(landed.starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved&after_write=")), "{landed}");
+    let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/basics")).cloned().unwrap();
+    assert_eq!(sent.method, Method::PATCH);
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "command": { "section": "basics", "displayName": "Pokemon Singles", "status": "planned",
+            "capabilities": ["source-observation-import"], "supportedScopes": ["set-name"], "languageOptions": ["en"] } })
+    );
+    let (status, _, html) =
+        pilot.send(get(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Profile section saved"), "{html}");
+
+    // The API's refusal is the page's notice, patched in place.
+    let (status, _, patch) = pilot
+        .send(post(
+            &format!("/catalog/providers/tcgplayer/sections/basics?{at}"),
+            "profileVersion=2026.07.13&displayName=Stale",
+            true,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(patch.contains("has changed; reload before saving."), "{patch}");
+
+    // A section the command does not take, or no version, sends nothing; a reader may not save.
+    let before = provider_writes(&pilot).len();
+    let (status, _, _) =
+        pilot.send(post("/catalog/providers/tcgplayer/sections/operator-session", "profileVersion=2026.07.13", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot.send(post("/catalog/providers/tcgplayer/sections/basics", "profileVersion=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot
+        .send(post_as("catalog-reader", "/catalog/providers/tcgplayer/sections/basics", "profileVersion=2026.07.13", false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(provider_writes(&pilot).len(), before);
 }

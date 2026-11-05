@@ -152,7 +152,10 @@ confirmation, and retries, resumes and cancels a job. Its validation readiness
 ([admin/src/catalog/validation.rs](admin/src/catalog/validation.rs)) draws provider readiness, the
 fixture flows, dry-run proofs, semantic compare and activation checks from the same read, each
 row's sheet a disclosure, and saves migration evidence and activates a version from the activation
-decision; profile section editing and the Operator session open on admin-web.
+decision. Its profile section workspaces
+([admin/src/catalog/sections.rs](admin/src/catalog/sections.rs)) draw each of the selected version's
+fifteen sections, in its group, as a disclosure with its form, drawn from the fields the read model
+describes, and save one through the API's section command; the Operator session opens on admin-web.
 marketplace-web's `/items/{id}/market-history` is a JSON resource for its client; the pilot draws
 the Sales tab's history on the server.
 
@@ -286,7 +289,8 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#11049 [catalog] Require the confirmation for provider profile rollback, deprecate and retire in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11049) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
 | [chase-sets/chase-sets#11050 [catalog] Compose provider detail from its own path in the Catalog API, with the provider's refresh schedule and Operator session access](https://github.com/chase-sets/chase-sets/issues/11050) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
 | [chase-sets/chase-sets#11051 [catalog] Provider detail's Pause, Resume and Run now say nothing when the API refuses them or the run fails](https://github.com/chase-sets/chase-sets/issues/11051) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
-| [chase-sets/chase-sets#11068 [catalog] Record provider profile migration evidence as a Catalog command: admin-web fills a blank text with a fixed sentence that satisfies activation](https://github.com/chase-sets/chase-sets/issues/11068) | [admin/src/catalog/validation.rs](admin/src/catalog/validation.rs) |
+| [chase-sets/chase-sets#11068 [catalog] Record provider profile migration evidence as a Catalog command: admin-web fills a blank text with a fixed sentence that satisfies activation](https://github.com/chase-sets/chase-sets/issues/11068) | [admin/src/catalog/validation.rs](admin/src/catalog/validation.rs), [admin/src/catalog/sections.rs](admin/src/catalog/sections.rs) |
+| [chase-sets/chase-sets#11074 [catalog] Provider profile section edits are merged and defaulted in admin-web, with no concurrency check: the API should own the section command's defaults and require the section's fingerprint](https://github.com/chase-sets/chase-sets/issues/11074) | [admin/src/catalog/sections.rs](admin/src/catalog/sections.rs) |
 | [chase-sets/chase-sets#10530 Give removing draft Catalog Items a bulk preview and job like the other item bulk actions](https://github.com/chase-sets/chase-sets/issues/10530) | [admin/src/catalog/items.rs](admin/src/catalog/items.rs) |
 | [chase-sets/chase-sets#10538 Stop concurrent Product Contents edits from silently dropping each other's lines](https://github.com/chase-sets/chase-sets/issues/10538) | [admin/src/catalog/item.rs](admin/src/catalog/item.rs) |
 | [chase-sets/chase-sets#10549 Wait only on a Catalog Item's own projections when reading it after a write](https://github.com/chase-sets/chase-sets/issues/10549) | [scripts/smoke-item.mjs](scripts/smoke-item.mjs) |

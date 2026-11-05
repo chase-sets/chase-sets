@@ -34,6 +34,7 @@ mod item_list;
 mod item_page;
 mod list_page;
 mod observation_page;
+mod profile_sections;
 mod provider_page;
 mod reference_records;
 mod reference_types;
@@ -78,6 +79,7 @@ pub use list_page::{
     RefRecordRow, RefTypeRow, Search, Table, TemplateRow, TextFilter,
 };
 pub use observation_page::{ObservationPage, ReviewForm, observation_page};
+pub use profile_sections::ProfileSections;
 pub use provider_page::{ProviderPage, ProviderRefusal};
 pub use reference_records::{
     RecordDraft, RefChoices, RefRecordCreateDialog, RefRecordEditDialog, RefRecordForms, ref_record_actions, ref_record_list,
@@ -106,6 +108,7 @@ pub const COMPONENTS: &[Component] = &[
     DailyPage,
     ProviderPage,
     Validation,
+    ProfileSections,
     AttentionPanel,
     PreviewDialog,
     ItemForm,
@@ -118,6 +121,7 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::checkbox::Checkbox,
     platform::ui::input::Input,
     platform::ui::pagination::Pagination,
+    platform::ui::select::Select,
     platform::ui::steps::Steps,
     platform::ui::textarea::Textarea,
     corten_ui::Toaster,
