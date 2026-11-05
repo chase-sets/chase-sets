@@ -40,7 +40,10 @@ pub mod url {
     use corten::{Fields, Route};
     use serde::Deserialize;
 
-    /// The list's filters (the filter form's fields) and page (from 1).
+    /// The list's filters (the filter form's fields) and page (from 1), and the attention queue's
+    /// window apart from them (admin-web's `attentionKind` and `attentionOffset`), so paging one
+    /// never moves the other. The window is read as admin-web reads it: an unknown kind is the
+    /// summary and an offset that is not a number is 0, rather than a refused page.
     #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
     #[route(query)]
     pub struct ScopeQuery {
@@ -50,6 +53,8 @@ pub mod url {
         /// A language edition (the API's `languageEdition`).
         pub language: Option<String>,
         pub page: Option<u32>,
+        pub attention_kind: Option<String>,
+        pub attention_offset: Option<String>,
     }
 
     /// What an attention queue command did: admin-web's banner (queued, or the command failed).
@@ -80,7 +85,8 @@ pub mod url {
     }
 
     impl ScopeQuery {
-        /// The filters and page that are set, by their query names: what the queue's forms keep.
+        /// The filters, page and queue window that are set, by their query names: what the queue's
+        /// forms keep.
         pub fn kept(&self) -> Vec<(corten::FieldName, String)> {
             let f = ScopeQuery::FIELDS;
             let names = [
@@ -93,7 +99,35 @@ pub mod url {
             if let Some(page) = self.page.filter(|page| *page > 1) {
                 kept.push((f.page.untyped(), page.to_string()));
             }
+            let (kind, offset) = self.attention_window();
+            if let Some(kind) = kind {
+                kept.push((f.attention_kind.untyped(), kind.as_str().to_owned()));
+            }
+            if offset > 0 {
+                kept.push((f.attention_offset.untyped(), offset.to_string()));
+            }
             kept
+        }
+
+        /// The queue window asked for (`readCatalogAttentionQueuePageWindow`): a kind, or none for
+        /// the summary, and the offset into it.
+        pub fn attention_window(&self) -> (Option<crate::catalog::api::AttentionKind>, u64) {
+            let kind = self.attention_kind.as_deref().map(str::trim).and_then(crate::catalog::api::AttentionKind::parse);
+            let offset = self.attention_offset.as_deref().and_then(|o| o.trim().parse::<f64>().ok()).filter(|o| o.is_finite());
+            match kind {
+                // An unknown kind is the summary, at its start.
+                None if self.attention_kind.as_deref().is_some_and(|k| !k.trim().is_empty()) => (None, 0),
+                kind => (kind, offset.map_or(0, |o| o.trunc().max(0.0) as u64)),
+            }
+        }
+
+        /// The same list showing the queue's window `kind` at `offset` (`catalogAttentionQueuePageHref`).
+        pub fn with_attention(&self, kind: Option<crate::catalog::api::AttentionKind>, offset: u64) -> ScopeQuery {
+            ScopeQuery {
+                attention_kind: kind.map(|k| k.as_str().to_owned()),
+                attention_offset: (offset > 0).then(|| offset.to_string()),
+                ..self.clone()
+            }
         }
     }
 }
@@ -149,11 +183,21 @@ fn scope_screen(list: ScopePage, page: u32, language: Option<&str>) -> ScopeScre
     }
 }
 
-/// The attention queue. The page shows it as unavailable when it cannot be read: a missing route,
-/// a failure, or an answer that is not the queue's shape (`resolveCatalogAttentionQueueResult`),
-/// so an unreadable queue never reads as an empty one.
-pub async fn read_queue(caller: &Caller<'_>) -> Result<AttentionQueue, ApiError> {
-    let read = caller.read_at::<AttentionQueue>(Kind::AttentionQueue, "").await;
+/// The attention queue's window the list asks for. The page shows it as unavailable when it cannot
+/// be read: a missing route, a failure, or an answer that is not the queue's shape
+/// (`resolveCatalogAttentionQueueResult`), so an unreadable queue never reads as an empty one.
+pub async fn read_queue(caller: &Caller<'_>, query: &url::ScopeQuery) -> Result<AttentionQueue, ApiError> {
+    // `catalogAttentionQueueWindowSearch`: the summary is the bare path.
+    let (kind, offset) = query.attention_window();
+    let mut search = Vec::new();
+    if let Some(kind) = kind {
+        search.push(format!("kind={}", kind.as_str()));
+    }
+    if offset > 0 {
+        search.push(format!("offset={offset}"));
+    }
+    let search = if search.is_empty() { String::new() } else { format!("?{}", search.join("&")) };
+    let read = caller.read_at::<AttentionQueue>(Kind::AttentionQueue, &search).await;
     if let Err(error) = &read {
         tracing::warn!("attention queue read failed: {error}");
     }
@@ -193,7 +237,7 @@ pub async fn render(
     ];
     let (list, queue, review) = join3(
         caller.read_at::<ScopePage>(Kind::ScopeRecords, &format!("?{}", list_query(&filters, page))),
-        read_queue(&caller),
+        read_queue(&caller, query),
         caller.read_at::<AliasReview>(Kind::AliasReview, "?limit=200"),
     )
     .await;

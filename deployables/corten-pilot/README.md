@@ -29,7 +29,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Commerce > Postage policies, `/commerce/postage-policies` |
 | `admin/` | Catalog > Dimensions and Fields, `/catalog/dimensions`, `/catalog/fields` |
 | `admin/` | Catalog > Catalog Items (the list), `/catalog/catalog-items` |
-| `admin/` | Catalog > Scopes (the list) with the all-scopes alias review, `/catalog/scopes`: each candidate's Accept, Reject, Revoke and Defer, and a bulk bar whose boxes join its form, so it posts the checked candidates without JavaScript (the bar is always drawn while one is pending, where admin-web shows it once one is checked, and has no selected count) |
+| `admin/` | Catalog > Scopes (the list) with the attention queue, which pages one kind at a time apart from the list (`?attention_kind=&attention_offset=`), and the all-scopes alias review, `/catalog/scopes`: each candidate's Accept, Reject, Revoke and Defer, and a bulk bar whose boxes join its form, so it posts the checked candidates without JavaScript (the bar is always drawn while one is pending, where admin-web shows it once one is checked, and has no selected count) |
 | `admin/` | Catalog > a scope's page, `/catalog/scopes/{id}` |
 | `admin/` | Catalog > Scope Coverage (the Unmapped Scope Inbox), `/catalog/scope-coverage` (`?product_domain=`), and a scope's coverage, `/catalog/scope-coverage/{id}` (the scope page's coverage matrix, whose writes come back here) |
 | `admin/` | Catalog > a Source Observation, `/catalog/source-observations/{id}`: its image and values as admin-web lists them (a Pokemon card's and a provider product's own), and Promote (observed or changed) and Reject with its reason (observed), for `catalog.manage`; a refusal is the form's message |

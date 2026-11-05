@@ -268,31 +268,116 @@ pub struct ReviewOutcome {
     pub catalog_item_id: Option<String>,
 }
 
-/// The Catalog attention queue (`CatalogAttentionQueueReadModel`, features/attention-queue): every
-/// item that needs an operator, most important first, with the API's counts. The kinds and
-/// severities are closed sets, so an answer with another one does not read and the page says the
-/// queue is unavailable, as admin-web's `resolveCatalogAttentionQueueResult` does.
+/// The Catalog attention queue (`CatalogAttentionQueueReadModel`, features/attention-queue): one
+/// window of the items that need an operator, most important first, with the API's counts of every
+/// kind's whole cohort, whether each count is exact or a lower bound, and where the window sits in
+/// each kind. The kinds and severities are closed sets, so an answer with another one, or without
+/// its coverage, does not read and the page says the queue is unavailable, as admin-web's
+/// `resolveCatalogAttentionQueueResult` does.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AttentionQueue {
     pub generated_at: String,
+    /// Only a complete zero: no work anywhere and every count exact.
     pub empty: bool,
     pub items: Vec<AttentionItem>,
     pub counts: AttentionCounts,
+    pub count_basis: CountBasis,
+    pub coverage: AttentionCoverage,
+    pub window: AttentionWindow,
+}
+
+impl AttentionQueue {
+    /// Nothing counted while a source could not be fully checked: unknown work, not an empty queue.
+    pub fn incomplete_zero(&self) -> bool {
+        self.counts.total == 0 && self.count_basis.total == TotalKind::LowerBound
+    }
+}
+
+/// `CatalogAttentionTotalKind`: a count is the whole cohort, or a lower bound when a source (the
+/// import jobs' snapshot) could not be fully checked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "kebab-case")]
+pub enum TotalKind {
+    Exact,
+    LowerBound,
+}
+
+/// `CatalogAttentionQueueCountBasis`: which counts are lower bounds.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct CountBasis {
+    pub total: TotalKind,
+    pub by_severity: BasisBySeverity,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct BasisBySeverity {
+    pub critical: TotalKind,
+    pub warning: TotalKind,
+    pub info: TotalKind,
+}
+
+/// `CatalogAttentionQueueWindow`: the kind paged (none for the summary of every kind), and where.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct AttentionWindow {
+    pub kind: Option<AttentionKind>,
+    pub offset: u64,
+    pub limit: u64,
+}
+
+/// `CatalogAttentionQueueCoverage`: each kind's window inside its cohort.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "kebab-case")]
+pub struct AttentionCoverage {
+    pub unmapped_scope: KindCoverage,
+    pub merge_conflict: KindCoverage,
+    pub provider_health: KindCoverage,
+    pub import_job: KindCoverage,
+    pub alias_candidate: KindCoverage,
+    pub stale_scope_sync: KindCoverage,
+}
+
+impl AttentionCoverage {
+    /// Each kind with its coverage, in the queue's order (`CATALOG_ATTENTION_ITEM_KINDS`).
+    pub fn kinds(&self) -> [(AttentionKind, &KindCoverage); 6] {
+        [
+            (AttentionKind::UnmappedScope, &self.unmapped_scope),
+            (AttentionKind::MergeConflict, &self.merge_conflict),
+            (AttentionKind::ProviderHealth, &self.provider_health),
+            (AttentionKind::ImportJob, &self.import_job),
+            (AttentionKind::AliasCandidate, &self.alias_candidate),
+            (AttentionKind::StaleScopeSync, &self.stale_scope_sync),
+        ]
+    }
+}
+
+/// `CatalogAttentionKindCoverage`: a kind's count, whether it is exact, its window, how many of
+/// it the window returned, and where its next page starts (none when the counted cohort ends).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct KindCoverage {
+    pub total: u64,
+    pub total_kind: TotalKind,
+    pub offset: u64,
+    pub limit: u64,
+    pub returned: u64,
+    pub truncated: bool,
+    pub next_offset: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AttentionCounts {
-    pub total: u32,
+    pub total: u64,
     pub by_severity: BySeverity,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct BySeverity {
-    pub critical: u32,
-    pub warning: u32,
-    pub info: u32,
+    pub critical: u64,
+    pub warning: u64,
+    pub info: u64,
 }
 
 /// `CatalogAttentionItem`: its title and detail are the API's message keys and arguments.
@@ -355,6 +440,20 @@ pub enum AttentionKind {
 }
 
 impl AttentionKind {
+    /// A kind by the API's name, or none for another word.
+    pub fn parse(text: &str) -> Option<Self> {
+        [
+            AttentionKind::UnmappedScope,
+            AttentionKind::MergeConflict,
+            AttentionKind::ProviderHealth,
+            AttentionKind::ImportJob,
+            AttentionKind::AliasCandidate,
+            AttentionKind::StaleScopeSync,
+        ]
+        .into_iter()
+        .find(|kind| kind.as_str() == text)
+    }
+
     /// The kind as the API names it (the dismiss and defer commands send it back).
     pub fn as_str(self) -> &'static str {
         match self {

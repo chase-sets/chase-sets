@@ -14,8 +14,9 @@
 //! | `POST /catalog/scopes/attention/alias/accept?<filters>`, `.../reject` | an alias candidate's one-click command |
 //! | `POST /catalog/scopes/aliases?<filters>` | a candidate's command in the all-scopes alias review |
 //!
-//! The panel trusts the API's counts. admin-web recomputes them from the items and rejects a
-//! queue whose counts differ, which chase-sets/chase-sets#10507 removes.
+//! The panel trusts the API's counts and coverage. admin-web's loader checks them against each
+//! other (counts against each kind's coverage, coverage against the window and the items) and
+//! rejects a queue where they disagree; the pilot leaves that to the API that computed them.
 use std::fmt::Display;
 
 use corten::{
@@ -154,7 +155,7 @@ async fn review(
     let key = item.item.unwrap_or_default();
     if req.mode == Mode::Action {
         let caller = config.platform.caller(&headers, config.proto, None);
-        let queue = scopes::read_queue(&caller).await;
+        let queue = scopes::read_queue(&caller, &query).await;
         let found = queue.as_ref().ok().and_then(|q| q.items.iter().find(|i| i.item_key == key));
         let t: Cat = req.t();
         return req.patch(views::AttentionSheet {
