@@ -8,7 +8,7 @@
 use corten::{Href, Local, prelude::*};
 use platform::ui::{
     accordion::Accordion,
-    alert::{Alert, AlertEmphasis, AlertVariant},
+    alert::{Alert, AlertEmphasis, AlertVariant, FormAlert},
     button::{Button, ButtonSize, ButtonVariant},
     checkbox::Checkbox,
     input::Input,
@@ -37,15 +37,11 @@ use crate::{
 pub struct DailyRefusalId;
 
 /// A refused command's message, where the page's notice goes, in the kit's destructive alert.
-/// Workaround (todd-skelton/corten#861): `form_message()` is its own `role="alert"`, so
-/// inside the kit's `Alert` it is two nested alerts; the alert takes the message's text.
 #[component(css = DailyPage)]
 pub fn DailyRefusal<'a>(errors: &'a Errors) -> impl Patch {
     html! {
         <div class={Notice} id={DailyRefusalId}>
-            if let Some(message) = errors.form() {
-                <Alert variant={AlertVariant::Destructive} emphasis={AlertEmphasis::Outline}><p>{message}</p></Alert>
-            }
+            <FormAlert errors={errors} emphasis={AlertEmphasis::Outline} />
         </div>
     }
 }
