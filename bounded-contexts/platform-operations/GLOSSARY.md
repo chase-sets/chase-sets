@@ -273,6 +273,10 @@ A **Seller Compliance Sale** is one recorded, replayable fact about a platform-p
 
 It is an observation, not a verdict. It asserts no statutory applicability, evaluates no threshold, and classifies no seller; a later policy evaluator reads these facts. It is distinct from **Risk Alert**, which is an operator-facing Trust & Safety queue item raised by velocity thresholds, whereas a Seller Compliance Sale raises nothing and simply records what Ordering and Payments published.
 
+## Seller Compliance Cohort
+
+A **Seller Compliance Cohort** is the policy-configured rolling-window membership and disclosure band computed from Seller Compliance Sales. Its guarded state row and immutable transition ledger retain the causal effective instant separately from the observation instant and identify the policy revision that produced each transition. It is not statutory applicability or a Risk Alert. Inactive or uncovered policy inputs freeze persisted state; the approved default remains inert.
+
 ## Appealable Enforcement Action
 
 An **Appealable Enforcement Action** is one Identity account enforcement (suspension, reactivation, or closure, keyed `enf_`) or Marketplace listing enforcement (operator or automatic unlisting, keyed `lea_`) that Platform Operations has recorded as a complete registry tuple: the owning account, the source event type, and the source stream id and version, all taken from the published fact and never from a caller.
