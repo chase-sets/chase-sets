@@ -8,6 +8,8 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import { catalogIsoUtcListSql, catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
+import type { CatalogAttentionSourceWindow } from "../../attention-queue/read-model/attention-item";
+import { catalogAttentionItemParkedSql } from "../../attention-queue/read-model/dismissal-queries";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type { CatalogPromotionDisplayIdentityEvidence } from "../api/promotion/promotion-display-identity";
 import type {
@@ -335,6 +337,79 @@ export async function listCatalogMergeCandidates(
     ...values,
     ...pagination.values,
   ]);
+}
+
+// The columns an attention-queue merge item needs: blocking conflicts and members
+// are counted in SQL, so no conflict, membership or provenance payload is read.
+export type CatalogMergeCandidateAttentionRow = Readonly<{
+  candidate_id: string;
+  scope_record_id: string | null;
+  status: CatalogMergeCandidateStatus;
+  status_reason: string | null;
+  blocking_conflict_count: number;
+  observation_count: number;
+  created_at: string;
+  updated_at: string;
+  stale_at: string | null;
+}>;
+
+export type CatalogMergeCandidateAttentionPage = Readonly<{
+  conflictTotal: number;
+  staleTotal: number;
+  rows: readonly CatalogMergeCandidateAttentionRow[];
+}>;
+
+/**
+ * Attention queue: merge candidates in `has-conflicts` (critical) or `stale`
+ * (warning). Counts each status's unparked cohort and reads one window in queue
+ * order: conflicts before stale, oldest first within each, then candidate id.
+ */
+export async function readCatalogMergeCandidateAttentionWindow(
+  db: PgQueryable,
+  window: CatalogAttentionSourceWindow,
+): Promise<CatalogMergeCandidateAttentionPage> {
+  const cohort = `FROM catalog_merge_candidates c
+     WHERE c.status IN ('has-conflicts', 'stale')
+       AND NOT ${catalogAttentionItemParkedSql("'merge-conflict:' || c.candidate_id", "$1")}`;
+  const [count, page] = await Promise.all([
+    db.query<{ conflict_total: number; stale_total: number }>(
+      `SELECT COUNT(*) FILTER (WHERE c.status = 'has-conflicts')::integer AS conflict_total,
+              COUNT(*) FILTER (WHERE c.status = 'stale')::integer AS stale_total
+       ${cohort}`,
+      [window.now],
+    ),
+    window.limit > 0
+      ? db.query<CatalogMergeCandidateAttentionRow>(
+          `SELECT c.candidate_id,
+                  c.scope_record_id,
+                  c.status,
+                  c.status_reason,
+                  (SELECT COUNT(*)::integer
+                   FROM jsonb_array_elements(
+                     CASE WHEN jsonb_typeof(c.conflicts_json) = 'array' THEN c.conflicts_json ELSE '[]'::jsonb END
+                   ) AS conflict_entry(value)
+                   WHERE conflict_entry.value->>'severity' = 'blocking') AS blocking_conflict_count,
+                  (SELECT COUNT(*)::integer
+                   FROM catalog_merge_candidate_observations candidate_member
+                   WHERE candidate_member.candidate_id = c.candidate_id) AS observation_count,
+                  ${catalogIsoUtcTimestamp("c.created_at", "created_at")},
+                  ${catalogIsoUtcTimestamp("c.updated_at", "updated_at")},
+                  ${catalogIsoUtcTimestamp("c.stale_at", "stale_at")}
+           ${cohort}
+           ORDER BY (c.status = 'has-conflicts') DESC,
+                    CASE WHEN c.status = 'has-conflicts' THEN c.updated_at ELSE COALESCE(c.stale_at, c.updated_at) END ASC,
+                    c.candidate_id ASC
+           LIMIT $2 OFFSET $3`,
+          [window.now, window.limit, window.offset],
+        )
+      : Promise.resolve({ rows: [] }),
+  ]);
+
+  return {
+    conflictTotal: count.rows[0]?.conflict_total ?? 0,
+    staleTotal: count.rows[0]?.stale_total ?? 0,
+    rows: page.rows,
+  };
 }
 
 /**

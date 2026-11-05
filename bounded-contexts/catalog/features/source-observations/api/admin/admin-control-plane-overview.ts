@@ -249,6 +249,18 @@ function buildUnitActivity(
   jobs: readonly SourceObservationIntegrationJob[],
 ): readonly CatalogIntegrationUnitActivity[] {
   const maxRecentJobsPerUnit = 10;
+  return buildCatalogIntegrationUnitActivity(units, jobs).map((unit) => ({
+    unitKey: unit.unitKey,
+    recentJobs: unit.recentJobs.slice(0, maxRecentJobsPerUnit),
+  }));
+}
+
+// Every job mapped to its readiness unit and summarized, newest first, with no
+// per-unit display slice — for consumers that must count every observed job.
+export function buildCatalogIntegrationUnitActivity(
+  units: readonly CatalogIntegrationControlPlaneUnitReadiness[],
+  jobs: readonly SourceObservationIntegrationJob[],
+): readonly CatalogIntegrationUnitActivity[] {
   const providerUnits = new Map<string, readonly CatalogIntegrationControlPlaneUnitReadiness[]>();
   for (const unit of units) {
     providerUnits.set(unit.providerKey, [...(providerUnits.get(unit.providerKey) ?? []), unit]);
@@ -259,7 +271,6 @@ function buildUnitActivity(
     recentJobs: jobs
       .filter((job) => jobMatchesUnit(job, unit, providerUnits.get(unit.providerKey) ?? []))
       .sort((left, right) => jobOccurredAt(right).localeCompare(jobOccurredAt(left)))
-      .slice(0, maxRecentJobsPerUnit)
       .map((job) => jobSummary(job, unit.providerKey, unit.unitKey)),
   }));
 }
