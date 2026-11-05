@@ -176,3 +176,9 @@
 .toasts button {
   margin-block-start: var(--space-2);
 }
+/* A submit that got no answer (the toaster's `failed`) is a failure, not a notice. */
+.toasts #ui-toast:has(> .failed) {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}

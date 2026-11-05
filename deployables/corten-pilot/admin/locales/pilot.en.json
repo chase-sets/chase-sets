@@ -41,6 +41,7 @@
   },
   "catalog": {
     "close": "Close",
+    "not_sent": "That did not go through, and may not have been saved. Check and try again.",
     "breadcrumbs": "Breadcrumbs",
     "action": "This action is not available here.",
     "edit_option": "Edit {code}",
