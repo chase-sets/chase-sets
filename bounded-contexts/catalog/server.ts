@@ -54,6 +54,7 @@ export { sourceObservationLinkExternalKey } from "./features/source-observations
 export type { SourceObservationNormalized } from "./features/source-observations/domain/domain";
 export type { CatalogItemId, ReferenceRecordId } from "./ids";
 export { createOperatorTransport } from "./features/operator-session/domain/extension/transport";
+export type { CatalogOperatorAuthority, OperatorGrantCreator } from "./features/operator-session/api/grants";
 export type {
   BulkSourceObservationPromotionResult,
   BulkSourceObservationReapplyResult,
