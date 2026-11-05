@@ -16,6 +16,7 @@ import {
   toOutputMap,
 } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
@@ -4079,7 +4080,7 @@ describe("change-scope", () => {
     const baselineFiles = execFileSync(
       "git",
       ["ls-files", "--", "deployables/platform-api/__tests__/fixtures/db-enrollment-workload-*.json"],
-      { cwd: repoRoot, encoding: "utf8" },
+      { cwd: repoRoot, encoding: "utf8", maxBuffer: GIT_LISTING_MAX_BUFFER },
     )
       .trim()
       .split("\n");
