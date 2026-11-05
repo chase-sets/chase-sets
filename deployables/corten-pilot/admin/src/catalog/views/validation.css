@@ -1,7 +1,8 @@
 /* Provider detail's validation readiness, around the integrations shell's modules and the UI
    kit's tables, accordion, inputs and textarea (platform::ui): a row's side sheet is a disclosure
-   in its first cell, the activation checks are two columns from a tablet up and the decision's
-   forms sit beside its facts, and each table stacks on a phone. */
+   alone in its first cell, with no phone label, so a stacked table gives it the whole row; the
+   activation checks are two columns from a tablet up and the decision's forms sit beside its
+   facts, and each table stacks on a phone. */
 .stack {
   display: grid;
   gap: var(--space-4);

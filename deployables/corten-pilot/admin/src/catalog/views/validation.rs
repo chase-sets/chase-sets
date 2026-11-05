@@ -208,7 +208,6 @@ fn FixtureRow<'a>(t: Cat, p: Pilot, flow: &'a FixtureFlow) -> impl Render {
     html! {
         <tr>
             <td>
-                <CellLabel>{t.wb_validation_fixture_table_flow()}</CellLabel>
                 <details class={(Accordion {}, Sheet)} data-catalog-validation-fixture={&flow.flow}>
                     <summary><Cell title={&flow.label} description={Some(payload.as_str())} detail={None} /></summary>
                     <div class={Body}>
@@ -382,7 +381,6 @@ fn DryRunRow<'a>(t: Cat, p: Pilot, evidence: &'a DryRun) -> impl Render {
     html! {
         <tr>
             <td>
-                <CellLabel>{t.wb_validation_dry_run_table_source()}</CellLabel>
                 <details class={(Accordion {}, Sheet)} data-catalog-validation-dry-run={&evidence.external_key}>
                     <summary>
                         <Cell title={&evidence.external_key} description={Some(url.as_str())} detail={Some(hash.as_str())} />
@@ -553,7 +551,6 @@ fn SectionRow<'a>(t: Cat, p: Pilot, section: &'a Section) -> impl Render {
     html! {
         <tr>
             <td>
-                <CellLabel>{t.wb_validation_compare_table_section()}</CellLabel>
                 <details class={(Accordion {}, Sheet)} data-catalog-validation-section={&section.section_key}>
                     <summary>
                         <Cell title={&section.domain_concept} description={Some(section.section_key.as_str())} detail={None} />

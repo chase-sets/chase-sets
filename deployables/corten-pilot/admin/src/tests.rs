@@ -7905,6 +7905,16 @@ async fn provider_detail_draws_validation_readiness_and_its_activation_decision(
     assert!(html.contains(r#"data-catalog-validation-dry-run="sv1-001""#) && html.contains("1 more"), "{html}");
     assert!(html.contains(r#"data-catalog-validation-section="catalog-field-mapping""#), "{html}");
     assert!(html.contains("Card numbers map from a new path."), "{html}");
+    // Each sheet is its cell's only content, with no phone label, so a stacked table gives it the row.
+    for sheet in [
+        r#"data-catalog-validation-fixture="partial""#,
+        r#"data-catalog-validation-dry-run="sv1-001""#,
+        r#"data-catalog-validation-section="catalog-field-mapping""#,
+    ] {
+        let at = html.find(sheet).unwrap();
+        let cell = html[..at].rfind("<td").unwrap();
+        assert!(html[cell..at].starts_with("<td><details "), "{}", &html[cell..at]);
+    }
     assert!(html.contains("Record migration evidence, then retry activation."), "a check's remediation: {html}");
     // The decision: blocked on migration evidence, which can be saved; activation cannot run yet.
     assert!(html.contains("Activation decision is blocked"), "{html}");
