@@ -16098,6 +16098,10 @@ async fn add_answers_with_stripes_secure_step_and_the_answer_is_never_kept() {
     let sent = payment_method_calls(&pilot).into_iter().find(|c| c.path.ends_with("/setup-sessions")).expect("a setup started");
     let body: Value = serde_json::from_str(&sent.body).unwrap();
     assert_eq!(body, json!({ "accountId": "acc_seller", "attemptId": PM_OK, "returnUrlPath": "/account/payment-methods" }));
+    // Only the write's answer: the page itself keeps the default's caching (`no_store(post)`).
+    let (status, headers, _) = pilot.send(get(PAYMENT_METHODS, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
 }
 
 #[tokio::test]

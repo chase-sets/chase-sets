@@ -21,7 +21,6 @@
 //! | `POST /account/security` | update the user's names, or create, rotate or revoke a key (`intent`) |
 use crate::recovery::attempt_text;
 use corten::{
-    NoStore,
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
 };
@@ -243,18 +242,16 @@ async fn render(
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
 
-/// A write. Nothing may keep its answer: a create's or rotate's carries the key's secret.
+/// A write. Nothing may keep its answer, since a create's or rotate's carries the key's secret: the
+/// route's `no_store(post)` (the page's GET keeps its own caching).
 pub(crate) async fn write(
     req: Req,
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<SecurityInput>,
-) -> NoStore<HtmlResult> {
-    NoStore(send(&req, &viewer, &config, &headers, input).await)
-}
-
-async fn send(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, input: SecurityInput) -> HtmlResult {
+) -> HtmlResult {
+    let (req, viewer, config, headers) = (&req, &viewer, &config, &headers);
     let (t, p): (SecurityMsg, Pilot) = (req.t(), req.t());
     let action = input.action();
     let which = match action {

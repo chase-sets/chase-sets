@@ -29,7 +29,6 @@ use crate::recovery::attempt_text;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
-    NoStore,
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
 };
@@ -322,18 +321,15 @@ async fn render(
 }
 
 /// Add, Set default, Remove or Refresh. Add's answer carries the setup's secret, so no answer is
-/// kept (`no-store`).
+/// kept: the route's `no_store(post)` (the page's GET keeps its own caching).
 pub(crate) async fn write(
     req: Req,
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<MethodInput>,
-) -> NoStore<HtmlResult> {
-    NoStore(send(&req, &viewer, &config, &headers, input).await)
-}
-
-async fn send(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, input: MethodInput) -> HtmlResult {
+) -> HtmlResult {
+    let (req, viewer, config, headers) = (&req, &viewer, &config, &headers);
     let t: PaymentMethodsMsg = req.t();
     let caller = config.platform.caller(headers, config.proto, None);
     if input.intent == "reconcile" {

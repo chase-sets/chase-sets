@@ -807,7 +807,7 @@ pub mod url {
     pub mod security {
         /// The page, read after the write whose receipt it carries, and its writes.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/security", get = crate::security::page, post = crate::security::write)]
+        #[route("/account/security", get = crate::security::page, post = crate::security::write, no_store(post))]
         pub struct Security {
             #[route(query)]
             pub place: crate::security::Place,
@@ -1157,7 +1157,7 @@ pub mod url {
         /// The page, read after a change's receipt or a setup's outcome, and Add, Set default,
         /// Remove and Refresh.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/payment-methods", get = crate::payment_methods::page, post = crate::payment_methods::write)]
+        #[route("/account/payment-methods", get = crate::payment_methods::page, post = crate::payment_methods::write, no_store(post))]
         pub struct PaymentMethods {
             #[route(query)]
             pub place: crate::payment_methods::Place,
