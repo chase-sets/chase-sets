@@ -15,7 +15,7 @@
 //! | `POST /account/consents` | withdraw a consent (`intent=withdraw`) |
 use crate::recovery::attempt_text;
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

@@ -24,7 +24,7 @@
 use bytes::Bytes;
 use corten::{
     ClientZone, Upload, UploadError,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

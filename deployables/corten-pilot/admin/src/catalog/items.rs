@@ -23,7 +23,7 @@
 //! (chase-sets/chase-sets#10530 asks for a bulk route).
 use std::collections::HashSet;
 
-use corten::{Fragment, LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{Fragment, LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use futures_util::StreamExt;
 use platform::{realtime::Tick, receipt::Receipt};
 use serde_json::{Value, json};

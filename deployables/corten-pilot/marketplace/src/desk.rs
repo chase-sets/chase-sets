@@ -11,10 +11,8 @@
 //!
 //! The page has no writes and no script: every row is a link.
 use corten::{
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode},
-    },
+    axum::extract::State,
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::Serialize;

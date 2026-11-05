@@ -16,7 +16,7 @@
 //! | `GET /account/reviews/received?<place>`, `.../written?<place>` | a list, by `role` |
 //! | `POST` any of them | Report review |
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};

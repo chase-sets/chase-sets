@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use corten::{
     Component,
-    axum::http::{StatusCode, Uri},
+    http::{StatusCode, Uri},
     prelude::*,
 };
 

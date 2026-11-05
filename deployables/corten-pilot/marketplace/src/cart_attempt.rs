@@ -9,7 +9,7 @@
 //! What the attempt then is decides the page: succeeded redirects to the cart with the write's
 //! receipt; partial and failed-safe draw the cart with what was not applied; ambiguous draws it
 //! with the cart's writes paused until the buyer sends the same change again or refreshes.
-use corten::axum::http::StatusCode;
+use corten::http::StatusCode;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};

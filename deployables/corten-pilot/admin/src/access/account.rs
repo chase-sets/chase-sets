@@ -11,7 +11,7 @@
 //! and its one-time secret (never in an address). A refusal (4xx) is the page with the API's
 //! words.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -385,7 +385,7 @@ fn to_account(
         Some(account) => url::AccountHub { id: &account, tab: Some(tab.key()), after_write: None }.href(),
         None => list(super::url::ListQuery { search: Some(search.to_owned()), ..Default::default() }),
     };
-    req.redirect(&to.parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?)
+    req.redirect(&to.parse::<corten::http::Uri>().map_err(corten::Error::new)?)
 }
 
 pub(crate) async fn user(

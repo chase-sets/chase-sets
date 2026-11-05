@@ -12,7 +12,7 @@
 //! The list is kept current as admin-web's is (`useCatalogRealtimeRevalidation` on the topic
 //! `catalog:admin:categories`). A category's parent is typed as an id in both dialogs, as in
 //! admin-web; the API checks it.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde_json::Value;
 

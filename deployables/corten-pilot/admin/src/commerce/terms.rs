@@ -18,7 +18,7 @@
 //! what order and in what phase, which schedule a revision is compared with, and what a new schedule
 //! or override starts from, worked out by the API at one instant; the page draws them as given.
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
 use platform::receipt::Receipt;

@@ -8,7 +8,7 @@
 //! back to the page (admin-web's `onUnknownIntent`). A write goes back to the page read after its
 //! receipt, and a refusal (4xx) is the page with the API's words.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };

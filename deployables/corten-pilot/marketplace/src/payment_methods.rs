@@ -29,7 +29,7 @@ use crate::recovery::attempt_text;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

@@ -18,7 +18,7 @@
 //! | `POST /account/shipping-addresses/{id}/archive` | archive it |
 use crate::recovery::attempt_text;
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

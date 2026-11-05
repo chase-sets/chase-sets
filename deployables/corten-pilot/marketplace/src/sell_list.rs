@@ -19,7 +19,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri, header},
+    http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };
@@ -763,7 +763,7 @@ pub(crate) fn guest_id(headers: &HeaderMap) -> Option<String> {
     cookie::get(headers, ANONYMOUS_SELL_LIST_COOKIE).filter(|id| id.starts_with("anon_")).map(str::to_owned)
 }
 
-fn forget_guest(config: &Config) -> corten::axum::http::HeaderValue {
+fn forget_guest(config: &Config) -> corten::http::HeaderValue {
     let forget = cookie::SetCookie::remove(ANONYMOUS_SELL_LIST_COOKIE);
     let forget = if config.proto == "https" { forget } else { forget.insecure() };
     forget.header()

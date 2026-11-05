@@ -34,10 +34,8 @@
 //! | `GET`, `POST /ucp/oauth/authorize` | the API's authorize, relayed (local only) |
 use corten::{
     Relay,
-    axum::{
-        body::Body,
-        http::{HeaderMap, HeaderName, StatusCode, Uri, header},
-    },
+    axum::body::Body,
+    http::{HeaderMap, HeaderName, StatusCode, Uri, header},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
@@ -634,7 +632,7 @@ async fn relay(sent: platform::api::RequestBuilder) -> corten::Result<Relay> {
     let mut kept = HeaderMap::new();
     for name in KEPT {
         if let Some(value) =
-            res.headers().get(name.as_str()).and_then(|v| corten::axum::http::HeaderValue::from_bytes(v.as_bytes()).ok())
+            res.headers().get(name.as_str()).and_then(|v| corten::http::HeaderValue::from_bytes(v.as_bytes()).ok())
         {
             kept.insert(name, value);
         }

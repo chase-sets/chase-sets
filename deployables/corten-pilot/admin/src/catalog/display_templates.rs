@@ -11,7 +11,7 @@
 //!
 //! The API checks a template's tokens when it is published (an unknown field or reference type
 //! is refused); its refusal is the lifecycle form's message.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 
 use super::{

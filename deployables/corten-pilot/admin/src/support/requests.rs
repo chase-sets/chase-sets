@@ -22,10 +22,8 @@ use std::time::SystemTime;
 
 use corten::{
     Relay,
-    axum::{
-        body::Body,
-        http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
-    },
+    axum::body::Body,
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

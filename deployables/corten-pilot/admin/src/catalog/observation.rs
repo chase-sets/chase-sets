@@ -13,7 +13,7 @@
 //! observation no longer reviewable) is the form's message here; admin-web shows nothing then
 //! (chase-sets/chase-sets#10896).
 //! Reject without a reason sends admin-web's default one, "Rejected during review.".
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;

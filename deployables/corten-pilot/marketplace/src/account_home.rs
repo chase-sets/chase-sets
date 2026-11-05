@@ -17,7 +17,7 @@
 //! | `POST /account` | update the profile |
 use crate::recovery::attempt_text;
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

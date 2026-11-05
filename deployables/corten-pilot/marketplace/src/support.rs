@@ -29,7 +29,7 @@ use crate::recovery::attempt_text;
 use std::time::SystemTime;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     i18n::{Currency, parse_timestamp},
     prelude::*,
 };

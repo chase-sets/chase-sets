@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 
 use corten::{
     ClientZone,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use jiff::{Timestamp, tz::TimeZone};

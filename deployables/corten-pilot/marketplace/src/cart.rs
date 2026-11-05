@@ -19,7 +19,7 @@ use crate::recovery::{attempt_text, submit_key};
 use std::{collections::HashMap, time::Duration};
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri, header},
+    http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };

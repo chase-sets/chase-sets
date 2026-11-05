@@ -20,7 +20,7 @@
 use std::fmt::Display;
 
 use corten::{
-    axum::http::HeaderMap,
+    http::HeaderMap,
     i18n::{Args, Found},
     prelude::*,
 };

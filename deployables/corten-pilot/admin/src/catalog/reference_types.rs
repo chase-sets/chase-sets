@@ -9,7 +9,7 @@
 //! | `GET /catalog/reference-types/live?...` | the list's rows, again on each change (`<corten-live>`) |
 //! | `POST /catalog/reference-types/bulk?...`, `.../bulk/confirm?...` | a bulk change's preview; starts it |
 //! | `GET /catalog/reference-types/{id}`, `POST .../edit`, `.../lifecycle` | the type; revise it; its status |
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde_json::Value;
 

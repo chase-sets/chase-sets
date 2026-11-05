@@ -12,7 +12,7 @@
 //! commands post to the attention routes ([`attention`](super::attention)). Not ported: its bulk
 //! selection, which admin-web keeps in the browser; each candidate has its own commands.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::Serialize;

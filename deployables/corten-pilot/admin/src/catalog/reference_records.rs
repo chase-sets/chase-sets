@@ -13,7 +13,7 @@
 //!
 //! The create and edit dialogs read the active types and up to 500 records (admin-web's loaders
 //! read the same on every list and page load); here only opening a dialog reads them.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use futures_util::future::join;
 use platform::receipt::Receipt;
 use serde_json::Value;

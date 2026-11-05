@@ -16,7 +16,7 @@
 //! not caught up to is drawn from its snapshot under the "Projection catching up" note. A refused
 //! command draws the page again with the form as it was sent and the refusal where it was made.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

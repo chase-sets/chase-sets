@@ -23,7 +23,7 @@
 use std::time::Duration;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
     security::cookie,
 };

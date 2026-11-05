@@ -17,10 +17,8 @@
 //! product's options are taken from the page the form was drawn as, not the form, and Collections
 //! checks the product against the catalog.
 use corten::{
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode, Uri, header},
-    },
+    axum::extract::State,
+    http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };

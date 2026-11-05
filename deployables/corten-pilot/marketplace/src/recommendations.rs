@@ -15,7 +15,7 @@
 //! without them, as the pilot's repricing desk does (marketplace shows them and its action refuses).
 use corten::{
     LiveResponse,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::StreamExt;

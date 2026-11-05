@@ -27,7 +27,7 @@
 //! are the page's script.
 use corten::{
     ClientIp, Local,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

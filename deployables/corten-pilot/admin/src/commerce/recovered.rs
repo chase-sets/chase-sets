@@ -14,7 +14,7 @@
 //! refused action draws the page again with the form as it was sent, as admin-web's form keeps its
 //! values.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

@@ -17,7 +17,7 @@
 //! Marketplace's `autostart=1`, which submits the form as the page loads, is not carried: nothing
 //! links to it.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::{money::cents, receipt::Receipt};

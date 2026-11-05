@@ -40,7 +40,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
 use platform::receipt::Receipt;

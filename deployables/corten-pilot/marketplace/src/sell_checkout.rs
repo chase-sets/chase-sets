@@ -24,7 +24,7 @@
 use std::collections::BTreeMap;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
 use platform::{money, receipt::Receipt};

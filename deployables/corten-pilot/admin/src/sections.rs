@@ -6,7 +6,7 @@
 //! | Route | Answers | Needs |
 //! |---|---|---|
 //! | `GET /commerce`, `/growth`, `/support`, `/platform` | a redirect to the section's first page the viewer may see | signed-in staff with an entry in the section |
-use corten::{axum::http::StatusCode, prelude::*};
+use corten::{http::StatusCode, prelude::*};
 
 use crate::{
     auth::{self, Viewer},
@@ -49,7 +49,7 @@ pub(crate) fn first_page(req: &Req, viewer: &Viewer, section: &str) -> Option<St
 async fn home(req: Req, Caller(viewer): Caller<Viewer>) -> HtmlResult {
     let section = req.path().trim_start_matches('/');
     match first_page(&req, &viewer, section) {
-        Some(to) => req.redirect(&to.parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?),
+        Some(to) => req.redirect(&to.parse::<corten::http::Uri>().map_err(corten::Error::new)?),
         None => Err(corten::Error::status(StatusCode::FORBIDDEN)),
     }
 }

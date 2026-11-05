@@ -26,7 +26,7 @@
 use crate::recovery::attempt_text;
 use corten::{
     ClientIp,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -338,7 +338,7 @@ pub fn on_marketplace(id: &str, invited: &Invited) -> String {
 
 #[cfg(test)]
 mod tests {
-    use corten::axum::http::StatusCode;
+    use corten::http::StatusCode;
 
     use super::*;
 

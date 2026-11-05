@@ -17,7 +17,7 @@
 //! replaced as a whole list (the API's only write for them): the pilot reads the lines when the
 //! write is sent, not when the page was drawn, and sends them back with one more or one less
 //! (chase-sets/chase-sets#10538 asks for a write that cannot drop another's line).
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use futures_util::future::{join, join3};
 use platform::receipt::Receipt;
 use serde_json::{Value, json};

@@ -22,7 +22,7 @@
 //! | `GET /account/sales/{id}/review` | the form, for the seller |
 //! | `POST` either | submit (`intent` empty or `feedback-only`), `resolve` (ask first) or `edit` (Go back) |
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};

@@ -25,10 +25,8 @@ use std::{
 
 use corten::{
     LiveResponse,
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode, Uri},
-    },
+    axum::extract::State,
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     route::Params,
 };

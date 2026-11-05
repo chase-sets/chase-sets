@@ -25,7 +25,7 @@
 //! (chase-sets/chase-sets#10881), and Validate fails for every draft (chase-sets/chase-sets#10882).
 use corten::{
     ClientZone,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use jiff::tz::TimeZone;

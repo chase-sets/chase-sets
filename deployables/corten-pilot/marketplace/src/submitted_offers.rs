@@ -29,10 +29,8 @@
 //! preview, authorize, pause and stop), on the list and on an offer's page.
 use corten::{
     LiveResponse,
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode},
-    },
+    axum::extract::State,
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::StreamExt;

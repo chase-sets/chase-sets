@@ -1,7 +1,7 @@
 //! Inventory > Storage locations (marketplace's `/account/inventory/locations`): the list, create,
 //! save and archive, each write confirmed by the list it redirects to (see `recovery`).
 use crate::recovery::attempt_text;
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::Serialize;
 

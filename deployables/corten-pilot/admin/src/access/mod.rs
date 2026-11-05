@@ -19,7 +19,7 @@
 //! Each route needs what admin-web's access layout challenges its path for: the nav entry's
 //! permission, else `accounts.view`. A user's, a membership's, an invitation's or an API key's
 //! page is its account's workspace on a tab, as admin-web's are.
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use serde::Serialize;
 
 pub mod account;

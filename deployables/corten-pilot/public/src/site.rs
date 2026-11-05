@@ -5,7 +5,7 @@
 //! `/health/ready` and `/health/live` are Corten's own.
 use std::time::Duration;
 
-use corten::{Media, axum::http::StatusCode, prelude::*};
+use corten::{Media, http::StatusCode, prelude::*};
 use serde_json::json;
 
 use crate::text::HomeMsg;

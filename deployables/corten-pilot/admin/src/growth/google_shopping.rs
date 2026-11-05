@@ -14,7 +14,7 @@
 //! drops the filters and its Close opens the first blocked row again (chase-sets/chase-sets#10872).
 use corten::{
     Fragment, LiveResponse,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::{StreamExt, stream};

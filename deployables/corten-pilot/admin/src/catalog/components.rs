@@ -16,7 +16,7 @@
 //! it. The edit restates the rules the API has when it is posted, from the list, which reads the
 //! component's own table: the page's read can miss a rule (chase-sets/chase-sets#10823), and a
 //! rule it missed would be deleted (chase-sets/chase-sets#10824).
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde_json::Value;
 

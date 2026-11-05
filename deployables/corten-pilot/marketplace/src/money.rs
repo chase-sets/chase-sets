@@ -32,7 +32,7 @@ use crate::recovery::attempt_text;
 use std::time::Duration;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     i18n::Currency,
     prelude::*,
 };

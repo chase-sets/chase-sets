@@ -18,7 +18,7 @@
 //! - The filter form does not carry the read's `asOf` back, so a later `To` is not refused for
 //!   being after a stale `asOf`.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};

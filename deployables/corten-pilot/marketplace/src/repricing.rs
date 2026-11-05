@@ -28,7 +28,7 @@ use std::time::Duration;
 
 use corten::{
     LiveResponse,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::StreamExt;

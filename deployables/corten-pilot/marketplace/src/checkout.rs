@@ -33,7 +33,7 @@
 use std::time::SystemTime;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     i18n::parse_timestamp,
     prelude::*,
 };

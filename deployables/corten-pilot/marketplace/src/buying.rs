@@ -22,10 +22,8 @@
 //! an account. A guest's Buy this listing is checkout start's Continue for the listing
 //! (`checkout_start`), as marketplace re-sends it there.
 use corten::{
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode, Uri, header},
-    },
+    axum::extract::State,
+    http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };
@@ -443,7 +441,7 @@ pub(crate) async fn add(
     let mut res = match outcome.state {
         Attempted::Succeeded if input.intent == Intent::BuyBestMatch => {
             let to = cart_href(&receipt);
-            req.redirect(&to.parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?)?
+            req.redirect(&to.parse::<corten::http::Uri>().map_err(corten::Error::new)?)?
         }
         Attempted::Succeeded => req.redirect(&url::Item {
             slug: &slug,
@@ -605,7 +603,7 @@ pub(crate) async fn offer(
         ("quantity", quantity.to_string()),
     ];
     let query = pairs.iter().map(|(k, v)| format!("{k}={}", segment(v))).collect::<Vec<_>>().join("&");
-    req.redirect(&checkout_start(&query).parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?)
+    req.redirect(&checkout_start(&query).parse::<corten::http::Uri>().map_err(corten::Error::new)?)
 }
 
 /// Checkout start (`/checkout/buy/readiness`) with an entry's query.

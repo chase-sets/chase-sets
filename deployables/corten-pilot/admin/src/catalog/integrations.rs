@@ -17,7 +17,7 @@
 //! A projection the API could not read is named in `readModelFailures` and already folded into
 //! its panel's status (`unavailable`), so each panel says so on its own and the rest stay usable.
 use corten::{
-    axum::http::{HeaderMap, Uri},
+    http::{HeaderMap, Uri},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};

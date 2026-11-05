@@ -16,7 +16,7 @@
 use corten::{Fields, Route, SubmitKey};
 use serde::{Deserialize, Serialize};
 
-use corten::{axum::http::StatusCode, prelude::Errors};
+use corten::{http::StatusCode, prelude::Errors};
 
 use crate::{
     api::{ApiError, Caller, Inventory as _},

@@ -19,7 +19,7 @@
 //! Not ported: the import-to-promotion workspace (the integrations daily surface, which the Catalog
 //! API composes once chase-sets/chase-sets#10507 lands); the section links to admin-web's page for it.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::future::join3;

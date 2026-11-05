@@ -13,7 +13,7 @@
 //! Request manual payout review is offered only for a candidate, as admin-web offers it; the API
 //! refuses it for any other alert, and the page is drawn again with that refusal.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

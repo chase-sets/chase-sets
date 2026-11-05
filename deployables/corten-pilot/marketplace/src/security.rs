@@ -21,7 +21,7 @@
 //! | `POST /account/security` | update the user's names, or create, rotate or revoke a key (`intent`) |
 use crate::recovery::attempt_text;
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

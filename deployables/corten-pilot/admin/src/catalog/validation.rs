@@ -20,7 +20,7 @@
 //! does. The text is sent as typed: a blank one is refused by the API's own check, where admin-web
 //! would send a fixed sentence in its place.
 use corten::{
-    axum::http::{HeaderMap, Uri},
+    http::{HeaderMap, Uri},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};

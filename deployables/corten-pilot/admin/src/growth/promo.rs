@@ -15,7 +15,7 @@
 //! as typed, so the API refuses it in its own words.
 use corten::{
     ClientZone,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use jiff::{Timestamp, tz::TimeZone};

@@ -17,7 +17,7 @@
 //! which can miss a change (chase-sets/chase-sets#10823): a rule it missed would be deleted, as
 //! a component's edit did (chase-sets/chase-sets#10824). Opening it carries the page's receipt,
 //! so the rules it starts from include the write the page shows.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde_json::Value;
 

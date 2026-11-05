@@ -26,7 +26,7 @@
 //! | `POST /account/support?<ask>` | `open` (with the photos), `new-batch`, `check-status` |
 use corten::{
     Upload, UploadError,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

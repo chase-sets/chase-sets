@@ -15,10 +15,8 @@
 use std::time::Duration;
 
 use corten::{
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode},
-    },
+    axum::extract::State,
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

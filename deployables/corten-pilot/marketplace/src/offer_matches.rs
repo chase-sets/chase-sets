@@ -20,10 +20,8 @@
 use crate::recovery::attempt_text;
 use corten::{
     LiveResponse,
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode},
-    },
+    axum::extract::State,
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::StreamExt;
@@ -205,7 +203,7 @@ pub(crate) async fn write(
             match caller.add_sell_list_line(&SellListLine::offer_match(&offer), None).await {
                 Ok(receipt) => {
                     let receipt = receipt.as_ref().map(Receipt::param).unwrap_or_default();
-                    let to = sell_list_href(&receipt).parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?;
+                    let to = sell_list_href(&receipt).parse::<corten::http::Uri>().map_err(corten::Error::new)?;
                     return req.redirect(&to);
                 }
                 Err(error) => error,

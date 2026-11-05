@@ -12,7 +12,7 @@
 //! The user ID is posted, not put in the address, as admin-web does: it is an eBay member's
 //! identifier, so it stays out of logs and history. Both answers are `no-store`, as the API's are.
 use corten::{
-    axum::http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};

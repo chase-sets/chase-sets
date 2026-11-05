@@ -18,7 +18,7 @@
 //! | `GET /account/sales/shipments/{id}` | a shipment the seller sends, with its postage diagnostics and actions, read after the write whose receipt it carries |
 //! | `POST /account/sales/shipments/{id}` | the action `intent` on the shipment, then its page |
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};

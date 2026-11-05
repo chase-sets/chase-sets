@@ -2,7 +2,7 @@
 //! `views/`; `static/style.css` has the element defaults and the shell's frame.
 use corten::{
     Component,
-    axum::http::{StatusCode, Uri},
+    http::{StatusCode, Uri},
     prelude::*,
 };
 use platform::{

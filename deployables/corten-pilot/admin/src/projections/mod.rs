@@ -24,7 +24,7 @@
 //! operations, followed live.
 use std::collections::HashMap;
 
-use corten::{Fragment, LiveResponse, axum::http::HeaderMap, prelude::*};
+use corten::{Fragment, LiveResponse, http::HeaderMap, prelude::*};
 use futures_util::{StreamExt, stream};
 use platform::jobs::Update;
 use serde::{Deserialize, Serialize};

@@ -6,7 +6,7 @@
 //! |---|---|
 //! | `GET /account/sales/shipments/packing-slips?shipmentIds=..&format=..` | the slips, or 400 (marketplace's "No shipments selected.") when none is named |
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::Serialize;

@@ -37,7 +37,7 @@
 //!    `LifecycleInput::confirmed` checks the one the form carries before the pilot sends one.
 use corten::{
     Local,
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
 use platform::receipt::Receipt;

@@ -19,11 +19,9 @@
 //! Identity's preferences, or UTC.
 use corten::{
     ClientZone, LiveResponse,
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode},
-    },
+    axum::extract::State,
     form::Errors,
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::{StreamExt, future::join_all};

@@ -12,7 +12,7 @@
 //! `?via=coverage`, so a write and a refusal come back here; the writes are the scope page's.
 //! A coverage that cannot be read is a banner on the page, as admin-web's loader degrades it.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

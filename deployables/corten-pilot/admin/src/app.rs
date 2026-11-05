@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use corten::{
     Fragment, LiveResponse, LiveSince,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::StreamExt;
@@ -51,7 +51,7 @@ impl Config {
 
 /// The pilot's sign-in, coming back to the screen the request was for: the path's section and
 /// screen (`/catalog/dimensions` for `/catalog/dimensions/dim_1/edit`), as admin-web returns.
-pub(crate) fn sign_in_at(path: &str) -> Option<corten::axum::http::Uri> {
+pub(crate) fn sign_in_at(path: &str) -> Option<corten::http::Uri> {
     let page: String = path.split('/').filter(|s| !s.is_empty()).take(2).map(|s| format!("/{s}")).collect();
     let page = if page.is_empty() { "/".to_owned() } else { page };
     crate::sign_in::url::SignIn { ask: crate::sign_in::Ask::back_to(&page) }.href().parse().ok()

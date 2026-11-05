@@ -37,7 +37,7 @@
 //! rules for them. Remove them when the API returns those fields.
 use corten::{
     Local,
-    axum::http::{HeaderMap, Uri},
+    http::{HeaderMap, Uri},
     prelude::*,
 };
 use platform::receipt::Receipt;

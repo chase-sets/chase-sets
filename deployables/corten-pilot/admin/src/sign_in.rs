@@ -21,7 +21,7 @@
 //! admin-web otherwise.
 use corten::{
     ClientIp, Local,
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     security::cookie::SetCookie,
 };

@@ -39,7 +39,7 @@
 //! A bulk change is admin-web's `BulkLifecycleActionBar`: the checked rows (or every record the
 //! filters match) and an action, previewed by the API, then confirmed; the API runs it as a job,
 //! whose progress the list's dialog follows from the job's own stream.
-use corten::{Fragment, LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{Fragment, LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use futures_util::StreamExt;
 use platform::{jobs::Update, receipt::Receipt};
 use serde::Deserialize;

@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     i18n::{Currency, Decimal, Minor},
     prelude::*,
 };
@@ -859,7 +859,7 @@ pub fn faq(t: HomeMsg, preview: &FeePreview) -> [(&'static str, &'static str, St
 
 #[cfg(test)]
 mod tests {
-    use corten::{axum::http::Uri, i18n::Messages as _};
+    use corten::{http::Uri, i18n::Messages as _};
 
     use super::{COMPILED, FeePreview, Game, Landing, Params, Role, Term, Terms, cents, legacy_share};
     use crate::text::HomeMsg;

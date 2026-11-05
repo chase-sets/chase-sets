@@ -13,7 +13,7 @@
 //! goes back to the list in the address, and the item is read again after the write's receipt so
 //! the page can say how many are available now.
 use crate::recovery::attempt_text;
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +28,7 @@ use crate::{
     views::{self, Layout},
 };
 
-const UNPROCESSABLE: corten::axum::http::StatusCode = corten::axum::http::StatusCode::UNPROCESSABLE_ENTITY;
+const UNPROCESSABLE: corten::http::StatusCode = corten::http::StatusCode::UNPROCESSABLE_ENTITY;
 
 /// A page's items unless the address asks for another count, and the most it may ask
 /// (`inventoryItemPageQuery`).
@@ -409,7 +409,7 @@ async fn render(
                 .patch(html! { <views::CreateItemForm t={t} p={p} m={m} viewer={viewer} screen={&screen} create={&create} /> });
         }
     }
-    let code = if posted.is_some() || sale.is_some() { UNPROCESSABLE } else { corten::axum::http::StatusCode::OK };
+    let code = if posted.is_some() || sale.is_some() { UNPROCESSABLE } else { corten::http::StatusCode::OK };
     // Record sale's form, as typed after a refusal, else empty.
     let sale = sale.or_else(|| {
         screen.selling().map(|item| SaleDraft {
@@ -538,7 +538,7 @@ fn created(req: &Req, create: &CreateItem, id: &str, attempt: &str, receipt: Opt
     };
     match views::marketplace(&path) {
         Some(to) => req.redirect(&to),
-        None => Err(corten::Error::status(corten::axum::http::StatusCode::INTERNAL_SERVER_ERROR)),
+        None => Err(corten::Error::status(corten::http::StatusCode::INTERNAL_SERVER_ERROR)),
     }
 }
 
@@ -566,7 +566,7 @@ pub(crate) async fn sale(
                     errors
                 }
                 None => {
-                    return Err(corten::Error::new(error).with_status(corten::axum::http::StatusCode::BAD_GATEWAY));
+                    return Err(corten::Error::new(error).with_status(corten::http::StatusCode::BAD_GATEWAY));
                 }
             },
         },

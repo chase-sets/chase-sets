@@ -22,7 +22,7 @@
 use crate::recovery::attempt_text;
 use corten::{
     ClientIp,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

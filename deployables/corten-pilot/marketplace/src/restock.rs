@@ -3,7 +3,7 @@
 //! the `restock-record` family on the decision, sent with the version the page read, and confirmed
 //! by the list they redirect to (see `recovery`), as the storage locations' are.
 use crate::recovery::attempt_text;
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::Serialize;
 

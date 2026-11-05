@@ -3,7 +3,7 @@
 //! the API does not have is a 404 and a failed read a 502, where marketplace answers both with
 //! 200 (chase-sets/chase-sets#10612).
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
 use serde_json::{Value, json};

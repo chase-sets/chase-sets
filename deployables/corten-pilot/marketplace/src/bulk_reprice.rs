@@ -19,10 +19,8 @@ use std::time::Duration;
 
 use corten::{
     LiveResponse, Relay,
-    axum::{
-        body::Body,
-        http::{HeaderMap, StatusCode, header},
-    },
+    axum::body::Body,
+    http::{HeaderMap, StatusCode, header},
     prelude::*,
 };
 use futures_util::StreamExt;
@@ -255,7 +253,7 @@ async fn csv(config: &Shared, headers: &HeaderMap, path: &str) -> corten::Result
     let mut kept = HeaderMap::new();
     for name in [header::CONTENT_TYPE, header::CONTENT_DISPOSITION] {
         if let Some(value) =
-            res.headers().get(name.as_str()).and_then(|v| corten::axum::http::HeaderValue::from_bytes(v.as_bytes()).ok())
+            res.headers().get(name.as_str()).and_then(|v| corten::http::HeaderValue::from_bytes(v.as_bytes()).ok())
         {
             kept.insert(name, value);
         }

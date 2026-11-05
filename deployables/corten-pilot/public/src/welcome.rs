@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::Deserialize;

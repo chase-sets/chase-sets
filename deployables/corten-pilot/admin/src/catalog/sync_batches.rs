@@ -21,7 +21,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use corten::{
     Upload, UploadError,
-    axum::http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};

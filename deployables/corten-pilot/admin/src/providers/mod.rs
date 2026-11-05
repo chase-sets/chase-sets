@@ -10,7 +10,7 @@
 //!
 //! An observation's freshness (fresh, aging, stale, too old) and age are the API's, worked out
 //! against its limits when it evaluated them.
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use serde::{Deserialize, Serialize};
 
 pub mod views;

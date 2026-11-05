@@ -88,11 +88,8 @@ pub fn is_picture(content_type: &str, bytes: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use corten::axum::{
-        body::Body,
-        extract::FromRequest,
-        http::{Request, header},
-    };
+    use corten::axum::{body::Body, extract::FromRequest};
+    use corten::http::{Request, header};
 
     use super::*;
 

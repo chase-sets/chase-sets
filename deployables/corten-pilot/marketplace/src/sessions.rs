@@ -20,7 +20,7 @@
 //! | `POST /account/sessions/{id}/revoke` | sign the session out |
 //! | `POST /account/sessions/{id}/switch` | make it act for another of its accounts |
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

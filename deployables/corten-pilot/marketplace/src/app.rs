@@ -61,7 +61,7 @@
 use std::sync::Arc;
 
 use corten::{
-    axum::http::{StatusCode, Uri},
+    http::{StatusCode, Uri},
     prelude::*,
 };
 

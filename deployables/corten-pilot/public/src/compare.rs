@@ -14,7 +14,7 @@
 use std::time::Duration;
 
 use corten::{
-    axum::http::StatusCode,
+    http::StatusCode,
     i18n::{Currency, Minor},
     prelude::*,
 };

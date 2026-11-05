@@ -20,10 +20,8 @@
 //! A sell-list add has no attempt id, so a product line sent twice adds its quantity twice
 //! (chase-sets/chase-sets#9995).
 use corten::{
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode, header},
-    },
+    axum::extract::State,
+    http::{HeaderMap, StatusCode, header},
     prelude::*,
     security::cookie,
 };
@@ -384,7 +382,7 @@ pub(crate) async fn add(
         }
         Err(error) => return refusal(&req, session, &caller, item, &address, intent.form(), typed, error).await,
     };
-    let to = sell_list_href(&receipt).parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?;
+    let to = sell_list_href(&receipt).parse::<corten::http::Uri>().map_err(corten::Error::new)?;
     let mut res = req.redirect(&to)?;
     if let Some(id) = guest {
         let keep = cookie::SetCookie::new(ANONYMOUS_SELL_LIST_COOKIE, &id).max_age(GUEST_SELL_LIST_SECONDS);

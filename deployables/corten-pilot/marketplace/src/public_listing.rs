@@ -15,7 +15,7 @@
 //! Not ported: the realtime patches to the listing, and its Product JSON-LD, which marketplace
 //! writes only on the production marketplace when the listing carries a Google Shopping payload.
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri, header},
+    http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };

@@ -22,10 +22,8 @@
 use crate::recovery::attempt_text;
 use corten::{
     Relay,
-    axum::{
-        body::Body,
-        http::{HeaderMap, StatusCode, header},
-    },
+    axum::body::Body,
+    http::{HeaderMap, StatusCode, header},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -594,7 +592,7 @@ async fn csv(_req: &Req, _viewer: &Viewer, config: &Shared, headers: &HeaderMap,
     let mut kept = HeaderMap::new();
     for name in [header::CONTENT_TYPE, header::CONTENT_DISPOSITION] {
         if let Some(value) =
-            res.headers().get(name.as_str()).and_then(|v| corten::axum::http::HeaderValue::from_bytes(v.as_bytes()).ok())
+            res.headers().get(name.as_str()).and_then(|v| corten::http::HeaderValue::from_bytes(v.as_bytes()).ok())
         {
             kept.insert(name, value);
         }

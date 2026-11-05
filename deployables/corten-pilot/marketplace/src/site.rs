@@ -27,12 +27,7 @@
 //! contributes it.
 use std::time::Duration;
 
-use corten::{
-    Media,
-    axum::{body::Bytes, http::StatusCode},
-    prelude::*,
-    seo,
-};
+use corten::{Media, axum::body::Bytes, http::StatusCode, prelude::*, seo};
 use serde_json::{Map, Value};
 
 use crate::{

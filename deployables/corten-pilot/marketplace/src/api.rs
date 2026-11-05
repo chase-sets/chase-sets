@@ -3,7 +3,7 @@
 //! Types hold only the fields the screen reads; they are also the screen's JSON for data clients.
 use std::collections::BTreeMap;
 
-use corten::axum::http::StatusCode;
+use corten::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 pub use platform::api::{ApiError, Caller, Identity, Method, Platform, segment};

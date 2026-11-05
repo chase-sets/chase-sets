@@ -16,7 +16,7 @@
 //!
 //! Not ported: the realtime patches to the account's listings and counts.
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
 use serde::Deserialize;

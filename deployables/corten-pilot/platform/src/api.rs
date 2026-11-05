@@ -3,7 +3,7 @@
 //! context it reads (`Chase-Sets-Read-Target-Context`). Each app adds the calls its screens make.
 use std::{fmt, time::Duration};
 
-use corten::axum::http::{HeaderMap, StatusCode, header};
+use corten::http::{HeaderMap, StatusCode, header};
 use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::receipt::Receipt;

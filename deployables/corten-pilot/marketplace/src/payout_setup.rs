@@ -25,7 +25,7 @@
 //! | `POST /account/desk/settings/session?which=` | JSON `{"secret"}` for `onboarding`, `management` or `notifications`, or `{"code","message"}` when Settlement refuses (`step_up_required` asks the seller to sign in again) |
 use corten::{
     Local,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;

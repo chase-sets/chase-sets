@@ -29,7 +29,7 @@
 //! ([chase-sets/chase-sets#10686](https://github.com/chase-sets/chase-sets/issues/10686)).
 use corten::{
     ClientIp, Local,
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     security::cookie::SetCookie,
 };
