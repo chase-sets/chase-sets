@@ -9,7 +9,7 @@ use corten::{
 };
 use platform::ui::{
     accordion::Accordion,
-    alert::{Alert, AlertVariant},
+    alert::{Alert, AlertEmphasis, AlertVariant},
     badge::{Badge, BadgeEmphasis, BadgeTone},
     button::{Button, ButtonSize, ButtonVariant},
     card::{Card, CardContent, CardHeader},
@@ -72,7 +72,7 @@ pub(super) fn Banner<'a>(tone: &'static str, title: &'a str, description: &'a st
         _ => AlertVariant::Info,
     };
     html! {
-        <Alert variant={variant}>
+        <Alert variant={variant} emphasis={AlertEmphasis::Outline}>
             <strong>{title}</strong>
             if !description.is_empty() {
                 <p>{description}</p>

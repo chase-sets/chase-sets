@@ -8,7 +8,7 @@ use corten::{
 };
 
 use platform::ui::{
-    alert::{Alert as KitAlert, AlertVariant},
+    alert::{Alert as KitAlert, AlertEmphasis, AlertVariant},
     badge::{Badge as KitBadge, BadgeEmphasis, BadgeTone},
     button::{Button as KitButton, ButtonSize, ButtonVariant},
     card::{Card as KitCard, CardContent, CardHeader},
@@ -499,7 +499,9 @@ pub fn PayoutOperationsPage<'a>(
                     <header class={CardHeader {}}><h2 id="po-run">{t.po_reconciliation()}</h2></header>
                     <div class={CardContent {}}>
                         if let Some(error) = &screen.error {
-                            <KitAlert variant={AlertVariant::Destructive}><p>{error}</p></KitAlert>
+                            <KitAlert variant={AlertVariant::Destructive} emphasis={AlertEmphasis::Outline}>
+                                <p>{error}</p>
+                            </KitAlert>
                         }
                         <form method="post" action={url::Operations { view: url::View { job: None, ..screen.view.clone() } }}>
                             <input type="hidden" name="intent" value="run-reconciliation">

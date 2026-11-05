@@ -7950,7 +7950,7 @@ async fn a_refused_command_is_the_page_again_with_the_apis_reason() {
     );
     assert_eq!(html.matches("A reason is required to reject observations.").count(), 1, "the refusal is said once: {html}");
     assert!(
-        html.contains(r#"<div class="alert__alert alert__destructive" role="alert"><p>A reason is required to reject observations.</p></div>"#),
+        html.contains(r#"<div class="alert__alert alert__destructive alert__outline" role="alert"><p>A reason is required to reject observations.</p></div>"#),
         "in the kit's alert, its one live region: {html}"
     );
 

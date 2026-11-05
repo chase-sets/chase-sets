@@ -8,7 +8,7 @@
 use corten::prelude::*;
 use platform::ui::{
     accordion::Accordion,
-    alert::{Alert, AlertVariant},
+    alert::{Alert, AlertEmphasis, AlertVariant},
     button::{Button, ButtonSize, ButtonVariant},
     card::{Card, CardContent},
     checkbox::Checkbox,
@@ -40,7 +40,7 @@ pub fn ProviderRefusal<'a>(errors: &'a Errors) -> impl Patch {
     html! {
         <div class={Notice} id={ProviderRefusalId}>
             if let Some(message) = errors.form() {
-                <Alert variant={AlertVariant::Destructive}><p>{message}</p></Alert>
+                <Alert variant={AlertVariant::Destructive} emphasis={AlertEmphasis::Outline}><p>{message}</p></Alert>
             }
         </div>
     }
