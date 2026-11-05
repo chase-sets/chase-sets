@@ -3,10 +3,12 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { listWorkspacePackages } from "./repo.mjs";
 
 const rootDir = fileURLToPath(new URL("../../", import.meta.url));
 const contextNamePattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const testPathPattern = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
+export const unavailableChangeSetSelectionMode = "unavailable-change-set";
 
 function fail(message) {
   throw new Error(`Canonical proof sets: ${message}`);
@@ -70,11 +72,24 @@ function assertTestPath(testPath, ownerContext, baseDir) {
   }
 }
 
-export function resolveRequiredProofPaths({ changedFiles, baseDir = rootDir }) {
+export function resolveRequiredProofPaths({ changedFiles, selectionMode, baseDir = rootDir }) {
   if (!Array.isArray(changedFiles) || changedFiles.some((file) => typeof file !== "string")) {
     fail("missing or malformed changed paths");
   }
-  const contexts = new Set();
+  if (selectionMode !== undefined && selectionMode !== "" && selectionMode !== unavailableChangeSetSelectionMode) {
+    fail(`unsupported proof selection mode: ${selectionMode}`);
+  }
+  if (selectionMode === unavailableChangeSetSelectionMode && changedFiles.length !== 0) {
+    fail("unavailable change set must retain empty changed paths");
+  }
+  const contexts = new Set(
+    selectionMode === unavailableChangeSetSelectionMode
+      ? listWorkspacePackages({ repoRoot: baseDir, roots: ["bounded-contexts"] }).map((workspace) => workspace.dirName)
+      : [],
+  );
+  for (const context of contexts) {
+    if (!contextNamePattern.test(context)) fail(`invalid source context: ${context}`);
+  }
   for (const file of changedFiles) {
     const match = /^bounded-contexts\/([^/]+)\//.exec(file);
     if (match) {
@@ -134,7 +149,7 @@ export function resolveRequiredProofPaths({ changedFiles, baseDir = rootDir }) {
   return paths.sort(compare);
 }
 
-export function validateRequiredProofPaths({ pathsJson, changedFiles, baseDir = rootDir }) {
+export function validateRequiredProofPaths({ pathsJson, changedFiles, selectionMode, baseDir = rootDir }) {
   let paths;
   try {
     paths = JSON.parse(pathsJson);
@@ -156,7 +171,7 @@ export function validateRequiredProofPaths({ pathsJson, changedFiles, baseDir = 
   ) {
     fail("invalid required_proof_paths_json record shape");
   }
-  const current = resolveRequiredProofPaths({ changedFiles, baseDir });
+  const current = resolveRequiredProofPaths({ changedFiles, selectionMode, baseDir });
   const normalized = paths.map(({ version, ownerContext, proofSetId, path: testPath }) => ({
     version,
     ownerContext,
@@ -195,6 +210,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const paths = validateRequiredProofPaths({
     pathsJson: process.env.REQUIRED_PROOF_PATHS_JSON,
     changedFiles: JSON.parse(process.env.CHANGED_FILES_JSON),
+    selectionMode: process.env.REQUIRED_PROOF_SELECTION_MODE,
   });
   if (process.argv[2] === "require-result") {
     requireCanonicalProofResult(paths, process.env.CANONICAL_PROOF_RESULT);

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { batchBrowserE2eSuiteIds, e2eSuites, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
-import { resolveRequiredProofPaths } from "./lib/context-proof-sets.mjs";
+import { resolveRequiredProofPaths, unavailableChangeSetSelectionMode } from "./lib/context-proof-sets.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
@@ -679,7 +679,7 @@ class ScopeDerivationError extends Error {
   }
 }
 
-function fullScopeForUnavailableChangeSet(workspaces, reason) {
+function fullScopeForUnavailableChangeSet(workspaces, reason, baseDir) {
   const workspaceNames = workspaces.map((workspace) => workspace.name).sort();
   return {
     changedFiles: [],
@@ -707,11 +707,11 @@ function fullScopeForUnavailableChangeSet(workspaces, reason) {
     exposurePostureChanged: true,
     exposurePostureCategories: Object.keys(exposurePosturePatterns).sort(),
     requiredProofPaths: resolveRequiredProofPaths({
-      changedFiles: workspaces
-        .filter((workspace) => workspace.root === "bounded-contexts")
-        .map((workspace) => `bounded-contexts/${workspace.dirName}/context.json`),
-      baseDir: repoRoot,
+      changedFiles: [],
+      selectionMode: unavailableChangeSetSelectionMode,
+      baseDir,
     }),
+    requiredProofSelectionMode: unavailableChangeSetSelectionMode,
   };
 }
 
@@ -727,7 +727,7 @@ export function resolveChangeScope(base, head, options = {}) {
   } catch (error) {
     const reason = error instanceof ScopeDerivationError ? error.reason : "scope-derivation-failed";
     return {
-      scope: fullScopeForUnavailableChangeSet(workspaces, reason),
+      scope: fullScopeForUnavailableChangeSet(workspaces, reason, baseDir),
       fallbackReason: reason,
     };
   }

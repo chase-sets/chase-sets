@@ -23,6 +23,7 @@ import {
   canonicalProofCommands,
   requireCanonicalProofResult,
   resolveRequiredProofPaths,
+  unavailableChangeSetSelectionMode,
   validateRequiredProofPaths,
 } from "./lib/context-proof-sets.mjs";
 
@@ -391,6 +392,7 @@ describe("canonical proof sets:", () => {
     expect(run.env).toEqual({
       REQUIRED_PROOF_PATHS_JSON: "${{ needs['change-scope'].outputs.required_proof_paths_json }}",
       CHANGED_FILES_JSON: "${{ needs['change-scope'].outputs.changed_files_json }}",
+      REQUIRED_PROOF_SELECTION_MODE: "${{ needs['change-scope'].outputs.required_proof_selection_mode }}",
     });
     const required = workflow.jobs["pr-required"];
     expect(required.needs).toContain("canonical-proof-sets");
@@ -409,6 +411,9 @@ describe("canonical proof sets:", () => {
     ]);
     expect(workflow.jobs["change-scope"].outputs.required_proof_paths_json).toBe(
       "${{ steps.scope.outputs.required_proof_paths_json }}",
+    );
+    expect(workflow.jobs["change-scope"].outputs.required_proof_selection_mode).toBe(
+      "${{ fromJson(steps.scope.outputs.scope_json).requiredProofSelectionMode || '' }}",
     );
   });
 });
@@ -604,6 +609,7 @@ it.each([
   expect(result.fallbackReason).toBe(reason);
   expect(result.scope).toMatchObject({
     changedFiles: [],
+    requiredProofSelectionMode: unavailableChangeSetSelectionMode,
     localChecksRequired: true,
     unitTestsRequired: true,
     dbTestsRequired: true,
@@ -618,6 +624,140 @@ it.each([
     composeSmokeRequired: true,
   });
   expect(toOutputMap(result.scope).integration_risk_reason).toContain(reason);
+});
+
+it.each([
+  [
+    "synthetic-parent-lookup-failed",
+    {
+      firstParent: true,
+      exec: () => {
+        throw new Error("rev-list unavailable");
+      },
+    },
+  ],
+  ["synthetic-parent-lookup-empty", { firstParent: true, exec: () => "" }],
+  [
+    "merge-base-failed",
+    {
+      exec: (_command, args) => {
+        if (args[0] === "merge-base") throw new Error("merge-base unavailable");
+        return "";
+      },
+    },
+  ],
+  ["merge-base-empty", { exec: (_command, args) => (args[0] === "merge-base" ? "" : "") }],
+  [
+    "diff-failed",
+    {
+      exec: (_command, args) => {
+        if (args[0] === "merge-base") return "abc123\n";
+        throw new Error("diff unavailable");
+      },
+    },
+  ],
+  ["diff-empty", { exec: (_command, args) => (args[0] === "merge-base" ? "abc123\n" : "") }],
+  ["diff-invalid", { exec: (_command, args) => (args[0] === "merge-base" ? "abc123\n" : null) }],
+  ["scope-derivation-failed", { unexpectedError: true }],
+])("canonical proof sets: round-trips unavailable selection for %s", (reason, fixture) => {
+  withProofRepository(({ baseDir, testPath, write }) => {
+    write("bounded-contexts/buyer/package.json", { name: "@chase-sets/buyer" });
+    const workspaces = listWorkspacePackages({ repoRoot: baseDir, roots: ["bounded-contexts"] });
+    expect(workspaces).toHaveLength(2);
+    const options = { ...fixture, execFileSync: fixture.exec, workspaces, baseDir };
+    if (fixture.unexpectedError) {
+      Object.defineProperty(options, "cwd", {
+        get() {
+          throw new Error("synthetic unexpected derivation error");
+        },
+      });
+    }
+    const result = resolveChangeScope("base", "head", options);
+    expect(result.fallbackReason).toBe(reason);
+    const output = toGithubOutputMap(result.scope);
+    const scope = JSON.parse(output.scope_json);
+    const expected = [{ version: 1, ownerContext: "seller", proofSetId: "seller.control", path: testPath }];
+    expect(scope.changedFiles).toEqual([]);
+    expect(scope.affectedWorkspaces).toEqual(["@chase-sets/buyer", "@chase-sets/seller"]);
+    expect(scope.requiredProofSelectionMode).toBe(unavailableChangeSetSelectionMode);
+    expect(scope.requiredProofPaths).toEqual(expected);
+    const validation = {
+      pathsJson: output.required_proof_paths_json,
+      changedFiles: JSON.parse(output.changed_files_json),
+      selectionMode: scope.requiredProofSelectionMode,
+      baseDir,
+    };
+    const paths = validateRequiredProofPaths(validation);
+    expect(paths).toEqual(expected);
+    expect(canonicalProofCommands(paths, baseDir)[0].slice(7)).toEqual(["features/control.test.ts"]);
+    expect(() => requireCanonicalProofResult(paths, "success")).not.toThrow();
+    for (const result of ["skipped", "failure", "cancelled"]) {
+      expect(() => requireCanonicalProofResult(paths, result)).toThrow(/required job/);
+    }
+    expect(() => validateRequiredProofPaths({ ...validation, pathsJson: "[]" })).toThrow(/stale or different/);
+    expect(() => validateRequiredProofPaths({ ...validation, selectionMode: undefined })).toThrow(/stale or different/);
+  });
+});
+
+it("canonical proof sets: shares fallback validation before run and require-result", () => {
+  const { scope } = resolveChangeScope("synthetic-base", "synthetic-head", {
+    execFileSync() {
+      throw new Error("synthetic unavailable change set");
+    },
+  });
+  const env = {
+    ...process.env,
+    REQUIRED_PROOF_PATHS_JSON: JSON.stringify(scope.requiredProofPaths),
+    CHANGED_FILES_JSON: JSON.stringify(scope.changedFiles),
+    REQUIRED_PROOF_SELECTION_MODE: scope.requiredProofSelectionMode,
+    CANONICAL_PROOF_RESULT: "success",
+  };
+  const cli = (mode, override = {}) =>
+    spawnSync(process.execPath, ["scripts/lib/context-proof-sets.mjs", mode], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: { ...env, ...override },
+    });
+  expect(scope.requiredProofPaths).toEqual(settlementProofPaths);
+  expect(cli("require-result").status).toBe(0);
+  for (const mode of ["run", "require-result"]) {
+    const result = cli(mode, { REQUIRED_PROOF_PATHS_JSON: "[]" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("stale or different canonical proof paths");
+    expect(result.stdout).not.toContain("Canonical proof invocation");
+  }
+});
+
+it("canonical proof sets: retains source-context validation for the fallback inventory", () => {
+  withProofRepository(({ baseDir, write }) => {
+    write("bounded-contexts/invalid_context/package.json", { name: "@chase-sets/invalid_context" });
+    expect(() =>
+      resolveRequiredProofPaths({ changedFiles: [], selectionMode: unavailableChangeSetSelectionMode, baseDir }),
+    ).toThrow(/invalid source context/);
+  });
+});
+
+it("canonical proof sets: keeps an ordinary unrelated empty selection valid", () => {
+  expect(
+    validateRequiredProofPaths({
+      pathsJson: "[]",
+      changedFiles: ["bounded-contexts/identity/api.ts"],
+      baseDir: repoRoot,
+    }),
+  ).toEqual([]);
+  expect(resolveRequiredProofPaths({ changedFiles: [], baseDir: repoRoot })).toEqual([]);
+  expect(() => requireCanonicalProofResult([], "skipped")).not.toThrow();
+  for (const selectionMode of ["unknown", null, 1]) {
+    expect(() => resolveRequiredProofPaths({ changedFiles: [], selectionMode })).toThrow(
+      /unsupported proof selection mode/,
+    );
+  }
+  expect(() =>
+    resolveRequiredProofPaths({
+      changedFiles: ["bounded-contexts/settlement/api.ts"],
+      selectionMode: unavailableChangeSetSelectionMode,
+    }),
+  ).toThrow(/must retain empty changed paths/);
 });
 
 it("enables first-parent scope for both hosted PR merge events", () => {
@@ -652,7 +792,7 @@ async function importChangeScopeVariant(source) {
 
 it("kills a source mutant that removes unavailable-scope widening", async () => {
   const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
-  const mutation = "scope: fullScopeForUnavailableChangeSet(workspaces, reason),";
+  const mutation = "scope: fullScopeForUnavailableChangeSet(workspaces, reason, baseDir),";
   const mutatedSource = source.replace(mutation, "scope: classifyChanges({ changedFiles: [], workspaces, baseDir }),");
   expect(mutatedSource).not.toBe(source);
   const mutant = await importChangeScopeVariant(mutatedSource);
