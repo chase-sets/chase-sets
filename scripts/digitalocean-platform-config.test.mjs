@@ -182,7 +182,12 @@ function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
         rev-parse) [[ "$CONTROL_FAILURE" != tag ]] || return 1; printf '%s\\n' "$CONTROL_SHA" ;;
       esac
     }
-    gh() { trace gh "$@"; }
+    gh() {
+      trace gh "$@"
+      if [[ "$1" == api && "$2" == --method && "$3" == POST ]]; then
+        printf '%s' "\${CONTROL_CREATED_TYPE-Bug}"
+      fi
+    }
     doctl() { trace doctl "$@"; }
     docker() { trace docker "$@"; [[ "$CONTROL_FAILURE" != image ]]; }
     jq() { trace jq "$@"; if [[ "$1" == -cn ]]; then printf '[]'; else printf '{}'; fi; }
@@ -1237,7 +1242,8 @@ describe("operator inputs before shell parsing (#8993)", () => {
       expect(result.evidence).toBe("scenario_seed_error<<SCENARIO_SEED_ERROR_EOF\n\nSCENARIO_SEED_ERROR_EOF\n");
     } else if (block.step === "Create, update, or resolve advisory evidence incident") {
       expect(result.trace).toContain("gh <issue> <list>");
-      expect(result.trace).toContain("gh <issue> <create>");
+      expect(result.trace).toContain("gh <api> <--method> <POST>");
+      expect(result.trace).toContain("<-f> <type=Bug>");
       expect(result.trace).toContain(`- Release commit: ${operatorSha}`);
     } else {
       expect(result.trace).toBe(
@@ -1245,6 +1251,15 @@ describe("operator inputs before shell parsing (#8993)", () => {
       );
     }
     if (block.file === "platform-rollback-readiness.yml") expect(result.evidence).toContain("image_exists=true");
+  });
+
+  it.each(["", "Slice", "disabled"])("rejects advisory creation with invalid native type %s", (type) => {
+    const block = operatorBlocks.find(
+      (entry) => entry.step === "Create, update, or resolve advisory evidence incident",
+    );
+    const result = executeOperatorBlock(block, { CONTROL_CREATED_TYPE: type });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain("ISSUE_CREATION_TYPE_MISMATCH");
   });
 
   it.each(operatorCases)(

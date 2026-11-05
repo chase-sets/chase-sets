@@ -1535,8 +1535,11 @@ export async function publishSliIssues({ client, repository, record }) {
         ? await client.json(`/issues/${issue.number}`, { method: "PATCH", body: { title, body, state: "open" } })
         : await client.json("/issues", {
             method: "POST",
-            body: { title, body, labels: ["kind:ops", "area:infrastructure", `priority:${sli.severity}`] },
+            body: { title, body, type: "Bug", labels: ["kind:ops", "area:infrastructure", `priority:${sli.severity}`] },
           });
+      if (!issue && (saved?.type?.name !== "Bug" || saved.type.is_enabled !== true)) {
+        throw new Error("ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response.");
+      }
       updates.push({ sli: sli.id, action: issue ? "updated" : "created", issueNumber: saved.number });
     } else if (issue?.state === "open" && sli.status === "passing") {
       await client.json(`/issues/${issue.number}`, {
