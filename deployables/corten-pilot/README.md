@@ -222,7 +222,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `361b074a` (Corten `main` on 2026-11-05). No release is tagged. The
+`Cargo.toml` pins Corten to `bd75e6ab` (Corten `main` on 2026-11-05). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
 [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten pin") and in `git log -- deployables/corten-pilot/Cargo.toml`.
