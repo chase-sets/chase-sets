@@ -477,7 +477,11 @@ const boundJson = (value, code) => {
     code,
   );
   try {
-    return JSON.parse(value.text);
+    const parsed = JSON.parse(value.text);
+    const secretErrors = [];
+    scanSecrets(parsed, "evidence", secretErrors);
+    requireProof(secretErrors.length === 0, code);
+    return parsed;
   } catch {
     throw new Error(code);
   }

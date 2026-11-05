@@ -1671,6 +1671,109 @@ describe("offline cutover gate assembly", () => {
     expect(old).toMatchObject({ applied: [], verification: { verdict: "complete" } });
   });
 
+  it.each(["writer ID", "schema ledger"])("decoded-evidence: refuses a Unicode-escaped secret-shaped %s", (surface) => {
+    const value = input();
+    expect(assemble(value).verdict).toBe("complete");
+    const syntheticSecret = `ghp_${"s".repeat(30)}`;
+    let evidence;
+    if (surface === "writer ID") {
+      changeCapture(value, (capture) => {
+        capture.fields["writers.serving"].items[0].id = `deployments:synthetic/${syntheticSecret}`;
+      });
+      evidence = value.capture;
+    } else {
+      changeReceipt(value, (receipt) => {
+        receipt.schemaLedger = [...receipt.schemaLedger, syntheticSecret].sort();
+        receipt.schemaVersion = hash(JSON.stringify(receipt.schemaLedger));
+      });
+      evidence = value.supplementary.schemaObservation.receipt;
+    }
+    const escaped = [...syntheticSecret]
+      .map((char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)
+      .join("");
+    evidence.text = evidence.text.replace(syntheticSecret, escaped);
+    evidence.sha256 = hash(evidence.text);
+    value.supplementary.schemaObservation.captureSha256 = value.capture.sha256;
+    expect(evidence.text.includes(syntheticSecret)).toBe(false);
+    expect(JSON.stringify(value).includes(syntheticSecret)).toBe(false);
+    expect(JSON.stringify(JSON.parse(evidence.text)).includes(syntheticSecret)).toBe(true);
+    expect(hash(evidence.text) === evidence.sha256).toBe(true);
+    const result = refused(value, surface === "writer ID" ? "capture-binding" : "schema-source");
+    expect(JSON.stringify(result).includes(syntheticSecret)).toBe(false);
+    expect(JSON.stringify(result).includes(escaped)).toBe(false);
+    const path = join(root, "synthetic-escaped-evidence.json");
+    writeFileSync(path, JSON.stringify(value));
+    let output;
+    try {
+      execFileSync(
+        process.execPath,
+        [resolve("scripts/collections-cutover-authority-packet.mjs"), "--assemble", path],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+    } catch (error) {
+      expect(error.status).toBe(2);
+      expect(error.stderr.includes(syntheticSecret)).toBe(false);
+      expect(error.stderr.includes(escaped)).toBe(false);
+      output = error.stdout;
+    }
+    expect(output).toBeTypeOf("string");
+    const cli = JSON.parse(output);
+    expect(cli).toEqual(result);
+    for (const key of ["packet", "packetText", "packetSha256"]) expect(cli).not.toHaveProperty(key);
+    expect(output.includes(syntheticSecret)).toBe(false);
+    expect(output.includes(escaped)).toBe(false);
+  });
+
+  it.each([
+    ["schema execution", "schema-source"],
+    ["image execution", "image-provenance"],
+    ["retirement execution", "writer-authority"],
+    ["retirement receipt", "writer-authority"],
+    ["retirement owner", "writer-authority"],
+    ["termination execution", "session-proof"],
+    ["termination receipt", "session-proof"],
+  ])("decoded-evidence: scans parsed %s before use", (surface, code) => {
+    const value = input();
+    const [kind, field] = surface.split(" ");
+    let evidence;
+    if (kind === "schema") evidence = value.supplementary.schemaObservation;
+    else if (kind === "image") evidence = digestProof(value);
+    else {
+      const session = kind === "termination";
+      changeCapture(value, (capture) => {
+        const writer = capture.fields[session ? "writers.session" : "writers.serving"].items[0];
+        writer.revisions = session ? [] : [subfloor];
+        writer.containsFloor = session ? null : false;
+        if (session) {
+          writer.id = "backend:4302";
+          writer.pid = 4302;
+          writer.classification = "unknown";
+        } else writer.images = [`synthetic.invalid/platform:${subfloor}`];
+      });
+      const id = session ? "backend:4302" : "deployments:synthetic/synthetic-api";
+      evidence = retirementEvidence(value, id, session);
+      value.supplementary[session ? "terminations" : "retirements"] = [evidence];
+    }
+    const record = JSON.parse(evidence[field].text);
+    record.syntheticMetadata = "synthetic-safe";
+    evidence[field] = bound(record);
+    expect(assemble(value).verdict).toBe("complete");
+    const syntheticSecret = `ghp_${"s".repeat(30)}`;
+    record.syntheticMetadata = syntheticSecret;
+    const escaped = [...syntheticSecret]
+      .map((char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)
+      .join("");
+    const text = JSON.stringify(record).replace(syntheticSecret, escaped);
+    evidence[field] = { text, sha256: hash(text) };
+    expect(JSON.stringify(value).includes(syntheticSecret)).toBe(false);
+    const result = refused(value, code);
+    expect(JSON.stringify(result).includes(syntheticSecret)).toBe(false);
+    expect(JSON.stringify(result).includes(escaped)).toBe(false);
+  });
+
   it("complete-cli: enforces bounded input/output and never echoes secret or personal metadata", () => {
     const value = input();
     value.supplementary.images = [{ text: "x".repeat(2 * 1024 * 1024) }];
