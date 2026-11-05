@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
@@ -181,7 +182,12 @@ function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
         rev-parse) [[ "$CONTROL_FAILURE" != tag ]] || return 1; printf '%s\\n' "$CONTROL_SHA" ;;
       esac
     }
-    gh() { trace gh "$@"; }
+    gh() {
+      trace gh "$@"
+      if [[ "$1" == api && "$2" == --method && "$3" == POST ]]; then
+        printf '%s' "\${CONTROL_CREATED_TYPE-Bug}"
+      fi
+    }
     doctl() { trace doctl "$@"; }
     docker() { trace docker "$@"; [[ "$CONTROL_FAILURE" != image ]]; }
     jq() { trace jq "$@"; if [[ "$1" == -cn ]]; then printf '[]'; else printf '{}'; fi; }
@@ -1236,7 +1242,8 @@ describe("operator inputs before shell parsing (#8993)", () => {
       expect(result.evidence).toBe("scenario_seed_error<<SCENARIO_SEED_ERROR_EOF\n\nSCENARIO_SEED_ERROR_EOF\n");
     } else if (block.step === "Create, update, or resolve advisory evidence incident") {
       expect(result.trace).toContain("gh <issue> <list>");
-      expect(result.trace).toContain("gh <issue> <create>");
+      expect(result.trace).toContain("gh <api> <--method> <POST>");
+      expect(result.trace).toContain("<-f> <type=Bug>");
       expect(result.trace).toContain(`- Release commit: ${operatorSha}`);
     } else {
       expect(result.trace).toBe(
@@ -1244,6 +1251,15 @@ describe("operator inputs before shell parsing (#8993)", () => {
       );
     }
     if (block.file === "platform-rollback-readiness.yml") expect(result.evidence).toContain("image_exists=true");
+  });
+
+  it.each(["", "Slice", "disabled"])("rejects advisory creation with invalid native type %s", (type) => {
+    const block = operatorBlocks.find(
+      (entry) => entry.step === "Create, update, or resolve advisory evidence incident",
+    );
+    const result = executeOperatorBlock(block, { CONTROL_CREATED_TYPE: type });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain("ISSUE_CREATION_TYPE_MISMATCH");
   });
 
   it.each(operatorCases)(
@@ -2387,6 +2403,114 @@ function platformApiExposedContextNames(runtimeProfile) {
     .sort((left, right) => left.localeCompare(right, "en"));
 }
 
+const productionWorkflowFile = ".github/workflows/platform-production.yml";
+const markerAppTokenAction = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1";
+const markerAppMint = {
+  "app-id": "${{ vars.PRODUCTION_MARKER_APP_ID }}",
+  "private-key": "${{ secrets.PRODUCTION_MARKER_APP_PRIVATE_KEY }}",
+  owner: "${{ github.repository_owner }}",
+  repositories: "${{ github.event.repository.name }}",
+  "permission-contents": "write",
+  "permission-workflows": "write",
+};
+// Each step that can publish, the mint step immediately before it, and their skip predicates.
+const markerPublishers = [
+  {
+    jobId: "deploy-production",
+    mintId: "retry_marker_push_token",
+    consumer: "Capture production rollback target",
+    mintIf: "env.SHOULD_DEPLOY != 'false' && env.PRODUCTION_MARKER_RETRY_ATTEMPT == 'true'",
+    consumerIf: "env.SHOULD_DEPLOY != 'false'",
+    command: "node ./scripts/production-release-marker.mjs reconcile",
+    // Capture's later git, doctl and docker commands share the step, so the token is unset right after reconcile.
+    sharesStep: true,
+  },
+  {
+    jobId: "deploy-production",
+    mintId: "production_marker_push_token",
+    consumer: "Mark production release",
+    mintIf: "env.SHOULD_DEPLOY != 'false'",
+    consumerIf: "env.SHOULD_DEPLOY != 'false'",
+    command: "node ./scripts/production-release-marker.mjs publish",
+  },
+  {
+    jobId: "reconcile-production-marker",
+    mintId: "recovery_marker_push_token",
+    consumer: "Reconcile retained production marker",
+    mintIf: undefined,
+    consumerIf: undefined,
+    command: "node ./scripts/production-release-marker.mjs marker-only",
+  },
+];
+const markerAuthorityReference = /PRODUCTION_MARKER_APP_|PRODUCTION_MARKER_PUSH_TOKEN|_marker_push_token\b/;
+
+function markerAppAuthorityViolations(workflows) {
+  const violations = [];
+  const production = workflows[productionWorkflowFile];
+  for (const publisher of markerPublishers) {
+    const job = production.jobs[publisher.jobId];
+    const steps = job?.steps ?? [];
+    const index = steps.findIndex((step) => step.name === publisher.consumer);
+    const [mint, consumer] = index > 0 ? [steps[index - 1], steps[index]] : [];
+    if (job?.environment !== "production") violations.push(`${publisher.jobId}: key environment is not production`);
+    if (mint?.id !== publisher.mintId || mint.uses !== markerAppTokenAction) {
+      violations.push(`${publisher.consumer}: no adjacent App token mint`);
+    } else {
+      if (!isDeepStrictEqual(mint.with, markerAppMint)) violations.push(`${publisher.consumer}: widened App token`);
+      if (mint.if !== publisher.mintIf) violations.push(`${publisher.consumer}: changed mint skip`);
+      if (mint["continue-on-error"] !== true) violations.push(`${publisher.consumer}: mint failure escapes the marker`);
+      if (mint.env !== undefined) violations.push(`${publisher.consumer}: mint receives step env`);
+    }
+    if (consumer?.if !== publisher.consumerIf) violations.push(`${publisher.consumer}: changed consumer skip`);
+    if (consumer?.env?.PRODUCTION_MARKER_PUSH_TOKEN !== `\${{ steps.${publisher.mintId}.outputs.token }}`)
+      violations.push(`${publisher.consumer}: missing token binding`);
+    if (consumer?.env?.GITHUB_TOKEN !== "${{ github.token }}")
+      violations.push(`${publisher.consumer}: reads lost the default token`);
+    const commands = (consumer?.run ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#") && line !== "set -euo pipefail");
+    const confined = publisher.sharesStep
+      ? commands[0] === publisher.command && commands[1] === "unset PRODUCTION_MARKER_PUSH_TOKEN"
+      : commands.at(-1) === publisher.command &&
+        commands.slice(0, -1).every((line) => line === "mkdir -p artifacts/release-health");
+    if (!confined) violations.push(`${publisher.consumer}: token reaches another command`);
+  }
+  for (const [file, workflow] of Object.entries(workflows)) {
+    for (const [jobId, job] of Object.entries(workflow.jobs ?? {})) {
+      if (markerAuthorityReference.test(JSON.stringify({ ...job, steps: [] })))
+        violations.push(`${file} ${jobId}: job-wide marker App authority`);
+      for (const step of job.steps ?? []) {
+        const owned = markerPublishers.some(
+          ({ jobId: owner, mintId, consumer }) =>
+            file === productionWorkflowFile && jobId === owner && (step.id === mintId || step.name === consumer),
+        );
+        if (!owned && markerAuthorityReference.test(JSON.stringify(step)))
+          violations.push(`${file} ${jobId} ${step.name ?? step.uses}: unscoped marker App authority`);
+      }
+    }
+    // An App-token push starts workflows, unlike a github.token push, so nothing may run on production or release-* pushes.
+    const on = workflow.on;
+    const events =
+      typeof on === "string"
+        ? { [on]: null }
+        : Array.isArray(on)
+          ? Object.fromEntries(on.map((event) => [event, null]))
+          : (on ?? {});
+    if (Object.hasOwn(events, "create")) violations.push(`${file}: triggers on ref creation`);
+    if (Object.hasOwn(events, "push")) {
+      const push = events.push ?? {};
+      if (
+        !Array.isArray(push.branches) ||
+        ["branches-ignore", "tags", "tags-ignore"].some((filter) => Object.hasOwn(push, filter)) ||
+        push.branches.some((branch) => branch === "production" || /[*?[\]!+]/.test(branch))
+      )
+        violations.push(`${file}: push trigger can match production or release-* pushes`);
+    }
+  }
+  return violations;
+}
+
 describe("DigitalOcean platform configuration", () => {
   it("keeps marker recovery admitted only on immutable main and shares initialized DOKS context", () => {
     const recoveryJob = workflowJob(platformProductionWorkflow, "reconcile-production-marker");
@@ -2446,6 +2570,79 @@ describe("DigitalOcean platform configuration", () => {
         const markerStep = steps[firstMarkerIndex];
         expect(markerStep.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
       }
+    }
+  });
+
+  it("all marker publishers receive scoped App authority", () => {
+    const workflows = Object.fromEntries(
+      readdirSync(resolve(".github/workflows"))
+        .filter((name) => /\.ya?ml$/.test(name))
+        .map((name) => [`.github/workflows/${name}`, parse(readFileSync(resolve(".github/workflows", name), "utf8"))]),
+    );
+    expect(markerAppAuthorityViolations(workflows)).toEqual([]);
+    const retryAttempt =
+      parse(platformProductionWorkflow).jobs["deploy-production"].env.PRODUCTION_MARKER_RETRY_ATTEMPT;
+    expect(retryAttempt).toBe("${{ github.run_attempt != '1' && 'true' || 'false' }}");
+
+    const stepNamed = (workflow, jobId, name) => workflow.jobs[jobId].steps.find((step) => step.name === name);
+    const mutants = {
+      "missing binding": (workflow) =>
+        delete stepNamed(workflow, "deploy-production", "Mark production release").env.PRODUCTION_MARKER_PUSH_TOKEN,
+      "missing reconcile mint": (workflow) => {
+        const steps = workflow.jobs["deploy-production"].steps;
+        steps.splice(
+          steps.findIndex((step) => step.id === "retry_marker_push_token"),
+          1,
+        );
+      },
+      "widened selection": (workflow) =>
+        delete stepNamed(workflow, "reconcile-production-marker", "Mint recovery marker push token").with.repositories,
+      "widened permission": (workflow) => {
+        stepNamed(workflow, "deploy-production", "Mint production marker push token").with["permission-actions"] =
+          "write";
+      },
+      "unrevoked token": (workflow) => {
+        stepNamed(workflow, "deploy-production", "Mint production marker push token").with["skip-token-revoke"] = true;
+      },
+      "attempt-1 reconcile mint": (workflow) => {
+        stepNamed(workflow, "deploy-production", "Mint retry marker push token").if = "env.SHOULD_DEPLOY != 'false'";
+      },
+      "changed consumer skip": (workflow) => {
+        stepNamed(workflow, "deploy-production", "Mark production release").if = "always()";
+      },
+      "job-failing mint": (workflow) =>
+        delete stepNamed(workflow, "deploy-production", "Mint production marker push token")["continue-on-error"],
+      "retain-identity authority": (workflow) => {
+        stepNamed(
+          workflow,
+          "deploy-production",
+          "Verify production Kubernetes deployment transition",
+        ).env.PRODUCTION_MARKER_PUSH_TOKEN = "${{ steps.production_marker_push_token.outputs.token }}";
+      },
+      "token reaches capture commands": (workflow) => {
+        const capture = stepNamed(workflow, "deploy-production", "Capture production rollback target");
+        capture.run = capture.run.replace("unset PRODUCTION_MARKER_PUSH_TOKEN\n", "");
+      },
+      "job-wide token": (workflow) => {
+        workflow.jobs["deploy-production"].env.PRODUCTION_MARKER_PUSH_TOKEN = "${{ github.token }}";
+      },
+      "other job": (workflow) => {
+        workflow.jobs["deploy-staging"].steps.push({ uses: markerAppTokenAction, with: { ...markerAppMint } });
+      },
+      "production push trigger": (_workflow, all) => {
+        all[".github/workflows/platform-release-candidate.yml"].on.push.branches.push("production");
+      },
+      "release tag trigger": (_workflow, all) => {
+        all[".github/workflows/corten-pilot.yml"].on.push.tags = ["release-*"];
+      },
+      "ref creation trigger": (_workflow, all) => {
+        all[".github/workflows/corten-pilot.yml"].on.create = null;
+      },
+    };
+    for (const [name, mutate] of Object.entries(mutants)) {
+      const copy = structuredClone(workflows);
+      mutate(copy[productionWorkflowFile], copy);
+      expect(markerAppAuthorityViolations(copy), name).not.toEqual([]);
     }
   });
 

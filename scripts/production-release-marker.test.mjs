@@ -1,6 +1,13 @@
+import { execFile, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import {
   admitPriorProductionJob,
@@ -22,6 +29,8 @@ import {
   reconcileMarkerOnly,
   readOnlySpawn,
   markerIo,
+  publisherPushEnv,
+  publisherTokenVariable,
 } from "./production-release-marker.mjs";
 import { verifyKubernetesDeploymentTransition } from "./platform-kubernetes-deployment.mjs";
 import { releaseLockRefusal, runReleaseLockCheck } from "./release-lock.mjs";
@@ -46,6 +55,15 @@ const identity = {
   release: "synthetic",
   namespace: "synthetic",
 };
+// A synthetic publisher credential: tests trace where it travels and never authenticate with it.
+const publisherToken = "ghs_SYNTHETIC0PUBLISHER0TOKEN0000000000";
+const publisherTokenEncoding = Buffer.from(`x-access-token:${publisherToken}`).toString("base64");
+const publisherHeader = `AUTHORIZATION: basic ${publisherTokenEncoding}`;
+function carriesPublisherAuthority(value) {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
+  return text.includes(publisherToken) || text.includes(publisherTokenEncoding);
+}
+const execFileAsync = promisify(execFile);
 const names = [
   "Verify promoted platform runtime image",
   "Capture production rollback target",
@@ -1104,6 +1122,40 @@ describe("bounded GitHub authority reads", () => {
       });
     });
 
+    it.each(Object.keys(modes))(
+      "%s removes publisher authority before its first read and keeps it out of refusal and summary",
+      async (mode) => {
+        const root = await mkdtemp(join(tmpdir(), "marker-mode-summary-"));
+        try {
+          const summary = join(root, "summary.md");
+          await writeFile(summary, "");
+          const env = {
+            ...modeEnv,
+            ...modes[mode].env,
+            GITHUB_STEP_SUMMARY: summary,
+            [publisherTokenVariable]: publisherToken,
+          };
+          const read = authority(modes[mode].outcomes());
+          const fetch = vi.fn(async (url, init) => {
+            expect(env).not.toHaveProperty(publisherTokenVariable);
+            expect(carriesPublisherAuthority(init.headers)).toBe(false);
+            return read.fetch(url, init);
+          });
+          const refusal = await main(mode, env, { ...read.deps, fetch }).catch((error) => error);
+          expect(refusal.message).toBe(modes[mode].refusal);
+          expect(fetch).toHaveBeenCalled();
+          expect(env).not.toHaveProperty(publisherTokenVariable);
+          const written = await readFile(summary, "utf8");
+          if (mode === "marker-only") expect(written).toContain("- phase: refused");
+          expect(carriesPublisherAuthority([refusal.message, refusal.marker, written, read.log.mock.calls])).toBe(
+            false,
+          );
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+
     it.each(Object.keys(modes))("%s refuses an exhausted executor read before any effect", async (mode) => {
       const read = authority({ [executorPath]: Array(4).fill(failures["HTTP 503"]) });
       const refusal = await main(mode, { ...modeEnv, ...modes[mode].env }, read.deps).catch((error) => error);
@@ -1304,7 +1356,7 @@ describe("publication interruption through the real command adapter", () => {
       const state = { production: previousCommit, tag: null, registry: null, localTag: null, fetched: previousCommit };
       let interrupted = false;
       const object = "c".repeat(40);
-      const runCommand = vi.fn(async (program, args) => {
+      const runCommand = vi.fn(async (program, args, options) => {
         if (program === "docker") {
           if (args.includes("create")) {
             state.registry = manifest;
@@ -1352,6 +1404,7 @@ describe("publication interruption through the real command adapter", () => {
           expect(args).toContain(`--force-with-lease=refs/tags/${identity.tag}:${state.tag ?? ""}`);
           expect(args).not.toContain("--force");
           expect(args.some((arg) => arg.startsWith("+"))).toBe(false);
+          expect(options.env.GIT_CONFIG_VALUE_1).toBe(publisherHeader);
           if (fault !== "registry" && !interrupted) {
             interrupted = true;
             if (fault !== "no-effect") state.tag = object;
@@ -1369,7 +1422,13 @@ describe("publication interruption through the real command adapter", () => {
         image: "registry.digitalocean.com/synthetic/chase-sets-platform",
         createdAt: run.created_at,
       };
-      const io = markerIo(release, { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" }, async () => {}, runCommand);
+      const io = markerIo(
+        release,
+        { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" },
+        async () => {},
+        runCommand,
+        publisherToken,
+      );
       expect(await publishReleaseMarker(release, io)).toMatchObject({
         marker_updated: "true",
         production_marker_commit: commit,
@@ -1386,12 +1445,457 @@ describe("publication interruption through the real command adapter", () => {
     const runCommand = vi.fn(async () => {
       throw Object.assign(new Error("synthetic non-ancestor"), { code: 1 });
     });
-    const io = markerIo(identity, {}, async () => {}, runCommand);
+    const io = markerIo(identity, {}, async () => {}, runCommand, publisherToken);
     await expect(io.publishGit({ production: previousCommit, tag: { object: "c".repeat(40) } })).rejects.toThrow(
       "non-ancestor",
     );
     expect(runCommand).toHaveBeenCalledOnce();
     expect(runCommand.mock.calls[0][1][0]).toBe("merge-base");
+  });
+});
+
+describe("publisher authority for the atomic push", () => {
+  const extraHeaderKey = "http.https://github.com/.extraheader";
+  const checkoutHeader = `AUTHORIZATION: basic ${Buffer.from("x-access-token:SYNTHETIC-CHECKOUT-TOKEN").toString("base64")}`;
+  const refusal = "production marker publisher authority unavailable";
+  const registryEnv = { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-registry-token" };
+  const release = {
+    ...identity,
+    image: "registry.digitalocean.com/synthetic/chase-sets-platform",
+    createdAt: run.created_at,
+  };
+  const localTag = "c".repeat(40);
+  const retainedTag = { object: "e".repeat(40), commit, annotated: true };
+  const minimalEnv = () => ({
+    PATH: process.env.PATH,
+    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+  });
+
+  // Stateful remote refs, registry and local tag; every command is recorded with its options.
+  function remote(initial = {}, { refusePush = false, losePushResponse = false } = {}) {
+    const state = {
+      production: previousCommit,
+      tag: null,
+      registry: null,
+      localTag: null,
+      fetched: null,
+      ancestor: true,
+      ...initial,
+    };
+    let lost = false;
+    const runCommand = vi.fn(async (program, args) => {
+      if (program === "docker") {
+        if (args.includes("create")) {
+          state.registry = manifest;
+          return { stdout: "" };
+        }
+        if (!state.registry)
+          throw Object.assign(new Error("synthetic missing"), { code: 1, stderr: `ERROR: ${args[3]}: not found\n` });
+        return { stdout: args.includes("--raw") ? state.registry : `${digest}\n` };
+      }
+      if (program === "doctl") {
+        throw Object.assign(new Error("synthetic no active GC"), { stderr: `404 ${ACTIVE_GC_NOT_FOUND_PHRASE}` });
+      }
+      expect(program).toBe("git");
+      if (args[0] === "fetch") {
+        state.fetched = args.at(-1).startsWith("refs/tags/") ? state.tag?.object : state.production;
+        return { stdout: "" };
+      }
+      if (args[0] === "ls-remote") {
+        const tag = state.tag
+          ? `${state.tag.object}\trefs/tags/${release.tag}\n${state.tag.annotated ? `${state.tag.commit}\trefs/tags/${release.tag}^{}\n` : ""}`
+          : "";
+        return { stdout: `${state.production}\trefs/heads/production\n${tag}` };
+      }
+      if (args[0] === "merge-base") {
+        if (state.ancestor) return { stdout: "" };
+        throw Object.assign(new Error("synthetic non-ancestor"), { code: 1 });
+      }
+      if (args[0] === "cat-file") return { stdout: "tag\n" };
+      if (args[0] === "rev-parse") {
+        if (args.at(-1) === "FETCH_HEAD") return { stdout: state.fetched };
+        if (args.at(-1).endsWith("^{commit}")) return { stdout: commit };
+        if (!state.localTag) throw Object.assign(new Error("synthetic missing local tag"), { code: 128 });
+        return { stdout: state.localTag };
+      }
+      if (args[0] === "-c" && args.includes("tag")) {
+        state.localTag = localTag;
+        return { stdout: "" };
+      }
+      if (args[0] === "push") {
+        // A hostile refusal quotes the credential; only the authoritative read-back may decide.
+        if (refusePush)
+          throw Object.assign(new Error(`synthetic 403 for ${publisherToken}`), { code: 1, stderr: publisherHeader });
+        state.tag = { object: args.at(-2).split(":")[0], commit, annotated: true };
+        state.production = commit;
+        if (losePushResponse && !lost) {
+          lost = true;
+          throw new Error("synthetic lost Git response");
+        }
+        return { stdout: "" };
+      }
+      throw new Error(`unhandled synthetic command ${program} ${args.join(" ")}`);
+    });
+    return {
+      state,
+      runCommand,
+      pushes: () => runCommand.mock.calls.filter(([, args]) => args[0] === "push"),
+      creates: () => runCommand.mock.calls.filter(([program, args]) => program === "docker" && args.includes("create")),
+    };
+  }
+  function pushArgs([production, tag, source]) {
+    return [
+      "push",
+      "--atomic",
+      `--force-with-lease=refs/heads/production:${production}`,
+      `--force-with-lease=refs/tags/${release.tag}:${tag}`,
+      "origin",
+      `${source}:refs/tags/${release.tag}`,
+      `${commit}:refs/heads/production`,
+    ];
+  }
+  function expectPublisherPush([, args, options]) {
+    expect(carriesPublisherAuthority(args)).toBe(false);
+    expect(options.env).toMatchObject({
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: extraHeaderKey,
+      GIT_CONFIG_VALUE_0: "",
+      GIT_CONFIG_KEY_1: extraHeaderKey,
+      GIT_CONFIG_VALUE_1: publisherHeader,
+    });
+    expect(options.env).not.toHaveProperty("GIT_CONFIG_PARAMETERS");
+    expect(Object.values(options.env).filter((value) => carriesPublisherAuthority(value))).toEqual([publisherHeader]);
+  }
+  function expectOnlyPushCarriesAuthority(runCommand) {
+    for (const call of runCommand.mock.calls.filter(([, args]) => args[0] !== "push")) {
+      expect(carriesPublisherAuthority(call), call.slice(0, 2).flat().join(" ")).toBe(false);
+      expect(call[2]?.env?.GIT_CONFIG_COUNT).toBeUndefined();
+    }
+  }
+
+  const complete = { registry: manifest, production: commit, tag: retainedTag };
+  const pushed = [previousCommit, "", localTag];
+  it.each([
+    { state: "absent", initial: {}, outcome: "complete", creates: 1, pushes: [pushed] },
+    { state: "registry-only", initial: { registry: manifest }, outcome: "complete", creates: 0, pushes: [pushed] },
+    {
+      state: "partial Git: tag only",
+      initial: { registry: manifest, tag: retainedTag },
+      outcome: "complete",
+      creates: 0,
+      pushes: [[previousCommit, retainedTag.object, retainedTag.object]],
+    },
+    {
+      state: "partial Git: production only",
+      initial: { registry: manifest, production: commit },
+      outcome: "complete",
+      creates: 0,
+      pushes: [[commit, "", localTag]],
+    },
+    { state: "complete", initial: complete, outcome: "complete", creates: 0, pushes: [] },
+    {
+      state: "conflict: lightweight tag",
+      initial: { registry: manifest, tag: { object: commit, annotated: false } },
+      outcome: "conflicting release tag",
+      creates: 0,
+      pushes: [],
+    },
+    {
+      state: "conflict: tag on another commit",
+      initial: { tag: { ...retainedTag, commit: previousCommit } },
+      outcome: "conflicting release tag",
+      creates: 0,
+      pushes: [],
+    },
+    {
+      state: "moved",
+      initial: { production: "d".repeat(40) },
+      outcome: "production ref moved",
+      creates: 0,
+      pushes: [],
+    },
+    {
+      state: "non-ancestor",
+      initial: { ancestor: false },
+      outcome: "production-marker-non-fast-forward",
+      creates: 0,
+      pushes: [],
+    },
+    {
+      state: "lost response with valid read-back",
+      initial: {},
+      fault: { losePushResponse: true },
+      outcome: "complete",
+      creates: 1,
+      pushes: [pushed],
+    },
+    {
+      state: "unauthorized push",
+      initial: {},
+      fault: { refusePush: true },
+      outcome: "publication result remains unknown after three attempts",
+      creates: 1,
+      pushes: [pushed, pushed, pushed],
+    },
+  ])("publication state/effect counts: $state", async ({ initial, fault, outcome, creates, pushes }) => {
+    const double = remote({ ...initial }, fault);
+    const io = markerIo(release, registryEnv, async () => {}, double.runCommand, publisherToken);
+    const result = await publishReleaseMarker(release, io).catch((error) => error);
+    if (outcome === "complete") {
+      expect(result).toEqual({
+        marker_updated: "true",
+        marker_mismatch: "false",
+        production_marker_commit: commit,
+        marker_error: "",
+        marker_phase: "complete",
+        release_tag: release.tag,
+      });
+      expect(double.state).toMatchObject({ production: commit, tag: { commit, annotated: true }, registry: manifest });
+    } else {
+      expect(result.message).toBe(outcome);
+      expect(result.marker).toMatchObject({ marker_updated: "false", marker_mismatch: "true", marker_error: outcome });
+      expect(carriesPublisherAuthority([result.message, result.marker])).toBe(false);
+    }
+    expect(double.creates()).toHaveLength(creates);
+    expect(double.pushes().map(([, args]) => args)).toEqual(pushes.map(pushArgs));
+    for (const push of double.pushes()) expectPublisherPush(push);
+    expectOnlyPushCarriesAuthority(double.runCommand);
+  });
+
+  it("leaves a retained complete marker inert on every later run without publisher authority", async () => {
+    const double = remote({ ...complete });
+    const io = markerIo(release, registryEnv, async () => {}, double.runCommand, undefined);
+    for (let day = 0; day < 2; day += 1) {
+      expect(await publishReleaseMarker(release, io)).toMatchObject({
+        marker_updated: "true",
+        marker_phase: "complete",
+      });
+    }
+    expect(double.pushes()).toHaveLength(0);
+    expect(double.creates()).toHaveLength(0);
+    expect(double.state).toMatchObject({ ...complete, localTag: null });
+  });
+
+  it("push selects App rather than checkout credentials", async () => {
+    const double = remote();
+    // Pre-existing command-line config would otherwise append the checkout header after the reset.
+    const callerEnv = {
+      ...registryEnv,
+      GIT_CONFIG_PARAMETERS: `'${extraHeaderKey}'='${checkoutHeader}'`,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: extraHeaderKey,
+      GIT_CONFIG_VALUE_0: checkoutHeader,
+    };
+    const before = structuredClone(callerEnv);
+    await markerIo(release, callerEnv, async () => {}, double.runCommand, publisherToken).publishGit({
+      production: previousCommit,
+      tag: null,
+    });
+    const [push] = double.pushes();
+    expect(double.pushes()).toHaveLength(1);
+    expectPublisherPush(push);
+    expect(push[2].env.DIGITALOCEAN_ACCESS_TOKEN).toBe("synthetic-registry-token");
+    expect(JSON.stringify(push[2].env)).not.toContain(checkoutHeader);
+    expect(callerEnv).toEqual(before);
+    for (const call of double.runCommand.mock.calls.filter(([, args]) => args[0] !== "push"))
+      expect(carriesPublisherAuthority(call)).toBe(false);
+    expect(publisherPushEnv({ GITHUB_SERVER_URL: "https://github.com/" }, publisherToken).GIT_CONFIG_KEY_1).toBe(
+      extraHeaderKey,
+    );
+  });
+
+  it("git sends only the App header over checkout's persisted credential", async () => {
+    const authorizations = [];
+    const server = createServer((request, response) => {
+      for (let index = 0; index < request.rawHeaders.length; index += 2)
+        if (request.rawHeaders[index].toLowerCase() === "authorization")
+          authorizations.push(`${request.rawHeaders[index]}: ${request.rawHeaders[index + 1]}`);
+      response.writeHead(404).end();
+    });
+    await new Promise((listening) => server.listen(0, "127.0.0.1", listening));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const root = await mkdtemp(join(tmpdir(), "marker-push-credential-"));
+    try {
+      const globalConfig = join(root, "global.config");
+      const checkoutCredentials = join(root, "checkout-credentials.config");
+      const repository = join(root, "repository");
+      await writeFile(globalConfig, "");
+      // Built from nothing: no inherited credential, helper, proxy or user config reaches these git children.
+      const base = { ...minimalEnv(), HOME: root, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: globalConfig };
+      const git = (args, env = base) =>
+        execFileAsync("git", args, { cwd: root, env: { ...env, GIT_TERMINAL_PROMPT: "0" }, timeout: 30_000 });
+      await git(["init", "--quiet", "repository"]);
+      // actions/checkout persists its token under the URL-scoped key in an included file.
+      await writeFile(checkoutCredentials, `[http "${origin}/"]\n\textraheader = ${checkoutHeader}\n`);
+      await git(["-C", repository, "config", "remote.origin.url", `${origin}/synthetic.git`]);
+      await git(["-C", repository, "config", "include.path", checkoutCredentials]);
+      const sent = async (env) => {
+        authorizations.length = 0;
+        const result = await git(["-C", repository, "ls-remote", "origin"], env).catch((error) => error);
+        expect(result.code).toBe(128);
+        return [...authorizations];
+      };
+      expect(await sent(base)).toEqual([checkoutHeader]);
+      const pushEnv = publisherPushEnv({ ...base, GITHUB_SERVER_URL: origin }, publisherToken);
+      expect(await sent(pushEnv)).toEqual([publisherHeader]);
+      // Appending without the reset, or resetting the URL-less key that ranks below checkout's, sends both headers.
+      const key = `http.${origin}/.extraheader`;
+      expect(
+        await sent({ ...base, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: key, GIT_CONFIG_VALUE_0: publisherHeader }),
+      ).toEqual([checkoutHeader, publisherHeader]);
+      expect(await sent({ ...pushEnv, GIT_CONFIG_KEY_0: "http.extraheader" })).toEqual([
+        checkoutHeader,
+        publisherHeader,
+      ]);
+    } finally {
+      await new Promise((closed) => server.close(closed));
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([undefined, "", "  ", "two words"])("missing publisher authority refuses before push (%j)", async (token) => {
+    const double = remote();
+    const io = markerIo(release, registryEnv, async () => {}, double.runCommand, token);
+    await expect(io.publishGit({ production: previousCommit, tag: null })).rejects.toMatchObject({
+      code: "production-marker-publisher-authority-missing",
+      message: refusal,
+    });
+    expect(double.runCommand).not.toHaveBeenCalled();
+
+    const publishGit = vi.spyOn(io, "publishGit");
+    const result = await publishReleaseMarker(release, io).catch((error) => error);
+    expect(result.message).toBe(refusal);
+    expect(result.marker).toMatchObject({
+      marker_updated: "false",
+      marker_mismatch: "true",
+      marker_phase: "publication",
+      marker_operation: "atomic-git-publication",
+      marker_error: refusal,
+    });
+    // A swallowed refusal would retry twice more and end as the generic unknown result.
+    expect(publishGit).toHaveBeenCalledOnce();
+    expect(double.pushes()).toHaveLength(0);
+    expect(double.creates()).toHaveLength(1);
+    expect(double.state).toMatchObject({ production: previousCommit, tag: null, localTag: null });
+  });
+
+  it("reconcile and marker-only recovery publish through the same App-only push", async () => {
+    const history = syntheticTransition().observedHistory;
+    const recoveryIo = (double, token) => ({
+      ...markerIo(release, registryEnv, async () => {}, double.runCommand, token),
+      readHistory: vi.fn(async () => structuredClone(history)),
+      readValues: vi.fn(async () => ({ global: { image: { tag: commit } } })),
+      readAuthority: vi.fn(async () => syntheticTransition()),
+      assertWriters: vi.fn(async () => {}),
+      capture: vi.fn(async () => ({ preDeployHistory: structuredClone(history) })),
+    });
+    const callers = {
+      reconcile: (io) => reconcileReleaseMarker({ ...release, attempt: 2 }, io),
+      "marker-only": (io) => reconcileMarkerOnly({ ...release, resultingHeadRevision: 21 }, io),
+    };
+    for (const [caller, reconcile] of Object.entries(callers)) {
+      const authorized = remote({ registry: manifest });
+      await reconcile(recoveryIo(authorized, publisherToken));
+      expect(authorized.state, caller).toMatchObject({ production: commit, tag: { commit, annotated: true } });
+      expect(
+        authorized.pushes().map(([, args]) => args),
+        caller,
+      ).toEqual([pushArgs(pushed)]);
+      expectPublisherPush(authorized.pushes()[0]);
+      expectOnlyPushCarriesAuthority(authorized.runCommand);
+
+      const withheld = remote({ registry: manifest });
+      await expect(reconcile(recoveryIo(withheld, undefined)), caller).rejects.toThrow(refusal);
+      expect(withheld.pushes(), caller).toHaveLength(0);
+      expect(withheld.state.production, caller).toBe(previousCommit);
+    }
+  });
+
+  it("main hands publisher authority to every publishing caller and to no other path", () => {
+    const source = readFileSync(new URL("./production-release-marker.mjs", import.meta.url), "utf8");
+    const body = source.slice(
+      source.indexOf("export async function main("),
+      source.indexOf("\nasync function output("),
+    );
+    expect(body.split("\n")[1].trim()).toBe("const publisherToken = takePublisherToken(env);");
+    expect(body.match(/markerIo\([^)]*\)/g)).toEqual([
+      "markerIo(sourceIdentity, env, assertFresh, command, publisherToken)",
+      "markerIo(identity, env, assertFresh, command, publisherToken)",
+      "markerIo(identity, env, assertFresh, command, publisherToken)",
+    ]);
+    expect(body.match(/publisherToken/g)).toHaveLength(4);
+    const retain = body.slice(
+      body.indexOf('if (action === "retain-identity")'),
+      body.indexOf("await gitRefs(identity)"),
+    );
+    expect(retain).toContain("transition.markerIdentity = {");
+    expect(retain).not.toMatch(/markerIo|publisherToken|publishGit/);
+  });
+
+  it("keeps publisher authority out of the CLI's output, summary and stderr", async () => {
+    const root = await mkdtemp(join(tmpdir(), "marker-cli-output-"));
+    try {
+      const output = join(root, "output.txt");
+      const summary = join(root, "summary.md");
+      await writeFile(output, "");
+      await writeFile(summary, "");
+      // Without a GitHub credential the CLI refuses before any read or child process, then writes its fields.
+      const result = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL("./production-release-marker.mjs", import.meta.url)), "publish"],
+        {
+          encoding: "utf8",
+          env: {
+            ...minimalEnv(),
+            GITHUB_OUTPUT: output,
+            GITHUB_STEP_SUMMARY: summary,
+            RELEASE_COMMIT: commit,
+            [publisherTokenVariable]: publisherToken,
+          },
+          timeout: 60_000,
+        },
+      );
+      expect(result.status).toBe(1);
+      const written = [await readFile(output, "utf8"), await readFile(summary, "utf8"), result.stdout, result.stderr];
+      expect(written[0]).toContain("marker_error=missing GitHub authority credentials");
+      expect(carriesPublisherAuthority(written)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("old transition artifacts stay admissible and a mint support step never widens retry admission", () => {
+    const historical = syntheticTransition();
+    expect(Object.keys(historical.markerIdentity).sort()).toEqual([
+      "attempt",
+      "commit",
+      "digest",
+      "jobId",
+      "productionCommit",
+      "runId",
+      "tag",
+    ]);
+    expect(validateTransitionAuthority(historical, syntheticArtifact(), syntheticJob(), identity)).toBe(historical);
+    const withMint = (conclusion) => {
+      const job = syntheticJob();
+      job.steps.push({
+        name: "Mint production marker push token",
+        number: job.steps.length + 1,
+        status: "completed",
+        conclusion,
+        started_at: timestamp(19),
+        completed_at: timestamp(19),
+      });
+      return job;
+    };
+    const source = { runId: run.id, attempt: 1, workflowHead: commit };
+    // continue-on-error reports a failed mint as success, so the marker step stays the only failure.
+    for (const conclusion of ["success", "skipped"])
+      expect(admitPriorProductionJob(withMint(conclusion), source)).toBeTruthy();
+    expect(() => admitPriorProductionJob(withMint("failure"), source)).toThrow(
+      "failure is not confined to marker publication",
+    );
   });
 });
 
