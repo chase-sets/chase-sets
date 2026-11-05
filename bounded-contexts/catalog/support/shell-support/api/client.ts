@@ -2235,8 +2235,9 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async getCatalogAttentionQueueReadModel<T>(): Promise<T> {
-      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/attention-queue`, {
+    async getCatalogAttentionQueueReadModel<T>(query = ""): Promise<T> {
+      const search = query ? `?${query}` : "";
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/attention-queue${search}`, {
         method: "GET",
         headers: headersToRecord(headers),
       });
