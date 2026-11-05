@@ -22,8 +22,10 @@
 //!
 //! Preview and promote stay on admin-web: the API does not yet refuse a stale preview itself
 //! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. Merge candidate edits and
-//! splits (which send the candidate's snapshots), the evidence sheets and the deferred panels (source
-//! options, import preview, alias review) open on admin-web too.
+//! splits open on admin-web until the API applies them to the stored snapshot rather than storing the
+//! page's (chase-sets/chase-sets#11078); the evidence sheets until the API serves their detail
+//! (chase-sets/chase-sets#11079); and the deferred panels (source options, import preview, alias
+//! review) too.
 //!
 //! Beside the surface the page reads the Catalog sync run the address's `jobId` names
 //! (`GET .../catalog-sync-scope/runs/{id}`), where a sync lands, and then the durable sync state of the

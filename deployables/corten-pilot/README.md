@@ -142,9 +142,13 @@ and the pilot draws Integration health, Settings and Settings' older `governance
 pages need that API to answer. The daily workbench starts a scope's Catalog sync, retries, resumes
 and cancels import jobs, defers or rejects Source Observations, and ignores or defers a merge
 candidate, each a form that works without JavaScript. It draws the sync run a sync lands on and the
-scope's durable sync state, with Retry provider for a failed or stale unit. Previewing and promoting,
-merge candidate edits and splits, and the evidence sheets open on admin-web until the Catalog API
-refuses a stale preview itself. Provider detail,
+scope's durable sync state, with Retry provider for a failed or stale unit. Previewing and promoting
+open on admin-web until the Catalog API refuses a stale preview itself
+([chase-sets/chase-sets#11045 [catalog] Refuse a Source Observation promotion whose preview is stale in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11045)),
+merge candidate edits and splits until it applies them to the stored snapshot
+([chase-sets/chase-sets#11078 [catalog] Apply a merge candidate's edit and split in the Catalog API: the update and split commands store whatever snapshot the page posts](https://github.com/chase-sets/chase-sets/issues/11078)),
+and the evidence sheets until it serves their detail
+([chase-sets/chase-sets#11079 [catalog] Serve a Source Observation's evidence detail from the Catalog API: admin-web's loader works out its promotion readiness and Product contents states](https://github.com/chase-sets/chase-sets/issues/11079)). Provider detail,
 `/catalog/providers/{providerKey}` ([admin/src/catalog/provider.rs](admin/src/catalog/provider.rs)),
 draws the same composed read for the provider with its refresh schedule, and pauses, resumes and
 runs the refresh, makes a draft profile, rolls back, deprecates and retires a version with its
