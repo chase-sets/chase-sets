@@ -7,7 +7,7 @@
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /catalog/integrations?<context>&after_write&done` | the workbench for the context, after the command the address names |
-//! | `POST /catalog/integrations/catalog-sync?<context>` | starts a Catalog sync of the scope with the checked provider units |
+//! | `POST /catalog/integrations/catalog-sync?<context>` | starts a Catalog sync of the scope with the checked provider units, and lands on its run |
 //! | `POST /catalog/integrations/jobs/{id}?<context>` | retries, resumes or cancels an import job |
 //! | `POST /catalog/integrations/review?<context>` | defers or rejects the checked Source Observations |
 //! | `POST /catalog/integrations/candidates/{id}?<context>` | ignores or defers a merge candidate |
@@ -22,8 +22,14 @@
 //!
 //! Preview and promote stay on admin-web: the API does not yet refuse a stale preview itself
 //! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. Merge candidate edits and
-//! splits (which send the candidate's snapshots), the evidence sheets and the deferred panels (source options, import preview, the sync run's
-//! progress, alias review) open on admin-web too.
+//! splits (which send the candidate's snapshots), the evidence sheets and the deferred panels (source
+//! options, import preview, alias review) open on admin-web too.
+//!
+//! Beside the surface the page reads the Catalog sync run the address's `jobId` names
+//! (`GET .../catalog-sync-scope/runs/{id}`), where a sync lands, and then the durable sync state of the
+//! scope the surface names (`POST .../catalog-sync-scope/state`, a read); each is left out when it
+//! does not read, as admin-web's panels are. A failed or stale unit's Retry provider is the job route's
+//! retry of its last job.
 //!
 //! Workaround (chase-sets/chase-sets#11047): the read model does not carry the stages' states, the
 //! open stage, the governance and health banners or the review queue's pager and filter links, so
@@ -44,7 +50,7 @@ use super::{
     command, manages, receipt,
 };
 use crate::{
-    api::{Method, segment},
+    api::{Caller, Method, segment},
     app::{Shared, read_failed},
     auth::{CatalogAccess, Staff, Viewer},
     text::{Cat, Pilot},
@@ -111,6 +117,10 @@ pub struct DailyRead {
     pub read_model: Daily,
     #[serde(default)]
     pub read_model_failures: Vec<String>,
+    /// The Catalog sync scope the read names (catalogSyncScope): the scope Sync scope starts, and
+    /// the one whose durable sync state the page reads. Passed back to the API as it is.
+    #[serde(default)]
+    pub catalog_sync_scope: Option<Value>,
 }
 
 /// `CatalogPrimaryWorkbenchReadModel`, the slices the daily workbench draws.
@@ -246,6 +256,83 @@ pub struct SyncUnit {
 pub struct SyncBlocker {
     pub code: String,
     pub message: String,
+}
+
+/// A Catalog sync run (CatalogSyncRun, GET .../catalog-sync-scope/runs/{id}): the parent run
+/// the address's jobId names after Sync scope, its counts and a child job per provider unit.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SyncRun {
+    pub sync_run_id: String,
+    pub status: String,
+    pub progress: SyncRunProgress,
+    pub child_jobs: Vec<SyncRunChild>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SyncRunProgress {
+    pub child_jobs: SyncRunCounts,
+    pub provider_targets: SyncRunTargets,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct SyncRunCounts {
+    pub total: u64,
+    pub queued: u64,
+    pub running: u64,
+    pub completed: u64,
+    pub partial: u64,
+    pub failed: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct SyncRunTargets {
+    pub completed: u64,
+    pub total: u64,
+}
+
+/// A provider unit's child job in a run (CatalogSyncRunChildJob).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SyncRunChild {
+    pub unit_key: String,
+    pub display_name: String,
+    pub child_job_id: Option<String>,
+    pub status: String,
+    pub sync_run_link_state: String,
+}
+
+/// A provider unit's durable sync state in the scope, kept across runs
+/// (CatalogScopeSyncUnitStateReadModel, POST .../catalog-sync-scope/state).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct UnitState {
+    pub provider_key: String,
+    pub unit_key: String,
+    pub display_name: String,
+    pub state: String,
+    pub last_sync_run_id: Option<String>,
+    pub last_job_id: Option<String>,
+    pub observed_count: Option<u64>,
+    pub changed_count: Option<u64>,
+    pub last_completed_at: Option<String>,
+}
+
+impl UnitState {
+    /// The job Retry provider retries: the unit's last one, offered only for a failed or stale
+    /// unit (admin-web's scopeSyncUnitRetryAvailable); the API decides whether it runs.
+    pub fn retry(&self) -> Option<&str> {
+        matches!(self.state.as_str(), "failed" | "stale").then_some(self.last_job_id.as_deref()).flatten()
+    }
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct UnitStates {
+    items: Vec<UnitState>,
 }
 
 /// `CatalogPrimaryWorkbenchImportJobsReadModel`.
@@ -630,7 +717,12 @@ pub fn context_of(uri: &Uri) -> String {
 
 /// A query value the address carries (the last command's receipt and outcome), decoded.
 fn param(uri: &Uri, key: &str) -> Option<String> {
-    let raw = uri.query()?.split('&').find_map(|pair| pair.strip_prefix(key)?.strip_prefix('='))?;
+    context_value(uri.query()?, key)
+}
+
+/// A value of the query `context`, decoded.
+fn context_value(context: &str, key: &str) -> Option<String> {
+    let raw = context.split('&').find_map(|pair| pair.strip_prefix(key)?.strip_prefix('='))?;
     Some(percent_encoding::percent_decode_str(raw).decode_utf8_lossy().into_owned())
 }
 
@@ -640,6 +732,10 @@ fn param(uri: &Uri, key: &str) -> Option<String> {
 pub struct DailyScreen {
     pub read: DailyRead,
     pub manage: bool,
+    /// The sync run the address names (jobId), when it reads.
+    pub run: Option<SyncRun>,
+    /// The scope's durable sync state, per provider unit; empty when there is none or it fails.
+    pub units: Vec<UnitState>,
 }
 
 /// What the page says at its top: a command's outcome, or its refusal.
@@ -658,6 +754,28 @@ async fn read(
     config.platform.caller(headers, config.proto, receipt).read_at::<DailyRead>(Kind::SourceObservations, &rest).await
 }
 
+/// The Catalog sync run the address's `jobId` names (admin-web's `selectedCatalogSyncRun`): none
+/// without one, or when it does not read (an import job's id, a run that is gone), as there.
+async fn sync_run(caller: &Caller<'_>, context: &str) -> Option<SyncRun> {
+    let id = context_value(context, "jobId").filter(|id| !id.is_empty())?;
+    let rest = format!("/catalog-sync-scope/runs/{}", segment(&id));
+    caller.read_at::<SyncRun>(Kind::SourceObservations, &rest).await.ok()
+}
+
+/// The durable sync state of the scope the surface names (admin-web's
+/// `selectedCatalogScopeSyncState`, a `POST` that reads): none without a scope, or when it does
+/// not read, as there, where the run's own panels still draw.
+async fn unit_states(caller: &Caller<'_>, read: &DailyRead) -> Vec<UnitState> {
+    let Some(scope) = &read.catalog_sync_scope else { return Vec::new() };
+    let body = json!({ "scope": scope });
+    match caller.post::<UnitStates>(Kind::SourceObservations, "/catalog-sync-scope/state", &body).await {
+        Ok(states) => states.items,
+        Err(error) => {
+            tracing::warn!("catalog scope sync state read failed: {error}");
+            Vec::new()
+        }
+    }
+}
 #[expect(
     clippy::too_many_arguments,
     reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
@@ -673,11 +791,16 @@ async fn render(
     refused: bool,
 ) -> HtmlResult {
     let location = at(url::Daily.href().as_str(), context);
-    let read = match read(config, headers, &location, receipt.as_ref()).await {
+    let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
+    // The run the address names is read beside the surface; the scope's state needs the scope the
+    // surface names, so it follows.
+    let (read, run) = tokio::join!(read(config, headers, &location, receipt.as_ref()), sync_run(&caller, context));
+    let read = match read {
         Ok(read) => read,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
-    let screen = DailyScreen { read, manage: manages(viewer) };
+    let units = unit_states(&caller, &read).await;
+    let screen = DailyScreen { read, manage: manages(viewer), run, units };
     let t: Cat = req.t();
     let p: Pilot = req.t();
     let view = html! {
@@ -701,10 +824,11 @@ pub(crate) async fn page(
     render(&req, &staff.viewer, &config, &headers, &context_of(&uri), receipt, said, false).await
 }
 
-/// The redirect after a command the API accepted: the working set again, with the write's receipt
-/// and what it did.
-fn landed(req: &Req, context: &str, written: &super::api::Written, ran: Ran) -> HtmlResult {
-    let mut changes = vec![("done", Some(ran.word()))];
+/// The redirect after a command the API accepted: the working set again with `set` changed, the
+/// write's receipt and what it did.
+fn landed(req: &Req, context: &str, set: &[(&str, Option<&str>)], written: &super::api::Written, ran: Ran) -> HtmlResult {
+    let mut changes = set.to_vec();
+    changes.push(("done", Some(ran.word())));
     let receipt = receipt(written);
     if let Some(receipt) = receipt.as_deref() {
         changes.push(("after_write", Some(receipt)));
@@ -727,7 +851,7 @@ async fn answer(
     ran: Ran,
 ) -> HtmlResult {
     let errors = match sent {
-        Sent::Written(written) => return landed(req, context, &written, ran),
+        Sent::Written(written) => return landed(req, context, &[], &written, ran),
         Sent::Refused(errors) => errors,
         Sent::Denied(denied) => return denied.answer(req),
     };
@@ -787,7 +911,18 @@ pub(crate) async fn sync(
 ) -> HtmlResult {
     let context = context_of(&uri);
     let caller = config.platform.caller(&headers, config.proto, None);
-    let sent = command(&caller, Method::POST, Kind::SourceObservations, "/catalog-sync-scope/runs", Some(&input.body())).await;
+    // The API answers the run it queued (or the active one it reuses); the working set names it as
+    // its `jobId`, as admin-web's does, so the page lands on the run's progress.
+    let sent = match caller.post_written::<Value>(Kind::SourceObservations, "/catalog-sync-scope/runs", &input.body()).await {
+        Ok((run, written)) => {
+            let id = run.get("syncRunId").and_then(Value::as_str);
+            return landed(&req, &context, &[("jobId", id)], &written, Ran::Queued);
+        }
+        Err(error) => match crate::app::refused(error) {
+            Ok(errors) => Sent::Refused(errors),
+            Err(denied) => Sent::Denied(denied),
+        },
+    };
     answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
 }
 

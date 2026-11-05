@@ -24,7 +24,7 @@ use crate::{
     catalog::{
         daily::{
             self, CANDIDATE_COMMANDS, Candidate, CandidateInput, Daily, DailyScreen, Governance, Health, ImportJob, JobInput,
-            Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, at, with_query,
+            Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitState, at, with_query,
         },
         integrations,
     },
@@ -218,7 +218,15 @@ pub fn DailyPage<'a>(
                             match stage {
                                 Stage::RunSync => {
                                     <p class={Lead}>{t.wb_stage_run_sync_description()}</p>
-                                    <SyncModule t={t} p={p} model={model} context={context} manage={screen.manage} />
+                                    <SyncModule
+                                        t={t}
+                                        p={p}
+                                        model={model}
+                                        run={screen.run.as_ref()}
+                                        units={&screen.units}
+                                        context={context}
+                                        manage={screen.manage}
+                                    />
                                     <JobsModule t={t} req={req} model={model} context={context} manage={screen.manage} />
                                 }
                                 Stage::Review => {
@@ -253,9 +261,18 @@ fn sync_startable(model: &Daily) -> bool {
 }
 
 /// Catalog scope sync (`CatalogSyncScopeModule`): the scope, the plan, its estimate for the units
-/// the preview selected, and the units, each with its box, inside the form that starts the sync.
+/// the preview selected, and the units, each with its box, inside the form that starts the sync;
+/// then the run the address names and the scope's durable sync state.
 #[component(css = DailyPage)]
-fn SyncModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
+fn SyncModule<'a>(
+    t: Cat,
+    p: Pilot,
+    model: &'a Daily,
+    run: Option<&'a SyncRun>,
+    units: &'a [UnitState],
+    context: &'a str,
+    manage: bool,
+) -> impl Render {
     let sync = &model.catalog_sync;
     let scope = &sync.scope;
     let none = || p.integrations_sync_not_selected().to_owned();
@@ -403,10 +420,185 @@ fn SyncModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, manage: 
                     </button>
                 </div>
             </form>
+            if let Some(run) = run {
+                <RunProgress t={t} p={p} run={run} />
+            }
+            if !units.is_empty() {
+                <UnitStates t={t} units={units} context={context} manage={manage} />
+            }
         </Module>
     }
 }
 
+/// A Catalog sync run's progress (`CatalogSyncRunProgress`): the parent run, its counts, and a
+/// child job per provider unit, whose retry, resume and cancel stay with the import jobs.
+#[component(css = DailyPage)]
+fn RunProgress<'a>(t: Cat, p: Pilot, run: &'a SyncRun) -> impl Render {
+    let counts = &run.progress.child_jobs;
+    let targets = &run.progress.provider_targets;
+    let pairs = [
+        (p.integrations_sync_run_children(), format!("{}/{}", counts.completed, counts.total)),
+        (p.integrations_sync_run_running(), counts.running.to_string()),
+        (p.integrations_sync_run_queued(), counts.queued.to_string()),
+        (p.integrations_sync_run_partial(), counts.partial.to_string()),
+        (p.integrations_sync_run_failed(), counts.failed.to_string()),
+        (p.integrations_sync_run_targets(), format!("{}/{}", targets.completed, targets.total)),
+    ];
+    let title = t.wb_sync_progress_parent_run(&run.sync_run_id).to_string();
+    let status = state_label(&run.status);
+    html! {
+        <div class={Panel} data-catalog-sync-run={&run.status} data-catalog-sync-run-id={&run.sync_run_id}>
+            <div class={Row}>
+                <span>
+                    <p class={Strong}>{title}</p>
+                    <p class={Muted}>{t.wb_sync_progress_delegated_children()}</p>
+                </span>
+                <Pill text={&status} tone={run_tone(&run.status)} />
+            </div>
+            <Pairs items={&pairs} />
+            <Table layout={TableLayout::Stack}>
+                <table>
+                    <caption class={Hidden}>{p.integrations_sync_run_caption()}</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">{t.wb_sync_progress_provider_child()}</th>
+                            <th scope="col">{t.wb_sync_progress_status()}</th>
+                            <th scope="col">{t.wb_sync_progress_link()}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        for child in &run.child_jobs {
+                            let state = state_label(&child.status);
+                            let link = state_label(&child.sync_run_link_state);
+                            let job = child.child_job_id.as_deref().unwrap_or(p.integrations_sync_run_no_child());
+                            <tr data-catalog-sync-run-child={&child.unit_key}>
+                                <td>
+                                    <CellLabel>{t.wb_sync_progress_provider_child()}</CellLabel>
+                                    <Cell title={&child.display_name} description={Some(job)} detail={None} />
+                                </td>
+                                <td>
+                                    <CellLabel>{t.wb_sync_progress_status()}</CellLabel>
+                                    <Pill text={&state} tone={run_tone(&child.status)} />
+                                </td>
+                                <td>
+                                    <CellLabel>{t.wb_sync_progress_link()}</CellLabel>
+                                    <small>{link}</small>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </Table>
+        </div>
+    }
+}
+
+fn run_tone(status: &str) -> &'static str {
+    match status {
+        "completed" => "success",
+        "failed" | "cancelled" => "danger",
+        "partial" => "warning",
+        _ => "info",
+    }
+}
+
+fn unit_tone(state: &str) -> &'static str {
+    match state {
+        "settled" => "success",
+        "failed" | "stale" => "danger",
+        "running" | "pending" => "info",
+        _ => "neutral",
+    }
+}
+
+/// The scope's durable sync state (`ScopeSyncStateTable`): each provider unit's state kept across
+/// runs, its counts and last run, and Retry provider for a failed or stale one, which retries that
+/// unit's last import job and leaves the others as they are.
+#[component(css = DailyPage)]
+fn UnitStates<'a>(t: Cat, units: &'a [UnitState], context: &'a str, manage: bool) -> impl Render {
+    html! {
+        <div class={Panel} data-catalog-scope-sync-state="ready">
+            <p class={Strong}>{t.wb_sync_state_title()}</p>
+            <p class={Muted}>{t.wb_sync_state_description()}</p>
+            <Table layout={TableLayout::Stack}>
+                <table>
+                    <caption class={Hidden}>{t.wb_sync_state_title()}</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">{t.wb_sync_table_provider_unit()}</th>
+                            <th scope="col">{t.wb_sync_state_column_state()}</th>
+                            <th scope="col">{t.wb_sync_state_column_counts()}</th>
+                            <th scope="col">{t.wb_sync_state_column_last_run()}</th>
+                            <th scope="col">{t.wb_table_action()}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        for unit in units {
+                            let state = state_label(&unit.state);
+                            let count = |n: Option<u64>| n.map_or_else(|| t.wb_not_selected().to_owned(), |n| n.to_string());
+                            let observed = format!("{}: {}", t.wb_import_operations_observed(), count(unit.observed_count));
+                            let changed = format!("{}: {}", t.wb_import_operations_changed(), count(unit.changed_count));
+                            let run = t.wb_sync_progress_parent_run(unit.last_sync_run_id.as_deref().unwrap_or(t.wb_none())).to_string();
+                            let completed = unit
+                                .last_completed_at
+                                .as_deref()
+                                .map_or_else(|| t.wb_sync_state_never_completed().to_owned(), |at| when(t, at));
+                            <tr
+                                data-catalog-scope-sync-state-row="true"
+                                data-catalog-scope-sync-state-unit={&unit.unit_key}
+                                data-catalog-scope-sync-state-value={&unit.state}
+                            >
+                                <td>
+                                    <CellLabel>{t.wb_sync_table_provider_unit()}</CellLabel>
+                                    <Cell title={&unit.display_name} description={Some(unit.unit_key.as_str())} detail={None} />
+                                </td>
+                                <td>
+                                    <CellLabel>{t.wb_sync_state_column_state()}</CellLabel>
+                                    <Pill text={&state} tone={unit_tone(&unit.state)} />
+                                </td>
+                                <td>
+                                    <CellLabel>{t.wb_sync_state_column_counts()}</CellLabel>
+                                    <span class={CellBlock}>
+                                        <small>{observed}</small>
+                                        <small>{changed}</small>
+                                    </span>
+                                </td>
+                                <td>
+                                    <CellLabel>{t.wb_sync_state_column_last_run()}</CellLabel>
+                                    <span class={CellBlock}>
+                                        <small>{run}</small>
+                                        <small>{completed}</small>
+                                    </span>
+                                </td>
+                                <td>
+                                    <CellLabel>{t.wb_table_action()}</CellLabel>
+                                    if let Some(job) = unit.retry().filter(|_| manage) {
+                                        let action = at(&daily::url::Job { id: job }.href(), context);
+                                        <form
+                                            method="post"
+                                            action={&action}
+                                            data-patch
+                                            data-catalog-scope-sync-state-retry-unit={&unit.unit_key}
+                                        >
+                                            <button
+                                                type="submit"
+                                                class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
+                                                name={JobInput::FIELDS.command}
+                                                value="retry"
+                                            >
+                                                {t.wb_sync_state_retry()}
+                                            </button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </Table>
+        </div>
+    }
+}
 fn job_tone(state: &str) -> &'static str {
     match state {
         "completed" => "success",

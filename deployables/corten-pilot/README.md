@@ -141,9 +141,10 @@ and the pilot draws Integration health, Settings and Settings' older `governance
 `/catalog/integrations` workbench ([admin/src/catalog/daily.rs](admin/src/catalog/daily.rs)); those
 pages need that API to answer. The daily workbench starts a scope's Catalog sync, retries, resumes
 and cancels import jobs, defers or rejects Source Observations, and ignores or defers a merge
-candidate, each a form that works without JavaScript. Previewing and promoting, merge candidate
-edits and splits, and the evidence sheets open
-on admin-web until the Catalog API refuses a stale preview itself. Provider detail,
+candidate, each a form that works without JavaScript. It draws the sync run a sync lands on and the
+scope's durable sync state, with Retry provider for a failed or stale unit. Previewing and promoting,
+merge candidate edits and splits, and the evidence sheets open on admin-web until the Catalog API
+refuses a stale preview itself. Provider detail,
 `/catalog/providers/{providerKey}` ([admin/src/catalog/provider.rs](admin/src/catalog/provider.rs)),
 draws the same composed read for the provider with its refresh schedule, and pauses, resumes and
 runs the refresh, makes a draft profile, rolls back, deprecates and retires a version with its
@@ -263,6 +264,7 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 |---|---|---|
 | [corten-run/corten#890 A handler cannot refuse a request the way an extractor does, so its 403 page starts no layout read](https://github.com/corten-run/corten/issues/890) | Corten starts the layout's reads for every other 4xx error page ([corten#877](https://github.com/corten-run/corten/issues/877), pin `ebbbc792`). For a handler's own 4xx, the error page takes `ErrorPageCount`, reads the cart count itself, and gives it with `HtmlResponse::give::<CartCount>` ([marketplace/src/chrome.rs](marketplace/src/chrome.rs), [marketplace/src/views.rs](marketplace/src/views.rs)) | A handler can refuse as an extractor does: return that refusal from the account switch and drop `ErrorPageCount` |
 | [todd-skelton/corten#862 The kit's Pagination ties its link closure's borrow to the links' lifetime, so a named closure that returns a borrowed link does not compile](https://github.com/todd-skelton/corten/issues/862) | `review_page` returns an owned `Box<dyn Href>`, called from an inline closure ([admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs)) | `Pagination` separates the two lifetimes: a named closure can borrow |
+| [corten-run/corten#926 Kit Badge never wraps and is as wide as its text, so a badge holding a long key overflows a phone-width page](https://github.com/corten-run/corten/issues/926) | The daily workbench's filter badges are capped at their row and break anywhere ([admin/src/catalog/views/daily_page.css](admin/src/catalog/views/daily_page.css)) | The kit's Badge stays inside its container: drop the `.badges > *` rule |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 

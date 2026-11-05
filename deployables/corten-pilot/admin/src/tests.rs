@@ -7414,6 +7414,9 @@ fn daily_surface(location: &str) -> Response {
     };
     Json(json!({
         "readModelFailures": [],
+        "catalogSyncScope": { "scopeVersion": "catalog-sync-scope-v2", "productDomain": "pokemon", "productForm": "card",
+            "languageCode": "en", "reference": { "kind": "expansion", "scopeRecordId": "sr_sv1" },
+            "providerParticipation": { "requiredUnitKeys": [], "selectedUnitKeys": ["tcgplayer:pokemon:card"], "excludedUnitKeys": [] } },
         "readModel": {
             "routeContext": { "section": section },
             "readiness": {
@@ -7478,10 +7481,49 @@ fn daily_surface(location: &str) -> Response {
     .into_response()
 }
 
+/// The Catalog sync run `run_1`: partial, one provider child completed and one failed.
+fn sync_run() -> Response {
+    Json(json!({ "syncRunId": "run_1", "status": "partial",
+        "progress": { "childJobs": { "total": 2, "queued": 0, "running": 0, "completed": 1, "partial": 0, "failed": 1,
+            "cancelled": 0, "stale": 0 }, "providerTargets": { "completed": 1, "total": 2 } },
+        "childJobs": [
+            { "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "displayName": "Pokemon singles",
+              "childJobId": "job_5", "status": "completed", "syncRunLinkState": "attached-to-child-payload", "errorMessage": null },
+            { "providerKey": "lorcast", "unitKey": "lorcast:pokemon:card", "displayName": "Lorcast cards",
+              "childJobId": null, "status": "failed", "syncRunLinkState": "child-enqueue-failed", "errorMessage": "No profile." }
+        ] }))
+    .into_response()
+}
+
+/// The scope's durable sync state for the daily surface's scope: one unit settled, one failed with
+/// its last job; any other scope has none, and one without a scope is refused.
+fn scope_sync_state(sent: &Value) -> Response {
+    let scope = &sent["scope"];
+    if scope.is_null() {
+        return refusal(StatusCode::BAD_REQUEST, "invalid_scope", "Catalog sync scope is invalid.");
+    }
+    let items = if scope["reference"]["scopeRecordId"] == "sr_sv1" {
+        json!([
+            { "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "displayName": "Pokemon singles", "role": "primary",
+              "requirement": "optional", "state": "settled", "lastSyncRunId": "run_1", "lastJobId": "job_5",
+              "observedCount": 40, "changedCount": 3, "lastCompletedAt": "2026-11-04T09:00:00.000Z", "updatedAt": "2026-11-04T09:00:00.000Z" },
+            { "providerKey": "lorcast", "unitKey": "lorcast:pokemon:card", "displayName": "Lorcast cards", "role": "supplemental",
+              "requirement": "optional", "state": "failed", "lastSyncRunId": "run_1", "lastJobId": "job_7",
+              "observedCount": null, "changedCount": null, "lastCompletedAt": null, "updatedAt": "2026-11-04T09:00:00.000Z" }
+        ])
+    } else {
+        json!([])
+    };
+    let total = items.as_array().map_or(0, Vec::len);
+    Json(json!({ "items": items, "total": total, "count": total })).into_response()
+}
 /// The daily workbench's commands: a sync with no unit selected is refused, as is a job the API
 /// no longer has (`job_gone`) and a reject without a reason; the rest are queued.
 fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
     let rest = path.strip_prefix("/api/catalog/source-observations")?;
+    if *method == Method::GET && rest == "/catalog-sync-scope/runs/run_1" {
+        return Some(sync_run());
+    }
     if *method != Method::POST {
         return None;
     }
@@ -7492,9 +7534,12 @@ fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
             if selected.as_array().is_none_or(Vec::is_empty) {
                 refusal(StatusCode::BAD_REQUEST, "invalid_scope", "Select at least one provider unit to sync.")
             } else {
-                written(StatusCode::ACCEPTED, "run_1")
+                let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+                let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
+                (StatusCode::ACCEPTED, headers, Json(json!({ "syncRunId": "run_1", "status": "queued" }))).into_response()
             }
         }
+        "/catalog-sync-scope/state" => scope_sync_state(&sent),
         "/bulk-defer/jobs" => written(StatusCode::ACCEPTED, "bulk_1"),
         "/admin/merge-candidates/cand_1/ignore" | "/admin/merge-candidates/cand_1/defer" => written(StatusCode::OK, "cand_1"),
         "/admin/merge-candidates/cand_gone/ignore" => {
@@ -8102,6 +8147,7 @@ fn daily_writes(pilot: &Pilot) -> Vec<Call> {
     calls
         .iter()
         .filter(|c| c.method == Method::POST && c.path.starts_with("/api/catalog/source-observations/"))
+        .filter(|c| !c.path.ends_with("/catalog-sync-scope/state"))
         .cloned()
         .collect()
 }
@@ -8131,7 +8177,11 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     assert!(!html.contains("data-catalog-daily-governance-status"), "{html}");
 
     // Each command's form patches the page with JavaScript and posts without it.
-    assert_eq!(html.matches("data-patch").count(), 4, "the sync's, the job's, the candidate's and the review's: {html}");
+    assert_eq!(
+        html.matches("data-patch").count(),
+        5,
+        "the sync's, a failed unit's retry, the job's, the candidate's and the review's: {html}"
+    );
     // The sync's form carries the working set, the scope and every unit, the eligible one checked.
     assert!(html.contains(r#"action="/catalog/integrations/catalog-sync?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{html}");
     assert!(
@@ -8211,7 +8261,10 @@ async fn each_command_sends_the_apis_body_and_lands_on_the_working_set() {
     let (status, headers, _) = pilot.send(post(&format!("/catalog/integrations/catalog-sync?{at}"), body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(landed.starts_with(&format!("/catalog/integrations?{at}&done=queued&after_write=")), "{landed}");
+    assert!(
+        landed.starts_with(&format!("/catalog/integrations?{at}&jobId=run_1&done=queued&after_write=")),
+        "the run it queued: {landed}"
+    );
     let sent: Value = serde_json::from_str(&daily_writes(&pilot)[0].body).unwrap();
     assert_eq!(daily_writes(&pilot)[0].path, "/api/catalog/source-observations/catalog-sync-scope/runs");
     let scope = &sent["scope"];
@@ -8228,7 +8281,11 @@ async fn each_command_sends_the_apis_body_and_lands_on_the_working_set() {
     let read =
         pilot.calls.lock().unwrap()[before..].iter().find(|c| c.path.contains("/workbench-surfaces/daily")).cloned().unwrap();
     assert!(read.headers.contains_key("chase-sets-read-after-write"), "the receipt it carried: {:?}", read.headers);
-    assert!(read.path.ends_with("%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon"), "{}", read.path);
+    assert!(
+        read.path.ends_with("%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon%26jobId%3Drun_1"),
+        "{}",
+        read.path
+    );
 
     let (status, headers, _) = pilot.send(post(&format!("/catalog/integrations/jobs/job_1?{at}"), "command=retry", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
@@ -8263,6 +8320,38 @@ async fn each_command_sends_the_apis_body_and_lands_on_the_working_set() {
     assert_eq!(reject, json!({ "observationIds": ["obs_1"], "reason": "Duplicate" }));
 }
 
+#[tokio::test]
+async fn the_sync_draws_the_run_the_address_names_and_the_scopes_state_with_retry_for_a_failed_unit() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&jobId=run_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // The run: its counts, and a child per provider unit, one with no child job.
+    assert!(html.contains(r#"data-catalog-sync-run-id="run_1""#) && html.contains("Parent sync run run_1"), "{html}");
+    assert!(html.contains(r#"data-catalog-sync-run-child="lorcast:pokemon:card""#) && html.contains("No child job"), "{html}");
+    assert!(html.contains("Child enqueue failed") && html.contains("1/2"), "{html}");
+    // The scope's state, read with the scope the surface names; Retry provider only for the failed unit.
+    let state = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/catalog-sync-scope/state")).cloned().unwrap();
+    let sent: Value = serde_json::from_str(&state.body).unwrap();
+    assert_eq!(sent["scope"]["reference"]["scopeRecordId"], "sr_sv1");
+    assert!(html.contains(r#"data-catalog-scope-sync-state-value="settled""#) && html.contains("Never completed"), "{html}");
+    assert!(html.contains(r#"data-catalog-scope-sync-state-retry-unit="lorcast:pokemon:card""#), "{html}");
+    assert!(!html.contains(r#"data-catalog-scope-sync-state-retry-unit="tcgplayer:pokemon:card""#), "{html}");
+    let (status, headers, _) =
+        pilot.send(post("/catalog/integrations/jobs/job_7?providerKey=tcgplayer&jobId=run_1", "command=retry", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("jobId=run_1"), "back on the run");
+    assert_eq!(daily_writes(&pilot).last().unwrap().path, "/api/catalog/source-observations/integration-jobs/job_7/retry");
+
+    // A reader sees the state without Retry provider; with no jobId there is no run.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("catalog-reader"))).await;
+    assert!(!html.contains("data-catalog-sync-run-id"), "{html}");
+    assert!(html.contains("data-catalog-scope-sync-state-row"), "{html}");
+    assert!(!html.contains("data-catalog-scope-sync-state-retry-unit"), "{html}");
+    // A jobId that names no run (an import job's) draws none, and the page still answers.
+    let (status, _, html) = pilot.send(get("/catalog/integrations?jobId=job_1", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("data-catalog-sync-run-id"), "{html}");
+}
 #[tokio::test]
 async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason_and_the_rest_stays_on_admin_web() {
     let pilot = Pilot::new().await;
