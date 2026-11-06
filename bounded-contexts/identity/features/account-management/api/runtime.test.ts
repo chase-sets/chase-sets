@@ -7,8 +7,8 @@ import { createIdentitySecretAdapters } from "../../api-keys/api/secret-adapters
 import type { IdentityMutationPersistence } from "./fences";
 import { createAccountManagementRuntime, validateReceiptHistory, type MutationInput } from "./runtime";
 import { actionEventTypes } from "../domain/contract";
-import { validateOwnerHistory } from "./owners";
-import { socialLoginLinkKey } from "../../users/domain/social-login-link";
+import { ownerState, validateOwnerHistory } from "./owners";
+import * as socialLoginLink from "../../users/domain/social-login-link";
 import { acceptInvitationOperation } from "../../invitations/api/acceptance-operation";
 import { acceptanceContext, acceptanceOperation, seedAcceptance } from "../../invitations/api/acceptance-test-support";
 import {
@@ -75,7 +75,7 @@ function fixture() {
 }
 
 describe("authenticated unlink receipt lifecycle", () => {
-  const linkKey = socialLoginLinkKey("google", "synthetic-unlink-subject");
+  const linkKey = socialLoginLink.socialLoginLinkKey("google", "synthetic-unlink-subject");
   async function setup(methods = ["password", "social-login"], secondLink = false) {
     const f = fixture();
     await f.seed(`identity.user-${actor.userId}`, "identity.user.created", {
@@ -124,6 +124,58 @@ describe("authenticated unlink receipt lifecycle", () => {
     };
     return { ...f, request };
   }
+  it("isolates API-key verifier replay from User link-key construction and rejects cross-aggregate history", async () => {
+    const f = await setup();
+    const apiKeyId = "key_synthetic";
+    const secretHash = "a".repeat(64);
+    await f.memory.eventStore.appendToStream({
+      streamId: `identity.api-key-${apiKeyId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "identity.api-key.created",
+          payload: { apiKeyId, userId: actor.userId, name: "Synthetic", keyPrefix: "synthetic-prefix" },
+        },
+        {
+          eventType: "identity.api-key.verifier-recorded",
+          payload: { keyPrefix: "synthetic-prefix", secretHash },
+        },
+      ],
+    });
+    const selector = vi.spyOn(socialLoginLink, "socialLoginLinkKey");
+    try {
+      const apiKeyHistory = f.memory.streams.get(`identity.api-key-${apiKeyId}`)!;
+      const apiKey = ownerState("api-key", apiKeyHistory);
+      expect(apiKey).toEqual(validateOwnerHistory("api-key", apiKeyHistory, actor.tenantId));
+      expect(apiKey.state).toMatchObject({ verifierHash: secretHash });
+      expect(selector).not.toHaveBeenCalled();
+
+      const userHistory = f.memory.streams.get(`identity.user-${actor.userId}`)!;
+      const user = ownerState("user", userHistory);
+      expect(user).toEqual(validateOwnerHistory("user", userHistory, actor.tenantId));
+      expect(user.state).not.toHaveProperty("verifierHash");
+      expect(() =>
+        validateOwnerHistory(
+          "user",
+          [
+            ...userHistory,
+            { ...apiKeyHistory[1], streamId: userHistory[0].streamId, streamVersion: userHistory.length + 1 },
+          ],
+          actor.tenantId,
+        ),
+      ).toThrow("INDETERMINATE");
+      expect(await f.runtime.submit(f.request)).toMatchObject({ outcome: "committed" });
+      expect(selector).toHaveBeenCalledWith("google", "synthetic-unlink-subject");
+      expect(
+        selector.mock.calls.every(
+          ([provider, subject]) => provider === "google" && subject === "synthetic-unlink-subject",
+        ),
+      ).toBe(true);
+    } finally {
+      selector.mockRestore();
+    }
+  });
   it.each([false, true])(
     "records exactly one receipt, validates %s other-link proof shape, and returns first result on repeat/lookup",
     async (secondLink) => {

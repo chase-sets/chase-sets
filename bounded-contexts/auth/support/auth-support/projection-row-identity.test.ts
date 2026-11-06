@@ -140,6 +140,15 @@ describeDb("auth projection row identity", () => {
     await pool.query(
       `ALTER TABLE auth_identity_user_social_login_links DROP COLUMN link_key, DROP COLUMN state, DROP COLUMN revoked_at; INSERT INTO auth_identity_user_social_login_links (provider_name, provider_subject, user_id, email, linked_at) VALUES ('google', 'legacy-subject', 'usr_legacy', 'legacy@example.test', '2026-01-01T00:00:00Z');`,
     );
+    await pool.query(authSchemaSql);
+    await pool.query(authSchemaSql);
+    expect((await shape()).rows.find((column) => column.column_name === "link_key")).toMatchObject({
+      is_nullable: "YES",
+      column_default: null,
+    });
+    expect(
+      (await pool.query(`SELECT link_key, state, revoked_at FROM auth_identity_user_social_login_links`)).rows,
+    ).toEqual([{ link_key: null, state: "active", revoked_at: null }]);
     for (const migration of authSocialLoginSchemaMigrations)
       for (const statement of migration.statements) await pool.query(statement);
     expect((await shape()).rows).toEqual(fresh.rows);

@@ -63,36 +63,67 @@ export type OwnerKind =
   | "membership"
   | "invitation";
 
-function fold<State, Event extends DomainEvent>(
-  history: readonly StoredEvent[],
-  initial: State,
-  evolve: (state: State, event: Event) => State,
-): State {
-  return history.reduce(
-    (state, event) => evolve(state, { type: event.eventType, data: event.payload } as Event),
-    initial,
-  );
-}
-
 export function ownerState(kind: OwnerKind, history: readonly StoredEvent[]) {
   switch (kind) {
     case "account":
-      return { kind, state: fold<AccountState, AccountEvent>(history, initialAccountState, evolveAccount) } as const;
+      return {
+        kind,
+        state: history.reduce(
+          (state, event) => evolveAccount(state, { type: event.eventType, data: event.payload } as AccountEvent),
+          initialAccountState,
+        ),
+      } as const;
     case "shipping-address-book":
-      return { kind, state: fold(history, initialShippingAddressBookState, evolveShippingAddressBook) } as const;
+      return {
+        kind,
+        state: history.reduce(
+          (state, event) =>
+            evolveShippingAddressBook(state, { type: event.eventType, data: event.payload } as ShippingAddressEvent),
+          initialShippingAddressBookState,
+        ),
+      } as const;
     case "consent":
-      return { kind, state: fold(history, initialConsentState, evolveConsent) } as const;
+      return {
+        kind,
+        state: history.reduce(
+          (state, event) => evolveConsent(state, { type: event.eventType, data: event.payload } as ConsentEvent),
+          initialConsentState,
+        ),
+      } as const;
     case "user":
-      return { kind, state: fold(history, initialUserState, evolveUser) } as const;
+      return {
+        kind,
+        state: history.reduce(
+          (state, event) => evolveUser(state, { type: event.eventType, data: event.payload } as UserEvent),
+          initialUserState,
+        ),
+      } as const;
     case "api-key":
-      return { kind, state: fold(history, initialApiKeyState, evolveApiKey) } as const;
+      return {
+        kind,
+        state: history.reduce(
+          (state, event) => evolveApiKey(state, { type: event.eventType, data: event.payload } as ApiKeyEvent),
+          initialApiKeyState,
+        ),
+      } as const;
     case "membership":
-      return { kind, state: fold(history, initialMembershipState, evolveMembership) } as const;
+      return {
+        kind,
+        state: history.reduce(
+          (state, event) => evolveMembership(state, { type: event.eventType, data: event.payload } as MembershipEvent),
+          initialMembershipState,
+        ),
+      } as const;
     case "invitation":
-      return { kind, state: fold(history, initialInvitationState, evolveInvitation) } as const;
+      return {
+        kind,
+        state: history.reduce(
+          (state, event) => evolveInvitation(state, { type: event.eventType, data: event.payload } as InvitationEvent),
+          initialInvitationState,
+        ),
+      } as const;
   }
 }
-type AccountState = typeof initialAccountState;
 export type Owner = ReturnType<typeof ownerState>;
 
 export function ownerForRequest(

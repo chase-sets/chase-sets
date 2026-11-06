@@ -289,7 +289,7 @@ export async function resolveSocialLoginSubject(
 ): Promise<SocialLoginSubjectResolution> {
   if (await hasLinkHistoryPastHorizon(deps.pool)) {
     await deps.mutationPersistence.transaction([CATCH_UP_SCOPE], (tx) =>
-      catchUpSocialLoginOwnership(deps, tx, context),
+      catchUpSocialLoginOwnership(deps, tx, context, { recordUnchanged: false }),
     );
   }
   const linkKey = socialLoginLinkKey(input.providerName, input.providerSubject);

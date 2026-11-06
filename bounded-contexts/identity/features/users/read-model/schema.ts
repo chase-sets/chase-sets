@@ -49,7 +49,12 @@ CREATE TABLE IF NOT EXISTS identity_user_social_login_links (
   revoked_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (provider_name, provider_subject)
-);`;
+);
+
+ALTER TABLE identity_user_social_login_links
+  ADD COLUMN IF NOT EXISTS link_key text,
+  ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS revoked_at timestamptz NULL;`;
 
 export const identitySocialLoginSchemaMigrations: readonly BcSchemaMigration[] = [
   {

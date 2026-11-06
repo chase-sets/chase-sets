@@ -100,6 +100,12 @@ describe("authenticated Social Login Link revocation", () => {
     authenticatedAt: at,
   };
   afterEach(() => vi.useRealTimers());
+  it("keeps provider-subject link selectors compatible with normalized legacy ownership keys", () => {
+    expect(socialLoginLinkKey("google", " synthetic-google ")).toBe(
+      "8c9d0d4713dc856393486aa4d091bdeca16e43c0ec01ecbdeaa770b0da5afc98",
+    );
+    expect(socialLoginLinkKey("facebook", google.providerSubject)).not.toBe(key);
+  });
   it("treats legacy links as active, emits only the closed pair and conditional third, then stays revoked the next day", () => {
     vi.useFakeTimers();
     vi.setSystemTime(at);
@@ -154,10 +160,17 @@ describe("authenticated Social Login Link revocation", () => {
       expect(() => decideUser(twoLinks, { ...command, authenticationMethod })).toThrow(
         "authentication-method-not-different",
       );
-    const inactivePassword = { ...twoLinks, authMethods: ["social-login"] as const };
-    expect(() => decideUser(inactivePassword, command)).toThrow("authentication-method-not-different");
-    expect(decideUser(inactivePassword, { ...command, authenticationMethod: "facebook" })).toHaveLength(2);
-    expect(decideUser({ ...inactivePassword, authMethods: ["password", "social-login"] }, command)).toHaveLength(2);
+    const userWithInactiveMethod: UserState = {
+      ...initialUserState,
+      id: state.id,
+      authMethods: ["social-login"],
+      socialLoginLinks: [google, facebook],
+    };
+    expect(() => decideUser(userWithInactiveMethod, command)).toThrow("authentication-method-not-different");
+    expect(decideUser(userWithInactiveMethod, { ...command, authenticationMethod: "facebook" })).toHaveLength(2);
+    expect(decideUser({ ...userWithInactiveMethod, authMethods: ["password", "social-login"] }, command)).toHaveLength(
+      2,
+    );
     expect(() => decideUser({ ...state, authMethods: ["social-login"] }, command)).toThrow(
       "last-authentication-method",
     );

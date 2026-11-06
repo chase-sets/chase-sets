@@ -76,6 +76,11 @@ CREATE TABLE IF NOT EXISTS auth_identity_user_social_login_links (
   PRIMARY KEY (provider_name, provider_subject)
 );
 
+ALTER TABLE auth_identity_user_social_login_links
+  ADD COLUMN IF NOT EXISTS link_key text,
+  ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS revoked_at timestamptz NULL;
+
 CREATE TABLE IF NOT EXISTS auth_identity_memberships (
   membership_id text PRIMARY KEY,
   user_id text NOT NULL,

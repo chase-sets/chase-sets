@@ -556,7 +556,7 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (state, event)
             providerSubject: event.data.providerSubject,
             email: event.data.email,
             linkedAt: event.data.linkedAt,
-            state: "active",
+            state: "active" as const,
           },
         ].sort((left, right) =>
           `${left.providerName}:${left.providerSubject}`.localeCompare(

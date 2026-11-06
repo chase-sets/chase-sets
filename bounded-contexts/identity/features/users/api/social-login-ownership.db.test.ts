@@ -16,7 +16,7 @@ import { buildIdentityApi, createBootstrapContext } from "../../../api";
 import { createIdentityServices, type IdentityServices } from "../../../support/runtime-support/services";
 import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../../account-capabilities/api/authority";
 import { catchUpSocialLoginOwnership, SOCIAL_LOGIN_OWNERSHIP_CATCH_UP_STREAM } from "./social-login-ownership";
-import { identitySocialLoginSchemaMigrations } from "../read-model/schema";
+import { identitySocialLoginSchemaMigrations, identityUserSchemaSql } from "../read-model/schema";
 import { Hono } from "hono";
 import type { IdentityApiEnv } from "../../../api";
 import type { ResolvedActor } from "@chase-sets/auth-context";
@@ -113,6 +113,11 @@ describeDb("issue-10295 Social Login Ownership Claim on PostgreSQL", () => {
   }
   async function eventCount() {
     return (await events()).length;
+  }
+  async function receiptCount() {
+    return (await events()).filter(
+      (event) => event.eventType === "identity.account-management-mutation-attempt.committed",
+    ).length;
   }
   function catchUp(pageSize?: number) {
     return services.mutationPersistence.transaction([SOCIAL_LOGIN_OWNERSHIP_CATCH_UP_STREAM], (tx) =>
@@ -273,15 +278,35 @@ describeDb("issue-10295 Social Login Ownership Claim on PostgreSQL", () => {
       expect(Object.keys(dto.social_login_links[0]).sort()).toEqual(["linkKey", "linkedAt", "providerName", "state"]);
       expect(JSON.stringify(dto.social_login_links)).not.toContain(SUBJECT);
       expect(JSON.stringify(dto.social_login_links)).not.toContain(EMAIL);
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(new Date(Date.now() + 86400000));
-      try {
-        expect(JSON.parse((await resolve()).text)).toEqual({
+      async function assertRevokedResolveAndRelinkAppendNothing() {
+        const beforeResolve = await eventCount();
+        const receiptsBeforeResolve = await receiptCount();
+        expect(beforeResolve).toBe(count);
+        expect(receiptsBeforeResolve).toBe(1);
+        const resolution = await resolve();
+        expect(resolution.status).toBe(200);
+        expect(JSON.parse(resolution.text)).toEqual({
           status: "owned",
           userId: "usr_one10295",
           linkState: "revoked",
         });
+        expect(await eventCount()).toBe(beforeResolve);
+        expect(await receiptCount()).toBe(receiptsBeforeResolve);
+
+        const beforeRelink = await eventCount();
+        const receiptsBeforeRelink = await receiptCount();
         expect((await link("usr_one10295")).status).toBe(409);
+        expect(await eventCount()).toBe(beforeRelink);
+        expect(await receiptCount()).toBe(receiptsBeforeRelink);
+        expect(await eventCount()).toBe(count);
+      }
+      await assertRevokedResolveAndRelinkAppendNothing();
+      await assertRevokedResolveAndRelinkAppendNothing();
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(Date.now() + 86400000));
+      try {
+        await assertRevokedResolveAndRelinkAppendNothing();
+        await assertRevokedResolveAndRelinkAppendNothing();
         expect(await eventCount()).toBe(count);
       } finally {
         vi.useRealTimers();
@@ -503,6 +528,15 @@ describeDb("issue-10295 Social Login Ownership Claim on PostgreSQL", () => {
     const fresh = await shape();
     await pool.query(
       `ALTER TABLE identity_user_social_login_links DROP COLUMN link_key, DROP COLUMN state, DROP COLUMN revoked_at; UPDATE identity_users SET social_login_links = (SELECT jsonb_agg(link - 'state') FROM jsonb_array_elements(social_login_links) AS link) WHERE jsonb_array_length(social_login_links) > 0;`,
+    );
+    await pool.query(identityUserSchemaSql);
+    await pool.query(identityUserSchemaSql);
+    expect((await shape()).rows.find((column) => column.column_name === "link_key")).toMatchObject({
+      is_nullable: "YES",
+      column_default: null,
+    });
+    expect((await pool.query(`SELECT link_key, state, revoked_at FROM identity_user_social_login_links`)).rows).toEqual(
+      [{ link_key: null, state: "active", revoked_at: null }],
     );
     for (const migration of identitySocialLoginSchemaMigrations)
       for (const statement of migration.statements) await pool.query(statement);
