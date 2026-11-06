@@ -154,7 +154,11 @@ function receiptUrlFor(scopeRecordId: string | null) {
     : receiptRequestUrl;
 }
 
-function receiptRouteModel(activeProfileVersion: string | null = "2026.06.04", requestUrl = receiptRequestUrl) {
+function receiptRouteModel(
+  activeProfileVersion: string | null = "2026.06.04",
+  requestUrl = receiptRequestUrl,
+  overview: ReturnType<typeof controlPlaneOverview> | null = null,
+) {
   return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
     requestUrl,
     scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -165,7 +169,7 @@ function receiptRouteModel(activeProfileVersion: string | null = "2026.06.04", r
       total: activeProfileVersion ? 1 : 0,
       count: activeProfileVersion ? 1 : 0,
     },
-    controlPlaneOverview: null,
+    controlPlaneOverview: overview,
     canManageCatalog: true,
     reviewObservations: {
       items: [sourceObservationListItem(), sourceObservationListItem({ observation_id: "obs_002" })],
@@ -740,6 +744,237 @@ describe("Catalog integrations route", () => {
         promotionResult: "job-queued",
       }),
     );
+  });
+
+  it("reads the daily import receipt DOM against the actual returned job and sent scope without changing loader context", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({
+      jobId: "synthetic-returned-job-A",
+      status: "running",
+      profileVersion: "synthetic-effective-profile-not-submitted",
+      scope: { setId: "synthetic-response-scope-not-sent" },
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const result = await runDailyAction(
+      {
+        _intent: "scope.import",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        jobId: "synthetic-submitted-job",
+      },
+      receiptRequestUrl + "&jobId=synthetic-url-job",
+    );
+    const requestUrl = receiptRequestUrl + "&jobId=synthetic-loader-sync-run";
+    const baseOverview = controlPlaneOverview();
+    const overview = controlPlaneOverview({
+      unitActivity: {
+        ...baseOverview.unitActivity,
+        units: [
+          {
+            unitKey: "tcgdex:pokemon:card:import",
+            recentJobs: [integrationJobSummary({ jobId: "synthetic-newer-job-B", startedAt: "2026-11-06T20:00:00Z" })],
+          },
+        ],
+      },
+    });
+    const readModel = receiptRouteModel("2026.06.04", requestUrl, overview);
+    const originalModel = structuredClone(readModel);
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl, readModel }));
+    mockUseActionData.mockReturnValue(undefined);
+    const { rerender } = render(<IntegrationsRoute />);
+    const hiddenJobIds = () =>
+      [...document.querySelectorAll<HTMLInputElement>('input[name="jobId"]')].map((field) => field.value);
+    const originalHiddenJobIds = hiddenJobIds();
+    expect(originalHiddenJobIds).toContain("synthetic-loader-sync-run");
+    mockUseActionData.mockReturnValue(result);
+    rerender(<IntegrationsRoute />);
+    const root = document.querySelector('[data-catalog-import-job-receipt="source-observation-import-job-receipt/v1"]');
+    expect(root).not.toBeNull();
+    expect(isInaccessible(root!)).toBe(false);
+    const expected = {
+      schemaVersion: "source-observation-import-job-receipt/v1",
+      jobId: "synthetic-returned-job-A",
+      status: "running",
+      scope: enqueueSourceObservationIntegrationJob.mock.calls[0]![1],
+      submitted: { providerKey: "tcgdex", unitKey: "tcgdex:pokemon:card:import", profileVersion: "2026.06.04" },
+    };
+    expect(readOriginalReceiptDom(root!)).toEqual(expected);
+    expect(result).toMatchObject({ importJobReceipt: expected });
+    for (const excluded of [
+      "synthetic-submitted-job",
+      "synthetic-url-job",
+      "synthetic-loader-sync-run",
+      "synthetic-newer-job-B",
+      "synthetic-effective-profile-not-submitted",
+      "synthetic-response-scope-not-sent",
+    ]) {
+      expect(root!.textContent).not.toContain(excluded);
+    }
+    expect(readModel).toEqual(originalModel);
+    expect(readModel.importJobs.jobs.map((job) => job.jobId)).toContain("synthetic-newer-job-B");
+    expect(document.querySelector('[data-catalog-import-job-id="synthetic-newer-job-B"]')).not.toBeNull();
+    expect(hiddenJobIds()).toEqual(originalHiddenJobIds);
+    for (const link of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+      expect(link.href).not.toContain("synthetic-returned-job-A");
+    }
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(1);
+    const clientCalls = mockCreateCatalogRequestApiClient.mock.calls.length;
+    mockUseNavigation.mockReturnValue({ state: "submitting" });
+    rerender(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    mockUseActionData.mockReturnValue({
+      ...result,
+      feedback: { ...result.feedback, intent: "observation.review", result: "command-failed", status: "error" },
+    });
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    rerender(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    mockUseActionData.mockReturnValue(undefined);
+    rerender(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    expect(mockCreateCatalogRequestApiClient).toHaveBeenCalledTimes(clientCalls);
+  });
+
+  it("shows no receipt while the actual import enqueue is pending, then shows its settled response", async () => {
+    let settle!: (job: { jobId: string; status: string }) => void;
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const pendingAction = runDailyAction({
+      _intent: "scope.import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+    });
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+    mockUseActionData.mockReturnValue(undefined);
+    mockUseNavigation.mockReturnValue({ state: "submitting" });
+    const view = render(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    settle({ jobId: "synthetic-settled-job", status: "queued" });
+    const result = await pendingAction;
+    mockUseActionData.mockReturnValue(result);
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    view.rerender(<IntegrationsRoute />);
+    const root = document.querySelector("[data-catalog-import-job-receipt]");
+    expect(root).not.toBeNull();
+    expect(readOriginalReceiptDom(root!)).toMatchObject({
+      jobId: "synthetic-settled-job",
+      status: "queued",
+      scope: enqueueSourceObservationIntegrationJob.mock.calls[0]![1],
+      submitted: { providerKey: "tcgdex", unitKey: "tcgdex:pokemon:card:import", profileVersion: "2026.06.04" },
+    });
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(1);
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "", 42])(
+    "shows unavailable for producer job ID %s, never the non-null submitted fallback",
+    async (jobId) => {
+      const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId, status: "queued" });
+      mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+      const result = await runDailyAction({
+        _intent: "scope.import",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        jobId: "synthetic-fallback-must-not-render",
+      });
+      mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+      mockUseActionData.mockReturnValue(result);
+      render(<IntegrationsRoute />);
+      const root = document.querySelector("[data-catalog-import-job-receipt]");
+      expect(root).not.toBeNull();
+      expect(readOriginalReceiptDom(root!)).toMatchObject({ jobId: null, status: "queued" });
+      expect(root!.querySelector('[data-catalog-receipt-field="jobId"]')!.textContent).toMatch(
+        /not returned|unavailable/i,
+      );
+      expect(root!.textContent).not.toContain("synthetic-fallback-must-not-render");
+    },
+  );
+
+  it.each([undefined, 42])("shows unavailable for producer status %s without inventing queued", async (status) => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "synthetic-status-job", status });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const result = await runDailyAction({
+      _intent: "scope.import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+    });
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+    mockUseActionData.mockReturnValue(result);
+    render(<IntegrationsRoute />);
+    const root = document.querySelector("[data-catalog-import-job-receipt]");
+    expect(root).not.toBeNull();
+    expect(readOriginalReceiptDom(root!)).toMatchObject({ jobId: "synthetic-status-job", status: null });
+    expect(root!.querySelector('[data-catalog-receipt-field="status"]')!.textContent).toMatch(
+      /not returned|unavailable/i,
+    );
+  });
+
+  it("renders only allowed escaped import receipt scalars and excludes injected response extras", async () => {
+    const jobId = '<img src=x onerror="synthetic()">';
+    const status = "<script>synthetic()</script>";
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({
+      jobId,
+      status,
+      nested: { jobId: "synthetic-nested-secret" },
+      headers: "synthetic-header-secret",
+      credentials: "synthetic-credential-secret",
+      error: { detail: "synthetic-error-secret" },
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const result = await runDailyAction({
+      _intent: "scope.import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+    });
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+    mockUseActionData.mockReturnValue(result);
+    render(<IntegrationsRoute />);
+    const root = document.querySelector("[data-catalog-import-job-receipt]");
+    expect(root).not.toBeNull();
+    expect(readOriginalReceiptDom(root!)).toEqual({
+      schemaVersion: "source-observation-import-job-receipt/v1",
+      jobId,
+      status,
+      scope: enqueueSourceObservationIntegrationJob.mock.calls[0]![1],
+      submitted: { providerKey: "tcgdex", unitKey: "tcgdex:pokemon:card:import", profileVersion: "2026.06.04" },
+    });
+    expect(root!.querySelector("img,script,a")).toBeNull();
+    expect(root!.innerHTML).toContain("&lt;img");
+    expect(root!.textContent).not.toContain("secret");
+    expect(JSON.stringify(result)).not.toContain("synthetic-credential-secret");
+  });
+
+  it("never renders import job identity for failed or refused actual actions", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockRejectedValue(new Error("synthetic-failed-identity"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    for (const providerKey of ["tcgdex", ""]) {
+      const result = await runDailyAction({
+        _intent: "scope.import",
+        providerKey,
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        jobId: "synthetic-failed-identity",
+      });
+      expect(result.feedback.status).toBe("error");
+      mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+      mockUseActionData.mockReturnValue(result);
+      const view = render(<IntegrationsRoute />);
+      expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+      view.unmount();
+    }
   });
 
   it("enqueues a scope-first Catalog sync run and carries the parent run id", async () => {
