@@ -1455,7 +1455,7 @@ describe("Catalog primary workbench admin contracts", () => {
             editForm: {
               state: "available",
               blockers: [],
-              baseSnapshotJson: "{}",
+              candidateVersion: 2,
               promotionIntent: "create-catalog-item",
               catalogItemId: null,
               productIds: [],

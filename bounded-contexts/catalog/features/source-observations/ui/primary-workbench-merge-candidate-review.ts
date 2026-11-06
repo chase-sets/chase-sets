@@ -175,7 +175,7 @@ function mergeCandidateEditFormFor(
   return {
     state: editForm.editable ? "available" : editFormBlockedState(canManage),
     blockers,
-    baseSnapshotJson: editForm.baseSnapshotJson,
+    candidateVersion: editForm.candidateVersion,
     promotionIntent: editForm.promotionIntent,
     catalogItemId: editForm.catalogItemId,
     productIds: editForm.productIds,

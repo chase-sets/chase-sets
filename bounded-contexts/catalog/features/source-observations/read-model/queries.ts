@@ -97,6 +97,9 @@ export type CatalogMergeCandidateListRow = Readonly<{
   created_at: string;
   updated_at: string;
   stale_at: string | null;
+  // The candidate's stream version the row shows: an update or split names it as the one the
+  // operator saw, and the Catalog API refuses it once the candidate has moved on.
+  last_stream_version: number;
   observation_count: number;
 }>;
 
@@ -306,6 +309,7 @@ export async function listCatalogMergeCandidates(
                           ${catalogIsoUtcTimestamp("c.created_at", "created_at")},
                           ${catalogIsoUtcTimestamp("c.updated_at", "updated_at")},
                           ${catalogIsoUtcTimestamp("c.stale_at", "stale_at")},
+                          c.last_stream_version::integer AS last_stream_version,
                           COALESCE(m.observation_count, 0)::integer AS observation_count,
                           COALESCE(m.membership_json, '[]'::jsonb) AS membership_json
                    FROM catalog_merge_candidates c

@@ -27,13 +27,20 @@ export type CatalogPrimaryWorkbenchSubmitIntent = Extract<
   | "observation.replay"
 >;
 
+// A merge candidate update or split names the candidate version the page read (the Catalog API
+// refuses one it has moved on from) and, for a split, the Source Observations to split off.
+export type CandidateCommandFields = Readonly<{
+  version: number;
+  splitObservationIds?: readonly string[];
+}>;
+
 type CommandFormButtonProps = Omit<ButtonProps, "type" | "disabled"> & {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
   selectedObservationIds?: readonly string[];
   candidateId?: string;
   reason?: string;
-  mergeCandidateCommandBody?: string;
+  candidateCommand?: CandidateCommandFields;
   promotionPhase?: "preview" | "execute";
   // The explicit promote-as-draft review choice; always submitted as a literal
   // "true"/"false" when provided so the server never has to infer it.
@@ -47,7 +54,7 @@ export function CommandFormButton({
   selectedObservationIds,
   candidateId,
   reason,
-  mergeCandidateCommandBody,
+  candidateCommand,
   promotionPhase,
   promoteAsDraft,
   disabled = false,
@@ -63,7 +70,7 @@ export function CommandFormButton({
         intent={intent}
         selectedObservationIds={selectedObservationIds}
         candidateId={candidateId}
-        mergeCandidateCommandBody={mergeCandidateCommandBody}
+        candidateCommand={candidateCommand}
         promotionPhase={promotionPhase}
         promoteAsDraft={promoteAsDraft}
       />
@@ -81,7 +88,7 @@ export function CommandHiddenInputs({
   selectedObservationIds,
   candidateId,
   jobId,
-  mergeCandidateCommandBody,
+  candidateCommand,
   promotionPhase,
   promoteAsDraft,
 }: {
@@ -90,7 +97,7 @@ export function CommandHiddenInputs({
   selectedObservationIds?: readonly string[];
   candidateId?: string;
   jobId?: string | null;
-  mergeCandidateCommandBody?: string;
+  candidateCommand?: CandidateCommandFields;
   promotionPhase?: "preview" | "execute";
   promoteAsDraft?: boolean;
 }) {
@@ -116,7 +123,14 @@ export function CommandHiddenInputs({
       <HiddenInput name="productId" value={scope?.productId ?? ""} />
       <HiddenInput name="selectedObservationIds" value={observationIds.join(",")} />
       <HiddenInput name="candidateId" value={candidateId ?? ""} />
-      <HiddenInput name="mergeCandidateCommandBody" value={mergeCandidateCommandBody ?? ""} />
+      {candidateCommand ? (
+        <>
+          <HiddenInput name="candidateVersion" value={String(candidateCommand.version)} />
+          {candidateCommand.splitObservationIds ? (
+            <HiddenInput name="splitObservationIds" value={candidateCommand.splitObservationIds.join(",")} />
+          ) : null}
+        </>
+      ) : null}
       <HiddenInput name="jobId" value={jobIdValue} />
       <HiddenInput
         name="promotionPreviewId"
