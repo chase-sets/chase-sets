@@ -93,6 +93,15 @@ export function CatalogIntegrationsSurfaceRouteView({
       surface={surface}
       readModel={readModel}
       commandFeedback={commandFeedback ?? routeData.commandFeedback}
+      importJobReceipt={
+        surface === "daily" &&
+        !actionPending &&
+        commandResult?.feedback.status === "success" &&
+        commandResult.feedback.intent === "scope.import" &&
+        commandResult.feedback.result === "job-queued"
+          ? (commandResult.importJobReceipt ?? null)
+          : null
+      }
       aliasVisibility={aliasVisibility}
       attentionQueue={attentionQueue}
       deferredSourceOptions={routeData.deferredSourceOptions ?? null}
