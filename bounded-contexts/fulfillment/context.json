@@ -152,6 +152,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "operatorAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Identity aggregate-backed platform-admin authority for audited seller shipping support initialization, enable and revoke."
+    },
+    {
       "portName": "postageLabelProvider",
       "providedBy": "platform-api",
       "purpose": "Supplies the configured USPS-compatible postage provider so fulfillment can purchase, void, and test labels without owning deployable environment configuration."

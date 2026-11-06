@@ -16,16 +16,20 @@ import type {
   ReturnIntakeEvidenceSecurityScanner,
   ReturnIntakeEvidenceStorage,
 } from "../../features/return-shipments/api/evidence";
+import type { OperatorAuthority } from "@chase-sets/auth-context";
+import { createSellerShippingSetupServices } from "../../features/seller-checkout-readiness/api/runtime";
 
 export type FulfillmentServices = Readonly<{
   shipments: ReturnType<typeof createFulfillmentShipmentRuntime>;
   returnShipments: ReturnType<typeof createFulfillmentReturnShipmentRuntime>;
+  sellerShippingSetup: ReturnType<typeof createSellerShippingSetupServices>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
 
 export type FulfillmentHostPorts = Readonly<{
+  operatorAuthority?: OperatorAuthority;
   postageLabelProvider?: PostageLabelProvider;
   postageWebhookGateway?: PostageProviderWebhookGateway;
   notificationOutbox?: NotificationOutbox;
@@ -69,6 +73,7 @@ export function createFulfillmentServices(
   return {
     shipments,
     returnShipments,
+    sellerShippingSetup: createSellerShippingSetupServices({ pool, eventStore, operatorAuthority: ports?.operatorAuthority }),
     projectors: [...shipments.projectors, ...returnShipments.projectors],
     pool,
     db,
