@@ -4,6 +4,7 @@ use corten::{
     view::{AttrValue, Id},
 };
 use corten_ui::{ComboBox, Picker, Toast, Toaster};
+use platform::ui::alert::{AlertEmphasis, FailedAlert};
 
 use crate::{
     catalog::api::{ReferenceRow, ReferenceType},
@@ -20,9 +21,9 @@ use crate::{
 /// drawn `open` when its form came back (refused without JavaScript, or a label row added or
 /// removed), or when it is an answer (a bulk preview, a bulk job), so it is in front of the user
 /// either way; `corten_ui::dialog::modal` makes a dialog drawn open modal when it joins the page.
-/// A `data-patch` submit in it that gets no answer is said in the dialog (`corten_ui::dialog::failed`,
-/// the page's toaster text in a `role="alert"` region), as the toaster behind a modal dialog is
-/// covered and inert.
+/// A `data-patch` submit in it that gets no answer is said in the dialog (`corten_ui::dialog::failed`
+/// showing the kit's `FailedAlert`, a destructive alert in a live region), as the toaster behind a
+/// modal dialog is covered and inert.
 /// Not `Dialog`: the kit's `platform::ui::dialog::Dialog` would share its style symbol
 /// (todd-skelton/corten#570).
 #[component(css)]
@@ -53,9 +54,9 @@ pub fn CatalogDialog<'a, I: Id + AttrValue + Copy, C: Render>(
             if let Some(description) = description {
                 <p class={Description}>{description}</p>
             }
-            <div role="alert">
-                <p class={Failed} ref={said} hidden>{p.catalog_not_sent()}</p>
-            </div>
+            <FailedAlert said={said} emphasis={AlertEmphasis::Soft}>
+                <p>{p.catalog_not_sent()}</p>
+            </FailedAlert>
             {children}
         </dialog>
     }

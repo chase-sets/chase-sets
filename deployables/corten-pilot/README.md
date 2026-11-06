@@ -248,7 +248,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `7ea02943` (Corten `main` on 2026-11-06). No release is tagged. The
+`Cargo.toml` pins Corten to `94cea042` (Corten `main` on 2026-11-06). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
 [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten pin") and in `git log -- deployables/corten-pilot/Cargo.toml`.
@@ -285,7 +285,11 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 
 ### Corten
 
-None open.
+Each issue below is open and cited in the pilot's code. Remove the workaround when the issue closes.
+
+| Issue | Cited in |
+|---|---|
+| [corten-run/corten#998 Kit FailedAlert: its always-rendered live region adds an empty row to a kit Dialog's grid before anything has failed](https://github.com/corten-run/corten/issues/998) | [admin/src/catalog/views/catalog_dialog.css](admin/src/catalog/views/catalog_dialog.css) |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 
