@@ -242,17 +242,31 @@ export function baseIntegrationJob() {
 
 /** A promotion preview as the runtime returns it: counts, fingerprint and a complete, unblocked validation page. */
 export function promotionPreviewFixture(
-  overrides: Partial<Omit<SourceObservationPromotionPreview, "validation">> &
-    Readonly<{ validation?: Partial<SourceObservationPromotionPreview["validation"]> }> = {},
+  overrides: Partial<Omit<SourceObservationPromotionPreview, "scope" | "validation">> &
+    Readonly<{
+      scope?: Partial<SourceObservationPromotionPreview["scope"]>;
+      validation?: Partial<SourceObservationPromotionPreview["validation"]>;
+    }> = {},
 ): SourceObservationPromotionPreview {
-  const { validation, ...rest } = overrides;
+  const { scope, validation, ...rest } = overrides;
   return {
     matched: 1,
     eligible: 1,
     terminal: 0,
-    scope: { search: "", status: "", provider: "", language: "", setId: "" },
     fingerprint: "content-a",
     ...rest,
+    scope: {
+      search: "",
+      status: "",
+      syncRunId: "",
+      provider: "",
+      language: "",
+      productLineId: "",
+      seriesId: "",
+      expansionId: "",
+      setId: "",
+      ...scope,
+    },
     validation: {
       promoteAsDraft: false,
       pageLimit: 100,
