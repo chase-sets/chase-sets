@@ -2,7 +2,8 @@
 //! to the API, and how each answer of the API becomes a page, a patch or a redirect.
 use std::sync::{Arc, Mutex};
 
-// The stand-in API is a plain router served on a port (corten-run/corten#950); the rest names Corten.
+// The stand-in API is a plain router served on a port through `corten::axum`, as Corten keeps it for a
+// test (corten-run/corten#950); the rest names Corten.
 use corten::http::{HeaderMap, Method, Request, StatusCode, Uri, header};
 use corten::{
     Json,
