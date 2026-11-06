@@ -286,7 +286,7 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 
 ### Corten
 
-None open. The pilot has no Corten workaround in its code at this pin.
+None in the apps' code at this pin. The pilot's CI job requires `tsc` on the PATH before `corten check`, because `corten check` passes without it ([corten-run/corten#1013 corten check exits 0 when tsc is not installed, so a CI job without TypeScript passes with every script unchecked](https://github.com/corten-run/corten/issues/1013)); remove that step when the fix lands.
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 
