@@ -5,8 +5,12 @@ import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createIdentitySecretAdapters } from "../../api-keys/api/secret-adapters";
 import type { IdentityMutationPersistence } from "./fences";
-import { createAccountManagementRuntime, type MutationInput } from "./runtime";
+import { createAccountManagementRuntime, validateReceiptHistory, type MutationInput } from "./runtime";
+import { actionEventTypes } from "../domain/contract";
 import { validateOwnerHistory } from "./owners";
+import { socialLoginLinkKey } from "../../users/domain/social-login-link";
+import { acceptInvitationOperation } from "../../invitations/api/acceptance-operation";
+import { acceptanceContext, acceptanceOperation, seedAcceptance } from "../../invitations/api/acceptance-test-support";
 import {
   SHIPPING_ADDRESS_REQUIRED_MESSAGES,
   ShippingAddressFieldError,
@@ -69,6 +73,283 @@ function fixture() {
     });
   return { memory, runtime, seed, provider, db, health };
 }
+
+describe("authenticated unlink receipt lifecycle", () => {
+  const linkKey = socialLoginLinkKey("google", "synthetic-unlink-subject");
+  async function setup(methods = ["password", "social-login"], secondLink = false) {
+    const f = fixture();
+    await f.seed(`identity.user-${actor.userId}`, "identity.user.created", {
+      userId: actor.userId,
+      displayName: "Synthetic",
+      givenName: "",
+      familyName: "",
+      primaryEmail: "marker@example.test",
+    });
+    await f.memory.eventStore.appendToStream({
+      streamId: `identity.user-${actor.userId}`,
+      expectedVersion: "any",
+      context,
+      events: [
+        ...methods.map((authMethod) => ({ eventType: "identity.user.auth-method-enabled", payload: { authMethod } })),
+        {
+          eventType: "identity.user.social-login-linked",
+          payload: {
+            providerName: "google",
+            providerSubject: "synthetic-unlink-subject",
+            email: "marker@example.test",
+            linkedAt: "2026-01-01T00:00:00Z",
+          },
+        },
+        ...(secondLink
+          ? [
+              {
+                eventType: "identity.user.social-login-linked",
+                payload: {
+                  providerName: "facebook",
+                  providerSubject: "synthetic-other-subject",
+                  email: "marker@example.test",
+                  linkedAt: "2026-01-01T00:00:00Z",
+                },
+              },
+            ]
+          : []),
+      ],
+    });
+    const request: MutationInput = {
+      ...input,
+      action: "unlink-social-login",
+      target: linkKey,
+      body: {},
+      actor: { ...actor, authenticationMethod: "password", authenticatedAt: new Date().toISOString() },
+    };
+    return { ...f, request };
+  }
+  it.each([false, true])(
+    "records exactly one receipt, validates %s other-link proof shape, and returns first result on repeat/lookup",
+    async (secondLink) => {
+      const f = await setup(undefined, secondLink);
+      const first = await f.runtime.submit(f.request);
+      expect(first.outcome).toBe("committed");
+      if (first.outcome !== "committed") throw new Error("Unlink did not commit");
+      expect(first.receipt.events.map((event) => event.type)).toEqual([
+        "identity.user.social-login-revocation-requested",
+        "identity.user.social-login-revoked",
+        ...(secondLink ? [] : ["identity.user.auth-method-disabled"]),
+      ]);
+      expect(Object.keys(first).sort()).toEqual(["current", "destination", "newlyCommitted", "outcome", "receipt"]);
+      expect(Object.keys(first.receipt).sort()).toEqual([
+        "action",
+        "binding",
+        "category",
+        "committedVersion",
+        "events",
+        "hash",
+        "owner",
+        "priorVersion",
+        "result",
+        "schemaVersion",
+        "target",
+      ]);
+      expect(JSON.stringify(first)).not.toContain("synthetic-unlink-subject");
+      expect(JSON.stringify(first)).not.toContain("marker@example.test");
+      const count = f.memory.allEvents.length;
+      expect(
+        await f.runtime.submit({
+          ...f.request,
+          actor: { ...f.request.actor, authenticatedAt: null, authenticationMethod: undefined },
+        }),
+      ).toMatchObject({ outcome: "committed", newlyCommitted: false, receipt: first.receipt });
+      expect(await f.runtime.lookup(f.request)).toMatchObject({
+        outcome: "committed",
+        newlyCommitted: false,
+        receipt: first.receipt,
+      });
+      expect(await f.runtime.submit({ ...f.request, key: "a230f01b-7871-420b-9c32-37139f80f749" })).toEqual({
+        outcome: "conflict",
+        code: "social-login-link-not-active",
+      });
+      expect(f.memory.allEvents).toHaveLength(count);
+      expect(
+        f.memory.allEvents.filter(
+          (event) => event.eventType === "identity.account-management-mutation-attempt.committed",
+        ),
+      ).toHaveLength(1);
+      const stored = f.memory.allEvents.find(
+        (event) => event.eventType === "identity.account-management-mutation-attempt.committed",
+      )!;
+      for (const action of Object.keys(actionEventTypes) as (keyof typeof actionEventTypes)[]) {
+        if (action === "unlink-social-login") continue;
+        const events = [
+          ...first.receipt.events.slice(0, 2),
+          { id: "evt_disabled", type: "identity.user.auth-method-disabled", digest: "b".repeat(64) },
+        ];
+        expect(() =>
+          validateReceiptHistory(
+            [{ ...stored, payload: { ...stored.payload, action, events } }],
+            { tenantId: actor.tenantId, userId: actor.userId, accountId: actor.accountId },
+            { action, target: linkKey },
+          ),
+        ).toThrow("INDETERMINATE");
+      }
+      expect(f.provider).not.toHaveBeenCalled();
+      expect(
+        await f.runtime.submit({
+          ...f.request,
+          key: "b230f01b-7871-420b-9c32-37139f80f749",
+          action: "update-user",
+          target: actor.userId,
+          body: { displayName: "Updated", givenName: "", familyName: "" },
+        }),
+      ).toMatchObject({ outcome: "committed" });
+    },
+  );
+  it.each(["valid", "missing-third", "wrong-third", "extra-third", "interrupted-pair"])(
+    "invitation sibling preserves unlink history sequence: %s",
+    async (variant) => {
+      const memory = createInMemoryEventStore();
+      await seedAcceptance(memory.eventStore);
+      const at = new Date().toISOString();
+      const requested = {
+        eventType: "identity.user.social-login-revocation-requested",
+        payload: { providerName: "google", linkKey, requestedAt: at },
+      };
+      await memory.eventStore.appendToStream({
+        streamId: `identity.user-${acceptanceOperation.userId}`,
+        expectedVersion: "any",
+        context: acceptanceContext,
+        events: [
+          { eventType: "identity.user.auth-method-enabled", payload: { authMethod: "password" } },
+          { eventType: "identity.user.auth-method-enabled", payload: { authMethod: "social-login" } },
+          {
+            eventType: "identity.user.social-login-linked",
+            payload: {
+              providerName: "google",
+              providerSubject: "synthetic-unlink-subject",
+              email: "recipient@example.com",
+              linkedAt: at,
+            },
+          },
+          ...(variant === "extra-third"
+            ? [
+                {
+                  eventType: "identity.user.social-login-linked",
+                  payload: {
+                    providerName: "facebook",
+                    providerSubject: "synthetic-other-subject",
+                    email: "recipient@example.com",
+                    linkedAt: at,
+                  },
+                },
+              ]
+            : []),
+          requested,
+          ...(variant === "interrupted-pair"
+            ? [
+                {
+                  eventType: "identity.user.profile-updated",
+                  payload: { displayName: "Recipient", givenName: "", familyName: "" },
+                },
+              ]
+            : []),
+          {
+            eventType: "identity.user.social-login-revoked",
+            payload: { providerName: "google", linkKey, revokedAt: at },
+          },
+          ...(variant === "missing-third"
+            ? []
+            : [
+                {
+                  eventType: "identity.user.auth-method-disabled",
+                  payload: { authMethod: variant === "wrong-third" ? "password" : "social-login" },
+                },
+              ]),
+        ],
+      });
+      const before = memory.allEvents.length;
+      const result = acceptInvitationOperation(memory.eventStore, {
+        operation: acceptanceOperation,
+        acceptanceTokenHash: "existing-store-token-hash",
+        context: acceptanceContext,
+      });
+      if (variant === "valid") {
+        await expect(result).resolves.toMatchObject({ membershipId: acceptanceOperation.membershipId });
+      } else {
+        await expect(result).rejects.toThrow();
+        expect(memory.allEvents).toHaveLength(before);
+      }
+    },
+  );
+  it.each(["missing-third", "wrong-third", "extra-third"])(
+    "rejects retained conditional-disabled poison: %s",
+    async (poison) => {
+      const f = await setup(undefined, poison === "extra-third");
+      const at = new Date().toISOString();
+      await f.memory.eventStore.appendToStream({
+        streamId: `identity.user-${actor.userId}`,
+        expectedVersion: "any",
+        context,
+        events: [
+          {
+            eventType: "identity.user.social-login-revocation-requested",
+            payload: { providerName: "google", linkKey, requestedAt: at },
+          },
+          {
+            eventType: "identity.user.social-login-revoked",
+            payload: { providerName: "google", linkKey, revokedAt: at },
+          },
+          ...(poison === "missing-third"
+            ? []
+            : [
+                {
+                  eventType: "identity.user.auth-method-disabled",
+                  payload: { authMethod: poison === "wrong-third" ? "password" : "social-login" },
+                },
+              ]),
+        ],
+      });
+      const count = f.memory.allEvents.length;
+      expect(await f.runtime.submit(f.request)).toEqual({ outcome: "indeterminate", code: "INDETERMINATE" });
+      expect(f.memory.allEvents).toHaveLength(count);
+    },
+  );
+  it("refuses each authority guard with zero events and zero receipts, including the isolated inactive Session control", async () => {
+    for (const [methods, secondLink, patch, code] of [
+      [["password", "social-login"], false, { authenticatedAt: null }, "recent-authentication-required"],
+      [["password", "social-login"], false, { authenticatedAt: "malformed" }, "recent-authentication-required"],
+      [
+        ["password", "social-login"],
+        false,
+        { authenticatedAt: new Date(Date.now() + 60000).toISOString() },
+        "recent-authentication-required",
+      ],
+      [
+        ["password", "social-login"],
+        false,
+        { authenticatedAt: new Date(Date.now() - 16 * 60000).toISOString() },
+        "recent-authentication-required",
+      ],
+      [["password", "social-login"], false, { authenticationMethod: undefined }, "authentication-method-not-different"],
+      [["password", "social-login"], false, { authenticationMethod: "google" }, "authentication-method-not-different"],
+      [["social-login"], true, { authenticationMethod: "password" }, "authentication-method-not-different"],
+      [["social-login"], false, { authenticationMethod: "password" }, "last-authentication-method"],
+    ] as const) {
+      const f = await setup([...methods], secondLink);
+      const count = f.memory.allEvents.length;
+      expect(await f.runtime.submit({ ...f.request, actor: { ...f.request.actor, ...patch } })).toEqual({
+        outcome: "conflict",
+        code,
+      });
+      expect(f.memory.allEvents).toHaveLength(count);
+    }
+    const f = await setup();
+    const count = f.memory.allEvents.length;
+    expect(await f.runtime.submit({ ...f.request, target: "f".repeat(64) })).toEqual({
+      outcome: "conflict",
+      code: "social-login-link-not-active",
+    });
+    expect(f.memory.allEvents).toHaveLength(count);
+  });
+});
 
 describe("issue-7168-ac3-atomic-replay", () => {
   let f: ReturnType<typeof fixture>;

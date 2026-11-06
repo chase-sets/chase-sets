@@ -160,6 +160,37 @@ export function SecurityPage({
             ]}
           />
           <Stack gap={2}>
+            {(user.social_login_links ?? [])
+              .filter((link) => link.state === "active")
+              .map((link) => (
+                <Stack key={link.linkKey} direction="row" justify="between" align="center" gap={2}>
+                  <SpecificationList
+                    specs={[
+                      {
+                        label: t("identity.features.apiKeys.ui.accountSecurityPage.social.login.link"),
+                        value: identityAuthenticationMethodLabel(link.providerName),
+                      },
+                    ]}
+                  />
+                  <ModalDialog
+                    title={t("identity.features.apiKeys.ui.accountSecurityPage.unlink.confirm.title")}
+                    description={t("identity.features.apiKeys.ui.accountSecurityPage.unlink.confirm.description")}
+                    trigger={
+                      <Button type="button" tone="danger">
+                        {t("identity.features.apiKeys.ui.accountSecurityPage.unlink")}
+                      </Button>
+                    }
+                  >
+                    <Form spacing="none" method="post">
+                      <HiddenInput name="intent" value="unlink-social-login" readOnly />
+                      <HiddenInput name="linkKey" value={link.linkKey} readOnly />
+                      <Button type="submit" tone="danger">
+                        {t("identity.features.apiKeys.ui.accountSecurityPage.unlink.confirm.action")}
+                      </Button>
+                    </Form>
+                  </ModalDialog>
+                </Stack>
+              ))}
             {apiKeys.map((apiKey) => (
               <Stack key={apiKey.api_key_id} direction="row" justify="between" align="center" gap={2}>
                 <SpecificationList

@@ -3,6 +3,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeEmail, normalizePhoneNumber } from "../../../support/runtime-support/common";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import { reportSocialLoginLinkConflict } from "../api/social-login-ownership";
+import { socialLoginLinkKey, type SocialLoginLinkState } from "../domain/social-login-link";
 
 const STREAM_PREFIX = "identity.user-";
 
@@ -11,6 +12,9 @@ type SocialLoginLinkRow = Readonly<{
   providerSubject: string;
   email: string;
   linkedAt: string;
+  state?: SocialLoginLinkState;
+  requestedAt?: string;
+  revokedAt?: string;
 }>;
 
 type ContactMethodProjection = {
@@ -102,7 +106,26 @@ async function syncContactMethodLookups(
 }
 
 export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const transition =
+    (state: "revocation-requested" | "revoked"): ProjectorHandlerMap[string] =>
+    async (event) => {
+      const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { providerName, linkKey } = event.data as { providerName: string; linkKey: string };
+      const at = String(event.data[state === "revoked" ? "revokedAt" : "requestedAt"]);
+      const changed = await db.query(
+        `UPDATE identity_user_social_login_links SET state = $4, revoked_at = CASE WHEN $4 = 'revoked' THEN $5::timestamptz ELSE revoked_at END, updated_at = $5
+       WHERE user_id = $1 AND provider_name = $2 AND link_key = $3 AND state = $6 RETURNING link_key`,
+        [userId, providerName, linkKey, state, at, state === "revoked" ? "revocation-requested" : "active"],
+      );
+      if (!changed.rows.length) return;
+      await db.query(
+        `UPDATE identity_users SET social_login_links = (SELECT jsonb_agg(CASE WHEN encode(sha256(convert_to(link->>'providerName' || ':' || btrim(link->>'providerSubject'), 'UTF8')), 'hex') = $2 THEN link || jsonb_build_object('state', $3::text, $4::text, $5::text) ELSE link END) FROM jsonb_array_elements(social_login_links) AS link), updated_at = $5::timestamptz WHERE user_id = $1`,
+        [userId, linkKey, state, state === "revoked" ? "revokedAt" : "requestedAt", at],
+      );
+    };
   return {
+    "identity.user.social-login-revocation-requested": transition("revocation-requested"),
+    "identity.user.social-login-revoked": transition("revoked"),
     "identity.user.created": async (event) => {
       const { userId, displayName, givenName, familyName, primaryEmail, primaryContactMethod } = event.data as {
         userId: string;
@@ -309,12 +332,21 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
         [userId],
       );
       const currentLinks = (current.rows[0]?.social_login_links as SocialLoginLinkRow[] | undefined) ?? [];
+      const retained = currentLinks.find(
+        (currentLink) =>
+          currentLink.providerName === link.providerName && currentLink.providerSubject === link.providerSubject,
+      );
       const links = [
         ...currentLinks.filter(
           (currentLink) =>
             currentLink.providerName !== link.providerName || currentLink.providerSubject !== link.providerSubject,
         ),
-        link,
+        {
+          ...link,
+          state: retained?.state ?? "active",
+          ...(retained?.requestedAt ? { requestedAt: retained.requestedAt } : {}),
+          ...(retained?.revokedAt ? { revokedAt: retained.revokedAt } : {}),
+        },
       ].sort((left, right) =>
         `${left.providerName}:${left.providerSubject}`.localeCompare(`${right.providerName}:${right.providerSubject}`),
       );
@@ -334,9 +366,10 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
            user_id,
            email,
            linked_at,
+           link_key,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6)
+         VALUES ($1, $2, $3, $4, $5, $7, $6)
          ON CONFLICT (provider_name, provider_subject) DO UPDATE
          SET email = EXCLUDED.email,
              linked_at = EXCLUDED.linked_at,
@@ -350,6 +383,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
           normalizeEmail(link.email),
           link.linkedAt,
           event.timing.recordedAt,
+          socialLoginLinkKey(link.providerName, link.providerSubject),
         ],
       );
       if (kept.rows.length === 0) {

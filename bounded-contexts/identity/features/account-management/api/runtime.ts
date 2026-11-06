@@ -30,6 +30,7 @@ import {
 import { IdentityDomainError } from "../../../support/runtime-support/common";
 import { ShippingAddressFieldError, ShippingAddressUndeliverableError } from "../../shipping-addresses/domain/errors";
 import type { ShippingAddressSnapshot } from "../../shipping-addresses/domain/domain";
+import { SocialLoginUnlinkRefusal } from "../../users/domain/social-login-link";
 
 const RECEIPT_EVENT = "identity.account-management-mutation-attempt.committed";
 type SafeOwner = Readonly<{ id: string; version: number; status: string }>;
@@ -94,7 +95,7 @@ export function assertMutationPermission(actor: ResolvedActor, action: MutationA
       ? null
       : ["update-profile", "create", "update", "default", "archive"].includes(action)
         ? "accounts.manage"
-        : ["update-user", "create-api-key", "rotate-api-key", "revoke-api-key"].includes(action)
+        : ["update-user", "create-api-key", "rotate-api-key", "revoke-api-key", "unlink-social-login"].includes(action)
           ? "security.manage"
           : "memberships.manage";
   if (permission && !hasPermission(actor, permission)) throw new Error("authorization_forbidden");
@@ -170,6 +171,16 @@ export function createAccountManagementRuntime(
     )
       throw new Error("INDETERMINATE");
     const committedEvents = ownerHistory.slice(receipt.priorVersion, receipt.committedVersion);
+    if (request.action === "unlink-social-login") {
+      const prior = validateOwnerHistory("user", ownerHistory.slice(0, receipt.priorVersion), binding.tenantId);
+      if (
+        prior.kind !== "user" ||
+        committedEvents.length !==
+          (prior.state.socialLoginLinks.filter((link) => (link.state ?? "active") === "active").length === 1 ? 3 : 2) ||
+        (committedEvents.length === 3 && committedEvents[2].payload.authMethod !== "social-login")
+      )
+        throw new Error("INDETERMINATE");
+    }
     for (let index = 0; index < committedEvents.length; index++) {
       const event = committedEvents[index];
       const proof = receipt.events[index];
@@ -383,6 +394,7 @@ export function createAccountManagementRuntime(
             : { outcome: "conflict", code: "attempt-hash-conflict", current: recovered.current };
         return conflictResult("owner-version-conflict");
       }
+      if (error instanceof SocialLoginUnlinkRefusal) return { outcome: "conflict", code: error.code };
       if (error instanceof Error && ["conflict", "last-active-owner", "current-consent"].includes(error.message))
         return conflictResult(error.message);
       if (error instanceof Error && error.message === "authorization_forbidden") throw error;
@@ -497,7 +509,7 @@ export function validateReceiptHistory(
     Number(raw.committedVersion) < Number(raw.priorVersion) ||
     Number(raw.committedVersion) > 10000 ||
     !Array.isArray(raw.events) ||
-    raw.events.length > 2
+    raw.events.length > (request.action === "unlink-social-login" ? 3 : 2)
   )
     throw new Error("INDETERMINATE");
   validateEventProofs(request.action, raw.events);

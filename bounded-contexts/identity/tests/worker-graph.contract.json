@@ -284,6 +284,8 @@
         "identity.user.password-credential-attached": "<function>",
         "identity.user.passkey-registered": "<function>",
         "identity.user.social-login-linked": "<function>",
+        "identity.user.social-login-revocation-requested": "<function>",
+        "identity.user.social-login-revoked": "<function>",
         "identity.user.suspended": "<function>",
         "identity.user.reactivated": "<function>"
       },
@@ -304,6 +306,8 @@
         "identity.user.profile-updated",
         "identity.user.reactivated",
         "identity.user.social-login-linked",
+        "identity.user.social-login-revocation-requested",
+        "identity.user.social-login-revoked",
         "identity.user.suspended"
       ],
       "streamPrefixes": ["identity."],

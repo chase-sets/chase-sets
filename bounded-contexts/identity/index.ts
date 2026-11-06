@@ -20,6 +20,7 @@ import { createIdentityServices } from "./support/runtime-support/services";
 import { identitySchemaSql } from "./support/runtime-support/schema";
 import { identityUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { identityAccountSchemaMigrations } from "./features/accounts/read-model/schema";
+import { identitySocialLoginSchemaMigrations } from "./features/users/read-model/schema";
 import { identityAgentGrantRevocationSchemaMigrations } from "./features/agent-grants/read-model/schema";
 import { inspectIdentitySeedState, seedIdentityDatabase } from "./support/runtime-support/seed";
 import { buildFounderClaimReactionHandlers } from "./features/founders-cohort/integrations/marketplace/founder-claim-reaction";
@@ -31,6 +32,7 @@ export const module = defineBoundedContextModule<IdentityServices, PgTransaction
   schemaSql: identitySchemaSql,
   schemaMigrations: [
     ...identityAccountSchemaMigrations,
+    ...identitySocialLoginSchemaMigrations,
     ...identityUnloggedProjectionSchemaMigrations,
     ...identityAgentGrantRevocationSchemaMigrations,
   ],

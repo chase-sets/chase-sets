@@ -62,6 +62,7 @@ const targetPrefixes: Record<MutationAction, string | null> = {
   "create-api-key": null,
   "rotate-api-key": "key",
   "revoke-api-key": "key",
+  "unlink-social-login": null,
   "create-invitation": null,
   "cancel-invitation": "ivt",
   "change-role": "mbr",
@@ -73,7 +74,9 @@ export function parseActionTarget(action: string, target: string | null): Mutati
   if (!Object.hasOwn(actionFields, action)) throw new Error("INDETERMINATE");
   const known = action as MutationAction;
   const prefix = targetPrefixes[known];
-  if (prefix) {
+  if (known === "unlink-social-login") {
+    if (typeof target !== "string" || !/^[a-f0-9]{64}$/.test(target)) throw new Error("INDETERMINATE");
+  } else if (prefix) {
     if (typeof target !== "string") throw new Error("INDETERMINATE");
     boundedId(target, prefix);
   } else if (target !== null) throw new Error("INDETERMINATE");

@@ -256,6 +256,8 @@ Notes:
 
 A **Social Login Link** records that one external provider identity can authenticate one User.
 
+A link is `active`, `revocation-requested`, or `revoked`; links recorded without a state are active. **Link Revocation** is the local, atomic request-and-revoke transition on the User. It requires recent authentication using a different active sign-in method and cannot remove the last active method. Revoked links retain their ownership claim and cannot sign in or relink. Revocation does not contact the provider or revoke existing Sessions.
+
 Examples:
 
 - A Google subject linked to a User

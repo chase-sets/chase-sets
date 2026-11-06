@@ -14,11 +14,13 @@ import {
 import { buildSessionProjectionHandlers } from "../../features/sessions/read-model/projection";
 import { authSchemaSql } from "../runtime-support/schema";
 import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
+import authManifest from "../../context.json";
 import {
   buildAuthIdentityAccountProjectionHandlers,
   buildAuthIdentityInvitationProjectionHandlers,
   buildAuthIdentityMembershipProjectionHandlers,
   buildAuthIdentityUserProjectionHandlers,
+  authSocialLoginSchemaMigrations,
 } from "./identity-projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -51,6 +53,108 @@ describeDb("auth projection row identity", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  it("delivers manifest-backed revocation and disabled-method facts without linked replay reactivation", async () => {
+    const handlers = buildAuthIdentityUserProjectionHandlers(pool);
+    const subscription = authManifest.eventSubscriptions.find(
+      (entry) => entry.projectionName === "auth-identity-user-projection",
+    )!;
+    expect(subscription.subscriptionVersion).toBe(2);
+    const userId = "usr_lifecycle";
+    const streamId = `identity.user-${userId}`;
+    const linked = {
+      providerName: "google",
+      providerSubject: "synthetic-lifecycle-subject",
+      email: "marker@example.test",
+      linkedAt: "2026-06-12T12:11:00.000Z",
+    };
+    const linkKey = createHash("sha256")
+      .update(`${linked.providerName}:${linked.providerSubject}`, "utf8")
+      .digest("hex");
+    const deliver = async (type: string, data: Record<string, unknown>) => {
+      expect(subscription.eventTypes).toContain(type);
+      await project(handlers, event(type, streamId, data));
+    };
+    await deliver("identity.user.created", {
+      userId,
+      displayName: "Synthetic",
+      givenName: "",
+      familyName: "",
+      primaryEmail: linked.email,
+    });
+    await deliver("identity.user.auth-method-enabled", { authMethod: "social-login" });
+    await deliver("identity.user.social-login-linked", linked);
+    await deliver("identity.user.social-login-revocation-requested", {
+      providerName: "google",
+      linkKey,
+      requestedAt: "2026-06-12T12:12:00.000Z",
+    });
+    expect((await pool.query(`SELECT state FROM auth_identity_user_social_login_links`)).rows).toEqual([
+      { state: "revocation-requested" },
+    ]);
+    await deliver("identity.user.social-login-revoked", {
+      providerName: "google",
+      linkKey,
+      revokedAt: "2026-06-12T12:13:00.000Z",
+    });
+    await deliver("identity.user.auth-method-disabled", { authMethod: "social-login" });
+    await deliver("identity.user.social-login-linked", linked);
+    await deliver("identity.user.social-login-revoked", {
+      providerName: "google",
+      linkKey,
+      revokedAt: "2026-06-12T12:13:00.000Z",
+    });
+    const row = (await pool.query(`SELECT state, revoked_at FROM auth_identity_user_social_login_links`)).rows[0];
+    expect(row.state).toBe("revoked");
+    expect(row.revoked_at instanceof Date ? row.revoked_at.toISOString() : row.revoked_at).toBe(
+      "2026-06-12T12:13:00.000Z",
+    );
+    expect(
+      (
+        await pool.query(`SELECT auth_methods, social_login_links FROM auth_identity_users WHERE user_id = $1`, [
+          userId,
+        ])
+      ).rows,
+    ).toEqual([
+      {
+        auth_methods: [],
+        social_login_links: [
+          {
+            ...linked,
+            state: "revoked",
+            requestedAt: "2026-06-12T12:12:00.000Z",
+            revokedAt: "2026-06-12T12:13:00.000Z",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("upgrades populated legacy Auth links to fresh-equivalent constraints and active state", async () => {
+    const shape = () =>
+      pool.query(
+        `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'auth_identity_user_social_login_links' ORDER BY column_name`,
+      );
+    const fresh = await shape();
+    await pool.query(
+      `ALTER TABLE auth_identity_user_social_login_links DROP COLUMN link_key, DROP COLUMN state, DROP COLUMN revoked_at; INSERT INTO auth_identity_user_social_login_links (provider_name, provider_subject, user_id, email, linked_at) VALUES ('google', 'legacy-subject', 'usr_legacy', 'legacy@example.test', '2026-01-01T00:00:00Z');`,
+    );
+    for (const migration of authSocialLoginSchemaMigrations)
+      for (const statement of migration.statements) await pool.query(statement);
+    expect((await shape()).rows).toEqual(fresh.rows);
+    expect(
+      (await pool.query(`SELECT link_key, state, revoked_at FROM auth_identity_user_social_login_links`)).rows,
+    ).toEqual([
+      {
+        link_key: createHash("sha256").update("google:legacy-subject").digest("hex"),
+        state: "active",
+        revoked_at: null,
+      },
+    ]);
+    await expect(pool.query(`UPDATE auth_identity_user_social_login_links SET state = 'invalid'`)).rejects.toThrow();
+    for (const migration of authSocialLoginSchemaMigrations)
+      for (const statement of migration.statements) await pool.query(statement);
   });
 
   it("projects representative auth rows exactly as the pre-toolkit SQL did", async () => {
@@ -258,6 +362,7 @@ describeDb("auth projection row identity", () => {
               providerSubject: "google_sub_1",
               email: " Social@Example.COM ",
               linkedAt: "2026-06-12T12:11:00.000Z",
+              state: "active",
             },
           ],
           updated_at: "2026-06-12T12:14:00.000Z",
@@ -288,6 +393,9 @@ describeDb("auth projection row identity", () => {
           user_id: "usr_1",
           email: "social@example.com",
           linked_at: "2026-06-12T12:11:00.000Z",
+          link_key: createHash("sha256").update("google:google_sub_1").digest("hex"),
+          state: "active",
+          revoked_at: null,
           updated_at: "2026-06-12T12:12:00.000Z",
         },
       ],

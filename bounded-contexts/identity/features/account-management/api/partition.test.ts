@@ -68,7 +68,7 @@ function formPartition(file: ts.SourceFile) {
 }
 
 describe("issue-7168-ac1-derived-partition", () => {
-  it("reconciles all 15 real route/form/client/manifest actions and refuses source drift mutants", () => {
+  it("reconciles all 16 real route/form/client/manifest actions and refuses source drift mutants", () => {
     const derived: string[] = [];
     for (const [route, actions] of Object.entries(routeActions)) {
       const slug = route === "/account" ? "account" : `account-${route.split("/").at(-1)}`;
@@ -94,9 +94,9 @@ describe("issue-7168-ac1-derived-partition", () => {
       ).toThrow("uncontrolled-form");
     }
     expect(derived.sort()).toEqual(Object.keys(actionFields).sort());
-    expect(derived).toHaveLength(15);
+    expect(derived).toHaveLength(16);
     const client = readFileSync(path.join(root, "support/shell-support/api/client.ts"), "utf8");
-    expect((client.match(/return ownerResponse<T>/g) ?? []).length).toBe(15);
+    expect((client.match(/return ownerResponse<T>/g) ?? []).length).toBe(16);
     expect(manifest.slices).toContain("account-management");
     const mutant = parse("mutant.tsx", 'const x = { intents: { "sixteenth": () => 1 } };');
     expect(routeIntents(mutant).every((action) => Object.hasOwn(actionFields, action))).toBe(false);

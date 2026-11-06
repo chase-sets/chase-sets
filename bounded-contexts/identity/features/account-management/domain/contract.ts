@@ -37,6 +37,7 @@ export const actionFields = {
   "create-api-key": ["userId", "name"],
   "rotate-api-key": [],
   "revoke-api-key": [],
+  "unlink-social-login": [],
   "create-invitation": ["accountId", "email", "roleKey", "invitationId", "expiresAt"],
   "cancel-invitation": [],
   "change-role": ["roleKey"],
@@ -58,6 +59,7 @@ export const actionEventTypes: Record<MutationAction, readonly string[]> = {
   "create-api-key": ["identity.api-key.created", "identity.api-key.verifier-recorded"],
   "rotate-api-key": ["identity.api-key.rotated", "identity.api-key.verifier-recorded"],
   "revoke-api-key": ["identity.api-key.revoked"],
+  "unlink-social-login": ["identity.user.social-login-revocation-requested", "identity.user.social-login-revoked"],
   "create-invitation": ["identity.invitation.created"],
   "cancel-invitation": ["identity.invitation.cancelled"],
   "change-role": ["identity.membership.role-changed"],
@@ -69,9 +71,19 @@ export function validateEventProofs(
   action: MutationAction,
   value: unknown,
 ): readonly Readonly<{ id: string; type: string; digest: string }>[] {
-  if (!Array.isArray(value) || value.length > 2) throw new Error("INDETERMINATE");
-  const expected = actionEventTypes[action];
-  const mustChange = ["create", "create-api-key", "rotate-api-key", "create-invitation"].includes(action);
+  if (!Array.isArray(value) || value.length > (action === "unlink-social-login" ? 3 : 2))
+    throw new Error("INDETERMINATE");
+  const expected =
+    action === "unlink-social-login" && value.length === 3
+      ? [...actionEventTypes[action], "identity.user.auth-method-disabled"]
+      : actionEventTypes[action];
+  const mustChange = [
+    "create",
+    "create-api-key",
+    "rotate-api-key",
+    "create-invitation",
+    "unlink-social-login",
+  ].includes(action);
   if ((mustChange || value.length > 0) && value.length !== expected.length) throw new Error("INDETERMINATE");
   const ids = new Set<string>();
   for (const [index, proof] of value.entries()) {
@@ -94,7 +106,7 @@ export const routeActions = {
   "/account": ["update-profile"],
   "/account/shipping-addresses": ["create", "update", "default", "archive"],
   "/account/consents": ["withdraw"],
-  "/account/security": ["update-user", "create-api-key", "rotate-api-key", "revoke-api-key"],
+  "/account/security": ["update-user", "create-api-key", "rotate-api-key", "revoke-api-key", "unlink-social-login"],
   "/account/team": ["create-invitation", "cancel-invitation", "change-role", "revoke", "reinstate"],
 } as const;
 
@@ -105,6 +117,7 @@ export const actionTargetField: Partial<Record<MutationAction, string>> = {
   withdraw: "consentId",
   "rotate-api-key": "apiKeyId",
   "revoke-api-key": "apiKeyId",
+  "unlink-social-login": "linkKey",
   "cancel-invitation": "invitationId",
   "change-role": "membershipId",
   revoke: "membershipId",

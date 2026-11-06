@@ -12,7 +12,12 @@ import {
   initialMembershipState,
   type MembershipEvent,
 } from "../../memberships/domain/domain";
-import { evolveUser, initialUserState, type UserEvent } from "../../users/domain/domain";
+import {
+  assertUserSocialLoginEventSequence,
+  evolveUser,
+  initialUserState,
+  type UserEvent,
+} from "../../users/domain/domain";
 import { evolveAccount, initialAccountState, type AccountEvent } from "../../accounts/domain/domain";
 
 export type InvitationAcceptanceOperation = Readonly<{
@@ -236,7 +241,7 @@ function accountState(events: readonly StoredEvent[]) {
 
 function userState(events: readonly StoredEvent[]) {
   let state = initialUserState;
-  for (const event of events) {
+  for (const [index, event] of events.entries()) {
     const data = event.payload;
     if (event.eventType === "identity.user.created") {
       closed(data, ["userId", "displayName", "primaryEmail", "primaryContactMethod"], ["givenName", "familyName"]);
@@ -297,6 +302,14 @@ function userState(events: readonly StoredEvent[]) {
           closed(data, ["providerName", "providerSubject", "email", "linkedAt"]);
           if (!instant(data.linkedAt)) refuse();
           break;
+        case "identity.user.social-login-revocation-requested":
+          closed(data, ["providerName", "linkKey", "requestedAt"]);
+          if (!instant(data.requestedAt)) refuse();
+          break;
+        case "identity.user.social-login-revoked":
+          closed(data, ["providerName", "linkKey", "revokedAt"]);
+          if (!instant(data.revokedAt)) refuse();
+          break;
         case "identity.user.suspended":
           closed(data, []);
           if (state.status !== "active") refuse();
@@ -310,6 +323,14 @@ function userState(events: readonly StoredEvent[]) {
       }
     }
     try {
+      const previous = events[index - 1];
+      const next = events[index + 1];
+      assertUserSocialLoginEventSequence(
+        state,
+        { type: event.eventType, data },
+        previous && { type: previous.eventType, data: previous.payload },
+        next && { type: next.eventType, data: next.payload },
+      );
       state = evolveUser(state, { type: event.eventType, data } as UserEvent);
     } catch {
       refuse();

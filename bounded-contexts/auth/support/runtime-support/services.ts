@@ -654,6 +654,7 @@ export async function resolveActorFromSessionId(
     roleKey: membership.role_key,
     permissions,
     authenticatedAt: session.started_at ?? null,
+    authenticationMethod: isAuthMethod(session.authentication_method) ? session.authentication_method : undefined,
     ...(capabilityAssignments.length > 0 ? { capabilityAssignments } : {}),
   };
 }

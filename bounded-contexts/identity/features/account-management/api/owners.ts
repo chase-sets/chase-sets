@@ -2,7 +2,13 @@ import type { DomainEvent } from "@chase-sets/event-core";
 import type { StoredEvent } from "@chase-sets/event-core/storage";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { decideAccount, evolveAccount, initialAccountState, type AccountEvent } from "../../accounts/domain/domain";
-import { decideUser, evolveUser, initialUserState, type UserEvent } from "../../users/domain/domain";
+import {
+  assertUserSocialLoginEventSequence,
+  decideUser,
+  evolveUser,
+  initialUserState,
+  type UserEvent,
+} from "../../users/domain/domain";
 import {
   decideMembership,
   evolveMembership,
@@ -110,6 +116,7 @@ export function ownerForRequest(
     case "withdraw":
       return { kind: "consent", id: target, streamId: `identity.consent-${target}` };
     case "update-user":
+    case "unlink-social-login":
       return { kind: "user", id: actor.userId, streamId: `identity.user-${actor.userId}` };
     case "create-api-key":
     case "rotate-api-key":
@@ -195,6 +202,15 @@ export async function planOwnerMutation(
       break;
     }
     case "user": {
+      if (request.action === "unlink-social-login") {
+        events = decideUser(owner.state, {
+          type: "UnlinkSocialLogin",
+          linkKey: request.target!,
+          authenticationMethod: actor.authenticationMethod,
+          authenticatedAt: actor.authenticatedAt,
+        });
+        break;
+      }
       events = decideUser(owner.state, {
         type: "UpdateUserProfile",
         displayName: text("displayName"),
@@ -390,6 +406,16 @@ export function validateOwnerHistory(kind: OwnerKind, history: readonly StoredEv
     if (created && isCreation && kind !== "shipping-address-book") throw new Error("INDETERMINATE");
     created = true;
     validateOwnerEvent(event.eventType, event.payload);
+    if (current.kind === "user") {
+      const previous = history[index - 1];
+      const next = history[index + 1];
+      assertUserSocialLoginEventSequence(
+        current.state,
+        { type: event.eventType, data: event.payload },
+        previous && { type: previous.eventType, data: previous.payload },
+        next && { type: next.eventType, data: next.payload },
+      );
+    }
     const streamPrefix = `identity.${kind}-`;
     if (!event.streamId.startsWith(streamPrefix)) throw new Error("INDETERMINATE");
     const ownerId = event.streamId.slice(streamPrefix.length);

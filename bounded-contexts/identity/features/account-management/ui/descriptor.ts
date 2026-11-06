@@ -90,7 +90,9 @@ export function validateDescriptor(value: unknown): MutationDescriptor {
       : raw.action === "update-user"
         ? "usr_"
         : null;
-  if (
+  if (raw.action === "unlink-social-login") {
+    if (typeof raw.target !== "string" || !/^[a-f0-9]{64}$/.test(raw.target)) throw new Error("INDETERMINATE");
+  } else if (
     prefix
       ? typeof raw.target !== "string" || !raw.target.startsWith(prefix) || raw.target.length <= prefix.length
       : raw.target !== null
