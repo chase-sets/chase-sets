@@ -165,7 +165,7 @@ function inlineStageOperations(workflow) {
       const withoutExpressions = command.replace(/\$\{\{[\s\S]*?\}\}/g, "EXPRESSION");
       const thinCall =
         /^(?:(?:node|bash|python3) (?:\.\/)?[\w./-]+\.(?:mjs|js|sh|py)|pnpm run [\w:-]+)(?: [^\n]+)?$/.test(command) &&
-        !/[;&|<>`]|\$\(/.test(withoutExpressions);
+        !/[;&|<>\x60]|\$\(/.test(withoutExpressions);
       const declarativeAssertion = /^test -n "\$[A-Z0-9_]+"$/.test(command);
       return thinCall || declarativeAssertion ? [] : [`${id}/${entry.name}`];
     }),
@@ -428,7 +428,13 @@ describe("workflow composition contract inventory", () => {
       });
       expect(stageOwnershipGaps(after)).toEqual(positive);
     }
-    for (const run of ['echo "unowned"', "node -e 'console.log(1)'", "bash -c 'echo unowned'"]) {
+    for (const run of [
+      'echo "unowned"',
+      "node -e 'console.log(1)'",
+      "bash -c 'echo unowned'",
+      "node scripts/pr-release-status.mjs `echo unowned`",
+      "node scripts/pr-release-status.mjs $(echo unowned)",
+    ]) {
       const extra = structuredClone(after);
       extra.jobs["known-failure-guard"].steps.push({ name: "Unowned diagnostic", run });
       expect(stageOwnershipGaps(extra)).toEqual({
