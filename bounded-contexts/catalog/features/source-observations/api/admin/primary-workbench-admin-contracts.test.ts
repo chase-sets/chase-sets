@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { syntheticPromotionReceipt } from "../../ui/primary-workbench-test-fixtures";
+import type { SourceObservationPromotionReceipt } from "../../ui/contracts";
 import { CATALOG_CONTROL_PLANE_ACTIONS } from "../../ui/admin-control-plane/information-architecture-v2";
 import {
   assertCatalogPrimaryWorkbenchActionState,
@@ -1673,7 +1675,7 @@ describe("Catalog primary workbench admin contracts", () => {
       }
     }
     expect(thrownMessages).toEqual(baselineThrownMessages);
-    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(173);
+    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(174);
     expect(Object.values(baselineThrownMessages).filter((messages) => messages.length > 0)).toHaveLength(19);
 
     // The base composite omits only the optional promotion result, which the composer accepts.
@@ -1697,6 +1699,91 @@ describe("Catalog primary workbench admin contracts", () => {
         .filter((name) => name !== "assertPrimaryWorkbenchBlockers"),
     );
     expect([...composedFamilies].sort()).toEqual(omittedFamilyControls.map((control) => control.validator).sort());
+  });
+
+  it("accepts original receipt fields and preserves absent/null compatibility without inventing authority", () => {
+    const composite = minimalWorkbenchComposite();
+    const receipt = syntheticPromotionReceipt();
+    for (const original of [undefined, null, receipt]) {
+      const candidate = {
+        ...composite,
+        promotionPreview: { ...composite.promotionPreview!, previewId: receipt.previewId, receipt: original },
+      };
+      expect(() => validateCatalogPrimaryWorkbenchReadModelContract(candidate)).not.toThrow();
+      expect(candidate.promotionPreview.receipt).toBe(original);
+      expect(candidate.promotionPreview.executionSafeguards.previewFresh).not.toBe(true);
+    }
+    const empty = syntheticPromotionReceipt();
+    empty.preview.validation.coveredObservationIds = [];
+    empty.preview.validation.diagnostics = [];
+    expect(() =>
+      validateCatalogPrimaryWorkbenchReadModelContract({
+        ...composite,
+        promotionPreview: { ...composite.promotionPreview!, previewId: empty.previewId, receipt: empty },
+      }),
+    ).not.toThrow();
+  });
+
+  it.each<{ name: string; mutate: (receipt: SourceObservationPromotionReceipt) => void }>([
+    {
+      name: "schema",
+      mutate: (receipt) => {
+        Object.assign(receipt, { schemaVersion: "synthetic-invalid" });
+      },
+    },
+    {
+      name: "empty token",
+      mutate: (receipt) => {
+        receipt.previewId = "";
+      },
+    },
+    {
+      name: "mismatched token",
+      mutate: (receipt) => {
+        receipt.previewId = "synthetic-other-token";
+      },
+    },
+    {
+      name: "fingerprint",
+      mutate: (receipt) => {
+        receipt.preview.fingerprint = "";
+      },
+    },
+    {
+      name: "missing covered IDs",
+      mutate: (receipt) => {
+        Reflect.deleteProperty(receipt.preview.validation, "coveredObservationIds");
+      },
+    },
+    {
+      name: "non-array covered IDs",
+      mutate: (receipt) => {
+        Object.assign(receipt.preview.validation, { coveredObservationIds: "synthetic-not-an-array" });
+      },
+    },
+    {
+      name: "missing diagnostics",
+      mutate: (receipt) => {
+        Reflect.deleteProperty(receipt.preview.validation, "diagnostics");
+      },
+    },
+    {
+      name: "non-array diagnostics",
+      mutate: (receipt) => {
+        Object.assign(receipt.preview.validation, { diagnostics: "synthetic-not-an-array" });
+      },
+    },
+  ])("rejects an independently malformed original receipt: $name", ({ mutate }) => {
+    const composite = minimalWorkbenchComposite();
+    const receipt = syntheticPromotionReceipt();
+    const previewId = receipt.previewId;
+    mutate(receipt);
+    expect(() =>
+      validateCatalogPrimaryWorkbenchReadModelContract({
+        ...composite,
+        promotionPreview: { ...composite.promotionPreview!, previewId, receipt },
+      }),
+    ).toThrow("Primary workbench original promotion receipt must preserve its token, fingerprint and validation page.");
   });
 
   it("workbench facade preserves real consumer types", () => {
@@ -3069,7 +3156,7 @@ const workbenchOwnerCensus: Readonly<Record<WorkbenchOwner, WorkbenchOwnerCensus
   },
 };
 
-// Ordered thrown-message literals of every census function at ab95c339ef: 173 across 19 functions.
+// Ordered thrown-message literals of every census function: 174 across 19 functions.
 const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
   action: [],
   assertCatalogPrimaryWorkbenchActionState: ["Unknown primary workbench action state '${value}' must fail closed."],
@@ -3200,6 +3287,7 @@ const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
   assertPrimaryWorkbenchPromotionPreview: [
     "Primary workbench promotion preview contract is required.",
     "Primary workbench promotion preview scope is required.",
+    "Primary workbench original promotion receipt must preserve its token, fingerprint and validation page.",
     "Primary workbench promotion preview must preserve per-observation partial failure scope.",
     "Primary workbench promotion preview validation coverage must be explicit.",
     "Primary workbench promotion preview must state the explicit promote-as-draft choice.",

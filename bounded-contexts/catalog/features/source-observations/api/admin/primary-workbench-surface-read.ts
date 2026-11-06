@@ -207,13 +207,13 @@ async function readDailySurface(
     reviewPagination,
     normalized.selectedScope,
   );
-  const [reviewObservationResult, mergeCandidateResult, promotionOutcome, promotionValidation] = await Promise.all([
+  const [reviewObservationResult, mergeCandidateResult, promotionOutcome, currentPromotionPreview] = await Promise.all([
     reviewQuery
       ? sourceResult(() => sources.listSourceObservations(reviewQuery), null)
       : Promise.resolve({ value: null, failed: false } as const),
     sourceResult(() => sources.listMergeCandidates(buildDailyMergeCandidateQuery(normalizedRouteContext)), null),
     selectedPromotionOutcome(sources, normalizedRouteContext),
-    selectedPromotionValidation(sources, normalizedRouteContext),
+    selectedPromotionPreview(sources, normalizedRouteContext),
   ]);
   const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...normalized.readModelFailures];
   if (reviewObservationResult.failed) {
@@ -233,7 +233,8 @@ async function readDailySurface(
     reviewObservations: reviewObservationResult.value,
     mergeCandidates: mergeCandidateResult.value,
     promotionOutcome,
-    promotionValidation,
+    promotionValidation: currentPromotionPreview?.validation ?? null,
+    promotionPreviewFingerprint: currentPromotionPreview?.fingerprint ?? null,
     reviewPagination,
     sourceOptionPages: null,
     catalogSyncPreview: null,
@@ -443,14 +444,14 @@ async function selectedPromotionOutcome(
   }
 }
 
-// The read-only pre-write validation for the route's promotion preview token, so
-// the create/update stage paints the current per-observation verdicts rather
-// than a count-only eligibility. Previewing needs catalog.manage; absence renders
-// as not-previewed.
-async function selectedPromotionValidation(
+// The read-only pre-write preview for the route's promotion preview token, so the
+// create/update stage paints the current per-observation verdicts and the current
+// evidence fingerprint rather than a count-only eligibility. Previewing needs
+// catalog.manage; absence renders as not-previewed.
+async function selectedPromotionPreview(
   sources: CatalogPrimaryWorkbenchSurfaceSources,
   context: CatalogPrimaryWorkbenchRouteContext,
-): Promise<SourceObservationPromotionValidation | null> {
+): Promise<SourceObservationPromotionPreview | null> {
   if (!context.promotionPreviewId || !sources.canManageCatalog) {
     return null;
   }
@@ -464,7 +465,7 @@ async function selectedPromotionValidation(
       ),
       promoteAsDraft: context.promoteAsDraft === true,
     });
-    return preview.validation;
+    return preview;
   } catch {
     return null;
   }
@@ -492,6 +493,7 @@ type BuildSurfaceReadModelInput = Readonly<{
   mergeCandidates: ListResponse<CatalogMergeCandidateListItem> | null;
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   promotionValidation?: SourceObservationPromotionValidation | null;
+  promotionPreviewFingerprint?: string | null;
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   catalogSyncPreview: CatalogSyncProviderParticipationPreview | null;
@@ -552,6 +554,7 @@ function surfaceReadModelInput(
     mergeCandidates: failures.has("merge-candidate-review") ? null : input.mergeCandidates,
     promotionOutcome: input.promotionOutcome,
     promotionValidation: input.promotionValidation ?? null,
+    promotionPreviewFingerprint: input.promotionPreviewFingerprint ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages,
     catalogSyncPreview: input.catalogSyncPreview,
@@ -793,8 +796,9 @@ async function selectedProviderSourceOptionPages(
 // requested cache/live semantics, then exhaust continuation cursors from that
 // same cache snapshot: a force refresh happens once, and continuation pages
 // never repeat provider I/O or move refresh timestamps. A list that exceeds the
-// page cap, stalls its cursor, or changes count or cache between pages is an
-// error for its group, never a complete list.
+// page cap, stalls its cursor, changes count or cache between pages, or ends
+// with fewer or more options than its total is an error for its group, never a
+// complete list.
 async function completeSourceOptionResponse(
   sources: CatalogPrimaryWorkbenchSurfaceSources,
   location: URL,
@@ -802,7 +806,10 @@ async function completeSourceOptionResponse(
   firstHref: string,
   firstResponse: SourceObservationIntegrationOptionResponse,
 ): Promise<SourceObservationIntegrationOptionResponse> {
+  const queryKind = sourceOptionRequest.queryKind;
+  assertSourceOptionPage(firstResponse, queryKind);
   if (!firstResponse.page?.hasMore) {
+    assertSourceOptionListComplete(firstResponse.total, firstResponse.items.length, queryKind);
     return firstResponse;
   }
 
@@ -829,15 +836,17 @@ async function completeSourceOptionResponse(
       SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
     );
     continuationPageCount += 1;
-    assertSourceOptionContinuation(firstResponse, continuationResponse, cursor, sourceOptionRequest.queryKind);
+    assertSourceOptionPage(continuationResponse, queryKind);
+    assertSourceOptionContinuation(firstResponse, continuationResponse, cursor, queryKind);
     response = continuationResponse;
     items.push(...response.items);
   }
+  assertSourceOptionListComplete(firstResponse.total, items.length, queryKind);
 
   return {
     ...firstResponse,
     items,
-    total: Math.max(firstResponse.total, response.total, items.length),
+    total: firstResponse.total,
     count: items.length,
     page: {
       cursor: firstResponse.page.cursor,
@@ -855,6 +864,22 @@ function sourceOptionContinuationQuery(href: string, location: URL, cursor: stri
   continuation.searchParams.set("cacheOnly", "true");
   continuation.searchParams.delete("forceRefresh");
   return continuation.searchParams.toString();
+}
+
+// A page's total is the whole list's option count, and its count is the options it carries.
+function assertSourceOptionPage(response: SourceObservationIntegrationOptionResponse, queryKind: string): void {
+  if (!Number.isSafeInteger(response.total) || response.total < 0) {
+    throw new CatalogSourceOptionPaginationError(queryKind, "the option total was not a count");
+  }
+  if (response.count !== response.items.length) {
+    throw new CatalogSourceOptionPaginationError(queryKind, "a page's count did not match its options");
+  }
+}
+
+function assertSourceOptionListComplete(total: number, collected: number, queryKind: string): void {
+  if (collected !== total) {
+    throw new CatalogSourceOptionPaginationError(queryKind, `the pages carried ${collected} of ${total} options`);
+  }
 }
 
 function assertSourceOptionContinuation(
