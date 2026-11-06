@@ -778,9 +778,9 @@ describe("Catalog integrations route", () => {
     [undefined, "Not returned"],
     ["", "Empty string"],
     ["synthetic-search", "synthetic-search"],
-  ] as const)("renders the localized scalar state for returned search %s", (search, expectedText) => {
+  ] as const)("renders the localized scalar state for selected search %s", (search, expectedText) => {
     const receipt = syntheticPromotionReceipt();
-    receipt.preview.scope.search = search;
+    receipt.selection.scope.search = search;
     const model = loaderData().readModel;
     render(
       <CatalogIntegrationCreateItemsStage
@@ -794,7 +794,7 @@ describe("Catalog integrations route", () => {
     fireEvent.click(disclosure!);
     const node = document.querySelector("[data-catalog-promotion-receipt]")!;
     expect(readOriginalReceiptDom(node)).toEqual(receipt);
-    const field = node.querySelector('[data-catalog-receipt-field="preview.scope.search"]')!;
+    const field = node.querySelector('[data-catalog-receipt-field="selection.scope.search"]')!;
     expect(field.textContent).toBe(expectedText);
     expect(isInaccessible(field)).toBe(false);
   });
