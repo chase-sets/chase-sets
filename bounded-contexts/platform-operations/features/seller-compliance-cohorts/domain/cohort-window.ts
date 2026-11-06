@@ -341,6 +341,7 @@ export type CohortEvaluationInput = Readonly<{
     exitEffectiveAt?: string | null;
     /** Effective instant of the seller's latest recorded transition; every new transition lies strictly after it. */
     transitionEffectiveAt?: string | null;
+    policyIdentity?: CohortPolicyIdentity | null;
   }>;
   /** The instant from which `policy` is in force, when it differs from the policy that produced `previous`. */
   revisionEffectiveAt?: string;
@@ -367,6 +368,7 @@ function firstInstant(
   input: CohortEvaluationInput,
   lower: string | null,
   holds: (state: Readonly<{ member: boolean; band: DisclosureBand }>) => boolean,
+  memberWalk = false,
 ): string | null {
   if (lower === null)
     throw new Error("The seller's latest transition instant is unavailable, so the transition cannot be dated.");
@@ -374,12 +376,15 @@ function firstInstant(
   const upperAt = Date.parse(input.evaluationAt);
   if (Number.isNaN(lowerAt) || Number.isNaN(upperAt)) return null;
   const policyAt = policyTimeline(input);
-  const boundaries = [
+  const policyBoundaries = [
     upperAt,
-    ...input.sales.map((sale) => Date.parse(sale.occurredAt) + 1),
     ...(input.priorPolicies ?? []).map((segment) => Date.parse(segment.effectiveFrom)),
     ...(input.revisionEffectiveAt === undefined ? [] : [Date.parse(input.revisionEffectiveAt)]),
   ].sort((a, b) => a - b);
+  const boundaries = [...policyBoundaries, ...input.sales.map((sale) => Date.parse(sale.occurredAt) + 1)].sort(
+    (a, b) => a - b,
+  );
+  const envelopes = new Map<SellerComplianceCohortPolicyValue, { nonnegative: boolean; possible: boolean }>();
   for (let at = lowerAt + 1; at <= upperAt; ) {
     const instant = iso(at);
     const activePolicy = policyAt(instant);
@@ -398,7 +403,34 @@ function firstInstant(
         input.priorPolicies?.some((segment) => segment.effectiveFrom === instant);
       return iso(saleCaused && !policyBoundary && at - 1 > lowerAt ? at - 1 : at);
     }
-    const nextBoundary = boundaries.find((boundary) => boundary > at) ?? Infinity;
+    // Within one policy segment, classification/refunds read delivered
+    // facts, not the walk instant. Nonnegative additions cannot remove membership.
+    // Entry/band walks still visit sales unless even ALL delivered qualifying
+    // amounts cannot satisfy their predicate. Negative amounts use every boundary.
+    let skipSales = activePolicy === null || (activePolicy !== undefined && !isConfigured(activePolicy));
+    if (activePolicy !== null && activePolicy !== undefined && isConfigured(activePolicy)) {
+      let envelope = envelopes.get(activePolicy);
+      if (envelope === undefined) {
+        const amounts = input.sales.flatMap((sale) => {
+          const amount = qualifyingAmount(sale, activePolicy);
+          return amount === null ? [] : [amount];
+        });
+        const total = { count: amounts.length, gross: amounts.reduce((sum, amount) => sum + amount, 0n) };
+        const member = qualifies(total, activePolicy);
+        envelope = {
+          nonnegative: amounts.every((amount) => amount >= 0n),
+          possible:
+            holds({ member: false, band: "none" }) ||
+            (member && holds({ member: true, band: "none" })) ||
+            (member &&
+              qualifies(total, activePolicy, threshold(activePolicy.disclosureGrossCents)) &&
+              holds({ member: true, band: "disclosure" })),
+        };
+        envelopes.set(activePolicy, envelope);
+      }
+      skipSales = envelope.nonnegative && (memberWalk || !envelope.possible);
+    }
+    const nextBoundary = (skipSales ? policyBoundaries : boundaries).find((boundary) => boundary > at) ?? Infinity;
     at = Math.min(nextBoundary, state?.next ?? Infinity);
   }
   return null;
@@ -416,12 +448,26 @@ export function evaluateSellerComplianceCohort(unordered: CohortEvaluationInput)
   const observedAt = parseIsoUtcTimestamp(input.observedAt);
   const dated = (value: string | null): IsoUtcTimestamp | null => (value === null ? null : parseIsoUtcTimestamp(value));
   const metadata = { observedAt, policyIdentity: input.policyIdentity };
+  const previousIdentity = input.previous?.policyIdentity;
+  if (input.revisionEffectiveAt === undefined) {
+    // A revision is causal input, never inferred from observation time.
+    if (input.previous?.state === "member" && !isConfigured(policy))
+      throw new Error("An inert policy following membership requires a revision effective instant.");
+    if (
+      previousIdentity !== undefined &&
+      (previousIdentity?.policyKey !== input.policyIdentity?.policyKey ||
+        previousIdentity?.documentId !== input.policyIdentity?.documentId ||
+        previousIdentity?.eventId !== input.policyIdentity?.eventId ||
+        previousIdentity?.streamVersion !== input.policyIdentity?.streamVersion)
+    )
+      throw new Error("A changed policy identity requires a revision effective instant.");
+  }
   if (!isConfigured(policy)) {
     const previous = input.previous;
     const exit =
       previous?.state === "member"
         ? required(
-            firstInstant(input, previous.transitionEffectiveAt ?? previous.entryEffectiveAt, (at) => !at.member),
+            firstInstant(input, previous.transitionEffectiveAt ?? previous.entryEffectiveAt, (at) => !at.member, true),
             "inert-policy exit",
           )
         : (previous?.exitEffectiveAt ?? null);
@@ -451,7 +497,7 @@ export function evaluateSellerComplianceCohort(unordered: CohortEvaluationInput)
   let bandEffectiveAt: string | null = null;
   let exitEffectiveAt: string | null = null;
   if (previous?.state === "member" && winner === null) {
-    exitEffectiveAt = firstInstant(input, since(previous.entryEffectiveAt), (at) => !at.member);
+    exitEffectiveAt = firstInstant(input, since(previous.entryEffectiveAt), (at) => !at.member, true);
     if (exitEffectiveAt === null) {
       throw new Error("A member without a qualifying window must have an exit effective instant.");
     }

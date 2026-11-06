@@ -12,6 +12,7 @@ function actionHarness(options = {}) {
   const runAttempt = Object.hasOwn(options, "runAttempt") ? options.runAttempt : "7";
   const status = options.status ?? "failure";
   const dryRun = options.dryRun ?? "true";
+  const createType = Object.hasOwn(options, "createType") ? options.createType : { name: "Bug", is_enabled: true };
   const openIssue = options.openIssue ?? null;
   const notices = [];
   const failures = [];
@@ -47,7 +48,7 @@ function actionHarness(options = {}) {
         listComments: vi.fn(),
         create: vi.fn(async (input) => {
           calls.push(["create", input]);
-          return { data: { number: 6497 } };
+          return { data: { number: 6497, type: createType } };
         }),
         createComment: vi.fn(async (input) => calls.push(["comment", input])),
         update: vi.fn(async (input) => calls.push(["update", input])),
@@ -125,6 +126,8 @@ describe("report scheduled workflow alert action", () => {
     await harness.run();
 
     expect(harness.calls.map(([operation]) => operation)).toEqual(["search", "create"]);
+    expect(harness.failures).toEqual([]);
+    expect(harness.calls[1][1].type).toBe("Bug");
     expect(harness.calls[1][1].body).toContain(
       "<!-- scheduled-workflow-alert:Synthetic issue 6497 workflow:30807236942:7:failure -->",
     );
@@ -269,6 +272,7 @@ function assertReporterBoundary(workflow, { producers, advisory }) {
   expect(checkout?.if).toBeUndefined();
   expect(checkout?.with).toBeUndefined();
   const alert = reporter.steps[alertIndex];
+  expect(alert["continue-on-error"]).toBeUndefined();
   expect(alert.with["github-token"]).toBe("${{ github.token }}");
   expect(alert.with["workflow-name"]).toBe(workflow.name);
   expect(alert.with["alert-status"]).toBe("failure");
@@ -277,8 +281,18 @@ function assertReporterBoundary(workflow, { producers, advisory }) {
     expect((alert.with[key] ?? "").length).toBeLessThan(256);
   }
   if (advisory) {
-    for (const id of [...producers, "reporter"]) expect(workflow.jobs[id]["continue-on-error"]).toBe(true);
+    for (const id of producers) expect(workflow.jobs[id]["continue-on-error"]).toBe(true);
   }
+  expect(reporter["continue-on-error"]).not.toBe(true);
+}
+
+async function executedReporterResult(workflow, producer, createType) {
+  const [alert] = reachedAlerts(workflow, { [producer]: { result: "failure" } });
+  if (!alert) throw new Error("Failed producer did not reach the reporter");
+  const harness = actionHarness({ dryRun: "false", createType, inputs: alert.with });
+  await harness.run();
+  const failed = harness.failures.length > 0 && !alert["continue-on-error"];
+  return producerResult(workflow.jobs.reporter, { result: failed ? "failure" : "success" }).result;
 }
 
 describe.each(callerCases)("scheduled workflow caller $file", (entry) => {
@@ -365,11 +379,36 @@ describe.each(callerCases)("scheduled workflow caller $file", (entry) => {
       expect(() => assertReporterBoundary(mutant, entry)).toThrow();
     });
 
-    it("contains reporter-service and reporter-checkout failure", () => {
-      expect(producerResult(workflow.jobs.reporter, { result: "failure" }).result).toBe("success");
+    it("propagates reporter-service and reporter-checkout failure", () => {
+      expect(producerResult(workflow.jobs.reporter, { result: "failure" }).result).toBe("failure");
       const mutant = structuredClone(workflow);
-      delete mutant.jobs.reporter["continue-on-error"];
+      mutant.jobs.reporter["continue-on-error"] = true;
       expect(() => assertReporterBoundary(mutant, entry)).toThrow();
+    });
+
+    it.each([undefined, null, { name: "Slice", is_enabled: true }, { name: "Bug", is_enabled: false }])(
+      "fails the reporter when the create response is %j",
+      async (createType) => {
+        expect(await executedReporterResult(workflow, entry.producers[0], createType)).toBe("failure");
+      },
+    );
+
+    it("keeps enabled unmilestoned Bug success and rejects reporter suppression mutants", async () => {
+      expect(workflow.jobs.reporter.name).toBe("Report Coverage Failure");
+      for (const producer of entry.producers) expect(workflow.jobs[producer].name).toContain("(non-blocking)");
+      expect(await executedReporterResult(workflow, entry.producers[0], { name: "Bug", is_enabled: true })).toBe(
+        "success",
+      );
+      for (const suppression of ["job", "step"]) {
+        const mutant = structuredClone(workflow);
+        const boundary =
+          suppression === "job"
+            ? mutant.jobs.reporter
+            : mutant.jobs.reporter.steps.find((candidate) => candidate.uses === reporterAction);
+        boundary["continue-on-error"] = true;
+        expect(await executedReporterResult(mutant, entry.producers[0], null), suppression).toBe("success");
+        expect(() => assertReporterBoundary(mutant, entry), suppression).toThrow();
+      }
     });
 
     it.each(entry.producers)(
