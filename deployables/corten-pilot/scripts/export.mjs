@@ -917,6 +917,7 @@ const outputs = [
         ["catalog.features.operatorSession.ui.adminPanel.", "os"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.importContext.", "wb_ctx"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.", "wb_options"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.sourceScopeWorkset.", "wb_workset"],
         ["catalog.features.providerScopeDiscovery.ui.schedulePanel.", "schedule"],
         ["catalog.features.catalogItems.ui.catalogItemListPage.", "item_list"],
         ["catalog.features.catalogItems.ui.catalogItemDetailPage.", "item"],

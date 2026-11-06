@@ -2,6 +2,9 @@
    checkboxes and pager (platform::ui): the stages are disclosures that share a name, so one is
    open at a time; the status links, the pager and the bulk actions wrap; the scope's details
    are two columns from a tablet up, and each table stacks on a phone. */
+.workset {
+  min-width: 0;
+}
 .notice:empty {
   display: none;
 }

@@ -7434,7 +7434,8 @@ fn daily_surface(location: &str) -> Response {
                   "activeProfile": { "profileVersion": "3" } },
                 { "unitKey": "tcgplayer:pokemon:sealed", "productDomain": "pokemon", "productForm": "sealed", "activeProfile": null }] }
         ] },
-        "sourceOptions": source_options(false)
+        "sourceOptions": source_options(false),
+        "sourceScopeWorkset": workset(stopped)
     });
     let mut surface = json!({
         "readModelFailures": [],
@@ -8285,6 +8286,34 @@ async fn an_unreadable_projection_says_so_in_its_panel_and_a_failed_read_is_the_
     assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view, as the API asks");
 }
 
+/// The daily surface's source scope workset: the selected scope with one unit whose import and
+/// reapply are open and one blocked until a scope is chosen; none under the kill switch.
+fn workset(stopped: bool) -> Value {
+    let open = json!({ "key": "scope.import", "state": "available", "blockers": [] });
+    let blocked = |key: &str| json!({ "key": key, "state": "disabled", "blockers": ["import-scope-required"] });
+    json!({
+        "status": if stopped { "not-configured" } else { "degraded" },
+        "selectedScope": { "hasConcreteScope": true, "importScope": "en:sv1", "label": "tcgplayer / en / Scarlet & Violet" },
+        "summary": { "unitCount": 2, "readyUnitCount": 1, "blockedUnitCount": 1, "activeImportCount": 1,
+            "changedObservationCount": 4, "promotedObservationCount": 7 },
+        "units": if stopped { json!([]) } else { json!([
+            { "providerKey": "tcgplayer", "displayName": "TCGplayer singles", "unitKey": "tcgplayer:pokemon:card",
+              "profileVersion": "3", "importScope": "en:sv1", "state": "changed",
+              "counts": { "observed": 9, "changed": 4, "promoted": 7, "rejected": 0, "eligible": 2 },
+              "currentWorkbenchHref": "/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Acard&importScope=en%3Asv1",
+              "commandContext": { "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "importScope": "en:sv1" },
+              "actions": { "import": open,
+                  "previewPromotion": { "key": "observation.promote", "state": "disabled", "blockers": ["no-promotion-eligible-observations"] },
+                  "reapply": { "key": "observation.reapply", "state": "available", "blockers": [] } } },
+            { "providerKey": "lorcast", "displayName": "Lorcast cards", "unitKey": null, "profileVersion": null,
+              "state": "blocked", "counts": { "observed": 0, "changed": 0, "promoted": 0 },
+              "currentWorkbenchHref": "/catalog/integrations?providerKey=lorcast",
+              "actions": { "import": blocked("scope.import"), "previewPromotion": blocked("observation.promote"),
+                  "reapply": blocked("observation.reapply") } }
+        ]) }
+    })
+}
+
 fn daily_writes(pilot: &Pilot) -> Vec<Call> {
     let calls = pilot.calls.lock().unwrap();
     calls
@@ -8372,6 +8401,50 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
         section.contains(".daily-page__stage-box") && section.contains(".steps__"),
         "the page's and the kit's rules: {section}"
     );
+}
+
+#[tokio::test]
+async fn the_workset_draws_each_units_state_and_opens_its_scope_without_sending_its_commands() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let start = html.find(r#"data-catalog-source-scope-workset="degraded""#).expect("the workset draws");
+    let steps = html.find(r#"name="wb-stage""#).unwrap();
+    assert!(start < steps, "above the steps, as admin-web has it");
+    assert!(html[..start].contains(r#"data-catalog-import-context-bar="true""#), "below the context bar");
+    let panel = &html[start..steps];
+    assert!(panel.contains("tcgplayer / en / Scarlet &amp; Violet") && panel.contains("Degraded"), "{panel}");
+    assert!(panel.contains("<dd>4</dd>") && panel.contains("<dd>7</dd>") && panel.contains("<dd>1</dd>"), "the counts: {panel}");
+    // Each unit: who, its state and counts, its scope's working set on the pilot, and its commands' states.
+    assert!(panel.contains(r#"data-catalog-source-scope-unit="tcgplayer:pokemon:card""#), "{panel}");
+    assert!(panel.contains("9 observed · 4 changed · 7 promoted") && panel.contains("profile 3"), "{panel}");
+    assert!(
+        panel.contains(r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=tcgplayer%3Apokemon%3Acard&amp;importScope=en%3Asv1""#),
+        "the unit's scope opens on the pilot: {panel}"
+    );
+    assert!(panel.contains(r#"data-catalog-primary-workbench-command="scope.import" data-state="available""#), "{panel}");
+    assert!(panel.contains("Sync TCGplayer singles") && panel.contains("Reapply TCGplayer singles"), "{panel}");
+    // A unit without a key or profile says so, and why its commands are closed.
+    assert!(panel.contains(r#"data-catalog-source-scope-unit="lorcast""#) && panel.contains("No active unit"), "{panel}");
+    assert!(panel.contains("No active profile"), "{panel}");
+    // The commands are not sent from the pilot (chase-sets/chase-sets#11082): the open unit runs them on admin-web.
+    assert!(!panel.contains("<form"), "{panel}");
+    assert!(
+        panel.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=tcgplayer%3Apokemon%3Acard&amp;importScope=en%3Asv1">Run TCGplayer singles on admin-web</a>"#),
+        "{panel}"
+    );
+    assert!(!panel.contains("Run Lorcast cards on admin-web"), "a unit with nothing to run: {panel}");
+
+    // A reader sees the workset without the way to run it.
+    let (_, _, html) =
+        pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
+    let start = html.find("data-catalog-source-scope-workset=").unwrap();
+    let panel = &html[start..html.find(r#"name="wb-stage""#).unwrap()];
+    assert!(panel.contains("Open source scope") && !panel.contains("on admin-web</a>"), "{panel}");
+
+    // Without units nothing draws.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=stopped", Some("staff"))).await;
+    assert!(!html.contains("data-catalog-source-scope-workset"), "{html}");
 }
 
 #[tokio::test]

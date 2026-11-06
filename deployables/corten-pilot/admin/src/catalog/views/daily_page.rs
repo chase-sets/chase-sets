@@ -24,7 +24,7 @@ use crate::{
     catalog::{
         daily::{
             self, CANDIDATE_COMMANDS, Candidate, CandidateInput, Daily, DailyScreen, Governance, Health, ImportJob, JobInput,
-            Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitState, at, with_query,
+            Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitState, WorksetUnit, at, with_query,
         },
         integrations,
     },
@@ -188,6 +188,7 @@ pub fn DailyPage<'a>(
                 options={screen.source_options()}
                 context={context}
             />
+            <WorksetModule t={t} p={p} req={req} model={model} manage={screen.manage} />
             let steps: Vec<Step> = flow
                 .iter()
                 .map(|(stage, state)| Step {
@@ -249,6 +250,154 @@ pub fn DailyPage<'a>(
                 }
             </div>
         </Shell>
+    }
+}
+
+fn workset_tone(status: &str) -> &'static str {
+    match status {
+        "ready" => "success",
+        "degraded" | "scope-required" => "warning",
+        "blocked" => "danger",
+        _ => "neutral",
+    }
+}
+
+fn workset_unit_tone(state: &str) -> &'static str {
+    match state {
+        "promoted" => "success",
+        "changed" => "warning",
+        "blocked" => "danger",
+        "imported" => "info",
+        _ => "neutral",
+    }
+}
+
+/// The selected source scope (`CatalogSourceScopeWorksetModule`): the scope and its counts, then each
+/// provider unit with its state and the way to open its scope. A unit's sync, preview and reapply are
+/// named with the API's state for each; they run on admin-web, which builds their scope from the
+/// unit (chase-sets/chase-sets#11082). Nothing draws without a unit, as there.
+#[component(css = DailyPage)]
+fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, manage: bool) -> impl Render {
+    let workset = &model.source_scope_workset;
+    let summary = &workset.summary;
+    let items = [
+        (t.wb_workset_selected_scope(), workset.selected_scope.label.clone()),
+        (t.wb_workset_changed(), summary.changed_observation_count.to_string()),
+        (t.wb_workset_promoted(), summary.promoted_observation_count.to_string()),
+        (t.wb_workset_active_imports(), summary.active_import_count.to_string()),
+    ];
+    html! {
+        if !workset.units.is_empty() {
+            <div class={Workset} data-catalog-source-scope-workset={&workset.status}>
+                <Module
+                    id="wb-workset"
+                    title={t.wb_workset_title()}
+                    description={t.wb_workset_description()}
+                    status={state_label(&workset.status)}
+                    tone={workset_tone(&workset.status)}
+                >
+                    <Pairs items={&items} />
+                    <Table layout={TableLayout::Stack}>
+                        <table>
+                            <caption class={Hidden}>{p.integrations_workset_caption()}</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{t.wb_workset_unit()}</th>
+                                    <th scope="col">{t.wb_workset_state()}</th>
+                                    <th scope="col">{t.wb_workset_actions()}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                for unit in &workset.units {
+                                    <WorksetRow t={t} p={p} req={req} unit={unit} manage={manage} />
+                                }
+                            </tbody>
+                        </table>
+                    </Table>
+                    if manage {
+                        <p class={Muted}>{p.integrations_workset_elsewhere()}</p>
+                    }
+                </Module>
+            </div>
+        }
+    }
+}
+
+/// A unit's row: who it is, its state and counts, and its scope's working set, with its commands'
+/// states and, when one may run, the way to run it on admin-web.
+#[component(css = DailyPage)]
+fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, manage: bool) -> impl Render {
+    let key = unit.unit_key.as_deref().unwrap_or(&unit.provider_key);
+    let detail = match &unit.profile_version {
+        Some(version) => t.wb_workset_profile_version(version).to_string(),
+        None => t.wb_workset_no_active_profile().to_owned(),
+    };
+    let counts = t
+        .wb_workset_counts(crate::text::cat::WbWorksetCounts {
+            observed: unit.counts.observed,
+            changed: unit.counts.changed,
+            promoted: unit.counts.promoted,
+        })
+        .to_string();
+    let state = state_label(&unit.state);
+    let scope = (!unit.current_workbench_href.is_empty()).then(|| link_to(req, &unit.current_workbench_href)).flatten();
+    let commands = [
+        (t.wb_workset_sync_unit(&unit.display_name).to_string(), &unit.actions.import),
+        (t.wb_workset_preview_unit(&unit.display_name).to_string(), &unit.actions.preview_promotion),
+        (t.wb_workset_reapply_unit(&unit.display_name).to_string(), &unit.actions.reapply),
+    ];
+    let mut blocked: Vec<String> = Vec::new();
+    for action in unit.actions.all() {
+        for blocker in &action.blockers {
+            if !blocked.contains(blocker) {
+                blocked.push(blocker.clone());
+            }
+        }
+    }
+    let runnable = manage && unit.actions.all().iter().any(|a| a.open());
+    let elsewhere = runnable.then(|| admin_web(&unit.current_workbench_href).map(|u| u.to_string())).flatten();
+    let run = p.integrations_workset_open(&unit.display_name).to_string();
+    html! {
+        <tr data-catalog-source-scope-unit={key}>
+            <td>
+                <CellLabel>{t.wb_workset_unit()}</CellLabel>
+                <Cell
+                    title={&unit.display_name}
+                    description={Some(unit.unit_key.as_deref().unwrap_or(t.wb_workset_no_active_unit()))}
+                    detail={Some(detail.as_str())}
+                />
+            </td>
+            <td>
+                <CellLabel>{t.wb_workset_state()}</CellLabel>
+                <span class={CellBlock}>
+                    <Pill text={&state} tone={workset_unit_tone(&unit.state)} />
+                    <small class={Muted}>{counts}</small>
+                </span>
+            </td>
+            <td>
+                <CellLabel>{t.wb_workset_actions()}</CellLabel>
+                <span class={CellBlock}>
+                    if let Some(href) = &scope {
+                        <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href}>
+                            {t.wb_workset_open_unit_scope()}
+                        </a>
+                    }
+                    <span class={Badges}>
+                        for (label, action) in &commands {
+                            <span data-catalog-primary-workbench-command={&action.key} data-state={&action.state}>
+                                <Pill text={label} tone={if action.open() { "success" } else { "neutral" }} />
+                            </span>
+                        }
+                    </span>
+                    if !blocked.is_empty() {
+                        <Blockers t={t} blockers={&blocked} />
+                    }
+                    if let Some(href) = &elsewhere {
+                        <a href={href}>{run}</a>
+                    }
+                </span>
+            </td>
+        </tr>
     }
 }
 

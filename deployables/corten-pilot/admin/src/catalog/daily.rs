@@ -151,6 +151,7 @@ pub struct Daily {
     pub promotion_result: Option<PromotionResult>,
     pub actions: Vec<Action>,
     pub provider_scope: ProviderScope,
+    pub source_scope_workset: Workset,
     /// The source options' skeleton: their kinds, without the pages the page reads beside it.
     pub source_options: SourceOptions,
 }
@@ -203,6 +204,73 @@ impl Action {
     /// Whether the command may run (`available` or `degraded`, as admin-web's buttons allow).
     pub fn open(&self) -> bool {
         matches!(self.state.as_str(), "available" | "degraded")
+    }
+}
+
+/// The selected source scope's provider units (`CatalogPrimaryWorkbenchSourceScopeWorksetReadModel`):
+/// the scope, its counts, and each unit's state, counts, address and commands.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Workset {
+    pub status: String,
+    pub selected_scope: WorksetScope,
+    pub summary: WorksetSummary,
+    pub units: Vec<WorksetUnit>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WorksetScope {
+    pub label: String,
+    pub import_scope: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WorksetSummary {
+    pub changed_observation_count: u64,
+    pub promoted_observation_count: u64,
+    pub active_import_count: u64,
+}
+
+/// A provider unit of the workset. Its `currentWorkbenchHref` is the working set the unit's scope
+/// opens, as admin-web's path; its `commandContext` is left unread, since the pilot does not send
+/// its commands (chase-sets/chase-sets#11082).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WorksetUnit {
+    pub provider_key: String,
+    pub display_name: String,
+    pub unit_key: Option<String>,
+    pub profile_version: Option<String>,
+    pub state: String,
+    pub counts: WorksetCounts,
+    pub current_workbench_href: String,
+    pub actions: WorksetActions,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WorksetCounts {
+    pub observed: u64,
+    pub changed: u64,
+    pub promoted: u64,
+}
+
+/// A unit's three commands: its import (`scope.import`), its promotion preview
+/// (`observation.promote`) and its reapply (`observation.reapply`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WorksetActions {
+    pub import: Action,
+    pub preview_promotion: Action,
+    pub reapply: Action,
+}
+
+impl WorksetActions {
+    /// The commands, in admin-web's order.
+    pub fn all(&self) -> [&Action; 3] {
+        [&self.import, &self.preview_promotion, &self.reapply]
     }
 }
 
