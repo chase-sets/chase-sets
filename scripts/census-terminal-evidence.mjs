@@ -276,7 +276,7 @@ export function readAttemptJobs(pages, details, binding) {
           job.run_id === binding.id &&
           (job.run_attempt === undefined || job.run_attempt === binding.attempt) &&
           job.head_sha === binding.head &&
-          terminal(job),
+          (terminal(job) || (job.status === "completed" && job.conclusion === "skipped")),
         "STOP_JOB_IDENTITY",
       );
       requireEvidence(Array.isArray(job.steps), "STOP_INCOMPLETE_STEPS");
@@ -412,7 +412,7 @@ export function validateWindowSchedule(schedule, t0Utc, acknowledgedAt) {
   return { deadlineUtc: schedule.deadlineUtc, windows: schedule.windows };
 }
 
-function lifecycleEvidence(envelope, owner) {
+function lifecycleEvidence(envelope, owner, jobs, admitted) {
   const roleValue = (role) => {
     const entry = envelope.coverage.find((value) => value.role === role);
     requireEvidence(entry?.paths.length === 1, "STOP_LIFECYCLE_COVERAGE");
@@ -468,16 +468,65 @@ function lifecycleEvidence(envelope, owner) {
       logs.safe === true &&
       logs.jobId === owner.id &&
       typeof logs.text === "string" &&
-      logs.text.includes('node "$RUNNER_TEMP/census-terminal-evidence.mjs"'),
+      equal(logs.certification, {
+        command: "node scripts/census-terminal-evidence.mjs",
+        workingDirectory: "$RUNNER_TEMP/census-terminal-source",
+        workflowHead: envelope.binding.workflowHead,
+        helperHash: envelope.binding.helperHash,
+        namespaceCreationPath: "$GITHUB_WORKSPACE/artifacts/ephemeral-verification/namespace-created.json",
+        sealPath: "$GITHUB_WORKSPACE/artifacts/ephemeral-verification/census-terminal-seal.json",
+      }) &&
+      logs.text.split("\n").includes(logs.certification.command),
     "STOP_EXECUTION_LOG",
   );
   const actions = roleValue("actions");
   requireEvidence(
     Array.isArray(actions.expanded) &&
       actions.expanded.length > 0 &&
-      sha256(JSON.stringify(actions.expanded)) === envelope.sourceMap.expandedActionsHash,
+      sha256(JSON.stringify(actions.expanded)) === envelope.sourceMap.expandedActionsHash &&
+      equal(actions.expanded, admitted.sourceGraphs?.actions) &&
+      Array.isArray(admitted.sourceGraphs?.actionSources) &&
+      admitted.sourceGraphs.actionSources.length > 0 &&
+      admitted.sourceGraphs.actionSources.every((source) =>
+        envelope.files.some((file) => file.path === source.path && sha256(file.original) === source.sha256),
+      ),
     "STOP_ACTION_COVERAGE",
   );
+  for (const role of ["census", "verification"]) {
+    const graph = admitted.sourceGraphs?.[role];
+    requireEvidence(
+      graph &&
+        graph.sourceHash === envelope.binding[role === "verification" ? "workflowHash" : "censusWorkflowHash"] &&
+        envelope.files.some((file) => file.path === graph.sourcePath && sha256(file.original) === graph.sourceHash) &&
+        Array.isArray(graph.jobs) &&
+        graph.jobs.length === jobs[role].length &&
+        new Set(graph.jobs.map((job) => job.name)).size === graph.jobs.length,
+      "STOP_SOURCE_GRAPH",
+    );
+    for (const expected of graph.jobs) {
+      const matches = jobs[role].filter((job) => job.name === expected.name);
+      requireEvidence(
+        matches.length === 1 &&
+          (matches[0].conclusion === "skipped") === expected.skipped &&
+          equal(
+            matches[0].steps.map(({ name }) => ({ name })),
+            expected.steps,
+          ),
+        "STOP_SOURCE_GRAPH",
+      );
+      const owningLogs = logs.jobs?.filter((log) => log.jobId === matches[0].id && log.role === role);
+      requireEvidence(
+        owningLogs?.length === 1 &&
+          owningLogs[0].safe === true &&
+          owningLogs[0].entire === true &&
+          equal(owningLogs[0].steps, matches[0].steps) &&
+          typeof owningLogs[0].text === "string" &&
+          matches[0].steps.every((step) => owningLogs[0].text.split("\n").includes(step.name)),
+        "STOP_EXECUTION_LOG",
+      );
+    }
+  }
+  requireEvidence(logs.jobs.length === jobs.census.length + jobs.verification.length, "STOP_EXECUTION_LOG");
   const finalizers = roleValue("finalizers");
   requireEvidence(
     ["success", "failure", "cancelled", "timed_out"].includes(finalizers.provider) &&
@@ -512,6 +561,7 @@ export function readTerminalEvidence(envelope, admitted) {
         admitted.admission?.method === METHOD &&
         admitted.admission?.decision === "ACCEPT_A" &&
         admitted.admission?.implementationCommit === envelope.binding.workflowHead &&
+        admitted.admission.sourceGraphsHash === sha256(JSON.stringify(admitted.sourceGraphs)) &&
         typeof admitted.admission?.receiptId === "string" &&
         admitted.admission.receiptId.length > 0 &&
         ["dispatchHash", "controlReceiptHash"].every((key) => /^[a-f0-9]{64}$/.test(admitted.admission[key])),
@@ -672,7 +722,7 @@ export function readTerminalEvidence(envelope, admitted) {
       ),
       "STOP_SOURCE_STEPS",
     );
-    const finalizers = lifecycleEvidence(envelope, owners[0]);
+    const finalizers = lifecycleEvidence(envelope, owners[0], { census: cJobs, verification: vJobs }, admitted);
     const w = executedStep(steps, CERTIFY);
     requireEvidence(w.value.conclusion === "success", "STOP_SEAL_EXECUTION");
     const d = executedStep(steps, DELETE);
@@ -762,9 +812,12 @@ export async function githubGet(url, token) {
   });
 }
 
-async function main(env) {
+export async function certifyFromEnvironment(
+  env,
+  { readFile = readFileSync, writeFile = writeFileSync, request = githubGet } = {},
+) {
   const binding = JSON.parse(env.CENSUS_TERMINAL_BINDING);
-  const self = readFileSync(new URL(import.meta.url));
+  const self = readFile(new URL(import.meta.url));
   requireEvidence(
     sha256(self) === binding.helperHash &&
       binding.workflowHead === env.FROZEN_WORKFLOW_SHA &&
@@ -772,7 +825,12 @@ async function main(env) {
       binding.digest === env.RELEASE_DIGEST,
     "STOP_MATERIALIZATION",
   );
-  const namespace = JSON.parse(readFileSync(env.NAMESPACE_CREATION_PATH, "utf8"));
+  requireEvidence(
+    env.NAMESPACE_CREATION_PATH === `${env.GITHUB_WORKSPACE}/artifacts/ephemeral-verification/namespace-created.json` &&
+      env.CENSUS_SEAL_PATH === `${env.GITHUB_WORKSPACE}/artifacts/ephemeral-verification/census-terminal-seal.json`,
+    "STOP_CUSTODY_PATH",
+  );
+  const namespace = JSON.parse(readFile(env.NAMESPACE_CREATION_PATH, "utf8"));
   binding.verification = {
     repository: env.GITHUB_REPOSITORY,
     id: Number(env.GITHUB_RUN_ID),
@@ -790,8 +848,8 @@ async function main(env) {
   let requestNumber = 0;
   await certifyCensusTerminal(binding, {
     request: async (url) => {
-      const record = await githubGet(url, env.GH_TOKEN);
-      writeFileSync(`${env.CENSUS_SEAL_PATH}.response-${++requestNumber}.json`, `${JSON.stringify(record)}\n`, {
+      const record = await request(url, env.GH_TOKEN);
+      writeFile(`${env.CENSUS_SEAL_PATH}.response-${++requestNumber}.json`, `${JSON.stringify(record)}\n`, {
         flag: "wx",
         mode: 0o600,
         flush: true,
@@ -800,13 +858,13 @@ async function main(env) {
     },
     seal: (value) => {
       const bytes = `${JSON.stringify(value)}\n`;
-      writeFileSync(env.CENSUS_SEAL_PATH, bytes, { flag: "wx", mode: 0o600, flush: true });
+      writeFile(env.CENSUS_SEAL_PATH, bytes, { flag: "wx", mode: 0o600, flush: true });
     },
   });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main(process.env).catch(() => {
+  certifyFromEnvironment(process.env).catch(() => {
     console.error("STOP_CENSUS_CERTIFICATION");
     process.exitCode = 1;
   });

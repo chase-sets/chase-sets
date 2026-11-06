@@ -188,7 +188,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ inputs.dispatch_source }}" = "manual" ] && [ -n "$CENSUS_TERMINAL_BINDING" ]; then
-            helper="$RUNNER_TEMP/census-terminal-evidence.mjs"
+            mkdir -p "$RUNNER_TEMP/census-terminal-source/scripts"
+            helper="$RUNNER_TEMP/census-terminal-source/scripts/census-terminal-evidence.mjs"
             git show "${FROZEN_WORKFLOW_SHA}:scripts/census-terminal-evidence.mjs" > "$helper"
             git show "${FROZEN_WORKFLOW_SHA}:.github/workflows/platform-ephemeral-verification.yml" > "$RUNNER_TEMP/census-terminal-workflow.yml"
             HELPER_PATH="$helper" node --input-type=module <<'NODE'
@@ -516,15 +517,16 @@ jobs:
       - name: Certify census terminal before namespace deletion
         id: census_terminal
         if: always() && inputs.dispatch_source == 'manual' && inputs.census_terminal_binding != '' && steps.namespace.outcome != 'skipped'
+        working-directory: ${{ runner.temp }}/census-terminal-source
         env:
           GH_TOKEN: ${{ github.token }}
           CENSUS_TERMINAL_BINDING: ${{ inputs.census_terminal_binding }}
           FROZEN_WORKFLOW_SHA: ${{ github.workflow_sha }}
           RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
           RELEASE_DIGEST: ${{ steps.image.outputs.digest }}
-          NAMESPACE_CREATION_PATH: artifacts/ephemeral-verification/namespace-created.json
-          CENSUS_SEAL_PATH: artifacts/ephemeral-verification/census-terminal-seal.json
-        run: node "$RUNNER_TEMP/census-terminal-evidence.mjs"
+          NAMESPACE_CREATION_PATH: ${{ github.workspace }}/artifacts/ephemeral-verification/namespace-created.json
+          CENSUS_SEAL_PATH: ${{ github.workspace }}/artifacts/ephemeral-verification/census-terminal-seal.json
+        run: node scripts/census-terminal-evidence.mjs
 
       - name: Delete verification Kubernetes namespace
         id: namespace_teardown

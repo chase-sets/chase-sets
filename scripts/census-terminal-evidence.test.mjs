@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parse, stringify } from "yaml";
 import {
   CERTIFY,
   DELETE,
   METHOD,
   RECEIPT,
   certifyCensusTerminal,
+  certifyFromEnvironment,
   githubGet,
   instant,
   readAttemptJobs,
@@ -20,8 +22,8 @@ const repository = "synthetic-owner/h6-clock-fixtures";
 const headers = { "x-github-request-id": "synthetic-request", "content-type": "application/json" };
 const raw = (url, value, extra = {}) =>
   responseRecord(url, JSON.stringify(value), { ...headers, ...extra }, 200, {
-    captureStartedAt: "2030-01-01T00:58:00Z",
-    captureCompletedAt: "2030-01-01T00:58:01Z",
+    captureStartedAt: "2030-01-01T01:00:10Z",
+    captureCompletedAt: "2030-01-01T01:00:11Z",
   });
 const runUrl = (b) => `https://api.github.com/repos/${repository}/actions/runs/${b.id}`;
 const copy = (value) => structuredClone(value);
@@ -52,6 +54,14 @@ function runs(binding, conclusion = "success") {
   };
   const base = runUrl(binding);
   return [raw(base, body), raw(`${base}/attempts/${binding.attempt}`, body), raw(base, body)];
+}
+
+function sealRuns(binding, conclusion = "success") {
+  return runs(binding, conclusion).map((record, index) => ({
+    ...record,
+    captureStartedAt: `2030-01-01T00:58:00.${index}00Z`,
+    captureCompletedAt: `2030-01-01T00:58:00.${index + 1}00Z`,
+  }));
 }
 
 function jobSet(binding, jobs) {
@@ -87,11 +97,97 @@ function syntheticJob(binding, id, name, steps) {
   };
 }
 
-function fixture() {
-  const source = readFileSync(
-    new URL("../.github/workflows/platform-ephemeral-verification.yml", import.meta.url),
-    "utf8",
-  ).replaceAll("\r\n", "\n");
+const setupAction = `synthetic-owner/setup@${"4".repeat(40)}`;
+const actionSource = stringify({
+  name: "Synthetic runtime setup",
+  runs: { using: "node24", pre: "dist/pre.mjs", main: "dist/main.mjs", post: "dist/post.mjs" },
+});
+
+// Trusted source expansion is constructed from source, never from the observed REST jobs/actions.
+function sourceGraphs(sources) {
+  const graphs = { actions: [], actionSources: [{ path: "source-action", sha256: sha256(sources.action) }] };
+  for (const [role, key] of [
+    ["census", "censusWorkflow"],
+    ["verification", "workflow"],
+  ]) {
+    const workflow = parse(sources[key]);
+    graphs[role] = {
+      sourcePath: `source-${key}`,
+      sourceHash: sha256(sources[key]),
+      jobs: Object.entries(workflow.jobs).map(([jobKey, job]) => {
+        if (job.if === false) return { name: job.name, skipped: true, steps: [] };
+        const pre = [];
+        const main = [];
+        const post = [];
+        for (const declaration of job.steps) {
+          if (!declaration.uses) {
+            main.push(declaration.name);
+            continue;
+          }
+          expect(declaration.uses).toBe(setupAction);
+          const action = parse(sources.action);
+          for (const phase of ["pre", "main", "post"]) {
+            const name =
+              phase === "main" ? declaration.name : `${phase === "pre" ? "Pre" : "Post"} ${declaration.name}`;
+            ({ pre, main, post })[phase].push(name);
+            graphs.actions.push({
+              role,
+              jobKey,
+              name,
+              uses: declaration.uses,
+              phase,
+              entrypoint: action.runs[phase],
+              sourceHash: sha256(sources.action),
+            });
+          }
+        }
+        return {
+          name: job.name,
+          skipped: false,
+          steps: ["Set up job", ...pre, ...main, ...post.reverse(), "Complete job"].map((name) => ({ name })),
+        };
+      }),
+    };
+  }
+  return graphs;
+}
+
+function fixture({ pageTwo = false } = {}) {
+  const source = stringify({
+    name: "Synthetic verification",
+    on: "workflow_dispatch",
+    jobs: {
+      ...(pageTwo
+        ? Object.fromEntries(
+            Array.from({ length: 99 }, (_, i) => [
+              `extra-${i}`,
+              { name: `Synthetic extra job ${i}`, steps: [{ name: "Synthetic work", run: "synthetic-work" }] },
+            ]),
+          )
+        : {}),
+      "synthetic-skipped": {
+        name: "Synthetic inapplicable route",
+        if: false,
+        steps: [{ name: "Inapplicable", run: "synthetic-unused" }],
+      },
+      "verify-release": {
+        name: "Verify Release in Ephemeral Namespace",
+        steps: [
+          { name: "Set up synthetic runtime", uses: setupAction },
+          { name: "Reset verification namespace", run: "synthetic-create" },
+          { name: "Delete verification provider webhooks", if: "always()", run: "synthetic-finalize" },
+          { name: "Hold for preview census", if: "always()", run: "synthetic-hold" },
+          {
+            name: CERTIFY,
+            if: "always()",
+            run: "node scripts/census-terminal-evidence.mjs",
+            "working-directory": "$RUNNER_TEMP/census-terminal-source",
+          },
+          { name: DELETE, if: "always()", run: "synthetic-delete" },
+        ],
+      },
+    },
+  });
   const helper = readFileSync(new URL("./census-terminal-evidence.mjs", import.meta.url), "utf8").replaceAll(
     "\r\n",
     "\n",
@@ -101,6 +197,26 @@ function fixture() {
     method: "synthetic:admitted v3 method",
     helper,
     workflow: source,
+    censusWorkflow: stringify({
+      name: "Synthetic census",
+      on: "workflow_dispatch",
+      jobs: {
+        census: {
+          name: "Read preview-pool census",
+          steps: [
+            { name: "Set up synthetic runtime", uses: setupAction },
+            { name: "Capture preview-pool census", run: "synthetic-capture" },
+            { name: "Upload preview-pool census", if: "always()", run: "synthetic-upload" },
+          ],
+        },
+        "synthetic-skipped": {
+          name: "Synthetic census inapplicable route",
+          if: false,
+          steps: [{ name: "Inapplicable", run: "synthetic-unused" }],
+        },
+      },
+    }),
+    action: actionSource,
     review: "synthetic:independent complete review",
     decision: "synthetic:prospective ACCEPT_A",
   };
@@ -132,20 +248,80 @@ function fixture() {
   };
   const vSteps = [
     step("Set up job", 1),
-    step("Reset verification namespace", 2),
+    step("Pre Set up synthetic runtime", 2),
+    step("Set up synthetic runtime", 3),
+    step("Reset verification namespace", 12),
     step("Delete verification provider webhooks", 24),
+    step("Hold for preview census", 40),
     { ...step(CERTIFY, 51), completed_at: "2030-01-01T00:59:00Z" },
     step(DELETE, 52),
-    step("Post synthetic setup action", 81),
+    step("Post Set up synthetic runtime", 81),
     step("Complete job", 90),
   ];
+  const bounds = [
+    ["00:01:00", "00:01:01"],
+    ["00:01:01", "00:01:02"],
+    ["00:01:02", "00:01:03"],
+    ["00:02:00", "00:02:01"],
+    ["00:57:00", "00:57:01"],
+    ["00:57:01", "00:58:00"],
+    ["00:58:00", "00:59:00"],
+    ["00:59:00", "01:00:00"],
+    ["01:00:00", "01:00:08"],
+    ["01:00:08", "01:00:09"],
+  ];
+  for (const [index, s] of vSteps.entries()) {
+    s.started_at = `2030-01-01T${bounds[index][0]}Z`;
+    s.completed_at = `2030-01-01T${bounds[index][1]}Z`;
+  }
   const vJob = syntheticJob(verification, 900000000000202, "Verify Release in Ephemeral Namespace", vSteps);
   const cJob = syntheticJob(census, 900000000000201, "Read preview-pool census", [
     step("Set up job", 1),
+    step("Pre Set up synthetic runtime", 2),
+    step("Set up synthetic runtime", 3),
     step("Capture preview-pool census", 24),
     step("Upload preview-pool census", 51),
+    step("Post Set up synthetic runtime", 81),
     step("Complete job", 90),
   ]);
+  cJob.started_at = "2030-01-01T00:00:01Z";
+  cJob.completed_at = "2030-01-01T00:57:00Z";
+  for (const [index, s] of cJob.steps.entries()) {
+    s.started_at = `2030-01-01T00:${String(index + 1).padStart(2, "0")}:00Z`;
+    s.completed_at = `2030-01-01T00:${String(index + 1).padStart(2, "0")}:01Z`;
+  }
+  const skipped = {
+    ...syntheticJob(verification, 900000000000203, "Synthetic inapplicable route", []),
+    conclusion: "skipped",
+    started_at: null,
+    completed_at: null,
+  };
+  const vJobs = pageTwo
+    ? [
+        ...Array.from({ length: 99 }, (_, i) =>
+          syntheticJob(verification, 900000001000000 + i, `Synthetic extra job ${i}`, [
+            { ...step("Set up job", 1), started_at: "2030-01-01T00:01:00Z", completed_at: "2030-01-01T00:01:01Z" },
+            { ...step("Synthetic work", 24), started_at: "2030-01-01T00:01:01Z", completed_at: "2030-01-01T00:01:02Z" },
+            { ...step("Complete job", 51), started_at: "2030-01-01T00:01:02Z", completed_at: "2030-01-01T00:01:03Z" },
+          ]),
+        ),
+        skipped,
+        vJob,
+      ]
+    : [vJob, skipped];
+  // Independent observed action expansion, with the same generated synthetic identities as the source.
+  const actions = ["census", "verification"].flatMap((role) =>
+    ["pre", "main", "post"].map((phase) => ({
+      role,
+      jobKey: role === "census" ? "census" : "verify-release",
+      name:
+        phase === "main" ? "Set up synthetic runtime" : `${phase === "pre" ? "Pre" : "Post"} Set up synthetic runtime`,
+      uses: setupAction,
+      phase,
+      entrypoint: `dist/${phase}.mjs`,
+      sourceHash: sha256(actionSource),
+    })),
+  );
   const envelope = {
     synthetic: true,
     repository,
@@ -160,6 +336,7 @@ function fixture() {
       implementationCommit: verification.head,
       dispatchHash: generatedHash("admission-dispatch"),
       controlReceiptHash: generatedHash("controls"),
+      sourceGraphsHash: sha256(JSON.stringify(sourceGraphs(sources))),
     },
     custodians: {
       timestamp: "synthetic-session-timestamp",
@@ -190,13 +367,24 @@ function fixture() {
       deleteDependsOnSeal: false,
       workflowHash: binding.workflowHash,
       helperHash: binding.helperHash,
-      expandedActionsHash: sha256(JSON.stringify(["synthetic checkout", "synthetic setup", "synthetic post"])),
+      expandedActionsHash: sha256(JSON.stringify(actions)),
       steps: vSteps.map(({ name }) => ({ name })),
     },
-    seal: { schemaVersion: "h6-pre-delete-seal/v1", binding: copy(binding), responses: runs(census) },
+    seal: { schemaVersion: "h6-pre-delete-seal/v1", binding: copy(binding), responses: sealRuns(census) },
     capture: { census: runs(census), verification: runs(verification) },
     consumption: { census: runs(census), verification: runs(verification) },
-    jobs: { census: jobSet(census, [cJob]), verification: jobSet(verification, [vJob]) },
+    jobs: {
+      census: jobSet(census, [
+        cJob,
+        {
+          ...syntheticJob(census, 900000000000204, "Synthetic census inapplicable route", []),
+          conclusion: "skipped",
+          started_at: null,
+          completed_at: null,
+        },
+      ]),
+      verification: jobSet(verification, vJobs),
+    },
     coverage: [
       "dispatch",
       "sources",
@@ -209,7 +397,7 @@ function fixture() {
       "consumption",
     ].map((role) => ({ role, complete: true, paths: [`synthetic-${role}.json`] })),
     ack: {
-      at: "2030-01-01T01:00:01Z",
+      at: "2030-01-01T01:00:15Z",
       scheduleHash: generatedHash("schedule"),
       custodian: "synthetic-session-schedule",
       receiptHash: "",
@@ -233,7 +421,7 @@ function fixture() {
       ),
     ),
   };
-  return retain({ envelope, sources });
+  return retain({ envelope, sources, actions, expectedGraphs: sourceGraphs(sources) });
 }
 
 function retain(f) {
@@ -262,12 +450,36 @@ function retain(f) {
   const lifecycle = {
     dispatch: e.dispatch,
     sources: e.sourceMap,
-    actions: { expanded: ["synthetic checkout", "synthetic setup", "synthetic post"] },
+    actions: { expanded: copy(f.actions) },
     logs: {
       safe: true,
       entire: true,
       jobId: e.sourceMap.jobId,
-      text: `${e.sourceMap.steps.map((s) => `synthetic executed step ${s.name}`).join("\n")}\nnode "$RUNNER_TEMP/census-terminal-evidence.mjs"`,
+      text: `${e.sourceMap.steps.map((s) => `synthetic executed step ${s.name}`).join("\n")}\nnode scripts/census-terminal-evidence.mjs`,
+      certification: {
+        command: "node scripts/census-terminal-evidence.mjs",
+        workingDirectory: "$RUNNER_TEMP/census-terminal-source",
+        workflowHead: e.binding.workflowHead,
+        helperHash: e.binding.helperHash,
+        namespaceCreationPath: "$GITHUB_WORKSPACE/artifacts/ephemeral-verification/namespace-created.json",
+        sealPath: "$GITHUB_WORKSPACE/artifacts/ephemeral-verification/census-terminal-seal.json",
+      },
+      checkedAt: "2030-01-01T01:00:10Z",
+      emittedAtUtc: "2030-01-01T01:00:11Z",
+      hold_end: "2030-01-01T00:58:00Z",
+      jobs: ["census", "verification"].flatMap((role) =>
+        e.jobs[role].details.map((record) => {
+          const job = JSON.parse(record.body);
+          return {
+            role,
+            jobId: job.id,
+            safe: true,
+            entire: true,
+            steps: job.steps,
+            text: job.steps?.map((s) => s.name).join("\n") ?? "",
+          };
+        }),
+      ),
     },
     events: [
       "capture-start",
@@ -279,6 +491,9 @@ function retain(f) {
       "delete-completed",
     ].map((kind) => ({
       delivery: `synthetic-${kind}`,
+      deliveredAt: "2030-01-01T01:00:10Z",
+      receivedAt: "2030-01-01T01:00:11Z",
+      polledAt: "2030-01-01T01:00:12Z",
       kind,
       uid: e.namespace.uid,
       runId: kind === "capture-start" ? e.binding.census.id : e.binding.verification.id,
@@ -317,6 +532,11 @@ function retain(f) {
       histories: e.histories,
     }),
   );
+  return admitFiles(f);
+}
+
+function admitFiles(f) {
+  const e = f.envelope;
   const manifest = e.files.map((file) => ({
     path: file.path,
     backupPath: file.backupPath,
@@ -335,7 +555,8 @@ function retain(f) {
     dispatch: e.dispatch,
     custodians: e.custodians,
     sourceMap: e.sourceMap,
-    scheduleHash: e.ack.scheduleHash,
+    sourceGraphs: f.expectedGraphs,
+    scheduleHash: e.ack?.scheduleHash,
     histories: e.histories,
   });
   return f;
@@ -362,6 +583,52 @@ function changeDelete(f, mutate) {
 }
 
 const read = (f) => readTerminalEvidence(f.envelope, f.admitted);
+
+function withoutVerification(f) {
+  const e = f.envelope;
+  Object.assign(e.dispatch, { verificationDispatched: false, verificationRunExists: false, bracketStarted: false });
+  for (const key of ["verification", "namespace", "uid"]) delete e.binding[key];
+  for (const key of ["namespace", "sourceMap", "seal", "ack", "schedule"]) e[key] = null;
+  for (const phase of ["capture", "consumption", "jobs"]) delete e[phase].verification;
+  e.coverage = e.coverage.map((entry) =>
+    ["actions", "logs", "events", "namespace", "finalizers"].includes(entry.role)
+      ? { role: entry.role, complete: true, notApplicable: true, reason: "NO_VERIFICATION_RUN", paths: [] }
+      : entry.role === "sources"
+        ? { ...entry, paths: ["source-workflow"] }
+        : entry,
+  );
+  const facts = Object.fromEntries(
+    [
+      "binding",
+      "admission",
+      "dispatch",
+      "namespace",
+      "sourceMap",
+      "custodians",
+      "ack",
+      "coverage",
+      "schedule",
+      "histories",
+    ].map((key) => [key, e[key]]),
+  );
+  const replacement = {
+    "facts.json": facts,
+    "synthetic-dispatch.json": e.dispatch,
+    "synthetic-capture.json": e.capture,
+    "synthetic-consumption.json": e.consumption,
+  };
+  e.files = e.files
+    .filter(
+      (file) =>
+        file.path.startsWith("source-") || file.path.includes("census") || Object.hasOwn(replacement, file.path),
+    )
+    .map((file) =>
+      Object.hasOwn(replacement, file.path)
+        ? { ...file, original: JSON.stringify(replacement[file.path]), backup: JSON.stringify(replacement[file.path]) }
+        : file,
+    );
+  return admitFiles(f);
+}
 
 describe("census terminal evidence synthetic controls", () => {
   it("Source transport: bounded GET rejects redirects and retains no authorization headers", async () => {
@@ -397,6 +664,114 @@ describe("census terminal evidence synthetic controls", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it.each([
+    "valid M",
+    "R bytes",
+    "wrong helper hash",
+    "wrong workflow head",
+    "wrong release",
+    "wrong digest",
+    "relative namespace",
+    "relative seal",
+  ])(
+    "Source snapshot execution: %s uses only admitted self bytes and absolute workspace custody before sequential seal writes",
+    async (kind) => {
+      const f = fixture();
+      const mBytes = readFileSync(new URL("./census-terminal-evidence.mjs", import.meta.url));
+      const rBytes = Buffer.from("synthetic:distinct historical R helper, never executed");
+      expect(sha256(mBytes)).not.toBe(sha256(rBytes));
+      const binding = {
+        ...copy(f.envelope.binding),
+        helperHash: sha256(mBytes),
+        verificationWorkflowId: f.envelope.binding.verification.workflowId,
+      };
+      const env = {
+        GITHUB_WORKSPACE: "/synthetic/workspace",
+        GITHUB_REPOSITORY: repository,
+        GITHUB_RUN_ID: String(binding.verification.id),
+        GITHUB_RUN_ATTEMPT: String(binding.verification.attempt),
+        CENSUS_TERMINAL_BINDING: JSON.stringify(binding),
+        FROZEN_WORKFLOW_SHA: binding.workflowHead,
+        RELEASE_COMMIT: binding.release,
+        RELEASE_DIGEST: binding.digest,
+        NAMESPACE_CREATION_PATH: "/synthetic/workspace/artifacts/ephemeral-verification/namespace-created.json",
+        CENSUS_SEAL_PATH: "/synthetic/workspace/artifacts/ephemeral-verification/census-terminal-seal.json",
+      };
+      if (kind === "wrong helper hash")
+        env.CENSUS_TERMINAL_BINDING = JSON.stringify({ ...binding, helperHash: generatedHash("wrong M") });
+      if (kind === "wrong workflow head") env.FROZEN_WORKFLOW_SHA = "9".repeat(40);
+      if (kind === "wrong release") env.RELEASE_COMMIT = "9".repeat(40);
+      if (kind === "wrong digest") env.RELEASE_DIGEST = `sha256:${generatedHash("wrong image")}`;
+      if (kind === "relative namespace")
+        env.NAMESPACE_CREATION_PATH = "artifacts/ephemeral-verification/namespace-created.json";
+      if (kind === "relative seal") env.CENSUS_SEAL_PATH = "artifacts/ephemeral-verification/census-terminal-seal.json";
+      const trace = [];
+      const writes = [];
+      let index = 0;
+      const operation = certifyFromEnvironment(env, {
+        readFile: (location) => {
+          if (location instanceof URL) {
+            expect(location.href).toBe(new URL("./census-terminal-evidence.mjs", import.meta.url).href);
+            trace.push("read executing M self");
+            return kind === "R bytes" ? rBytes : mBytes;
+          }
+          expect(location).toBe(env.NAMESPACE_CREATION_PATH);
+          trace.push("read absolute namespace");
+          return JSON.stringify({ metadata: { name: binding.namespace, uid: binding.uid } });
+        },
+        request: async (url) => {
+          trace.push(`GET:${url}`);
+          return f.envelope.seal.responses[index++];
+        },
+        writeFile: (location, value, options) => {
+          expect(options).toEqual({ flag: "wx", mode: 0o600, flush: true });
+          writes.push({ location, value });
+          trace.push(`write:${location}`);
+        },
+      });
+      if (kind !== "valid M") {
+        await expect(operation).rejects.toThrow(
+          kind.startsWith("relative") ? "STOP_CUSTODY_PATH" : "STOP_MATERIALIZATION",
+        );
+        expect(index).toBe(0);
+        expect(writes).toEqual([]);
+        return;
+      }
+      await operation;
+      expect(index).toBe(3);
+      expect(writes.map((w) => w.location)).toEqual(
+        [1, 2, 3].map((n) => `${env.CENSUS_SEAL_PATH}.response-${n}.json`).concat(env.CENSUS_SEAL_PATH),
+      );
+      expect(trace.slice(0, 2)).toEqual(["read executing M self", "read absolute namespace"]);
+      expect(trace.slice(2).map((s) => s.split(":")[0])).toEqual([
+        "GET",
+        "write",
+        "GET",
+        "write",
+        "GET",
+        "write",
+        "write",
+      ]);
+      validateCensusSeal(JSON.parse(writes.at(-1).value), {
+        ...binding,
+        verificationWorkflowId: binding.verificationWorkflowId,
+      });
+    },
+  );
+
+  it.each(["command", "workingDirectory", "workflowHead", "helperHash", "namespaceCreationPath", "sealPath"])(
+    "Source execution log: wrong snapshot %s cannot borrow a command substring",
+    (key) => {
+      const f = fixture();
+      const logs = JSON.parse(f.envelope.files.find((file) => file.path === "synthetic-logs.json").original);
+      logs.certification[key] = "synthetic:wrong-provenance";
+      logs.text += "\nnode scripts/census-terminal-evidence.mjs\n";
+      f.lifecycleOverrides = { logs };
+      retain(f);
+      expect(read(f).reasons).toEqual(["STOP_EXECUTION_LOG"]);
+    },
+  );
 
   it("No run/cancel: affirmative N7 has no future V identity, UID, W, D, acknowledgement or schedule precondition", () => {
     const f = fixture();
@@ -509,7 +884,7 @@ describe("census terminal evidence synthetic controls", () => {
     const reading = (slot, status = "COMPLETE") => ({
       slot,
       status,
-      at: new Date(Date.parse(schedule.t0Utc) + slot * 30000 + 1000).toISOString(),
+      at: new Date(Date.parse(schedule.t0Utc) + slot * 30000 + 16000).toISOString(),
       payloadHash: generatedHash(`slot-${slot}`),
     });
     schedule.windows[0].reads = [reading(0, "INCOMPLETE")];
@@ -558,7 +933,7 @@ describe("census terminal evidence synthetic controls", () => {
       window.reads = Array.from({ length: 60 }, (_, offset) => ({
         slot: index * 60 + offset,
         status: "COMPLETE",
-        at: new Date(Date.parse(f.envelope.schedule.t0Utc) + (index * 60 + offset) * 30000 + 1000).toISOString(),
+        at: new Date(Date.parse(f.envelope.schedule.t0Utc) + (index * 60 + offset) * 30000 + 16000).toISOString(),
         payloadHash: generatedHash(`full-slot-${index}-${offset}`),
       }));
     }
@@ -585,9 +960,16 @@ describe("census terminal evidence synthetic controls", () => {
         const f = fixture();
         for (const phase of ["capture", "consumption"])
           f.envelope[phase].census = runs(f.envelope.binding.census, cConclusion);
-        f.envelope.seal.responses = runs(f.envelope.binding.census, cConclusion);
-        changeDelete(f, (d) => {
+        f.envelope.seal.responses = sealRuns(f.envelope.binding.census, cConclusion);
+        const cJobs = f.envelope.jobs.census.details.map((record) => JSON.parse(record.body));
+        cJobs[0].conclusion = cConclusion;
+        cJobs[0].steps.find((s) => s.name === "Capture preview-pool census").conclusion = cConclusion;
+        f.envelope.jobs.census = jobSet(f.envelope.binding.census, cJobs);
+        for (const phase of ["capture", "consumption"])
+          f.envelope[phase].verification = runs(f.envelope.binding.verification, dConclusion);
+        changeDelete(f, (d, job) => {
           d.conclusion = dConclusion;
+          job.conclusion = dConclusion;
         });
         const before = JSON.stringify(f);
         const result = read(f);
@@ -595,7 +977,7 @@ describe("census terminal evidence synthetic controls", () => {
         expect(result.cRunTerminal.utc).toBeNull();
         expect(result.t0Utc).toBe("2030-01-01T01:00:00Z");
         expect(result.vDeleteTerminal.raw).toBe("2030-01-01T01:00:00Z");
-        expect(result.vDeleteTerminal.pointer).toBe("/steps/4/completed_at");
+        expect(result.vDeleteTerminal.pointer).toBe("/steps/7/completed_at");
         expect(result.c1Admission).toBe(dConclusion === "success" ? null : false);
         expect(JSON.stringify(f)).toBe(before);
       }
@@ -804,34 +1186,185 @@ describe("census terminal evidence synthetic controls", () => {
   it.each(["no-v", "c-never-captured", "admission-refused"])(
     "No run/cancel: affirmative %s is N7 only while no V was dispatched",
     () => {
-      const f = fixture();
-      Object.assign(f.envelope.dispatch, {
-        verificationDispatched: false,
-        verificationRunExists: false,
-        bracketStarted: false,
-      });
-      retain(f);
+      const f = withoutVerification(fixture());
       expect(read(f)).toMatchObject({ bracketState: "NO_BRACKET_NO_T0", newOpportunities: 0 });
       f.envelope.dispatch.verificationDispatched = true;
-      retain(f);
+      const file = f.envelope.files.find((file) => file.path === "facts.json");
+      const facts = JSON.parse(file.original);
+      facts.dispatch = copy(f.envelope.dispatch);
+      file.original = file.backup = JSON.stringify(facts);
+      admitFiles(f);
       expect(read(f).bracketState).toBe("STOP");
     },
   );
 
   it("101 jobs: finds the source owner on page two with noncontiguous tail step numbers", () => {
-    const f = fixture();
+    const f = fixture({ pageTwo: true });
     const b = f.envelope.binding.verification;
-    const owner = JSON.parse(f.envelope.jobs.verification.details[0].body);
-    const jobs = Array.from({ length: 100 }, (_, i) =>
-      syntheticJob(b, 900000001000000 + i, `Synthetic extra job ${i}`, [step("Complete job", 51)]),
-    );
-    jobs.push(owner);
-    const set = jobSet(b, jobs);
+    const set = f.envelope.jobs.verification;
     expect(readAttemptJobs(set.pages, set.details, b)).toHaveLength(101);
     f.envelope.jobs.verification = set;
     retain(f);
     expect(read(f).t0Utc).toBe("2030-01-01T01:00:00Z");
   });
+
+  it.each([
+    "run-completed-field-absent",
+    "success-delete",
+    "failure-delete",
+    "skipped-with-times",
+    "no-v",
+    "v-never-started",
+  ])("Seed mapping: complete generated synthetic:%s envelope preserves only the accepted v3/W delta", (seed) => {
+    let f = fixture();
+    f.envelope.caseId = `synthetic:${seed}`;
+    if (seed === "failure-delete") {
+      changeDelete(f, (d, job) => {
+        d.conclusion = "failure";
+        job.conclusion = "failure";
+      });
+      f.envelope.namespace.deleted = false;
+      for (const phase of ["capture", "consumption"])
+        f.envelope[phase].verification = runs(f.envelope.binding.verification, "failure");
+    }
+    if (seed === "skipped-with-times")
+      changeDelete(f, (d) => {
+        d.conclusion = "skipped";
+      });
+    if (seed === "v-never-started") {
+      f.envelope.namespace.state = "NOT_CREATED";
+      f.envelope.jobs.verification = jobSet(f.envelope.binding.verification, []);
+    }
+    f = seed === "no-v" ? withoutVerification(f) : retain(f);
+    const result = read(f);
+    if (["run-completed-field-absent", "success-delete", "failure-delete"].includes(seed)) {
+      expect(JSON.parse(f.envelope.capture.census[0].body)).not.toHaveProperty("completed_at");
+      expect(result).toMatchObject({
+        bracketState: "TERMINAL_BEFORE_DELETE",
+        t0Utc: "2030-01-01T01:00:00Z",
+        cRunTerminal: { utc: null },
+      });
+      expect(result.cleanupSucceeded).toBe(seed !== "failure-delete");
+      if (seed === "failure-delete") expect(result.c1Admission).toBe(false);
+      f.envelope.seal = null;
+      retain(f);
+      expect(read(f)).toMatchObject({ bracketState: "STOP", t0Utc: null, c1Schedule: "NOT_STARTED" });
+    } else {
+      expect(result).toMatchObject({
+        reasons: [seed === "no-v" ? "N7" : seed === "v-never-started" ? "CLOCK-2" : "STOP_MISSING_DELETE_TERMINAL"],
+        t0Utc: null,
+        c1Schedule: "NOT_STARTED",
+      });
+    }
+  });
+
+  it.each(["census", "verification"])(
+    "NEW capture: complete source-consistent %s jobs/actions/logs and applicable skipped route qualify",
+    (role) => {
+      const f = fixture();
+      const observed = f.envelope.jobs[role].details.map((record) => JSON.parse(record.body));
+      expect(observed).toHaveLength(
+        Object.keys(parse(f.sources[role === "census" ? "censusWorkflow" : "workflow"]).jobs).length,
+      );
+      expect(read(f).bracketState).toBe("TERMINAL_BEFORE_DELETE");
+      for (const job of observed)
+        expect(f.admitted.sourceGraphs[role].jobs.find((declared) => declared.name === job.name)).toEqual({
+          name: job.name,
+          skipped: job.conclusion === "skipped",
+          steps: job.steps.map(({ name }) => ({ name })),
+        });
+      for (const job of observed.filter((job) => job.conclusion !== "skipped")) {
+        let previous = instant(job.started_at).ticks;
+        for (const s of job.steps) {
+          expect(instant(s.started_at).ticks).toBeGreaterThanOrEqual(previous);
+          expect(instant(s.completed_at).ticks).toBeGreaterThanOrEqual(instant(s.started_at).ticks);
+          previous = instant(s.completed_at).ticks;
+        }
+        expect(previous).toBeLessThanOrEqual(instant(job.completed_at).ticks);
+      }
+      const cJob = JSON.parse(f.envelope.jobs.census.details[0].body);
+      expect(instant(cJob.completed_at).ticks).toBeLessThan(
+        instant(f.envelope.seal.responses[0].captureStartedAt).ticks,
+      );
+      for (const [i, record] of f.envelope.seal.responses.entries()) {
+        if (i > 0)
+          expect(instant(record.captureStartedAt).ticks).toBeGreaterThanOrEqual(
+            instant(f.envelope.seal.responses[i - 1].captureCompletedAt).ticks,
+          );
+      }
+      expect(instant(f.envelope.capture.verification[0].captureStartedAt).ticks).toBeGreaterThan(
+        instant(JSON.parse(f.envelope.jobs.verification.details[0].body).completed_at).ticks,
+      );
+    },
+  );
+
+  it.each(["omission", "substitution", "reordering", "extras"])(
+    "Identity graph: %s of jobs/steps/actions/source rejects against fixed independent source admission",
+    (mutation) => {
+      for (const surface of [
+        "census jobs",
+        "verification jobs",
+        "census steps",
+        "verification steps",
+        "actions",
+        "logs",
+        "source",
+        "action source",
+      ]) {
+        const f = fixture();
+        const expected = copy(f.admitted.sourceGraphs);
+        const mutate = (items) => {
+          if (mutation === "omission") items.splice(0, 1);
+          if (mutation === "substitution") items[0] = { ...items[0], name: "Synthetic substituted declaration" };
+          if (mutation === "reordering") [items[0], items[1]] = [items[1], items[0]];
+          if (mutation === "extras")
+            items.push({ ...items[0], name: "Synthetic extra declaration", id: 900000009999999, number: 999 });
+        };
+        if (surface.includes("jobs") || surface.includes("steps")) {
+          const role = surface.split(" ")[0];
+          const jobs = f.envelope.jobs[role].details.map((record) => JSON.parse(record.body));
+          if (surface.endsWith("steps")) mutate(jobs[0].steps);
+          else if (mutation === "reordering") {
+            [jobs[0].name, jobs[1].name] = [jobs[1].name, jobs[0].name];
+          } else mutate(jobs);
+          f.envelope.jobs[role] = jobSet(f.envelope.binding[role], jobs);
+        } else if (surface === "actions") {
+          mutate(f.actions);
+          f.envelope.sourceMap.expandedActionsHash = sha256(JSON.stringify(f.actions));
+        } else if (surface === "logs") {
+          const logs = JSON.parse(f.envelope.files.find((file) => file.path === "synthetic-logs.json").original);
+          mutate(logs.jobs[0].steps);
+          f.lifecycleOverrides = { logs };
+        } else {
+          const key = surface === "source" ? "workflow" : "action";
+          const declaration = parse(f.sources[key]);
+          if (key === "workflow") mutate(declaration.jobs["verify-release"].steps);
+          else declaration.runs.main = `synthetic-${mutation}.mjs`;
+          f.sources[key] = stringify(declaration);
+        }
+        retain(f);
+        expect(f.admitted.sourceGraphs, `${surface}/${mutation}`).toEqual(expected);
+        expect(read(f), `${surface}/${mutation}`).toMatchObject({
+          bracketState: "STOP",
+          t0Utc: null,
+          c1Schedule: "NOT_STARTED",
+        });
+      }
+    },
+  );
+
+  it.each(["pre", "main", "post"])(
+    "Identity actions: omitted %s phase refuses even with a coherent replacement action hash",
+    (phase) => {
+      const f = fixture();
+      const expected = copy(f.admitted.sourceGraphs);
+      f.actions = f.actions.filter((action) => action.role !== "verification" || action.phase !== phase);
+      f.envelope.sourceMap.expandedActionsHash = sha256(JSON.stringify(f.actions));
+      retain(f);
+      expect(f.admitted.sourceGraphs).toEqual(expected);
+      expect(read(f).reasons).toEqual(["STOP_ACTION_COVERAGE"]);
+    },
+  );
 
   it.each([
     "missing-tail",
@@ -897,23 +1430,131 @@ describe("census terminal evidence synthetic controls", () => {
     },
   );
 
-  it("Surrogates: independent custody/job/hold times never move D", () => {
-    for (const key of [
+  const records = (f) => [
+    ...f.envelope.seal.responses,
+    ...["capture", "consumption"].flatMap((phase) =>
+      ["census", "verification"].flatMap((role) => f.envelope[phase][role]),
+    ),
+    ...["census", "verification"].flatMap((role) => [...f.envelope.jobs[role].pages, ...f.envelope.jobs[role].details]),
+  ];
+  const lifecycle = (f, role) =>
+    JSON.parse(f.envelope.files.find((file) => file.path === `synthetic-${role}.json`).original);
+  const surrogates = [
+    [
+      "J",
+      (f) => {
+        changeDelete(f, (_d, job) => {
+          job.completed_at = "2099-01-01T00:00:00Z";
+        });
+      },
+    ],
+    [
       "updated_at",
-      "captureFinish",
-      "checkedAt",
-      "emittedAtUtc",
-      "hold_end",
-      "eventDelivery",
-      "pollTime",
-    ]) {
-      const f = fixture();
-      f.envelope[key] = "2099-01-01T00:00:00Z";
-      f.envelope.seal.responses[0].headers.date = "synthetic later HTTP date";
-      retain(f);
-      expect(read(f).t0Utc).toBe("2030-01-01T01:00:00Z");
-    }
+      (f) => {
+        for (const record of records(f).filter((r) => r.url.includes("/actions/runs/") && !r.url.includes("/jobs?"))) {
+          const value = JSON.parse(record.body);
+          value.updated_at = "2099-01-01T00:00:00Z";
+          Object.assign(
+            record,
+            responseRecord(record.url, JSON.stringify(value), record.headers, record.status, {
+              captureStartedAt: record.captureStartedAt,
+              captureCompletedAt: record.captureCompletedAt,
+            }),
+          );
+        }
+      },
+    ],
+    [
+      "capture finish",
+      (f) => {
+        for (const record of records(f)) record.captureCompletedAt = "2099-01-01T00:00:00Z";
+      },
+    ],
+    ...["checkedAt", "emittedAtUtc", "hold_end"].map((key) => [
+      key,
+      (f) => {
+        const logs = lifecycle(f, "logs");
+        logs[key] = "2099-01-01T00:00:00Z";
+        f.lifecycleOverrides = { logs };
+      },
+    ]),
+    [
+      "HTTP Date",
+      (f) => {
+        for (const record of records(f)) record.headers.date = "Thu, 01 Jan 2099 00:00:00 GMT";
+      },
+    ],
+    ...["deliveredAt", "receivedAt", "polledAt"].map((key) => [
+      key,
+      (f) => {
+        const events = lifecycle(f, "events");
+        for (const event of events) event[key] = "2099-01-01T00:00:00Z";
+        f.lifecycleOverrides = { events };
+      },
+    ]),
+  ];
+  const semantic = (result) => ({
+    bracketState: result.bracketState,
+    reasons: result.reasons,
+    t0Utc: result.t0Utc,
+    c: { state: result.cRunTerminal?.state, utc: result.cRunTerminal?.utc },
+    d: Object.fromEntries(
+      ["raw", "utc", "precision", "pointer", "jobId", "requestUrl", "retainedPath", "conclusion"].map((key) => [
+        key,
+        result.vDeleteTerminal?.[key],
+      ]),
+    ),
+    cleanupSucceeded: result.cleanupSucceeded,
+    c1Admission: result.c1Admission,
+    c1Schedule: result.c1Schedule,
+    schedule: result.schedule,
+    scheduleHash: result.scheduleHash,
   });
+
+  it.each(surrogates)(
+    "Surrogates: actual raw %s changes with coherent custody and invariant semantic D/eligibility/schedule",
+    (_name, mutate) => {
+      const f = fixture();
+      const before = read(f);
+      const oldFiles = copy(f.envelope.files);
+      mutate(f);
+      retain(f);
+      expect(f.envelope.files).not.toEqual(oldFiles);
+      expect(semantic(read(f))).toEqual(semantic(before));
+      expect(read(f).cRunTerminal.utc).toBeNull();
+      expect(read(f).vDeleteTerminal.payloadHash).toBe(f.envelope.jobs.verification.details[0].sha256);
+      for (const [i, file] of f.envelope.files.entries()) {
+        expect(file.backup).toBe(file.original);
+        expect(f.admitted.manifest[i]).toMatchObject({
+          bytes: Buffer.byteLength(file.original),
+          sha256: sha256(file.original),
+        });
+      }
+    },
+  );
+
+  it.each(["backup", "manifest", "admission", "response hash"])(
+    "Surrogates: changed raw payload with stale %s refuses specifically for custody",
+    (kind) => {
+      const f = fixture();
+      const oldFiles = copy(f.envelope.files);
+      const oldAdmission = copy(f.admitted);
+      surrogates[0][1](f);
+      retain(f);
+      if (kind === "backup") {
+        const changed = f.envelope.files.findIndex((file, i) => file.original !== oldFiles[i].original);
+        f.envelope.files[changed].backup = oldFiles[changed].backup;
+      }
+      if (kind === "manifest") f.admitted.manifest = oldAdmission.manifest;
+      if (kind === "admission") f.admitted = oldAdmission;
+      if (kind === "response hash") {
+        f.envelope.jobs.verification.details[0].sha256 = generatedHash("stale response");
+        retain(f);
+      }
+      expect(read(f).reasons).toEqual([kind === "response hash" ? "STOP_RESPONSE_CUSTODY" : "STOP_PAYLOAD_CUSTODY"]);
+      expect(read(f)).toMatchObject({ bracketState: "STOP", t0Utc: null, c1Schedule: "NOT_STARTED" });
+    },
+  );
 
   it.each([
     "2030-02-30T00:00:00Z",

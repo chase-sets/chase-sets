@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { repoRoot } from "./lib/repo.mjs";
+import { checkWorkflowSpacesEvidenceCredentials } from "./workflow-provider-credentials.mjs";
 
 const verification = readFileSync(path.join(repoRoot, ".github/workflows/platform-ephemeral-verification.yml"), "utf8");
 const production = readFileSync(path.join(repoRoot, ".github/workflows/platform-production.yml"), "utf8");
@@ -58,7 +61,14 @@ function expectCensusSource(source) {
   expect(steps[index].if).toBe(
     "always() && inputs.dispatch_source == 'manual' && inputs.census_terminal_binding != '' && steps.namespace.outcome != 'skipped'",
   );
-  expect(steps[index].run).toBe('node "$RUNNER_TEMP/census-terminal-evidence.mjs"');
+  expect(steps[index].run).toBe("node scripts/census-terminal-evidence.mjs");
+  expect(steps[index]["working-directory"]).toBe("${{ runner.temp }}/census-terminal-source");
+  expect(steps[index].env.NAMESPACE_CREATION_PATH).toBe(
+    "${{ github.workspace }}/artifacts/ephemeral-verification/namespace-created.json",
+  );
+  expect(steps[index].env.CENSUS_SEAL_PATH).toBe(
+    "${{ github.workspace }}/artifacts/ephemeral-verification/census-terminal-seal.json",
+  );
   expect(steps[index + 1].name).toBe("Delete verification Kubernetes namespace");
   expect(steps[index + 1].if).toBe("always() && steps.namespace.outcome != 'skipped'");
   const callers = Object.values(workflow.jobs)
@@ -98,15 +108,27 @@ describe("platform ephemeral verification workflow", () => {
     const mutants = [
       verification.replace(
         w,
-        w.replace(
-          'run: node "$RUNNER_TEMP/census-terminal-evidence.mjs"',
-          'run: node "$RUNNER_TEMP/census-terminal-evidence.mjs" &',
-        ),
+        w.replace("run: node scripts/census-terminal-evidence.mjs", "run: node scripts/census-terminal-evidence.mjs &"),
       ),
       verification.replace(w, ""),
       verification.replace(w, w.replace(" && inputs.census_terminal_binding != ''", "")),
       verification.replace(w, w.replace(" && inputs.dispatch_source == 'manual'", "")),
       verification.replace(d, d.replace("if: always()", "if: success()")),
+      verification.replace(w, w.replace("${{ runner.temp }}/census-terminal-source", "${{ github.workspace }}")),
+      verification.replace(
+        w,
+        w.replace(
+          "${{ github.workspace }}/artifacts/ephemeral-verification/census-terminal-seal.json",
+          "artifacts/ephemeral-verification/census-terminal-seal.json",
+        ),
+      ),
+      verification.replace(
+        w,
+        w.replace(
+          "${{ github.workspace }}/artifacts/ephemeral-verification/namespace-created.json",
+          "artifacts/ephemeral-verification/namespace-created.json",
+        ),
+      ),
       `${verification}\n  synthetic-alternate-caller:\n    steps:\n      - run: node scripts/census-terminal-evidence.mjs\n`,
     ];
     for (const mutant of mutants) expect(() => expectCensusSource(mutant)).toThrow();
@@ -125,7 +147,7 @@ describe("platform ephemeral verification workflow", () => {
     expect(w.if).toBe(
       "always() && inputs.dispatch_source == 'manual' && inputs.census_terminal_binding != '' && steps.namespace.outcome != 'skipped'",
     );
-    expect(w.run).toBe('node "$RUNNER_TEMP/census-terminal-evidence.mjs"');
+    expectCensusSource(verification);
     expect(steps[index + 1].if).toBe("always() && steps.namespace.outcome != 'skipped'");
     expect(steps[index + 1].if).not.toContain("census_terminal");
     expect(w.env.FROZEN_WORKFLOW_SHA).toBe("${{ github.workflow_sha }}");
@@ -134,6 +156,11 @@ describe("platform ephemeral verification workflow", () => {
     expect(release).toContain('git show "${FROZEN_WORKFLOW_SHA}:scripts/census-terminal-evidence.mjs"');
     expect(release).toContain("STOP_HELPER_HASH");
     expect(release).toContain("STOP_WORKFLOW_HASH");
+    expect(release).toContain('mkdir -p "$RUNNER_TEMP/census-terminal-source/scripts"');
+    expect(release).toContain('helper="$RUNNER_TEMP/census-terminal-source/scripts/census-terminal-evidence.mjs"');
+    expect(release).toContain('> "$helper"');
+    expect(release.indexOf("STOP_HELPER_HASH")).toBeLessThan(release.indexOf("git checkout --detach"));
+    expect(release.indexOf("STOP_WORKFLOW_HASH")).toBeLessThan(release.indexOf("git checkout --detach"));
     expect(release.indexOf("git show")).toBeLessThan(release.indexOf("git checkout --detach"));
     expect(steps.findIndex((candidate) => candidate.id === "runtime_secrets")).toBe(13);
     const helper = readFileSync(path.join(repoRoot, "scripts/census-terminal-evidence.mjs"), "utf8");
@@ -145,6 +172,88 @@ describe("platform ephemeral verification workflow", () => {
     expect(step(verification, "Reset verification namespace")).toContain("namespace-created.json");
     expect(workflow.permissions).toEqual({ contents: "read", actions: "read" });
   });
+
+  it("Source scanner: unchanged guard reads the real relative snapshot helper and rejects credential-shaped source and unresolved invocations", () => {
+    const reads = [];
+    const inspect = (source, helperSuffix = "") =>
+      checkWorkflowSpacesEvidenceCredentials(source, {
+        workflowFile: ".github/workflows/platform-ephemeral-verification.yml",
+        readScript: (relative) => {
+          reads.push(relative);
+          try {
+            return (
+              readFileSync(path.join(repoRoot, relative), "utf8") +
+              (relative === "scripts/census-terminal-evidence.mjs" ? helperSuffix : "")
+            );
+          } catch {
+            return null;
+          }
+        },
+      });
+    expect(inspect(verification).violations).toEqual([]);
+    expect(reads).toContain("scripts/census-terminal-evidence.mjs");
+    const credential = inspect(verification, "\nprocess.env.SYNTHETIC_SPACES_ACCESS_ID;\n");
+    expect(
+      credential.violations.some(
+        (v) =>
+          v.includes("Certify census terminal before namespace deletion") && v.includes("SYNTHETIC_SPACES_ACCESS_ID"),
+      ),
+    ).toBe(true);
+    const w = step(verification, "Certify census terminal before namespace deletion");
+    const unresolved = inspect(
+      verification.replace(
+        w,
+        w.replace("node scripts/census-terminal-evidence.mjs", 'node "$RUNNER_TEMP/unresolved-synthetic.mjs"'),
+      ),
+    );
+    expect(
+      unresolved.violations.some((v) => v.includes("does not resolve") && v.includes("unresolved-synthetic.mjs")),
+    ).toBe(true);
+  });
+
+  it.each(["M", "R helper", "wrong helper hash", "wrong workflow source", "wrong workflow head"])(
+    "Source materialization: actual pre-checkout inline validation accepts only %s admitted frozen bytes",
+    (kind) => {
+      const release = step(verification, "Resolve release commit");
+      const inline = release.split("node --input-type=module <<'NODE'\n")[1].split("          NODE")[0];
+      const executable = inline
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("import "))
+        .join("\n");
+      const helper = readFileSync(path.join(repoRoot, "scripts/census-terminal-evidence.mjs"));
+      const workflow = Buffer.from(verification);
+      const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+      const head = "2".repeat(40);
+      const binding = { helperHash: hash(helper), workflowHash: hash(workflow), workflowHead: head };
+      if (kind === "wrong helper hash") binding.helperHash = "0".repeat(64);
+      const env = {
+        HELPER_PATH: "/synthetic/runner/census-terminal-source/scripts/census-terminal-evidence.mjs",
+        RUNNER_TEMP: "/synthetic/runner",
+        FROZEN_WORKFLOW_SHA: kind === "wrong workflow head" ? "9".repeat(40) : head,
+        CENSUS_TERMINAL_BINDING: JSON.stringify(binding),
+      };
+      const reads = [];
+      const execute = () =>
+        runInNewContext(executable, {
+          createHash,
+          process: { env },
+          readFileSync: (location) => {
+            reads.push(location);
+            if (location === env.HELPER_PATH)
+              return kind === "R helper" ? Buffer.from("synthetic:different R helper") : helper;
+            expect(location).toBe(`${env.RUNNER_TEMP}/census-terminal-workflow.yml`);
+            return kind === "wrong workflow source" ? Buffer.from("synthetic:different workflow source") : workflow;
+          },
+        });
+      if (kind === "M") {
+        expect(execute).not.toThrow();
+        expect(reads).toEqual([env.HELPER_PATH, `${env.RUNNER_TEMP}/census-terminal-workflow.yml`]);
+      } else
+        expect(execute).toThrow(
+          kind === "R helper" || kind === "wrong helper hash" ? "STOP_HELPER_HASH" : "STOP_WORKFLOW_HASH",
+        );
+    },
+  );
 
   it("dispatches only after the owning production job executed successfully", () => {
     expectAutomaticDispatchContract(production);
