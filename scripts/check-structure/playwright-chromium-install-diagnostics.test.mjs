@@ -13,11 +13,15 @@ version="$(pnpm exec playwright --version | awk '{print $2}')"
 test -n "$version"
 browser_path="\${RUNNER_TEMP}/playwright-chromium/\${RUNNER_OS}/\${RUNNER_ARCH}/\${version}"
 test ! -e "$browser_path"
-echo "browser-path=\${browser_path}" >> "$GITHUB_OUTPUT"
-echo "version=\${version}" >> "$GITHUB_OUTPUT"
-echo "PLAYWRIGHT_BROWSERS_PATH=\${browser_path}" >> "$GITHUB_ENV"
-echo "DIAGNOSTIC_DIRECTORY=\${RUNNER_TEMP}/chromium-install-diagnostics" >> "$GITHUB_ENV"
-echo "DIAGNOSTIC_CACHE_KEY=e2e-playwright-chromium-\${RUNNER_OS}-\${RUNNER_ARCH}-\${version}" >> "$GITHUB_ENV"`;
+{
+  echo "browser-path=\${browser_path}"
+  echo "version=\${version}"
+} >> "$GITHUB_OUTPUT"
+{
+  echo "PLAYWRIGHT_BROWSERS_PATH=\${browser_path}"
+  echo "DIAGNOSTIC_DIRECTORY=\${RUNNER_TEMP}/chromium-install-diagnostics"
+  echo "DIAGNOSTIC_CACHE_KEY=e2e-playwright-chromium-\${RUNNER_OS}-\${RUNNER_ARCH}-\${version}"
+} >> "$GITHUB_ENV"`;
 
 function errors(candidate, source = harness) {
   const failures = [];

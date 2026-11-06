@@ -27,7 +27,6 @@ jobs:
     env:
       DIAGNOSTIC_ROUTE: ${{ matrix.route }}
       DIAGNOSTIC_CACHE: ${{ matrix.cache }}
-      DIAGNOSTIC_CHECK_RUN_ID: ${{ job.check_run_id }}
       BOUNDARY_HEAD_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -47,11 +46,15 @@ jobs:
           test -n "$version"
           browser_path="${RUNNER_TEMP}/playwright-chromium/${RUNNER_OS}/${RUNNER_ARCH}/${version}"
           test ! -e "$browser_path"
-          echo "browser-path=${browser_path}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "PLAYWRIGHT_BROWSERS_PATH=${browser_path}" >> "$GITHUB_ENV"
-          echo "DIAGNOSTIC_DIRECTORY=${RUNNER_TEMP}/chromium-install-diagnostics" >> "$GITHUB_ENV"
-          echo "DIAGNOSTIC_CACHE_KEY=e2e-playwright-chromium-${RUNNER_OS}-${RUNNER_ARCH}-${version}" >> "$GITHUB_ENV"
+          {
+            echo "browser-path=${browser_path}"
+            echo "version=${version}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "PLAYWRIGHT_BROWSERS_PATH=${browser_path}"
+            echo "DIAGNOSTIC_DIRECTORY=${RUNNER_TEMP}/chromium-install-diagnostics"
+            echo "DIAGNOSTIC_CACHE_KEY=e2e-playwright-chromium-${RUNNER_OS}-${RUNNER_ARCH}-${version}"
+          } >> "$GITHUB_ENV"
 
       - name: Restore exact-key hit only
         id: restore
@@ -64,6 +67,7 @@ jobs:
       - name: Capture pre-attempt control
         id: prepare
         env:
+          DIAGNOSTIC_CHECK_RUN_ID: ${{ job.check_run_id }}
           DIAGNOSTIC_RESTORED: ${{ steps.restore.outputs.cache-hit }}
         run: node scripts/playwright-chromium-install-diagnostics.mjs prepare
 
@@ -71,11 +75,14 @@ jobs:
         id: install
         if: steps.prepare.outputs.eligible == 'true'
         timeout-minutes: 7
+        env:
+          DIAGNOSTIC_CHECK_RUN_ID: ${{ job.check_run_id }}
         run: node scripts/playwright-chromium-install-diagnostics.mjs measure
 
       - name: Capture terminal evidence
         if: always()
         env:
+          DIAGNOSTIC_CHECK_RUN_ID: ${{ job.check_run_id }}
           DIAGNOSTIC_INSTALL_OUTCOME: ${{ steps.install.outcome }}
           DIAGNOSTIC_PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
         run: node scripts/playwright-chromium-install-diagnostics.mjs finalize
