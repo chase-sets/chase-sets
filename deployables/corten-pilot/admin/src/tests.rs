@@ -4203,6 +4203,15 @@ async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_addre
         html.contains(&format!(r#"action="/catalog/integrations/review?{}""#, again.replace('&', "&amp;"))),
         "its commands keep the working set: {html}"
     );
+    // Nothing checked: the form says so and sends nothing (chase-sets/chase-sets#11090).
+    let bulk = |pilot: &Pilot| daily_writes(pilot).iter().filter(|c| c.path.contains("/bulk-")).count();
+    let before = bulk(&pilot);
+    for body in ["action=reject&reason=Duplicate", "action=defer"] {
+        let (status, _, html) = pilot.send(post(&at, body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}: {html}");
+        assert!(html.contains("No observations selected") && html.contains("data-scope-workspace"), "{body}: {html}");
+    }
+    assert_eq!(bulk(&pilot), before, "nothing was sent");
     // A command from the daily workbench itself, refused, is the daily workbench again.
     let daily = context.replace("&home=scp_paf", "");
     let (status, _, html) =

@@ -189,7 +189,7 @@ async fn check(res: reqwest::Response) -> Result<reqwest::Response, ApiError> {
         return Ok(res);
     }
     let body: Option<ErrorBody> = res.json().await.ok();
-    let (code, message) = body.map(|b| (b.error.code, b.error.message)).unwrap_or_default();
+    let (code, message) = body.map(|b| b.error.parts()).unwrap_or_default();
     Err(ApiError::Status { status, code, message })
 }
 
@@ -266,9 +266,44 @@ struct ErrorBody {
     error: ErrorDetail,
 }
 
+/// The envelope's `error`: `{ code, message }`, or, from a few Source Observation routes, the
+/// message alone with no code. Workaround (chase-sets/chase-sets#11091): read the string as the
+/// message until those routes answer the envelope.
 #[derive(Deserialize)]
-struct ErrorDetail {
-    code: Option<String>,
-    #[serde(default)]
-    message: String,
+#[serde(untagged)]
+enum ErrorDetail {
+    Envelope {
+        code: Option<String>,
+        #[serde(default)]
+        message: String,
+    },
+    Message(String),
+}
+
+impl ErrorDetail {
+    fn parts(self) -> (Option<String>, String) {
+        match self {
+            ErrorDetail::Envelope { code, message } => (code, message),
+            ErrorDetail::Message(message) => (None, message),
+        }
+    }
+}
+
+#[cfg(test)]
+mod error_body_tests {
+    use super::ErrorBody;
+
+    #[test]
+    fn an_error_is_the_envelope_or_a_message_alone() {
+        let parts = |text: &str| serde_json::from_str::<ErrorBody>(text).unwrap().error.parts();
+        assert_eq!(
+            parts(r#"{"error":{"code":"reason_required","message":"Give a reason."}}"#),
+            (Some("reason_required".to_owned()), "Give a reason.".to_owned())
+        );
+        assert_eq!(
+            parts(r#"{"error":"Bulk rejection requires a reason."}"#),
+            (None, "Bulk rejection requires a reason.".to_owned())
+        );
+        assert!(serde_json::from_str::<ErrorBody>(r#"{"message":"no error key"}"#).is_err());
+    }
 }

@@ -1175,7 +1175,7 @@ pub struct ReviewInput {
 impl ReviewInput {
     /// The API's path and body: a defer with admin-web's reason, or a reject with the one typed.
     /// `None` for an action the form does not offer. The API refuses a reject without a reason
-    /// and either without an observation.
+    /// and a defer without an observation.
     pub fn command(&self, t: Cat) -> Option<(&'static str, Value)> {
         match self.action.as_str() {
             "defer" => {
@@ -1197,7 +1197,14 @@ pub(crate) async fn review(
 ) -> HtmlResult {
     let context = context_of(&uri);
     let t: Cat = req.t();
+    // Workaround (chase-sets/chase-sets#11090): the API takes a reject with no observations as every
+    // reviewable one in every scope, so the form says none is checked and sends nothing.
     let sent = match input.command(t) {
+        Some(_) if input.observation.iter().all(|id| id.trim().is_empty()) => {
+            let mut errors = Errors::new();
+            errors.add_form(t.wb_copy_no_observations_selected());
+            Sent::Refused(errors)
+        }
         Some((rest, body)) => {
             let caller = config.platform.caller(&headers, config.proto, None);
             command(&caller, Method::POST, Kind::SourceObservations, rest, Some(&body)).await
