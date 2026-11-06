@@ -233,8 +233,7 @@ describe("A unit's reapply body selects the unit whose profile reapplies it", ()
         reached: "persistence",
       });
       const [selection] = observationSelections();
-      expect(selection?.text).toContain("normalized->>'kind'");
-      expect(selection?.values).toContain(unit.profile.profile.normalizedObservationMapping.kind);
+      expect(kindParameter(selection)).toBe(unit.profile.profile.normalizedObservationMapping.kind);
       selections.push(selection);
     }
 
@@ -313,8 +312,7 @@ describe("A unit's reapply body selects the unit whose profile reapplies it", ()
     await runtime.services.processNextIntegrationJob({ claimOwnerId: "worker_synthetic", claimTtlMs: 60_000 });
 
     const [selection] = queries.filter((query) => query.text.includes("FROM catalog_source_observations"));
-    expect(selection?.text).toContain("normalized->>'kind'");
-    expect(selection?.values).toContain("one-piece-card-print");
+    expect(kindParameter(selection)).toBe("one-piece-card-print");
   });
 
   it("refuses a multi-unit provider's reapply without a unit, or with another provider's unit, as invalid", async () => {
@@ -347,3 +345,10 @@ describe("A unit's reapply body selects the unit whose profile reapplies it", ()
     expect(observationSelections()[0]?.text).not.toContain("normalized->>'kind'");
   });
 });
+
+// The value the selection's kind condition is bound to, read from its placeholder, so a condition
+// that compares the kind with anything but a bound parameter fails here as it would in Postgres.
+function kindParameter(selection: { text: string; values: readonly unknown[] } | undefined): unknown {
+  const match = selection?.text.match(/normalized->>'kind' = \$(\d+)/);
+  return match ? selection?.values[Number(match[1]) - 1] : undefined;
+}

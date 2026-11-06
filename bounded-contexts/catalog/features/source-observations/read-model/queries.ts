@@ -1189,7 +1189,7 @@ function buildSourceObservationFilter(
 
   if (scope.normalizedKind) {
     values.push(scope.normalizedKind);
-    conditions.push(`normalized->>'kind' = ${values.length}`);
+    conditions.push(`normalized->>'kind' = $${values.length}`);
   }
 
   if (options.statuses && options.statuses.length > 0) {
