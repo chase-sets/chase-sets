@@ -6,13 +6,18 @@ import {
   type CatalogPrimaryWorkbenchSurfaceKey,
   type CatalogPrimaryWorkbenchSurfaceSources,
 } from "../api/admin/primary-workbench-surface-read";
+import {
+  sourceObservationEvidenceFor,
+  type ProductContentsEvidenceLabelRows,
+} from "../api/admin/source-observation-evidence-read";
+import type { SourceObservationListItem } from "../ui/contracts";
 import { ApiError as CatalogApiError } from "../../../support/shell-support/api/client";
 
 // Test-only. The integrations loaders read their workbench from the Catalog
 // API's surface endpoints. Loader tests stub the per-projection client methods
 // (scopes, profiles, overview, review, options, ...); this wraps such a stub so
-// the two surface endpoints answer with the real API-side composition over those
-// same stubs, round-tripped through JSON like an HTTP response. The HTTP route
+// the surface endpoints and the evidence read answer with the real API-side
+// composition over those same stubs, round-tripped through JSON like an HTTP response. The HTTP route
 // itself is covered by the source-observations route tests.
 
 type StubMethod = (...args: readonly unknown[]) => Promise<unknown>;
@@ -41,6 +46,22 @@ export function withCatalogSurfaceReads<T>(client: T, request?: Request): T {
         const url = new URL(location, LOCATION_ORIGIN);
         return wireShape(await readCatalogPrimaryWorkbenchDeferredSourceOptions(url, await sources(url)));
       }),
+    getSourceObservationEvidence:
+      stub.getSourceObservationEvidence ??
+      (async (observationId: string) => {
+        const observation = await callStub<SourceObservationListItem>(stub, "getSourceObservation", observationId);
+        const labels = await Promise.all([
+          callStub<{ items: ProductContentsEvidenceLabelRows["contentTypes"] }>(stub, "listProductContentTypes"),
+          callStub<{ items: ProductContentsEvidenceLabelRows["inclusionPolicies"] }>(
+            stub,
+            "listProductContentInclusionPolicies",
+          ),
+        ])
+          .then(([types, policies]) => ({ contentTypes: types.items, inclusionPolicies: policies.items }))
+          .catch(() => null);
+        const canManage = await canManageCatalog(request ?? new URL("/catalog/integrations", LOCATION_ORIGIN));
+        return wireShape({ observationId, detail: sourceObservationEvidenceFor({ observation, canManage, labels }) });
+      }),
   } as T;
 }
 
@@ -56,14 +77,16 @@ async function canManageCatalog(source: Request | URL): Promise<boolean> {
   }
 }
 
+function callStub<R>(stub: StubClient, name: string, ...args: readonly unknown[]): Promise<R> {
+  const method = stub[name];
+  if (typeof method !== "function") {
+    return Promise.reject(new Error(`Synthetic Catalog client has no ${name}.`));
+  }
+  return (method as StubMethod)(...args) as Promise<R>;
+}
+
 function stubSurfaceSources(stub: StubClient, canManage: boolean): CatalogPrimaryWorkbenchSurfaceSources {
-  const call = <R>(name: string, ...args: readonly unknown[]): Promise<R> => {
-    const method = stub[name];
-    if (typeof method !== "function") {
-      return Promise.reject(new Error(`Synthetic Catalog client has no ${name}.`));
-    }
-    return (method as StubMethod)(...args) as Promise<R>;
-  };
+  const call = <R>(name: string, ...args: readonly unknown[]): Promise<R> => callStub<R>(stub, name, ...args);
 
   return {
     canManageCatalog: canManage,

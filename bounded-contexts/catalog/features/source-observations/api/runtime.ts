@@ -509,6 +509,17 @@ export function createSourceObservationRuntime(
         return { bulkReviewJobs: bulkReviewJobsPruned, integrationJobs: integrationJobsPruned };
       },
       getSourceObservationDetail: (observationId) => getSourceObservationDetail(deps.db, observationId),
+      ...(productContents
+        ? {
+            listProductContentsEvidenceLabels: async () => {
+              const [contentTypes, inclusionPolicies] = await Promise.all([
+                productContents.listProductContentTypes(),
+                productContents.listProductContentInclusionPolicies(),
+              ]);
+              return { contentTypes, inclusionPolicies };
+            },
+          }
+        : {}),
       recordControlPlaneTelemetry: (event) => {
         deps.sourceObservationTelemetry?.recordControlPlaneEvent?.(normalizeCatalogControlPlaneTelemetryEvent(event));
       },

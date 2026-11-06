@@ -1,4 +1,5 @@
 import type { ProviderSendWindowReadout } from "./providers/provider-send-runtime";
+import type { ProductContentsEvidenceLabelRows } from "./admin/source-observation-evidence-read";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -1148,6 +1149,8 @@ export type SourceObservationReadServices = Readonly<{
     setId?: string;
   }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
   getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
+  /** The content types and inclusion policies that label an evidence sheet's Product contents. */
+  listProductContentsEvidenceLabels?: () => Promise<ProductContentsEvidenceLabelRows>;
 }>;
 
 export type CatalogMergeCandidateGenerationResult = Readonly<{
