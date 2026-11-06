@@ -16,6 +16,7 @@ import {
   importScopeFromScopeContext,
   integrationJobScopeForUnit,
   reapplyScopeForUnit,
+  type CatalogPrimaryWorkbenchReapplyScope,
   scopeContextFromFormData,
   scopeContextFromRouteContext,
   scopeContextToObservationFilterScope,
@@ -162,8 +163,8 @@ export function hasExplicitPromotionScope(context: RouteContext): boolean {
   return Boolean(context.providerKey && context.unitKey && importScopeFromScopeContext(scope));
 }
 
-export function reapplyScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
-  return reapplyScopeForUnit(scopeContextFromRouteContext(context), context.sourceObservationFilters);
+export function reapplyScopeFromContext(context: RouteContext): CatalogPrimaryWorkbenchReapplyScope {
+  return reapplyScopeForUnit(scopeContextFromRouteContext(context), context.unitKey, context.sourceObservationFilters);
 }
 
 // The promotion preview checkpoint token. It carries a genuine content

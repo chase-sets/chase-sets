@@ -443,6 +443,7 @@ function sourceScopeUnitRow(
               scope: routeScope,
               sourceObservationFilters: input.routeContext.sourceObservationFilters,
             }),
+            candidate.unitKey,
             input.routeContext.sourceObservationFilters,
           ),
         }

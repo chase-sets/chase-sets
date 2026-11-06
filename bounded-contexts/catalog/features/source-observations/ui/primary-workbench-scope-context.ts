@@ -258,15 +258,21 @@ export function integrationJobScopeForUnit(
 }
 
 /**
- * The scope a unit's reapply or replay posts. The Catalog API reapplies only promoted
- * observations, whatever status the review filters name.
+ * The scope a unit's reapply or replay posts: the observations in scope and the unit whose
+ * active profile version reapplies them, which a provider with several active units needs.
+ * The Catalog API reapplies only promoted observations, whatever status the review filters name.
  */
 export function reapplyScopeForUnit(
   scope: CatalogPrimaryWorkbenchScopeContext,
+  unitKey: string | null,
   filters: Readonly<Record<string, string>> = {},
-): CatalogPrimaryWorkbenchObservationFilterScope {
-  return scopeContextToObservationFilterScope(scope, filters);
+): CatalogPrimaryWorkbenchReapplyScope {
+  const observations = scopeContextToObservationFilterScope(scope, filters);
+  return unitKey ? { ...observations, ingestionUnitKey: unitKey } : observations;
 }
+
+export type CatalogPrimaryWorkbenchReapplyScope = CatalogPrimaryWorkbenchObservationFilterScope &
+  Readonly<{ ingestionUnitKey?: string }>;
 
 export type CatalogPrimaryWorkbenchObservationFilterScope = Readonly<{
   search?: string;

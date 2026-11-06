@@ -12,11 +12,12 @@ import {
   isCatalogMergeCandidateBulkJobKind,
 } from "../source-observation-merge-candidate-bulk-job-runtime";
 import {
+  isIntegrationJobValidationError,
   parseObservationIds,
   parsePromoteAsDraft,
   parsePromotionScope,
+  parseReapplyIntegrationScope,
   parseReapplyProfileMode,
-  promotionScopeToIntegrationScope,
   streamBulkJobEvents,
 } from "./route-helpers";
 import {
@@ -50,13 +51,16 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       try {
         job = await services.enqueueIntegrationJob({
           action: "reapply",
-          scope: promotionScopeToIntegrationScope(parsePromotionScope(body.scope)),
+          scope: parseReapplyIntegrationScope(body.scope),
           reapplyProfileMode,
           context: c.get("context"),
         });
       } catch (error) {
         if (error instanceof CatalogIntegrationRolloutControlError) {
           return c.json(rolloutControlErrorResponse(error), 403);
+        }
+        if (isIntegrationJobValidationError(error)) {
+          return c.json({ error: { code: "invalid_scope", message: error.message } }, 400);
         }
         throw error;
       }

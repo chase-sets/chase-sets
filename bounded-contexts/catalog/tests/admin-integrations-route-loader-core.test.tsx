@@ -329,7 +329,7 @@ describe("Catalog integrations route", () => {
           productLineId: "3",
           setName: "Base Set",
         },
-        reapply: { provider: "tcgplayer", productLineId: "3" },
+        reapply: { provider: "tcgplayer", ingestionUnitKey: pokemonUnit, productLineId: "3" },
       },
     });
     expect(routeData.readModel.catalogSync.preview.units).toEqual([
