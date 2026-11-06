@@ -43,17 +43,33 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
     await page.screenshot({ path: testInfo.outputPath("channels-connect-list-390.png"), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.screenshot({ path: testInfo.outputPath("channels-connect-list-1440.png"), fullPage: true });
-    await page.waitForFunction(() => {
-      const router = (window as unknown as { __reactRouterDataRouter?: { state: { initialized: boolean } } })
-        .__reactRouterDataRouter;
-      return router?.state.initialized === true;
-    });
-    await page.evaluate(async () => {
-      const router = (window as unknown as { __reactRouterDataRouter: { revalidate: () => Promise<void> } })
-        .__reactRouterDataRouter;
-      await router.revalidate();
-    });
-    const submissionOrder = ["hydrated-revalidation"];
+    const submissionOrder: string[] = [];
+    let releaseScript!: () => void;
+    let observedScript!: () => void;
+    const scriptGate = new Promise<void>((resolve) => { releaseScript = resolve; });
+    const scriptObserved = new Promise<void>((resolve) => { observedScript = resolve; });
+    const delayScript = async (route: import("@playwright/test").Route) => {
+      if (route.request().resourceType() === "script" && new URL(route.request().url()).origin === new URL(page.url()).origin) {
+        observedScript();
+        await scriptGate;
+      }
+      await route.continue();
+    };
+    await page.route("**/*", delayScript);
+    try {
+      await page.reload({ waitUntil: "commit" });
+      await scriptObserved;
+      submissionOrder.push("hydration-held");
+      await expect(page.getByRole("combobox", { name: "Sales Channel", exact: true })).toBeVisible();
+      await expect(page.locator('option[value="unregistered"]')).toHaveCount(0);
+    } finally {
+      releaseScript();
+      await page.unroute("**/*", delayScript);
+    }
+    await page.waitForLoadState("domcontentloaded");
+    await hydratedChannelForm(page);
+    submissionOrder.push("hydrated-navigation");
+    const connectionsBefore = await connectionIds(page);
     const invalidPosts: string[] = [];
     const trackInvalidPost = (request: import("@playwright/test").Request) => {
       if (request.method() === "POST" && new URL(request.url()).pathname === "/account/channels.data") {
@@ -79,7 +95,8 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
     page.off("request", trackInvalidPost);
     expect(invalidPosts).toHaveLength(1);
     expect(new URLSearchParams(invalidPosts[0]).get("providerKey")).toBe("unregistered");
-    expect(submissionOrder).toEqual(["hydrated-revalidation", "option-injected", "post", "refusal-visible"]);
+    expect(submissionOrder).toEqual(["hydration-held", "hydrated-navigation", "option-injected", "post", "refusal-visible"]);
+    expect(await connectionIds(page), "the refused provider must create no connection").toEqual(connectionsBefore);
     await expect(page).toHaveURL(/\/account\/channels(?:\?|$)/);
     await testInfo.attach("channel-invalid-provider-order", {
       body: JSON.stringify({ submissionOrder, posts: invalidPosts.length }),
@@ -154,12 +171,12 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
         async () => {
           await page.goto(firstPath);
           const rows = page.locator('[data-channels-outbound-operation-log="true"] tbody tr');
-          return Promise.all(
-            capture.data.selections.map(async ({ listingId }) => {
-              expect(listingId).toBeDefined();
-              return rows.filter({ has: page.getByRole("cell", { name: listingId!, exact: true }) }).count();
-            }),
-          );
+          const listingIds = capture.data.selections.map(({ listingId }) => {
+            expect(listingId).toBeDefined();
+            return listingId!;
+          });
+          const queuedListingIds = await rows.locator("td:nth-child(2)").allTextContents();
+          return ownedPublicationCounts(queuedListingIds, listingIds);
         },
         { message: "the publication pipeline must queue both published seller listings", timeout: 60_000 },
       )
@@ -217,6 +234,42 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
     throw error;
   }
 });
+
+async function hydratedChannelForm(page: Page) {
+  // A real client navigation replaces the server-rendered form only after hydration.
+  const loaded = page.waitForResponse((response) => response.request().method() === "GET" &&
+    new URL(response.url()).pathname === "/account/channels.data");
+  await page.locator('main a[href="/account/channels?status=active"]').click();
+  await loaded;
+  await expect(page).toHaveURL(/\/account\/channels\?status=active$/);
+  const returned = page.waitForResponse((response) => response.request().method() === "GET" &&
+    new URL(response.url()).pathname === "/account/channels.data");
+  await page.locator('main a[href="/account/channels"]').click();
+  await returned;
+  await expect(page).toHaveURL(/\/account\/channels$/);
+  await expect(page.getByRole("combobox", { name: "Sales Channel", exact: true })).toBeVisible();
+}
+
+function ownedPublicationCounts(queuedListingIds: readonly string[], ownedListingIds: readonly string[]) {
+  if (ownedListingIds.length !== 2 || new Set(ownedListingIds).size !== 2) throw new Error("Two distinct owned Listings required");
+  return ownedListingIds.map((id) => queuedListingIds.filter((queued) => queued.trim() === id).length);
+}
+
+async function connectionIds(page: Page) {
+  const ids: string[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const response = await page.request.get(`/api/channels/connections${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
+    expect(response.status()).toBe(200);
+    const result = await response.json() as { items: { connectionId: string }[]; nextCursor?: string };
+    ids.push(...result.items.map((item) => item.connectionId));
+    cursor = result.nextCursor;
+    if (cursor && cursors.has(cursor)) throw new Error("connection census cursor repeated");
+    if (cursor) cursors.add(cursor);
+  } while (cursor);
+  return ids.sort();
+}
 
 type ManualSyncPanel = NonNullable<Awaited<ReturnType<ChannelsServices["manualSync"]["readPanel"]>>>;
 type PanelCapture = Awaited<ReturnType<typeof capturePanelRead>>;

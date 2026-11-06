@@ -1,7 +1,9 @@
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { runInProjectionDbContext } from "@chase-sets/bounded-context-runtime";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
+import type { MarketplaceListingServices } from "@chase-sets/marketplace/server";
 import type { ChannelsServices } from "../../../support/runtime-support/services";
 import { channelConnectionEventCodec } from "../../connections/domain/codec";
 import { evolveChannelConnection, initialChannelConnectionState } from "../../connections/domain/domain";
@@ -15,6 +17,7 @@ export type BrowserRecoveryFixtureInput = Readonly<{
   ownershipId: string;
   connectionId: string;
   listingId: string;
+  inventoryItemId: string;
   createdAfter: string;
 }>;
 
@@ -23,6 +26,7 @@ export function assertBrowserRecoveryFixtureInput(input: BrowserRecoveryFixtureI
     !/^[a-f0-9-]{36}$/.test(input.ownershipId) ||
     !/^chn_[a-zA-Z0-9_-]+$/.test(input.connectionId) ||
     !/^lst_[a-zA-Z0-9_-]+$/.test(input.listingId) ||
+    !/^itm_[a-zA-Z0-9_-]+$/.test(input.inventoryItemId) ||
     !Number.isFinite(Date.parse(input.createdAfter)) ||
     input.connectionId === manualSyncScenarioSeed.connectionId ||
     input.listingId === manualSyncScenarioSeed.listingId
@@ -38,9 +42,40 @@ export const browserRecoveryContext: EventStoreContext = {
 export async function createBrowserRecoveryFixture(
   pool: PgTransactionalPool,
   services: Pick<ChannelsServices, "outboundSync">,
+  marketplace: Readonly<{
+    pool: PgTransactionalPool;
+    listings: Pick<MarketplaceListingServices, "loadListingState">;
+  }>,
   input: BrowserRecoveryFixtureInput,
 ): Promise<Readonly<{ connectionId: string; runId: string; listingId: string }>> {
   assertBrowserRecoveryFixtureInput(input);
+  const marketplaceEvents = createPostgresEventStore({ pool: marketplace.pool });
+  const listingEvents = await readCompleteStream(marketplaceEvents, { streamId: `marketplace.listing-${input.listingId}` });
+  const listing = await marketplace.listings.loadListingState(input.listingId);
+  const created = listingEvents[0];
+  if (
+    created?.eventType !== "marketplace.listing.created" ||
+    created.payload.accountId !== demoIdentitySeedIds.accountId ||
+    created.payload.inventoryItemId !== input.inventoryItemId ||
+    Date.parse(created.occurredAt) < Date.parse(input.createdAfter) ||
+    listing.listingId !== input.listingId || listing.accountId !== demoIdentitySeedIds.accountId ||
+    listing.inventoryItemId !== input.inventoryItemId || listing.status !== "active"
+  ) throw new Error("owned-recovery-listing-required");
+  // A new run is not ownership: refuse sibling Listings sharing the clamp's Inventory Item scope.
+  const capacity = await readCompleteStream(marketplaceEvents, {
+    streamId: `marketplace.inventory-listing-capacity-${input.inventoryItemId}`, maxEvents: 100,
+  });
+  const registered = new Set<string>();
+  for (const event of capacity) {
+    if (event.payload.inventoryItemId !== input.inventoryItemId) throw new Error("owned-recovery-listing-collision");
+    if (event.eventType === "marketplace.inventory-listings.registered" &&
+        Array.isArray(event.payload.listingIds) && event.payload.listingIds.every((id) => typeof id === "string")) {
+      for (const id of event.payload.listingIds) registered.add(id);
+    } else if (event.eventType === "marketplace.inventory-listing-capacity.committed" &&
+               typeof event.payload.listingId === "string") registered.add(event.payload.listingId);
+    else throw new Error("owned-recovery-listing-collision");
+  }
+  if (registered.size !== 1 || !registered.has(input.listingId)) throw new Error("owned-recovery-listing-collision");
   const eventStore = createPostgresEventStore({ pool });
   const connectionEvents = await readCompleteStream(eventStore, {
     streamId: `channels.connection-${input.connectionId}`,
@@ -80,7 +115,7 @@ export async function createBrowserRecoveryFixture(
     },
   });
 
-  await withPgTransaction(pool, async (db) => {
+  await withPgTransaction(pool, (db) => runInProjectionDbContext(db, async () => {
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [runStreamId]);
     const current = await db.query("SELECT 1 FROM event_store_events WHERE stream_id=$1 LIMIT 1", [runStreamId]);
     if (current.rows.length !== 0) throw new Error("owned-recovery-run-collision");
@@ -108,7 +143,7 @@ export async function createBrowserRecoveryFixture(
        VALUES ($1,$2,$3,0,'recovery',1,1,now())`,
       [runId, input.connectionId, demoIdentitySeedIds.accountId],
     );
-  });
+  }));
   return { connectionId: input.connectionId, runId, listingId: input.listingId };
 }
 

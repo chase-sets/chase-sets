@@ -298,6 +298,25 @@ describe("marketplace account lifecycle probe joins", () => {
     }
   });
 
+  it.each([
+    "deployables/marketplace/e2e/manual-sync-recovery.spec.ts",
+    "deployables/marketplace/e2e/critical-flows.spec.ts",
+    "deployables/marketplace/e2e/channel-connection-connect.spec.ts",
+    "deployables/marketplace/e2e/agent-grant-revocation-real-route.spec.ts",
+    "bounded-contexts/channels/features/manual-sync/tests/browser-recovery-fixture.ts",
+    "bounded-contexts/channels/features/manual-sync/tests/browser-recovery-fixture.test.ts",
+    "bounded-contexts/channels/features/manual-sync/api/seed.db.test.ts",
+    "bounded-contexts/channels/support/seed-support/manual-sync-browser.ts",
+  ])("admits only the decided retained-suite support path %s", (supportPath) => {
+    expect(probeRepairSupportPaths.filter((path) => path === supportPath)).toHaveLength(1);
+    const input = { head: "1".repeat(40), baselineIsAncestor: true, changedPaths: [probeRepairPaths[2], supportPath] };
+    expect(evaluateRepairedHead(input)).toEqual({ proven: true, reasons: [] });
+    const sibling = supportPath.replace(/\.[^.]+$/, ".unlisted.ts");
+    expect(evaluateRepairedHead({ ...input, changedPaths: [probeRepairPaths[2], sibling] })).toEqual({
+      proven: false, reasons: [`product tree changed beyond the bound repair footprint: ${sibling}`],
+    });
+  });
+
   it("summarizes per-test outcomes, the last result end and sign-in 401 failures", () => {
     const perTest = summarizePerTest(
       report([

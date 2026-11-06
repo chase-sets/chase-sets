@@ -49,6 +49,20 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await page.goto("/account");
   });
 
+  test.afterEach(async ({ page }, testInfo) => {
+    if (testInfo.title !== "security profile and team invitation use the same real keyed router boundary") return;
+    await page.goto("/account/security");
+    const profile = page.locator('form:has(input[name="intent"][value="update-user"])');
+    const original = syntheticActor(testInfo).displayName;
+    if (await profile.getByLabel(/^Display name$/i).inputValue() !== original) {
+      await profile.getByLabel(/^Display name$/i).fill(original);
+      await profile.getByRole("button", { name: /^Update profile$/i }).click();
+      await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
+      await page.reload();
+    }
+    await expect(profile.getByLabel(/^Display name$/i)).toHaveValue(original);
+  });
+
   test("five actual routes reject native/no-JS writes; enhanced profile uses keyed .data and one token GET", async ({
     page,
     browser,
@@ -1221,7 +1235,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await page.getByRole("dialog").getByRole("button", { name: /close/i }).click();
     const invite = page.locator('form:has(input[name="intent"][value="create-invitation"])');
     await expect(invite.getByRole("button", { name: "Invite", exact: true })).toBeEnabled();
-    await invite.getByLabel("Email", { exact: true }).fill("synthetic-held-invite@example.test");
+    await invite.getByLabel("Email", { exact: true }).fill(`synthetic-held-invite-${randomUUID()}@example.test`);
     await invite.getByRole("button", { name: "Invite", exact: true }).click();
     await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
     expect(methods).toEqual(["POST", "GET", "POST"]);

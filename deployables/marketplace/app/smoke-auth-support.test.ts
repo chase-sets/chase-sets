@@ -988,6 +988,91 @@ const trackedMarketplaceSources = execFileSync("git", ["ls-files", "-z", "--", .
   .split("\0")
   .filter((file) => /\.[cm]?[jt]sx?$/.test(file));
 const sources = new Map(trackedMarketplaceSources.map((file) => [file, readFileSync(`${root}/${file}`, "utf8")]));
+
+function sourceFunction(file: string, name: string, files = sources): string {
+  const source = ts.createSourceFile(file, files.get(file)!, ts.ScriptTarget.Latest, true);
+  const declaration = source.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
+  if (!declaration) throw new Error(`retained caller census: missing ${name}`);
+  return ts.transpileModule(declaration.getText(source), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+}
+
+function retainedRoleActors(files: Map<string, string>, testInfo = info) {
+  const interruption = "deployables/marketplace/e2e/account-management-interruption.spec.ts";
+  const grant = "deployables/marketplace/e2e/agent-grant-revocation-real-route.spec.ts";
+  const canonical = (value: Parameters<typeof syntheticAccountFor>[0]) => syntheticAccountFor(value, localEnv, "/repo/deployables/marketplace");
+  const actorSource = sourceFunction(interruption, "syntheticActor", files);
+  const sandbox = { syntheticAccountFor: canonical, testInfo, info: testInfo };
+  const primary = runInNewContext(`${actorSource}; syntheticActor(testInfo)`, sandbox);
+  function expression(file: string, matches: (node: ts.Node) => boolean) {
+    const source = ts.createSourceFile(file, files.get(file)!, ts.ScriptTarget.Latest, true);
+    const found: ts.Node[] = [];
+    const visit = (node: ts.Node) => { if (matches(node)) found.push(node); ts.forEachChild(node, visit); };
+    visit(source);
+    if (found.length !== 1) throw new Error(`retained caller census: missing or duplicate role in ${file}`);
+    return ts.transpileModule(`const result = ${found[0]!.getText(source)};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  }
+  const owner = runInNewContext(`${expression(grant, (node) => ts.isCallExpression(node) && node.expression.getText() === "syntheticAccountFor")}; result`, sandbox);
+  const roles = { primary, owner } as Record<string, ReturnType<typeof syntheticAccountFor>>;
+  for (const [role, file, prefix] of [["inflight", interruption, "inflight-"], ["switch", interruption, "switch-"], ["foreign", grant, "foreign-"]] as const) {
+    const value = expression(file, (node) => ts.isObjectLiteralExpression(node) && node.properties.some((property) =>
+      ts.isPropertyAssignment(property) && property.name.getText() === "email" &&
+      ts.isTemplateExpression(property.initializer) && property.initializer.head.text === prefix));
+    roles[role] = runInNewContext(`${actorSource}; ${value}; result`, { ...sandbox, actor: owner });
+  }
+  if (new Set([roles.primary!.email, roles.inflight!.email, roles.switch!.email]).size !== 3 ||
+      owner.email === roles.foreign!.email) throw new Error("retained caller census: actor collision");
+  for (const [role, base, prefix, display] of [["inflight", primary, "inflight-", "In flight "], ["switch", primary, "switch-", "Switch "], ["foreign", owner, "foreign-", "Foreign "]] as const) {
+    const actor = roles[role]!;
+    if (actor.email !== `${prefix}${base.email}` || actor.displayName !== `${display}${base.displayName}` || actor.password !== base.password)
+      throw new Error("retained caller census: noncanonical role");
+  }
+  return roles;
+}
+
+describe("retained-suite caller and journey controls", () => {
+  it("executes the five decided roles with retry-independent canonical tuples and owner/foreign isolation", () => {
+    const roles = retainedRoleActors(sources);
+    expect(Object.keys(roles).sort()).toEqual(["foreign", "inflight", "owner", "primary", "switch"]);
+    expect(retainedRoleActors(sources, { ...info, retry: 2, workerIndex: 9 } as typeof info)).toEqual(roles);
+    expect(roles.primary).toEqual(identity());
+    expect(roles.owner).toEqual(identity());
+  });
+  it("refuses omitted role expressions and actor collisions rather than grandfathering them", () => {
+    const file = "deployables/marketplace/e2e/account-management-interruption.spec.ts";
+    for (const prefix of ["inflight-", "switch-"]) {
+      const mutated = new Map(sources);
+      mutated.set(file, sources.get(file)!.replace(prefix, ""));
+      expect(() => retainedRoleActors(mutated)).toThrow(/retained caller census:/);
+    }
+    const grant = "deployables/marketplace/e2e/agent-grant-revocation-real-route.spec.ts";
+    const foreignOmitted = new Map(sources);
+    foreignOmitted.set(grant, sources.get(grant)!.replace("foreign-", ""));
+    expect(() => retainedRoleActors(foreignOmitted)).toThrow(/retained caller census:/);
+    const retry = new Map(sources);
+    retry.set(file, sources.get(file)!.replace("titlePath: testInfo.titlePath", 'titlePath: [...testInfo.titlePath, String((testInfo as any).retry)]'));
+    expect(retainedRoleActors(retry)).not.toEqual(retainedRoleActors(retry, { ...info, retry: 2 } as typeof info));
+  });
+  it("performs a real transition from both default and already-Dark preferences; the old no-op is red", () => {
+    const file = "deployables/marketplace/e2e/critical-flows.spec.ts";
+    const source = sourceFunction(file, "accountColorModeChanges");
+    const transitions = runInNewContext(`${source}; accountColorModeChanges`);
+    expect(transitions("system")).toEqual(["dark"]);
+    expect(transitions("light")).toEqual(["dark"]);
+    expect(transitions("dark")).toEqual(["light", "dark"]);
+    expect(() => transitions("unknown")).toThrow();
+    const noOp = runInNewContext(`${source.replace('current === "dark"', "false")}; accountColorModeChanges`);
+    expect(noOp("dark")).not.toEqual(["light", "dark"]);
+  });
+  it("counts exact owned publication membership, refusing zero, one and duplicate bypasses but preserving unrelated rows", () => {
+    const source = sourceFunction("deployables/marketplace/e2e/channel-connection-connect.spec.ts", "ownedPublicationCounts");
+    const counts = runInNewContext(`${source}; ownedPublicationCounts`);
+    const owned = ["lst_first", "lst_second"];
+    expect(counts([...owned, "lst_unrelated"], owned)).toEqual([1, 1]);
+    for (const rows of [[], ["lst_first"], ["lst_first", "lst_first", "lst_second"], ["lst_unrelated", "lst_other"]])
+      expect(counts(rows, owned)).not.toEqual([1, 1]);
+    expect(() => counts(owned, ["lst_first", "lst_first"])).toThrow();
+  });
+});
 const authExports = [
   "registerSyntheticAccount",
   "signInWithPassword",
