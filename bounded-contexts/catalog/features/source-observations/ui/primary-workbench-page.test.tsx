@@ -18,6 +18,7 @@ import {
   profileReview,
   sourceObservationListItem,
   sourceObservationScope,
+  syntheticPromotionReceipt,
 } from "./primary-workbench-test-fixtures";
 
 // The import-jobs module polls live progress via useRevalidator, the daily
@@ -2098,7 +2099,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     ).toBe(true);
   });
 
-  it("renders promote-all as an explicit selected-scope action with preview counts and confirmation", () => {
+  it("renders scoped loader summaries without restoring confirmation from a stored token", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&filter.status=changed&promotionPreviewId=preview_scope",
@@ -2139,7 +2140,9 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     fireEvent.click(confirmation);
 
-    expect(commitButton?.hasAttribute("disabled")).toBe(false);
+    expect(commitButton?.hasAttribute("disabled")).toBe(true);
+    expect(confirmation.hasAttribute("disabled")).toBe(true);
+    expect(document.querySelector("[data-catalog-promotion-receipt]")).toBeNull();
     const executeForms = document.querySelectorAll<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="observation.promote"]',
     );
@@ -2147,6 +2150,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("blocks the create/update commit on an unresolvable display identity and requires a fresh preview after the draft choice changes", () => {
+    window.sessionStorage.clear();
     const identityDiagnostic = {
       observationId: "obs_001",
       code: "display-identity-unresolvable",
@@ -2241,7 +2245,20 @@ describe("CatalogPrimaryWorkbenchPage", () => {
         diagnostics: [{ ...identityDiagnostic, blocking: false }],
       },
     });
-    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={draftReadModel} />);
+    const draftReceipt = syntheticPromotionReceipt({ previewId: "preview_draft" });
+    draftReceipt.selection.observationIds = [];
+    draftReceipt.selection.promoteAsDraft = true;
+    draftReceipt.preview.validation.promoteAsDraft = true;
+    draftReceipt.preview.validation.diagnostics = [{ ...identityDiagnostic, blocking: false }];
+    render(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={{
+          ...draftReadModel,
+          promotionPreview: { ...draftReadModel.promotionPreview, receipt: draftReceipt },
+        }}
+      />,
+    );
 
     expect(screen.queryByText("Display identity unresolvable")).toBeNull();
     expect(
@@ -2263,7 +2280,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(commitButton?.form?.querySelector<HTMLInputElement>('input[name="promoteAsDraft"]')?.value).toBe("true");
   });
 
-  it("enables aggregate-backed promotion execution when row review is unavailable", () => {
+  it("does not restore aggregate-backed confirmation when the original receipt is unavailable", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&promotionPreviewId=preview_scope",
@@ -2293,7 +2310,8 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     fireEvent.click(confirmation);
 
-    expect(commitButton?.hasAttribute("disabled")).toBe(false);
+    expect(commitButton?.hasAttribute("disabled")).toBe(true);
+    expect(confirmation.hasAttribute("disabled")).toBe(true);
   });
 
   it("keeps a durable Source Observation selection across a review-context re-render in the same scope", async () => {
