@@ -1,10 +1,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import ts from "@chase-sets/typescript-compiler-api";
 import { requiredJobCalls, stageRun } from "./fixtures/workflow-composition/harness.mjs";
 import { requiredJobs, verifyRequiredJobs } from "./pr-checks/required-jobs.mjs";
 import { ciGatePlanOutputMap, createCiGatePlan } from "./ci-gate-plan.mjs";
@@ -169,7 +170,164 @@ function oldRequiredRun(needs) {
   });
 }
 
+function discoverExtractedInterfaces(read = (file) => readFileSync(file, "utf8")) {
+  const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+  const base = git("merge-base", "origin/main", "HEAD");
+  const delta = git("diff", "--no-renames", "--name-only", `${base}...HEAD`).split(/\r?\n/);
+  const owners = delta.filter((file) => /\.(mjs|sh)$/.test(file) && !file.endsWith(".test.mjs"));
+  const companions = [".d.mts", ".d.ts", ".d.cts", ".ts", ".mts", ".cts"];
+  const gaps = [];
+  const interfaces = [];
+  let scannedOwners = 0;
+  let siblingChecks = 0;
+  const root = process.cwd();
+  const local = (file) => relative(root, file).replaceAll("\\", "/");
+  const parseSource = (file) => {
+    const tree = ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true);
+    if (tree.parseDiagnostics.length) throw new Error(`Unparseable interface source: ${file}`);
+    return tree;
+  };
+  const resolveSource = (file, specifier) => {
+    if (!specifier.startsWith(".")) throw new Error(`Unbound interface re-export: ${file} -> ${specifier}`);
+    const target = local(resolve(dirname(file), specifier));
+    const stem = target.replace(/\.(?:mjs|cjs|js|mts|cts|ts)$/, "");
+    const candidates = [target, ...companions.map((extension) => stem + extension), stem + ".mjs"];
+    const found = candidates.find((candidate) => existsSync(candidate));
+    if (!found) throw new Error(`Unresolved interface source: ${file} -> ${specifier}`);
+    return found;
+  };
+  const exportsOf = (file, visiting = new Set()) => {
+    if (visiting.has(file)) throw new Error(`Cyclic interface re-export: ${file}`);
+    const tree = parseSource(file);
+    const values = new Set();
+    const types = new Set();
+    const next = new Set([...visiting, file]);
+    for (const node of tree.statements) {
+      if (ts.isExportDeclaration(node)) {
+        const exported = node.moduleSpecifier
+          ? exportsOf(resolveSource(file, node.moduleSpecifier.text), next)
+          : null;
+        if (node.exportClause && ts.isNamedExports(node.exportClause)) {
+          for (const member of node.exportClause.elements) {
+            const name = (member.propertyName ?? member.name).text;
+            const typeOnly = node.isTypeOnly || member.isTypeOnly;
+            if (exported && !(typeOnly ? new Set([...exported.types, ...exported.values]) : exported.values).has(name))
+              gaps.push(`${file}: unresolved re-export ${name}`);
+            (typeOnly ? types : values).add(member.name.text);
+          }
+        } else if (node.exportClause && ts.isNamespaceExport(node.exportClause)) {
+          (node.isTypeOnly ? types : values).add(node.exportClause.name.text);
+        } else if (exported) {
+          for (const name of exported.values) if (name !== "default" && !node.isTypeOnly) values.add(name);
+          for (const name of exported.types) types.add(name);
+        } else throw new Error(`Unbound interface export: ${file}`);
+        continue;
+      }
+      if (ts.isExportAssignment(node)) {
+        if (node.isExportEquals) throw new Error(`Unsupported interface export assignment: ${file}`);
+        values.add("default");
+        continue;
+      }
+      if (!node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+      if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) types.add(node.name.text);
+      else if (ts.isVariableStatement(node)) {
+        const names = (binding) => {
+          if (ts.isIdentifier(binding)) values.add(binding.text);
+          else for (const member of binding.elements) if (ts.isBindingElement(member)) names(member.name);
+        };
+        for (const declaration of node.declarationList.declarations) names(declaration.name);
+      } else if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isEnumDeclaration(node)) {
+        values.add(node.modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ? "default" : node.name.text);
+      } else throw new Error(`Unsupported interface declaration: ${file}`);
+    }
+    return { values, types };
+  };
+  for (const owner of owners) {
+    const declarations = companions.map((extension) => owner.replace(/\.(mjs|sh)$/, extension));
+    const found = declarations.filter((file) => {
+      siblingChecks++;
+      return existsSync(file);
+    });
+    if (found.length > 1) gaps.push(`${owner}: ambiguous companion declarations ${found.join(", ")}`);
+    const runtime = owner.endsWith(".mjs") ? exportsOf(owner) : { values: new Set(), types: new Set() };
+    for (const declaration of found) {
+      const declared = exportsOf(declaration);
+      interfaces.push({ owner, declaration, runtime: [...runtime.values].sort(), declared: [...declared.values].sort(), consumers: [] });
+      for (const name of runtime.values) if (!declared.values.has(name)) gaps.push(`${owner} -> ${declaration}: missing value export ${name}`);
+      for (const name of declared.values) if (!runtime.values.has(name)) gaps.push(`${owner} -> ${declaration}: declaration-only value export ${name}`);
+    }
+    scannedOwners++;
+  }
+  const roots = ["scripts", "deployables", "bounded-contexts", "contracts", "infrastructure", "packages"];
+  const search = spawnSync("git", ["grep", "-l", "-F", ...owners.flatMap((owner) => ["-e", owner.slice(owner.lastIndexOf("/") + 1).replace(/\.(mjs|sh)$/, "")]), "--", ...roots.flatMap((root) => ["ts", "mts", "cts", "tsx"].map((extension) => `:(glob)${root}/**/*.${extension}`))], { encoding: "utf8" });
+  if (search.error || ![0, 1].includes(search.status)) throw new Error(`Typed consumer discovery failed: ${search.error ?? search.stderr}`);
+  const typedFiles = search.stdout.trim().split(/\r?\n/).filter(Boolean);
+  let scannedConsumers = 0;
+  for (const file of typedFiles) {
+    const source = read(file);
+    scannedConsumers++;
+    const imports = ts.preProcessFile(source, true, true).importedFiles;
+    for (const imported of imports) {
+      const target = imported.fileName.startsWith(".") ? local(resolve(dirname(file), imported.fileName)) : null;
+      const matches = interfaces.filter((entry) => target === entry.owner || target === entry.declaration || target?.replace(/\.(?:d\.)?(?:mjs|cjs|js|mts|cts|ts)$/, "") === entry.owner.replace(/\.mjs$/, ""));
+      if (!matches.length) {
+        if (interfaces.some((entry) => imported.fileName.includes(entry.owner.slice(entry.owner.lastIndexOf("/") + 1).replace(/\.mjs$/, ""))))
+          gaps.push(`${file}: unbound typed import ${imported.fileName}`);
+        continue;
+      }
+      let bound = false;
+      for (const node of parseSource(file).statements) {
+        if (!(ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) || node.moduleSpecifier?.text !== imported.fileName) continue;
+        bound = true;
+        const clause = ts.isImportDeclaration(node) ? node.importClause : node;
+        const bindings = ts.isImportDeclaration(node) ? clause?.namedBindings : node.exportClause;
+        const members = bindings && (ts.isNamedImports(bindings) || ts.isNamedExports(bindings)) ? bindings.elements : [];
+        for (const entry of matches) {
+          const values = members.filter((member) => !clause.isTypeOnly && !member.isTypeOnly).map((member) => (member.propertyName ?? member.name).text);
+          if (ts.isImportDeclaration(node) && clause?.name && !clause.isTypeOnly) values.push("default");
+          entry.consumers.push({ file, values, typeOnly: members.filter((member) => clause.isTypeOnly || member.isTypeOnly).map((member) => (member.propertyName ?? member.name).text) });
+          for (const name of values) if (!entry.declared.includes(name)) gaps.push(`${file} -> ${entry.owner} -> ${entry.declaration}: missing imported value ${name}`);
+        }
+      }
+      if (!bound) gaps.push(`${file}: unresolved typed consumer form ${imported.fileName}`);
+    }
+  }
+  return { owners, scannedOwners, totalOwners: owners.length, siblingChecks, scannedConsumers, totalConsumers: typedFiles.length, interfaces, gaps };
+}
+
 describe("workflow composition contract inventory", () => {
+  it("discovers extracted runtime, companion and typed-consumer interfaces and rejects a real-path omitted declaration", () => {
+    const positive = discoverExtractedInterfaces();
+    expect(positive.gaps).toEqual([]);
+    expect(positive.scannedOwners).toBe(positive.totalOwners);
+    expect(positive.scannedOwners).toBeGreaterThan(0);
+    expect(positive.siblingChecks).toBe(positive.totalOwners * 6);
+    expect(positive.scannedConsumers).toBe(positive.totalConsumers);
+    expect(positive.owners).toContain("scripts/fixtures/workflow-composition/harness.mjs");
+    const contract = positive.interfaces.find((entry) => entry.owner === "deployables/platform-api/scripts/db-enrollment-workload.mjs");
+    expect(contract.declaration).toBe("deployables/platform-api/scripts/db-enrollment-workload.d.mts");
+    const member = "resolveHostedPostgresSettings";
+    const consumer = "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts";
+    expect(contract.runtime).toContain(member);
+    expect(contract.consumers).toContainEqual(expect.objectContaining({ file: consumer, values: expect.arrayContaining([member]), typeOnly: expect.arrayContaining(["BootstrapDbWorkloadBaseline"]) }));
+    const original = readFileSync(contract.declaration, "utf8");
+    const tree = ts.createSourceFile(contract.declaration, original, ts.ScriptTarget.Latest, true);
+    const declaration = tree.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === member);
+    expect(declaration).toBeDefined();
+    const omitted = original.slice(0, declaration.getFullStart()) + original.slice(declaration.end);
+    const negative = discoverExtractedInterfaces((file) => file === contract.declaration ? omitted : readFileSync(file, "utf8"));
+    expect(negative.gaps).toEqual([
+      `${contract.owner} -> ${contract.declaration}: missing value export ${member}`,
+      `${consumer} -> ${contract.owner} -> ${contract.declaration}: missing imported value ${member}`,
+    ]);
+    expect(negative.owners).toEqual(positive.owners);
+    const omittedContract = negative.interfaces.find((entry) => entry.owner === contract.owner);
+    expect(omittedContract.runtime).toEqual(contract.runtime);
+    expect(omittedContract.consumers).toEqual(contract.consumers);
+    expect(discoverExtractedInterfaces()).toEqual(positive);
+    console.info("Extracted interface discovery", JSON.stringify({ owners: positive.owners, scannedOwners: positive.scannedOwners, totalOwners: positive.totalOwners, siblingChecks: positive.siblingChecks, scannedConsumers: positive.scannedConsumers, totalConsumers: positive.totalConsumers, interfaces: positive.interfaces, omissionGaps: negative.gaps, restored: true }));
+  });
+
   it("executes the real pre-install PR and merge-group callers with every package resolution denied", () => {
     const outputDir = mkdtempSync(resolve(tmpdir(), "workflow-bootstrap-"));
     const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
