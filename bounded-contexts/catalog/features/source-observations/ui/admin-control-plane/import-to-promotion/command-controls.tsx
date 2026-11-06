@@ -120,7 +120,7 @@ export function CommandHiddenInputs({
       <HiddenInput name="jobId" value={jobIdValue} />
       <HiddenInput
         name="promotionPreviewId"
-        value={readModel.promotionPreview.receipt?.previewId ?? context.promotionPreviewId ?? ""}
+        value={readModel.promotionPreview?.receipt?.previewId ?? context.promotionPreviewId ?? ""}
       />
       <HiddenInput name="scopeRecordId" value={context.scopeRecordId ?? ""} />
       {promotionPhase ? <HiddenInput name="promotionPhase" value={promotionPhase} /> : null}

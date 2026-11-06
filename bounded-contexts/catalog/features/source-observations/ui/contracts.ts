@@ -1,4 +1,6 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
+import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
 import type { ProviderOptionAliasRecord } from "../api/provider-option-aliases";
 import type {
   CatalogMergeCandidateConflict,
@@ -710,6 +712,16 @@ export interface SourceObservationPromotionReceipt {
   };
   preview: SourceObservationPromotionPreview;
 }
+
+/** Ephemeral command outcome; each consuming surface owns its navigation. */
+export type CatalogIntegrationsCommandResult = Readonly<{
+  feedback: CatalogPrimaryWorkbenchCommandFeedback;
+  context: CatalogPrimaryWorkbenchRouteContext;
+  section: string;
+  commandSection?: string;
+  attentionItemKey?: string;
+  promotionReceipt?: SourceObservationPromotionReceipt | null;
+}>;
 
 export type SourceObservationPromotionDisplayIdentityTemplateReason =
   | "unresolved-title-tokens"

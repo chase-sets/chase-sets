@@ -8,6 +8,7 @@ import type {
   CatalogScopeSyncUnitStateReadModel,
   CatalogSyncRun,
   SourceObservationIntegrationImportPreview,
+  CatalogIntegrationsCommandResult,
 } from "./contracts";
 import type { CatalogAliasReviewReadModel } from "../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogDeferredAttentionQueueResult } from "../../attention-queue/api/contracts";
@@ -17,7 +18,6 @@ import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
 import { CatalogIntegrationAliasReviewWorkspace } from "./admin-control-plane/alias-review/alias-review-workspace";
 import { DeferredSupplementaryPanel } from "./deferred-supplementary-panel";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
-import type { CatalogIntegrationsCommandResult } from "../../../support/route-support/admin-integrations/integrations-command-result";
 import {
   projectPromotionReceipt,
   promotionReceiptHasCompleteCoverage,

@@ -10,6 +10,7 @@ import type { CatalogIntegrationsCommandResult } from "../support/route-support/
 import { commandResultNeedsRoutableHandoff } from "../support/route-support/admin-integrations/integrations-command-result";
 import { action as scopeDetailAction } from "../support/route-support/admin-scope-detail/scope-detail-action";
 import { useOriginalPromotionReceipt } from "../features/source-observations/ui/integrations-surface-route-view";
+import { CatalogIntegrationCreateItemsStage } from "../features/source-observations/ui/admin-control-plane/import-to-promotion/create-items-stage";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../features/source-observations/ui/primary-workbench-read-model";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../features/source-observations/ui/primary-workbench-route-context";
 import { catalogPrimaryWorkbenchSourceOptionHref } from "../features/source-observations/ui/primary-workbench-source-option-refresh";
@@ -89,6 +90,46 @@ vi.mock("@chase-sets/platform-runtime/auth", () => ({
   isTransientAuthResolutionError: mockIsTransientAuthResolutionError,
   resolveActorFromAuthApi: mockResolveActorFromAuthApi,
 }));
+
+function readOriginalReceiptDom(node: Element): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  const set = (path: string, value: unknown) => {
+    const parts = path.split(".");
+    let parent = result;
+    for (const part of parts.slice(0, -1)) {
+      parent = (parent[part] ??= {}) as Record<string, unknown>;
+    }
+    parent[parts.at(-1)!] = value;
+  };
+  for (const array of node.querySelectorAll("[data-catalog-receipt-array]")) {
+    set(array.getAttribute("data-catalog-receipt-array")!, []);
+  }
+  const seen = new Set<string>();
+  for (const field of node.querySelectorAll("[data-catalog-receipt-field]")) {
+    const path = field.getAttribute("data-catalog-receipt-field")!;
+    expect(seen.has(path), path).toBe(false);
+    seen.add(path);
+    expect(field.closest("[hidden],input,script")).toBeNull();
+    const kind = field.getAttribute("data-catalog-receipt-kind");
+    const text = field.textContent;
+    expect(["null", "undefined", "empty-string", "number", "boolean", "string"]).toContain(kind);
+    set(
+      path,
+      kind === "null"
+        ? null
+        : kind === "undefined"
+          ? undefined
+          : kind === "empty-string"
+            ? ""
+            : kind === "number"
+              ? Number(text)
+              : kind === "boolean"
+                ? text === "true"
+                : text,
+    );
+  }
+  return result;
+}
 
 describe("Catalog integrations route", () => {
   it("enqueues exact selected product coordinates from the real action without changing compact set meaning", async () => {
@@ -639,9 +680,13 @@ describe("Catalog integrations route", () => {
     const receiptNode = document.querySelector(
       '[data-catalog-promotion-receipt="source-observation-promotion-receipt/v1"]',
     );
-    expect(JSON.parse(receiptNode?.textContent ?? "null")).toEqual(result.promotionReceipt);
+    expect(receiptNode).not.toBeNull();
+    expect(readOriginalReceiptDom(receiptNode!)).toEqual(result.promotionReceipt);
     expect(receiptNode?.textContent).toContain("synthetic-returned-not-submitted");
-    expect(receiptNode?.textContent).not.toContain('"coveredObservationIds":["obs_001"]');
+    expect(
+      receiptNode?.querySelector('[data-catalog-receipt-field="preview.validation.coveredObservationIds.0"]')
+        ?.textContent,
+    ).not.toBe("obs_001");
     expect(receiptNode?.querySelector("img,a,script")).toBeNull();
     expect(receiptNode?.innerHTML).toContain("&lt;img");
     expect(mockUseNavigate).not.toHaveBeenCalled();
@@ -656,6 +701,66 @@ describe("Catalog integrations route", () => {
     expect(document.querySelector("[data-catalog-promotion-receipt]")).toBeNull();
     expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
   });
+
+  it.each(["empty", "partial", "complete"] as const)(
+    "renders the complete typed original receipt for a %s page",
+    (coverage) => {
+      const receipt = syntheticPromotionReceipt();
+      receipt.preview.matched = 3;
+      receipt.preview.eligible = coverage === "empty" ? 0 : 3;
+      receipt.selection.observationIds = ["synthetic-c", "synthetic-a", "synthetic-b"];
+      receipt.preview.validation.coveredObservationIds =
+        coverage === "empty" ? [] : ["synthetic-b", "synthetic-c", "synthetic-a"];
+      receipt.preview.validation.coverage = coverage === "partial" ? "partial" : "complete";
+      receipt.preview.validation.continuation = coverage === "partial" ? "synthetic-next-page" : null;
+      receipt.preview.validation.diagnostics =
+        coverage === "empty"
+          ? []
+          : [
+              {
+                observationId: "synthetic-c",
+                code: "synthetic-warning",
+                path: "facts",
+                diagnosticText: "synthetic-text",
+                blocking: false,
+              },
+              {
+                observationId: "synthetic-a",
+                code: "synthetic-identity",
+                path: "displayIdentity",
+                diagnosticText: "synthetic-identity-text",
+                blocking: false,
+                displayIdentity: {
+                  missingTokens: [],
+                  templateKey: null,
+                  templateTargetKind: null,
+                  templateTargetId: null,
+                  templateReason: "no-targeted-template",
+                },
+              },
+            ];
+      const model = loaderData().readModel;
+      const readModel = {
+        ...model,
+        promotionPreview: { ...model.promotionPreview, previewId: receipt.previewId, receipt },
+      };
+      render(
+        <CatalogIntegrationCreateItemsStage
+          readModel={readModel}
+          selectedObservationIds={receipt.selection.observationIds}
+        />,
+      );
+      const disclosure = screen
+        .getAllByRole("button", { name: /Preview promotion/ })
+        .find((button) => button.hasAttribute("aria-expanded"));
+      fireEvent.click(disclosure!);
+      const node = document.querySelector("[data-catalog-promotion-receipt]");
+      expect(node).not.toBeNull();
+      expect(readOriginalReceiptDom(node!)).toEqual(receipt);
+      expect(node?.querySelector("input,textarea,script,a")).toBeNull();
+      expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+    },
+  );
 
   it("binds confirmation and execute to the action token, invalidates observed drift, and rebinds only a new Preview", async () => {
     window.sessionStorage.clear();
