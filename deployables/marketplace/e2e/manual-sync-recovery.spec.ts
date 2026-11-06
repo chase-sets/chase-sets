@@ -32,10 +32,14 @@ test.describe("manual TCGplayer clamp recovery", () => {
       const storageLocationId = await location.inputValue();
       await page.getByRole("button", { name: "Activate", exact: true }).click();
       await expect(page.getByText("Active", { exact: true })).toBeVisible();
-      const owned = await recoveryListing(page, storageLocationId, (id) => { listingId = id; });
+      const owned = await recoveryListing(page, storageLocationId, (id) => {
+        listingId = id;
+      });
       listingId = owned.listingId;
       const fixture = await createManualSyncBrowserRecovery({
-        ...owned, ownershipId: randomUUID(), createdAfter,
+        ...owned,
+        ownershipId: randomUUID(),
+        createdAfter,
         connectionId: routePath.split("/").at(-1)!,
         channelsDatabaseUrl: testInfo.config.metadata.channelsDatabaseUrl,
         catalogDatabaseUrl: testInfo.config.metadata.catalogDatabaseUrl,
@@ -103,15 +107,17 @@ test.describe("manual TCGplayer clamp recovery", () => {
       } finally {
         try {
           if (listingId) {
-        const response = await page.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`, {
-          data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
-        });
-        expect(response.ok(), "owned recovery Listing cleanup must succeed").toBe(true);
+            const response = await page.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`, {
+              data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
+            });
+            expect(response.ok(), "owned recovery Listing cleanup must succeed").toBe(true);
           }
         } finally {
           if (routePath) {
-        const response = await page.request.post(`/api/channels/connections/${routePath.split("/").at(-1)}/disconnect`);
-        expect(response.ok(), "owned recovery connection cleanup must succeed").toBe(true);
+            const response = await page.request.post(
+              `/api/channels/connections/${routePath.split("/").at(-1)}/disconnect`,
+            );
+            expect(response.ok(), "owned recovery connection cleanup must succeed").toBe(true);
           }
         }
       }
@@ -127,15 +133,28 @@ async function responseJson<Result>(response: APIResponse): Promise<Result> {
 async function recoveryListing(page: Page, storageLocationId: string, created: (id: string) => void) {
   const itemResponse = await page.request.post("/api/inventory/items", {
     headers: { "Inventory-Mutation-Attempt": randomUUID() },
-    data: { catalogItemId: catalogSeedIds.items.onePieceRomanceDawnBoosterBox, selectedOptions: [], storageLocationId, totalQuantity: 2 },
+    data: {
+      catalogItemId: catalogSeedIds.items.onePieceRomanceDawnBoosterBox,
+      selectedOptions: [],
+      storageLocationId,
+      totalQuantity: 2,
+    },
   });
   expect(itemResponse.ok()).toBe(true);
   const item = await responseJson<{ id: string }>(itemResponse);
-  const supplyUrl = appendFreshWriteToken(`/api/marketplace/account/listing-inventory?inventoryItemId=${item.id}`, item);
+  const supplyUrl = appendFreshWriteToken(
+    `/api/marketplace/account/listing-inventory?inventoryItemId=${item.id}`,
+    item,
+  );
   await expect.poll(async () => (await page.request.get(supplyUrl)).status()).toBe(200);
   const createdResponse = await page.request.post("/api/marketplace/account/listings", {
-    data: { idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`, inventoryItemId: item.id,
-      priceAmount: "5.00", priceCurrencyCode: "USD", quantityCap: 1 },
+    data: {
+      idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
+      inventoryItemId: item.id,
+      priceAmount: "5.00",
+      priceCurrencyCode: "USD",
+      quantityCap: 1,
+    },
   });
   expect(createdResponse.ok()).toBe(true);
   const listing = await responseJson<{ id: string; feeQuoteFingerprint: string }>(createdResponse);
@@ -143,28 +162,49 @@ async function recoveryListing(page: Page, storageLocationId: string, created: (
   const listingPath = `/api/marketplace/account/listings/${listing.id}`;
   const detailResponse = await page.request.get(appendFreshWriteToken(listingPath, listing));
   expect(detailResponse.ok()).toBe(true);
-  const detail = await detailResponse.json() as MarketplaceListingDetail;
+  const detail = (await detailResponse.json()) as MarketplaceListingDetail;
   const requirements = detail.evidence_readiness.requirements;
   for (let index = 0; index < Math.max(requirements.minimumPhotoCount, requirements.requiredSlots.length); index++) {
     const slot = requirements.requiredSlots[index];
-    const buffer = await sharp({ create: { width: Math.max(1200, slot?.minimumWidthPixels ?? 0),
-      height: Math.max(1200, slot?.minimumHeightPixels ?? 0), channels: 3, background: { r: 40, g: 90, b: 140 } } }).png().toBuffer();
+    const buffer = await sharp({
+      create: {
+        width: Math.max(1200, slot?.minimumWidthPixels ?? 0),
+        height: Math.max(1200, slot?.minimumHeightPixels ?? 0),
+        channels: 3,
+        background: { r: 40, g: 90, b: 140 },
+      },
+    })
+      .png()
+      .toBuffer();
     const name = `owned-recovery-${index}.png`;
-    const upload = await page.request.post(`${listingPath}/photos`, { multipart: {
-      evidence: { name, mimeType: "image/png", buffer }, listingPhotoAltText: "Owned recovery fixture photo",
-    } });
+    const upload = await page.request.post(`${listingPath}/photos`, {
+      multipart: {
+        evidence: { name, mimeType: "image/png", buffer },
+        listingPhotoAltText: "Owned recovery fixture photo",
+      },
+    });
     expect(upload.ok()).toBe(true);
     const updated = await page.request.get(appendFreshWriteToken(listingPath, await responseJson(upload)));
     expect(updated.ok()).toBe(true);
-    const photo = (await updated.json() as MarketplaceListingDetail).evidence.find((entry) => entry.originalFilename === name);
+    const photo = ((await updated.json()) as MarketplaceListingDetail).evidence.find(
+      (entry) => entry.originalFilename === name,
+    );
     expect(photo).toBeDefined();
     const classified = await page.request.post(`${listingPath}/photos/${photo!.photoId}/classify`, {
-      data: { slotId: slot?.slotId ?? null, viewKind: slot?.viewKind ?? null, altText: "Owned recovery fixture photo", capturedAt: new Date().toISOString() },
+      data: {
+        slotId: slot?.slotId ?? null,
+        viewKind: slot?.viewKind ?? null,
+        altText: "Owned recovery fixture photo",
+        capturedAt: new Date().toISOString(),
+      },
     });
     expect(classified.ok()).toBe(true);
   }
   const published = await page.request.post(`${listingPath}/publish`, {
-    data: { idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`, feeQuoteFingerprint: listing.feeQuoteFingerprint },
+    data: {
+      idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
+      feeQuoteFingerprint: listing.feeQuoteFingerprint,
+    },
   });
   expect(published.ok()).toBe(true);
   return { listingId: listing.id, inventoryItemId: item.id };

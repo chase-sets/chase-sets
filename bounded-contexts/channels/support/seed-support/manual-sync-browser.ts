@@ -23,12 +23,16 @@ export function ownedRecoveryDatabaseUrls(channelsDatabaseUrl: unknown, catalogD
     throw new Error("owned-recovery-database-not-local");
   }
   if (
-    !["postgres:", "postgresql:"].includes(catalog.protocol) || channels.protocol !== catalog.protocol ||
-    !["localhost", "127.0.0.1", "[::1]"].includes(catalog.hostname) || channels.host !== catalog.host ||
-    channels.username !== catalog.username || channels.password !== catalog.password ||
+    !["postgres:", "postgresql:"].includes(catalog.protocol) ||
+    channels.protocol !== catalog.protocol ||
+    !["localhost", "127.0.0.1", "[::1]"].includes(catalog.hostname) ||
+    channels.host !== catalog.host ||
+    channels.username !== catalog.username ||
+    channels.password !== catalog.password ||
     !/^\/cs_[a-z0-9_]+_catalog$/.test(catalog.pathname) ||
     channels.pathname !== catalog.pathname.replace(/_catalog$/, "_channels")
-  ) throw new Error("owned-recovery-database-not-local");
+  )
+    throw new Error("owned-recovery-database-not-local");
   const marketplace = new URL(catalog);
   marketplace.pathname = catalog.pathname.replace(/_catalog$/, "_marketplace");
   const inventory = new URL(catalog);
@@ -38,10 +42,13 @@ export function ownedRecoveryDatabaseUrls(channelsDatabaseUrl: unknown, catalogD
 
 // Test-only additive seam authorized by https://github.com/chase-sets/chase-sets/issues/11115.
 // Native sign-in, Listing publication and connection activation remain caller prerequisites.
-export async function createManualSyncBrowserRecovery(input: BrowserRecoveryFixtureInput & Readonly<{
-  channelsDatabaseUrl: unknown;
-  catalogDatabaseUrl: unknown;
-}>) {
+export async function createManualSyncBrowserRecovery(
+  input: BrowserRecoveryFixtureInput &
+    Readonly<{
+      channelsDatabaseUrl: unknown;
+      catalogDatabaseUrl: unknown;
+    }>,
+) {
   if (process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true") throw new Error("owned-recovery-web-server-required");
   const urls = ownedRecoveryDatabaseUrls(input.channelsDatabaseUrl, input.catalogDatabaseUrl);
   const pools = {
@@ -50,13 +57,19 @@ export async function createManualSyncBrowserRecovery(input: BrowserRecoveryFixt
     inventory: createPgPool(urls.inventory.toString(), { max: 2 }),
   };
   try {
-    const marketplace = marketplaceModule.createServices(pools.marketplace);
+    const marketplace = marketplaceModule.createServices(pools.marketplace, {});
     const services = channelsModule.createServices(pools.channels, {
       channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, browserRecoveryContext),
     });
-    return await createBrowserRecoveryFixture(pools.channels, services, {
-      pool: pools.marketplace, listings: marketplace.listings,
-    }, input);
+    return await createBrowserRecoveryFixture(
+      pools.channels,
+      services,
+      {
+        pool: pools.marketplace,
+        listings: marketplace.listings,
+      },
+      input,
+    );
   } finally {
     await Promise.all(Object.values(pools).map((pool) => (pool as unknown as Pool).end()));
   }

@@ -46,10 +46,17 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
     const submissionOrder: string[] = [];
     let releaseScript!: () => void;
     let observedScript!: () => void;
-    const scriptGate = new Promise<void>((resolve) => { releaseScript = resolve; });
-    const scriptObserved = new Promise<void>((resolve) => { observedScript = resolve; });
+    const scriptGate = new Promise<void>((resolve) => {
+      releaseScript = resolve;
+    });
+    const scriptObserved = new Promise<void>((resolve) => {
+      observedScript = resolve;
+    });
     const delayScript = async (route: import("@playwright/test").Route) => {
-      if (route.request().resourceType() === "script" && new URL(route.request().url()).origin === new URL(page.url()).origin) {
+      if (
+        route.request().resourceType() === "script" &&
+        new URL(route.request().url()).origin === new URL(page.url()).origin
+      ) {
         observedScript();
         await scriptGate;
       }
@@ -86,7 +93,8 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
     submissionOrder.push("option-injected");
     await provider.selectOption("unregistered");
     const invalidResponse = page.waitForResponse(
-      (response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/account/channels.data",
+      (response) =>
+        response.request().method() === "POST" && new URL(response.url()).pathname === "/account/channels.data",
     );
     await page.getByRole("button", { name: "Connect a channel", exact: true }).click();
     await invalidResponse;
@@ -95,7 +103,13 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
     page.off("request", trackInvalidPost);
     expect(invalidPosts).toHaveLength(1);
     expect(new URLSearchParams(invalidPosts[0]).get("providerKey")).toBe("unregistered");
-    expect(submissionOrder).toEqual(["hydration-held", "hydrated-navigation", "option-injected", "post", "refusal-visible"]);
+    expect(submissionOrder).toEqual([
+      "hydration-held",
+      "hydrated-navigation",
+      "option-injected",
+      "post",
+      "refusal-visible",
+    ]);
     expect(await connectionIds(page), "the refused provider must create no connection").toEqual(connectionsBefore);
     await expect(page).toHaveURL(/\/account\/channels(?:\?|$)/);
     await testInfo.attach("channel-invalid-provider-order", {
@@ -176,7 +190,7 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
             return listingId!;
           });
           const queuedListingIds = await rows.locator("td:nth-child(2)").allTextContents();
-          return ownedPublicationCounts(queuedListingIds, listingIds);
+          return ownedPublicationCounts(queuedListingIds, listingIds, new URL(page.url()).pathname, firstPath);
         },
         { message: "the publication pipeline must queue both published seller listings", timeout: 60_000 },
       )
@@ -237,21 +251,32 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
 
 async function hydratedChannelForm(page: Page) {
   // A real client navigation replaces the server-rendered form only after hydration.
-  const loaded = page.waitForResponse((response) => response.request().method() === "GET" &&
-    new URL(response.url()).pathname === "/account/channels.data");
+  const loaded = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" && new URL(response.url()).pathname === "/account/channels.data",
+  );
   await page.locator('main a[href="/account/channels?status=active"]').click();
   await loaded;
   await expect(page).toHaveURL(/\/account\/channels\?status=active$/);
-  const returned = page.waitForResponse((response) => response.request().method() === "GET" &&
-    new URL(response.url()).pathname === "/account/channels.data");
+  const returned = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" && new URL(response.url()).pathname === "/account/channels.data",
+  );
   await page.locator('main a[href="/account/channels"]').click();
   await returned;
   await expect(page).toHaveURL(/\/account\/channels$/);
   await expect(page.getByRole("combobox", { name: "Sales Channel", exact: true })).toBeVisible();
 }
 
-function ownedPublicationCounts(queuedListingIds: readonly string[], ownedListingIds: readonly string[]) {
-  if (ownedListingIds.length !== 2 || new Set(ownedListingIds).size !== 2) throw new Error("Two distinct owned Listings required");
+function ownedPublicationCounts(
+  queuedListingIds: readonly string[],
+  ownedListingIds: readonly string[],
+  actualConnectionPath: string,
+  ownedConnectionPath: string,
+) {
+  if (actualConnectionPath !== ownedConnectionPath) throw new Error("Owned connection publication log required");
+  if (ownedListingIds.length !== 2 || new Set(ownedListingIds).size !== 2)
+    throw new Error("Two distinct owned Listings required");
   return ownedListingIds.map((id) => queuedListingIds.filter((queued) => queued.trim() === id).length);
 }
 
@@ -260,9 +285,11 @@ async function connectionIds(page: Page) {
   const cursors = new Set<string>();
   let cursor: string | undefined;
   do {
-    const response = await page.request.get(`/api/channels/connections${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
+    const response = await page.request.get(
+      `/api/channels/connections${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    );
     expect(response.status()).toBe(200);
-    const result = await response.json() as { items: { connectionId: string }[]; nextCursor?: string };
+    const result = (await response.json()) as { items: { connectionId: string }[]; nextCursor?: string };
     ids.push(...result.items.map((item) => item.connectionId));
     cursor = result.nextCursor;
     if (cursor && cursors.has(cursor)) throw new Error("connection census cursor repeated");

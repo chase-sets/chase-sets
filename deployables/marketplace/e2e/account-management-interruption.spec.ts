@@ -27,6 +27,25 @@ async function profileForm(page: Page) {
   return form;
 }
 
+function ownedShippingLabels(size: string, ownershipId: string) {
+  return { first: `Synthetic ${size} first ${ownershipId}`, second: `Synthetic ${size} second ${ownershipId}` };
+}
+
+async function cancelOwnedInvitation(page: Page, email: string) {
+  const row = page
+    .getByText(email, { exact: true })
+    .locator('xpath=ancestor::*[.//button[normalize-space()="Cancel"]][1]');
+  await row.getByRole("button", { name: "Cancel", exact: true }).click();
+  const form = page.locator('form:has(input[name="intent"][value="cancel-invitation"])');
+  const invitationId = await form.locator('input[name="invitationId"]').inputValue();
+  expect(invitationId).toBeTruthy();
+  await form.getByRole("button", { name: "Confirm cancellation", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText(email, { exact: true })).toBeVisible();
+  await expect(page.locator(`input[name="invitationId"][value="${invitationId}"]`)).toHaveCount(0);
+}
+
 test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
   test.beforeEach(async ({ page, baseURL }, testInfo) => {
     if (!baseURL) throw new Error("Marketplace base URL is required");
@@ -54,7 +73,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await page.goto("/account/security");
     const profile = page.locator('form:has(input[name="intent"][value="update-user"])');
     const original = syntheticActor(testInfo).displayName;
-    if (await profile.getByLabel(/^Display name$/i).inputValue() !== original) {
+    if ((await profile.getByLabel(/^Display name$/i).inputValue()) !== original) {
       await profile.getByLabel(/^Display name$/i).fill(original);
       await profile.getByRole("button", { name: /^Update profile$/i }).click();
       await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
@@ -215,6 +234,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await expect(page).toHaveURL(/\/account\/team\?afterWrite=/);
     await page.reload();
     await expect(page.getByText(invitationEmail, { exact: true })).toBeVisible();
+    await cancelOwnedInvitation(page, invitationEmail);
   });
 
   for (const [outcome, status, message] of [
@@ -467,7 +487,9 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     const homeLabel = `Synthetic home ${ownership}`;
     const updatedLabel = `Updated synthetic home ${ownership}`;
     const addressCard = (label: string) =>
-      page.getByText(label, { exact: true }).locator('xpath=ancestor::*[.//button[normalize-space()="Update address"]][1]');
+      page
+        .getByText(label, { exact: true })
+        .locator('xpath=ancestor::*[.//button[normalize-space()="Update address"]][1]');
     const writes: string[] = [];
     let tokens = 0;
     page.on("request", async (request) => {
@@ -500,11 +522,13 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await create.locator('input[name="label"]').fill(label);
     }
     await fillCreate(defaultLabel);
+    await create.locator('select[name="makeDefault"]').selectOption("true");
     await create.getByRole("button", { name: "Save address", exact: true }).click();
     await expect(page).toHaveURL(/\/account\/shipping-addresses\?afterWrite=/);
     await expect(page.getByText(defaultLabel, { exact: true })).toBeVisible();
     expect(tokens).toBe(1);
     await fillCreate(homeLabel);
+    await create.locator('select[name="makeDefault"]').selectOption("false");
     await create.getByRole("button", { name: "Save address", exact: true }).click();
     await expect(page.getByText(homeLabel, { exact: true })).toBeVisible();
     expect(tokens).toBe(2);
@@ -541,6 +565,11 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await expect(page.getByText(defaultLabel, { exact: true })).toBeVisible();
     expect(tokens).toBe(5);
     expect(writes).toEqual(["create", "create", "update", "default", "archive"]);
+    await addressCard(defaultLabel).getByRole("button", { name: "Archive", exact: true }).click();
+    const cleanup = page.locator('form:has(input[name="intent"][value="archive"])');
+    expect(await cleanup.locator('input[name="shippingAddressId"]').inputValue()).not.toBe(target);
+    await cleanup.getByRole("button", { name: "Archive", exact: true }).click();
+    await expect(page.getByText(defaultLabel, { exact: true })).toHaveCount(0);
   });
 
   test("shipping field errors focus the submitted form @marketplace-account 360x800", async ({ page }, testInfo) => {
@@ -679,18 +708,19 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await page.setViewportSize(viewport);
     await page.reload();
     const size = `${viewport.width}x${viewport.height}`;
-    await fillCreate(`Synthetic ${size} first`, " ");
+    const ownedLabels = ownedShippingLabels(size, randomUUID());
+    await fillCreate(ownedLabels.first, " ");
     await checkSummary(await submitOnce(create), size, "create");
     await dropSummaryLinkFragment();
     await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-create-360" });
-    for (const suffix of ["first", "second"]) {
-      const label = `Synthetic ${size} ${suffix}`;
+    for (const suffix of ["first", "second"] as const) {
+      const label = ownedLabels[suffix];
       await fillCreate(label);
       const before = await submitOnce(create);
       await expect(page.getByText(label, { exact: true })).toBeVisible();
       expect(posts - before).toBe(1);
     }
-    const label = `Synthetic ${size} second`;
+    const label = ownedLabels.second;
     const row = page.getByText(label, { exact: true }).locator("..").locator("..");
     await row.getByRole("button", { name: "Update address", exact: true }).click();
     const dialog = page.getByRole("dialog");
@@ -741,7 +771,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await revalidate();
       expect(posts - before).toBe(1);
       transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
-      const firstLabel = `Synthetic ${size} first`;
+      const firstLabel = ownedLabels.first;
       const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
       await firstRow.getByRole("button", { name: "Archive", exact: true }).click();
       await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
@@ -894,16 +924,17 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await page.setViewportSize(viewport);
     await page.reload();
     const size = `${viewport.width}x${viewport.height}`;
-    await fillCreate(`Synthetic ${size} first`, " ");
+    const ownedLabels = ownedShippingLabels(size, randomUUID());
+    await fillCreate(ownedLabels.first, " ");
     await checkSummary(await submitOnce(create), size, "create");
-    for (const suffix of ["first", "second"]) {
-      const label = `Synthetic ${size} ${suffix}`;
+    for (const suffix of ["first", "second"] as const) {
+      const label = ownedLabels[suffix];
       await fillCreate(label);
       const before = await submitOnce(create);
       await expect(page.getByText(label, { exact: true })).toBeVisible();
       expect(posts - before).toBe(1);
     }
-    const label = `Synthetic ${size} second`;
+    const label = ownedLabels.second;
     const row = page.getByText(label, { exact: true }).locator("..").locator("..");
     await row.getByRole("button", { name: "Update address", exact: true }).click();
     const dialog = page.getByRole("dialog");
@@ -956,7 +987,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await revalidate();
       expect(posts - before).toBe(1);
       transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
-      const firstLabel = `Synthetic ${size} first`;
+      const firstLabel = ownedLabels.first;
       const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
       await firstRow.getByRole("button", { name: "Archive", exact: true }).click();
       await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
@@ -1109,16 +1140,17 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await page.setViewportSize(viewport);
     await page.reload();
     const size = `${viewport.width}x${viewport.height}`;
-    await fillCreate(`Synthetic ${size} first`, " ");
+    const ownedLabels = ownedShippingLabels(size, randomUUID());
+    await fillCreate(ownedLabels.first, " ");
     await checkSummary(await submitOnce(create), size, "create");
-    for (const suffix of ["first", "second"]) {
-      const label = `Synthetic ${size} ${suffix}`;
+    for (const suffix of ["first", "second"] as const) {
+      const label = ownedLabels[suffix];
       await fillCreate(label);
       const before = await submitOnce(create);
       await expect(page.getByText(label, { exact: true })).toBeVisible();
       expect(posts - before).toBe(1);
     }
-    const label = `Synthetic ${size} second`;
+    const label = ownedLabels.second;
     const row = page.getByText(label, { exact: true }).locator("..").locator("..");
     await row.getByRole("button", { name: "Update address", exact: true }).click();
     const dialog = page.getByRole("dialog");
@@ -1171,7 +1203,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
       await dropSummaryLinkFragment();
       await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-removed-row-1024" });
-      const firstLabel = `Synthetic ${size} first`;
+      const firstLabel = ownedLabels.first;
       const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
       await firstRow.getByRole("button", { name: "Archive", exact: true }).click();
       await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
@@ -1235,9 +1267,13 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await page.getByRole("dialog").getByRole("button", { name: /close/i }).click();
     const invite = page.locator('form:has(input[name="intent"][value="create-invitation"])');
     await expect(invite.getByRole("button", { name: "Invite", exact: true })).toBeEnabled();
-    await invite.getByLabel("Email", { exact: true }).fill(`synthetic-held-invite-${randomUUID()}@example.test`);
+    const invitationEmail = `synthetic-held-invite-${randomUUID()}@example.test`;
+    await invite.getByLabel("Email", { exact: true }).fill(invitationEmail);
     await invite.getByRole("button", { name: "Invite", exact: true }).click();
     await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
     expect(methods).toEqual(["POST", "GET", "POST"]);
+    await page.unroute("**/account/team.data");
+    await page.unroute("**/api/identity/account-management/attempts?*");
+    await cancelOwnedInvitation(page, invitationEmail);
   });
 });

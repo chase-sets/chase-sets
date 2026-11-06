@@ -313,7 +313,8 @@ describe("marketplace account lifecycle probe joins", () => {
     expect(evaluateRepairedHead(input)).toEqual({ proven: true, reasons: [] });
     const sibling = supportPath.replace(/\.[^.]+$/, ".unlisted.ts");
     expect(evaluateRepairedHead({ ...input, changedPaths: [probeRepairPaths[2], sibling] })).toEqual({
-      proven: false, reasons: [`product tree changed beyond the bound repair footprint: ${sibling}`],
+      proven: false,
+      reasons: [`product tree changed beyond the bound repair footprint: ${sibling}`],
     });
   });
 

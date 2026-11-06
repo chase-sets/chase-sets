@@ -878,7 +878,10 @@ test.describe("marketplace critical flows", () => {
         (response) =>
           new URL(response.url()).pathname === "/api/identity/preferences" && response.request().method() === "PUT",
       );
-      await colorTheme.locator("label").filter({ hasText: new RegExp(`^${choice === "light" ? "Light" : "Dark"}$`) }).click();
+      await colorTheme
+        .locator("label")
+        .filter({ hasText: new RegExp(`^${choice === "light" ? "Light" : "Dark"}$`) })
+        .click();
       expect((await preferencesResponse).status()).toBe(200);
       await expect(colorTheme.locator(`input[data-theme-choice="${choice}"]`)).toBeChecked();
       await waitForPreferences(page, { colorMode: choice });
