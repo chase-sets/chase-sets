@@ -169,9 +169,38 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   promotionPreview: CatalogPrimaryWorkbenchPromotionPreviewReadModel;
   promotionResult: CatalogPrimaryWorkbenchPromotionResultReadModel | null;
   actions: readonly CatalogPrimaryWorkbenchActionReadModel[];
+  flow: CatalogPrimaryWorkbenchFlowReadModel;
+  dailyStatus: CatalogPrimaryWorkbenchDailyStatusReadModel;
   deploySkew: CatalogPrimaryWorkbenchDeploySkewPolicy;
   securityPrivacy: CatalogPrimaryWorkbenchSecurityPrivacyReadModel;
   instrumentation: CatalogPrimaryWorkbenchInstrumentationReadModel;
+}>;
+
+// The daily flow's three ordered stages: Run sync, Review changes, Create / update items.
+export type CatalogPrimaryWorkbenchFlowStageKey = "run-sync" | "review-changes" | "create-items";
+
+export type CatalogPrimaryWorkbenchFlowStageState = "blocked" | "current" | "complete" | "upcoming";
+
+// Each stage's facts and its state with `openStage` open. `openStage` is the
+// route section's stage, else the first stage that still has work. A client
+// that lets the operator open another stage derives the states for it with
+// `catalogPrimaryWorkbenchFlowStageState` from `blocked` and `done`.
+export type CatalogPrimaryWorkbenchFlowReadModel = Readonly<{
+  openStage: CatalogPrimaryWorkbenchFlowStageKey;
+  stages: readonly Readonly<{
+    key: CatalogPrimaryWorkbenchFlowStageKey;
+    blocked: boolean;
+    done: boolean;
+    state: CatalogPrimaryWorkbenchFlowStageState;
+  }>[];
+}>;
+
+// The daily route's two status banners. Governance is denied (RBAC) before
+// stopped (rollout or kill switch); health is blocked by a blocking transport
+// before degraded. Null means the banner is not shown.
+export type CatalogPrimaryWorkbenchDailyStatusReadModel = Readonly<{
+  governance: "denied" | "stopped" | null;
+  health: "blocked" | "degraded" | null;
 }>;
 
 export type CatalogPrimaryWorkbenchActionReadModel = Readonly<{

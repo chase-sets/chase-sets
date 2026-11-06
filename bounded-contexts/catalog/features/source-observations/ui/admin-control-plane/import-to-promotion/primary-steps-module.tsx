@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { PageStepper, type PageStepperItem } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
+import { catalogPrimaryWorkbenchFlowStageState } from "../../primary-workbench-daily-flow";
 import type { ImportToPromotionStageKey } from "./use-import-to-promotion-workspace";
 
 export type PrimaryWorkbenchStageDescriptor = Readonly<{
@@ -12,21 +13,15 @@ export type PrimaryWorkbenchStageDescriptor = Readonly<{
   status: PageStepperItem["status"];
 }>;
 
-// Derive the three ordered stages and each stage's status (complete / current /
-// upcoming / blocked) from the read model. The active stage is "current"; stages
-// behind it are "complete"; stages with blockers surface as "blocked".
+// The three ordered stages with their copy, and each stage's status from the
+// read model's flow with `activeStage` open (the read model's open stage unless
+// the operator opened another).
 export function buildFlowStages(
   readModel: CatalogPrimaryWorkbenchReadModel,
   activeStage: ImportToPromotionStageKey,
 ): readonly PrimaryWorkbenchStageDescriptor[] {
   const review = readModel.sourceObservationReview;
-  const runSyncBlocked = readModel.readiness.blockers.length > 0;
-  const createBlocked = readModel.promotionPreview.blockers.length > 0;
-  const syncDone = readModel.importJobs.jobs.length > 0 || review.counts.changed > 0;
   const createDone = Boolean(readModel.promotionResult);
-
-  const order: ImportToPromotionStageKey[] = ["run-sync", "review-changes", "create-items"];
-  const activeIndex = order.indexOf(activeStage);
 
   const descriptors: Record<ImportToPromotionStageKey, Omit<PrimaryWorkbenchStageDescriptor, "status">> = {
     "run-sync": {
@@ -60,28 +55,13 @@ export function buildFlowStages(
     },
   };
 
-  const blockedByStage: Record<ImportToPromotionStageKey, boolean> = {
-    "run-sync": runSyncBlocked,
-    "review-changes": false,
-    "create-items": createBlocked,
-  };
-  const doneByStage: Record<ImportToPromotionStageKey, boolean> = {
-    "run-sync": syncDone,
-    "review-changes": review.promotionReadyCount === 0 && (createDone || syncDone),
-    "create-items": createDone,
-  };
-
-  return order.map((key, index) => {
-    const status: PageStepperItem["status"] = blockedByStage[key]
-      ? "blocked"
-      : index === activeIndex
-        ? "current"
-        : index < activeIndex || doneByStage[key]
-          ? "complete"
-          : "upcoming";
-
-    return { ...descriptors[key], status };
-  });
+  return readModel.flow.stages.map((stage) => ({
+    ...descriptors[stage.key],
+    status:
+      activeStage === readModel.flow.openStage
+        ? stage.state
+        : catalogPrimaryWorkbenchFlowStageState(stage, activeStage),
+  }));
 }
 
 // The ordered three-stage stepper. Renders the flow as an explicit, linear

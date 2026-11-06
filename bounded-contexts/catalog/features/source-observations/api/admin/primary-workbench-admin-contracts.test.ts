@@ -29,6 +29,10 @@ import type {
   CatalogPrimaryWorkbenchCommandKey,
   CatalogPrimaryWorkbenchCopyKey,
   CatalogPrimaryWorkbenchActionContract,
+  CatalogPrimaryWorkbenchFlowStageKey,
+  CatalogPrimaryWorkbenchFlowStageState,
+  CatalogPrimaryWorkbenchFlowReadModel,
+  CatalogPrimaryWorkbenchDailyStatusReadModel,
   CatalogPrimaryWorkbenchInstrumentationDimension,
   CatalogPrimaryWorkbenchSectionContract,
   CatalogPrimaryWorkbenchBlockerContract,
@@ -1281,6 +1285,7 @@ describe("Catalog primary workbench admin contracts", () => {
           { key: "status", label: "Status", value: "changed", serverApplied: true },
         ],
         savedFilters,
+        statusFilters: [{ value: "all", count: 1, href: "/catalog/integrations?providerKey=tcgdex" }],
         pagination: {
           mode: "offset",
           limit: 25,
@@ -1288,6 +1293,8 @@ describe("Catalog primary workbench admin contracts", () => {
           total: 1,
           nextCursor: null,
           previousCursor: null,
+          previousHref: null,
+          nextHref: null,
         },
         bulkSelection: {
           selectedCount: 1,
@@ -1564,6 +1571,15 @@ describe("Catalog primary workbench admin contracts", () => {
           copyKey: null,
         },
       ],
+      flow: {
+        openStage: "review-changes",
+        stages: [
+          { key: "run-sync", blocked: false, done: true, state: "complete" },
+          { key: "review-changes", blocked: false, done: false, state: "current" },
+          { key: "create-items", blocked: false, done: false, state: "upcoming" },
+        ],
+      },
+      dailyStatus: { governance: null, health: "degraded" },
       deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
       securityPrivacy: {
         redactionApplied: true,
@@ -1649,7 +1665,7 @@ describe("Catalog primary workbench admin contracts", () => {
     ).toBe("");
     const reexports = facadeReexports(facadeSource);
     expect(reexports.filter((entry) => !entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(13);
-    expect(reexports.filter((entry) => entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(107);
+    expect(reexports.filter((entry) => entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(111);
     expect(
       reexports
         .flatMap(({ typeOnly, names, from }) => names.map((name) => `${typeOnly ? "type " : ""}${name} <- ${from}`))
@@ -2862,6 +2878,10 @@ const workbenchOwnerCensus: Readonly<Record<WorkbenchOwner, WorkbenchOwnerCensus
     types: [
       "CatalogPrimaryWorkbenchReadModel",
       "CatalogPrimaryWorkbenchActionReadModel",
+      "CatalogPrimaryWorkbenchFlowStageKey",
+      "CatalogPrimaryWorkbenchFlowStageState",
+      "CatalogPrimaryWorkbenchFlowReadModel",
+      "CatalogPrimaryWorkbenchDailyStatusReadModel",
       "CatalogPrimaryWorkbenchSecurityPrivacyReadModel",
       "CatalogPrimaryWorkbenchInstrumentationReadModel",
       "CatalogPrimaryWorkbenchActionState",
