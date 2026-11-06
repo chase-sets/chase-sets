@@ -27,6 +27,9 @@ import {
   sessionGenerationCapabilityReport,
 } from "../bounded-contexts/auth/features/sessions/domain/session-generation.ts";
 import { classifyDeploymentRootCause, DEPLOY_ROOT_CAUSE_CODES } from "./platform-deploy-incident.mjs";
+import { module as authModule } from "../bounded-contexts/auth/index.ts";
+import { SESSION_GENERATION_CAPABILITY_VERSION as COMPILED_SESSION_GENERATION_CAPABILITY_VERSION } from "../bounded-contexts/auth/server.ts";
+import { readSessionGenerationCapability } from "../deployables/platform-api/scripts/report-session-generation-capability.mts";
 
 const secretMarker = "synthetic-secret-marker-7f3c";
 
@@ -675,6 +678,67 @@ describe("revocation-floor serving membership and admission", () => {
     expect(permanent.spec.validations[0].expression).toContain(imageDigest);
     expect(permanent.spec.validations[0].expression).toContain("c.image.endsWith('@' + d)");
     expect(permanent.metadata.annotations["chase-sets.com/revocation-minimum-commit"]).toBe(input.minimumCommit);
+  });
+});
+
+describe("pod Session Generation capability reporter", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const reporter = "deployables/platform-api/scripts/report-session-generation-capability.mts";
+  const identity = {
+    CHASE_SETS_IMPLEMENTATION_SHA: "f".repeat(40),
+    CHASE_SETS_DEPLOYMENT_INSTANCE: "synthetic-session-generation-reporter-release",
+  };
+  const schemaLedger = authModule.schemaMigrations.map((migration) => migration.migrationId);
+  const expected = {
+    schemaVersion: "auth-session-generation-capability/v1",
+    capabilityVersion: COMPILED_SESSION_GENERATION_CAPABILITY_VERSION,
+    commit: identity.CHASE_SETS_IMPLEMENTATION_SHA,
+    release: identity.CHASE_SETS_DEPLOYMENT_INSTANCE,
+    schemaLedger,
+  };
+
+  it("reports synthetic identity with Auth's real compiled capability and complete ordered migration ledger", () => {
+    expect(schemaLedger).toContain(AUTH_SESSION_GENERATION_SCHEMA_MIGRATION_ID);
+    expect(readSessionGenerationCapability(identity)).toEqual(expected);
+  });
+
+  it.each([
+    ["missing", {}],
+    ["undefined", { CHASE_SETS_IMPLEMENTATION_SHA: undefined, CHASE_SETS_DEPLOYMENT_INSTANCE: undefined }],
+    ["empty", { CHASE_SETS_IMPLEMENTATION_SHA: "", CHASE_SETS_DEPLOYMENT_INSTANCE: "" }],
+  ])("reports null identity for %s values without losing Auth metadata", (_name, env) => {
+    expect(readSessionGenerationCapability(env)).toEqual({ ...expected, commit: null, release: null });
+  });
+
+  function runReporter(args = []) {
+    const necessities = Object.fromEntries(
+      ["SystemRoot", "WINDIR", "TEMP", "TMP"].flatMap((key) =>
+        process.env[key] === undefined ? [] : [[key, process.env[key]]],
+      ),
+    );
+    return spawnSync(process.execPath, ["--import", "tsx", reporter, ...args], {
+      cwd: root,
+      env: { ...necessities, TSX_DISABLE_CACHE: "1", ...identity },
+      encoding: "utf8",
+    });
+  }
+
+  it("runs the real tsx CLI and emits exactly one newline-terminated JSON record", () => {
+    const child = runReporter();
+    expect(child.error).toBeUndefined();
+    expect(child.signal).toBeNull();
+    expect(child.status).toBe(0);
+    expect(child.stderr).toBe("");
+    expect(child.stdout).toBe(`${JSON.stringify(expected)}\n`);
+  });
+
+  it("refuses an extra CLI argument without emitting a report", () => {
+    const child = runReporter(["synthetic-unexpected-argument"]);
+    expect(child.error).toBeUndefined();
+    expect(child.signal).toBeNull();
+    expect(child.status).toBe(1);
+    expect(child.stdout).toBe("");
+    expect(child.stderr).toBe("revocation_activation_arguments_invalid\n");
   });
 });
 
