@@ -3693,7 +3693,7 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     assert!(
         html.contains("ui.dialog.failed(")
             && html.contains(
-                r#"<div role="alert"><div data-ref="said" class="alert__alert alert__destructive alert__soft" hidden><p>That did not go through, and may not have been saved. Check and try again.</p></div></div>"#
+                r#"<div role="alert" class="alert__region"><div data-ref="said" class="alert__alert alert__destructive alert__soft" hidden><p>That did not go through, and may not have been saved. Check and try again.</p></div></div>"#
             ),
         "a park that gets no answer is said in the sheet, hidden until then: {html}"
     );
