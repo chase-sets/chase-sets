@@ -248,7 +248,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `a8c50d41` (Corten `main` on 2026-11-06), whose framework package is
+`Cargo.toml` pins Corten to `ff1701b8` (Corten `main` on 2026-11-06), whose framework package is
 `corten-run` (the library is still `corten`). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -286,7 +286,7 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 
 ### Corten
 
-None in the apps' code at this pin. The pilot's CI job requires `tsc` on the PATH before `corten check`, because `corten check` passes without it ([corten-run/corten#1013 corten check exits 0 when tsc is not installed, so a CI job without TypeScript passes with every script unchecked](https://github.com/corten-run/corten/issues/1013)); remove that step when the fix lands.
+None open. The pilot has no Corten workaround in its code at this pin.
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 

@@ -7901,7 +7901,7 @@ async fn a_new_or_rotated_key_shows_its_secret_once_in_the_writes_own_answer() {
     assert!(
         html.contains(
             r#"<button data-scope="ui-copy-button" type="button" class="security-page__button security-page__primary" hidden"#
-        ) && html.contains("ui.copy_button.copy($t,&quot;secret&quot;,@said,&quot;Copied&quot;)"),
+        ) && html.contains("ui.copy_button.copy($t,&quot;secret&quot;,@said,&quot;Copied&quot;,$s)"),
         "Copy is corten-ui's, shown by its script, and copies the secret by its id: {html}"
     );
     assert!(!html.contains("data-corten-read-again"), "never reads itself again while it shows a secret");

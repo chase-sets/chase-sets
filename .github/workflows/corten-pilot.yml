@@ -55,9 +55,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: node --import tsx deployables/corten-pilot/scripts/export.mjs --check
 
-      # corten check type-checks each app's scripts with tsc from the PATH, and passes without it,
-      # so the repo's TypeScript is put on the PATH and required here. Remove this step when
-      # https://github.com/corten-run/corten/issues/1013 makes corten check fail without tsc.
+      # corten check type-checks each app's scripts with tsc from the PATH, and fails without it.
       - name: TypeScript on the PATH for corten check
         run: |
           set -euo pipefail
