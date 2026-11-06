@@ -11,6 +11,7 @@
 //! | `POST /catalog/integrations/jobs/{id}?<context>` | retries, resumes or cancels an import job |
 //! | `POST /catalog/integrations/review?<context>` | defers or rejects the checked Source Observations |
 //! | `POST /catalog/integrations/candidates/{id}?<context>` | ignores or defers a merge candidate |
+//! | `POST /catalog/integrations/aliases?<context>` | accepts, rejects, revokes or defers alias candidates |
 //!
 //! The context is the address's query as admin-web names it (`providerKey`, `unitKey`,
 //! `importScope`, `filter.status`, `reviewOffset` and the rest); the pilot passes it to the API
@@ -24,7 +25,13 @@
 //! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. Merge candidate edits and
 //! splits open on admin-web until the API applies them to the stored snapshot rather than storing the
 //! page's (chase-sets/chase-sets#11078); the evidence sheets until the API serves their detail
-//! (chase-sets/chase-sets#11079); and the deferred import preview and alias review panels too.
+//! (chase-sets/chase-sets#11079); and the import preview until the API builds its scope
+//! (chase-sets/chase-sets#11082).
+//!
+//! The review stage folds the alias review of the provider and profile version the surface names
+//! (`GET /api/catalog/alias-review?providerKey=&sourceProfileVersion=`, admin-web's deferred
+//! `selectedScopeAliasReview`), left out when it does not read, and posts its commands to the alias
+//! review's own (`POST .../alias-review/commands`).
 //!
 //! Above the steps the import context bar ([`super::views::ImportContext`]) chooses the provider,
 //! the unit, the scope and the profile version from the surface's provider scope and its deferred
@@ -95,6 +102,10 @@ pub mod url {
     /// Reloads or refreshes the provider's source options, then lands on the working set.
     #[route("/catalog/integrations/source-options", post = crate::catalog::daily::source_options_refresh)]
     pub struct SourceOptions;
+
+    /// An alias candidate's command in the review stage's alias review.
+    #[route("/catalog/integrations/aliases", post = crate::catalog::daily::aliases)]
+    pub struct Aliases;
 }
 
 /// What a command did, for the page it redirects to (admin-web's `CatalogCommandFeedbackBanner`).
@@ -830,6 +841,8 @@ pub struct DailyScreen {
     /// The provider's populated source options; none when that read fails, and the bar draws the
     /// surface's skeleton.
     pub options: Option<SourceOptions>,
+    /// The alias review of the surface's provider and profile version; none when it does not read.
+    pub aliases: Option<super::api::AliasReview>,
 }
 
 impl DailyScreen {
@@ -890,6 +903,32 @@ async fn unit_states(caller: &Caller<'_>, read: &DailyRead) -> Vec<UnitState> {
         }
     }
 }
+/// The alias review's query for the provider and profile version the surface names (admin-web's
+/// `selectedScopeAliasReview`), also what an Auto-accept eligible reads again.
+fn alias_query(provider_key: Option<&str>, profile_version: Option<&str>) -> String {
+    let mut pairs: Vec<String> = Vec::new();
+    if let Some(key) = provider_key.filter(|k| !k.is_empty()) {
+        pairs.push(format!("providerKey={}", segment(key)));
+    }
+    if let Some(version) = profile_version.filter(|v| !v.is_empty()) {
+        pairs.push(format!("sourceProfileVersion={}", segment(version)));
+    }
+    if pairs.is_empty() { String::new() } else { format!("?{}", pairs.join("&")) }
+}
+
+/// The alias review beside the surface: none when it does not read, as admin-web's slot draws
+/// nothing then.
+async fn alias_review(caller: &Caller<'_>, route: &RouteContext) -> Option<super::api::AliasReview> {
+    let query = alias_query(route.provider_key.as_deref(), route.profile_version.as_deref());
+    match caller.read_at::<super::api::AliasReview>(Kind::AliasReview, &query).await {
+        Ok(review) => Some(review),
+        Err(error) => {
+            tracing::warn!("the daily alias review could not be read: {error}");
+            None
+        }
+    }
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
@@ -917,8 +956,8 @@ async fn render(
         Ok(read) => read,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
-    let units = unit_states(&caller, &read).await;
-    let screen = DailyScreen { read, manage: manages(viewer), run, units, options };
+    let (units, aliases) = tokio::join!(unit_states(&caller, &read), alias_review(&caller, &read.read_model.route_context));
+    let screen = DailyScreen { read, manage: manages(viewer), run, units, options, aliases };
     let t: Cat = req.t();
     let p: Pilot = req.t();
     let view = html! {
@@ -1212,6 +1251,35 @@ pub(crate) async fn source_options_refresh(
             Ok(errors) => Sent::Refused(errors),
             Err(denied) => Sent::Denied(denied),
         },
+    };
+    answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
+}
+
+/// An alias candidate's command from the review stage (admin-web posts the alias review's forms to
+/// the daily route's action): the alias review's command, or for a defer nothing written; then the
+/// working set again. One it cannot send is the page with the form's message.
+pub(crate) async fn aliases(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Form(input): Form<crate::catalog::scope::url::AliasCommand>,
+) -> HtmlResult {
+    let context = context_of(&uri);
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let query =
+        alias_query(context_value(&context, "providerKey").as_deref(), context_value(&context, "profileVersion").as_deref());
+    let sent = match crate::catalog::attention::alias_command_body(&caller, &input, &query).await {
+        Ok(Some(body)) => command(&caller, Method::POST, Kind::AliasReview, "/commands", Some(&body)).await,
+        Ok(None) => {
+            let to = at(url::Daily.href().as_str(), &with_query(&context, &[("done", Some(Ran::Queued.word()))]));
+            return match Local::parse(&to) {
+                Some(local) => req.redirect(&local),
+                None => req.redirect(&url::Daily),
+            };
+        }
+        Err(()) => Sent::Refused(super::not_offered(req.t())),
     };
     answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
 }

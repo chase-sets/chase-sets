@@ -326,6 +326,27 @@ async fn alias_review(
     Form(input): Form<crate::catalog::scope::url::AliasCommand>,
 ) -> HtmlResult {
     let query = route.query;
+    let caller = config.platform.caller(&headers, config.proto, None);
+    match alias_command_body(&caller, &input, "?limit=200").await {
+        Ok(Some(body)) => queued(&req, &config, &headers, query, Kind::AliasReview, &body).await,
+        Ok(None) => {
+            let notice = scopes::url::ScopeNotice { done: Some(scopes::url::AttentionDone::Queued), ..Default::default() };
+            req.redirect(&scopes::url::Scopes { query, notice })
+        }
+        Err(()) => failed(&req, query),
+    }
+}
+
+/// What an alias review command sends (`handleAliasReviewCommand`): the alias review's command
+/// body, `None` for a defer (it writes nothing), or `Err` for one it cannot send: no candidate, a
+/// reject or revoke without its reason, an intent it does not offer, or an Auto-accept eligible
+/// with none eligible. Auto-accept eligible keeps the picked candidates the review read with
+/// `review_query` marks eligible: admin-web's sends every picked one (chase-sets/chase-sets#11024).
+pub(crate) async fn alias_command_body(
+    caller: &crate::api::Caller<'_>,
+    input: &crate::catalog::scope::url::AliasCommand,
+    review_query: &str,
+) -> Result<Option<Value>, ()> {
     let mut hashes: Vec<&str> = Vec::new();
     let named = input.alias_hashes.split(',').chain(input.picked.iter().map(String::as_str));
     for hash in named.map(str::trim).filter(|h| !h.is_empty()) {
@@ -340,34 +361,32 @@ async fn alias_review(
         "alias.reject" => "reject",
         "alias.revoke" => "revoke",
         "alias.defer" => "defer",
-        _ => return failed(&req, query),
+        _ => return Err(()),
     };
     if hashes.is_empty() || (matches!(intent, "reject" | "revoke") && reason.is_empty()) {
-        return failed(&req, query);
+        return Err(());
     }
     if intent == "defer" {
-        let notice = scopes::url::ScopeNotice { done: Some(scopes::url::AttentionDone::Queued), ..Default::default() };
-        return req.redirect(&scopes::url::Scopes { query, notice });
+        return Ok(None);
     }
     if eligible_only {
         // Workaround for chase-sets/chase-sets#11024: remove once the API's command takes the rule.
-        let caller = config.platform.caller(&headers, config.proto, None);
-        match caller.read_at::<AliasReview>(Kind::AliasReview, "?limit=200").await {
+        match caller.read_at::<AliasReview>(Kind::AliasReview, review_query).await {
             Ok(review) => hashes.retain(|hash| review.candidates.iter().any(|c| c.alias_hash == *hash && c.auto_accept.eligible)),
             Err(error) => {
                 tracing::warn!("the alias review could not be read for Auto-accept eligible: {error}");
-                return failed(&req, query);
+                return Err(());
             }
         }
         if hashes.is_empty() {
-            return failed(&req, query);
+            return Err(());
         }
     }
     let mut body = json!({ "intent": intent, "aliasHashes": hashes.join(",") });
     if !reason.is_empty() {
         body["reason"] = json!(reason);
     }
-    queued(&req, &config, &headers, query, Kind::AliasReview, &body).await
+    Ok(Some(body))
 }
 
 /// A one-click command: the list after it, with admin-web's banner (queued, or the command failed).

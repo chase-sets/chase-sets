@@ -22,11 +22,13 @@ use super::integrations_page::{
 };
 use crate::{
     catalog::{
+        api::AliasReview,
         daily::{
             self, CANDIDATE_COMMANDS, Candidate, CandidateInput, Daily, DailyScreen, Governance, Health, ImportJob, JobInput,
             Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitState, WorksetUnit, at, with_query,
         },
         integrations,
+        views::AliasReviewPart,
     },
     text::{Cat, Pilot},
     views::{admin_web, link_to},
@@ -239,7 +241,15 @@ pub fn DailyPage<'a>(
                                 }
                                 Stage::Review => {
                                     <CandidatesModule t={t} p={p} model={model} context={context} manage={screen.manage} />
-                                    <ReviewModule t={t} p={p} req={req} model={model} context={context} manage={screen.manage} />
+                                    <ReviewModule
+                                        t={t}
+                                        p={p}
+                                        req={req}
+                                        model={model}
+                                        context={context}
+                                        manage={screen.manage}
+                                        aliases={screen.aliases.as_ref()}
+                                    />
                                 }
                                 Stage::Create => {
                                     <CreateModule t={t} p={p} model={model} context={context} />
@@ -1128,7 +1138,16 @@ fn observation_tone(status: &str) -> &'static str {
 /// Defer and Reject for the checked ones. Preview promotion opens on admin-web
 /// (chase-sets/chase-sets#11045).
 #[component(css = DailyPage)]
-fn ReviewModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
+fn ReviewModule<'a>(
+    t: Cat,
+    p: Pilot,
+    req: &'a Req,
+    model: &'a Daily,
+    context: &'a str,
+    manage: bool,
+    aliases: Option<&'a AliasReview>,
+) -> impl Render {
+    let alias_action = at(&daily::url::Aliases.href(), context);
     let review = &model.source_observation_review;
     let c = &review.counts;
     let total = c.observed + c.changed + c.promoted + c.rejected;
@@ -1205,6 +1224,7 @@ fn ReviewModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &
                     }
                 }
             </nav>
+            <AliasReviewPart t={t} p={p} action={&alias_action} review={aliases} failed={false} manage={manage} />
             <form
                 method="post"
                 action={&action}

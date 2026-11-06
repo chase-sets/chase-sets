@@ -254,6 +254,10 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if uri.path() == "/api/catalog/alias-review" && uri.query() == Some("limit=200") {
         return all_scopes_alias_review(cookie);
     }
+    // The daily workbench's alias review, for the provider (and profile version) it names.
+    if uri.path() == "/api/catalog/alias-review" && uri.query().is_some_and(|q| q.starts_with("providerKey=")) {
+        return all_scopes_alias_review(cookie);
+    }
     if let Some(answer) = scope_api(&method, uri.path(), uri.query().unwrap_or_default(), &body) {
         return answer;
     }
@@ -8445,6 +8449,71 @@ async fn the_workset_draws_each_units_state_and_opens_its_scope_without_sending_
     // Without units nothing draws.
     let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=stopped", Some("staff"))).await;
     assert!(!html.contains("data-catalog-source-scope-workset"), "{html}");
+}
+
+#[tokio::test]
+async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land_on_the_working_set() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        pilot.calls.lock().unwrap().iter().any(|c| c.path == "/api/catalog/alias-review?providerKey=tcgplayer"),
+        "read for the provider the surface names, as admin-web's selectedScopeAliasReview"
+    );
+    // Folded inside the review stage, after its status links and outside the review's own form.
+    let review = html.find(r#"data-catalog-import-workflow-stage="review-changes""#).unwrap();
+    let part = html.find(r#"data-alias-review="all-scopes""#).expect("the alias review draws");
+    assert!(part > review && part > html.find("wb-review").unwrap(), "{html}");
+    assert!(html[..part].rfind("<form").is_none_or(|f| html[f..part].contains("</form>")), "not inside a form: {html}");
+    let part = &html[part..];
+    assert!(part.contains("1 pending alias candidates") || part.contains("Charizard"), "{part}");
+    assert!(part.contains(r#"action="/catalog/integrations/aliases?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{part}");
+
+    // Accept posts the alias review's command and lands on the working set, queued.
+    let (status, headers, _) = pilot
+        .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.accept&alias_hashes=ah_glurak", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon") && to.contains("done=queued"), "{to}");
+    let sent = |pilot: &Pilot| -> Vec<Value> {
+        pilot
+            .catalog_writes()
+            .iter()
+            .filter(|c| c.path == "/api/catalog/alias-review/commands")
+            .map(|c| serde_json::from_str(&c.body).unwrap())
+            .collect()
+    };
+    assert_eq!(sent(&pilot), [json!({ "intent": "accept", "aliasHashes": "ah_glurak" })]);
+
+    // Auto-accept eligible keeps the eligible ones (chase-sets/chase-sets#11024); defer writes nothing.
+    let picked = "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu";
+    let (status, _, _) = pilot.send(post(&format!("/catalog/integrations/aliases?{at}"), picked, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(sent(&pilot).last().unwrap(), &json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }));
+    let (status, headers, _) = pilot
+        .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.defer&alias_hashes=ah_glurak", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    assert_eq!(sent(&pilot).len(), 2, "a defer writes nothing");
+
+    // A reject without its reason sends nothing and draws the page with the form's message.
+    let (status, _, html) = pilot
+        .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.reject&alias_hashes=ah_glurak", false))
+        .await;
+    assert_ne!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(html.contains(r#"data-catalog-import-workflow-stage="review-changes""#), "the workbench again: {html}");
+    assert_eq!(sent(&pilot).len(), 2);
+
+    // A reader sees the review with its commands off; a review that does not read draws nothing.
+    let (_, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
+    let part = &html[html.find(r#"data-alias-review="all-scopes""#).unwrap()..];
+    assert!(part.contains("disabled"), "{part}");
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("queue-down"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("data-alias-review"), "{html}");
 }
 
 #[tokio::test]
