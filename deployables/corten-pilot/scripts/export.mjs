@@ -602,6 +602,8 @@ function tokens() {
     ),
     "card-padding": { $type: "dimension", $value: "{space.6}" },
     "card-heading-font-size": { $type: "dimension", $value: dtcgDimension(value("font-size-base")) },
+    // The toaster's gap from the bottom, the kit's 1rem; marketplace lifts it above its phone bar on <body>.
+    "toasts-inset-bottom": { $type: "dimension", $value: dtcgDimension("1rem") },
   };
   return {
     base,

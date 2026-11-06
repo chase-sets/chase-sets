@@ -56,6 +56,9 @@ body {
 @media (max-width: 47.99rem) {
   body[data-shell] {
     --shell-bottom-nav-height: 5.25rem;
+    /* The kit's toaster (views::Frame) sits above the bar, not on it. It is set on <body>: the
+       kit's theme declares it on :root after this stylesheet. */
+    --toasts-inset-bottom: calc(1rem + var(--shell-bottom-nav-height));
   }
 }
 main {
@@ -63,12 +66,6 @@ main {
   margin: 0 auto;
   padding: var(--space-6);
   padding-bottom: calc(var(--space-6) + var(--shell-bottom-nav-height) + env(safe-area-inset-bottom, 0px));
-}
-/* The layout's toaster (views::Frame) sits above the phone's bottom bar, not on it. Workaround:
-   the kit's Toasts has a fixed inset and nothing an app can set (corten-run/corten#946), so this
-   finds it by the Toaster's markup; remove it when the kit takes its offset from a property. */
-body[data-shell] > :has(> div > [role="status"] > #ui-toast) {
-  bottom: calc(1rem + var(--shell-bottom-nav-height) + env(safe-area-inset-bottom, 0px));
 }
 /* The error page's detail under corten dev: an API's long message wraps, not past a phone's edge. */
 main > pre {

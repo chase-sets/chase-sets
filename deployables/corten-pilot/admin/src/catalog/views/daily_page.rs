@@ -1336,9 +1336,8 @@ fn ReviewModule<'a>(
     }
 }
 
-/// The review's page `n` (from 1) of the working set `context`, owned: the kit's `Pagination` ties
-/// a named closure's borrow to its links' lifetime (todd-skelton/corten#862), so an inline closure
-/// calls this.
+/// The review's page `n` (from 1) of the working set `context`, boxed: it is a local link, or the
+/// workbench's home when the link does not parse.
 // Workaround (chase-sets/chase-sets#11047): a page's link, as admin-web's pager builds it.
 fn review_page(context: &str, limit: u64, n: usize) -> Box<dyn Href> {
     let offset = ((n as u64).saturating_sub(1) * limit).to_string();
