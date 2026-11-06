@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { cleanup, fireEvent, isInaccessible, render, renderHook, screen, within } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
+import ScopeDetailRoute from "../routes/admin/scope-detail";
 import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
@@ -14,6 +16,11 @@ import { CatalogIntegrationCreateItemsStage } from "../features/source-observati
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../features/source-observations/ui/primary-workbench-read-model";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../features/source-observations/ui/primary-workbench-route-context";
 import { catalogPrimaryWorkbenchSourceOptionHref } from "../features/source-observations/ui/primary-workbench-source-option-refresh";
+import {
+  observationSelectionScopeKey,
+  readPersistedObservationSelection,
+  writePersistedObservationSelection,
+} from "../features/source-observations/ui/primary-workbench-selection-store";
 import {
   controlPlaneOverview,
   loaderData,
@@ -131,7 +138,464 @@ function readOriginalReceiptDom(node: Element): Record<string, unknown> {
   return result;
 }
 
+const receiptRequestUrl =
+  "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+
+function receiptUrlFor(scopeRecordId: string | null) {
+  return scopeRecordId
+    ? receiptRequestUrl.replace("/catalog/integrations?", `/catalog/scopes/${scopeRecordId}?`) +
+        `&scopeRecordId=${scopeRecordId}`
+    : receiptRequestUrl;
+}
+
+function receiptRouteModel(activeProfileVersion: string | null = "2026.06.04", requestUrl = receiptRequestUrl) {
+  return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+    requestUrl,
+    scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+    profileReviews: {
+      items: activeProfileVersion
+        ? [profileReview({ active: true, lifecycle: "active", profileVersion: activeProfileVersion })]
+        : [],
+      total: activeProfileVersion ? 1 : 0,
+      count: activeProfileVersion ? 1 : 0,
+    },
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+    reviewObservations: {
+      items: [sourceObservationListItem(), sourceObservationListItem({ observation_id: "obs_002" })],
+      total: 2,
+      count: 2,
+    },
+  });
+}
+
+function expectActiveProfileOnlyDifference(
+  matching: ReturnType<typeof receiptRouteModel>,
+  changed: ReturnType<typeof receiptRouteModel>,
+  activeProfileVersion: string,
+) {
+  expect(changed.importJobs.selectedScope?.profileVersion).toBe(activeProfileVersion);
+  expect(changed.routeContext).toEqual(matching.routeContext);
+  expect(changed.sourceObservationReview).toEqual(matching.sourceObservationReview);
+  const { profileWorkflows, ...preview } = changed.promotionPreview;
+  const { profileWorkflows: matchingWorkflows, ...matchingPreview } = matching.promotionPreview;
+  expect(preview).toEqual(matchingPreview);
+  expect(profileWorkflows).toEqual({
+    ...matchingWorkflows,
+    reapply: { ...matchingWorkflows.reapply, profileVersion: activeProfileVersion },
+  });
+  expect(changed.readiness).toEqual(matching.readiness);
+}
+
+// Exercise the real route/workspace and action with form-derived inputs. Pending
+// starts on submission and ends only when the actual deferred action settles.
+function ReceiptActionRouteHarness({
+  readModel,
+  requestUrl = receiptRequestUrl,
+  scopeRecordId = null,
+}: {
+  readModel: ReturnType<typeof receiptRouteModel>;
+  requestUrl?: string;
+  scopeRecordId?: string | null;
+}) {
+  const [transition, setTransition] = useState<{
+    pending: boolean;
+    result: CatalogIntegrationsCommandResult | null;
+  }>({ pending: false, result: null });
+  const journey = loaderData({ requestUrl, readModel });
+  mockUseLoaderData.mockReturnValue(
+    scopeRecordId
+      ? {
+          scope: {
+            scopeRecordId,
+            name: "Synthetic scope",
+            productDomain: "pokemon",
+            scopeKind: "set",
+            lifecycleStatus: "active",
+            referenceTypeKey: "set",
+            referenceRecordId: "synthetic-reference-record",
+            referenceRecordKey: "synthetic-set",
+            parentScopeRecordId: null,
+            productLineScopeRecordId: null,
+            seriesScopeRecordId: null,
+            releaseDate: null,
+            officialSetCode: null,
+            languageEditions: ["en"],
+            updatedAt: "2026-11-06T00:00:00Z",
+          },
+          languageEditionAliasReview: aliasReviewReadModel(),
+          journey,
+        }
+      : journey,
+  );
+  mockUseActionData.mockReturnValue(transition.result);
+  mockUseNavigation.mockReturnValue({ state: transition.pending ? "submitting" : "idle" });
+  return (
+    <div
+      data-testid="receipt-action-transition"
+      data-state={transition.pending ? "submitting" : "idle"}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const fields = Object.fromEntries(
+          [...new FormData(event.target as HTMLFormElement).entries()].map(([key, value]) => [key, String(value)]),
+        );
+        const form = event.target as HTMLFormElement;
+        expect(new URL(form.getAttribute("action")!, requestUrl).pathname).toBe(new URL(requestUrl).pathname);
+        expect(fields._intent).toBe("observation.promote");
+        expect(fields.promotionPhase).toBe("preview");
+        expect(fields.scopeRecordId).toBe(scopeRecordId ?? "");
+        setTransition((previous) => ({ ...previous, pending: true }));
+        const result = scopeRecordId
+          ? await scopeDetailAction(actionRequest(fields, requestUrl))
+          : await runDailyAction(fields, requestUrl);
+        setTransition({ pending: false, result });
+      }}
+    >
+      {scopeRecordId ? <ScopeDetailRoute /> : <IntegrationsRoute />}
+    </div>
+  );
+}
+
+function receiptPreviewButton(): HTMLButtonElement {
+  openReceiptStage("create-items");
+  return screen
+    .getAllByRole("button", { name: /Preview promotion/ })
+    .find((button) => !button.hasAttribute("aria-expanded"))! as HTMLButtonElement;
+}
+
+function openReceiptStage(stage: "review-changes" | "create-items") {
+  const trigger = document.querySelector<HTMLButtonElement>(`[data-catalog-import-workflow-stage="${stage}"]`)!;
+  expect(trigger).not.toBeNull();
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+}
+
+function observationRowCheckboxes(): HTMLInputElement[] {
+  openReceiptStage("review-changes");
+  const table = [...document.querySelectorAll("table")].find(
+    (candidate) => candidate.caption?.textContent === "Source Observation review",
+  )!;
+  expect(table).toBeDefined();
+  expect(isInaccessible(table)).toBe(false);
+  return [...table.querySelectorAll<HTMLInputElement>('tbody input[type="checkbox"]')];
+}
+
+function expectWorkingSelection(scopeKey: string, ids: readonly string[]) {
+  const rows = observationRowCheckboxes();
+  expect(rows).toHaveLength(2);
+  expect(rows.map((row) => row.disabled)).toEqual([false, false]);
+  expect(rows.map((row) => row.checked)).toEqual([ids.includes("obs_001"), ids.includes("obs_002")]);
+  expect([...readPersistedObservationSelection(scopeKey)].sort()).toEqual([...ids].sort());
+}
+
+function changeWorkingSelection(scopeKey: string, from: "obs_001" | "obs_002", to: "obs_001" | "obs_002") {
+  const rows = observationRowCheckboxes();
+  fireEvent.click(rows[to === "obs_001" ? 0 : 1]);
+  expectWorkingSelection(scopeKey, [from, to]);
+  fireEvent.click(rows[from === "obs_001" ? 0 : 1]);
+  expectWorkingSelection(scopeKey, [to]);
+}
+
+function expectOriginalReceipt(result: CatalogIntegrationsCommandResult, state?: "fresh" | "stale") {
+  openReceiptStage("create-items");
+  const disclosure = screen
+    .getAllByRole("button", { name: /Preview promotion/ })
+    .find((button) => button.hasAttribute("aria-expanded"))!;
+  if (disclosure.getAttribute("aria-expanded") !== "true") fireEvent.click(disclosure);
+  const node = document.querySelector("[data-catalog-promotion-receipt]")!;
+  expect(readOriginalReceiptDom(node)).toEqual(result.promotionReceipt);
+  expect(isInaccessible(node)).toBe(false);
+  if (state) {
+    const status = document.querySelector(`[data-catalog-promotion-receipt-state="${state}"]`);
+    expect(status).not.toBeNull();
+    expect(isInaccessible(status!)).toBe(false);
+  }
+  const commit = screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement;
+  expect(commit.form?.querySelector<HTMLInputElement>('[name="promotionPreviewId"]')?.value).toBe(
+    result.promotionReceipt!.previewId,
+  );
+  for (const link of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    expect(link.href).not.toContain("promotionPreviewId");
+    expect(link.href).not.toContain(result.promotionReceipt!.preview.fingerprint);
+  }
+  expect(JSON.stringify(window.sessionStorage)).not.toContain(result.promotionReceipt!.previewId);
+  expect(JSON.stringify(window.sessionStorage)).not.toContain(result.promotionReceipt!.preview.fingerprint);
+}
+
+function recordSyntheticReceipt(label: string, result: CatalogIntegrationsCommandResult) {
+  console.info(`SYNTHETIC_RECEIPT ${label} ${JSON.stringify(result.promotionReceipt)}`);
+}
+
 describe("Catalog integrations route", () => {
+  it.each([null, "synthetic-scope-record"])(
+    "preserves working selection B when deferred Preview A settles under scope %s",
+    async (scopeRecordId) => {
+      window.sessionStorage.clear();
+      const requestUrl = receiptUrlFor(scopeRecordId);
+      const readModel = receiptRouteModel("2026.06.04", requestUrl);
+      const scopeKey = observationSelectionScopeKey(readModel.routeContext);
+      writePersistedObservationSelection(scopeKey, ["obs_001"]);
+      let resolvePreview!: (preview: ReturnType<typeof syntheticPromotionReceipt>["preview"]) => void;
+      const deferred = new Promise<ReturnType<typeof syntheticPromotionReceipt>["preview"]>((resolve) => {
+        resolvePreview = resolve;
+      });
+      const previewBulkPromoteSourceObservationIds = vi.fn().mockReturnValueOnce(deferred);
+      const bulkPromoteSourceObservations = vi.fn();
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        previewBulkPromoteSourceObservationIds,
+        bulkPromoteSourceObservations,
+      });
+      const route = render(
+        <ReceiptActionRouteHarness readModel={readModel} requestUrl={requestUrl} scopeRecordId={scopeRecordId} />,
+      );
+      const rowCheckboxes = observationRowCheckboxes;
+      expectWorkingSelection(scopeKey, ["obs_001"]);
+      const originalTable = rowCheckboxes()[0].closest("table");
+      const originalTransition = screen.getByTestId("receipt-action-transition");
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("submitting");
+      expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+      changeWorkingSelection(scopeKey, "obs_001", "obs_002");
+      resolvePreview(syntheticPromotionReceipt().preview);
+      await waitFor(() =>
+        expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("idle"),
+      );
+      const resultA = mockUseActionData();
+      recordSyntheticReceipt(`F1 scope=${scopeRecordId} original=A`, resultA);
+      expectWorkingSelection(scopeKey, ["obs_002"]);
+      expect(rowCheckboxes()[0].closest("table")).toBe(originalTable);
+      expect(screen.getByTestId("receipt-action-transition")).toBe(originalTransition);
+      expect(resultA.promotionReceipt.selection.observationIds).toEqual(["obs_001"]);
+      expect(resultA.promotionReceipt.selection.scopeRecordId).toBe(scopeRecordId);
+      expectOriginalReceipt(resultA, "stale");
+      const confirmation = screen.getByLabelText(/I confirm this will promote/);
+      const commit = screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement;
+      expect(confirmation.hasAttribute("disabled")).toBe(true);
+      expect(commit.disabled).toBe(true);
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
+      expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+      expect(mockUseNavigate).not.toHaveBeenCalled();
+      changeWorkingSelection(scopeKey, "obs_002", "obs_001");
+      openReceiptStage("create-items");
+      expect(confirmation.hasAttribute("disabled")).toBe(true);
+      expect(commit.disabled).toBe(true);
+      changeWorkingSelection(scopeKey, "obs_001", "obs_002");
+      const previewB = syntheticPromotionReceipt().preview;
+      previewB.validation.coveredObservationIds = ["obs_002"];
+      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(previewB);
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(confirmation.hasAttribute("disabled")).toBe(false));
+      const resultB = mockUseActionData();
+      recordSyntheticReceipt(`F1 scope=${scopeRecordId} original=B`, resultB);
+      expect(resultB.promotionReceipt.selection.observationIds).toEqual(["obs_002"]);
+      expectOriginalReceipt(resultB, "fresh");
+      expect(commit.disabled).toBe(true);
+      fireEvent.click(confirmation);
+      expect(commit.disabled).toBe(false);
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(2);
+      expect(previewBulkPromoteSourceObservationIds.mock.calls.map(([ids]) => ids)).toEqual([["obs_001"], ["obs_002"]]);
+      expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+      expect(mockUseNavigate).not.toHaveBeenCalled();
+      route.unmount();
+      render(<ReceiptActionRouteHarness readModel={readModel} requestUrl={requestUrl} scopeRecordId={scopeRecordId} />);
+      expectWorkingSelection(scopeKey, ["obs_002"]);
+      openReceiptStage("create-items");
+      expect(document.querySelector("[data-catalog-promotion-receipt]")).toBeNull();
+      expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(
+    [null, "synthetic-scope-record"].flatMap((scopeRecordId) =>
+      ["2026.06.04", "synthetic-active-B", null].map((activeProfileVersion) => ({
+        scopeRecordId,
+        activeProfileVersion,
+      })),
+    ),
+  )(
+    "checks initial active profile $activeProfileVersion and restoration under scope $scopeRecordId",
+    async ({ activeProfileVersion, scopeRecordId }) => {
+      window.sessionStorage.clear();
+      const requestUrl = receiptUrlFor(scopeRecordId);
+      const matchingModel = receiptRouteModel("2026.06.04", requestUrl);
+      const readModel = receiptRouteModel(activeProfileVersion, requestUrl);
+      expect(readModel.importJobs.selectedScope?.profileVersion).toBe(activeProfileVersion);
+      if (activeProfileVersion) expectActiveProfileOnlyDifference(matchingModel, readModel, activeProfileVersion);
+      expect(readModel.routeContext).toEqual(matchingModel.routeContext);
+      expect(readModel.sourceObservationReview.rows).toEqual(matchingModel.sourceObservationReview.rows);
+      expect(readModel.promotionPreview.currentFingerprint).toBe(matchingModel.promotionPreview.currentFingerprint);
+      expect(readModel.promotionPreview.blockers).toEqual(
+        activeProfileVersion === null
+          ? expect.arrayContaining(["missing-active-profile"])
+          : matchingModel.promotionPreview.blockers,
+      );
+      writePersistedObservationSelection(observationSelectionScopeKey(readModel.routeContext), ["obs_001"]);
+      const original = syntheticPromotionReceipt().preview;
+      let resolvePreview!: (preview: typeof original) => void;
+      const previewBulkPromoteSourceObservationIds = vi.fn().mockReturnValueOnce(
+        new Promise<typeof original>((resolve) => {
+          resolvePreview = resolve;
+        }),
+      );
+      const bulkPromoteSourceObservations = vi.fn();
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        previewBulkPromoteSourceObservationIds,
+        bulkPromoteSourceObservations,
+      });
+      const harness = (model: ReturnType<typeof receiptRouteModel>) => (
+        <ReceiptActionRouteHarness readModel={model} requestUrl={requestUrl} scopeRecordId={scopeRecordId} />
+      );
+      const { rerender } = render(harness(readModel));
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("submitting");
+      resolvePreview(original);
+      await waitFor(() =>
+        expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("idle"),
+      );
+      const result = mockUseActionData();
+      recordSyntheticReceipt(`F2 scope=${scopeRecordId} initial-active=${activeProfileVersion}`, result);
+      expectOriginalReceipt(result, activeProfileVersion === "2026.06.04" ? "fresh" : "stale");
+      const confirmation = screen.getByLabelText(/I confirm this will promote/);
+      const commit = screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement;
+      expect(confirmation.hasAttribute("disabled")).toBe(activeProfileVersion !== "2026.06.04");
+      expect(commit.disabled).toBe(true);
+      if (activeProfileVersion === "2026.06.04") {
+        fireEvent.click(confirmation);
+        expect(commit.disabled).toBe(false);
+        const driftModel = receiptRouteModel("synthetic-active-B", requestUrl);
+        expectActiveProfileOnlyDifference(matchingModel, driftModel, "synthetic-active-B");
+        rerender(harness(driftModel));
+        expect(confirmation.hasAttribute("disabled")).toBe(true);
+        expect(commit.disabled).toBe(true);
+      }
+      rerender(harness(matchingModel));
+      expect(confirmation.hasAttribute("disabled")).toBe(true);
+      expect(commit.disabled).toBe(true);
+      expectOriginalReceipt(result, "stale");
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
+      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(original);
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(confirmation.hasAttribute("disabled")).toBe(false));
+      expect(commit.disabled).toBe(true);
+      fireEvent.click(confirmation);
+      expect(commit.disabled).toBe(false);
+      expectOriginalReceipt(mockUseActionData(), "fresh");
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(2);
+      expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+      expect(mockUseNavigate).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(
+    [null, "synthetic-scope-record"].flatMap((scopeRecordId) =>
+      [false, true].map((restoreWhilePending) => ({ scopeRecordId, restoreWhilePending })),
+    ),
+  )(
+    "latches active-only profile drift while pending under scope $scopeRecordId, restored pending=$restoreWhilePending",
+    async ({ scopeRecordId, restoreWhilePending }) => {
+      window.sessionStorage.clear();
+      const requestUrl = receiptUrlFor(scopeRecordId);
+      const matching = receiptRouteModel("2026.06.04", requestUrl);
+      const drift = receiptRouteModel("synthetic-active-B", requestUrl);
+      expect(matching.importJobs.selectedScope?.profileVersion).toBe("2026.06.04");
+      expectActiveProfileOnlyDifference(matching, drift, "synthetic-active-B");
+      const scopeKey = observationSelectionScopeKey(matching.routeContext);
+      writePersistedObservationSelection(scopeKey, ["obs_001"]);
+      const original = syntheticPromotionReceipt().preview;
+      let resolvePreview!: (preview: typeof original) => void;
+      const previewBulkPromoteSourceObservationIds = vi.fn().mockReturnValueOnce(
+        new Promise<typeof original>((resolve) => {
+          resolvePreview = resolve;
+        }),
+      );
+      const bulkPromoteSourceObservations = vi.fn();
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        previewBulkPromoteSourceObservationIds,
+        bulkPromoteSourceObservations,
+      });
+      const harness = (model: ReturnType<typeof receiptRouteModel>) => (
+        <ReceiptActionRouteHarness readModel={model} requestUrl={requestUrl} scopeRecordId={scopeRecordId} />
+      );
+      const { rerender } = render(harness(matching));
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("submitting");
+      rerender(harness(drift));
+      expectWorkingSelection(scopeKey, ["obs_001"]);
+      openReceiptStage("create-items");
+      expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+      if (restoreWhilePending) rerender(harness(matching));
+      resolvePreview(original);
+      await waitFor(() =>
+        expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("idle"),
+      );
+      recordSyntheticReceipt(
+        `F2 scope=${scopeRecordId} pending-drift restored=${restoreWhilePending}`,
+        mockUseActionData(),
+      );
+      expectOriginalReceipt(mockUseActionData(), "stale");
+      const confirmation = screen.getByLabelText(/I confirm this will promote/);
+      const commit = screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement;
+      expect(confirmation.hasAttribute("disabled")).toBe(true);
+      expect(commit.disabled).toBe(true);
+      rerender(harness(matching));
+      expectOriginalReceipt(mockUseActionData(), "stale");
+      expect(confirmation.hasAttribute("disabled")).toBe(true);
+      expect(commit.disabled).toBe(true);
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
+      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(original);
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(confirmation.hasAttribute("disabled")).toBe(false));
+      expectOriginalReceipt(mockUseActionData(), "fresh");
+      expect(commit.disabled).toBe(true);
+      fireEvent.click(confirmation);
+      expect(commit.disabled).toBe(false);
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(2);
+      expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+      expect(mockUseNavigate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reconciles real deep-link selection and a different scope without restoring a receipt", () => {
+    window.sessionStorage.clear();
+    const initial = receiptRouteModel();
+    const scopeKey = observationSelectionScopeKey(initial.routeContext);
+    writePersistedObservationSelection(scopeKey, ["obs_001"]);
+    const deepLink = `${receiptRequestUrl}&selectedObservationIds=obs_002`;
+    const { rerender } = render(
+      <ReceiptActionRouteHarness readModel={receiptRouteModel("2026.06.04", deepLink)} requestUrl={deepLink} />,
+    );
+    expect(observationRowCheckboxes().map((input) => input.checked)).toEqual([false, true]);
+    expect(readPersistedObservationSelection(scopeKey)).toEqual(["obs_002"]);
+    const otherDeepLink = `${receiptRequestUrl}&selectedObservationIds=obs_001`;
+    rerender(
+      <ReceiptActionRouteHarness
+        readModel={receiptRouteModel("2026.06.04", otherDeepLink)}
+        requestUrl={otherDeepLink}
+      />,
+    );
+    expect(observationRowCheckboxes().map((input) => input.checked)).toEqual([true, false]);
+    expect(readPersistedObservationSelection(scopeKey)).toEqual(["obs_001"]);
+    const otherScopeUrl = receiptRequestUrl.replace("profileVersion=2026.06.04", "profileVersion=synthetic-profile-C");
+    const otherScope = receiptRouteModel("synthetic-profile-C", otherScopeUrl);
+    const otherScopeKey = observationSelectionScopeKey(otherScope.routeContext);
+    expect(otherScopeKey).not.toBe(scopeKey);
+    writePersistedObservationSelection(otherScopeKey, ["obs_002"]);
+    rerender(<ReceiptActionRouteHarness readModel={otherScope} requestUrl={otherScopeUrl} />);
+    expect(observationRowCheckboxes().map((input) => input.checked)).toEqual([false, true]);
+    expect(readPersistedObservationSelection(scopeKey)).toEqual(["obs_001"]);
+    expect(readPersistedObservationSelection(otherScopeKey)).toEqual(["obs_002"]);
+    expect(document.querySelector("[data-catalog-promotion-receipt]")).toBeNull();
+    expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+    expect(mockCreateCatalogRequestApiClient).not.toHaveBeenCalled();
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+  });
+
   it("enqueues exact selected product coordinates from the real action without changing compact set meaning", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "synthetic_product_job" });
     mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
@@ -208,6 +672,7 @@ describe("Catalog integrations route", () => {
   });
   afterEach(() => {
     cleanup();
+    window.sessionStorage.clear();
     mockUseLoaderData.mockReset();
     mockUseNavigate.mockReset();
     mockUseRouteLoaderData.mockReset();
@@ -827,6 +1292,7 @@ describe("Catalog integrations route", () => {
       canManageCatalog: true,
       reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
     });
+    writePersistedObservationSelection(observationSelectionScopeKey(readModel.routeContext), ["obs_001"]);
     mockUseLoaderData.mockReturnValue(loaderData({ requestUrl, readModel }));
     const { rerender } = render(<IntegrationsRoute />);
     mockUseNavigation.mockReturnValue({ state: "submitting" });

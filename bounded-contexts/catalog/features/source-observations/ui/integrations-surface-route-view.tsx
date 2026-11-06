@@ -109,17 +109,20 @@ export function useOriginalPromotionReceipt(
   pending: boolean,
 ): CatalogPrimaryWorkbenchReadModel {
   const model = routeData.readModel;
+  const activeProfileVersion = model.importJobs.selectedScope?.profileVersion ?? null;
   const evidence = JSON.stringify([
     model.routeContext,
     model.sourceObservationReview,
     model.promotionPreview.validation,
     model.promotionPreview.currentFingerprint,
+    activeProfileVersion,
   ]);
   const [binding, setBinding] = useState({
     result,
     requestUrl: routeData.requestUrl,
     evidence,
     submittedEvidence: null as string | null,
+    submissionDrift: false,
     stale: false,
     settled: !pending,
   });
@@ -131,12 +134,17 @@ export function useOriginalPromotionReceipt(
       requestUrl: routeData.requestUrl,
       evidence,
       submittedEvidence,
-      stale: submittedEvidence !== null && submittedEvidence !== evidence,
+      submissionDrift: false,
+      stale: binding.submissionDrift || (submittedEvidence !== null && submittedEvidence !== evidence),
       settled: !pending,
     };
     setBinding(current);
   } else if (pending && binding.settled) {
-    current = { ...binding, submittedEvidence: evidence, settled: false, stale: true };
+    current = { ...binding, submittedEvidence: evidence, submissionDrift: false, settled: false, stale: true };
+    setBinding(current);
+  } else if (!binding.settled && !binding.submissionDrift && binding.submittedEvidence !== evidence) {
+    // Keep an observed pending change even if the loader restores before settlement.
+    current = { ...binding, submissionDrift: true };
     setBinding(current);
   } else if (
     !binding.stale &&
@@ -165,6 +173,7 @@ export function useOriginalPromotionReceipt(
     JSON.stringify([...receipt.selection.observationIds].sort()) ===
     JSON.stringify([...result.context.selectedObservationIds].sort());
   const sameContext = promotionReceiptMatchesContext(receipt, model.routeContext);
+  const sameActiveProfile = activeProfileVersion !== null && receipt.selection.profileVersion === activeProfileVersion;
   const currentFingerprint = model.promotionPreview.currentFingerprint;
   const valid =
     !pending &&
@@ -174,6 +183,7 @@ export function useOriginalPromotionReceipt(
     receipt.selection.promoteAsDraft === (result.context.promoteAsDraft === true) &&
     promotionReceiptMatchesContext(receipt, result.context) &&
     sameContext &&
+    sameActiveProfile &&
     (!model.promotionPreview.previewId || model.promotionPreview.previewId === receipt.previewId) &&
     (!currentFingerprint || currentFingerprint === receipt.preview.fingerprint) &&
     promotionReceiptHasCompleteCoverage(receipt) &&
@@ -182,8 +192,9 @@ export function useOriginalPromotionReceipt(
     model.promotionPreview.blockers.length === 0;
   return {
     ...model,
+    // Only loader/URL context seeds the working selection; action context binds the receipt.
     // The token belongs to the POST only. Generated links never serialize it.
-    routeContext: { ...(sameContext ? result.context : model.routeContext), promotionPreviewId: null },
+    routeContext: { ...model.routeContext, promotionPreviewId: null },
     promotionPreview: {
       ...model.promotionPreview,
       previewId: receipt.previewId,
