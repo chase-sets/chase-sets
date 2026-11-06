@@ -1291,7 +1291,7 @@ fn ReviewModule<'a>(
                             next_label={t.wb_review_pager_next()}
                             pages={pages}
                             current={current}
-                            link={&|n| review_page(context, limit, n)}
+                            link={|n| review_page(context, limit, n)}
                         />
                     </div>
                 }
