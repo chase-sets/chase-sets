@@ -235,7 +235,8 @@ function requireRelocatedDbPreparation(baseDir) {
   const owner = "scripts/pr-checks/db-tests.sh";
   try {
     const workflow = parseYaml(readFileSync(path.join(baseDir, ".github/workflows/platform-pr.yml"), "utf8"));
-    const runs = (workflow?.jobs?.["db-tests"]?.steps ?? [])
+    const job = workflow?.jobs?.["db-tests"];
+    const runs = (job?.steps ?? [])
       .map((step) => step.run)
       .filter((run) => typeof run === "string");
     const calls = runs.filter((run) => /\bdb-tests\.sh\s+prepare\b/.test(run));
@@ -245,6 +246,12 @@ function requireRelocatedDbPreparation(baseDir) {
       runs.some((run) => /target_max_(?:connections|locks_per_transaction)\s*=/.test(run))
     ) {
       throw new Error("missing, ambiguous, mixed or unbound prepare caller");
+    }
+    const caller = job.steps.find((step) => step.run === calls[0]);
+    const directory = caller["working-directory"] ?? job.defaults?.run?.["working-directory"] ?? workflow.defaults?.run?.["working-directory"];
+    const shell = caller.shell ?? job.defaults?.run?.shell ?? workflow.defaults?.run?.shell;
+    if (caller.if !== undefined || (directory !== undefined && directory !== ".") || (shell !== undefined && shell !== "bash")) {
+      throw new Error("unbound prepare caller context");
     }
     const source = readFileSync(path.join(baseDir, owner), "utf8").replaceAll("\r\n", "\n");
     const arms = [...source.matchAll(/^  prepare\)\n([\s\S]*?)^    ;;\s*$/gm)];

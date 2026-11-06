@@ -3831,7 +3831,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       );
     });
 
-    it.each(["missing", "unreadable", "duplicate", "malformed", "unbound", "mixed", "ambiguous"])(
+    it.each(["missing", "unreadable", "duplicate", "malformed", "unbound", "mixed", "ambiguous", "working directory", "conditional caller", "wrong shell"])(
       "refuses %s PostgreSQL preparation ownership without fallback",
       (kind) => {
         let workflow = workflowSource();
@@ -3841,6 +3841,9 @@ describe("Platform API bootstrap DB enrollment", () => {
         if (kind === "malformed")
           source = source!.replace("target_max_connections=300", "target_max_connections=unknown");
         if (kind === "unbound") workflow = workflow.replace("db-tests.sh prepare", "db-tests.sh other");
+        if (kind === "working directory") workflow = workflow.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "working-directory: elsewhere\n        run: bash scripts/pr-checks/db-tests.sh prepare");
+        if (kind === "conditional caller") workflow = workflow.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "if: false\n        run: bash scripts/pr-checks/db-tests.sh prepare");
+        if (kind === "wrong shell") workflow = workflow.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "shell: python\n        run: bash scripts/pr-checks/db-tests.sh prepare");
         if (kind === "mixed")
           workflow = workflow.replace(
             "run: bash scripts/pr-checks/db-tests.sh prepare",

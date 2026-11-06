@@ -4254,12 +4254,16 @@ describe("change-scope", () => {
       "unreadable owner",
       "duplicate owner",
       "malformed setting",
+      "working directory",
+      "conditional caller",
+      "wrong shell",
     ])("refuses script-only selection with %s rather than silently omitting Unit or DB", (kind) =>
       withEnrollmentRepository(({ baseDir, write, workspaces }) => {
+        const callerContext = { "working directory": "working-directory: elsewhere", "conditional caller": "if: false", "wrong shell": "shell: python" }[kind];
         if (kind !== "missing caller" && kind !== "unreadable caller")
           write(
             caller,
-            kind === "unbound caller" ? workflow.replace("db-tests.sh prepare", "db-tests.sh other") : workflow,
+            kind === "unbound caller" ? workflow.replace("db-tests.sh prepare", "db-tests.sh other") : callerContext ? workflow.replace("run: bash scripts/pr-checks/db-tests.sh prepare", `${callerContext}\n        run: bash scripts/pr-checks/db-tests.sh prepare`) : workflow,
           );
         if (kind === "unreadable caller") mkdirSync(path.join(baseDir, caller), { recursive: true });
         if (kind !== "missing owner" && kind !== "unreadable owner")

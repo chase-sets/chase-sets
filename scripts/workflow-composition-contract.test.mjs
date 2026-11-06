@@ -169,6 +169,7 @@ describe("workflow composition contract inventory", () => {
         );
         expect(additions.map((entry) => entry.name)).toEqual(["Prepare journey package", "Upload journey package"]);
         for (const addition of additions) {
+          expect(current.steps.filter((entry) => entry.name === addition.name)).toHaveLength(1);
           const index = current.steps.findIndex((entry) => entry.name === addition.name);
           expect(index).toBe(integratedMain.jobs[id].steps.findIndex((entry) => entry.name === addition.name));
           expect(current.steps[index]).toEqual(addition);

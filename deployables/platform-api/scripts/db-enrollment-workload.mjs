@@ -537,13 +537,20 @@ export function resolveHostedPostgresSettings(workflow, read) {
   const gaps = [];
   let preparation;
   try {
-    const job = parseYaml(workflow)?.jobs?.["db-tests"];
+    const definition = parseYaml(workflow);
+    const job = definition?.jobs?.["db-tests"];
     const runs = (job?.steps ?? []).map((step) => step.run).filter((run) => typeof run === "string");
     const calls = runs.filter((run) => /\bdb-tests\.sh\s+prepare\b/.test(run));
     const inline = runs.filter((run) => /target_max_(?:connections|locks_per_transaction)\s*=/.test(run));
     if (calls.length) {
       if (calls.length !== 1 || calls[0].trim() !== "bash scripts/pr-checks/db-tests.sh prepare" || inline.length) {
         throw new Error("ambiguous or mixed PostgreSQL preparation owner");
+      }
+      const caller = job.steps.find((step) => step.run === calls[0]);
+      const directory = caller["working-directory"] ?? job.defaults?.run?.["working-directory"] ?? definition.defaults?.run?.["working-directory"];
+      const shell = caller.shell ?? job.defaults?.run?.shell ?? definition.defaults?.run?.shell;
+      if (caller.if !== undefined || (directory !== undefined && directory !== ".") || (shell !== undefined && shell !== "bash")) {
+        throw new Error("unbound PostgreSQL preparation caller context");
       }
       const source = read("scripts/pr-checks/db-tests.sh")?.toString("utf8").replaceAll("\r\n", "\n");
       const arms = [...(source ?? "").matchAll(/^  prepare\)\n([\s\S]*?)^    ;;\s*$/gm)];
