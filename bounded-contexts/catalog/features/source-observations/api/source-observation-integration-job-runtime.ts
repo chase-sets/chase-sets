@@ -10,6 +10,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { listSourceObservationIdsForReapply } from "../read-model/queries";
+import { assertProductCoordinateImportAllowed } from "./providers/product-coordinate-import-guard";
 import {
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -219,6 +220,7 @@ export function createSourceObservationIntegrationJobRuntime({
       profileSelectorFromScope(scope),
     );
     assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", providerProfileVersion);
+    assertProductCoordinateImportAllowed(scope, providerProfileVersion);
     const providerProfile = providerProfileVersion.profile;
 
     const targets = await previewProviderAdapterIntegrationImportTargets(scope, providerProfileVersion);
@@ -268,6 +270,7 @@ export function createSourceObservationIntegrationJobRuntime({
         : null;
     if (importProfileVersion) {
       assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", importProfileVersion);
+      assertProductCoordinateImportAllowed(scope, importProfileVersion);
     }
     if (reapplyActiveProfileVersion) {
       assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", reapplyActiveProfileVersion);

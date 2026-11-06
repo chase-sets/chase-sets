@@ -13,19 +13,15 @@ import type { SourceObservationIntegrationJobScope } from "../../../features/sou
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
-  canSelectStandaloneProductCoordinate,
   importScopeFromScopeContext,
+  integrationJobScopeForUnit,
+  reapplyScopeForUnit,
   scopeContextFromFormData,
   scopeContextFromRouteContext,
-  scopeContextToIntegrationJobScope,
   scopeContextToObservationFilterScope,
 } from "../../../features/source-observations/ui/primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import { recordValue, stringValue } from "./integrations-form-values";
-import {
-  getActiveCatalogProviderIntegrationProfileVersion,
-  catalogProviderProfileVersionIngestionUnitKey,
-} from "../../../features/source-observations/api/providers/registry";
 
 export type CatalogPrimaryWorkbenchFormIntent = CatalogControlPlaneActionId;
 
@@ -111,44 +107,16 @@ export function observationIdsFromFormData(formData: FormData, fallback: readonl
   return values.length > 0 ? [...new Set(values)] : fallback;
 }
 
+// Whether the product coordinate may be imported on its own is the Catalog API's rule
+// (assertProductCoordinateImportAllowed). The page only refuses a review filter whose
+// language contradicts the product coordinate it was asked to import.
 export function integrationScopeFromContext(context: RouteContext): SourceObservationIntegrationJobScope {
   const scope = context.scope ?? scopeContextFromRouteContext(context);
   const filterLanguage = context.sourceObservationFilters.language;
-  const languageCode = filterLanguage ?? scope.languageCode;
-  if (scope.productId) {
-    const profile =
-      context.providerKey && context.unitKey
-        ? getActiveCatalogProviderIntegrationProfileVersion(context.providerKey, { ingestionUnitKey: context.unitKey })
-        : null;
-    if (
-      !profile?.active ||
-      catalogProviderProfileVersionIngestionUnitKey(profile) !== context.unitKey ||
-      !canSelectStandaloneProductCoordinate(profile) ||
-      (context.profileVersion && context.profileVersion !== profile.profileVersion) ||
-      Boolean(filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) ||
-      (profile.profile.languageOptions.length > 0 &&
-        (!languageCode || !profile.profile.languageOptions.includes(languageCode))) ||
-      scope.expansionId ||
-      scope.expansionName ||
-      scope.seriesId ||
-      scope.seriesName ||
-      scope.productLineId ||
-      scope.productLineName ||
-      context.sourceObservationFilters.setId ||
-      context.sourceObservationFilters.expansionId
-    ) {
-      throw new Error(
-        "Product import requires the selected active product-scope unit and an unmixed product coordinate.",
-      );
-    }
+  if (scope.productId && filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) {
+    throw new Error("Product import requires an unmixed product coordinate.");
   }
-  return scopeContextToIntegrationJobScope({
-    ...scope,
-    ingestionUnitKey: context.unitKey ?? undefined,
-    languageCode,
-    expansionId:
-      context.sourceObservationFilters.setId ?? context.sourceObservationFilters.expansionId ?? scope.expansionId,
-  });
+  return integrationJobScopeForUnit(scope, context.unitKey, context.sourceObservationFilters);
 }
 
 export function catalogSyncScopeFromContext(context: RouteContext, formData: FormData): CatalogSyncScope | null {
@@ -195,10 +163,7 @@ export function hasExplicitPromotionScope(context: RouteContext): boolean {
 }
 
 export function reapplyScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
-  return {
-    ...promotionScopeFromContext(context),
-    status: context.sourceObservationFilters.status ?? "promoted",
-  };
+  return reapplyScopeForUnit(scopeContextFromRouteContext(context), context.sourceObservationFilters);
 }
 
 // The promotion preview checkpoint token. It carries a genuine content
