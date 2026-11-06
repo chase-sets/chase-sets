@@ -235,7 +235,7 @@ describe("source observation routes: review and control-plane reads", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Rejection requires a reason.",
+      error: { code: "reason_required", message: "Rejection requires a reason." },
     });
     expect(services.rejectObservation).not.toHaveBeenCalled();
   });
@@ -338,12 +338,19 @@ describe("source observation routes: review and control-plane reads", () => {
     });
 
     expect(promoteResponse.status).toBe(400);
-    await expect(promoteResponse.json()).resolves.toEqual({ error: "Promotion requires a reason." });
+    await expect(promoteResponse.json()).resolves.toEqual({
+      error: { code: "reason_required", message: "Promotion requires a reason." },
+    });
     expect(updateResponse.status).toBe(400);
-    await expect(updateResponse.json()).resolves.toEqual({ error: "Update requires a candidate snapshot." });
+    await expect(updateResponse.json()).resolves.toEqual({
+      error: { code: "snapshot_required", message: "Update requires a candidate snapshot." },
+    });
     expect(splitResponse.status).toBe(400);
     await expect(splitResponse.json()).resolves.toEqual({
-      error: "Split requires remainingSnapshot, splitCandidateId, and splitSnapshot.",
+      error: {
+        code: "snapshot_required",
+        message: "Split requires remainingSnapshot, splitCandidateId, and splitSnapshot.",
+      },
     });
     expect(services.promoteCatalogMergeCandidate).not.toHaveBeenCalled();
     expect(services.updateCatalogMergeCandidate).not.toHaveBeenCalled();

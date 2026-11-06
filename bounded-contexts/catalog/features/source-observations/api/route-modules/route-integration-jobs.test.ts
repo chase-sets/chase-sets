@@ -1078,7 +1078,10 @@ describe("source observation routes: integration and bulk review jobs", () => {
 
         expect(response.status).toBe(400);
         await expect(response.json()).resolves.toEqual({
-          error: "Bulk rejection requires selected observations or an explicit review scope.",
+          error: {
+            code: "selection_required",
+            message: "Bulk rejection requires selected observations or an explicit review scope.",
+          },
         });
       }
       expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
@@ -1222,7 +1225,10 @@ describe("source observation routes: integration and bulk review jobs", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Bulk deferral requires selected observations or an explicit review scope.",
+      error: {
+        code: "selection_required",
+        message: "Bulk deferral requires selected observations or an explicit review scope.",
+      },
     });
     expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
   });

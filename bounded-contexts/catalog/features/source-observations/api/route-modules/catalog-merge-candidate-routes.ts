@@ -80,7 +80,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     const body = await requestBody(c.req);
     const reason = requiredReason(body, "promote");
     if (!reason.ok) {
-      return c.json({ error: reason.error }, 400);
+      return c.json({ error: { code: "reason_required", message: reason.error } }, 400);
     }
 
     const result = await services.promoteCatalogMergeCandidate({
@@ -102,7 +102,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     const body = await requestBody(c.req);
     const reason = requiredReason(body, "split");
     if (!reason.ok) {
-      return c.json({ error: reason.error }, 400);
+      return c.json({ error: { code: "reason_required", message: reason.error } }, 400);
     }
     if (
       !isRecord(body.remainingSnapshot) ||
@@ -110,7 +110,12 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
       typeof body.splitCandidateId !== "string"
     ) {
       return c.json(
-        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.split.requires.snapshots") },
+        {
+          error: {
+            code: "snapshot_required",
+            message: t("catalog.features.sourceObservations.api.route.merge.candidate.split.requires.snapshots"),
+          },
+        },
         400,
       );
     }
@@ -137,11 +142,16 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     const body = await requestBody(c.req);
     const reason = requiredReason(body, "update");
     if (!reason.ok) {
-      return c.json({ error: reason.error }, 400);
+      return c.json({ error: { code: "reason_required", message: reason.error } }, 400);
     }
     if (!isRecord(body.snapshot)) {
       return c.json(
-        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.update.requires.snapshot") },
+        {
+          error: {
+            code: "snapshot_required",
+            message: t("catalog.features.sourceObservations.api.route.merge.candidate.update.requires.snapshot"),
+          },
+        },
         400,
       );
     }
@@ -166,7 +176,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     const body = await requestBody(c.req);
     const reason = requiredReason(body, "ignore");
     if (!reason.ok) {
-      return c.json({ error: reason.error }, 400);
+      return c.json({ error: { code: "reason_required", message: reason.error } }, 400);
     }
 
     const result = await services.ignoreCatalogMergeCandidate({
@@ -188,7 +198,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     const body = await requestBody(c.req);
     const reason = requiredReason(body, "defer");
     if (!reason.ok) {
-      return c.json({ error: reason.error }, 400);
+      return c.json({ error: { code: "reason_required", message: reason.error } }, 400);
     }
 
     const result = await services.deferCatalogMergeCandidate({
