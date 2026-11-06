@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { repoRoot } from "./lib/repo.mjs";
 
 const verification = readFileSync(path.join(repoRoot, ".github/workflows/platform-ephemeral-verification.yml"), "utf8");
@@ -49,6 +50,23 @@ function expectAutomaticDispatchContract(workflow) {
   expect(dispatchStep).toContain("-f dispatch_source=automatic");
 }
 
+function expectCensusSource(source) {
+  const workflow = parse(source);
+  const steps = workflow.jobs["verify-release"].steps;
+  const index = steps.findIndex((candidate) => candidate.name === "Certify census terminal before namespace deletion");
+  expect(index).toBeGreaterThan(0);
+  expect(steps[index].if).toBe(
+    "always() && inputs.dispatch_source == 'manual' && inputs.census_terminal_binding != '' && steps.namespace.outcome != 'skipped'",
+  );
+  expect(steps[index].run).toBe('node "$RUNNER_TEMP/census-terminal-evidence.mjs"');
+  expect(steps[index + 1].name).toBe("Delete verification Kubernetes namespace");
+  expect(steps[index + 1].if).toBe("always() && steps.namespace.outcome != 'skipped'");
+  const callers = Object.values(workflow.jobs)
+    .flatMap((candidate) => candidate.steps)
+    .filter((candidate) => candidate.run?.includes("census-terminal-evidence.mjs"));
+  expect(callers).toHaveLength(2);
+}
+
 function producerDisposition({ deployProductionResult, handoff, dispatchResult = "success", enabled = true }) {
   const dispatches = enabled && deployProductionResult === "success";
   return {
@@ -73,6 +91,61 @@ function handoffDisposition({ artifactCount, producerStatus, waitExpired = false
 }
 
 describe("platform ephemeral verification workflow", () => {
+  it("Source mutants: async, bypass, alternate caller, unbound input and W-success cleanup gates reject", () => {
+    expectCensusSource(verification);
+    const w = step(verification, "Certify census terminal before namespace deletion");
+    const d = step(verification, "Delete verification Kubernetes namespace");
+    const mutants = [
+      verification.replace(
+        w,
+        w.replace(
+          'run: node "$RUNNER_TEMP/census-terminal-evidence.mjs"',
+          'run: node "$RUNNER_TEMP/census-terminal-evidence.mjs" &',
+        ),
+      ),
+      verification.replace(w, ""),
+      verification.replace(w, w.replace(" && inputs.census_terminal_binding != ''", "")),
+      verification.replace(w, w.replace(" && inputs.dispatch_source == 'manual'", "")),
+      verification.replace(d, d.replace("if: always()", "if: success()")),
+      `${verification}\n  synthetic-alternate-caller:\n    steps:\n      - run: node scripts/census-terminal-evidence.mjs\n`,
+    ];
+    for (const mutant of mutants) expect(() => expectCensusSource(mutant)).toThrow();
+  });
+
+  it("Source: only bound manual W executes the admitted M helper before unconditional eligible deletion", () => {
+    const workflow = parse(verification);
+    const steps = workflow.jobs["verify-release"].steps;
+    const index = steps.findIndex(
+      (candidate) => candidate.name === "Certify census terminal before namespace deletion",
+    );
+    const w = steps[index];
+    expect(index).toBeGreaterThan(0);
+    expect(steps[index - 1].name).toBe("Hold for preview census");
+    expect(steps[index + 1].name).toBe("Delete verification Kubernetes namespace");
+    expect(w.if).toBe(
+      "always() && inputs.dispatch_source == 'manual' && inputs.census_terminal_binding != '' && steps.namespace.outcome != 'skipped'",
+    );
+    expect(w.run).toBe('node "$RUNNER_TEMP/census-terminal-evidence.mjs"');
+    expect(steps[index + 1].if).toBe("always() && steps.namespace.outcome != 'skipped'");
+    expect(steps[index + 1].if).not.toContain("census_terminal");
+    expect(w.env.FROZEN_WORKFLOW_SHA).toBe("${{ github.workflow_sha }}");
+    expect(JSON.stringify(w)).not.toContain("producer_run");
+    const release = step(verification, "Resolve release commit");
+    expect(release).toContain('git show "${FROZEN_WORKFLOW_SHA}:scripts/census-terminal-evidence.mjs"');
+    expect(release).toContain("STOP_HELPER_HASH");
+    expect(release).toContain("STOP_WORKFLOW_HASH");
+    expect(release.indexOf("git show")).toBeLessThan(release.indexOf("git checkout --detach"));
+    expect(steps.findIndex((candidate) => candidate.id === "runtime_secrets")).toBe(13);
+    const helper = readFileSync(path.join(repoRoot, "scripts/census-terminal-evidence.mjs"), "utf8");
+    expect(helper).toContain("AbortSignal.timeout(20000)");
+    expect(helper).toContain('redirect: "error"');
+    expect(helper).toContain("flush: true");
+    expect(helper).not.toMatch(/child_process|setInterval|setTimeout\(|Promise\.all|\.kill\(|producer_run/u);
+    expect(w).not.toHaveProperty("continue-on-error");
+    expect(step(verification, "Reset verification namespace")).toContain("namespace-created.json");
+    expect(workflow.permissions).toEqual({ contents: "read", actions: "read" });
+  });
+
   it("dispatches only after the owning production job executed successfully", () => {
     expectAutomaticDispatchContract(production);
     expect(producerDisposition({ deployProductionResult: "skipped", handoff: false })).toEqual({
