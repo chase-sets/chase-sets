@@ -1687,7 +1687,7 @@ pub mod url {
     pub mod cart {
         /// The cart, after the write whose receipt it carries.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/cart", get = crate::cart::page)]
+        #[route("/account/cart", get = crate::cart::page, gives(crate::chrome::CartCount))]
         pub struct Cart {
             #[route(query)]
             pub after: crate::cart::AfterWrite,
@@ -1926,13 +1926,21 @@ pub fn sign_in(req: &Req) -> HtmlResult {
     }
 }
 
+/// The platform API refused the viewer (403): a refusal, answered as an extractor's is, so the error
+/// page draws the layout's reads (the cart's count) as for any page the request is at fault for. The
+/// API's reason is logged.
+pub fn api_refused(error: ApiError) -> corten::Error {
+    tracing::info!("the platform API refused the request: {error}");
+    Refused::forbidden().into()
+}
+
 /// A list's read that failed, as the page's answer. After a write, a read that failed for good is
 /// marketplace's "could not be verified" (409), in the screen's words (`unverified`): the error
 /// page knows only the status, so the screen draws it.
 pub fn read_failed(req: &Req, viewer: Option<&Viewer>, error: ApiError, after_write: Option<&str>) -> HtmlResult {
     let status = match error.status() {
         Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
-        Some(StatusCode::FORBIDDEN) => StatusCode::FORBIDDEN,
+        Some(StatusCode::FORBIDDEN) => return Err(api_refused(error)),
         _ => match after_write {
             Some(unverified) => {
                 tracing::warn!("the read after a write failed: {error}");

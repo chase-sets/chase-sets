@@ -487,7 +487,8 @@ pub(crate) async fn page(
 /// The cart page, read after `receipt`'s write when there is one, with `notice` above the lines:
 /// a checkout or a write that applied nothing is 422, a write that applied part or may not have
 /// applied is 409. The nav's count is the one this read found, which the page gives the layout
-/// read (`chrome::CartCount`, which starts no read of its own for this page).
+/// read (`chrome::CartCount`, which Corten starts no read of its own for on this page: `gives` on its
+/// route).
 async fn render(
     req: &Req,
     buyer: &Buyer,
@@ -508,7 +509,10 @@ async fn render(
         Err(error) if receipt.is_some() && error.catching_up() => CartScreen::pending(),
         Err(error) => {
             let t: CartMsg = req.t();
-            return read_failed(req, viewer, error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()));
+            // The page the route gives the count for (`gives(CartCount)`): a read that failed after a
+            // write draws it as one still catching up.
+            return read_failed(req, viewer, error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()))
+                .map(|page| page.give::<CartCount>(None));
         }
     };
     let t: CartMsg = req.t();
@@ -658,7 +662,7 @@ pub(crate) async fn checkout(
 async fn refused(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, error: ApiError) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in_to_cart(req),
-        Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+        Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
         Some(status) if status.is_client_error() => {
             let t: CartMsg = req.t();
             let reason = error.refusal().unwrap_or(t.route_request_failed()).to_owned();

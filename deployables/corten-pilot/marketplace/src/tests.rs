@@ -2796,9 +2796,22 @@ async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
     assert_eq!(guest_cart_reads(&pilot).len(), reads, "nothing read without a guest cart");
 }
 
+/// The cart page gives the count its own read found (`gives(CartCount)` on its route), so Corten
+/// starts no layout read for it: one cart read draws the page and both badges.
+#[tokio::test]
+async fn the_cart_page_draws_the_count_from_its_own_one_read() {
+    let pilot = Pilot::new().await;
+    let total = cart("buyer")["count"].as_u64().unwrap().to_string();
+    let (status, _, html) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "{html}");
+    let reads = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == CART).count();
+    assert_eq!(reads, 1, "the page's read is the count's");
+}
+
 /// A 404 or a refusal draws the cart's count, as every other page does: Corten starts the layout's
-/// reads for it (corten-run/corten#877), and for a handler's own refusal, which it starts none for,
-/// the page reads the count itself (corten-run/corten#890).
+/// reads for a failure the request is at fault for (corten-run/corten#877), a handler's own
+/// refusal (`Refused`, corten-run/corten#890) and a handler's 404 too.
 #[tokio::test]
 async fn a_not_found_or_refused_page_draws_the_carts_count() {
     let pilot = Pilot::new().await;
@@ -2818,7 +2831,11 @@ async fn a_not_found_or_refused_page_draws_the_carts_count() {
     let body = "consent_token=tok_ok&account_id=acc_else";
     let (status, _, html) = pilot.send(post(&format!("{AGENTS}/consent"), "buyer", body, false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
-    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "a handler's refusal: {html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a handler's refusal: {html}");
+    // A handler's 404: no such item.
+    let (status, _, html) = pilot.send(get("/items/nope", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "a handler's 404: {html}");
 }
 
 #[tokio::test]

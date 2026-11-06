@@ -568,12 +568,13 @@ pub(crate) async fn switch_account(
     };
     let account = input.account_id.trim();
     if !consent.memberships.iter().any(|m| m.account_id == account) {
-        return Err(corten::Error::status(StatusCode::FORBIDDEN));
+        // Not one of the user's accounts: a refusal, answered as an extractor's is.
+        return Err(Refused::forbidden().into());
     }
     if let Err(error) = caller.session_write(&consent.session_id, SessionWrite::Switch(account)).await {
         return match error.status() {
             Some(StatusCode::UNAUTHORIZED) => back_to_consent(&req, &input.consent_token),
-            Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+            Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         };
     }

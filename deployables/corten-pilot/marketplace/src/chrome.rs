@@ -7,18 +7,13 @@
 //! handler takes or passes it. A client navigation or a `data-patch` answer keeps the header, so
 //! nothing is started for them. A page without JavaScript has the count in its HTML. The cart page
 //! reads the cart itself and gives the count it found (`cart::render`), so its `GET` starts none.
-use std::{convert::Infallible, future::Future};
+use std::future::Future;
 
-use corten::{
-    LayoutRead,
-    extract::{FromRequestParts, Request},
-    http::request::Parts,
-    prelude::*,
-};
+use corten::{LayoutRead, http::request::Parts, prelude::*};
 
 use crate::{
     api::Checkout as _,
-    app::{Shared, url},
+    app::Shared,
     auth::{Found, after_write},
     cart::anonymous_cart,
     views::CartBadge,
@@ -35,45 +30,15 @@ pub struct CartCount(pub Shared);
 impl LayoutRead for CartCount {
     type Value = Option<u64>;
 
+    // The cart page gives the count its own read found (`gives(CartCount)` on its route), so Corten
+    // starts this read for every other page.
     fn start(&self, parts: &Parts) -> Option<impl Future<Output = Option<u64>> + Send + 'static> {
-        // The cart page gives the count its own read found.
-        if parts.uri.path() == url::Cart::default().href() {
-            return None;
-        }
         let (config, head) = (self.0.clone(), parts.clone());
         Some(async move { Some(count(&head, &config).await) })
     }
 
     fn view(count: &Option<u64>) -> impl Render + '_ {
         html! { <CartBadge count={*count} /> }
-    }
-}
-
-/// The cart's count for a handler's own refusal, which Corten starts no layout read for: the
-/// request's head, read only then (`views::error_page`), and given to the page
-/// (`HtmlResponse::give`). Corten starts the reads for every other failure the request is at
-/// fault for (corten-run/corten#877), but a handler cannot say its 403 is one (corten-run/corten#890).
-pub struct ErrorPageCount {
-    head: Parts,
-    config: Shared,
-}
-
-impl ErrorPageCount {
-    /// The count, read now.
-    pub async fn read(&self) -> Option<u64> {
-        Some(count(&self.head, &self.config).await)
-    }
-}
-
-impl FromRequestParts<Shared> for ErrorPageCount {
-    type Rejection = Infallible;
-
-    async fn from_request_parts(parts: &mut Parts, config: &Shared) -> Result<Self, Infallible> {
-        // The head with its extensions: Corten keeps the request's one lookup of who is asking there.
-        let mut head = Request::new(()).into_parts().0;
-        (head.method, head.uri, head.headers, head.extensions) =
-            (parts.method.clone(), parts.uri.clone(), parts.headers.clone(), parts.extensions.clone());
-        Ok(ErrorPageCount { head, config: config.clone() })
     }
 }
 

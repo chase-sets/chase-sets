@@ -286,7 +286,7 @@ pub(crate) async fn connect(
         Ok((connection, receipt)) => req.redirect(&connection_url(&connection.connection_id, receipt.as_ref())),
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
-            Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+            Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
             status => {
                 tracing::warn!("connecting a channel was refused: {error}");
                 refused(refusal_status(status)).await
@@ -897,7 +897,7 @@ pub(crate) async fn publication_write(
         },
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
-            Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+            Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
             Some(StatusCode::CONFLICT) => refused(PublicationSaid::Conflict, StatusCode::CONFLICT).await,
             status => {
                 tracing::warn!("a channel publication write was refused: {error}");

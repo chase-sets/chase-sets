@@ -969,7 +969,7 @@ fn failed(req: &Req, session: Option<&Session>, screen: Screen, error: ApiError,
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             }
         }
-        Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+        Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
         Some(status) if status.is_client_error() => {
             let message = error.refusal().unwrap_or(t.route_validation_review_plan_required()).to_owned();
             refuse(req, session, screen, &message)

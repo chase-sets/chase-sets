@@ -285,9 +285,7 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 
 ### Corten
 
-| Gap | Workaround | Remove when |
-|---|---|---|
-| [corten-run/corten#890 A handler cannot refuse a request the way an extractor does, so its 403 page starts no layout read](https://github.com/corten-run/corten/issues/890) | Corten starts the layout's reads for every other 4xx error page ([corten#877](https://github.com/corten-run/corten/issues/877), pin `ebbbc792`). For a handler's own 4xx, the error page takes `ErrorPageCount`, reads the cart count itself, and gives it with `HtmlResponse::give::<CartCount>` ([marketplace/src/chrome.rs](marketplace/src/chrome.rs), [marketplace/src/views.rs](marketplace/src/views.rs)) | A handler can refuse as an extractor does: return that refusal from the account switch and drop `ErrorPageCount` |
+None open.
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 

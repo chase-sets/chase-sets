@@ -538,7 +538,7 @@ pub(crate) async fn buy(
         }
         Err(error) => match (error.status(), error.code()) {
             (Some(StatusCode::UNAUTHORIZED), _) => sign_in(&req, &slug),
-            (Some(StatusCode::FORBIDDEN), _) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+            (Some(StatusCode::FORBIDDEN), _) => Err(crate::app::api_refused(error)),
             (_, Some("checkout_attempt_conflict")) => refused(&req, session, item, input, changed),
             (_, Some("checkout_closed")) => refused(&req, session, item, input, t.route_checkout_closed().to_owned()),
             (Some(status), _) if status.is_client_error() => {

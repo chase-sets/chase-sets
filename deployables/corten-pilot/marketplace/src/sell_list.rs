@@ -1022,7 +1022,7 @@ async fn act(
                 Some(to) => req.redirect(&to),
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             },
-            Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+            Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
             Some(status) if status.is_client_error() => {
                 let message = error.refusal().unwrap_or(t.route_sell_list_request_failed()).to_owned();
                 render(req, session, config, headers, surface, &Place::default(), Some(message)).await

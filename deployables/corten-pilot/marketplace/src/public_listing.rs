@@ -215,7 +215,7 @@ pub(crate) async fn buy(
         }
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req, &slug),
-            Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+            Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
             Some(status) if status.is_client_error() => {
                 refuse(error.refusal().map_or_else(|| p.listing_buy_refused().to_owned(), str::to_owned))
             }

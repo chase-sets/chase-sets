@@ -601,7 +601,7 @@ async fn render(
         Ok(policies) => Policies::Read(policies),
         Err(error) if receipt.is_some() && error.catching_up() => Policies::CatchingUp,
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
-            return Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN));
+            return Err(crate::app::api_refused(error));
         }
         Err(error) => {
             tracing::warn!("the repricing policies could not be read: {error}");
