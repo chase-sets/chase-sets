@@ -95,10 +95,16 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     }
 }
 
-/// The pages of the section the page is in, drawn first in `<main>` (`Frame`), where admin-web's
-/// shell has its side nav. It is in `<main>`, not beside it, because a client navigation swaps only
-/// `<main>`: beside it, a link from one section to another kept the first section's pages
-/// (corten-run/corten#982, which this works around). The home (`/`) is admin-web's root shell, with no section pages.
+/// The id of the layout's element that holds the section's pages, beside `<main>` (`Frame`). It is
+/// marked `page`, so a client navigation sends it with `<main>`'s children and the runtime puts
+/// it in place of the one on screen: a link from one section to another shows the new section's
+/// pages.
+#[derive(Id)]
+pub struct SectionNavId;
+
+/// The pages of the section the page is in, drawn in the layout's `SectionNavId` element beside
+/// `<main>` (`Frame`), where admin-web's shell has its side nav. The home (`/`) is admin-web's root
+/// shell, with no section pages.
 #[component(css = AdminNav)]
 pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     let here = section_of(req.path());

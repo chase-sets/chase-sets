@@ -29,7 +29,7 @@ mod policy_table;
 mod sign_in_page;
 mod status_badge;
 
-pub use admin_nav::{AdminNav, SectionNav, section_label};
+pub use admin_nav::{AdminNav, SectionNav, SectionNavId, section_label};
 pub use index_page::{HomeSection, IndexPage};
 pub use lifecycle::{ActivateForm, CloneForm, Lifecycle, RetireForm};
 pub use live_status::{LiveStatus, LiveWords};
@@ -106,8 +106,9 @@ pub fn now_iso() -> String {
 
 /// The document around every page: admin-web's frame (its sections and the commerce pages) for
 /// `viewer` and their color mode, `title`, the page's own `head` tags and the page
-/// (`children`). A client navigation gets only the title, the head tags and `<main>`'s children, so
-/// the section's pages (`SectionNav`), which differ by section, are the first of those.
+/// (`children`). A client navigation gets only the title, the head tags, `<main>`'s children and
+/// the section's pages beside `<main>` (`SectionNav`, in the element marked `page`; empty on the home), which differ
+/// by section.
 /// The viewer is the handler's `Caller`, or the error page's.
 ///
 /// Outside `<main>` is corten-ui's toaster, kept by a navigation: it shows a redirect's notice
@@ -189,12 +190,12 @@ fn Frame<'a, H: Render, T: Render, C: Render>(
                 if let Some(viewer) = viewer {
                     <AdminNav p={p} req={req} viewer={viewer} />
                 }
-                <main>
+                <div page id={SectionNavId}>
                     if let Some(viewer) = viewer {
                         <SectionNav p={p} req={req} viewer={viewer} />
                     }
-                    {children}
-                </main>
+                </div>
+                <main>{children}</main>
                 {toaster}
             </body>
         </html>

@@ -2201,8 +2201,9 @@ async fn the_section_nav_marks_the_entry_that_holds_the_page() {
     assert_eq!(side.matches(r#"aria-current="page""#).count(), 1, "{side}");
 }
 
-/// A client navigation swaps only `<main>`, so the section's pages are in it: a navigation from
-/// Catalog to Commerce draws Commerce's, not the ones the first page had.
+/// The section's pages are the layout's element marked `page`, beside `<main>`: a navigation's
+/// answer carries it, so one from Catalog to Commerce draws Commerce's, not the ones the first
+/// page had.
 #[tokio::test]
 async fn a_navigation_into_another_section_draws_that_sections_pages() {
     let pilot = Pilot::new().await;
@@ -2211,12 +2212,13 @@ async fn a_navigation_into_another_section_draws_that_sections_pages() {
     let (status, _, body) = pilot.send(req).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(!body.contains("<header class=\"nav-bar__bar\">"), "a navigation's answer has no top bar: {body}");
-    let side = &body[body.find(r#"<nav class="admin-nav__side""#).expect("the section's pages")..];
-    assert!(side.starts_with(r#"<nav class="admin-nav__side" aria-label="Commerce pages">"#), "{side}");
+    let side = &body[body.find(r#"aria-label="Commerce pages""#).expect("the section's pages")..];
+    assert!(body.contains(r#"<nav class="admin-nav__side" aria-label="Commerce pages">"#), "{body}");
     assert!(marks_current(side, "/commerce/postage-policies") && !side.contains(r#"href="/catalog/dimensions""#), "{side}");
-    // A whole document draws them first in <main>, after the bar.
+    // A whole document draws them beside <main>, after the bar and before the page.
     let (_, _, html) = pilot.send(get("/commerce/postage-policies", Some("staff"))).await;
-    assert!(html.contains(r#"<main><nav class="admin-nav__side" aria-label="Commerce pages">"#), "{html}");
+    let (nav, main) = (html.find(r#"aria-label="Commerce pages""#).expect("the section's pages"), html.find("<main>").unwrap());
+    assert!(nav < main && !html.contains(r#"<main><nav class="admin-nav__side""#), "{html}");
 }
 
 #[tokio::test]

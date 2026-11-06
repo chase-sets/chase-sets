@@ -248,7 +248,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `04542e1f` (Corten `main` on 2026-11-06). No release is tagged. The
+`Cargo.toml` pins Corten to `d8dea71e` (Corten `main` on 2026-11-06). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
 [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten pin") and in `git log -- deployables/corten-pilot/Cargo.toml`.
@@ -289,7 +289,6 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 |---|---|---|
 | [corten-run/corten#890 A handler cannot refuse a request the way an extractor does, so its 403 page starts no layout read](https://github.com/corten-run/corten/issues/890) | Corten starts the layout's reads for every other 4xx error page ([corten#877](https://github.com/corten-run/corten/issues/877), pin `ebbbc792`). For a handler's own 4xx, the error page takes `ErrorPageCount`, reads the cart count itself, and gives it with `HtmlResponse::give::<CartCount>` ([marketplace/src/chrome.rs](marketplace/src/chrome.rs), [marketplace/src/views.rs](marketplace/src/views.rs)) | A handler can refuse as an extractor does: return that refusal from the account switch and drop `ErrorPageCount` |
 | [corten-run/corten#950 A test's stand-in for an upstream API has no Corten name: apps still write corten::axum::Router and corten::axum::serve for it](https://github.com/corten-run/corten/issues/950) | Each app's tests build the stand-in API with `corten::axum::Router` and serve it with `corten::axum::serve` ([admin/src/tests.rs](admin/src/tests.rs), [marketplace/src/tests.rs](marketplace/src/tests.rs), [public/src/tests.rs](public/src/tests.rs)) | Corten names the stand-in: import it from Corten and drop the `corten::axum` uses |
-| [corten-run/corten#982 A layout part outside <main> that depends on the page (a section's sub-nav) keeps the first page's after a client navigation](https://github.com/corten-run/corten/issues/982) | admin's section pages (`SectionNav`) are drawn first in `<main>`, so every navigation sends them again ([admin/src/views/admin_nav.rs](admin/src/views/admin_nav.rs), [admin/src/views.rs](admin/src/views.rs)) | Corten carries a page's part of the layout with a navigation: draw `SectionNav` beside `<main>` again, as that part |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 

@@ -65,9 +65,9 @@
   background: var(--color-surface-2);
   color: var(--color-text);
 }
-/* The section's pages, first in <main>, inside its padding. */
+/* The section's pages, beside <main>, above it. */
 .side {
-  margin: 0 0 var(--space-5);
+  padding: var(--space-4) var(--space-6) 0;
 }
 .side ul {
   display: flex;
