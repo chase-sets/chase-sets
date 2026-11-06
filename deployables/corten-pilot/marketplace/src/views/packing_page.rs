@@ -561,9 +561,7 @@ fn ReferenceRow<'a, I: Id + Copy>(t: ShipmentsMsg, p: Pilot, label: &'a str, val
             <dd>
                 <span title={value}>{short_reference(value)}</span>
                 <span id={id} hidden>{value}</span>
-                <span class={Copy}>
-                    <CopyButton text={id} label={t.packing_copy_reference()} copied={p.packing_copied()} />
-                </span>
+                <CopyButton text={id} label={t.packing_copy_reference()} copied={p.packing_copied()} class={Copy} />
             </dd>
         </div>
     }
@@ -661,9 +659,7 @@ fn Details<'a>(t: ShipmentsMsg, p: Pilot, s: &'a ShipmentDetail) -> impl Render 
                     }
                 </address>
                 <span id={ShipToId} hidden>{&copied}</span>
-                <span class={Copy}>
-                    <CopyButton text={ShipToId} label={t.packing_copy_address()} copied={p.packing_copied()} />
-                </span>
+                <CopyButton text={ShipToId} label={t.packing_copy_address()} copied={p.packing_copied()} class={Copy} />
             </div>
             <div class={Card}>
                 <a

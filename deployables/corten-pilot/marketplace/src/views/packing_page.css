@@ -438,9 +438,6 @@
   overflow-wrap: anywhere;
 }
 .copy {
-  display: contents;
-}
-.copy > button {
   min-height: 2.75rem;
   padding: 0 var(--space-2);
   border: 0;

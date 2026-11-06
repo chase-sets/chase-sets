@@ -2753,11 +2753,10 @@ async fn a_page_and_its_layout_ask_who_is_asking_once() {
     let (status, _, _) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(identifies(&pilot), 1);
-    // The error page gets none of the refused request's extensions, so it asks once more
-    // (todd-skelton/corten#582); its cart count and session still share one.
+    // A refused page, its error page's session and its cart count share one too.
     let (status, _, _) = pilot.send(get(SCREEN, Some("buyer"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "refused, and drawn by the error page");
-    assert_eq!(identifies(&pilot), 3);
+    assert_eq!(identifies(&pilot), 2);
 }
 
 #[tokio::test]
@@ -7273,8 +7272,9 @@ async fn a_new_or_rotated_key_shows_its_secret_once_in_the_writes_own_answer() {
     assert!(text(&html).contains("API key secret created"), "{}", text(&html));
     assert!(html.contains(&format!(r#"<code id="secret">{STAND_IN_SECRET}</code>"#)), "{html}");
     assert!(
-        html.contains(r#"<button data-scope="ui-copy-button" type="button" hidden"#)
-            && html.contains("ui.copy_button.copy($t,&quot;secret&quot;,@said,&quot;Copied&quot;)"),
+        html.contains(
+            r#"<button data-scope="ui-copy-button" type="button" class="security-page__button security-page__primary" hidden"#
+        ) && html.contains("ui.copy_button.copy($t,&quot;secret&quot;,@said,&quot;Copied&quot;)"),
         "Copy is corten-ui's, shown by its script, and copies the secret by its id: {html}"
     );
     assert!(!html.contains("data-corten-read-again"), "never reads itself again while it shows a secret");
