@@ -2064,6 +2064,8 @@
   "wb_stage.create.promote_scope.explicit": "Selected scope: {scope}. Matching observations: {count}. No other provider scope is promoted by this action.",
   "wb_stage.create.promote_scope.scoped": "Scoped to {scope}: only the {count} eligible observation(s) here are promoted.",
   "wb_stage.create.promote_scope.title": "Promote all eligible in this scope",
+  "wb_stage.create.receipt.empty_string": "Empty string",
+  "wb_stage.create.receipt.not_returned": "Not returned",
   "wb_stage.create.scoped.badge": "Scoped",
   "wb_stage.create.summary": "{count} Catalog Item(s) created or updated.",
   "wb_stage.create.summary.pending": "No Catalog writes run until you confirm the previewed impact.",
