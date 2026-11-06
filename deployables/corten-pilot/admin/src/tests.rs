@@ -1574,6 +1574,7 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
     let scope = |id: &str, editions: &[&str], status: &str| {
         json!({ "scopeRecordId": id, "productDomain": "pokemon", "scopeKind": "expansion", "referenceTypeKey": "expansion",
                 "referenceRecordId": format!("ref_{id}"), "referenceRecordKey": id, "name": "Paldean Fates",
+                "productLineScopeRecordId": "scp_pokemon", "seriesScopeRecordId": "scp_sv",
                 "officialSetCode": "PAF", "languageEditions": editions, "lifecycleStatus": status,
                 "updatedAt": "2026-11-04T00:00:00.000Z",
                 "promotionReadiness": if status == "active" { "live" } else { "unpublished" }, "syncFreshness": "fresh" })
@@ -2045,7 +2046,11 @@ impl Pilot {
     }
 
     fn catalog_writes(&self) -> Vec<Call> {
-        self.catalog_calls().into_iter().filter(|c| c.method != Method::GET).collect()
+        // The scope's sync state is a POST that reads (the daily surface's `catalog-sync-scope/state`).
+        self.catalog_calls()
+            .into_iter()
+            .filter(|c| c.method != Method::GET && !c.path.ends_with("/catalog-sync-scope/state"))
+            .collect()
     }
 
     /// The stylesheet a page links whose URL contains `part`, and its text.
@@ -4055,7 +4060,20 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
     // The editions: English canonical, Japanese open with its candidate and its commands.
     assert!(html.contains(r#"data-link="pending-review""#) && html.contains("Confidence is below high."), "{html}");
     assert!(html.contains(r#"data-language-edition-command="alias.defer""#), "{html}");
-    assert!(html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_paf""#), "the workspace is admin-web's: {html}");
+    // The import-to-promotion section: the daily surface for the scope, by its hierarchy, its id and
+    // its first edition, its commands posting with the working set that lands them back here.
+    let location = "/catalog/integrations?productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv\
+                    &expansionId=scp_paf&expansionName=Paldean%20Fates&scopeRecordId=scp_paf&languageCode=en";
+    let read = format!("/api/catalog/source-observations/workbench-surfaces/daily?location={}", crate::api::segment(location));
+    assert!(calls.contains(&read), "{read} in {calls:?}");
+    let context = format!("{}&home=scp_paf", location.split_once('?').unwrap().1);
+    assert!(html.contains("data-scope-workspace") && html.contains(r#"name="wb-stage""#), "the stages: {html}");
+    assert!(
+        html.contains(&format!(r#"action="/catalog/integrations/review?{}""#, context.replace('&', "&amp;"))),
+        "a command carries the working set: {html}"
+    );
+    assert!(!html.contains("data-import-context") && !html.contains("Run tcgdex"), "no import context bar or workset: {html}");
+    assert!(!html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_paf""#), "the workspace is the pilot's: {html}");
     assert!(
         pilot.stylesheet(&html, "sections/catalog").await.is_some_and(|css| css.contains(".scope-page__stages")),
         "the page's stylesheet is the area's"
@@ -4063,10 +4081,50 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
 
     let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?jobs=c2", Some("staff"))).await;
     assert!(pilot.catalog_calls().iter().any(|c| c.path.ends_with("&status=completed&cursor=c2")));
+    assert!(html.contains(r#"href="/catalog/scopes/scp_paf">"#) && !html.contains("?jobs="), "first page, no next: {html}");
+}
+
+#[tokio::test]
+async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_address_keeps_its_working_set() {
+    let pilot = Pilot::new().await;
+    // A provider in the address is the scope's to choose, as admin-web drops it; the review's page stays.
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf?providerKey=tcgplayer&reviewOffset=25", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let read = pilot.calls.lock().unwrap().iter().rev().find(|c| c.path.contains("/workbench-surfaces/daily?")).cloned().unwrap();
+    let location =
+        percent_encoding::percent_decode_str(read.path.split_once("location=").unwrap().1).decode_utf8_lossy().into_owned();
+    assert!(location.starts_with("/catalog/integrations?reviewOffset=25&productLineName=pokemon&"), "{location}");
+    assert!(!location.contains("providerKey") && !location.contains("home="), "{location}");
     assert!(
-        html.contains(r#"href="/catalog/scopes/scp_paf">"#) && !html.contains(r#"rel="next""#),
-        "first page, no next: {html}"
+        html.contains(r#"href="/catalog/scopes/scp_paf?productLineName=pokemon&amp;"#),
+        "the review's status and page links stay on the scope: {html}"
     );
+
+    let context = "productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv&expansionId=scp_paf\
+                   &expansionName=Paldean%20Fates&scopeRecordId=scp_paf&languageCode=en&home=scp_paf";
+    let (status, headers, _) =
+        pilot.send(post(&format!("/catalog/integrations/review?{context}"), "action=defer&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scopes/scp_paf?productLineName=pokemon&") && to.contains("&done=queued"), "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Command queued"), "the scope's toast: {html}");
+    assert!(
+        daily_writes(&pilot).iter().any(|c| c.path == "/api/catalog/source-observations/bulk-defer/jobs"),
+        "the defer was sent"
+    );
+
+    // Refused without the runtime: the daily workbench of the same working set, with the API's
+    // reason; with it, the reason is patched into the section's notice.
+    let at = format!("/catalog/integrations/review?{context}");
+    let (status, _, html) = pilot.send(post(&at, "action=reject&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("A reason is required to reject observations."), "{html}");
+    assert!(!html.contains("home=scp_paf"), "the daily workbench's own working set: {html}");
+    let (status, _, patch) = pilot.send(post(&at, "action=reject&observation=obs_1", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
+    assert!(patch.contains("A reason is required to reject observations.") && !patch.contains("wb-stage"), "{patch}");
 }
 
 #[tokio::test]
@@ -4081,6 +4139,12 @@ async fn a_scope_with_one_edition_reads_no_alias_review_and_a_failed_read_is_its
     assert_eq!(status, StatusCode::OK, "as admin-web's loader degrades them: {html}");
     assert!(html.matches(r#"role="status""#).count() >= 3, "the journey's and both banners: {html}");
     assert!(!html.contains("Accept all"), "no commands over a coverage that could not be read: {html}");
+    assert!(
+        html.contains("The import-to-promotion workspace could not be read.")
+            && html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_down""#)
+            && !html.contains(r#"name="wb-stage""#),
+        "a workspace that cannot be read is its section's banner and admin-web's link: {html}"
+    );
 
     let (status, _, _) = pilot.send(get("/catalog/scopes/scp_gone", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -7287,6 +7351,9 @@ fn workbench_surface(surface: &str, query: &str) -> Response {
     }
     let location =
         query.strip_prefix("location=").map(|l| percent_encoding::percent_decode_str(l).decode_utf8_lossy().into_owned());
+    if location.as_deref().is_some_and(|l| l.contains("scopeRecordId=scp_down")) {
+        return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "The workbench surface is unavailable.");
+    }
     let Some(location) = location.filter(|l| l.starts_with("/catalog/")) else {
         return refusal(
             StatusCode::BAD_REQUEST,

@@ -80,7 +80,7 @@
     "alias_revoked": "The alias was revoked.",
     "alias_deferred": "The candidate stays pending for a later review.",
     "workspace_title": "Import to promotion",
-    "workspace_elsewhere": "This workspace is not in the pilot yet. It opens on admin-web.",
+    "workspace_unread": "The import-to-promotion workspace could not be read. It also opens on admin-web.",
     "workspace_open": "Open the workspace on admin-web",
     "stages": "Journey stages",
     "stage_complete": "Complete",

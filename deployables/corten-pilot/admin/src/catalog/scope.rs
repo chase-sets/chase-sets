@@ -5,7 +5,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/scopes/{id}?jobs&after_write&done&count` | the page (`jobs`: the completed jobs' page cursor) |
+//! | `GET /catalog/scopes/{id}?jobs&after_write&done&count&<working set>` | the page (`jobs`: the completed jobs' page cursor; the rest the import-to-promotion section's working set) |
 //! | `POST /catalog/scopes/{id}/coverage` | a mapping's accept, reject or revoke, or Accept all available |
 //! | `POST /catalog/scopes/{id}/coverage/propose` | Propose mapping (and accept it) |
 //! | `POST /catalog/scopes/{id}/publish` | Confirm canonical record |
@@ -16,8 +16,12 @@
 //! them. Every write is a form that works without JavaScript and answers with the page after it
 //! (its receipt and the toast), or the page again with the API's refusal (422).
 //!
-//! Not ported: the import-to-promotion workspace (the integrations daily surface, which the Catalog
-//! API composes once chase-sets/chase-sets#10507 lands); the section links to admin-web's page for it.
+//! The import-to-promotion section is the daily workbench's surface for the scope
+//! (`GET .../workbench-surfaces/daily?location=`), read with the others and drawn with the daily
+//! page's banners and stages; its location is built from the scope as admin-web builds it
+//! ([`workspace_context`], chase-sets/chase-sets#10507), and its commands are the daily routes', which
+//! land back here (the working set's `home`). A surface that does not read is the section's banner,
+//! with admin-web's page linked.
 use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
@@ -63,6 +67,10 @@ pub mod url {
         AliasRejected,
         AliasRevoked,
         AliasDeferred,
+        /// A command from the import-to-promotion section the API accepted, or the job it
+        /// cancelled (the daily workbench's words, `daily::Ran`).
+        Queued,
+        Cancelled,
     }
 
     /// The page's query: the completed jobs' page, and what the write before left (its receipt,
@@ -186,6 +194,8 @@ impl ScopeDone {
             ScopeDone::AliasRejected => p.scope_alias_rejected().into(),
             ScopeDone::AliasRevoked => p.scope_alias_revoked().into(),
             ScopeDone::AliasDeferred => p.scope_alias_deferred().into(),
+            ScopeDone::Queued => t.feedback_queued_title().into(),
+            ScopeDone::Cancelled => t.feedback_cancelled_title().into(),
         }
     }
 }
@@ -285,6 +295,73 @@ pub struct ScopeScreen {
     pub editions: Option<Vec<Edition>>,
     /// Whether the alias review could not be read (the editions are then drawn from none).
     pub alias_review_failed: bool,
+    /// The import-to-promotion section's working set (its `home` this scope), as its forms carry
+    /// it, and the daily surface read for it; none when that does not read.
+    pub context: String,
+    pub workspace: Option<crate::catalog::daily::DailyScreen>,
+}
+
+/// The query keys the scope's page owns: the completed jobs' page and what the write before left.
+const PAGE_KEYS: [&str; 4] = ["jobs", "after_write", "done", "count"];
+
+/// The keys the scope sets itself (admin-web's `SCOPE_QUERY_KEYS`, then `scopeRecordId`): a
+/// provider, unit, import scope or profile version in the address is dropped, as there.
+const SCOPE_KEYS: [&str; 11] = [
+    "providerKey",
+    "unitKey",
+    "importScope",
+    "profileVersion",
+    "productLineId",
+    "productLineName",
+    "seriesId",
+    "seriesName",
+    "expansionId",
+    "expansionName",
+    "scopeRecordId",
+];
+
+/// Workaround (chase-sets/chase-sets#10507): the import-to-promotion section's working set, as
+/// admin-web's `scopeDetailWorkbenchRequest` builds the daily surface's location from the scope:
+/// the address's other keys kept, the scope's hierarchy by its kind, its id, and its first
+/// language edition unless the address names one; then `home`, so a command lands back here.
+pub fn workspace_context(query: &str, scope: &ScopeRecord) -> String {
+    use crate::catalog::daily::{HOME, with_query};
+    fn set(value: Option<&str>) -> Option<&str> {
+        value.map(str::trim).filter(|v| !v.is_empty())
+    }
+    let mut drop: Vec<(&str, Option<&str>)> = PAGE_KEYS.iter().chain(&SCOPE_KEYS).map(|k| (*k, None)).collect();
+    drop.push((HOME, None));
+    let kept = with_query(query, &drop);
+    let id = scope.scope_record_id.as_str();
+    let (line, line_name, series, series_name, expansion, expansion_name) = match scope.scope_kind.as_str() {
+        "product-line" => (Some(id), set(Some(&scope.name)), None, None, None, None),
+        "series" => (set(scope.product_line_scope_record_id.as_deref()), None, Some(id), set(Some(&scope.name)), None, None),
+        "expansion" | "set" => (
+            set(scope.product_line_scope_record_id.as_deref()),
+            None,
+            set(scope.series_scope_record_id.as_deref()),
+            None,
+            Some(id),
+            set(Some(&scope.name)),
+        ),
+        _ => (None, None, None, None, None, None),
+    };
+    let language = (crate::catalog::daily::context_value(&kept, "languageCode").is_none())
+        .then(|| set(scope.language_editions.first().map(String::as_str)))
+        .flatten();
+    let changes = [
+        ("productLineName", line_name.or(set(Some(&scope.product_domain)))),
+        ("productLineId", line),
+        ("seriesId", series),
+        ("seriesName", series_name),
+        ("expansionId", expansion),
+        ("expansionName", expansion_name),
+        ("scopeRecordId", Some(id)),
+        ("languageCode", language),
+        (HOME, Some(id)),
+    ];
+    let changes: Vec<(&str, Option<&str>)> = changes.into_iter().filter(|(_, value)| value.is_some()).collect();
+    with_query(&kept, &changes)
 }
 
 /// Workaround for chase-sets/chase-sets#10703: admin-web derives each edition's link state from
@@ -388,8 +465,9 @@ async fn jobs(caller: &Caller<'_>, id: &str, cursor: Option<&str>) -> Option<Job
 
 /// The page's reads: the scope, then its coverage, jobs and (with more than one edition) the
 /// alias review of its Reference Record, together.
-async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>) -> Result<ScopeScreen, ApiError> {
+async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>, query: &str, manage: bool) -> Result<ScopeScreen, ApiError> {
     let scope: ScopeRecord = caller.get(Kind::ScopeRecords, id).await?;
+    let context = workspace_context(query, &scope);
     let review = async {
         if scope.language_editions.len() <= 1 {
             return None;
@@ -399,7 +477,10 @@ async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>) -> Result<S
     };
     let coverage_at = format!("/coverage{}", under(id, &[]));
     let coverage = caller.read_at::<Coverage>(Kind::ProviderScopeMappings, &coverage_at);
-    let (review, coverage, jobs) = join3(review, coverage, jobs(caller, id, cursor)).await;
+    let ((review, coverage, jobs), workspace) = tokio::join!(
+        join3(review, coverage, jobs(caller, id, cursor)),
+        crate::catalog::daily::workspace(caller, &context, manage),
+    );
     let coverage = coverage.inspect_err(|error| tracing::warn!("a scope's coverage could not be read: {error}")).ok();
     let (editions, alias_review_failed) = match review {
         None => (None, false),
@@ -410,7 +491,7 @@ async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>) -> Result<S
         }
     };
     let journey = journey(&scope, editions.as_deref(), alias_review_failed);
-    Ok(ScopeScreen { scope, journey, coverage, jobs, editions, alias_review_failed })
+    Ok(ScopeScreen { scope, journey, coverage, jobs, editions, alias_review_failed, context, workspace })
 }
 
 fn caller<'a>(config: &'a Shared, headers: &'a HeaderMap, receipt: Option<&'a Receipt>) -> Caller<'a> {
@@ -432,10 +513,11 @@ pub(crate) async fn page(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
+    uri: corten::http::Uri,
     Params(route): Params<crate::catalog::scope::url::ScopePage<'_>>,
 ) -> HtmlResult {
     let (id, at) = (route.id, route.at);
-    render(&req, &staff.viewer, &config, &headers, &id, &at, ScopeBack::Nothing).await
+    render(&req, &staff.viewer, &config, &headers, &id, &at, uri.query().unwrap_or_default(), ScopeBack::Nothing).await
 }
 
 /// The page a write came from, again: with a `back` other than nothing, a refused write's answer
@@ -455,12 +537,17 @@ async fn again(
     from: Via,
 ) -> HtmlResult {
     match from {
-        Via::Scope => render(req, viewer, config, headers, id, at, back).await,
+        Via::Scope => render(req, viewer, config, headers, id, at, "", back).await,
         Via::Coverage => crate::catalog::coverage::render(req, viewer, config, headers, id, at, back).await,
     }
 }
 
-/// The page; with a `back` other than nothing, a refused write's answer (422).
+/// The page, `query` its address's query (the import-to-promotion section's working set); with a
+/// `back` other than nothing, a refused write's answer (422).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn render(
     req: &Req,
     viewer: &Viewer,
@@ -468,18 +555,19 @@ async fn render(
     headers: &HeaderMap,
     id: &str,
     at: &ScopeAt,
+    query: &str,
     back: ScopeBack,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(at.after_write.as_deref());
     let caller = caller(config, headers, receipt.as_ref());
-    let view = match screen(&caller, id, at.jobs.as_deref()).await {
+    let view = match screen(&caller, id, at.jobs.as_deref(), query, manages(viewer)).await {
         Ok(view) => view,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let notice = at.done.map(|done| done.notice(t, p, at.count.unwrap_or(0)));
     let status = if matches!(back, ScopeBack::Nothing) { StatusCode::OK } else { StatusCode::UNPROCESSABLE_ENTITY };
-    let page = views::scope_page(t, p, &view, at.jobs.as_deref(), notice, back, manages(viewer));
+    let page = views::scope_page(req, &view, at.jobs.as_deref(), notice, back, manages(viewer));
     let html = html! {
         <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_scope()} head="">
             {page}
@@ -701,6 +789,8 @@ mod tests {
             product_domain: "pokemon".into(),
             scope_kind: "set".into(),
             name: "Base Set".into(),
+            product_line_scope_record_id: Some("scp_pokemon".into()),
+            series_scope_record_id: Some("scp_series".into()),
             official_set_code: None,
             language_editions: editions.iter().map(|e| (*e).into()).collect(),
             lifecycle_status: status.into(),
@@ -791,9 +881,35 @@ mod tests {
             jobs: Some(Jobs { active: Vec::new(), failed: Vec::new(), completed: Vec::new(), next: Some("c1".into()) }),
             editions: Some(editions),
             alias_review_failed: false,
+            context: String::new(),
+            workspace: None,
         };
         let derived: serde_json::Value = serde_json::from_str(&screen.to_json()).unwrap();
         assert_eq!(derived, serde_json::to_value(&screen).unwrap());
+    }
+
+    #[test]
+    fn the_workspace_is_the_scopes_hierarchy_by_its_kind_and_keeps_the_rest_of_the_address() {
+        let mut set = scope(&["ja", "en"], "active", Sync::Fresh);
+        assert_eq!(
+            workspace_context("jobs=c2&providerKey=x&filter.status=observed&done=queued&scopeRecordId=other", &set),
+            "filter.status=observed&productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_series\
+             &expansionId=scp_1&expansionName=Base%20Set&scopeRecordId=scp_1&languageCode=ja&home=scp_1"
+        );
+        assert!(workspace_context("languageCode=en", &set).starts_with("languageCode=en&"), "the address's edition first");
+        set.scope_kind = "series".into();
+        assert_eq!(
+            workspace_context("", &set),
+            "productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_1&seriesName=Base%20Set&scopeRecordId=scp_1\
+             &languageCode=ja&home=scp_1"
+        );
+        set.scope_kind = "product-line".into();
+        set.language_editions.clear();
+        assert_eq!(
+            workspace_context("", &set),
+            "productLineName=Base%20Set&productLineId=scp_1&scopeRecordId=scp_1&home=scp_1",
+            "a product line names itself, and no edition is none"
+        );
     }
 
     #[test]

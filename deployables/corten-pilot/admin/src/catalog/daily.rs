@@ -28,6 +28,10 @@
 //! (chase-sets/chase-sets#11079); and the import preview until the API builds its scope
 //! (chase-sets/chase-sets#11082).
 //!
+//! A scope's page draws the same stages for its scope (`crate::catalog::scope`), its forms carrying
+//! the working set's `home` (the pilot's own key, never sent to the API), so the redirect after a
+//! command lands back on that page.
+//!
 //! The review stage folds the alias review of the provider and profile version the surface names
 //! (`GET /api/catalog/alias-review?providerKey=&sourceProfileVersion=`, admin-web's deferred
 //! `selectedScopeAliasReview`), left out when it does not read, and posts its commands to the alias
@@ -118,7 +122,7 @@ pub enum Ran {
 }
 
 impl Ran {
-    fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             Ran::Queued => "queued",
             Ran::Cancelled => "cancelled",
@@ -812,6 +816,26 @@ pub fn at(path: &str, context: &str) -> String {
     if context.is_empty() { path.to_owned() } else { format!("{path}?{context}") }
 }
 
+/// The working set's pilot-only key that names the scope whose page draws the stages (admin-web's
+/// Scope Detail, which posts the same commands to its own route): a command lands back there.
+/// It is never sent to the API.
+pub const HOME: &str = "home";
+
+/// The page the working set `context` draws its stages on: the scope's page its `home` names, or
+/// the daily workbench.
+pub fn home(context: &str) -> String {
+    match context_value(context, HOME).filter(|id| !id.is_empty()) {
+        Some(id) => crate::catalog::scope::url::ScopePage::of(&id).href().to_string(),
+        None => url::Daily.href().to_string(),
+    }
+}
+
+/// The daily surface's location for the working set: the daily route with its query, less the
+/// pilot's `home`.
+pub fn location(context: &str) -> String {
+    at(url::Daily.href().as_str(), &with_query(context, &[(HOME, None)]))
+}
+
 /// The address's working set: its query without what the last command left on it.
 pub fn context_of(uri: &Uri) -> String {
     with_query(uri.query().unwrap_or_default(), &[("after_write", None), ("done", None)])
@@ -823,14 +847,14 @@ fn param(uri: &Uri, key: &str) -> Option<String> {
 }
 
 /// A value of the query `context`, decoded.
-fn context_value(context: &str, key: &str) -> Option<String> {
+pub fn context_value(context: &str, key: &str) -> Option<String> {
     let raw = context.split('&').find_map(|pair| pair.strip_prefix(key)?.strip_prefix('='))?;
     Some(percent_encoding::percent_decode_str(raw).decode_utf8_lossy().into_owned())
 }
 
 /// What the page draws: the read model, what the last command did or the refusal of the one just
 /// sent, and whether the viewer may run the commands.
-#[derive(Serialize, ToJson)]
+#[derive(Clone, Debug, Serialize, ToJson)]
 pub struct DailyScreen {
     pub read: DailyRead,
     pub manage: bool,
@@ -864,8 +888,24 @@ async fn read(
     location: &str,
     receipt: Option<&Receipt>,
 ) -> Result<DailyRead, crate::api::ApiError> {
+    read_with(&config.platform.caller(headers, config.proto, receipt), location).await
+}
+
+async fn read_with(caller: &Caller<'_>, location: &str) -> Result<DailyRead, crate::api::ApiError> {
     let rest = format!("/workbench-surfaces/daily?location={}", segment(location));
-    config.platform.caller(headers, config.proto, receipt).read_at::<DailyRead>(Kind::SourceObservations, &rest).await
+    caller.read_at::<DailyRead>(Kind::SourceObservations, &rest).await
+}
+
+/// The daily surface for a scope's page, the working set `context` (its `home` the scope), with
+/// the sync run it names and the scope's sync state, as admin-web's Scope Detail reads them; none
+/// when the surface does not read, where the section says so. The scope's page has no import
+/// context bar or alias review, so neither is read.
+pub(crate) async fn workspace(caller: &Caller<'_>, context: &str, manage: bool) -> Option<DailyScreen> {
+    let location = location(context);
+    let (read, run) = tokio::join!(read_with(caller, &location), sync_run(caller, context));
+    let read = read.inspect_err(|error| tracing::warn!("a scope's daily surface could not be read: {error}")).ok()?;
+    let units = unit_states(caller, &read).await;
+    Some(DailyScreen { read, manage, run, units, options: None, aliases: None })
 }
 
 /// The Catalog sync run the address's `jobId` names (admin-web's `selectedCatalogSyncRun`): none
@@ -943,7 +983,7 @@ async fn render(
     said: Option<Said<'_>>,
     refused: bool,
 ) -> HtmlResult {
-    let location = at(url::Daily.href().as_str(), context);
+    let location = location(context);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     // The run the address names is read beside the surface; the scope's state needs the scope the
     // surface names, so it follows.
@@ -990,7 +1030,7 @@ fn landed(req: &Req, context: &str, set: &[(&str, Option<&str>)], written: &supe
     if let Some(receipt) = receipt.as_deref() {
         changes.push(("after_write", Some(receipt)));
     }
-    let to = at(url::Daily.href().as_str(), &with_query(context, &changes));
+    let to = at(&home(context), &with_query(context, &changes));
     match Local::parse(&to) {
         Some(local) => req.redirect(&local),
         None => req.redirect(&url::Daily),
@@ -1012,8 +1052,12 @@ async fn answer(
         Sent::Refused(errors) => errors,
         Sent::Denied(denied) => return denied.answer(req),
     };
+    // Without the runtime, a refusal from a scope's page is the daily workbench of the same working
+    // set with the API's message (admin-web draws the scope's page again); with it, the message
+    // is patched in place on either page.
+    let daily = with_query(context, &[(HOME, None)]);
     let form = super::views::DailyRefusal { errors: &errors };
-    req.invalid(&errors, form, || render(req, &staff.viewer, config, headers, context, None, Some(Said::Refused(&errors)), true))
+    req.invalid(&errors, form, || render(req, &staff.viewer, config, headers, &daily, None, Some(Said::Refused(&errors)), true))
         .await
 }
 
@@ -1273,7 +1317,7 @@ pub(crate) async fn aliases(
     let sent = match crate::catalog::attention::alias_command_body(&caller, &input, &query).await {
         Ok(Some(body)) => command(&caller, Method::POST, Kind::AliasReview, "/commands", Some(&body)).await,
         Ok(None) => {
-            let to = at(url::Daily.href().as_str(), &with_query(&context, &[("done", Some(Ran::Queued.word()))]));
+            let to = at(&home(&context), &with_query(&context, &[("done", Some(Ran::Queued.word()))]));
             return match Local::parse(&to) {
                 Some(local) => req.redirect(&local),
                 None => req.redirect(&url::Daily),

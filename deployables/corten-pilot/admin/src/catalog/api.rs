@@ -46,6 +46,12 @@ pub struct ScopeRecord {
     pub product_domain: String,
     pub scope_kind: String,
     pub name: String,
+    /// The product line and series the scope sits under (a set's, an expansion's), none for the
+    /// levels above.
+    #[serde(default)]
+    pub product_line_scope_record_id: Option<String>,
+    #[serde(default)]
+    pub series_scope_record_id: Option<String>,
     #[serde(default)]
     pub official_set_code: Option<String>,
     #[serde(default)]

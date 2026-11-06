@@ -1,6 +1,7 @@
 //! A scope's page (admin-web's `CatalogScopeDetailPage`): the header, the journey, the coverage
-//! matrix, the import-to-promotion section (on admin-web), the candidate review jobs and the
-//! language editions. Every write is a plain form; a reject or revoke's reason is folded under its
+//! matrix, the import-to-promotion section (the daily workbench's banners and stages for the scope,
+//! without its import context bar and workset, as admin-web draws them there), the candidate review
+//! jobs and the language editions. Every write is a plain form; a reject or revoke's reason is folded under its
 //! button (`<details>`), and Propose mapping is a dialog, so the page works without JavaScript.
 use corten::prelude::*;
 
@@ -26,16 +27,16 @@ pub struct ScopeProposeDialogId;
 
 /// The page: `cursor` is the completed jobs' page shown, `notice` the toast of the write before,
 /// `back` a refused write's message or Propose mapping's form, and `manage` whether the viewer
-/// may write (`catalog.manage`).
+/// may write (`catalog.manage`). The words are the request's (`req`).
 pub fn scope_page<'a>(
-    t: Cat,
-    p: Pilot,
+    req: &'a Req,
     screen: &'a ScopeScreen,
     cursor: Option<&'a str>,
     notice: Option<String>,
     back: ScopeBack,
     manage: bool,
 ) -> impl Render + 'a {
+    let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let (refused, propose) = match back {
         ScopeBack::Nothing => (None, None),
         ScopeBack::Refused(message) => (Some(message), None),
@@ -60,7 +61,7 @@ pub fn scope_page<'a>(
                     manage={manage}
                     via={Via::Scope}
                 />
-                <WorkspacePart p={p} href={&workspace} />
+                <WorkspacePart t={t} p={p} req={req} screen={screen} href={&workspace} />
                 <JobsPart t={t} p={p} id={id} jobs={screen.jobs.as_ref()} cursor={cursor} />
                 if let Some(editions) = &screen.editions {
                     <EditionsPart t={t} action={&aliases} editions={editions} manage={manage} />
@@ -130,16 +131,28 @@ pub fn Rows<'a, C: Render>(label: &'a str, head: &'a [&'a str], children: C) -> 
     }
 }
 
-/// The import-to-promotion workspace is the integrations daily surface, which the pilot does not
-/// draw yet (chase-sets/chase-sets#10507 moves its composition to the API), so the section links to
-/// admin-web's.
+/// The import-to-promotion section: the daily surface for the scope (`ScopeScreen::context`), its
+/// banners and stages; their commands post to the daily workbench's routes with the working set,
+/// whose `home` lands them back here. A refused one's message is patched into the section's
+/// notice. When the surface does not read, the section says so and links to admin-web's page.
 #[component(css = ScopePage)]
-fn WorkspacePart<'a>(p: Pilot, href: &'a str) -> impl Render {
+fn WorkspacePart<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a ScopeScreen, href: &'a str) -> impl Render {
     html! {
-        <section class={Part} aria-labelledby="scope-workspace">
+        <section class={Part} aria-labelledby="scope-workspace" data-scope-workspace>
             <h2 class={PartTitle} id="scope-workspace">{p.scope_workspace_title()}</h2>
-            <p class={Muted}>{p.scope_workspace_elsewhere()}</p>
-            <a class={Link} href={href}>{p.scope_workspace_open()}</a>
+            match &screen.workspace {
+                Some(workspace) => {
+                    <div id={super::DailyRefusalId}></div>
+                    <super::Signals t={t} req={req} model={&workspace.read.read_model} context={&screen.context} />
+                    <super::Stages t={t} p={p} req={req} screen={workspace} context={&screen.context} />
+                }
+                None => {
+                    <div class={(Banner, Warning)} role="status">
+                        <p>{p.scope_workspace_unread()}</p>
+                    </div>
+                    <a class={Link} href={href}>{p.scope_workspace_open()}</a>
+                }
+            }
         </section>
     }
 }

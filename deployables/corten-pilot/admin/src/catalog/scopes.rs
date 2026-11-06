@@ -290,6 +290,8 @@ mod tests {
 
     fn scope(id: &str, editions: &[&str]) -> ScopeRecord {
         ScopeRecord {
+            product_line_scope_record_id: None,
+            series_scope_record_id: None,
             scope_record_id: id.into(),
             reference_record_id: id.into(),
             product_domain: "pokemon".into(),

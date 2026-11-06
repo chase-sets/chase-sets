@@ -122,12 +122,6 @@ pub fn DailyPage<'a>(
         freshness: &model.import_jobs.freshness,
         destructive: model.promotion_preview.destructive_count,
     };
-    let open = daily::open_stage(model);
-    let flow = daily::flow(model, open);
-    let blockers = daily::blockers(model);
-    let blocker_names: Vec<String> = blockers.iter().map(|b| (*b).to_owned()).collect();
-    let settings = on(req, &integrations::url::Settings.href(), context);
-    let health = on(req, &integrations::url::Health.href(), context);
     html! {
         <Shell t={t} back={None} counts={counts}>
             match said {
@@ -143,46 +137,7 @@ pub fn DailyPage<'a>(
                 Some(Said::Refused(errors)) => { <DailyRefusal errors={errors} /> }
                 None => { <div class={Notice} id={DailyRefusalId}></div> }
             }
-            match daily::governance(model) {
-                Some(status) => {
-                    let (title, description) = match status {
-                        Governance::Denied => (t.wb_gov_status_denied_title(), t.wb_gov_status_denied_description()),
-                        Governance::Stopped => (t.wb_gov_status_stopped_title(), t.wb_gov_status_stopped_description()),
-                    };
-                    <div
-                        class={Signal}
-                        data-catalog-daily-governance-status={if status == Governance::Denied { "denied" } else { "stopped" }}
-                    >
-                        <Banner tone="danger" title={title} description={description} />
-                        if let Some(href) = &settings {
-                            <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href}>
-                                {t.wb_gov_status_open()}
-                            </a>
-                        }
-                    </div>
-                }
-                None => {}
-            }
-            match daily::health(model) {
-                Some(status) => {
-                    let (tone, title, description) = match status {
-                        Health::Blocked => ("danger", t.wb_health_status_blocked_title(), t.wb_health_status_blocked_description()),
-                        Health::Degraded => ("warning", t.wb_health_status_degraded_title(), t.wb_health_status_degraded_description()),
-                    };
-                    <div
-                        class={Signal}
-                        data-catalog-daily-health-status={if status == Health::Blocked { "blocked" } else { "degraded" }}
-                    >
-                        <Banner tone={tone} title={title} description={description} />
-                        if let Some(href) = &health {
-                            <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href}>
-                                {t.wb_health_status_open()}
-                            </a>
-                        }
-                    </div>
-                }
-                None => {}
-            }
+            <Signals t={t} req={req} model={model} context={context} />
             <super::ImportContext
                 t={t}
                 route={&model.route_context}
@@ -191,75 +146,140 @@ pub fn DailyPage<'a>(
                 context={context}
             />
             <WorksetModule t={t} p={p} req={req} model={model} manage={screen.manage} />
-            let steps: Vec<Step> = flow
-                .iter()
-                .map(|(stage, state)| Step {
-                    label: stage_label(t, *stage),
-                    description: Some(stage_description(t, *stage)),
-                    link: None,
-                    state: step_state(p, *state),
-                })
-                .collect();
-            <Steps label={t.wb_stage_flow_title()} layout={StepsLayout::Row} steps={&steps} />
-            if !blocker_names.is_empty() {
-                <section class={Blocked} aria-labelledby="wb-blockers">
-                    <h2 id="wb-blockers">{t.wb_stage_blockers_title()}</h2>
-                    <p>{t.wb_stage_blockers_summary(blocker_names.len()).to_string()}</p>
-                    <Blockers t={t} blockers={&blocker_names} />
-                </section>
-            }
-            <div class={Stages}>
-                for (stage, _) in &flow {
-                    let stage = *stage;
-                    let summary = stage_summary(t, model, stage);
-                    <details
-                        class={(Accordion {}, StageBox)}
-                        name="wb-stage"
-                        open={stage == open}
-                        data-catalog-import-workflow-stage={stage.key()}
-                    >
-                        <summary>
-                            <span class={StageHead}>
-                                <span class={StageName}>{stage_label(t, stage)}</span>
-                                <span class={StageSummary}>{summary}</span>
-                            </span>
-                        </summary>
-                        <div class={StageBody}>
-                            match stage {
-                                Stage::RunSync => {
-                                    <p class={Lead}>{t.wb_stage_run_sync_description()}</p>
-                                    <SyncModule
-                                        t={t}
-                                        p={p}
-                                        model={model}
-                                        run={screen.run.as_ref()}
-                                        units={&screen.units}
-                                        context={context}
-                                        manage={screen.manage}
-                                    />
-                                    <JobsModule t={t} req={req} model={model} context={context} manage={screen.manage} />
-                                }
-                                Stage::Review => {
-                                    <CandidatesModule t={t} p={p} model={model} context={context} manage={screen.manage} />
-                                    <ReviewModule
-                                        t={t}
-                                        p={p}
-                                        req={req}
-                                        model={model}
-                                        context={context}
-                                        manage={screen.manage}
-                                        aliases={screen.aliases.as_ref()}
-                                    />
-                                }
-                                Stage::Create => {
-                                    <CreateModule t={t} p={p} model={model} context={context} />
-                                }
-                            }
-                        </div>
-                    </details>
-                }
-            </div>
+            <Stages t={t} p={p} req={req} screen={screen} context={context} />
         </Shell>
+    }
+}
+
+/// The governance and health banners, each drawn only on its own signal, with the page that
+/// settles it.
+#[component(css = DailyPage)]
+pub fn Signals<'a>(t: Cat, req: &'a Req, model: &'a Daily, context: &'a str) -> impl Render {
+    let context = with_query(context, &[(daily::HOME, None)]);
+    let settings = on(req, &integrations::url::Settings.href(), &context);
+    let health = on(req, &integrations::url::Health.href(), &context);
+    html! {
+        match daily::governance(model) {
+            Some(status) => {
+                let (title, description) = match status {
+                    Governance::Denied => (t.wb_gov_status_denied_title(), t.wb_gov_status_denied_description()),
+                    Governance::Stopped => (t.wb_gov_status_stopped_title(), t.wb_gov_status_stopped_description()),
+                };
+                <div
+                    class={Signal}
+                    data-catalog-daily-governance-status={if status == Governance::Denied { "denied" } else { "stopped" }}
+                >
+                    <Banner tone="danger" title={title} description={description} />
+                    if let Some(href) = &settings {
+                        <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href}>
+                            {t.wb_gov_status_open()}
+                        </a>
+                    }
+                </div>
+            }
+            None => {}
+        }
+        match daily::health(model) {
+            Some(status) => {
+                let (tone, title, description) = match status {
+                    Health::Blocked => ("danger", t.wb_health_status_blocked_title(), t.wb_health_status_blocked_description()),
+                    Health::Degraded => ("warning", t.wb_health_status_degraded_title(), t.wb_health_status_degraded_description()),
+                };
+                <div
+                    class={Signal}
+                    data-catalog-daily-health-status={if status == Health::Blocked { "blocked" } else { "degraded" }}
+                >
+                    <Banner tone={tone} title={title} description={description} />
+                    if let Some(href) = &health {
+                        <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href}>
+                            {t.wb_health_status_open()}
+                        </a>
+                    }
+                </div>
+            }
+            None => {}
+        }
+    }
+}
+
+/// The flow's steps and blockers, then its three stages, the open one expanded, for the working set
+/// `context` (drawn on the daily workbench, and on a scope's page).
+#[component(css = DailyPage)]
+pub fn Stages<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a DailyScreen, context: &'a str) -> impl Render {
+    let model = &screen.read.read_model;
+    let open = daily::open_stage(model);
+    let flow = daily::flow(model, open);
+    let blockers = daily::blockers(model);
+    let blocker_names: Vec<String> = blockers.iter().map(|b| (*b).to_owned()).collect();
+    html! {
+        let steps: Vec<Step> = flow
+            .iter()
+            .map(|(stage, state)| Step {
+                label: stage_label(t, *stage),
+                description: Some(stage_description(t, *stage)),
+                link: None,
+                state: step_state(p, *state),
+            })
+            .collect();
+        <Steps label={t.wb_stage_flow_title()} layout={StepsLayout::Row} steps={&steps} />
+        if !blocker_names.is_empty() {
+            <section class={Blocked} aria-labelledby="wb-blockers">
+                <h2 id="wb-blockers">{t.wb_stage_blockers_title()}</h2>
+                <p>{t.wb_stage_blockers_summary(blocker_names.len()).to_string()}</p>
+                <Blockers t={t} blockers={&blocker_names} />
+            </section>
+        }
+        <div class={Stages}>
+            for (stage, _) in &flow {
+                let stage = *stage;
+                let summary = stage_summary(t, model, stage);
+                <details
+                    class={(Accordion {}, StageBox)}
+                    name="wb-stage"
+                    open={stage == open}
+                    data-catalog-import-workflow-stage={stage.key()}
+                >
+                    <summary>
+                        <span class={StageHead}>
+                            <span class={StageName}>{stage_label(t, stage)}</span>
+                            <span class={StageSummary}>{summary}</span>
+                        </span>
+                    </summary>
+                    <div class={StageBody}>
+                        match stage {
+                            Stage::RunSync => {
+                                <p class={Lead}>{t.wb_stage_run_sync_description()}</p>
+                                <SyncModule
+                                    t={t}
+                                    p={p}
+                                    model={model}
+                                    run={screen.run.as_ref()}
+                                    units={&screen.units}
+                                    context={context}
+                                    manage={screen.manage}
+                                />
+                                <JobsModule t={t} req={req} model={model} context={context} manage={screen.manage} />
+                            }
+                            Stage::Review => {
+                                <CandidatesModule t={t} p={p} model={model} context={context} manage={screen.manage} />
+                                <ReviewModule
+                                    t={t}
+                                    p={p}
+                                    req={req}
+                                    model={model}
+                                    context={context}
+                                    manage={screen.manage}
+                                    aliases={screen.aliases.as_ref()}
+                                />
+                            }
+                            Stage::Create => {
+                                <CreateModule t={t} p={p} model={model} context={context} />
+                            }
+                        }
+                    </div>
+                </details>
+            }
+        </div>
     }
 }
 
@@ -978,7 +998,7 @@ fn candidate_tone(status: &str) -> &'static str {
 fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
     let merge = &model.merge_candidate_review;
     let ready = t.wb_merge_ready_count(merge.counts.ready).to_string();
-    let elsewhere = admin_web(&at("/catalog/integrations", context)).map(|u| u.to_string());
+    let elsewhere = admin_web(&daily::location(context)).map(|u| u.to_string());
     let conflicts = t.wb_merge_conflict_count(merge.counts.conflict).to_string();
     html! {
         <Module
@@ -1159,7 +1179,7 @@ fn ReviewModule<'a>(
         ("promoted", t.wb_review_status_promoted(), c.promoted),
         ("rejected", t.wb_review_status_rejected(), c.rejected),
     ];
-    let daily_path = daily::url::Daily.href();
+    let daily_path = daily::home(context);
     // Workaround (chase-sets/chase-sets#11047): the status links, as admin-web's `selectStatus`
     // builds them.
     let choices: Vec<(String, String, bool)> = options
@@ -1194,7 +1214,7 @@ fn ReviewModule<'a>(
     let defer = manage && reviewable && action_open("observation.defer");
     let reject = manage && reviewable && action_open("observation.reject");
     let scope = review.filters.iter().find(|f| f.key == "setId").and_then(|f| f.value.clone()).unwrap_or_default();
-    let elsewhere = admin_web(&at("/catalog/integrations", context)).map(|u| u.to_string());
+    let elsewhere = admin_web(&daily::location(context)).map(|u| u.to_string());
     let in_scope = t.wb_review_status(pagination.total).to_string();
     let filtered =
         t.wb_review_empty_filtered(crate::text::cat::WbReviewEmptyFiltered { status: &status, scope: &scope, total }).to_string();
@@ -1323,7 +1343,7 @@ fn ReviewModule<'a>(
 fn review_page(context: &str, limit: u64, n: usize) -> Box<dyn Href> {
     let offset = ((n as u64).saturating_sub(1) * limit).to_string();
     let offset = (n > 1).then_some(offset.as_str());
-    let to = at(&daily::url::Daily.href(), &with_query(context, &[("reviewOffset", offset)]));
+    let to = at(&daily::home(context), &with_query(context, &[("reviewOffset", offset)]));
     match Local::parse(&to) {
         Some(local) => Box::new(local),
         None => Box::new(daily::url::Daily),
@@ -1409,8 +1429,8 @@ fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage:
 /// the way to preview and promote, which opens on admin-web (chase-sets/chase-sets#11045).
 #[component(css = DailyPage)]
 fn CreateModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) -> impl Render {
-    let elsewhere = admin_web(&at("/catalog/integrations", &with_query(context, &[("section", Some("promotion-preview"))])))
-        .map(|u| u.to_string());
+    let elsewhere =
+        admin_web(&daily::location(&with_query(context, &[("section", Some("promotion-preview"))]))).map(|u| u.to_string());
     html! {
         <section class={Stack} aria-labelledby="wb-create">
             <h2 id="wb-create" class={Hidden}>{t.wb_stage_create_label()}</h2>
