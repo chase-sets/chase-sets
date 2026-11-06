@@ -799,7 +799,7 @@ pub fn Toasts<'a>(p: Pilot, notice: Option<&'a String>) -> impl Render {
     let message = notice.map(|n| n as &dyn Render);
     html! {
         <div class={Toasts}>
-            <Toaster close={&close} seconds={5} toast={Toast { message }} failed={&not_sent} />
+            <Toaster close={&close} seconds={5} toast={Toast { message, failed: false }} failed={&not_sent} />
         </div>
     }
 }

@@ -93,7 +93,7 @@ pub fn Layout<'a, T: Render, H: Render, C: Render>(req: &'a Req, title: T, head:
                     <Toaster
                         close={p.shell_toast_close()}
                         seconds={5}
-                        toast={Toast { message: req.notice() }}
+                        toast={Toast { message: req.notice(), failed: false }}
                         failed={p.shell_not_sent()}
                     />
                 </Toasts>
@@ -154,7 +154,7 @@ pub fn HomeLayout<'a, T: Render, H: Render, C: Render>(
                     <Toaster
                         close={p.shell_toast_close()}
                         seconds={5}
-                        toast={Toast { message: req.notice() }}
+                        toast={Toast { message: req.notice(), failed: false }}
                         failed={p.shell_not_sent()}
                     />
                 </Toasts>

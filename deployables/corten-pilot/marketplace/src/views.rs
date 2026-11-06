@@ -435,7 +435,7 @@ pub fn Frame<'a, H: Render, C: Render>(
                     <Toaster
                         close={p.shell_toast_close()}
                         seconds={5}
-                        toast={Toast { message: req.notice() }}
+                        toast={Toast { message: req.notice(), failed: false }}
                         failed={p.shell_not_sent()}
                     />
                 </Toasts>
