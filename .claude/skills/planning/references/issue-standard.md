@@ -190,6 +190,15 @@ Stable rule IDs map to the checklist:
    (`docs/contributing/backlog-model.md`).
    **`ready-00-dependencies-resolved`:** the complete native `Blocked by`
    collection contains no open blocker.
+
+   Headless registration uses `gh api --method POST repos/chase-sets/chase-sets/issues -f type=<Slice|Bug|Decision|Probe> ... --jq .type.name`.
+   Replace the type placeholder with the accepted work form and `...` with the
+   title, body, labels and milestone fields. `gh issue create` cannot set type.
+   Capture the create response and fail registration unless its native type
+   matches the requested name and `is_enabled` is true; never repair by PATCH.
+   Machine alerts use native `Bug`, including incidents in Operations.
+   Guard: `scripts/check-structure/issue-creation-type-contract.test.mjs`.
+
 1. **`ready-01-repo-evidence`:** repo evidence pointers present (≥2) and
    non-generic.
 2. **`ready-02-explicit-non-goal`:** scope fence states at least one explicit

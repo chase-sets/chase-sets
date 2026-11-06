@@ -697,7 +697,7 @@ describe("shared CI gate plan", () => {
       // all-DB sweep keeps its empty workspace list.
       expect(membership([])).toEqual({ selection: "NOT_REQUIRED", publicPresence: 0 });
       expect(membership([".github/workflows/platform-pr.yml"])).toEqual({
-        selection: "NOT_REQUIRED",
+        selection: "REQUIRED",
         publicPresence: 0,
       });
     },

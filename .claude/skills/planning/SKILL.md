@@ -164,6 +164,15 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    repository's controller-orchestrator skill. Create on GitHub (issue forms
    under `.github/ISSUE_TEMPLATE/`) and wire the structure natively — prose is
    not structure:
+
+   Headless registration uses `gh api --method POST repos/chase-sets/chase-sets/issues -f type=<Slice|Bug|Decision|Probe> ... --jq .type.name`.
+   Replace the type placeholder with the accepted work form and `...` with the
+   title, body, labels and milestone fields. `gh issue create` cannot set type.
+   Capture the create response and fail registration unless its native type
+   matches the requested name and `is_enabled` is true; never repair by PATCH.
+   Machine alerts use native `Bug`, including incidents in Operations.
+   Guard: `scripts/check-structure/issue-creation-type-contract.test.mjs`.
+
    - every child **attached as a sub-issue** of its epic (one parent per slice);
    - every chain link recorded as a **GitHub issue dependency**, not only as a
      `Blocked by #N` line;
