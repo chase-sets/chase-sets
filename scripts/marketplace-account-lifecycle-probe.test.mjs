@@ -260,6 +260,35 @@ describe("marketplace account lifecycle probe joins", () => {
     }
   });
 
+  it.each([
+    "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+    "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
+  ])("admits the exact viewport-partition support path %s", (supportPath) => {
+    expect(probeRepairSupportPaths).toContain(supportPath);
+    expect(
+      evaluateRepairedHead({
+        head: "1".repeat(40),
+        baselineIsAncestor: true,
+        changedPaths: [probeRepairPaths[2], supportPath],
+      }),
+    ).toEqual({ proven: true, reasons: [] });
+  });
+
+  it("refuses an unlisted sibling of each viewport-partition support path", () => {
+    for (const sibling of [
+      "deployables/marketplace/e2e/account-management.spec.ts",
+      "infrastructure/playwright-evidence/other-manifest.json",
+    ]) {
+      const result = evaluateRepairedHead({
+        head: "1".repeat(40),
+        baselineIsAncestor: true,
+        changedPaths: [probeRepairPaths[2], sibling],
+      });
+      expect(result.proven).toBe(false);
+      expect(result.reasons).toEqual([`product tree changed beyond the bound repair footprint: ${sibling}`]);
+    }
+  });
+
   it("summarizes per-test outcomes, the last result end and sign-in 401 failures", () => {
     const perTest = summarizePerTest(
       report([

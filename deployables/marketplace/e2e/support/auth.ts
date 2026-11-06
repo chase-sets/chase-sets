@@ -146,15 +146,19 @@ export async function registerSyntheticAccount(
   const timeout = setTimeout(() => controller.abort(), registrationTimeoutMs);
   try {
     const response = await syntheticAuthResponse(
-      fetch(
-        new URL("/api/auth/register", origin),
-        syntheticAuthRequest(controller.signal, {
+      fetch(new URL("/api/auth/register", origin), {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({
           displayName: account.displayName,
           email: account.email,
           password: account.password,
           registrationConsent,
         }),
-      ),
+        credentials: "omit",
+        redirect: "error",
+        signal: controller.signal,
+      }),
       controller.signal,
     );
     const registration = await consumeSyntheticRegistrationResponse(response, controller.signal);

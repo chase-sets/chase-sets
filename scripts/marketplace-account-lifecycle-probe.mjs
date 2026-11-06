@@ -64,6 +64,8 @@ export const probeRepairSupportPaths = Object.freeze([
   "bounded-contexts/auth/support/api-support/register-routes.test.ts",
   "bounded-contexts/auth/support/route-support/auth-action-errors.test.ts",
   "deployables/marketplace/app/smoke-auth-support.test.ts",
+  "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+  "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
   "scripts/release-qualification-scope.mjs",
 ]);
 export const probeRuns = Object.freeze([
