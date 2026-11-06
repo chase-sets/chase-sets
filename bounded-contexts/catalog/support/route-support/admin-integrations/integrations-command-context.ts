@@ -21,7 +21,7 @@ import {
   scopeContextToObservationFilterScope,
 } from "../../../features/source-observations/ui/primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
-import { stringValue } from "./integrations-form-values";
+import { recordValue, stringValue } from "./integrations-form-values";
 import {
   getActiveCatalogProviderIntegrationProfileVersion,
   catalogProviderProfileVersionIngestionUnitKey,
@@ -282,41 +282,28 @@ export async function runProviderProfileLifecycleCommand(
   intent: ProviderProfileLifecycleIntent,
   providerKey: string,
   profileVersion: string,
+  lifecycleConfirmation: string | null,
 ): Promise<CatalogProviderProfileVersionReview> {
   if (intent === "provider-profile.rollback") {
     return api.rollbackSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
       providerKey,
       profileVersion,
+      lifecycleConfirmation,
     );
   }
   if (intent === "provider-profile.deprecate") {
     return api.deprecateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
       providerKey,
       profileVersion,
+      lifecycleConfirmation,
     );
   }
 
-  return api.retireSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(providerKey, profileVersion);
-}
-
-export function lifecycleConfirmationAccepted(
-  formData: FormData,
-  intent: ProviderProfileLifecycleIntent,
-  providerKey: string,
-  profileVersion: string,
-): boolean {
-  return (
-    stringValue(formData.get("lifecycleConfirmation")) ===
-    lifecycleConfirmationValue(intent, providerKey, profileVersion)
+  return api.retireSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+    providerKey,
+    profileVersion,
+    lifecycleConfirmation,
   );
-}
-
-function lifecycleConfirmationValue(
-  intent: ProviderProfileLifecycleIntent,
-  providerKey: string,
-  profileVersion: string,
-): string {
-  return `confirm:${intent}:${providerKey}:${profileVersion}`;
 }
 
 export function lifecycleSuccessResult(
@@ -337,7 +324,16 @@ export function lifecycleSuccessResult(
 
 export function lifecycleFailureResult(
   error: unknown,
-): Extract<CatalogPrimaryWorkbenchCommandFeedback["result"], "lifecycle-conflict" | "command-failed"> {
+): Extract<
+  CatalogPrimaryWorkbenchCommandFeedback["result"],
+  "confirmation-required" | "lifecycle-conflict" | "command-failed"
+> {
+  if (error instanceof CatalogApiError && error.status === 400) {
+    const detail = recordValue(recordValue(error.body)?.error);
+    if (detail?.code === "lifecycle_confirmation_required") {
+      return "confirmation-required";
+    }
+  }
   if (error instanceof CatalogApiError && error.status === 409) {
     return "lifecycle-conflict";
   }
