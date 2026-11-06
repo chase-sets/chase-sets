@@ -8,6 +8,7 @@ import {
   type CatalogPrimaryWorkbenchSourceOptionRequest,
 } from "./primary-workbench-read-model";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
+import { observationSelectionScopeKey, readPersistedObservationSelection } from "./primary-workbench-selection-store";
 import type { SourceObservationIntegrationOptionResponse } from "./contracts";
 import {
   controlPlaneOverview,
@@ -26,12 +27,13 @@ import {
 // useFetcher stub stays in the idle/no-data state, so opening the evidence sheet
 // renders its DS loading state — the deep-evidence composition is covered directly
 // by the read-model unit tests and end-to-end by the integrations e2e spec.
+const routeSubmit = vi.hoisted(() => vi.fn());
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
   return {
     ...actual,
     useRevalidator: () => ({ revalidate: () => undefined, state: "idle" }),
-    useSubmit: () => () => undefined,
+    useSubmit: () => routeSubmit,
     useFetcher: () => ({ state: "idle", data: undefined, load: () => undefined }),
   };
 });
@@ -131,6 +133,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     // reuse the same tcgdex scope, so a stale selection from one test must not
     // leak into the next.
     window.sessionStorage.clear();
+    routeSubmit.mockClear();
   });
 
   it("guides a Japanese SV8 operator from provider options to sync, review, and promote-all", () => {
@@ -1835,6 +1838,64 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     const liveRegions = (reviewModule as HTMLElement).querySelectorAll('[role="status"][aria-live="polite"]');
     expect(liveRegions.length).toBeGreaterThan(0);
   });
+
+  it.each(["Clear selection", "checkbox"])(
+    "clear and reselect Source Observations in the primary workbench (%s)",
+    (emptyTransition) => {
+      const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+        requestUrl:
+          "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
+        scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+        profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+        controlPlaneOverview: controlPlaneOverview(),
+        reviewObservations: {
+          items: [
+            sourceObservationListItem({ observation_id: "obs_A" }),
+            sourceObservationListItem({ observation_id: "obs_B" }),
+          ],
+          total: 2,
+          count: 2,
+        },
+        reviewPagination: { limit: 25, offset: 0 },
+        canManageCatalog: true,
+      });
+      const scopeKey = observationSelectionScopeKey(readModel.routeContext);
+      const { container } = render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+      const submissions = vi.fn((event: Event) => event.preventDefault());
+      container.addEventListener("submit", submissions);
+      const href = window.location.href;
+      const table = screen.getByRole("table", { name: "Source Observation review" });
+      const review = within(table.closest("section") as HTMLElement);
+      const rowA = within(table).getByRole("checkbox", { name: "Select row obs_A" }) as HTMLInputElement;
+      const rowB = within(table).getByRole("checkbox", { name: "Select row obs_B" }) as HTMLInputElement;
+      expect(rowA.checked).toBe(false);
+      expect(rowB.checked).toBe(false);
+      expect(review.queryByRole("button", { name: "Clear selection" })).toBeNull();
+      for (const [row, id] of [
+        [rowA, "obs_A"],
+        [rowB, "obs_B"],
+      ] as const) {
+        fireEvent.click(row);
+        expect(row.checked).toBe(true);
+        expect(readPersistedObservationSelection(scopeKey)).toEqual([id]);
+        expect(review.getAllByRole("button", { name: "Clear selection" })).toHaveLength(1);
+        if (emptyTransition === "checkbox") fireEvent.click(row);
+        else fireEvent.click(review.getByRole("button", { name: "Clear selection" }));
+        expect(row.checked).toBe(false);
+        expect(readPersistedObservationSelection(scopeKey)).toEqual([]);
+        expect(review.queryByRole("button", { name: "Clear selection" })).toBeNull();
+      }
+      fireEvent.click(rowB);
+      expect(rowA.checked).toBe(false);
+      expect(rowB.checked).toBe(true);
+      expect(readPersistedObservationSelection(scopeKey)).toEqual(["obs_B"]);
+      expect(review.getAllByRole("button", { name: "Clear selection" })).toHaveLength(1);
+      expect(screen.getByRole("table", { name: "Source Observation review" })).toBe(table);
+      expect(submissions).not.toHaveBeenCalled();
+      expect(routeSubmit).not.toHaveBeenCalled();
+      expect(window.location.href).toBe(href);
+    },
+  );
 
   it("submits primary workbench commands with clean intent and selected-observation context", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
