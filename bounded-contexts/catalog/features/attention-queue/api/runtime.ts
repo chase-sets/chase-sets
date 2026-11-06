@@ -7,6 +7,7 @@ import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runt
 import { readPendingAliasCandidateAttentionWindow } from "../../alias-equivalence/read-model/queries";
 import { readProposedProviderScopeMappingAttentionWindow } from "../../provider-scope-mapping/read-model/queries";
 import { readStaleActiveCatalogScopeRecordAttentionWindow } from "../../scope-registry/read-model/queries";
+import { CATALOG_SCOPE_STALE_SYNC_MS } from "../../scope-registry/domain/scope-row-status";
 import { readCatalogMergeCandidateAttentionWindow } from "../../source-observations/read-model/queries";
 import { buildCatalogIntegrationUnitActivity } from "../../source-observations/api/admin-control-plane-overview";
 import type { CatalogIntegrationEngineServices, IntegrationJobServices } from "../../source-observations/api/runtime";
@@ -30,9 +31,8 @@ import { listActiveAttentionDismissalKeys } from "../read-model/dismissal-querie
 import { assembleCatalogAttentionQueue, type CatalogAttentionQueueReadModel } from "./contracts";
 
 // The freshness window after which an unrefreshed active scope record counts as a
-// stale provider sync. Two weeks keeps steady-state catalogs quiet while flagging
-// genuinely abandoned syncs. Superseded by the scope-sync-state model.
-export const CATALOG_ATTENTION_STALE_SCOPE_SYNC_MS = 14 * 24 * 60 * 60 * 1000;
+// stale provider sync: the same window the Scope Record rows report as stale.
+export const CATALOG_ATTENTION_STALE_SCOPE_SYNC_MS = CATALOG_SCOPE_STALE_SYNC_MS;
 
 // The control-plane inputs the attention queue folds in for its health and
 // import-job sources, injected from the source-observations runtime so the queue

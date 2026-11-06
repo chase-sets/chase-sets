@@ -1,3 +1,7 @@
+import type { CatalogScopePromotionReadiness, CatalogScopeSyncFreshness } from "../domain/scope-row-status";
+
+export type { CatalogScopePromotionReadiness, CatalogScopeSyncFreshness };
+
 // Client-facing Scope Record contract. The API returns this camelCase shape
 // (see `../api/route.ts#scopeRecordDetailFromRow`); this file is the browser
 // side of that same contract so route loaders and UI components share one
@@ -18,9 +22,15 @@ export interface CatalogScopeRecordDetail {
   languageEditions: readonly string[];
   lifecycleStatus: string;
   updatedAt: string;
+  /** API-owned: the promotion posture of the record's lifecycle status. */
+  promotionReadiness: CatalogScopePromotionReadiness;
+  /** API-owned: whether `updatedAt` is within the stale-sync window of the response. */
+  syncFreshness: CatalogScopeSyncFreshness;
 }
 
 export interface CatalogScopeRecordListResponse {
+  /** When the API derived each row's promotion readiness and sync freshness. */
+  generatedAt?: string;
   items: readonly CatalogScopeRecordDetail[];
   total: number;
   count: number;

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
-import {
-  buildCatalogScopeLandingReadModel,
-  scopeDetailHref,
-  SCOPE_LANDING_STALE_SYNC_MS,
-} from "./scope-landing-read-model";
+import { buildCatalogScopeLandingReadModel, scopeDetailHref } from "./scope-landing-read-model";
 
 const GENERATED_AT = "2026-07-13T12:00:00.000Z";
 
@@ -25,6 +21,8 @@ function scope(overrides: Partial<CatalogScopeRecordDetail> = {}): CatalogScopeR
     languageEditions: ["en", "ja"],
     lifecycleStatus: "active",
     updatedAt: GENERATED_AT,
+    promotionReadiness: "live",
+    syncFreshness: "fresh",
     ...overrides,
   };
 }
@@ -56,13 +54,13 @@ describe("buildCatalogScopeLandingReadModel", () => {
     expect(row.detailHref).toBe("/scopes/scope_expansion_paldean_fates");
   });
 
-  it("maps lifecycle status to promotion readiness", () => {
+  it("passes the API's promotion readiness through for every lifecycle status", () => {
     const readModel = buildCatalogScopeLandingReadModel({
       scopes: list([
-        scope({ scopeRecordId: "a", lifecycleStatus: "draft" }),
-        scope({ scopeRecordId: "b", lifecycleStatus: "active" }),
-        scope({ scopeRecordId: "c", lifecycleStatus: "deprecated" }),
-        scope({ scopeRecordId: "d", lifecycleStatus: "archived" }),
+        scope({ scopeRecordId: "a", lifecycleStatus: "draft", promotionReadiness: "unpublished" }),
+        scope({ scopeRecordId: "b", lifecycleStatus: "active", promotionReadiness: "live" }),
+        scope({ scopeRecordId: "c", lifecycleStatus: "deprecated", promotionReadiness: "deprecated" }),
+        scope({ scopeRecordId: "d", lifecycleStatus: "archived", promotionReadiness: "archived" }),
       ]),
       filters: noFilters,
       generatedAt: GENERATED_AT,
@@ -76,14 +74,13 @@ describe("buildCatalogScopeLandingReadModel", () => {
     ]);
   });
 
-  it("flags a scope whose projection has not advanced within the stale window as a stale sync", () => {
-    const staleUpdatedAt = new Date(Date.parse(GENERATED_AT) - SCOPE_LANDING_STALE_SYNC_MS - 1).toISOString();
-    const freshUpdatedAt = new Date(Date.parse(GENERATED_AT) - SCOPE_LANDING_STALE_SYNC_MS + 1).toISOString();
-
+  it("passes the API's sync freshness through without re-deriving it from updatedAt", () => {
+    // The row timestamps disagree with the API's verdicts on purpose: the read
+    // model must show the Catalog API's sync freshness, not its own clock math.
     const readModel = buildCatalogScopeLandingReadModel({
       scopes: list([
-        scope({ scopeRecordId: "stale", updatedAt: staleUpdatedAt }),
-        scope({ scopeRecordId: "fresh", updatedAt: freshUpdatedAt }),
+        scope({ scopeRecordId: "stale", updatedAt: GENERATED_AT, syncFreshness: "stale" }),
+        scope({ scopeRecordId: "fresh", updatedAt: "2020-01-01T00:00:00.000Z", syncFreshness: "fresh" }),
       ]),
       filters: noFilters,
       generatedAt: GENERATED_AT,
