@@ -4,6 +4,68 @@
   "claims": [
     {
       "kind": "claim",
+      "id": "checkout-recovery-390",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "authenticated buy checkout session satisfies redesign contracts @marketplace-checkout @browser-e2e-seed",
+      "route": { "name": "seeded checkout recovery", "path": "/checkout/buy/session/chk_seed_started_cart" },
+      "fixture": { "identity": "authenticated-checkout-recovery:seeded-started-cart:v1" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "checkout-recovery-panel",
+        "selector": "section.grid.rounded-tokenLg:has(> div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
+        "populatedSelector": ":scope h2, :scope > div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary, :scope a"
+      },
+      "measurements": [
+        {
+          "identity": "recovery-panel-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": { "equals": true }
+        },
+        {
+          "identity": "recovery-panel-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        }
+      ],
+      "artifact": "checkout-recovery-390"
+    },
+    {
+      "kind": "claim",
+      "id": "checkout-recovery-1024",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "authenticated buy checkout session satisfies redesign contracts @marketplace-checkout @browser-e2e-seed",
+      "route": { "name": "seeded checkout recovery", "path": "/checkout/buy/session/chk_seed_started_cart" },
+      "fixture": { "identity": "authenticated-checkout-recovery:seeded-started-cart:v1" },
+      "viewport": { "width": 1024, "height": 768 },
+      "target": {
+        "identity": "checkout-recovery-panel",
+        "selector": "section.grid.rounded-tokenLg:has(> div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
+        "populatedSelector": ":scope h2, :scope > div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary, :scope a"
+      },
+      "measurements": [
+        {
+          "identity": "recovery-panel-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": { "equals": true }
+        },
+        {
+          "identity": "recovery-panel-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 1024 }
+        }
+      ],
+      "artifact": "checkout-recovery-1024"
+    },
+    {
+      "kind": "claim",
       "id": "pricing-goal-comparison-360",
       "file": "deployables/marketplace/e2e/pricing-health-compare-goals.spec.ts",
       "testTitle": "compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed",

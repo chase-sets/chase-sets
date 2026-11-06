@@ -206,3 +206,11 @@ Notes:
 ## Payout Fee Ledger Entry
 
 A **Payout Fee Ledger Entry** is the deterministic `fee` debit that records a non-zero Payout Fee separately from the net `payout` debit. If payout execution fails, Settlement reverses each debit independently and exactly once using its own deterministic reversal identity. A zero Payout Fee creates no fee debit or fee reversal.
+
+## Seller Checkout Risk Read
+
+A **Seller Checkout Risk Read** is Settlement's internal, versioned answer about whether seller checkout may continue. V1 is a clear permission read from the trusted account-risk source row; it does not activate fraud, velocity, linkage, manual-review, hold, or block predicates.
+
+## Seller Checkout Risk Source Revision
+
+A **Seller Checkout Risk Source Revision** is the publication counter within one extant account-risk source row. Existing rows begin at revision 0 on upgrade; new rows publish 1 and subsequent actual row writes increment atomically. Projection loss and ordered UNLOGGED replay can reset the counter, so it is neither globally unique nor monotonic across reconstruction. An authoritative absent row carries revision 0 and a null timestamp; unavailable authority carries null source stamps.
