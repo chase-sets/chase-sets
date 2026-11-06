@@ -694,6 +694,23 @@ export interface SourceObservationPromotionPreview {
   validation: SourceObservationPromotionValidation;
 }
 
+/** Original action response, never reconstructed from a loader or persisted. */
+export interface SourceObservationPromotionReceipt {
+  schemaVersion: "source-observation-promotion-receipt/v1";
+  previewId: string;
+  selection: {
+    providerKey: string | null;
+    unitKey: string | null;
+    importScope: string | null;
+    profileVersion: string | null;
+    scopeRecordId: string | null;
+    observationIds: readonly string[];
+    promoteAsDraft: boolean;
+    scope: SourceObservationPromotionScope;
+  };
+  preview: SourceObservationPromotionPreview;
+}
+
 export type SourceObservationPromotionDisplayIdentityTemplateReason =
   | "unresolved-title-tokens"
   | "no-targeted-template"

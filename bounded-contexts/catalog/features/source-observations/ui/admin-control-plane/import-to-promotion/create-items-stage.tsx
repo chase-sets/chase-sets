@@ -18,6 +18,7 @@ import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-work
 import { CommandFormButton } from "./command-controls";
 import { CatalogIntegrationCommandPlanDetail } from "./command-plan-module";
 import { BlockerList, stateLabel } from "./workbench-formatting";
+import { promotionReceiptHasCompleteCoverage } from "../../primary-workbench-source-observation-review";
 
 // Stage 3: create / update Catalog Items. The promotion preview is folded into an
 // INLINE confirmation of this single action instead of a separate top-level
@@ -25,17 +26,49 @@ import { BlockerList, stateLabel } from "./workbench-formatting";
 // previewed impact, confirms it inline, then commits the create/update in place.
 export function CatalogIntegrationCreateItemsStage({
   readModel,
+  selectedObservationIds = readModel.routeContext.selectedObservationIds,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
+  selectedObservationIds?: readonly string[];
 }>) {
-  const [confirmed, setConfirmed] = useState(false);
   const preview = readModel.promotionPreview;
   // The explicit review choice. It defaults off; the previewed choice comes back
   // through the route context, and toggling it here makes the saved preview
   // stale locally (commit disabled) until a fresh preview binds the new choice.
-  const [promoteAsDraft, setPromoteAsDraft] = useState(preview.validation.promoteAsDraft);
+  const receipt = preview.receipt;
+  const [review, setReview] = useState({
+    receipt,
+    confirmed: false,
+    promoteAsDraft: preview.validation.promoteAsDraft,
+    invalidated: false,
+  });
+  let currentReview = review;
+  if (review.receipt !== receipt) {
+    currentReview = {
+      receipt,
+      confirmed: false,
+      promoteAsDraft: preview.validation.promoteAsDraft,
+      invalidated: false,
+    };
+    setReview(currentReview);
+  }
+  const { confirmed, promoteAsDraft } = currentReview;
   const choiceChanged = preview.previewId !== null && promoteAsDraft !== preview.validation.promoteAsDraft;
-  const previewFresh = preview.executionSafeguards.previewFresh && preview.previewId !== null && !choiceChanged;
+  const selectionChanged =
+    Boolean(receipt) &&
+    JSON.stringify([...selectedObservationIds].sort()) !==
+      JSON.stringify([...(receipt?.selection.observationIds ?? [])].sort());
+  if ((selectionChanged || choiceChanged) && receipt && !currentReview.invalidated) {
+    currentReview = { ...currentReview, invalidated: true, confirmed: false };
+    setReview(currentReview);
+  }
+  const previewFresh =
+    Boolean(receipt && promotionReceiptHasCompleteCoverage(receipt)) &&
+    preview.executionSafeguards.previewFresh &&
+    preview.previewId !== null &&
+    !choiceChanged &&
+    !selectionChanged &&
+    !currentReview.invalidated;
   const identityBlocked = preview.blockers.includes("display-identity-unresolvable");
   const scopeSummary = preview.scope.filterSummary.join(", ");
 
@@ -132,8 +165,7 @@ export function CatalogIntegrationCreateItemsStage({
           name="promote-as-draft-choice"
           checked={promoteAsDraft}
           onCheckedChange={(checked) => {
-            setPromoteAsDraft(checked === true);
-            setConfirmed(false);
+            setReview({ ...currentReview, promoteAsDraft: checked === true, confirmed: false, invalidated: true });
           }}
           label={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteAsDraft.label")}
           description={t(
@@ -153,6 +185,7 @@ export function CatalogIntegrationCreateItemsStage({
             readModel={readModel}
             intent="observation.promote"
             promotionPhase="preview"
+            selectedObservationIds={selectedObservationIds}
             promoteAsDraft={promoteAsDraft}
             size="sm"
             tone="secondary"
@@ -163,11 +196,25 @@ export function CatalogIntegrationCreateItemsStage({
 
         <CatalogIntegrationPromotionValidation validation={preview.validation} />
 
+        <ProgressiveDisclosure title={t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}>
+          <WorkbenchText
+            size="xs"
+            data-catalog-promotion-receipt-state={receipt ? (previewFresh ? "fresh" : "stale") : "unavailable"}
+          >
+            {stateLabel(receipt ? (previewFresh ? "fresh" : "stale") : "unavailable")}
+          </WorkbenchText>
+          {receipt ? (
+            <WorkbenchText size="xs" mono wrap="anywhere" data-catalog-promotion-receipt={receipt.schemaVersion}>
+              {JSON.stringify(receipt)}
+            </WorkbenchText>
+          ) : null}
+        </ProgressiveDisclosure>
+
         <Checkbox
           name="confirm-create-items"
           checked={confirmed}
           disabled={!previewFresh || identityBlocked}
-          onCheckedChange={(checked) => setConfirmed(checked === true)}
+          onCheckedChange={(checked) => setReview({ ...currentReview, confirmed: checked === true })}
           label={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.confirm", {
             count: preview.scope.eligibleCount,
             scope: preview.scope.label,
@@ -179,6 +226,7 @@ export function CatalogIntegrationCreateItemsStage({
             readModel={readModel}
             intent="observation.promote"
             promotionPhase="execute"
+            selectedObservationIds={selectedObservationIds}
             promoteAsDraft={promoteAsDraft}
             leadingIcon="check"
             disabled={!previewFresh || !confirmed || identityBlocked}

@@ -1,4 +1,5 @@
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
+import type { SourceObservationPromotionReceipt } from "../../../features/source-observations/ui/contracts";
 import {
   catalogPrimaryWorkbenchHref,
   type parseCatalogPrimaryWorkbenchRouteContext,
@@ -23,6 +24,8 @@ export type CatalogIntegrationsCommandResult = Readonly<{
   // Optional section scoping for command feedback (profile section saves).
   commandSection?: string;
   attentionItemKey?: string;
+  // Original Preview evidence lives only in this action response, not the href.
+  promotionReceipt?: SourceObservationPromotionReceipt | null;
 }>;
 
 // The post-command navigation a redirect-owning surface performs. The UI decides
@@ -56,10 +59,6 @@ export function commandRedirectHref(result: CatalogIntegrationsCommandResult): s
 
 export function commandResultNeedsRoutableHandoff(result: CatalogIntegrationsCommandResult): boolean {
   return (
-    (result.feedback.status === "success" &&
-      result.feedback.intent === "observation.promote" &&
-      result.feedback.result === "preview-ready" &&
-      Boolean(result.context.promotionPreviewId)) ||
     (result.feedback.status === "success" &&
       result.feedback.intent === "observation.promote" &&
       result.feedback.result === "job-queued" &&
