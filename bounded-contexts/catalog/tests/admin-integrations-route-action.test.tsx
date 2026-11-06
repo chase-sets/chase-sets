@@ -955,9 +955,21 @@ describe("Catalog integrations route", () => {
       lifecycleUrl,
     );
 
-    expect(rollbackSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.03");
-    expect(deprecateSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.04");
-    expect(retireSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.02");
+    expect(rollbackSourceObservationProviderProfile).toHaveBeenCalledWith(
+      "tcgdex",
+      "2026.06.03",
+      lifecycleConfirmationValue("provider-profile.rollback", "tcgdex", "2026.06.03"),
+    );
+    expect(deprecateSourceObservationProviderProfile).toHaveBeenCalledWith(
+      "tcgdex",
+      "2026.06.04",
+      lifecycleConfirmationValue("provider-profile.deprecate", "tcgdex", "2026.06.04"),
+    );
+    expect(retireSourceObservationProviderProfile).toHaveBeenCalledWith(
+      "tcgdex",
+      "2026.06.02",
+      lifecycleConfirmationValue("provider-profile.retire", "tcgdex", "2026.06.02"),
+    );
     expect(rollbackResponse.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(rollbackResponse.headers.get("Location")).toContain("commandResult=profile-rolled-back");
     expect(rollbackResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
@@ -985,8 +997,12 @@ describe("Catalog integrations route", () => {
     );
   });
 
-  it("fails closed when profile lifecycle confirmation is missing", async () => {
-    const retireSourceObservationProviderProfile = vi.fn();
+  it("forwards unchecked lifecycle submission and reports the API confirmation refusal", async () => {
+    const retireSourceObservationProviderProfile = vi.fn().mockRejectedValue(
+      new CatalogApiError(400, {
+        error: { code: "lifecycle_confirmation_required", message: "Confirm this lifecycle operation." },
+      }),
+    );
     const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       retireSourceObservationProviderProfile,
@@ -1004,7 +1020,7 @@ describe("Catalog integrations route", () => {
       "https://admin.example/catalog/providers/tcgdex",
     );
 
-    expect(retireSourceObservationProviderProfile).not.toHaveBeenCalled();
+    expect(retireSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.02", null);
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
@@ -1020,6 +1036,51 @@ describe("Catalog integrations route", () => {
         blockerCategory: "readiness",
       }),
     );
+  });
+
+  it.each([
+    ["rollback", "rollbackSourceObservationProviderProfile"],
+    ["deprecate", "deprecateSourceObservationProviderProfile"],
+    ["retire", "retireSourceObservationProviderProfile"],
+  ] as const)("forwards raw mismatched confirmation for %s to the API", async (operation, method) => {
+    const command = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(400, { error: { code: "lifecycle_confirmation_required" } }));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      [method]: command,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+    const confirmation = " confirm:provider-profile.retire:other-provider:other-version ";
+    const response = await runProviderDetailAction(
+      {
+        _intent: `provider-profile.${operation}`,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.02",
+        lifecycleConfirmation: confirmation,
+      },
+      "https://admin.example/catalog/providers/tcgdex",
+    );
+    expect(command).toHaveBeenCalledWith("tcgdex", "2026.06.02", confirmation);
+    expect(response.headers.get("Location")).toContain("commandResult=confirmation-required");
+  });
+
+  it.each([
+    [400, "other_error", "command-failed"],
+    [403, "lifecycle_confirmation_required", "command-failed"],
+    [500, "lifecycle_confirmation_required", "command-failed"],
+    [409, "lifecycle_confirmation_required", "lifecycle-conflict"],
+  ] as const)("preserves feedback for lifecycle API status %s code %s", async (status, code, result) => {
+    const command = vi.fn().mockRejectedValue(new CatalogApiError(status, { error: { code } }));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      retireSourceObservationProviderProfile: command,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+    const response = await runProviderDetailAction(
+      { _intent: "provider-profile.retire", providerKey: "tcgdex", profileVersion: "2026.06.02" },
+      "https://admin.example/catalog/providers/tcgdex",
+    );
+    expect(command).toHaveBeenCalledWith("tcgdex", "2026.06.02", null);
+    expect(response.headers.get("Location")).toContain(`commandResult=${result}`);
   });
 
   it("returns lifecycle-scoped feedback for profile lifecycle consistency conflicts", async () => {
