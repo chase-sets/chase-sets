@@ -20,7 +20,7 @@
 use crate::recovery::attempt_text;
 use corten::{
     LiveResponse,
-    axum::extract::State,
+    extract::State,
     http::{HeaderMap, StatusCode},
     prelude::*,
 };

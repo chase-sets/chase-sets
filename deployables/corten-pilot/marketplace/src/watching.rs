@@ -18,7 +18,7 @@
 //! A create has no attempt id, so the same create sent twice is two alerts
 //! (chase-sets/chase-sets#10596).
 use corten::{
-    axum::extract::State,
+    extract::State,
     http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,

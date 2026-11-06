@@ -2,13 +2,15 @@
 //! to the API, and how each answer of the API becomes a page, a patch or a redirect.
 use std::sync::{Arc, Mutex};
 
-use corten::axum::{
-    Json, Router,
-    body::Body,
-    extract::State,
-    response::{IntoResponse, Response},
-};
+// The stand-in API is a plain router served on a port (corten-run/corten#950); the rest names Corten.
 use corten::http::{HeaderMap, Method, Request, StatusCode, Uri, header};
+use corten::{
+    Json,
+    answer::Body,
+    axum::Router,
+    extract::State,
+    middleware::{IntoResponse, Response},
+};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;

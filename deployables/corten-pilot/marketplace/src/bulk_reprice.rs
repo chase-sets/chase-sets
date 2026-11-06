@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use corten::{
     LiveResponse, Relay,
-    axum::body::Body,
+    answer::Body,
     http::{HeaderMap, StatusCode, header},
     prelude::*,
 };

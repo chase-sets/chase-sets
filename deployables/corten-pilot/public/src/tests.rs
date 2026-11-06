@@ -2,13 +2,15 @@
 //! that nothing about the visitor reaches the API.
 use std::sync::{Arc, Mutex};
 
-use corten::axum::{
-    Json, Router,
-    body::Body,
-    extract::State,
-    response::{IntoResponse, Response},
-};
+// The stand-in API is a plain router served on a port (corten-run/corten#950); the rest names Corten.
 use corten::http::{HeaderMap, Request, StatusCode, Uri, header};
+use corten::{
+    Json,
+    answer::Body,
+    axum::Router,
+    extract::State,
+    middleware::{IntoResponse, Response},
+};
 use http_body_util::BodyExt;
 use serde_json::json;
 use tower::ServiceExt;
@@ -24,7 +26,7 @@ type Calls = Arc<Mutex<Vec<(String, HeaderMap)>>>;
 /// Pricing's public market pages: `twilight` has a last sale and asks, and a revised display
 /// policy's `s-maxage` (an hour), `charizard` a series in two currencies and no cache header,
 /// `down` fails, anything else is not found.
-async fn pricing(State(calls): State<Calls>, uri: Uri, headers: HeaderMap, body: corten::axum::body::Bytes) -> Response {
+async fn pricing(State(calls): State<Calls>, uri: Uri, headers: HeaderMap, body: corten::Bytes) -> Response {
     calls.lock().unwrap().push((uri.path().to_owned(), headers.clone()));
     if uri.path().starts_with("/api/public-presence/") {
         return presence(uri.path(), &headers, &body);

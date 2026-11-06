@@ -20,7 +20,7 @@
 //! stock's ensure never sends a graded card's details, so a graded product cannot be listed here,
 //! as on marketplace (chase-sets/chase-sets#10598); the API's refusal is shown.
 use corten::{
-    axum::extract::State,
+    extract::State,
     http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,

@@ -22,7 +22,7 @@
 use crate::recovery::attempt_text;
 use corten::{
     Relay,
-    axum::body::Body,
+    answer::Body,
     http::{HeaderMap, StatusCode, header},
     prelude::*,
 };

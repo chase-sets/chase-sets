@@ -22,7 +22,7 @@
 //! an account. A guest's Buy this listing is checkout start's Continue for the listing
 //! (`checkout_start`), as marketplace re-sends it there.
 use corten::{
-    axum::extract::State,
+    extract::State,
     http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,

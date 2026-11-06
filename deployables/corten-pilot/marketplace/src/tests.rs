@@ -5,13 +5,15 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use corten::axum::{
-    Json, Router,
-    body::{Body, Bytes},
-    extract::State,
-    response::{IntoResponse, Response},
-};
+// The stand-in API is a plain router served on a port (corten-run/corten#950); the rest names Corten.
 use corten::http::{HeaderMap, Method, Request, StatusCode, Uri, header};
+use corten::{
+    Bytes, Json,
+    answer::Body,
+    axum::Router,
+    extract::State,
+    middleware::{IntoResponse, Response},
+};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;

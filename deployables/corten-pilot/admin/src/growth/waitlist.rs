@@ -12,7 +12,7 @@
 //! from its own route, as Platform Feedback's export does.
 use corten::{
     Relay,
-    axum::body::Body,
+    answer::Body,
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     prelude::*,
 };

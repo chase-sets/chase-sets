@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use corten::{
-    axum::extract::State,
+    extract::State,
     form::Errors,
     http::{HeaderMap, StatusCode},
     prelude::*,

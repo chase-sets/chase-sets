@@ -11,7 +11,7 @@ use std::{convert::Infallible, future::Future};
 
 use corten::{
     LayoutRead,
-    axum::extract::{FromRequestParts, Request},
+    extract::{FromRequestParts, Request},
     http::request::Parts,
     prelude::*,
 };

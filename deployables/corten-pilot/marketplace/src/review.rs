@@ -15,7 +15,7 @@
 use std::time::Duration;
 
 use corten::{
-    axum::extract::State,
+    extract::State,
     http::{HeaderMap, StatusCode},
     prelude::*,
 };

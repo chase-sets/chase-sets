@@ -22,7 +22,7 @@ use std::time::SystemTime;
 
 use corten::{
     Relay,
-    axum::body::Body,
+    answer::Body,
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     prelude::*,
 };

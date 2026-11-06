@@ -20,7 +20,7 @@
 //! A sell-list add has no attempt id, so a product line sent twice adds its quantity twice
 //! (chase-sets/chase-sets#9995).
 use corten::{
-    axum::extract::State,
+    extract::State,
     http::{HeaderMap, StatusCode, header},
     prelude::*,
     security::cookie,

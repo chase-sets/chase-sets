@@ -34,7 +34,7 @@
 //! | `GET`, `POST /ucp/oauth/authorize` | the API's authorize, relayed (local only) |
 use corten::{
     Relay,
-    axum::body::Body,
+    answer::Body,
     http::{HeaderMap, HeaderName, StatusCode, Uri, header},
     prelude::*,
 };

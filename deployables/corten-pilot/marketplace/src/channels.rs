@@ -33,7 +33,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
     PageOr, Relay,
-    axum::body::Body,
+    answer::Body,
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     prelude::*,
 };

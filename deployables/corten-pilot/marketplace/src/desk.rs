@@ -11,7 +11,7 @@
 //!
 //! The page has no writes and no script: every row is a link.
 use corten::{
-    axum::extract::State,
+    extract::State,
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
