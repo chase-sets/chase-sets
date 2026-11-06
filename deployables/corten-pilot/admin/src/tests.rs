@@ -1540,6 +1540,12 @@ fn items_api(method: Method, rest: &str, body: &str) -> Response {
             (StatusCode::ACCEPTED, Json(item_job("job_edit", "catalog.authoring.items.edit", "mergeTags"))).into_response()
         }
         (Method::DELETE, "/cat_used") => refusal(StatusCode::CONFLICT, "invalid_transition", "Only draft items can be removed."),
+        (Method::GET, "/cat_origin") => {
+            let mut origin = item("cat_origin", "active");
+            origin["external_product_references"] = json!([{ "providerKey": "tcgplayer", "externalKey": "p/1" }]);
+            origin["external_catalog_item_references"] = json!([{ "providerKey": "admin-web", "externalKey": "k/1" }]);
+            Json(origin).into_response()
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -3185,6 +3191,19 @@ async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_colum
 }
 
 #[tokio::test]
+async fn an_items_originating_imports_open_the_pilots_workbench_for_each_provider() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/catalog-items/cat_origin", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Originating import"), "{html}");
+    for provider in ["admin-web", "tcgplayer"] {
+        assert!(html.contains(&format!(r#"href="/catalog/integrations?providerKey={provider}""#)), "{provider}: {html}");
+    }
+    let origin = crate::app::admin_web_origin();
+    assert!(!html.contains(&format!("{origin}/catalog/integrations")), "nothing opens admin-web's workbench: {html}");
+}
+
+#[tokio::test]
 async fn an_item_is_created_with_its_drawn_id_as_its_english_title() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/catalog/catalog-items", Some("staff"))).await;
@@ -4330,7 +4349,7 @@ async fn a_source_observation_shows_its_values_and_offers_what_its_status_allows
         html.contains(r#"value="promote""#) && html.contains(r#"value="reject""#) && html.contains(r#"name="reason""#),
         "{html}"
     );
-    assert!(html.contains("/catalog/integrations?section=workbench"), "the way back is admin-web's workbench: {html}");
+    assert!(html.contains(r#"href="/catalog/integrations?section=workbench""#), "the way back is the pilot's workbench: {html}");
 
     let (_, _, html) = pilot.send(get("/catalog/source-observations/obs_product", Some("staff"))).await;
     assert!(html.contains(r#"value="promote""#) && !html.contains(r#"value="reject""#), "a changed one is promoted only: {html}");
@@ -4615,8 +4634,8 @@ async fn projection_operations_draws_the_apis_console_and_triage() {
     assert!(html.contains(r#"action="/platform/projections/refresh""#) && html.contains("Refresh status"), "{html}");
     assert!(html.contains(r#"src="/platform/projections/live""#), "{html}");
     assert!(
-        html.contains(r#"href="/catalog/dimensions""#) && html.contains("/access/accounts"),
-        "Catalog and Identity for who may see them"
+        html.contains(r#"href="/catalog/dimensions""#) && html.contains(r#"href="/access/accounts""#),
+        "Catalog and Identity for who may see them, on the pilot"
     );
     assert!(!html.contains("<dialog"), "nothing selected, no sheet");
     assert!(!pilot.projection_calls().iter().any(|c| c.path.contains("/blocked-streams")), "no detail read without a selection");

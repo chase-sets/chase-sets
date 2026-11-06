@@ -18,7 +18,7 @@ use crate::{
         url,
     },
     text::Ops,
-    views::{LiveStatus, LiveWords, PageHeader, admin_web},
+    views::{LiveStatus, LiveWords, PageHeader, link_to},
 };
 
 /// The states the State filter offers, in admin-web's order.
@@ -112,14 +112,14 @@ fn live_words(t: Ops) -> LiveWords {
 }
 
 #[component(css)]
-pub fn ConsolePage<'a>(t: Ops, screen: &'a Screen, filters: &'a url::Filters, viewer: &'a Viewer) -> impl Render {
+pub fn ConsolePage<'a>(t: Ops, req: &'a Req, screen: &'a Screen, filters: &'a url::Filters, viewer: &'a Viewer) -> impl Render {
     let console = &screen.console;
     let page = url::Projections { filters: filters.clone() }.href();
     let live = url::ProjectionsLive { filters: filters.clone() }.href();
     let refresh = url::Refresh { filters: filters.clone() }.href();
     let reference = url::Reference::default().href();
     let catalog = viewer.can(crate::catalog::VIEW).then(|| crate::catalog::url::Dimensions::default().href());
-    let identity = viewer.can("accounts.view").then(|| admin_web("/access/accounts").map(|u| u.to_string())).flatten();
+    let identity = viewer.can("accounts.view").then(|| link_to(req, "/access/accounts")).flatten();
     let followed = console.operations.iter().any(Operation::live);
     let words = live_words(t);
     html! {

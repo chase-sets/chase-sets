@@ -185,7 +185,7 @@ async fn render(
     } else {
         t.route_obs_named(&screen.observation.normalized.name).to_string()
     };
-    let view = views::observation_page(t, req.t(), &screen, notice.as_ref(), refused);
+    let view = views::observation_page(req, t, req.t(), &screen, notice.as_ref(), refused);
     req.screen(
         &screen,
         html! {

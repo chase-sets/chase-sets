@@ -366,7 +366,7 @@ async fn render(
     };
     let t: Cat = req.t();
     let (notice, open) = (after.done.map(|done| done.notice(t)), after.done.and_then(Change::fold));
-    let view = views::item_page(t, req.t(), &screen, notice, open, back);
+    let view = views::item_page(req, t, req.t(), &screen, notice, open, back);
     req.screen(
         &screen,
         html! {

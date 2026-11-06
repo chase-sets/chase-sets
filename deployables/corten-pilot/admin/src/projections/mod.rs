@@ -241,7 +241,7 @@ async fn console(
     blocked_details(&config, &headers, &mut screen.console, filters.selected()).await;
     let t: Ops = req.t();
     let view = html! {
-        <views::ConsolePage t={t} screen={&screen} filters={&filters} viewer={&staff.viewer} />
+        <views::ConsolePage t={t} req={&req} screen={&screen} filters={&filters} viewer={&staff.viewer} />
     };
     req.screen(
         &screen,

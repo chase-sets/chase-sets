@@ -31,7 +31,7 @@ use crate::{
         url::{self, item as at},
     },
     text::{Cat, Pilot},
-    views::admin_web,
+    views::link_to,
 };
 
 const DASH: &str = "\u{2014}";
@@ -283,6 +283,7 @@ pub fn item_transitions(t: Cat, status: &str) -> Vec<Transition> {
 
 /// The page.
 pub fn item_page<'a>(
+    req: &'a Req,
     t: Cat,
     p: Pilot,
     screen: &'a ItemScreen,
@@ -336,7 +337,7 @@ pub fn item_page<'a>(
             <KeyValues items={&items} />
             <PartList>
                 if !origin.is_empty() {
-                    <Origin t={t} providers={&origin} />
+                    <Origin t={t} req={req} providers={&origin} />
                 }
                 if item.status == "draft" && item.blueprint.is_none() {
                     <ItemPage title={t.item_blueprint()}>
@@ -605,16 +606,17 @@ pub fn RowForm<'a>(
     }
 }
 
-/// The imports that made the item, by provider (admin-web's Originating import).
+/// The imports that made the item, by provider (admin-web's Originating import): each opens the
+/// integrations workbench for its provider, the pilot's own page when it serves one.
 #[component(css = ItemPage)]
-fn Origin<'a>(t: Cat, providers: &'a BTreeSet<&'a str>) -> impl Render {
+fn Origin<'a>(t: Cat, req: &'a Req, providers: &'a BTreeSet<&'a str>) -> impl Render {
     html! {
         <ItemPage title={t.item_origin_title()}>
             <p class={Muted}>{t.item_origin_description()}</p>
             <div class={Buttons}>
                 for provider in providers {
                     let query = format!("/catalog/integrations?providerKey={}", crate::api::segment(provider));
-                    let href = admin_web(&query).map(|u| u.to_string()).unwrap_or_default();
+                    let href = link_to(req, &query).unwrap_or_default();
                     <a class={Link} href={&href}>{t.item_view_source_observations()} " (" {*provider} ")"</a>
                 }
             </div>
