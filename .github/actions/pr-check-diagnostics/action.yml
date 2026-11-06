@@ -1,0 +1,34 @@
+name: PR Check Diagnostics
+description: Own the pre-checkout notice and job-clock operations for Platform PR.
+
+inputs:
+  operation:
+    description: The constant diagnostic operation to execute.
+    required: true
+
+outputs:
+  started_at:
+    description: UTC job-start timestamp emitted by the job-clock operation.
+    value: ${{ steps.diagnostic.outputs.started_at }}
+
+runs:
+  using: composite
+  steps:
+    - name: Execute diagnostic operation
+      id: diagnostic
+      shell: bash
+      env:
+        PR_CHECK_DIAGNOSTIC_OPERATION: ${{ inputs.operation }}
+      run: |
+        case "$PR_CHECK_DIAGNOSTIC_OPERATION" in
+          known-failure-notice)
+            echo "Known failure circuits are enforced against the synthetic merge-group base."
+            ;;
+          job-clock)
+            echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+            ;;
+          *)
+            echo "::error::Unknown PR check diagnostic operation" >&2
+            exit 1
+            ;;
+        esac

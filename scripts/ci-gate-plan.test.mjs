@@ -22,6 +22,7 @@ import { batchBrowserE2eSuiteIds, batchE2eSuiteIds, e2eSuites } from "./e2e-suit
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import { ALWAYS_RUN, VERIFY_STATIC_SURFACES } from "./verify-static-surfaces.mjs";
+import { requiredJobs } from "./pr-checks/required-jobs.mjs";
 
 const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
 const selectionFixture = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8"));
@@ -199,6 +200,14 @@ function requiredNeeds(source) {
 }
 
 function requiredCalls(source) {
+  if (workflowJob(source, "pr-required").text.includes("run: node scripts/pr-checks/required-jobs.mjs")) {
+    return requiredJobs.map(([id, name, requirement]) => ({
+      helper: "require_job",
+      name,
+      result: `\${{ needs['${id}'].result }}`,
+      required: requirement === null ? "$capture_required" : `\${{ needs['change-scope'].outputs.${requirement} }}`,
+    }));
+  }
   return [
     ...workflowJob(source, "pr-required").text.matchAll(
       /^\s+(require(?:_targeted_heavy|_heavy)?_job) "([A-Z][^"]+)" "([^"]+)" "([^"]+)"$/gm,

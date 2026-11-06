@@ -32,6 +32,7 @@ const trustedCompositeActionReferences = new Set([
   // Docker Hub guard run by the Compose exact-target receiver before it
   // checks out target_sha.
   "chase-sets/chase-sets/.github/actions/block-docker-hub@9763ba0932d3904493e02ba6cb1df9d5133626d9",
+  "chase-sets/chase-sets/.github/actions/pr-check-diagnostics@40cbb2f1ebd752f28323c9f79e927ad155c567d3",
 ]);
 
 const fullCommitShaPattern = /^[a-f0-9]{40}$/i;

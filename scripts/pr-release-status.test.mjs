@@ -1,8 +1,14 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
-import { buildPrReleaseStatus, parsePrReleaseStatusArgs, writePrReleaseStatus } from "./pr-release-status.mjs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  buildPrReleaseStatus,
+  parsePrReleaseStatusArgs,
+  writePrReleaseStatus,
+  summarizePrReleaseStatus,
+  commentPrReleaseStatus,
+} from "./pr-release-status.mjs";
 
 const temporaryDirectories = [];
 
@@ -11,6 +17,58 @@ afterEach(async () => {
 });
 
 describe("PR release status", () => {
+  it.each(["", "11\n22\n"])("publishes the last matching bot comment or creates one: %s", async (comments) => {
+    const directory = await mkdtemp(join(tmpdir(), "pr-status-publish-"));
+    temporaryDirectories.push(directory);
+    const source = join(directory, "status.md");
+    const summary = join(directory, "summary.md");
+    const body = "<!-- chase-sets-pr-release-status -->\nstatus with spaces  \n\n";
+    await writeFile(source, body);
+    await writeFile(summary, "preceding summary\n");
+    await summarizePrReleaseStatus({ GITHUB_STEP_SUMMARY: summary }, source);
+    expect(await readFile(summary, "utf8")).toBe("preceding summary\n" + body);
+    const execute = vi.fn().mockReturnValueOnce(comments).mockReturnValueOnce("");
+    await commentPrReleaseStatus({ GITHUB_REPOSITORY: "synthetic/repository", PR_NUMBER: "123" }, execute, source);
+    expect(execute.mock.calls[0]).toEqual([
+      "gh",
+      [
+        "api",
+        "repos/synthetic/repository/issues/123/comments",
+        "--jq",
+        '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- chase-sets-pr-release-status -->"))) | .id',
+      ],
+      { encoding: "utf8" },
+    ]);
+    expect(execute.mock.calls[1]).toEqual([
+      "gh",
+      [
+        "api",
+        "--method",
+        comments ? "PATCH" : "POST",
+        comments ? "repos/synthetic/repository/issues/comments/22" : "repos/synthetic/repository/issues/123/comments",
+        "-f",
+        `body=${body.replace(/\n+$/, "")}`,
+      ],
+      { stdio: ["ignore", "ignore", "inherit"] },
+    ]);
+  });
+
+  it("does not hide missing artifacts or withheld-credential publication failures", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pr-status-failure-"));
+    temporaryDirectories.push(directory);
+    const source = join(directory, "status.md");
+    const execute = vi.fn(() => {
+      throw new Error("credentials withheld");
+    });
+    await expect(commentPrReleaseStatus({}, execute, source)).rejects.toThrow();
+    expect(execute).not.toHaveBeenCalled();
+    await writeFile(source, "status\n");
+    await expect(commentPrReleaseStatus({}, execute, source)).rejects.toThrow("credentials withheld");
+    expect(execute).toHaveBeenCalledTimes(1);
+    await expect(
+      summarizePrReleaseStatus({ GITHUB_STEP_SUMMARY: join(directory, "absent", "summary") }, source),
+    ).rejects.toThrow();
+  });
   it("describes deployable PR release posture without replacing merge queue", () => {
     const markdown = buildPrReleaseStatus({
       prNumber: "123",

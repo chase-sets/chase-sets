@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { SOURCE_FILES } from "../test-window-browser.mjs";
 import { removalRefusal } from "./protocol.mjs";
+import { requiredJobs } from "../../pr-checks/required-jobs.mjs";
 
 const read = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
 const launcher = read("launcher.c");
@@ -381,12 +382,16 @@ it("required Static keeps the complete source gate and native matrix under the a
   expect(source).toContain("run: pnpm run verify:static");
   expect(native).toContain("needs: [change-scope, static-source]");
   expect(native).toContain("if: always() && needs['change-scope'].result == 'success'");
-  expect(native).toContain("node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs");
+  expect(native).toContain("run: bash scripts/pr-checks/static-checks.sh controls");
+  const owner = read("../../pr-checks/static-checks.sh");
+  expect(owner).toContain("node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs");
   expect(native).toContain("name: Remove owned provider browser boundary\n        if: always()");
   expect(native).toContain("name: Require full source checks\n        if: always()");
   expect(native).toContain("SOURCE_RESULT: ${{ needs.static-source.result }}");
-  expect(native).toContain('run: test "$SOURCE_RESULT" = success');
-  expect(workflow).toContain('require_job "Static Checks" "${{ needs.static.result }}"');
+  expect(native).toContain("run: bash scripts/pr-checks/static-checks.sh require-source");
+  expect(owner).toContain('test "$SOURCE_RESULT" = success');
+  expect(workflow).toContain("run: node scripts/pr-checks/required-jobs.mjs");
+  expect(requiredJobs).toContainEqual(["static", "Static Checks", "static_required"]);
 });
 
 it("missing-key survival binds its own pre-stimulus snapshot, not the preceding browser case", () => {

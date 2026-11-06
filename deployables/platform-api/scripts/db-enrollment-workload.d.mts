@@ -53,6 +53,14 @@ export function resolveApiDbWorkspaceConcurrency(workflow: string): Readonly<{
   gaps: readonly string[];
 }>;
 
+export function resolveHostedPostgresSettings(
+  workflow: string,
+  read: (path: string) => string | Buffer | null | undefined,
+): Readonly<{
+  values: Readonly<{ maxConnections: string; maxLocksPerTransaction: string }> | null;
+  gaps: readonly string[];
+}>;
+
 export function canonicalJson(value: unknown): string;
 
 export function deriveBootstrapDbWorkload(

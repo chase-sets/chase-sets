@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { stageOperation } from "../../fixtures/workflow-composition/harness.mjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DIAGNOSTIC_ITERATIONS,
@@ -384,8 +385,12 @@ describe("isolated 13c diagnostic selection (AC4/AC5)", () => {
     expect(DIAGNOSTIC_ITERATIONS).toBe(20);
     const platform = read(".github/workflows/platform-pr.yml");
     expect(platform).toContain(
-      "          node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs\n\n      - name: Remove owned provider browser boundary\n        if: always()\n",
+      "        run: bash scripts/pr-checks/static-checks.sh controls\n\n      - name: Remove owned provider browser boundary\n        if: always()\n",
     );
+    expect(stageOperation("scripts/pr-checks/static-checks.sh", "controls")).toContain(
+      "node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs\n",
+    );
+    expect(stageOperation("scripts/pr-checks/static-checks.sh", "controls")).not.toContain("--diagnostic");
     expect(platform).not.toContain("--diagnostic");
   });
 });

@@ -765,11 +765,13 @@ it("canonical proof sets: keeps an ordinary unrelated empty selection valid", ()
 
 it("enables first-parent scope for both hosted PR merge events", () => {
   const workflow = readFileSync(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8");
-  expect(workflow).toContain(
-    'if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "merge_group" ]; then',
+  expect(workflow).toContain("run: bash scripts/pr-checks/change-scope.sh");
+  const owner = readFileSync(path.join(repoRoot, "scripts/pr-checks/change-scope.sh"), "utf8");
+  expect(owner).toContain(
+    'if [ "$PR_SCOPE_EVENT_NAME" = "pull_request" ] || [ "$PR_SCOPE_EVENT_NAME" = "merge_group" ]; then',
   );
-  expect(workflow).toContain('first_parent="--first-parent"');
-  expect(workflow).toContain('github-output --base="${base}" --head="${head}" $first_parent');
+  expect(owner).toContain('first_parent="--first-parent"');
+  expect(owner).toContain('github-output --base="${base}" --head="${head}" $first_parent');
 });
 
 async function importChangeScopeVariant(source) {
@@ -4191,6 +4193,226 @@ describe("change-scope", () => {
         }
       }),
   );
+
+  describe("relocated PostgreSQL preparation selection", () => {
+    const caller = ".github/workflows/platform-pr.yml";
+    const owner = "scripts/pr-checks/db-tests.sh";
+    const workflow = readFileSync(path.join(repoRoot, caller), "utf8");
+    const preparation = readFileSync(path.join(repoRoot, owner), "utf8");
+
+    it.each([caller, owner])("selects API enrollment Unit and prior DB capability for real source %s", (file) => {
+      const options = { changedFiles: [file], baseDir: repoRoot, workspaces: listWorkspacePackages({ repoRoot }) };
+      const scope = classifyChanges(options);
+      expect(scope.unitTestWorkspaces).toContain("@chase-sets/app-platform-api");
+      expect(scope.dbTestsRequired).toBe(true);
+      if (file === owner) {
+        const current = toOutputMap(scope);
+        const inline = toOutputMap(classifyChanges({ ...options, changedFiles: [caller] }));
+        expect(current.unit_test_workspaces).toBe(inline.unit_test_workspaces);
+        expect(scope.affectedWorkspaces).not.toContain("@chase-sets/app-platform-api");
+        expect(scope.buildRequired).toBe(false);
+      }
+    });
+
+    it.each(
+      [caller, owner].flatMap((file) =>
+        ["modified", "added", "deleted", "renamed"].map((operation) => ({ file, operation })),
+      ),
+    )(
+      "$operation $file stays selected or refuses unavailable ownership through real Git paths",
+      ({ file, operation }) =>
+        withEnrollmentRepository(({ baseDir, git, write, commit, workspaces }) => {
+          if (operation !== "added" || file !== caller) write(caller, workflow);
+          if (operation !== "added" || file !== owner) write(owner, preparation);
+          const base = commit();
+          if (operation === "modified") write(file, `${file === caller ? workflow : preparation}\n# changed\n`);
+          if (operation === "added") {
+            if (file === caller) {
+              write(caller, `${workflow}\n# added caller\n`);
+            } else write(owner, preparation);
+          }
+          if (operation === "deleted") git("rm", file);
+          if (operation === "renamed") git("mv", file, `${file}.moved`);
+          const head = commit();
+          const changedFiles = listChangedFiles(base, head, { cwd: baseDir });
+          expect(changedFiles).toContain(file);
+          if (file === owner && ["deleted", "renamed"].includes(operation)) {
+            expect(() => classifyChanges({ baseDir, workspaces, changedFiles })).toThrow(/DB|db-tests/);
+          } else {
+            const scope = classifyChanges({ baseDir, workspaces, changedFiles });
+            expect(scope.unitTestWorkspaces).toContain("@test/platform-api");
+            expect(scope.dbTestsRequired).toBe(true);
+          }
+        }),
+    );
+
+    it.each([
+      "missing caller",
+      "unreadable caller",
+      "unbound caller",
+      "missing owner",
+      "unreadable owner",
+      "duplicate owner",
+      "malformed setting",
+      "working directory",
+      "conditional caller",
+      "wrong shell",
+    ])("refuses script-only selection with %s rather than silently omitting Unit or DB", (kind) =>
+      withEnrollmentRepository(({ baseDir, write, workspaces }) => {
+        const callerContext = {
+          "working directory": "working-directory: elsewhere",
+          "conditional caller": "if: false",
+          "wrong shell": "shell: python",
+        }[kind];
+        if (kind !== "missing caller" && kind !== "unreadable caller")
+          write(
+            caller,
+            kind === "unbound caller"
+              ? workflow.replace("db-tests.sh prepare", "db-tests.sh other")
+              : callerContext
+                ? workflow.replace(
+                    "run: bash scripts/pr-checks/db-tests.sh prepare",
+                    `${callerContext}\n        run: bash scripts/pr-checks/db-tests.sh prepare`,
+                  )
+                : workflow,
+          );
+        if (kind === "unreadable caller") mkdirSync(path.join(baseDir, caller), { recursive: true });
+        if (kind !== "missing owner" && kind !== "unreadable owner")
+          write(
+            owner,
+            kind === "malformed setting"
+              ? preparation.replace("target_max_connections=300", "target_max_connections=bad")
+              : kind === "duplicate owner"
+                ? `${preparation}\n  prepare)\n    ;;\n`
+                : preparation,
+          );
+        if (kind === "unreadable owner") mkdirSync(path.join(baseDir, owner), { recursive: true });
+        expect(() => classifyChanges({ baseDir, workspaces, changedFiles: [owner] })).toThrow(/db-tests/);
+      }),
+    );
+
+    it.each([
+      ["workflow defaults", (text) => `defaults:\n  run:\n    shell: bash\n    working-directory: .\n${text}`],
+      [
+        "job defaults",
+        (text) =>
+          text.replace(
+            "  db-tests:\n",
+            "  db-tests:\n    defaults:\n      run:\n        shell: bash\n        working-directory: .\n",
+          ),
+      ],
+      [
+        "step overrides defaults",
+        (text) =>
+          `defaults:\n  run:\n    shell: python\n    working-directory: elsewhere\n${text.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "shell: bash\n        working-directory: .\n        run: bash scripts/pr-checks/db-tests.sh prepare")}`,
+      ],
+      [
+        "literal block caller",
+        (text) =>
+          text.replace(
+            "run: bash scripts/pr-checks/db-tests.sh prepare",
+            "run: |\n          bash scripts/pr-checks/db-tests.sh prepare",
+          ),
+      ],
+      [
+        "quoted caller",
+        (text) =>
+          text.replace(
+            "run: bash scripts/pr-checks/db-tests.sh prepare",
+            'run: "bash scripts/pr-checks/db-tests.sh prepare"',
+          ),
+      ],
+    ])("binds %s without installed packages", (_name, mutate) =>
+      withEnrollmentRepository(({ baseDir, write, workspaces }) => {
+        write(caller, mutate(workflow));
+        write(owner, preparation);
+        const result = classifyChanges({ baseDir, workspaces, changedFiles: [owner] });
+        expect(result.unitTestWorkspaces).toContain("@test/platform-api");
+        expect(result.dbTestsRequired).toBe(true);
+      }),
+    );
+
+    it.each([
+      ["inherited directory", (text) => `defaults:\n  run:\n    working-directory: elsewhere\n${text}`],
+      [
+        "inherited shell",
+        (text) => text.replace("  db-tests:\n", "  db-tests:\n    defaults:\n      run:\n        shell: python\n"),
+      ],
+      ["duplicate job", (text) => `${text}\n  db-tests:\n    steps: []\n`],
+      [
+        "duplicate run",
+        (text) =>
+          text.replace(
+            "run: bash scripts/pr-checks/db-tests.sh prepare",
+            "run: echo spoof\n        run: bash scripts/pr-checks/db-tests.sh prepare",
+          ),
+      ],
+      [
+        "duplicate defaults",
+        (text) => `defaults:\n  run:\n    shell: bash\ndefaults:\n  run:\n    shell: python\n${text}`,
+      ],
+      ["duplicate default shell", (text) => `defaults:\n  run:\n    shell: python\n    shell: bash\n${text}`],
+      ["aliased defaults", (text) => `defaults: *context\n${text}`],
+      ["merged job context", (text) => text.replace("  db-tests:\n", "  db-tests:\n    <<: *context\n")],
+      ["anchored job", (text) => text.replace("  db-tests:\n", "  db-tests: &job\n")],
+      [
+        "flow steps",
+        (text) =>
+          text.replace(
+            "  db-tests:\n",
+            "  db-tests:\n    steps: [{run: 'bash scripts/pr-checks/db-tests.sh prepare'}]\n",
+          ),
+      ],
+      [
+        "comment-only caller",
+        (text) =>
+          text.replace(
+            "run: bash scripts/pr-checks/db-tests.sh prepare",
+            "run: |\n          # bash scripts/pr-checks/db-tests.sh prepare",
+          ),
+      ],
+      [
+        "other-job spoof",
+        (text) =>
+          text
+            .replace("db-tests.sh prepare", "db-tests.sh other")
+            .replace(
+              "  known-failure-guard:\n",
+              "  spoof:\n    steps:\n      - run: bash scripts/pr-checks/db-tests.sh prepare\n  known-failure-guard:\n",
+            ),
+      ],
+      [
+        "duplicate caller",
+        (text) =>
+          text.replace(
+            "run: bash scripts/pr-checks/db-tests.sh prepare",
+            "run: bash scripts/pr-checks/db-tests.sh prepare\n      - run: bash scripts/pr-checks/db-tests.sh prepare",
+          ),
+      ],
+      [
+        "mixed inline setting",
+        (text) =>
+          text.replace(
+            "run: bash scripts/pr-checks/db-tests.sh prepare",
+            "run: bash scripts/pr-checks/db-tests.sh prepare\n      - run: target_max_connections=300",
+          ),
+      ],
+      [
+        "malformed indentation",
+        (text) =>
+          text.replace(
+            "run: bash scripts/pr-checks/db-tests.sh prepare",
+            " run: bash scripts/pr-checks/db-tests.sh prepare",
+          ),
+      ],
+    ])("refuses unsupported or spoofed %s", (_name, mutate) =>
+      withEnrollmentRepository(({ baseDir, write, workspaces }) => {
+        write(caller, mutate(workflow));
+        write(owner, preparation);
+        expect(() => classifyChanges({ baseDir, workspaces, changedFiles: [owner] })).toThrow(/db-tests/);
+      }),
+    );
+  });
 
   it("preserves every merged-base output byte except unit selection and its required flag across the old-versus-new corpus", () => {
     const workspaces = listWorkspacePackages({ repoRoot });

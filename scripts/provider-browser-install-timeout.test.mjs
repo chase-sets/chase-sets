@@ -6,6 +6,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 import { consumeTimingRecords } from "./provider-browser-install-timing.mjs";
+import { stageRun } from "./fixtures/workflow-composition/harness.mjs";
 import {
   INSTALLER_TIMEOUT_SECONDS,
   resolveInstallerIdentity,
@@ -96,10 +97,10 @@ describe("Static Checks provider installer", () => {
     expect(workflow.jobs.static.permissions).toEqual({ contents: "read", actions: "read" });
     expect(
       createHash("sha256")
-        .update(workflow.jobs.static.steps.find((step) => step.name === "Installed-boundary controls").run)
+        .update(stageRun(workflow.jobs.static.steps.find((step) => step.name === "Installed-boundary controls")))
         .digest("hex"),
     ).toBe("10425e59fd1dff4e8a8d871079747f595cd9b88a491adc483864a3958009d16e");
-    expect(workflow.jobs.static.steps.find((step) => step.name === "Installed-boundary controls").run).toContain(
+    expect(stageRun(workflow.jobs.static.steps.find((step) => step.name === "Installed-boundary controls"))).toContain(
       "node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs",
     );
     expect(readFileSync(".github/workflows/platform-pr.yml", "utf8")).not.toContain("timeout-verifier");

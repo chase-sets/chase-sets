@@ -15,6 +15,8 @@ import { join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { stageRun, stageOperation, requiredJobCalls } from "./fixtures/workflow-composition/harness.mjs";
+import { requireJob, requiredJobs } from "./pr-checks/required-jobs.mjs";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 import { parseReleaseDeploymentScopeArgs, resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
@@ -1727,6 +1729,9 @@ const platformStagingAdvisoryEvidenceWorkflow = readFileSync(
   "utf8",
 );
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
+const platformPrRequiredStep = parse(platformPrWorkflow).jobs["pr-required"].steps.find(
+  (entry) => entry.name === "Verify required jobs",
+);
 const playwrightConfig = readFileSync(resolve("playwright.config.ts"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
 const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
@@ -2251,23 +2256,11 @@ function evaluateWorkflowBooleanExpression(expression, values) {
   return Function(`"use strict"; return (${javascriptExpression});`)();
 }
 
-function workflowShellFunction(source, functionName) {
-  const normalized = source.replaceAll("\r\n", "\n");
-  const marker = `          ${functionName}() {`;
-  const start = normalized.indexOf(marker);
-  expect(start).not.toBe(-1);
-  const end = normalized.indexOf("\n          }", start);
-  expect(end).not.toBe(-1);
-  return normalized.slice(start, end + "\n          }".length);
-}
-
 function workflowRequiredCall(source, jobName) {
-  const escapedName = jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = source.match(
-    new RegExp(`^\\s+(require(?:_targeted_heavy|_heavy)?_job) "${escapedName}" "([^"]+)" "([^"]+)"$`, "m"),
-  );
-  expect(match).not.toBeNull();
-  return { helper: match[1], resultArgument: match[2], requiredArgument: match[3], line: match[0].trim() };
+  expect(source).toContain("run: node scripts/pr-checks/required-jobs.mjs");
+  const call = requiredJobCalls(platformPrRequiredStep).find((entry) => entry.name === jobName);
+  expect(call).toBeDefined();
+  return call;
 }
 
 function evaluateRequiredWorkflowCall(call, { templateValues, targetedHeavyRequired = false }) {
@@ -2278,6 +2271,14 @@ function evaluateRequiredWorkflowCall(call, { templateValues, targetedHeavyRequi
     return templateValues[match[1]];
   };
   const result = resolveArgument(call.resultArgument);
+  if (call.helper === "require_job") {
+    try {
+      requireJob(call.name ?? "Required job", result, resolveArgument(call.requiredArgument));
+      return true;
+    } catch {
+      return false;
+    }
+  }
   const affected = resolveArgument(call.requiredArgument) === "true";
   const required = call.helper === "require_targeted_heavy_job" ? targetedHeavyRequired && affected : affected;
   return required ? result === "success" : result === "skipped" || result === "success";
@@ -3825,11 +3826,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPrWorkflow).toContain("PR_REQUIRED_RESULT: ${{ needs['pr-required'].result }}");
     expect(platformPrWorkflow).toContain("DEPLOYMENT_REQUIRED: ${{ needs['change-scope'].outputs.deploy }}");
     expect(platformPrWorkflow).toContain("node ./scripts/pr-release-status.mjs");
-    expect(platformPrWorkflow).toContain('cat artifacts/pr-release-status.md >> "$GITHUB_STEP_SUMMARY"');
+    expect(platformPrWorkflow).toContain("node ./scripts/pr-release-status.mjs summary");
+    expect(readFileSync("scripts/pr-release-status.mjs", "utf8")).toContain("appendFile(env.GITHUB_STEP_SUMMARY");
     expect(platformPrWorkflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
-    expect(platformPrWorkflow).toContain(
-      'gh api --method POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"',
-    );
+    expect(platformPrWorkflow).toContain("node ./scripts/pr-release-status.mjs comment");
+    expect(platformPrWorkflow).toContain("PR_NUMBER: ${{ github.event.pull_request.number }}");
+    expect(readFileSync("scripts/pr-release-status.mjs", "utf8")).toContain('commentId ? "PATCH" : "POST"');
   });
 
   it("passes changed files into static checks for PR-scoped structure guards", () => {
@@ -3910,17 +3912,18 @@ describe("DigitalOcean platform configuration", () => {
       'node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan',
     );
 
-    expect(requiredJob).toContain("has unknown or missing gate-plan requirement");
-    expect(requiredJob).toContain('require_job "DB Profile Tests"');
+    expect(requiredJob).toContain("run: node scripts/pr-checks/required-jobs.mjs");
+    expect(requireJob.toString()).toContain("has unknown or missing gate-plan requirement");
+    expect(workflowRequiredCall(requiredJob, "DB Profile Tests").helper).toBe("require_job");
     expect(requiredJob).not.toContain('require_targeted_heavy_job "DB Profile Tests"');
-    expect(requiredJob).toContain('require_job "E2E Tests"');
-    expect(requiredJob).toContain('require_job "Build"');
-    expect(requiredJob).toContain('require_job "Docker Image Build"');
-    expect(requiredJob).toContain('require_job "Terraform Preview Plan"');
-    expect(requiredJob).toContain('require_job "Terraform Staging Plan"');
-    expect(requiredJob).toContain('require_job "Terraform Production Plan"');
-    expect(requiredJob).toContain('require_job "Terraform Observability Plan"');
-    expect(requiredJob).toContain('require_job "Workflow Lint"');
+    expect(workflowRequiredCall(requiredJob, "E2E Tests").helper).toBe("require_job");
+    expect(workflowRequiredCall(requiredJob, "Build").helper).toBe("require_job");
+    expect(workflowRequiredCall(requiredJob, "Docker Image Build").helper).toBe("require_job");
+    expect(workflowRequiredCall(requiredJob, "Terraform Preview Plan").helper).toBe("require_job");
+    expect(workflowRequiredCall(requiredJob, "Terraform Staging Plan").helper).toBe("require_job");
+    expect(workflowRequiredCall(requiredJob, "Terraform Production Plan").helper).toBe("require_job");
+    expect(workflowRequiredCall(requiredJob, "Terraform Observability Plan").helper).toBe("require_job");
+    expect(workflowRequiredCall(requiredJob, "Workflow Lint").helper).toBe("require_job");
   });
 
   it("derives isolated DB admission and unchanged E2E admission from the workflow text", () => {
@@ -3942,7 +3945,10 @@ describe("DigitalOcean platform configuration", () => {
       "image: ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a",
     );
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
-    expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
+    expect(dbProfileJob).toContain("run: bash scripts/pr-checks/db-tests.sh prepare");
+    expect(stageOperation("scripts/pr-checks/db-tests.sh", "prepare")).toContain(
+      "target_max_locks_per_transaction=512",
+    );
     expect(dbProfileJob).toContain("id: platform-api-selected");
     const idIdx = dbProfileJob.indexOf("id: platform-api-selected");
     const runIdx = dbProfileJob.indexOf("- name: Run DB-profile tests");
@@ -3952,7 +3958,9 @@ describe("DigitalOcean platform configuration", () => {
     const selection = dbProfileJob.slice(dbProfileJob.lastIndexOf("- name:", idIdx), runIdx);
     expect(selection).not.toContain("if:");
     expect(selection).toContain("AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}");
-    expect(selection).toContain(
+    expect(selection).toContain("run: bash scripts/pr-checks/db-tests.sh select");
+    expect(selection).toContain("DB_WORKSPACE_GROUP: ${{ matrix.db-workspace-group }}");
+    expect(stageOperation("scripts/pr-checks/db-tests.sh", "select")).toContain(
       'if [[ -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ]]; then',
     );
     expect(dbProfileJob).toContain("if: always() && steps.platform-api-selected.outputs.selected == 'true'");
@@ -3980,20 +3988,24 @@ describe("DigitalOcean platform configuration", () => {
     expect(job["timeout-minutes"]).toBe(20);
     expect(job.if).toBe("needs['change-scope'].outputs.unit_tests_required == 'true'");
     const execution = job.steps.find((step) => step.name === "Run non-DB tests");
-    expect(execution.run).toContain(
-      "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.unit_test_workspaces }}\" --shard=${{ matrix.shard }}/2",
+    expect(execution.run).toBe("bash scripts/pr-checks/unit-tests.sh");
+    expect(execution.env).toEqual({
+      UNIT_TEST_WORKSPACES: "${{ needs['change-scope'].outputs.unit_test_workspaces }}",
+      UNIT_TEST_SHARD: "${{ matrix.shard }}",
+    });
+    expect(stageRun(execution)).toContain(
+      'node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="$UNIT_TEST_WORKSPACES" --shard=$UNIT_TEST_SHARD/2',
     );
-    expect(execution.run).toContain(
-      "node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.unit_test_workspaces }}\" --shard=${{ matrix.shard }}/2",
+    expect(stageRun(execution)).toContain(
+      'node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="$UNIT_TEST_WORKSPACES" --shard=$UNIT_TEST_SHARD/2',
     );
-    expect(execution.run).toContain("--concurrency=4");
+    expect(stageRun(execution)).toContain("--concurrency=4");
 
     for (const jobId of ["preview-deploy-smoke", "compose-preview-smoke", "pr-required"]) {
-      expect(workflowJob(platformPrWorkflow, jobId)).toContain("needs['unit-tests']");
+      if (jobId === "pr-required") expect(parse(platformPrWorkflow).jobs[jobId].needs).toContain("unit-tests");
+      else expect(workflowJob(platformPrWorkflow, jobId)).toContain("needs['unit-tests']");
     }
-    expect(workflowJob(platformPrWorkflow, "pr-required")).toContain(
-      'require_job "Unit Tests" "${{ needs[\'unit-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.unit_tests_required }}"',
-    );
+    expect(requiredJobs).toContainEqual(["unit-tests", "Unit Tests", "unit_tests_required"]);
   });
 
   it("requires both isolated DB cells, including empty-group success, before aggregation or preview", () => {
@@ -4099,11 +4111,11 @@ describe("DigitalOcean platform configuration", () => {
     console.info("hosted-db retained-preview-bypass mutant", { retainedBypassMutantAdmitsFailure });
   });
 
-  it("evaluates DB aggregation truth tables and the retained-targeted-lane mutant from gate shell text", () => {
+  it("evaluates DB aggregation truth tables and the retained-targeted-lane mutant from the required-job owner", () => {
     const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
     const dbCall = workflowRequiredCall(requiredJob, "DB Profile Tests");
     const e2eCall = workflowRequiredCall(requiredJob, "E2E Tests");
-    const requireJobFunction = workflowShellFunction(requiredJob, "require_job");
+    const requireJobFunction = requireJob;
 
     expect(dbCall.line).toBe(
       'require_job "DB Profile Tests" "${{ needs[\'db-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.db_tests_required }}"',
@@ -4111,29 +4123,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(e2eCall.line).toBe(
       'require_job "E2E Tests" "${{ needs[\'e2e-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.e2e_tests_required }}"',
     );
-    expect(requireJobFunction).toBe(`          require_job() {
-            local name="$1"
-            local result="$2"
-            local required="$3"
-
-            if [ "$required" != "true" ] && [ "$required" != "false" ]; then
-              echo "\${name} has unknown or missing gate-plan requirement '\${required}'." >&2
-              exit 1
-            fi
-
-            if [ "$required" = "true" ]; then
-              if [ "$result" != "success" ]; then
-                echo "\${name} was required but finished with result '\${result}'." >&2
-                exit 1
-              fi
-              return
-            fi
-
-            if [ "$result" != "skipped" ] && [ "$result" != "success" ]; then
-              echo "\${name} was not required but finished with unexpected result '\${result}'." >&2
-              exit 1
-            fi
-          }`);
+    for (const requirement of ["true", "false", "", "unknown"]) {
+      for (const result of ["success", "skipped", "failure", "cancelled", "", "unknown"]) {
+        const admitted =
+          requirement === "true"
+            ? result === "success"
+            : requirement === "false" && ["success", "skipped"].includes(result);
+        if (admitted) expect(() => requireJobFunction("DB Profile Tests", result, requirement)).not.toThrow();
+        else expect(() => requireJobFunction("DB Profile Tests", result, requirement)).toThrow();
+      }
+    }
     const expectedRequiredCalls = [
       'require_job "Known Failure Guard" "${{ needs[\'known-failure-guard\'].result }}" "${{ needs[\'change-scope\'].outputs.known_failure_guard_required }}"',
       'require_job "Change Scope" "${{ needs[\'change-scope\'].result }}" "${{ needs[\'change-scope\'].outputs.change_scope_required }}"',
@@ -4153,10 +4152,7 @@ describe("DigitalOcean platform configuration", () => {
       'require_job "Deploy Preview and Smoke" "${{ needs[\'preview-deploy-smoke\'].result }}" "${{ needs[\'change-scope\'].outputs.preview_deploy_smoke_required }}"',
       'require_job "Compose Boot Smoke" "${{ needs[\'compose-preview-smoke\'].result }}" "${{ needs[\'change-scope\'].outputs.compose_preview_smoke_required }}"',
     ];
-    const actualRequiredCalls = requiredJob
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => /^require(?:_targeted_heavy|_heavy)?_job "[A-Z]/.test(line));
+    const actualRequiredCalls = requiredJobCalls(platformPrRequiredStep).map((call) => call.line);
     expect(actualRequiredCalls).toEqual(expectedRequiredCalls);
 
     const truthTable = [];
@@ -4256,8 +4252,8 @@ describe("DigitalOcean platform configuration", () => {
       expect(runtimeSecretsStep).toContain(`export ${environmentName}="\${TF_VAR_${terraformName}`);
     }
 
-    expect(requiredJob).toContain(
-      'require_job "Deploy Preview and Smoke" "${{ needs[\'preview-deploy-smoke\'].result }}" "${{ needs[\'change-scope\'].outputs.preview_deploy_smoke_required }}"',
+    expect(workflowRequiredCall(requiredJob, "Deploy Preview and Smoke").requiredArgument).toBe(
+      "${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}",
     );
     expect(requiredJob).not.toContain("github.event.pull_request.head.repo.full_name == github.repository");
   });

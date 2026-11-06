@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -6,28 +6,30 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { classifyChanges, toGithubOutputMap } from "./change-scope.mjs";
 import { ciGatePlanOutputMap, createCiGatePlan } from "./ci-gate-plan.mjs";
+import { stageRun } from "./fixtures/workflow-composition/harness.mjs";
+import { requiredJobs } from "./pr-checks/required-jobs.mjs";
 
 const workflow = parse(readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8"));
 const job = workflow.jobs["capture-hermetic-chromium"];
 const gate = workflow.jobs["pr-required"].steps.find((step) => step.name === "Verify required jobs");
 const condition =
   "needs['change-scope'].outputs.e2e_tests_required == 'true' && contains(fromJson(needs['change-scope'].outputs.e2e_suites_json), 'tcgplayer_connector_extension')";
-const bash =
-  process.platform === "win32"
-    ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
-    : "bash";
 
 function runGate(required, suites, result) {
-  const run = gate.run.replace(/\$\{\{\s*(.*?)\s*\}\}/g, (_, expression) => {
-    if (expression === "needs['capture-hermetic-chromium'].result") return result;
-    if (expression === "needs['change-scope'].outputs.e2e_tests_required") return required;
-    if (expression.endsWith(".result")) return "success";
-    if (expression.endsWith("_required")) return "true";
-    throw new Error(`Unexpected gate expression: ${expression}`);
-  });
-  const execution = spawnSync(bash, ["-c", run], {
+  expect(gate.run).toBe("node scripts/pr-checks/required-jobs.mjs");
+  const needs = Object.fromEntries(requiredJobs.map(([id]) => [id, { result: "success" }]));
+  needs["capture-hermetic-chromium"].result = result;
+  needs["change-scope"].outputs = Object.fromEntries(
+    requiredJobs.filter(([, , key]) => key).map(([, , key]) => [key, key === "e2e_tests_required" ? required : "true"]),
+  );
+  const execution = spawnSync(process.execPath, ["scripts/pr-checks/required-jobs.mjs"], {
     encoding: "utf8",
-    env: { ...process.env, AC4_E2E_REQUIRED: required, AC4_E2E_SUITES_JSON: suites },
+    env: {
+      ...process.env,
+      PR_REQUIRED_NEEDS_JSON: JSON.stringify(needs),
+      AC4_E2E_REQUIRED: required,
+      AC4_E2E_SUITES_JSON: suites,
+    },
   });
   if (execution.error) throw execution.error;
   return { status: execution.status, output: execution.stdout + execution.stderr };
@@ -47,6 +49,7 @@ describe("Capture Hermetic Chromium hosted proof", () => {
     expect(job.needs).toBe("change-scope");
     expect(workflow.jobs["pr-required"].needs).toContain("capture-hermetic-chromium");
     expect(gate.env).toEqual({
+      PR_REQUIRED_NEEDS_JSON: "${{ toJSON(needs) }}",
       AC4_E2E_REQUIRED: "${{ needs['change-scope'].outputs.e2e_tests_required }}",
       AC4_E2E_SUITES_JSON: "${{ needs['change-scope'].outputs.e2e_suites_json }}",
     });
@@ -88,7 +91,7 @@ describe("Capture Hermetic Chromium hosted proof", () => {
       "AC4 source=%s run=%s attempt=%s job=%s",
       "node scripts/playwright-chromium-install.mjs",
     ])
-      expect(install.run).toContain(fragment);
+      expect(stageRun(install)).toContain(fragment);
     expect(proof.name).toBe("Prove three synthetic Chromium capture cases");
     expect(proof.shell).toBe("bash");
     expect(proof["timeout-minutes"]).toBe(4);
@@ -105,8 +108,13 @@ describe("Capture Hermetic Chromium hosted proof", () => {
       "--reporter=verbose --reporter=json",
       '--outputFile.json="$RUNNER_TEMP/ac4-chromium.json"',
     ])
-      expect(proof.run).toContain(fragment);
-    expect(JSON.stringify(job)).not.toMatch(/secrets\.|continue-on-error|passWithNoTests|--retry|--testTimeout/);
+      expect(stageRun(proof)).toContain(fragment);
+    expect(
+      JSON.stringify(job) +
+        stageRun(install) +
+        stageRun(proof) +
+        readFileSync("scripts/pr-checks/hermetic-chromium-receipt.mjs", "utf8"),
+    ).not.toMatch(/secrets\.|continue-on-error|passWithNoTests|--retry|--testTimeout/);
   });
 
   it.each(["success", "failure", "skipped", "cancelled", "", "unknown"])(
@@ -150,12 +158,15 @@ describe("Capture Hermetic Chromium hosted proof", () => {
     status: "passed",
   }));
   function assertReceipt(assertions, success = true) {
-    const script = job.steps[4].run.match(/node --input-type=module -e '\n([\s\S]+?)\n' /)?.[1];
+    expect(stageRun(job.steps[4])).toContain(
+      'node scripts/pr-checks/hermetic-chromium-receipt.mjs "$RUNNER_TEMP/ac4-chromium.json"',
+    );
+    const script = readFileSync("scripts/pr-checks/hermetic-chromium-receipt.mjs", "utf8");
     expect(script).toBeTruthy();
     const messages = [];
     runInNewContext(script.replace('import fs from "node:fs";', ""), {
       fs: { readFileSync: () => JSON.stringify({ success, testResults: [{ assertionResults: assertions }] }) },
-      process: { argv: ["node", "synthetic.json"] },
+      process: { argv: ["node", "receipt.mjs", "synthetic.json"] },
       console: { log: (message) => messages.push(message) },
     });
     return messages;

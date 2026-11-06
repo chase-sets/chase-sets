@@ -36,6 +36,7 @@ import {
   deriveBootstrapDbWorkload,
   formatBootstrapDbWorkloadBaseline,
   resolveApiDbWorkspaceConcurrency,
+  resolveHostedPostgresSettings,
   type BootstrapDbWorkloadBaseline,
   type BootstrapDbWorkloadBinding,
   type BootstrapDbWorkloadCaptureBinding,
@@ -3806,6 +3807,82 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   describe("workload changes require re-enrollment", () => {
+    const preparationOwner = "scripts/pr-checks/db-tests.sh";
+    const workflowSource = () => readFileSync(join(repositoryRoot, ".github/workflows/platform-pr.yml"), "utf8");
+    const ownerSource = () => readFileSync(join(repositoryRoot, preparationOwner), "utf8");
+
+    it("resolves the same PostgreSQL values from inline history and the bound extracted prepare owner", () => {
+      const fixture = JSON.parse(
+        readFileSync(join(repositoryRoot, "scripts/fixtures/workflow-composition/platform-pr.json"), "utf8"),
+      );
+      const historical = execFileSync("git", ["show", `${fixture.sourceHead}:.github/workflows/platform-pr.yml`], {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+      });
+      const extracted = resolveHostedPostgresSettings(workflowSource(), (path: string) => {
+        expect(path).toBe(preparationOwner);
+        return ownerSource();
+      });
+      expect(extracted.gaps).toEqual([]);
+      expect(extracted).toEqual(
+        resolveHostedPostgresSettings(historical, () => {
+          throw new Error("historical inline source must not read an extracted owner");
+        }),
+      );
+    });
+
+    it.each([
+      "missing",
+      "unreadable",
+      "duplicate",
+      "malformed",
+      "unbound",
+      "mixed",
+      "ambiguous",
+      "working directory",
+      "conditional caller",
+      "wrong shell",
+    ])("refuses %s PostgreSQL preparation ownership without fallback", (kind) => {
+      let workflow = workflowSource();
+      let source: string | null = ownerSource();
+      if (kind === "missing") source = null;
+      if (kind === "duplicate") source += "\n  prepare)\n    target_max_connections=300\n    ;;\n";
+      if (kind === "malformed")
+        source = source!.replace("target_max_connections=300", "target_max_connections=unknown");
+      if (kind === "unbound") workflow = workflow.replace("db-tests.sh prepare", "db-tests.sh other");
+      if (kind === "working directory")
+        workflow = workflow.replace(
+          "run: bash scripts/pr-checks/db-tests.sh prepare",
+          "working-directory: elsewhere\n        run: bash scripts/pr-checks/db-tests.sh prepare",
+        );
+      if (kind === "conditional caller")
+        workflow = workflow.replace(
+          "run: bash scripts/pr-checks/db-tests.sh prepare",
+          "if: false\n        run: bash scripts/pr-checks/db-tests.sh prepare",
+        );
+      if (kind === "wrong shell")
+        workflow = workflow.replace(
+          "run: bash scripts/pr-checks/db-tests.sh prepare",
+          "shell: python\n        run: bash scripts/pr-checks/db-tests.sh prepare",
+        );
+      if (kind === "mixed")
+        workflow = workflow.replace(
+          "run: bash scripts/pr-checks/db-tests.sh prepare",
+          "run: |\n          bash scripts/pr-checks/db-tests.sh prepare\n          target_max_connections=300",
+        );
+      if (kind === "ambiguous")
+        source = source!.replace(
+          "target_max_connections=300",
+          "target_max_connections=300\n    target_max_connections=200",
+        );
+      const result = resolveHostedPostgresSettings(workflow, () => {
+        if (kind === "unreadable") throw new Error("synthetic unreadable owner");
+        return source;
+      });
+      expect(result.values).toBeNull();
+      expect(result.gaps).toHaveLength(1);
+    });
+
     const fixturesPath = "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex";
     const seedingPath = "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts";
     const settlementSupportPath = "bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts";
@@ -3967,10 +4044,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       {
         label: "a hosted PostgreSQL setting",
         edits: {
-          ".github/workflows/platform-pr.yml": replaceOnce(
-            "target_max_connections=300\n",
-            "target_max_connections=200\n",
-          ),
+          "scripts/pr-checks/db-tests.sh": replaceOnce("target_max_connections=300\n", "target_max_connections=200\n"),
         },
         expected: [changed("W4 postgres maxConnections")],
       },
@@ -4140,7 +4214,18 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   describe("freshness uses workload bindings only", () => {
-    it("is called only by the Unit regression and its own producer, never by the test:db guard", () => {
+    const expectedReferences = [
+      "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts",
+      "deployables/platform-api/scripts/db-enrollment-workload.mjs",
+      "scripts/change-scope.mjs",
+      "scripts/change-scope.test.mjs",
+      "scripts/workflow-composition-contract.test.mjs",
+    ];
+    const compositionObserver = "scripts/workflow-composition-contract.test.mjs";
+    const enrollmentChecker = "deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
+    const readSource = (path: string) => readFileSync(join(repositoryRoot, path), "utf8");
+
+    function discoverWorkloadReferences(read = readSource) {
       const callers: string[] = [];
       function visit(directory: string) {
         for (const entry of readdirSync(join(repositoryRoot, directory)).sort()) {
@@ -4148,21 +4233,30 @@ describe("Platform API bootstrap DB enrollment", () => {
           if (["node_modules", "dist", "artifacts"].includes(entry) || entry.startsWith(".")) continue;
           const absolute = join(repositoryRoot, path);
           if (statSync(absolute).isDirectory()) visit(path);
-          else if (
-            /\.(?:[cm]?[jt]sx?)$/.test(entry) &&
-            readFileSync(absolute, "utf8").includes("db-enrollment-workload")
-          ) {
+          else if (/\.(?:[cm]?[jt]sx?)$/.test(entry) && read(path).includes("db-enrollment-workload")) {
             callers.push(path);
           }
         }
       }
       for (const directory of ["deployables/platform-api", "scripts"]) visit(directory);
-      expect(callers.sort()).toEqual([
-        "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts",
-        "deployables/platform-api/scripts/db-enrollment-workload.mjs",
-        "scripts/change-scope.mjs",
-        "scripts/change-scope.test.mjs",
-      ]);
+      return callers.sort();
+    }
+
+    function verifyWorkloadReferences(callers: string[]) {
+      const missing = expectedReferences.filter((path) => !callers.includes(path));
+      const extra = callers.filter((path) => !expectedReferences.includes(path));
+      if (missing.length || extra.length) {
+        throw new Error(`workload references differ: ${JSON.stringify({ missing, extra })}`);
+      }
+      expect(callers).toEqual(expectedReferences);
+    }
+
+    it("is called only by the Unit regression and its own producer, never by the test:db guard", () => {
+      const callers = discoverWorkloadReferences();
+      verifyWorkloadReferences(callers);
+      expect(readSource(compositionObserver)).toContain("db-enrollment-workload");
+      expect(readSource(enrollmentChecker)).not.toContain("db-enrollment-workload");
+      console.info("Workload reference census", JSON.stringify({ callers, missing: [], extra: [] }));
       const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8")) as {
         scripts: Record<string, string>;
       };
@@ -4171,6 +4265,45 @@ describe("Platform API bootstrap DB enrollment", () => {
           /^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /,
         );
       }
+    });
+
+    function rejectReferenceOverlay(omitObserver: boolean, addChecker: boolean) {
+      const positive = discoverWorkloadReferences();
+      verifyWorkloadReferences(positive);
+      expect(readSource(compositionObserver)).toContain("db-enrollment-workload");
+      expect(readSource(enrollmentChecker)).not.toContain("db-enrollment-workload");
+      const overlaid: string[] = [];
+      const callers = discoverWorkloadReferences((path) => {
+        if (omitObserver && path === compositionObserver) {
+          overlaid.push(path);
+          return "";
+        }
+        if (addChecker && path === enrollmentChecker) {
+          overlaid.push(path);
+          return `${readSource(path)}\n// db-enrollment-workload\n`;
+        }
+        return readSource(path);
+      });
+      const missing = omitObserver ? [compositionObserver] : [];
+      const extra = addChecker ? [enrollmentChecker] : [];
+      expect(overlaid.sort()).toEqual([...missing, ...extra].sort());
+      expect(callers).toHaveLength(positive.length - missing.length + extra.length);
+      expect(() => verifyWorkloadReferences(callers)).toThrow(
+        new Error(`workload references differ: ${JSON.stringify({ missing, extra })}`),
+      );
+      const restored = discoverWorkloadReferences();
+      verifyWorkloadReferences(restored);
+      expect(restored).toEqual(positive);
+      console.info("Workload reference overlay", JSON.stringify({ callers, missing, extra, restored }));
+    }
+
+    it("rejects omitted or extra real-path workload references", () => {
+      rejectReferenceOverlay(true, false);
+      rejectReferenceOverlay(false, true);
+    });
+
+    it("rejects same-count workload-reference retargeting", () => {
+      rejectReferenceOverlay(true, true);
     });
 
     it("round-trips a newer capture through the shared producer derivation and refuses the stale baseline", async () => {

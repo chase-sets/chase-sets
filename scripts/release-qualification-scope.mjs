@@ -353,6 +353,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   actions: Object.freeze({
     "block-docker-hub": "release",
     "export-managed-postgres-authority": "release",
+    "pr-check-diagnostics": "ci",
     "production-marker-recovery-context": "release",
     "report-scheduled-workflow-alert": "ci",
     "setup-pnpm-workspace": "release",

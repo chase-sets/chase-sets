@@ -190,7 +190,11 @@ describe("responsive evidence artifact validation", () => {
     const e2eJob = workflow.slice(workflow.indexOf("  e2e-tests:"), workflow.indexOf("\n  build:"));
     const fence = scanPlaywrightArtifactUploads({ root: repoRoot });
 
-    expect(e2eJob).toContain('pnpm run test:e2e:suite "${{ matrix.suite_batch }}"');
+    expect(e2eJob).toContain("run: bash scripts/pr-checks/e2e-tests.sh run");
+    expect(e2eJob).toContain("E2E_SUITE_BATCH: ${{ matrix.suite_batch }}");
+    expect(await readFile(path.join(repoRoot, "scripts/pr-checks/e2e-tests.sh"), "utf8")).toContain(
+      'pnpm run test:e2e:suite "$E2E_SUITE_BATCH"',
+    );
     expect(e2eJob).toMatch(/uses: actions\/checkout@[^\n]+\r?\n\s+with:\r?\n\s+fetch-depth: 2\r?\n/);
     expect(e2eJob).toContain("id: responsive-evidence-checkout");
     expect(e2eJob).toContain("RESPONSIVE_EVIDENCE_EVENT_BASE_SHA:");
