@@ -4189,13 +4189,26 @@ async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_addre
         "the defer was sent"
     );
 
-    // Refused without the runtime: the daily workbench of the same working set, with the API's
+    // Refused without the runtime: the scope's page again for the same working set, with the API's
     // reason; with it, the reason is patched into the section's notice.
     let at = format!("/catalog/integrations/review?{context}");
     let (status, _, html) = pilot.send(post(&at, "action=reject&observation=obs_1", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("A reason is required to reject observations."), "{html}");
-    assert!(!html.contains("home=scp_paf"), "the daily workbench's own working set: {html}");
+    assert!(html.contains("data-scope-workspace") && html.contains(r#"name="wb-stage""#), "the scope's page: {html}");
+    // The same working set, its edition first: the page builds it from the address again.
+    let again = "languageCode=en&productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv&expansionId=scp_paf\
+                 &expansionName=Paldean%20Fates&scopeRecordId=scp_paf&home=scp_paf";
+    assert!(
+        html.contains(&format!(r#"action="/catalog/integrations/review?{}""#, again.replace('&', "&amp;"))),
+        "its commands keep the working set: {html}"
+    );
+    // A command from the daily workbench itself, refused, is the daily workbench again.
+    let daily = context.replace("&home=scp_paf", "");
+    let (status, _, html) =
+        pilot.send(post(&format!("/catalog/integrations/review?{daily}"), "action=reject&observation=obs_1", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("A reason is required to reject observations.") && !html.contains("data-scope-workspace"), "{html}");
     let (status, _, patch) = pilot.send(post(&at, "action=reject&observation=obs_1", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
     assert!(patch.contains("A reason is required to reject observations.") && !patch.contains("wb-stage"), "{patch}");

@@ -576,6 +576,22 @@ async fn render(
     if status == StatusCode::OK { req.screen(&view, html) } else { req.page_with_status(status, html) }
 }
 
+/// A command its import-to-promotion section posted to the daily workbench's routes, refused, without
+/// the runtime: the page again for the same working set (`context`, whose `home` is `id`), with
+/// the API's message (422).
+pub(crate) async fn refused_in_workspace(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    context: &str,
+    errors: &corten::Errors,
+) -> HtmlResult {
+    let message = errors.form().map(str::to_owned).unwrap_or_default();
+    render(req, viewer, config, headers, id, &ScopeAt::default(), context, ScopeBack::Refused(message)).await
+}
+
 /// After a write: the page it came from, waiting for it, with its toast.
 fn to_scope(req: &Req, id: &str, written: Option<&Written>, done: ScopeDone, count: Option<u32>, from: Via) -> HtmlResult {
     let at = ScopeAt { after_write: written.and_then(receipt), done: Some(done), count, jobs: None };

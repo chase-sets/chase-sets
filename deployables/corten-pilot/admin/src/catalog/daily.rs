@@ -1052,13 +1052,21 @@ async fn answer(
         Sent::Refused(errors) => errors,
         Sent::Denied(denied) => return denied.answer(req),
     };
-    // Without the runtime, a refusal from a scope's page is the daily workbench of the same working
-    // set with the API's message (admin-web draws the scope's page again); with it, the message
-    // is patched in place on either page.
-    let daily = with_query(context, &[(HOME, None)]);
+    // Without the runtime, a refusal is the page the command came from again with the API's
+    // message: the scope's page its `home` names (as admin-web draws Scope Detail again), or the
+    // daily workbench; with it, the message is patched in place on either page.
+    let scope = context_value(context, HOME).filter(|id| !id.is_empty());
     let form = super::views::DailyRefusal { errors: &errors };
-    req.invalid(&errors, form, || render(req, &staff.viewer, config, headers, &daily, None, Some(Said::Refused(&errors)), true))
-        .await
+    req.invalid(&errors, form, || async {
+        match &scope {
+            Some(id) => super::scope::refused_in_workspace(req, &staff.viewer, config, headers, id, context, &errors).await,
+            None => {
+                let daily = with_query(context, &[(HOME, None)]);
+                render(req, &staff.viewer, config, headers, &daily, None, Some(Said::Refused(&errors)), true).await
+            }
+        }
+    })
+    .await
 }
 
 /// The sync form: the scope as the read model has it, every unit the preview lists, and the
