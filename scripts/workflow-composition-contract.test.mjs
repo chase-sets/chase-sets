@@ -204,9 +204,7 @@ function discoverExtractedInterfaces(read = (file) => readFileSync(file, "utf8")
     const next = new Set([...visiting, file]);
     for (const node of tree.statements) {
       if (ts.isExportDeclaration(node)) {
-        const exported = node.moduleSpecifier
-          ? exportsOf(resolveSource(file, node.moduleSpecifier.text), next)
-          : null;
+        const exported = node.moduleSpecifier ? exportsOf(resolveSource(file, node.moduleSpecifier.text), next) : null;
         if (node.exportClause && ts.isNamedExports(node.exportClause)) {
           for (const member of node.exportClause.elements) {
             const name = (member.propertyName ?? member.name).text;
@@ -237,7 +235,11 @@ function discoverExtractedInterfaces(read = (file) => readFileSync(file, "utf8")
         };
         for (const declaration of node.declarationList.declarations) names(declaration.name);
       } else if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isEnumDeclaration(node)) {
-        values.add(node.modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ? "default" : node.name.text);
+        values.add(
+          node.modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)
+            ? "default"
+            : node.name.text,
+        );
       } else throw new Error(`Unsupported interface declaration: ${file}`);
     }
     return { values, types };
@@ -252,15 +254,35 @@ function discoverExtractedInterfaces(read = (file) => readFileSync(file, "utf8")
     const runtime = owner.endsWith(".mjs") ? exportsOf(owner) : { values: new Set(), types: new Set() };
     for (const declaration of found) {
       const declared = exportsOf(declaration);
-      interfaces.push({ owner, declaration, runtime: [...runtime.values].sort(), declared: [...declared.values].sort(), consumers: [] });
-      for (const name of runtime.values) if (!declared.values.has(name)) gaps.push(`${owner} -> ${declaration}: missing value export ${name}`);
-      for (const name of declared.values) if (!runtime.values.has(name)) gaps.push(`${owner} -> ${declaration}: declaration-only value export ${name}`);
+      interfaces.push({
+        owner,
+        declaration,
+        runtime: [...runtime.values].sort(),
+        declared: [...declared.values].sort(),
+        consumers: [],
+      });
+      for (const name of runtime.values)
+        if (!declared.values.has(name)) gaps.push(`${owner} -> ${declaration}: missing value export ${name}`);
+      for (const name of declared.values)
+        if (!runtime.values.has(name)) gaps.push(`${owner} -> ${declaration}: declaration-only value export ${name}`);
     }
     scannedOwners++;
   }
   const roots = ["scripts", "deployables", "bounded-contexts", "contracts", "infrastructure", "packages"];
-  const search = spawnSync("git", ["grep", "-l", "-F", ...owners.flatMap((owner) => ["-e", owner.slice(owner.lastIndexOf("/") + 1).replace(/\.(mjs|sh)$/, "")]), "--", ...roots.flatMap((root) => ["ts", "mts", "cts", "tsx"].map((extension) => `:(glob)${root}/**/*.${extension}`))], { encoding: "utf8" });
-  if (search.error || ![0, 1].includes(search.status)) throw new Error(`Typed consumer discovery failed: ${search.error ?? search.stderr}`);
+  const search = spawnSync(
+    "git",
+    [
+      "grep",
+      "-l",
+      "-F",
+      ...owners.flatMap((owner) => ["-e", owner.slice(owner.lastIndexOf("/") + 1).replace(/\.(mjs|sh)$/, "")]),
+      "--",
+      ...roots.flatMap((root) => ["ts", "mts", "cts", "tsx"].map((extension) => `:(glob)${root}/**/*.${extension}`)),
+    ],
+    { encoding: "utf8" },
+  );
+  if (search.error || ![0, 1].includes(search.status))
+    throw new Error(`Typed consumer discovery failed: ${search.error ?? search.stderr}`);
   const typedFiles = search.stdout.trim().split(/\r?\n/).filter(Boolean);
   let scannedConsumers = 0;
   for (const file of typedFiles) {
@@ -269,30 +291,63 @@ function discoverExtractedInterfaces(read = (file) => readFileSync(file, "utf8")
     const imports = ts.preProcessFile(source, true, true).importedFiles;
     for (const imported of imports) {
       const target = imported.fileName.startsWith(".") ? local(resolve(dirname(file), imported.fileName)) : null;
-      const matches = interfaces.filter((entry) => target === entry.owner || target === entry.declaration || target?.replace(/\.(?:d\.)?(?:mjs|cjs|js|mts|cts|ts)$/, "") === entry.owner.replace(/\.mjs$/, ""));
+      const matches = interfaces.filter(
+        (entry) =>
+          target === entry.owner ||
+          target === entry.declaration ||
+          target?.replace(/\.(?:d\.)?(?:mjs|cjs|js|mts|cts|ts)$/, "") === entry.owner.replace(/\.mjs$/, ""),
+      );
       if (!matches.length) {
-        if (interfaces.some((entry) => imported.fileName.includes(entry.owner.slice(entry.owner.lastIndexOf("/") + 1).replace(/\.mjs$/, ""))))
+        if (
+          interfaces.some((entry) =>
+            imported.fileName.includes(entry.owner.slice(entry.owner.lastIndexOf("/") + 1).replace(/\.mjs$/, "")),
+          )
+        )
           gaps.push(`${file}: unbound typed import ${imported.fileName}`);
         continue;
       }
       let bound = false;
       for (const node of parseSource(file).statements) {
-        if (!(ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) || node.moduleSpecifier?.text !== imported.fileName) continue;
+        if (
+          !(ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) ||
+          node.moduleSpecifier?.text !== imported.fileName
+        )
+          continue;
         bound = true;
         const clause = ts.isImportDeclaration(node) ? node.importClause : node;
         const bindings = ts.isImportDeclaration(node) ? clause?.namedBindings : node.exportClause;
-        const members = bindings && (ts.isNamedImports(bindings) || ts.isNamedExports(bindings)) ? bindings.elements : [];
+        const members =
+          bindings && (ts.isNamedImports(bindings) || ts.isNamedExports(bindings)) ? bindings.elements : [];
         for (const entry of matches) {
-          const values = members.filter((member) => !clause.isTypeOnly && !member.isTypeOnly).map((member) => (member.propertyName ?? member.name).text);
+          const values = members
+            .filter((member) => !clause.isTypeOnly && !member.isTypeOnly)
+            .map((member) => (member.propertyName ?? member.name).text);
           if (ts.isImportDeclaration(node) && clause?.name && !clause.isTypeOnly) values.push("default");
-          entry.consumers.push({ file, values, typeOnly: members.filter((member) => clause.isTypeOnly || member.isTypeOnly).map((member) => (member.propertyName ?? member.name).text) });
-          for (const name of values) if (!entry.declared.includes(name)) gaps.push(`${file} -> ${entry.owner} -> ${entry.declaration}: missing imported value ${name}`);
+          entry.consumers.push({
+            file,
+            values,
+            typeOnly: members
+              .filter((member) => clause.isTypeOnly || member.isTypeOnly)
+              .map((member) => (member.propertyName ?? member.name).text),
+          });
+          for (const name of values)
+            if (!entry.declared.includes(name))
+              gaps.push(`${file} -> ${entry.owner} -> ${entry.declaration}: missing imported value ${name}`);
         }
       }
       if (!bound) gaps.push(`${file}: unresolved typed consumer form ${imported.fileName}`);
     }
   }
-  return { owners, scannedOwners, totalOwners: owners.length, siblingChecks, scannedConsumers, totalConsumers: typedFiles.length, interfaces, gaps };
+  return {
+    owners,
+    scannedOwners,
+    totalOwners: owners.length,
+    siblingChecks,
+    scannedConsumers,
+    totalConsumers: typedFiles.length,
+    interfaces,
+    gaps,
+  };
 }
 
 describe("workflow composition contract inventory", () => {
@@ -304,18 +359,28 @@ describe("workflow composition contract inventory", () => {
     expect(positive.siblingChecks).toBe(positive.totalOwners * 6);
     expect(positive.scannedConsumers).toBe(positive.totalConsumers);
     expect(positive.owners).toContain("scripts/fixtures/workflow-composition/harness.mjs");
-    const contract = positive.interfaces.find((entry) => entry.owner === "deployables/platform-api/scripts/db-enrollment-workload.mjs");
+    const contract = positive.interfaces.find(
+      (entry) => entry.owner === "deployables/platform-api/scripts/db-enrollment-workload.mjs",
+    );
     expect(contract.declaration).toBe("deployables/platform-api/scripts/db-enrollment-workload.d.mts");
     const member = "resolveHostedPostgresSettings";
     const consumer = "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts";
     expect(contract.runtime).toContain(member);
-    expect(contract.consumers).toContainEqual(expect.objectContaining({ file: consumer, values: expect.arrayContaining([member]), typeOnly: expect.arrayContaining(["BootstrapDbWorkloadBaseline"]) }));
+    expect(contract.consumers).toContainEqual(
+      expect.objectContaining({
+        file: consumer,
+        values: expect.arrayContaining([member]),
+        typeOnly: expect.arrayContaining(["BootstrapDbWorkloadBaseline"]),
+      }),
+    );
     const original = readFileSync(contract.declaration, "utf8");
     const tree = ts.createSourceFile(contract.declaration, original, ts.ScriptTarget.Latest, true);
     const declaration = tree.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === member);
     expect(declaration).toBeDefined();
     const omitted = original.slice(0, declaration.getFullStart()) + original.slice(declaration.end);
-    const negative = discoverExtractedInterfaces((file) => file === contract.declaration ? omitted : readFileSync(file, "utf8"));
+    const negative = discoverExtractedInterfaces((file) =>
+      file === contract.declaration ? omitted : readFileSync(file, "utf8"),
+    );
     expect(negative.gaps).toEqual([
       `${contract.owner} -> ${contract.declaration}: missing value export ${member}`,
       `${consumer} -> ${contract.owner} -> ${contract.declaration}: missing imported value ${member}`,
@@ -325,7 +390,20 @@ describe("workflow composition contract inventory", () => {
     expect(omittedContract.runtime).toEqual(contract.runtime);
     expect(omittedContract.consumers).toEqual(contract.consumers);
     expect(discoverExtractedInterfaces()).toEqual(positive);
-    console.info("Extracted interface discovery", JSON.stringify({ owners: positive.owners, scannedOwners: positive.scannedOwners, totalOwners: positive.totalOwners, siblingChecks: positive.siblingChecks, scannedConsumers: positive.scannedConsumers, totalConsumers: positive.totalConsumers, interfaces: positive.interfaces, omissionGaps: negative.gaps, restored: true }));
+    console.info(
+      "Extracted interface discovery",
+      JSON.stringify({
+        owners: positive.owners,
+        scannedOwners: positive.scannedOwners,
+        totalOwners: positive.totalOwners,
+        siblingChecks: positive.siblingChecks,
+        scannedConsumers: positive.scannedConsumers,
+        totalConsumers: positive.totalConsumers,
+        interfaces: positive.interfaces,
+        omissionGaps: negative.gaps,
+        restored: true,
+      }),
+    );
   });
 
   it("executes the real pre-install PR and merge-group callers with every package resolution denied", () => {
