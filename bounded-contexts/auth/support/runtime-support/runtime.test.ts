@@ -385,6 +385,7 @@ describe("Auth request actor resolution", () => {
 
     expect(actor).toEqual({
       sessionId: "guest:tok_guest",
+      sessionProvenance: "guest-checkout",
       tenantId: "tnt_auth",
       userId: AUTH_GUEST_CHECKOUT_USER_ID,
       accountId: "acc_guest",
@@ -463,6 +464,7 @@ describe("Auth request actor resolution", () => {
 
     expect(actor).toEqual({
       sessionId: "ucp:lpa_1",
+      sessionProvenance: "linked-platform",
       tenantId: "tnt_auth",
       userId: "usr_1",
       accountId: "acc_1",

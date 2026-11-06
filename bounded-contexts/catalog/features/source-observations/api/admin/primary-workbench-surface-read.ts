@@ -207,13 +207,13 @@ async function readDailySurface(
     reviewPagination,
     normalized.selectedScope,
   );
-  const [reviewObservationResult, mergeCandidateResult, promotionOutcome, promotionValidation] = await Promise.all([
+  const [reviewObservationResult, mergeCandidateResult, promotionOutcome, currentPromotionPreview] = await Promise.all([
     reviewQuery
       ? sourceResult(() => sources.listSourceObservations(reviewQuery), null)
       : Promise.resolve({ value: null, failed: false } as const),
     sourceResult(() => sources.listMergeCandidates(buildDailyMergeCandidateQuery(normalizedRouteContext)), null),
     selectedPromotionOutcome(sources, normalizedRouteContext),
-    selectedPromotionValidation(sources, normalizedRouteContext),
+    selectedPromotionPreview(sources, normalizedRouteContext),
   ]);
   const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...normalized.readModelFailures];
   if (reviewObservationResult.failed) {
@@ -233,7 +233,8 @@ async function readDailySurface(
     reviewObservations: reviewObservationResult.value,
     mergeCandidates: mergeCandidateResult.value,
     promotionOutcome,
-    promotionValidation,
+    promotionValidation: currentPromotionPreview?.validation ?? null,
+    promotionPreviewFingerprint: currentPromotionPreview?.fingerprint ?? null,
     reviewPagination,
     sourceOptionPages: null,
     catalogSyncPreview: null,
@@ -443,14 +444,14 @@ async function selectedPromotionOutcome(
   }
 }
 
-// The read-only pre-write validation for the route's promotion preview token, so
-// the create/update stage paints the current per-observation verdicts rather
-// than a count-only eligibility. Previewing needs catalog.manage; absence renders
-// as not-previewed.
-async function selectedPromotionValidation(
+// The read-only pre-write preview for the route's promotion preview token, so the
+// create/update stage paints the current per-observation verdicts and the current
+// evidence fingerprint rather than a count-only eligibility. Previewing needs
+// catalog.manage; absence renders as not-previewed.
+async function selectedPromotionPreview(
   sources: CatalogPrimaryWorkbenchSurfaceSources,
   context: CatalogPrimaryWorkbenchRouteContext,
-): Promise<SourceObservationPromotionValidation | null> {
+): Promise<SourceObservationPromotionPreview | null> {
   if (!context.promotionPreviewId || !sources.canManageCatalog) {
     return null;
   }
@@ -464,7 +465,7 @@ async function selectedPromotionValidation(
       ),
       promoteAsDraft: context.promoteAsDraft === true,
     });
-    return preview.validation;
+    return preview;
   } catch {
     return null;
   }
@@ -492,6 +493,7 @@ type BuildSurfaceReadModelInput = Readonly<{
   mergeCandidates: ListResponse<CatalogMergeCandidateListItem> | null;
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   promotionValidation?: SourceObservationPromotionValidation | null;
+  promotionPreviewFingerprint?: string | null;
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   catalogSyncPreview: CatalogSyncProviderParticipationPreview | null;
@@ -552,6 +554,7 @@ function surfaceReadModelInput(
     mergeCandidates: failures.has("merge-candidate-review") ? null : input.mergeCandidates,
     promotionOutcome: input.promotionOutcome,
     promotionValidation: input.promotionValidation ?? null,
+    promotionPreviewFingerprint: input.promotionPreviewFingerprint ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages,
     catalogSyncPreview: input.catalogSyncPreview,

@@ -150,6 +150,39 @@ describe("Catalog primary workbench surface routes", () => {
     expect(services.listSourceObservations).not.toHaveBeenCalled();
   });
 
+  it("carries the current promotion preview's validation and evidence fingerprint into the daily surface", async () => {
+    const validation = {
+      promoteAsDraft: false,
+      pageLimit: 25,
+      coveredObservationIds: ["obs-1"],
+      coverage: "complete",
+      continuation: null,
+      diagnostics: [],
+    };
+    const previewPromoteObservations = vi.fn(async () => ({
+      matched: 1,
+      eligible: 1,
+      terminal: 0,
+      scope: { kind: "selected", observationIds: ["obs-1"] },
+      fingerprint: "sha256:current-evidence",
+      validation,
+    }));
+    const app = buildApp(surfaceServices({ previewPromoteObservations }), mutableProfileStore());
+    const location = `/catalog/integrations?${new URLSearchParams({
+      providerKey: "tcgdex",
+      unitKey: TCGDEX_UNIT,
+      selectedObservationIds: "obs-1",
+      promotionPreviewId: "preview-1",
+    })}`;
+
+    const body = await getJson(app, surfacePath("daily", location));
+
+    expect(previewPromoteObservations).toHaveBeenCalledWith(
+      expect.objectContaining({ observationIds: ["obs-1"], promoteAsDraft: false }),
+    );
+    expect(JSON.stringify(body.readModel)).toContain('"currentFingerprint":"sha256:current-evidence"');
+  });
+
   it("reads catalog.manage from the API actor and refuses actors without integration read access", async () => {
     const viewer = buildApp(surfaceServices(), mutableProfileStore(), viewOnlyActor);
     const anonymous = buildApp(surfaceServices(), mutableProfileStore(), null);
