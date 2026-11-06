@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   classifyControl,
+  cacheSnapshot,
   composeAttempt,
   createPhaseTrace,
   DIAGNOSTIC_DEBUG,
@@ -138,6 +139,78 @@ describe("pinned phase evidence", () => {
 });
 
 describe("fresh cold/hit admission", () => {
+  const pinned = { revisions: { chromium: "1223", "chromium-headless-shell": "1223", ffmpeg: "1011" } };
+  function cacheFixture({ omit, unreadable, unowned, symlink, emptyPayload, markerDirectory, revision } = {}) {
+    const root = path.resolve("synthetic-owned-cache");
+    const entries = new Map();
+    const add = (relative, directory = false) => {
+      if (relative === omit) return;
+      entries.set(path.join(root, relative), {
+        uid: relative === unowned ? 8 : 7,
+        size: relative === emptyPayload ? 0 : 1,
+        isDirectory: () => directory || relative === markerDirectory,
+        isFile: () => !directory && relative !== markerDirectory,
+        isSymbolicLink: () => relative === symlink,
+      });
+    };
+    add("", true);
+    for (const [directory, executable] of [
+      [`chromium-${revision ?? "1223"}`, "chrome-linux64/chrome"],
+      ["chromium_headless_shell-1223", "chrome-headless-shell-linux64/chrome-headless-shell"],
+      ["ffmpeg-1011", "ffmpeg-linux"],
+    ]) {
+      add(directory, true);
+      if (path.dirname(executable) !== ".") add(path.join(directory, path.dirname(executable)), true);
+      add(path.join(directory, executable));
+      add(path.join(directory, "INSTALLATION_COMPLETE"));
+    }
+    add(".links", true);
+    add(path.join(".links", "synthetic-link"));
+    const snapshot = cacheSnapshot(root, pinned, {
+      exists: (target) => entries.has(target),
+      lstat: (target) => {
+        if (!entries.has(target)) throw new Error("synthetic missing");
+        return entries.get(target);
+      },
+      readdir: (target) =>
+        [...entries.keys()]
+          .filter((item) => item !== target && path.dirname(item) === target)
+          .map((item) => path.basename(item)),
+      access: (target) => {
+        if (target === path.join(root, unreadable ?? "not-present")) throw new Error("synthetic unreadable");
+      },
+      ownerUid: 7,
+    });
+    return snapshot;
+  }
+
+  it("validates exact Chromium, headless-shell and FFmpeg only inside the diagnostic inspector", () => {
+    expect(cacheFixture()).toMatchObject({
+      state: "complete",
+      complete: true,
+      owned: true,
+      readable: true,
+      empty: false,
+    });
+  });
+
+  it.each([
+    { omit: path.join("chromium-1223", "INSTALLATION_COMPLETE") },
+    { omit: path.join("chromium_headless_shell-1223", "chrome-headless-shell-linux64", "chrome-headless-shell") },
+    { omit: path.join("ffmpeg-1011", "ffmpeg-linux") },
+    { markerDirectory: path.join("ffmpeg-1011", "INSTALLATION_COMPLETE") },
+    { emptyPayload: path.join("chromium-1223", "chrome-linux64", "chrome") },
+    { revision: "1222" },
+    { unreadable: path.join(".links", "synthetic-link") },
+    { unreadable: path.join("chromium-1223", "INSTALLATION_COMPLETE") },
+    { unowned: path.join("ffmpeg-1011", "ffmpeg-linux") },
+    { symlink: "chromium-1223" },
+  ])("rejects one-variable payload/ownership/readability defect %j", (change) => {
+    const cache = cacheFixture(change);
+    expect(cache.complete).toBe(false);
+    expect(classifyControl({ mode: "hit", restored: true, ...cache }).status).toBe("NOT_OBSERVED");
+  });
+
   const hit = { mode: "hit", restored: true, empty: false, complete: true, owned: true, readable: true };
   it("requires restore AND complete owned readable payload BEFORE the attempt", () => {
     expect(classifyControl(hit)).toEqual({ status: "PASS", eligible: true });
@@ -182,6 +255,7 @@ function fakeOwnedInstall({
     calls.push(options);
     const outcome = results[calls.length - 1];
     complete = outcome === "success";
+    options.write(`provider-browser-install-timing/v1 synthetic-attempt-${calls.length}`);
     return {
       status: complete ? 0 : 1,
       ...(outcome === "start-refusal" ? { startRefused: true } : {}),
@@ -222,6 +296,10 @@ describe("one shipped lifecycle, no phase timeout reset", () => {
     ).toBe(true);
     expect(run.persisted.at(-1).elapsedMs).toBe(5000);
     expect(run.persisted.at(-1).attempts).toHaveLength(2);
+    expect(report.attempts.map((attempt) => attempt.supervisorEvents)).toEqual([
+      ["provider-browser-install-timing/v1 synthetic-attempt-1"],
+      ["provider-browser-install-timing/v1 synthetic-attempt-2"],
+    ]);
   });
 
   it.each(["start-refusal", "cancelled", "cleanup-failure"])("never retries terminal %s", async (outcome) => {
@@ -249,13 +327,14 @@ describe("one shipped lifecycle, no phase timeout reset", () => {
   it("refuses changed bounds, route and retry policy", () => {
     const options = {
       timeoutSeconds: 180,
-      env: { PLAYWRIGHT_INSTALL_POLICY: "e2e-retry" },
+      env: { PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
       installerArgs: ["unchanged"],
     };
     expect(composeAttempt(options, "combined").installerArgs).toEqual(["unchanged"]);
     for (const mutant of [
       { ...options, timeoutSeconds: 181 },
       { ...options, env: { PLAYWRIGHT_INSTALL_POLICY: "single-attempt" } },
+      { ...options, env: { PLAYWRIGHT_INSTALL_POLICY: "e2e-retry" } },
     ])
       expect(() => composeAttempt(mutant, "combined")).toThrow("diagnostic-composition-refused");
     expect(() => composeAttempt(options, "arbitrary")).toThrow();
@@ -271,7 +350,7 @@ describe("one shipped lifecycle, no phase timeout reset", () => {
       install: async (options) =>
         options.runInstallerImpl({
           timeoutSeconds: 180,
-          env: { PLAYWRIGHT_INSTALL_POLICY: "e2e-retry" },
+          env: { PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
           write: () => {},
         }),
       supervise: async (options) => {
@@ -372,5 +451,27 @@ describe("real supervisor with fake owned children and fake time only", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect((await run.result).result.reason).toBe(reason === "cancellation" ? "cancelled" : "cleanup-failure");
     expect(run.children).toHaveLength(1);
+  });
+
+  it("waits for the started-child error cleanup barrier before removal or another attempt", async () => {
+    const run = ownedRun();
+    run.children[0].emit("spawn");
+    run.children[0].emit("error", new Error("synthetic started error"));
+    run.children[0].emit("error", new Error("synthetic late error"));
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(run.children).toHaveLength(1);
+    expect(run.snapshots.at(-1).attempts[0].status).toBe("UNKNOWN");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(run.signals.mock.calls).toEqual([
+      [1234, "TERM"],
+      [1234, "KILL"],
+    ]);
+    expect(run.children).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(run.children).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(185000);
+    const report = await run.result;
+    expect(report.attempts.map((attempt) => attempt.result.record.terminalOutcome)).toEqual(["refused", "timeout"]);
+    expect(report.attempts.every((attempt) => attempt.supervisorEvents.length === 1)).toBe(true);
   });
 });

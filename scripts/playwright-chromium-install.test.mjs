@@ -155,6 +155,20 @@ function executeDeployInstall(outcomes) {
 }
 
 describe("Playwright Chromium installer primitive", () => {
+  it.each([undefined, "single-attempt"])("omitted/explicit policy %s stays one 600-second attempt", async (policy) => {
+    const runInstallerImpl = vi.fn(failedAttempt("timeout"));
+    const delayImpl = vi.fn();
+    const result = await installPlaywrightChromium({
+      env: { ...envFor(makeCache()), PLAYWRIGHT_INSTALL_POLICY: policy },
+      runInstallerImpl,
+      delayImpl,
+      write: () => {},
+    });
+    expect(result).toMatchObject({ status: 1, reason: "timeout" });
+    expect(runInstallerImpl).toHaveBeenCalledOnce();
+    expect(runInstallerImpl.mock.calls[0][0].timeoutSeconds).toBe(600);
+    expect(delayImpl).not.toHaveBeenCalled();
+  });
   it.each(["", "retry", "e2e-retry", "single-attempt ", "SINGLE-ATTEMPT"])(
     "refuses invalid policy %j before cache access or spawn",
     async (policy) => {
@@ -665,7 +679,8 @@ describe("Playwright Chromium installer primitive", () => {
     ]);
 
     const refused = runCase({ emitError: true });
-    expect(await refused.resultPromise).toMatchObject({ status: 1, reason: "refused" });
+    expect(await refused.resultPromise).toMatchObject({ status: 1, reason: "start-refusal" });
+    expect(refused.signalGroupImpl).not.toHaveBeenCalled();
     expect(refused.lines).toHaveLength(1);
   });
 
@@ -794,5 +809,227 @@ describe("Playwright Chromium installer primitive", () => {
     const result = await installPlaywrightChromium({ env: envFor(cache), runInstallerImpl, write: () => {} });
     expect(runInstallerImpl).toHaveBeenCalledOnce();
     expect(result).toMatchObject({ status: 1, reason: "incomplete-cache" });
+  });
+});
+
+describe("diagnostic-only bounded reuse", () => {
+  function diagnostic({ outcomes = ["timeout", "success"], inspect, remove, delay, build, cancelSignal } = {}) {
+    let ms = 0;
+    let complete = false;
+    const runInstallerImpl = vi.fn(async (options) => {
+      const outcome = outcomes[runInstallerImpl.mock.calls.length - 1] ?? "timeout";
+      complete = outcome === "success";
+      options.write(`provider-browser-install-timing/v1 ${outcome}`);
+      return {
+        status: complete ? 0 : 1,
+        record: { terminalOutcome: outcome },
+        ...(outcome === "start-refusal" ? { startRefused: true } : {}),
+      };
+    });
+    const removeCacheImpl = vi.fn(remove ?? (() => {}));
+    const delayImpl = vi.fn(
+      delay ??
+        (async (elapsed) => {
+          ms += elapsed;
+        }),
+    );
+    const inspectCacheImpl = vi.fn(inspect ?? (() => ({ state: complete ? "complete" : "cold", complete })));
+    const lines = [];
+    const result = installPlaywrightChromium({
+      env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+      now: () => ms,
+      runInstallerImpl,
+      inspectCacheImpl,
+      removeCacheImpl,
+      delayImpl,
+      cancelSignal,
+      ...(build ? { buildInvocationImpl: build } : {}),
+      write: (line) => lines.push(line),
+    });
+    return {
+      result,
+      runInstallerImpl,
+      removeCacheImpl,
+      delayImpl,
+      inspectCacheImpl,
+      lines,
+      advance: (elapsed) => {
+        ms += elapsed;
+      },
+    };
+  }
+
+  it("passes 180 only for explicit diagnostic policy, retrying once after cleanup and 5s delay", async () => {
+    const f = diagnostic();
+    await expect(f.result).resolves.toMatchObject({ status: 0, reason: "success" });
+    expect(f.runInstallerImpl.mock.calls.map(([call]) => call.timeoutSeconds)).toEqual([180, 180]);
+    expect(f.runInstallerImpl.mock.calls.every(([call]) => call.env.INSTALLER_TIMEOUT_SECONDS === "600")).toBe(true);
+    expect(f.removeCacheImpl).toHaveBeenCalledOnce();
+    expect(f.delayImpl.mock.calls).toEqual([[5000]]);
+    expect(f.lines.filter((line) => line.startsWith("Playwright Chromium install retry"))).toHaveLength(1);
+  });
+
+  it.each(["start-refusal", "cancelled", "cleanup-failure", "cleanup-refusal"])(
+    "never retries terminal %s",
+    async (outcome) => {
+      const f = diagnostic({ outcomes: [outcome, "success"] });
+      await expect(f.result).resolves.toMatchObject({ status: 1, reason: outcome });
+      expect(f.runInstallerImpl).toHaveBeenCalledOnce();
+      expect(f.delayImpl).not.toHaveBeenCalled();
+      if (outcome === "cleanup-failure") expect(f.removeCacheImpl).not.toHaveBeenCalled();
+    },
+  );
+
+  it("never retries authority or cache removal refusal", async () => {
+    for (const options of [
+      {
+        build: () => {
+          throw new Error("synthetic authority refusal");
+        },
+      },
+      {
+        remove: () => {
+          throw new Error("synthetic removal refusal");
+        },
+      },
+    ]) {
+      const f = diagnostic(options);
+      expect((await f.result).status).toBe(1);
+      expect(f.runInstallerImpl.mock.calls.length).toBeLessThanOrEqual(1);
+      expect(f.delayImpl).not.toHaveBeenCalled();
+    }
+  });
+
+  it("reserves the whole attempt plus grace after inspection and invocation construction", async () => {
+    for (const stage of ["inspect", "build"]) {
+      for (const elapsed of [205000, 205001]) {
+        let clock = 0;
+        const runInstallerImpl = vi.fn(failedAttempt("timeout"));
+        const consume = () => {
+          clock = elapsed;
+        };
+        const result = await installPlaywrightChromium({
+          env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+          now: () => clock,
+          runInstallerImpl,
+          removeCacheImpl: vi.fn(),
+          delayImpl: vi.fn(),
+          inspectCacheImpl: () => {
+            if (stage === "inspect") consume();
+            return { state: "cold", complete: false };
+          },
+          buildInvocationImpl: () => {
+            if (stage === "build") consume();
+            return { command: "synthetic", args: [] };
+          },
+          write: () => {},
+        });
+        expect(result.status).toBe(1);
+        expect(runInstallerImpl).toHaveBeenCalledTimes(elapsed === 205000 ? 1 : 0);
+      }
+    }
+  });
+
+  it.each([200000, 200001])("reserves delay plus full retry at the %s ms boundary", async (elapsed) => {
+    let clock = 0;
+    const runInstallerImpl = vi.fn(async () => {
+      clock += elapsed;
+      return { status: 1, record: { terminalOutcome: "timeout" } };
+    });
+    const result = await installPlaywrightChromium({
+      env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+      now: () => clock,
+      runInstallerImpl,
+      removeCacheImpl: vi.fn(),
+      delayImpl: async (ms) => {
+        clock += ms;
+      },
+      inspectCacheImpl: () => ({ state: "cold", complete: false }),
+      write: () => {},
+    });
+    expect(result.status).toBe(1);
+    expect(runInstallerImpl).toHaveBeenCalledTimes(elapsed === 200000 ? 2 : 1);
+  });
+
+  it("rechecks after delay, cleanup overhead and next inspection without overlapping", async () => {
+    for (const stage of ["delay", "cleanup", "inspection"]) {
+      let clock = 0;
+      let inspections = 0;
+      const runInstallerImpl = vi.fn(async () => {
+        clock += 190000;
+        return { status: 1, record: { terminalOutcome: "timeout" } };
+      });
+      const result = await installPlaywrightChromium({
+        env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+        now: () => clock,
+        runInstallerImpl,
+        removeCacheImpl: () => {
+          if (stage === "cleanup") clock += 10001;
+        },
+        delayImpl: async () => {
+          clock += stage === "delay" ? 15001 : 5000;
+        },
+        inspectCacheImpl: () => {
+          if (++inspections === 2 && stage === "inspection") clock += 10001;
+          return { state: "cold", complete: false };
+        },
+        write: () => {},
+      });
+      expect(result).toMatchObject({ status: 1, reason: "timeout" });
+      expect(runInstallerImpl).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("rejects late success after post-attempt inspection exhausts the envelope", async () => {
+    let clock = 0;
+    let inspections = 0;
+    const result = await installPlaywrightChromium({
+      env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+      now: () => clock,
+      runInstallerImpl: async () => ({ status: 0, record: { terminalOutcome: "success" } }),
+      inspectCacheImpl: () => {
+        if (++inspections === 2) clock = 390001;
+        return { state: "complete", complete: true };
+      },
+      removeCacheImpl: vi.fn(),
+      delayImpl: vi.fn(),
+      write: () => {},
+    });
+    expect(result).toMatchObject({ status: 1, reason: "timeout" });
+  });
+
+  it("cancellation during retry delay is terminal", async () => {
+    const controller = new AbortController();
+    const f = diagnostic({ cancelSignal: controller.signal, delay: async () => controller.abort() });
+    await expect(f.result).resolves.toMatchObject({ status: 1, reason: "cancelled" });
+    expect(f.runInstallerImpl).toHaveBeenCalledOnce();
+  });
+
+  it("cancellation before any attempt refuses without spawning", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const f = diagnostic({ cancelSignal: controller.signal });
+    await expect(f.result).resolves.toMatchObject({ status: 1, reason: "cancelled" });
+    expect(f.runInstallerImpl).not.toHaveBeenCalled();
+    expect(f.removeCacheImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not label success within-bound when terminal evidence writing exceeds the envelope", async () => {
+    let clock = 0;
+    const result = await installPlaywrightChromium({
+      env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+      now: () => clock,
+      inspectCacheImpl: () => ({ state: "complete", complete: true }),
+      runInstallerImpl: async ({ write }) => {
+        write("provider-browser-install-timing/v1 synthetic-success");
+        return { status: 0, record: { terminalOutcome: "success" } };
+      },
+      removeCacheImpl: vi.fn(),
+      delayImpl: vi.fn(),
+      write: () => {
+        clock = 390001;
+      },
+    });
+    expect(result).toMatchObject({ status: 1, reason: "timeout" });
   });
 });

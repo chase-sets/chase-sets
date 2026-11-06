@@ -16,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildPackageManagerInvocation } from "./lib/process.mjs";
-import { inspectCache, installPlaywrightChromium, validateCachePath } from "./playwright-chromium-install.mjs";
+import { installPlaywrightChromium, validateCachePath } from "./playwright-chromium-install.mjs";
 import { runInstaller } from "./provider-browser-install-timeout.mjs";
 
 const self = fileURLToPath(import.meta.url);
@@ -209,7 +209,7 @@ export function composeAttempt(options, route) {
   if (
     !["combined", "decomposed"].includes(route) ||
     options.timeoutSeconds !== 180 ||
-    options.env.PLAYWRIGHT_INSTALL_POLICY !== "e2e-retry"
+    options.env.PLAYWRIGHT_INSTALL_POLICY !== "diagnostic-retry"
   )
     throw new Error("diagnostic-composition-refused");
   return {
@@ -244,7 +244,7 @@ export async function measureDiagnostic({
   checkpoint();
   const result = await install({
     ...helperOptions,
-    env: { ...env, PLAYWRIGHT_INSTALL_POLICY: "e2e-retry" },
+    env: { ...env, PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
     write: (text) => {
       helperEvents.push(text);
       checkpoint();
@@ -373,9 +373,40 @@ function inventory() {
   };
 }
 
-function cacheSnapshot(cachePath, pinned) {
-  mkdirSync(cachePath, { recursive: true });
-  const base = inspectCache(cachePath);
+export function cacheSnapshot(
+  cachePath,
+  pinned,
+  {
+    exists = existsSync,
+    lstat = lstatSync,
+    readdir = readdirSync,
+    access = accessSync,
+    ownerUid = process.getuid?.(),
+  } = {},
+) {
+  if (!exists(cachePath))
+    return { state: "cold", empty: true, complete: false, owned: true, readable: true, payloads: [] };
+  const entries = new Map();
+  let owned = true;
+  let readable = true;
+  try {
+    const visit = (current) => {
+      const stat = lstat(current);
+      entries.set(current, stat);
+      if (stat.isSymbolicLink() || (ownerUid !== undefined && stat.uid !== ownerUid)) owned = false;
+      try {
+        access(current, stat.isDirectory() ? constants.R_OK | constants.X_OK : constants.R_OK);
+      } catch {
+        readable = false;
+      }
+      if (stat.isDirectory() && !stat.isSymbolicLink())
+        for (const name of readdir(current)) visit(path.join(current, name));
+    };
+    visit(cachePath);
+  } catch {
+    owned = false;
+    readable = false;
+  }
   const exact = [
     [`chromium-${pinned.revisions.chromium}`, "chrome-linux64/chrome"],
     [
@@ -388,18 +419,33 @@ function cacheSnapshot(cachePath, pinned) {
     const file = path.join(cachePath, directory, executable);
     const marker = path.join(cachePath, directory, "INSTALLATION_COMPLETE");
     try {
-      const stat = lstatSync(file);
-      accessSync(file, constants.R_OK | constants.X_OK);
-      return { directory, complete: stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && existsSync(marker) };
+      const stat = entries.get(file);
+      const markerStat = entries.get(marker);
+      access(file, constants.R_OK | constants.X_OK);
+      return {
+        directory,
+        complete:
+          stat?.isFile() === true &&
+          !stat.isSymbolicLink() &&
+          stat.size > 0 &&
+          markerStat?.isFile() === true &&
+          !markerStat.isSymbolicLink(),
+      };
     } catch {
       return { directory, complete: false };
     }
   });
+  const complete =
+    owned &&
+    readable &&
+    payloads.every((entry) => entry.complete) &&
+    ["chromium", "chromium-headless-shell", "ffmpeg"].every((name) => /^\d+$/.test(pinned.revisions[name] ?? ""));
   return {
-    ...base,
-    empty: readdirSync(cachePath).length === 0,
-    readable: base.owned && base.state !== "mismatched",
-    complete: base.complete && payloads.every((entry) => entry.complete),
+    state: !owned || !readable ? "mismatched" : complete ? "complete" : "incomplete",
+    empty: entries.size === 1 && entries.get(cachePath)?.isDirectory() === true,
+    owned,
+    readable,
+    complete,
     payloads,
   };
 }
@@ -449,6 +495,7 @@ async function main(command, env) {
   }
   const { cachePath, directory, pinned } = runtimePaths(env);
   if (command === "prepare") {
+    mkdirSync(cachePath, { recursive: true });
     const cache = cacheSnapshot(cachePath, pinned);
     const control = classifyControl({
       mode: env.DIAGNOSTIC_CACHE,
@@ -509,7 +556,7 @@ async function main(command, env) {
       const measured = await measureDiagnostic({
         env: { ...env, GITHUB_JOB_ID: env.DIAGNOSTIC_CHECK_RUN_ID },
         route: env.DIAGNOSTIC_ROUTE,
-        helperOptions: { cancelSignal: cancel.signal },
+        helperOptions: { cancelSignal: cancel.signal, inspectCacheImpl: (target) => cacheSnapshot(target, pinned) },
         persist: (record) => save(directory, "measurement.json", record),
       });
       return measured.result.status;

@@ -77,7 +77,7 @@ function errors(candidate, source = harness) {
     source,
   ), "no-arbitrary-command-or-second-supervisor");
   require(source.includes("options.timeoutSeconds !== 180") &&
-    source.includes('options.env.PLAYWRIGHT_INSTALL_POLICY !== "e2e-retry"'), "attempt-budget-and-policy");
+    source.includes('options.env.PLAYWRIGHT_INSTALL_POLICY !== "diagnostic-retry"'), "attempt-budget-and-policy");
   require(source.includes('installerArgs: [self, "install-phases"]') &&
     source.includes("const result = await install({") &&
     source.includes("...composeAttempt(options, route)") &&
@@ -224,6 +224,11 @@ describe("manual diagnostic workflow contract", () => {
 
   it.each([
     ["changed shared bound", "options.timeoutSeconds !== 180", "options.timeoutSeconds !== 181"],
+    [
+      "retired retry policy",
+      'options.env.PLAYWRIGHT_INSTALL_POLICY !== "diagnostic-retry"',
+      'options.env.PLAYWRIGHT_INSTALL_POLICY !== "e2e-retry"',
+    ],
     ["swallowed measured exit", "return measured.result.status;", "return 0;"],
     ["swallowed phase exit", "if (status !== 0) return status;", "if (status !== 0) return 0;"],
     ["second timeout loop", "const monotonic =", "setTimeout(() => {}, 180000);\nconst monotonic ="],
