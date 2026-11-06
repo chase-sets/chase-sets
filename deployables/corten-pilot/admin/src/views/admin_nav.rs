@@ -38,34 +38,24 @@ pub fn section_label(p: Pilot, section: &str) -> &'static str {
     }
 }
 
-/// admin-web's frame: the sections the viewer can open, and the pages of the one the page is in.
-/// The home (`/`) is admin-web's root shell, the bar only, so it has no section pages. An entry
-/// links to the pilot's page when the pilot serves its path, and to admin-web's otherwise; the
-/// brand is the pilot's home.
+/// admin-web's top bar: the sections the viewer can open, and the account menu (`SectionNav` is the
+/// pages of the section the page is in). An entry links to the pilot's page when the pilot serves
+/// its path, and to admin-web's otherwise; the brand is the pilot's home.
 ///
 /// The top bar is the kit's `NavBar`, which draws the current section from `aria-current="page"`.
 /// Every section home is the pilot's (`crate::sections`), so Corten marks both bars
-/// (`req.nav_of`, each entry current on the pages under it) and moves the marks after a client
-/// navigation. A page the pilot does not serve is a plain link to admin-web, never current.
+/// (`req.nav_of`, each entry current on the pages under it); the top bar is outside `<main>`, so
+/// the runtime moves its mark after a client navigation. A page the pilot does not serve is a plain link to admin-web, never current.
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     let sections = auth::sections(viewer);
-    let here = section_of(req.path());
-    let home = req.path() == "/";
-    let items = if home { Vec::new() } else { auth::section_items(viewer, here) };
     let m: SignInMsg = req.t();
     // Each bar is one group: its entries the pilot serves, each current on the pages under it.
     let top_entries: Vec<(Local, &str)> =
         sections.iter().filter_map(|section| Some((own(req, &format!("/{section}"))?, *section))).collect();
-    let side_entries: Vec<(Local, &str)> = items
-        .iter()
-        .filter_map(|(item, _)| Some((own(req, &format!("/{here}{}", item.href.as_deref()?))?, item.key.as_str())))
-        .collect();
     html! {
         let top_marks = req.nav_of(top_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
         let top: HashMap<&str, NavLink<'_>> = top_marks.links().map(|(link, key)| (*key, link)).collect();
-        let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
-        let side: HashMap<&str, NavLink<'_>> = side_marks.links().map(|(link, key)| (*key, link)).collect();
         <header class={NavBar {}}>
             <a class={NavBrand {}} href={link_to(req, "/").unwrap_or_default()}>
                 {p.shell_admin()}
@@ -102,6 +92,25 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
                 </details>
             </div>
         </header>
+    }
+}
+
+/// The pages of the section the page is in, drawn first in `<main>` (`Frame`), where admin-web's
+/// shell has its side nav. It is in `<main>`, not beside it, because a client navigation swaps only
+/// `<main>`: beside it, a link from one section to another kept the first section's pages
+/// (corten-run/corten#982, which this works around). The home (`/`) is admin-web's root shell, with no section pages.
+#[component(css = AdminNav)]
+pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
+    let here = section_of(req.path());
+    let home = req.path() == "/";
+    let items = if home { Vec::new() } else { auth::section_items(viewer, here) };
+    let side_entries: Vec<(Local, &str)> = items
+        .iter()
+        .filter_map(|(item, _)| Some((own(req, &format!("/{here}{}", item.href.as_deref()?))?, item.key.as_str())))
+        .collect();
+    html! {
+        let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
+        let side: HashMap<&str, NavLink<'_>> = side_marks.links().map(|(link, key)| (*key, link)).collect();
         if !home {
             <nav class={Side} aria-label={p.shell_section_navigation(section_label(p, here))}>
                 <ul>

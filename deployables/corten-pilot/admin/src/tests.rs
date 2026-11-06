@@ -2201,6 +2201,24 @@ async fn the_section_nav_marks_the_entry_that_holds_the_page() {
     assert_eq!(side.matches(r#"aria-current="page""#).count(), 1, "{side}");
 }
 
+/// A client navigation swaps only `<main>`, so the section's pages are in it: a navigation from
+/// Catalog to Commerce draws Commerce's, not the ones the first page had.
+#[tokio::test]
+async fn a_navigation_into_another_section_draws_that_sections_pages() {
+    let pilot = Pilot::new().await;
+    let mut req = get("/commerce/postage-policies", Some("staff"));
+    req.headers_mut().insert("corten", header::HeaderValue::from_static("nav"));
+    let (status, _, body) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(!body.contains("<header class=\"nav-bar__bar\">"), "a navigation's answer has no top bar: {body}");
+    let side = &body[body.find(r#"<nav class="admin-nav__side""#).expect("the section's pages")..];
+    assert!(side.starts_with(r#"<nav class="admin-nav__side" aria-label="Commerce pages">"#), "{side}");
+    assert!(marks_current(side, "/commerce/postage-policies") && !side.contains(r#"href="/catalog/dimensions""#), "{side}");
+    // A whole document draws them first in <main>, after the bar.
+    let (_, _, html) = pilot.send(get("/commerce/postage-policies", Some("staff"))).await;
+    assert!(html.contains(r#"<main><nav class="admin-nav__side" aria-label="Commerce pages">"#), "{html}");
+}
+
 #[tokio::test]
 async fn the_list_asks_the_api_as_admin_web_does_and_pages() {
     let pilot = Pilot::new().await;
