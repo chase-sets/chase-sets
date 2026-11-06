@@ -454,28 +454,16 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     const updateForm = document.querySelector<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="candidate.edit"]',
     );
-    const splitBody = JSON.parse(
-      splitForm?.querySelector<HTMLInputElement>('input[name="mergeCandidateCommandBody"]')?.value ?? "{}",
-    ) as Record<string, unknown>;
-    const updateBody = JSON.parse(
-      updateForm?.querySelector<HTMLInputElement>('input[name="mergeCandidateCommandBody"]')?.value ?? "{}",
-    ) as Record<string, unknown>;
-    expect(splitBody).toMatchObject({
-      reason: "Split candidate from the scope-first Catalog sync workbench.",
-      splitCandidateId: "cand_pokemon_base1_004_standard__split__obs_tcgplayer_001",
-    });
-    expect(updateBody).toMatchObject({
-      reason: "Update Product mapping from the scope-first Catalog sync workbench.",
-      snapshot: {
-        identityFingerprint: "sha256:candidate-identity",
-        proposedExternalProductReferences: [
-          {
-            providerKey: "tcgplayer",
-            externalKey: "sku:123",
-          },
-        ],
-      },
-    });
+    // Split and update post the candidate version the page read and, for a split, the Source
+    // Observations to split off; the Catalog API builds the snapshots itself.
+    const field = (form: HTMLFormElement | null, name: string) =>
+      form?.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.value;
+    expect(field(splitForm, "reason")).toBe("Split candidate from the scope-first Catalog sync workbench.");
+    expect(field(splitForm, "candidateVersion")).toBe("2");
+    expect(field(splitForm, "splitObservationIds")).toBe("obs_tcgplayer_001");
+    expect(field(updateForm, "reason")).toBe("Update Product mapping from the scope-first Catalog sync workbench.");
+    expect(field(updateForm, "candidateVersion")).toBe("2");
+    expect(updateForm?.querySelector('input[name="mergeCandidateCommandBody"]')).toBeNull();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Evidence" }).at(0)!);
 
@@ -632,9 +620,9 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     ).toBe(true);
     expect(
       document.querySelector<HTMLInputElement>(
-        'form[data-catalog-primary-workbench-command="candidate.edit"] input[name="mergeCandidateCommandBody"]',
-      )?.value,
-    ).toBe("");
+        'form[data-catalog-primary-workbench-command="candidate.edit"] input[name="candidateVersion"]',
+      ),
+    ).toBeNull();
   });
 
   it("shows selected-scope import preflight usage evidence before sync", async () => {
