@@ -18,6 +18,7 @@ describe("Catalog Merge Candidate projections", () => {
         snapshot: candidateSnapshot(),
         createdAt: "2026-06-24T10:00:00.000Z",
       },
+      streamVersion: 1,
       timing: { recordedAt: "2026-06-24T10:00:01.000Z" },
     } as never);
 
@@ -41,8 +42,11 @@ describe("Catalog Merge Candidate projections", () => {
       "2026-06-24T10:00:00.000Z",
       "2026-06-24T10:00:01.000Z",
       null,
+      1,
     ]);
     expect(query.mock.calls[0]?.[0]).toContain("ON CONFLICT (candidate_id) DO UPDATE");
+    // The row records the stream version an update or split names as the one it saw.
+    expect(query.mock.calls[0]?.[0]).toContain("last_stream_version");
     expect(query.mock.calls[1]).toEqual([
       expect.stringContaining("DELETE FROM catalog_merge_candidate_observations WHERE candidate_id = $1"),
       ["cand_pokemon_en_base1_043_standard"],
@@ -96,6 +100,7 @@ describe("Catalog Merge Candidate projections", () => {
         staleAt: "2026-06-24T10:07:00.000Z",
         triggeredByObservationIds: ["obs_tcgplayer_base1_43"],
       },
+      streamVersion: 3,
       timing: { recordedAt: "2026-06-24T10:07:01.000Z" },
     } as never);
 
@@ -104,6 +109,7 @@ describe("Catalog Merge Candidate projections", () => {
       "Source Observation obs_tcgplayer_base1_43 was refreshed.",
       "2026-06-24T10:07:00.000Z",
       "2026-06-24T10:07:01.000Z",
+      3,
     ]);
     expect(query.mock.calls[0]?.[0]).not.toContain("catalog_source_observations");
   });
@@ -119,6 +125,7 @@ describe("Catalog Merge Candidate projections", () => {
         reason: "Different variant.",
         removedAt: "2026-06-24T10:10:00.000Z",
       },
+      streamVersion: 4,
       timing: { recordedAt: "2026-06-24T10:10:01.000Z" },
     } as never);
 
@@ -133,6 +140,7 @@ describe("Catalog Merge Candidate projections", () => {
       "Source Observation membership changed: Different variant.",
       "2026-06-24T10:10:00.000Z",
       "2026-06-24T10:10:01.000Z",
+      4,
     ]);
   });
 
@@ -148,6 +156,7 @@ describe("Catalog Merge Candidate projections", () => {
         },
         ignoredAt: "2026-06-24T10:45:00.000Z",
       },
+      streamVersion: 5,
       timing: { recordedAt: "2026-06-24T10:45:01.000Z" },
     } as never);
     await handlers["catalog.merge-candidate.deferred"]?.({
@@ -158,6 +167,7 @@ describe("Catalog Merge Candidate projections", () => {
         },
         deferredAt: "2026-06-24T10:50:00.000Z",
       },
+      streamVersion: 6,
       timing: { recordedAt: "2026-06-24T10:50:01.000Z" },
     } as never);
 
@@ -166,12 +176,14 @@ describe("Catalog Merge Candidate projections", () => {
       "rejected",
       "Candidate ignored: Provider grouping is not a Catalog Item.",
       "2026-06-24T10:45:01.000Z",
+      5,
     ]);
     expect(query).toHaveBeenNthCalledWith(2, expect.stringContaining("SET status = $2"), [
       "cand_pokemon_en_base1_043_standard",
       "deferred",
       "Waiting for SKU evidence.",
       "2026-06-24T10:50:01.000Z",
+      6,
     ]);
     expect(query.mock.calls.flatMap((call) => call[0])).not.toContain("catalog_source_observations");
   });
@@ -202,6 +214,7 @@ describe("Catalog Merge Candidate projections", () => {
         },
         splitAt: "2026-06-24T10:30:00.000Z",
       },
+      streamVersion: 7,
       timing: { recordedAt: "2026-06-24T10:30:01.000Z" },
     } as never);
 
@@ -213,6 +226,9 @@ describe("Catalog Merge Candidate projections", () => {
     expect(query.mock.calls[3]?.[1]?.[5]).toBe(
       "Candidate split from cand_pokemon_en_base1_043_standard: Different variant.",
     );
+    // The original takes the split event's version; the split candidate keeps its own stream's.
+    expect(query.mock.calls[0]?.[1]?.[19]).toBe(7);
+    expect(query.mock.calls[3]?.[1]?.[19]).toBeNull();
     expect(query.mock.calls[2]?.[1]?.[1]).toBe("obs_tcgdex_base1_43");
     expect(query.mock.calls[5]?.[1]?.[1]).toBe("obs_tcgplayer_base1_43");
   });
