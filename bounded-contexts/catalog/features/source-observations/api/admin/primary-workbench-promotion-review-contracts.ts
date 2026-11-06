@@ -319,7 +319,7 @@ export type CatalogPrimaryWorkbenchMergeCandidateReviewRow = Readonly<{
     commandPreview: CatalogMergeCandidateReviewCommandPreview | null;
   }>[];
   // The typed candidate edit surface. `state` gates the inline editor:
-  // when it is not `available`, `baseSnapshotJson` is null and the drawer renders
+  // when it is not `available`, `candidateVersion` is null and the drawer renders
   // the blockers instead of inputs. Operator field corrections submitted from this
   // surface are recorded as `manual` provenance and carried through promotion.
   editForm: CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel;
@@ -340,7 +340,8 @@ export type CatalogPrimaryWorkbenchMergeCandidateEditReference = Readonly<{
 export type CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel = Readonly<{
   state: CatalogPrimaryWorkbenchActionState;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
-  baseSnapshotJson: string | null;
+  // The candidate version the form names when it submits.
+  candidateVersion: number | null;
   promotionIntent: "create-catalog-item" | "update-catalog-item" | "link-existing-catalog-item";
   catalogItemId: string | null;
   productIds: readonly string[];

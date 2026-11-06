@@ -1,13 +1,19 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import { applyEvents } from "@chase-sets/event-core/domain";
+import { createEventStoreError } from "@chase-sets/event-core/event-store";
+import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
+  catalogMergeCandidateEditableFactKeys,
   decideCatalogMergeCandidate,
   evolveCatalogMergeCandidate,
   initialCatalogMergeCandidateState,
   type CatalogMergeCandidateCommand,
   type CatalogMergeCandidateEvent,
+  type CatalogMergeCandidateFieldProvenance,
   type CatalogMergeCandidateReviewSnapshot,
   type CatalogMergeCandidateState,
 } from "../domain/catalog-merge-candidate";
@@ -36,6 +42,15 @@ import type {
 } from "./source-observation-runtime-contracts";
 import { normalizeOptionalKey, normalizeCandidateGenerationScope } from "./source-observation-job-serialization";
 import { catalogMergeCandidateReviewActor, catalogMergeCandidateStreamId } from "./source-observation-stream-identity";
+import { CatalogMergeCandidateReviewCommandError } from "./source-observation-runtime-contracts";
+import type {
+  CatalogMergeCandidateEditInput,
+  CatalogMergeCandidateEditRequest,
+} from "./promotion/catalog-merge-candidate-edit";
+import {
+  planCatalogMergeCandidateSplit,
+  type CatalogMergeCandidateSplitBlocker,
+} from "./promotion/catalog-merge-candidate-review-command-payloads";
 
 export type SourceObservationMergeCandidateRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
@@ -52,10 +67,11 @@ export function createSourceObservationMergeCandidateRuntime({
   deps,
   profileVersions,
 }: SourceObservationMergeCandidateRuntimeDeps) {
+  const codec = createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>();
   const { commandHandler: catalogMergeCandidateCommandHandler, repository: catalogMergeCandidateRepository } =
     createAggregateCommandHandler({
       eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>(),
+      codec,
       initialState: () => initialCatalogMergeCandidateState,
       evolve: evolveCatalogMergeCandidate,
       decide: decideCatalogMergeCandidate,
@@ -320,49 +336,63 @@ export function createSourceObservationMergeCandidateRuntime({
       command: input.command,
       context: input.context,
     });
-
-    return {
-      candidateId: input.candidateId,
-      action: input.action,
-      version: result.version,
-      status: result.state.status,
-      statusReason: result.state.statusReason,
-      snapshot: result.state.snapshot,
-    };
+    return actionResult(input.candidateId, input.action, result);
   }
 
-  async function createSplitCatalogMergeCandidate(input: {
-    candidateId: string;
-    snapshot: CatalogMergeCandidateReviewSnapshot;
-    createdAt: string;
-    context: EventStoreContext;
-  }): Promise<NonNullable<CatalogMergeCandidateActionResult["splitCandidate"]>> {
-    const result = await catalogMergeCandidateCommandHandler({
-      streamId: catalogMergeCandidateStreamId(input.candidateId),
-      command: {
-        type: "CreateCatalogMergeCandidate",
-        candidateId: input.candidateId,
-        snapshot: input.snapshot,
-        createdAt: input.createdAt,
-      },
-      context: input.context,
-    });
+  // The candidate as the operator read it: a candidate that has moved on since (a sync refreshed
+  // it, an observation joined, another review acted) is refused as stale.
+  async function loadCatalogMergeCandidateAtVersion(
+    candidateId: string,
+    expectedVersion: number,
+  ): Promise<LoadedCatalogMergeCandidate & Readonly<{ snapshot: CatalogMergeCandidateReviewSnapshot }>> {
+    const loaded = await catalogMergeCandidateRepository.load(catalogMergeCandidateStreamId(candidateId));
+    if (loaded.state.snapshot === null) {
+      throw new Error("Catalog Merge Candidate must be created first.");
+    }
+    if (loaded.version !== expectedVersion) {
+      throw staleCandidateError();
+    }
+    return { state: loaded.state, version: loaded.version, snapshot: loaded.state.snapshot };
+  }
 
-    return {
-      candidateId: input.candidateId,
-      version: result.version,
-      status: result.state.status,
-      statusReason: result.state.statusReason,
-      snapshot: result.state.snapshot,
-    };
+  // Appends each candidate's decided events only at the version its state was read at, every
+  // candidate in one transaction. The events were decided on that state, so a write in between,
+  // before the decision or before the append, refuses the whole commit with a concurrency conflict
+  // and nothing is saved.
+  async function commitAtReadVersions(
+    commits: readonly Readonly<{
+      candidateId: string;
+      read: LoadedCatalogMergeCandidate;
+      events: readonly CatalogMergeCandidateEvent[];
+    }>[],
+    context: EventStoreContext,
+  ): Promise<readonly LoadedCatalogMergeCandidate[]> {
+    const inputs = commits.map(({ candidateId, read, events }) => ({
+      streamId: catalogMergeCandidateStreamId(candidateId),
+      expectedVersion: read.version === 0 ? ("no_stream" as const) : read.version,
+      context,
+      events: events.map(codec.encode),
+    }));
+    let stored: readonly (readonly StoredEvent[])[];
+    if (inputs.length === 1) {
+      stored = [await deps.eventStore.appendToStream(inputs[0]!)];
+    } else {
+      if (!deps.eventStore.appendToStreams) {
+        throw new Error("Catalog Merge Candidate split requires atomic multi-stream appends.");
+      }
+      stored = (await deps.eventStore.appendToStreams(inputs)).map((result) => result.storedEvents);
+    }
+    recordCommittedEvents(stored.flat());
+    return commits.map(({ read, events }, index) => ({
+      state: applyEvents(read.state, evolveCatalogMergeCandidate, events),
+      version: stored[index]!.at(-1)?.streamVersion ?? read.version,
+    }));
   }
 
   // Scope bulk review jobs re-check one candidate's aggregate state, then apply
   // the review command only at the version they checked: a candidate that
-  // changes in between fails the append instead of being acted on stale.
-  async function loadCatalogMergeCandidateForReview(
-    candidateId: string,
-  ): Promise<Readonly<{ state: CatalogMergeCandidateState; version: number }>> {
+  // changes in between fails with a concurrency conflict instead of being acted on stale.
+  async function loadCatalogMergeCandidateForReview(candidateId: string): Promise<LoadedCatalogMergeCandidate> {
     const loaded = await catalogMergeCandidateRepository.load(catalogMergeCandidateStreamId(candidateId));
     return { state: loaded.state, version: loaded.version };
   }
@@ -373,13 +403,21 @@ export function createSourceObservationMergeCandidateRuntime({
     expectedVersion: number;
     context: EventStoreContext;
   }): Promise<CatalogMergeCandidateState> {
-    const result = await catalogMergeCandidateCommandHandler({
-      streamId: catalogMergeCandidateStreamId(input.candidateId),
-      command: input.command,
-      expectedVersion: input.expectedVersion,
-      context: input.context,
-    });
-    return result.state;
+    const streamId = catalogMergeCandidateStreamId(input.candidateId);
+    const loaded = await catalogMergeCandidateRepository.load(streamId);
+    if (loaded.version !== input.expectedVersion) {
+      throw createEventStoreError("concurrency_conflict", "Catalog Merge Candidate changed after it was read.", {
+        streamId,
+        expectedVersion: input.expectedVersion,
+        actualVersion: loaded.version,
+      });
+    }
+    const read = { state: loaded.state, version: loaded.version };
+    const [applied] = await commitAtReadVersions(
+      [{ candidateId: input.candidateId, read, events: decideCatalogMergeCandidate(read.state, input.command) }],
+      input.context,
+    );
+    return applied!.state;
   }
 
   const services: CatalogMergeCandidateServices = {
@@ -399,61 +437,72 @@ export function createSourceObservationMergeCandidateRuntime({
       }),
     splitCatalogMergeCandidate: async (input) => {
       const splitAt = new Date().toISOString();
-      const splitCommand: CatalogMergeCandidateCommand = {
+      const original = await loadCatalogMergeCandidateAtVersion(input.candidateId, input.expectedVersion);
+      const planned = planCatalogMergeCandidateSplit(input.candidateId, original.snapshot, input.splitObservationIds);
+      if (!planned.ok) {
+        throw splitRefusal(planned.blocker);
+      }
+      const { remainingSnapshot, splitCandidateId, splitSnapshot } = planned.plan;
+      const splitEvents = decideCatalogMergeCandidate(original.state, {
         type: "SplitCatalogMergeCandidate",
-        remainingSnapshot: input.remainingSnapshot,
-        splitCandidateId: input.splitCandidateId,
-        splitSnapshot: input.splitSnapshot,
+        remainingSnapshot,
+        splitCandidateId,
+        splitSnapshot,
         reason: input.reason,
         actor: catalogMergeCandidateReviewActor(input.context),
         splitAt,
         conflictResolutions: input.conflictResolutions,
-      };
-      const originalCandidate = await catalogMergeCandidateRepository.load(
-        catalogMergeCandidateStreamId(input.candidateId),
-      );
-      decideCatalogMergeCandidate(originalCandidate.state, splitCommand);
+      });
       // @stream-read-contract bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.test.ts
       const existingSplitEvents = await deps.eventStore.readStream({
-        streamId: catalogMergeCandidateStreamId(input.splitCandidateId),
+        streamId: catalogMergeCandidateStreamId(splitCandidateId),
         limit: 1,
       });
       if (existingSplitEvents.length > 0) {
+        // A split that read the candidate before another split committed finds that split's
+        // candidate: the candidate has moved on, so this read is stale. Only at the version read
+        // does an existing split candidate refuse the split.
+        await loadCatalogMergeCandidateAtVersion(input.candidateId, input.expectedVersion);
         throw new Error("Split Catalog Merge Candidate already exists.");
       }
-
-      const splitCandidate = await createSplitCatalogMergeCandidate({
-        candidateId: input.splitCandidateId,
-        snapshot: input.splitSnapshot,
+      const unsplit = { state: initialCatalogMergeCandidateState, version: 0 };
+      const createEvents = decideCatalogMergeCandidate(unsplit.state, {
+        type: "CreateCatalogMergeCandidate",
+        candidateId: splitCandidateId,
+        snapshot: splitSnapshot,
         createdAt: splitAt,
-        context: input.context,
-      });
-      const original = await dispatchCatalogMergeCandidateCommand({
-        candidateId: input.candidateId,
-        action: "split",
-        command: splitCommand,
-        context: input.context,
       });
 
-      return {
-        ...original,
-        splitCandidate,
-      };
+      // The split and the split candidate it creates commit together, at the version the operator
+      // read, or neither does.
+      const [split, created] = await commitAtReadVersions(
+        [
+          { candidateId: input.candidateId, read: original, events: splitEvents },
+          { candidateId: splitCandidateId, read: unsplit, events: createEvents },
+        ],
+        input.context,
+      ).catch(staleOnConcurrencyConflict);
+      const { action: _action, ...splitCandidate } = actionResult(splitCandidateId, "split", created!);
+
+      return { ...actionResult(input.candidateId, "split", split!), splitCandidate };
     },
-    updateCatalogMergeCandidate: (input) =>
-      dispatchCatalogMergeCandidateCommand({
-        candidateId: input.candidateId,
-        action: "update",
-        command: {
-          type: "UpdateCatalogMergeCandidate",
-          snapshot: input.snapshot,
-          reason: input.reason,
-          actor: catalogMergeCandidateReviewActor(input.context),
-          updatedAt: new Date().toISOString(),
-          conflictResolutions: input.conflictResolutions,
-        },
-        context: input.context,
-      }),
+    updateCatalogMergeCandidate: async (input) => {
+      const read = await loadCatalogMergeCandidateAtVersion(input.candidateId, input.expectedVersion);
+      const events = decideCatalogMergeCandidate(read.state, {
+        type: "UpdateCatalogMergeCandidate",
+        snapshot: editedCatalogMergeCandidateSnapshot(read.snapshot, input.edit),
+        reason: input.reason,
+        actor: catalogMergeCandidateReviewActor(input.context),
+        updatedAt: new Date().toISOString(),
+        conflictResolutions: input.conflictResolutions,
+      });
+      const [updated] = await commitAtReadVersions(
+        [{ candidateId: input.candidateId, read, events }],
+        input.context,
+      ).catch(staleOnConcurrencyConflict);
+
+      return actionResult(input.candidateId, "update", updated!);
+    },
     ignoreCatalogMergeCandidate: (input) =>
       dispatchCatalogMergeCandidateCommand({
         candidateId: input.candidateId,
@@ -496,3 +545,145 @@ export function createSourceObservationMergeCandidateRuntime({
 }
 
 export type SourceObservationMergeCandidateRuntime = ReturnType<typeof createSourceObservationMergeCandidateRuntime>;
+
+type LoadedCatalogMergeCandidate = Readonly<{ state: CatalogMergeCandidateState; version: number }>;
+
+function actionResult(
+  candidateId: string,
+  action: CatalogMergeCandidateActionResult["action"],
+  result: LoadedCatalogMergeCandidate,
+): CatalogMergeCandidateActionResult {
+  return {
+    candidateId,
+    action,
+    version: result.version,
+    status: result.state.status,
+    statusReason: result.state.statusReason,
+    snapshot: result.state.snapshot,
+  };
+}
+
+// An update or split names the version the operator read: losing the race to another write is a
+// stale read, which the page can say so for.
+function staleOnConcurrencyConflict(error: unknown): never {
+  throw isConcurrencyConflict(error) ? staleCandidateError() : error;
+}
+
+// The candidate's stored snapshot with the operator's edit applied. A field the edit leaves out
+// keeps its stored value, and only the candidate's text facts can be corrected.
+function editedCatalogMergeCandidateSnapshot(
+  stored: CatalogMergeCandidateReviewSnapshot,
+  request: CatalogMergeCandidateEditRequest,
+): CatalogMergeCandidateReviewSnapshot {
+  const edit: CatalogMergeCandidateEditInput = {
+    promotionIntent: request.promotionIntent ?? stored.promotionIntent,
+    catalogItemId: request.catalogItemId === undefined ? stored.matches.catalogItemId : request.catalogItemId,
+    productIds: request.productIds ?? stored.matches.productIds,
+    factOverrides: request.factOverrides ?? [],
+    droppedExternalCatalogItemReferenceIndexes: request.droppedExternalCatalogItemReferenceIndexes ?? [],
+    droppedExternalProductReferenceIndexes: request.droppedExternalProductReferenceIndexes ?? [],
+  };
+  const editable = new Set(catalogMergeCandidateEditableFactKeys(stored.proposedCatalogItemFacts));
+  if (edit.factOverrides.some((override) => !editable.has(override.key.trim()))) {
+    throw new CatalogMergeCandidateReviewCommandError(
+      "edit_fact_not_editable",
+      "A Catalog Merge Candidate edit can correct only the candidate's text facts.",
+    );
+  }
+  return applyCatalogMergeCandidateEdit(stored, edit);
+}
+
+// A fact correction is recorded as `manual` provenance anchored to the first member, so the
+// domain's provenance invariant (every entry names a concrete source) holds, promotion carries
+// the corrected value, and the trail shows an operator correction.
+function applyCatalogMergeCandidateEdit(
+  base: CatalogMergeCandidateReviewSnapshot,
+  edit: CatalogMergeCandidateEditInput,
+): CatalogMergeCandidateReviewSnapshot {
+  const anchor = base.membership[0];
+  if (!anchor) {
+    throw new Error("Catalog Merge Candidate edit requires at least one Source Observation.");
+  }
+
+  const droppedCatalogItemRefs = new Set(edit.droppedExternalCatalogItemReferenceIndexes);
+  const droppedProductRefs = new Set(edit.droppedExternalProductReferenceIndexes);
+
+  let proposedCatalogItemFacts: JsonObject = { ...base.proposedCatalogItemFacts };
+  let fieldProvenance: readonly CatalogMergeCandidateFieldProvenance[] = base.fieldProvenance;
+
+  for (const override of edit.factOverrides) {
+    const key = override.key.trim();
+    if (!key) {
+      continue;
+    }
+    const fieldPath = `catalogItem.${key}`;
+    proposedCatalogItemFacts = { ...proposedCatalogItemFacts, [key]: override.value };
+    fieldProvenance = [
+      ...fieldProvenance.filter((entry) => entry.fieldPath !== fieldPath),
+      {
+        fieldPath,
+        value: override.value,
+        observationId: anchor.observationId,
+        providerKey: anchor.providerKey,
+        sourceProfileKey: anchor.sourceProfileKey,
+        sourceProfileVersion: anchor.sourceProfileVersion,
+        confidence: "manual",
+        evidence: { operatorCorrection: true },
+      },
+    ];
+  }
+
+  return {
+    ...base,
+    matches: {
+      catalogItemId: edit.catalogItemId?.trim() || null,
+      productIds: uniqueTrimmedIds(edit.productIds),
+    },
+    proposedCatalogItemFacts,
+    proposedExternalCatalogItemReferences: base.proposedExternalCatalogItemReferences.filter(
+      (_reference, index) => !droppedCatalogItemRefs.has(index),
+    ),
+    proposedExternalProductReferences: base.proposedExternalProductReferences.filter(
+      (_reference, index) => !droppedProductRefs.has(index),
+    ),
+    fieldProvenance,
+    promotionIntent: edit.promotionIntent,
+  };
+}
+
+function uniqueTrimmedIds(values: readonly string[]): readonly string[] {
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+}
+
+function staleCandidateError(): CatalogMergeCandidateReviewCommandError {
+  return new CatalogMergeCandidateReviewCommandError(
+    "stale_merge_candidate",
+    "The Catalog Merge Candidate changed after it was read; read it again before acting on it.",
+  );
+}
+
+function splitRefusal(
+  blocker: CatalogMergeCandidateSplitBlocker | "split-selection-invalid",
+): CatalogMergeCandidateReviewCommandError {
+  switch (blocker) {
+    case "split-selection-invalid":
+      return new CatalogMergeCandidateReviewCommandError(
+        "split_selection_invalid",
+        "A split names one or more of the candidate's own Source Observations.",
+      );
+    case "split-requires-two-members":
+      return new CatalogMergeCandidateReviewCommandError(
+        "split_requires_two_members",
+        "A split must leave at least one Source Observation on the candidate.",
+      );
+    case "split-requires-separable-reference-provenance":
+      return new CatalogMergeCandidateReviewCommandError(
+        "split_requires_separable_reference_provenance",
+        "Each side of a split needs an external reference of its own.",
+      );
+  }
+}
+
+function isConcurrencyConflict(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "concurrency_conflict";
+}
