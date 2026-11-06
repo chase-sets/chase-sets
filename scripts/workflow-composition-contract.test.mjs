@@ -1,10 +1,13 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { requiredJobCalls, stageRun } from "./fixtures/workflow-composition/harness.mjs";
 import { requiredJobs, verifyRequiredJobs } from "./pr-checks/required-jobs.mjs";
+import { ciGatePlanOutputMap, createCiGatePlan } from "./ci-gate-plan.mjs";
 
 const fixture = JSON.parse(readFileSync("scripts/fixtures/workflow-composition/platform-pr.json", "utf8"));
 const before = fixture.workflow;
@@ -27,6 +30,27 @@ const policyCases = requiredJobs
     requirements.flatMap((requirement) => results.map((result) => [id, key, requirement, result, name])),
   );
 const baselineResults = new Map();
+const bootstrapPreload = `
+import { isBuiltin, registerHooks } from 'node:module';
+import { execFileSync } from 'node:child_process';
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (!isBuiltin(specifier) && !/^(?:\\.{1,2}\\/|file:|\\/|[A-Za-z]:[\\\\/])/.test(specifier))
+      throw new Error('BOOTSTRAP_PACKAGE_DENIED: ' + specifier);
+    const resolved = nextResolve(specifier, context);
+    if (/(?:^|[\\\\/])node_modules(?:[\\\\/]|$)/.test(decodeURIComponent(resolved.url)))
+      throw new Error('BOOTSTRAP_NODE_MODULES_DENIED: ' + specifier);
+    return resolved;
+  },
+  load(url, context, nextLoad) {
+    if (process.env.BOOTSTRAP_STOPPED_SOURCE === '1' && url.endsWith('/scripts/change-scope.mjs'))
+      return { format: 'module', shortCircuit: true, source: execFileSync('git', ['show', 'fa3ba2b350509b57ac8587a1985a7e1018cdf696:scripts/change-scope.mjs'], { encoding: 'utf8' }) };
+    if (process.env.BOOTSTRAP_MAIN_SOURCE === '1' && url.endsWith('/scripts/change-scope.mjs'))
+      return { format: 'module', shortCircuit: true, source: execFileSync('git', ['show', 'origin/main:scripts/change-scope.mjs'], { encoding: 'utf8' }) };
+    return nextLoad(url, context);
+  }
+});`;
+const bootstrapNodeOptions = `--import=data:text/javascript,${encodeURIComponent(bootstrapPreload)}`;
 
 beforeAll(() => {
   const original = step(before, "pr-required", "Verify required jobs").run;
@@ -146,6 +170,142 @@ function oldRequiredRun(needs) {
 }
 
 describe("workflow composition contract inventory", () => {
+  it("executes the real pre-install PR and merge-group callers with every package resolution denied", () => {
+    const outputDir = mkdtempSync(resolve(tmpdir(), "workflow-bootstrap-"));
+    const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+    const head = git("rev-parse", "HEAD");
+    const parents = git("show", "-s", "--format=%P", head).split(" ");
+    expect([1, 2]).toContain(parents.length);
+    const base = parents.length === 2 ? parents[0] : git("rev-parse", "origin/main");
+    // A hosted checkout is base-first. A local candidate is an ordinary commit
+    // over the retained sync merge, never that branch-first sync merge itself.
+    expect(git("merge-base", base, "origin/main")).toBe(base);
+    const mergeBase = git("merge-base", base, head);
+    const changedFiles = git("diff", "--no-renames", "--name-only", `${mergeBase}...${head}`).split(/\r?\n/);
+    expect(changedFiles).toContain("scripts/pr-checks/db-tests.sh");
+    expect(git("diff", "--name-only", head, "--", ...changedFiles)).toBe("");
+    const tree = git("rev-parse", `${head}^{tree}`);
+    expect(tree).toMatch(/^[a-f0-9]{40}$/);
+    const outputMap = (text) => Object.fromEntries(text.trimEnd().split("\n").map((line) => {
+      const split = line.indexOf("=");
+      return [line.slice(0, split), line.slice(split + 1)];
+    }));
+    try {
+      const outputs = [];
+      for (const event of ["pull_request", "merge_group"]) {
+        const output = resolve(outputDir, event);
+        const result = runBash("bash scripts/pr-checks/change-scope.sh", {
+          NODE_OPTIONS: bootstrapNodeOptions,
+          BOOTSTRAP_STOPPED_SOURCE: "0",
+          PR_SCOPE_EVENT_NAME: event,
+          PR_SCOPE_PR_BASE: base,
+          PR_SCOPE_SHA: head,
+          PR_SCOPE_MERGE_BASE: base,
+          PR_SCOPE_MERGE_HEAD: head,
+          GITHUB_OUTPUT: output,
+        });
+        expect(result.status, result.error).toBe(0);
+        expect(result.error).not.toContain("Change-scope derivation fallback:");
+        const text = readFileSync(output, "utf8");
+        const scope = outputMap(text);
+        expect(JSON.parse(scope.changed_files_json)).toEqual(changedFiles);
+        expect(JSON.parse(scope.scope_json).changedFiles).toEqual(changedFiles);
+        outputs.push(text);
+        const mode = event === "pull_request" ? "pull-request" : "merge-group";
+        const planOutput = resolve(outputDir, `${event}-plan`);
+        const plan = runBash("node scripts/ci-gate-plan.mjs github-output", {
+          NODE_OPTIONS: bootstrapNodeOptions,
+          BOOTSTRAP_STOPPED_SOURCE: "0",
+          CI_GATE_PLAN_SCOPE_JSON: scope.scope_json,
+          CI_GATE_PLAN_MODE: mode,
+          CI_GATE_PLAN_PROVENANCE: mode === "pull-request" ? "same-repository" : "",
+          CI_GATE_PLAN_LABELS_JSON: "[]",
+          GITHUB_OUTPUT: planOutput,
+        });
+        expect(plan.status, plan.error).toBe(0);
+        const expectedPlan = ciGatePlanOutputMap(createCiGatePlan({
+          mode,
+          provenance: mode === "pull-request" ? "same-repository" : undefined,
+          labels: [],
+          scope: JSON.parse(scope.scope_json),
+        }));
+        expect(readFileSync(planOutput, "utf8")).toBe(Object.entries(expectedPlan).map(([key, value]) => `${key}=${value}\n`).join(""));
+        expect(outputMap(readFileSync(planOutput, "utf8"))).toMatchObject({unit_tests_required: "true", db_tests_required: "true"});
+      }
+      expect(outputs[0]).toBe(outputs[1]);
+      expect(outputs[0]).toContain("db_tests=true\n");
+      expect(outputs[0]).toContain("@chase-sets/app-platform-api");
+      expect(outputs[0]).toContain("unit_test_workspaces=");
+    } finally {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads the complete bootstrap runtime closure and classifies owner-only deltas without packages, rejecting the stopped source", () => {
+    const entries = [
+      "change-scope.mjs", "ci-gate-plan.mjs", "pr-checks/required-jobs.mjs", "pr-release-status.mjs",
+      "release-qualification-scope.mjs", "merge-qualification.mjs", "release-deployment-scope.mjs",
+      "release-health-github-metadata.mjs", "release-health-delivery-health.mjs",
+    ];
+    const classifier = pathToFileURL(resolve("scripts/change-scope.mjs")).href;
+    const program = `
+      import assert from 'node:assert/strict';
+      for (const entry of ${JSON.stringify(entries.map((entry) => pathToFileURL(resolve("scripts", entry)).href))}) await import(entry);
+      const {classifyChanges, toOutputMap} = await import(${JSON.stringify(classifier)});
+      const {listWorkspacePackages} = await import(${JSON.stringify(pathToFileURL(resolve("scripts/lib/repo.mjs")).href)});
+      const workspaces = listWorkspacePackages({roots:['bounded-contexts','contracts','infrastructure','packages','deployables'],assertRootCoverage:false});
+      const scope = classifyChanges({baseDir:process.cwd(),workspaces,changedFiles:['scripts/pr-checks/db-tests.sh']});
+      assert(scope.unitTestWorkspaces.includes('@chase-sets/app-platform-api'));
+      assert.equal(scope.dbTestsRequired,true);
+      assert.equal(toOutputMap(scope).build,'false');
+      const fs = await import('node:fs');
+      const {syncBuiltinESMExports} = await import('node:module');
+      const originalRead = fs.default.readFileSync;
+      const workflow = originalRead('.github/workflows/platform-pr.yml','utf8');
+      const owner = originalRead('scripts/pr-checks/db-tests.sh','utf8');
+      for (const [file, source] of [
+        ['.github/workflows/platform-pr.yml',workflow.replace('db-tests.sh prepare','db-tests.sh other')],
+        ['.github/workflows/platform-pr.yml',workflow.replace('run: bash scripts/pr-checks/db-tests.sh prepare','if: false\\n        run: bash scripts/pr-checks/db-tests.sh prepare')],
+        ['scripts/pr-checks/db-tests.sh',owner.replace('target_max_connections=300','target_max_connections=bad')],
+        ['scripts/pr-checks/db-tests.sh',null],
+      ]) {
+        fs.default.readFileSync = (name,...args) => {
+          if (String(name).replaceAll('\\\\','/').endsWith('/'+file)) {
+            if (source === null) throw new Error('owner unavailable');
+            return source;
+          }
+          return originalRead(name,...args);
+        };
+        syncBuiltinESMExports();
+        try { assert.throws(() => classifyChanges({baseDir:process.cwd(),workspaces,changedFiles:['scripts/pr-checks/db-tests.sh']}),/db-tests/); }
+        finally { fs.default.readFileSync = originalRead; syncBuiltinESMExports(); }
+      }
+      console.log('BOOTSTRAP_CLOSURE_AND_OWNER_OK');`;
+    const run = (stopped) => spawnSync(process.execPath, ["--input-type=module", "-e", program], {
+      encoding: "utf8",
+      env: { ...process.env, NODE_OPTIONS: bootstrapNodeOptions, BOOTSTRAP_STOPPED_SOURCE: stopped },
+    });
+    const negative = run("1");
+    expect(negative.status).not.toBe(0);
+    expect(negative.stderr).toContain("BOOTSTRAP_PACKAGE_DENIED: yaml");
+    const candidate = run("0");
+    expect(candidate.status, candidate.stderr).toBe(0);
+    expect(candidate.stdout).toContain("BOOTSTRAP_CLOSURE_AND_OWNER_OK");
+    const parityProgram = `
+      const {classifyChanges,toOutputMap} = await import(${JSON.stringify(classifier)});
+      const {unit_test_workspaces,...outputs} = toOutputMap(classifyChanges({changedFiles:['README.md']}));
+      console.log(JSON.stringify(outputs));`;
+    const parity = (main) => spawnSync(process.execPath, ["--input-type=module", "-e", parityProgram], {
+      encoding: "utf8",
+      env: { ...process.env, NODE_OPTIONS: bootstrapNodeOptions, BOOTSTRAP_STOPPED_SOURCE: "0", BOOTSTRAP_MAIN_SOURCE: main },
+    });
+    const original = parity("1");
+    const unrelated = parity("0");
+    expect(original.status, original.stderr).toBe(0);
+    expect(unrelated.status, unrelated.stderr).toBe(0);
+    expect(unrelated.stdout).toBe(original.stdout);
+  });
+
   it("binds the parsed before fixture to immutable workflow history", () => {
     const source = execFileSync("git", ["show", `${fixture.sourceHead}:.github/workflows/platform-pr.yml`], {
       encoding: "utf8",

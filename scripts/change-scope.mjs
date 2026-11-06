@@ -3,7 +3,6 @@ import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from 
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
 import { batchBrowserE2eSuiteIds, e2eSuites, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
@@ -231,33 +230,87 @@ function isPlatformApiEnrollmentMember(filePath, baseline) {
   });
 }
 
+// Bootstrap callers run before installation. Project only the block mappings,
+// step sequence and literal caller context we can bind without a YAML package.
+function preparationWorkflowEntries(lines, indent) {
+  const entries = new Map();
+  for (let index = 0; index < lines.length; ) {
+    const line = lines[index];
+    if (!line.trim() || line.trimStart().startsWith("#")) {
+      index++;
+      continue;
+    }
+    const match = line.match(new RegExp(`^ {${indent}}([A-Za-z_][A-Za-z0-9_-]*):(?: +(.*))?$`));
+    if (!match || entries.has(match[1])) throw new Error("unsupported or duplicate workflow mapping");
+    const start = ++index;
+    while (index < lines.length && (!lines[index].trim() || /^ *#/.test(lines[index]) || lines[index].search(/\S/) > indent)) index++;
+    entries.set(match[1], { value: match[2] ?? "", lines: lines.slice(start, index) });
+  }
+  return entries;
+}
+
+function preparationWorkflowMapping(entry, indent) {
+  if (!entry || (entry.value && !entry.value.startsWith("#"))) throw new Error("unsupported workflow mapping value");
+  return preparationWorkflowEntries(entry.lines, indent);
+}
+
+function preparationWorkflowLiteral(entry, indent) {
+  if (!entry) return undefined;
+  const value = entry.value.trim();
+  if (/^[|>][-+]?(?: +#.*)?$/.test(value)) {
+    const lines = entry.lines.filter((line) => line.trim());
+    if (lines.some((line) => !line.startsWith(" ".repeat(indent)))) throw new Error("unsupported caller block");
+    return lines.map((line) => line.slice(indent)).join("\n").trim();
+  }
+  if (entry.lines.some((line) => line.trim() && !line.trimStart().startsWith("#"))) throw new Error("unsupported multiline caller value");
+  const match = value.match(/^(?:"([^"\\]*)"|'([^']*)')(?: +#.*)?$/);
+  if (!match && /^[A-Za-z0-9_./]/.test(value)) return value.replace(/ +#.*$/, "").trim();
+  if (!match) throw new Error("unsupported caller value");
+  return (match[1] ?? match[2]).trim();
+}
+
+function preparationWorkflowDefaults(mapping, indent) {
+  if (!mapping.has("defaults")) return new Map();
+  const defaults = preparationWorkflowMapping(mapping.get("defaults"), indent);
+  if (defaults.size !== 1 || !defaults.has("run")) throw new Error("unsupported caller defaults");
+  const run = preparationWorkflowMapping(defaults.get("run"), indent + 2);
+  if ([...run.keys()].some((key) => !["shell", "working-directory"].includes(key))) throw new Error("unsupported run defaults");
+  return new Map([...run].map(([key, entry]) => [key, preparationWorkflowLiteral(entry, indent + 4)]));
+}
+
+function preparationWorkflowCaller(source, owner) {
+  const workflow = preparationWorkflowEntries(source.replaceAll("\r\n", "\n").split("\n"), 0);
+  const jobs = preparationWorkflowMapping(workflow.get("jobs"), 2);
+  const job = preparationWorkflowMapping(jobs.get("db-tests"), 4);
+  const workflowDefaults = preparationWorkflowDefaults(workflow, 2);
+  const jobDefaults = preparationWorkflowDefaults(job, 6);
+  const stepsEntry = job.get("steps");
+  if (!stepsEntry || (stepsEntry.value && !stepsEntry.value.startsWith("#"))) throw new Error("unsupported caller steps");
+  const steps = [];
+  for (const line of stepsEntry.lines) {
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    if (line.startsWith("      - ")) steps.push([`        ${line.slice(8)}`]);
+    else {
+      if (!steps.length || line.search(/\S/) < 8) throw new Error("unsupported step sequence");
+      steps.at(-1).push(line);
+    }
+  }
+  const parsed = steps.map((lines) => preparationWorkflowEntries(lines, 8));
+  const runs = parsed.map((step) => preparationWorkflowLiteral(step.get("run"), 10));
+  const callers = parsed.filter((_step, index) => /\bdb-tests\.sh\s+prepare\b/.test(runs[index] ?? ""));
+  if (callers.length !== 1 || runs.some((run) => /target_max_(?:connections|locks_per_transaction)\s*=/.test(run ?? ""))) throw new Error("missing, ambiguous, mixed or unbound prepare caller");
+  const caller = callers[0];
+  if (preparationWorkflowLiteral(caller.get("run"), 10) !== `bash ${owner} prepare` || caller.has("if") || caller.has("uses")) throw new Error("unbound prepare caller");
+  const context = (key) => preparationWorkflowLiteral(caller.get(key), 10) ?? jobDefaults.get(key) ?? workflowDefaults.get(key);
+  const directory = context("working-directory");
+  const shell = context("shell");
+  if ((directory !== undefined && directory !== ".") || (shell !== undefined && shell !== "bash")) throw new Error("unbound prepare caller context");
+}
+
 function requireRelocatedDbPreparation(baseDir) {
   const owner = "scripts/pr-checks/db-tests.sh";
   try {
-    const workflow = parseYaml(readFileSync(path.join(baseDir, ".github/workflows/platform-pr.yml"), "utf8"));
-    const job = workflow?.jobs?.["db-tests"];
-    const runs = (job?.steps ?? []).map((step) => step.run).filter((run) => typeof run === "string");
-    const calls = runs.filter((run) => /\bdb-tests\.sh\s+prepare\b/.test(run));
-    if (
-      calls.length !== 1 ||
-      calls[0].trim() !== `bash ${owner} prepare` ||
-      runs.some((run) => /target_max_(?:connections|locks_per_transaction)\s*=/.test(run))
-    ) {
-      throw new Error("missing, ambiguous, mixed or unbound prepare caller");
-    }
-    const caller = job.steps.find((step) => step.run === calls[0]);
-    const directory =
-      caller["working-directory"] ??
-      job.defaults?.run?.["working-directory"] ??
-      workflow.defaults?.run?.["working-directory"];
-    const shell = caller.shell ?? job.defaults?.run?.shell ?? workflow.defaults?.run?.shell;
-    if (
-      caller.if !== undefined ||
-      (directory !== undefined && directory !== ".") ||
-      (shell !== undefined && shell !== "bash")
-    ) {
-      throw new Error("unbound prepare caller context");
-    }
+    preparationWorkflowCaller(readFileSync(path.join(baseDir, ".github/workflows/platform-pr.yml"), "utf8"), owner);
     const source = readFileSync(path.join(baseDir, owner), "utf8").replaceAll("\r\n", "\n");
     const arms = [...source.matchAll(/^  prepare\)\n([\s\S]*?)^    ;;\s*$/gm)];
     if (arms.length !== 1 || !/^case "\$1" in$/m.test(source)) throw new Error("unbound prepare operation");

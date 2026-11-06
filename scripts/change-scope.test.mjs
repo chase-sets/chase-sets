@@ -4290,6 +4290,46 @@ describe("change-scope", () => {
         expect(() => classifyChanges({ baseDir, workspaces, changedFiles: [owner] })).toThrow(/db-tests/);
       }),
     );
+
+    it.each([
+      ["workflow defaults", (text) => `defaults:\n  run:\n    shell: bash\n    working-directory: .\n${text}`],
+      ["job defaults", (text) => text.replace("  db-tests:\n", "  db-tests:\n    defaults:\n      run:\n        shell: bash\n        working-directory: .\n")],
+      ["step overrides defaults", (text) => `defaults:\n  run:\n    shell: python\n    working-directory: elsewhere\n${text.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "shell: bash\n        working-directory: .\n        run: bash scripts/pr-checks/db-tests.sh prepare")}`],
+      ["literal block caller", (text) => text.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "run: |\n          bash scripts/pr-checks/db-tests.sh prepare")],
+      ["quoted caller", (text) => text.replace("run: bash scripts/pr-checks/db-tests.sh prepare", 'run: "bash scripts/pr-checks/db-tests.sh prepare"')],
+    ])("binds %s without installed packages", (_name, mutate) =>
+      withEnrollmentRepository(({ baseDir, write, workspaces }) => {
+        write(caller, mutate(workflow));
+        write(owner, preparation);
+        const result = classifyChanges({ baseDir, workspaces, changedFiles: [owner] });
+        expect(result.unitTestWorkspaces).toContain("@test/platform-api");
+        expect(result.dbTestsRequired).toBe(true);
+      }),
+    );
+
+    it.each([
+      ["inherited directory", (text) => `defaults:\n  run:\n    working-directory: elsewhere\n${text}`],
+      ["inherited shell", (text) => text.replace("  db-tests:\n", "  db-tests:\n    defaults:\n      run:\n        shell: python\n")],
+      ["duplicate job", (text) => `${text}\n  db-tests:\n    steps: []\n`],
+      ["duplicate run", (text) => text.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "run: echo spoof\n        run: bash scripts/pr-checks/db-tests.sh prepare")],
+      ["duplicate defaults", (text) => `defaults:\n  run:\n    shell: bash\ndefaults:\n  run:\n    shell: python\n${text}`],
+      ["duplicate default shell", (text) => `defaults:\n  run:\n    shell: python\n    shell: bash\n${text}`],
+      ["aliased defaults", (text) => `defaults: *context\n${text}`],
+      ["merged job context", (text) => text.replace("  db-tests:\n", "  db-tests:\n    <<: *context\n")],
+      ["anchored job", (text) => text.replace("  db-tests:\n", "  db-tests: &job\n")],
+      ["flow steps", (text) => text.replace("  db-tests:\n", "  db-tests:\n    steps: [{run: 'bash scripts/pr-checks/db-tests.sh prepare'}]\n")],
+      ["comment-only caller", (text) => text.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "run: |\n          # bash scripts/pr-checks/db-tests.sh prepare")],
+      ["other-job spoof", (text) => text.replace("db-tests.sh prepare", "db-tests.sh other").replace("  known-failure-guard:\n", "  spoof:\n    steps:\n      - run: bash scripts/pr-checks/db-tests.sh prepare\n  known-failure-guard:\n")],
+      ["duplicate caller", (text) => text.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "run: bash scripts/pr-checks/db-tests.sh prepare\n      - run: bash scripts/pr-checks/db-tests.sh prepare")],
+      ["mixed inline setting", (text) => text.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "run: bash scripts/pr-checks/db-tests.sh prepare\n      - run: target_max_connections=300")],
+      ["malformed indentation", (text) => text.replace("run: bash scripts/pr-checks/db-tests.sh prepare", " run: bash scripts/pr-checks/db-tests.sh prepare")],
+    ])("refuses unsupported or spoofed %s", (_name, mutate) =>
+      withEnrollmentRepository(({ baseDir, write, workspaces }) => {
+        write(caller, mutate(workflow));
+        write(owner, preparation);
+        expect(() => classifyChanges({ baseDir, workspaces, changedFiles: [owner] })).toThrow(/db-tests/);
+      }),
+    );
   });
 
   it("preserves every merged-base output byte except unit selection and its required flag across the old-versus-new corpus", () => {
