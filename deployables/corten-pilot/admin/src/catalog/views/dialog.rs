@@ -791,15 +791,15 @@ pub fn ReorderForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str,
 
 /// What a write did, after the page it sent the browser to (admin-web's toasts): corten-ui's
 /// toaster, its message gone after five seconds, placed at the corner of the page. It also says a
-/// `data-patch` submit that got no answer (`corten:error`), which admin-web left to the browser.
+/// `data-patch` submit that got no answer (`corten:error`), which admin-web left to the browser; the
+/// toaster marks that text `data-failed`, and the stylesheet draws it as a failure.
 #[component(css = CatalogDialog)]
 pub fn Toasts<'a>(p: Pilot, notice: Option<&'a String>) -> impl Render {
     let (close, not_sent) = (p.catalog_close(), p.catalog_not_sent());
     let message = notice.map(|n| n as &dyn Render);
-    let failed = html! { <span class={Failed}>{&not_sent}</span> };
     html! {
         <div class={Toasts}>
-            <Toaster close={&close} seconds={5} toast={Toast { message }} failed={failed} />
+            <Toaster close={&close} seconds={5} toast={Toast { message }} failed={&not_sent} />
         </div>
     }
 }
