@@ -72,7 +72,7 @@ describeDb("auth projection row identity", () => {
     const linkKey = createHash("sha256")
       .update(`${linked.providerName}:${linked.providerSubject}`, "utf8")
       .digest("hex");
-    const deliver = async (type: string, data: Record<string, unknown>) => {
+    const deliver = async (type: string, data: TransportEvent["data"]) => {
       expect(subscription.eventTypes).toContain(type);
       await project(handlers, event(type, streamId, data));
     };

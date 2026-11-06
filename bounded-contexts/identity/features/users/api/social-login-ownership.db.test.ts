@@ -522,7 +522,7 @@ describeDb("issue-10295 Social Login Ownership Claim on PostgreSQL", () => {
     await seedLegacyLink("usr_one10295");
     await replayUserProjection();
     const shape = () =>
-      pool.query(
+      pool.query<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
         `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'identity_user_social_login_links' ORDER BY ordinal_position`,
       );
     const fresh = await shape();
