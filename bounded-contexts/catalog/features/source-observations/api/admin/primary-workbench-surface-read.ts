@@ -793,8 +793,9 @@ async function selectedProviderSourceOptionPages(
 // requested cache/live semantics, then exhaust continuation cursors from that
 // same cache snapshot: a force refresh happens once, and continuation pages
 // never repeat provider I/O or move refresh timestamps. A list that exceeds the
-// page cap, stalls its cursor, or changes count or cache between pages is an
-// error for its group, never a complete list.
+// page cap, stalls its cursor, changes count or cache between pages, or ends
+// with fewer or more options than its total is an error for its group, never a
+// complete list.
 async function completeSourceOptionResponse(
   sources: CatalogPrimaryWorkbenchSurfaceSources,
   location: URL,
@@ -802,7 +803,10 @@ async function completeSourceOptionResponse(
   firstHref: string,
   firstResponse: SourceObservationIntegrationOptionResponse,
 ): Promise<SourceObservationIntegrationOptionResponse> {
+  const queryKind = sourceOptionRequest.queryKind;
+  assertSourceOptionPage(firstResponse, queryKind);
   if (!firstResponse.page?.hasMore) {
+    assertSourceOptionListComplete(firstResponse.total, firstResponse.items.length, queryKind);
     return firstResponse;
   }
 
@@ -829,15 +833,17 @@ async function completeSourceOptionResponse(
       SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
     );
     continuationPageCount += 1;
-    assertSourceOptionContinuation(firstResponse, continuationResponse, cursor, sourceOptionRequest.queryKind);
+    assertSourceOptionPage(continuationResponse, queryKind);
+    assertSourceOptionContinuation(firstResponse, continuationResponse, cursor, queryKind);
     response = continuationResponse;
     items.push(...response.items);
   }
+  assertSourceOptionListComplete(firstResponse.total, items.length, queryKind);
 
   return {
     ...firstResponse,
     items,
-    total: Math.max(firstResponse.total, response.total, items.length),
+    total: firstResponse.total,
     count: items.length,
     page: {
       cursor: firstResponse.page.cursor,
@@ -855,6 +861,22 @@ function sourceOptionContinuationQuery(href: string, location: URL, cursor: stri
   continuation.searchParams.set("cacheOnly", "true");
   continuation.searchParams.delete("forceRefresh");
   return continuation.searchParams.toString();
+}
+
+// A page's total is the whole list's option count, and its count is the options it carries.
+function assertSourceOptionPage(response: SourceObservationIntegrationOptionResponse, queryKind: string): void {
+  if (!Number.isSafeInteger(response.total) || response.total < 0) {
+    throw new CatalogSourceOptionPaginationError(queryKind, "the option total was not a count");
+  }
+  if (response.count !== response.items.length) {
+    throw new CatalogSourceOptionPaginationError(queryKind, "a page's count did not match its options");
+  }
+}
+
+function assertSourceOptionListComplete(total: number, collected: number, queryKind: string): void {
+  if (collected !== total) {
+    throw new CatalogSourceOptionPaginationError(queryKind, `the pages carried ${collected} of ${total} options`);
+  }
 }
 
 function assertSourceOptionContinuation(

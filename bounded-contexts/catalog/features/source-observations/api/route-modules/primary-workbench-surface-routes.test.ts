@@ -232,13 +232,15 @@ describe("Catalog primary workbench deferred source options pagination", () => {
     nextCursor: string | null;
     hasMore: boolean;
     value?: string;
+    // The whole list's option count; each page carries one option.
     total?: number;
+    count?: number;
     cacheKey?: string;
   }) {
     return {
       items: [{ value: input.value ?? `option-${input.query.cursor ?? "first"}`, label: "Option", metadata: {} }],
-      total: input.total ?? 2,
-      count: 1,
+      total: input.total ?? 1,
+      count: input.count ?? 1,
       page: { cursor: input.query.cursor ?? null, nextCursor: input.nextCursor, limit: 25, hasMore: input.hasMore },
       cache: {
         status: "fresh",
@@ -255,15 +257,22 @@ describe("Catalog primary workbench deferred source options pagination", () => {
     };
   }
 
-  async function groupPage(queryIntegrationOptions: (query: OptionQuery) => Promise<unknown>) {
+  async function surfacePages(
+    queryIntegrationOptions: (query: OptionQuery) => Promise<unknown>,
+    surfacePath: string = path,
+  ) {
     const services = surfaceServices({
       getCatalogIntegrationControlPlaneReadiness: async () =>
         readiness([readinessUnit(POKEMON_UNIT, "tcgplayer", "2026.06.05")]),
       listIntegrationScopes: async () => [],
       queryIntegrationOptions,
     });
-    const body = await getJson(buildApp(services, mutableProfileStore()), path);
-    return body.pages.find((page: { queryKind: string }) => page.queryKind === GROUP);
+    const body = await getJson(buildApp(services, mutableProfileStore()), surfacePath);
+    return body.pages as { queryKind: string; state: string; items: { value: string }[] }[];
+  }
+
+  async function groupPage(queryIntegrationOptions: (query: OptionQuery) => Promise<unknown>) {
+    return (await surfacePages(queryIntegrationOptions)).find((page) => page.queryKind === GROUP);
   }
 
   function expectPaginationFailure(page: unknown) {
@@ -288,6 +297,7 @@ describe("Catalog primary workbench deferred source options pagination", () => {
         nextCursor: `page-${pageNumber + 1}`,
         hasMore: true,
         value: pageNumber === MAX_SOURCE_OPTION_CONTINUATION_PAGES + 1 ? "decisive-option" : undefined,
+        total: MAX_SOURCE_OPTION_CONTINUATION_PAGES + 2,
       });
     });
 
@@ -298,8 +308,8 @@ describe("Catalog primary workbench deferred source options pagination", () => {
   it("fails the group closed when the option cache changes between pages", async () => {
     const page = await groupPage(async (query) =>
       query.queryKind === GROUP && !query.cursor
-        ? optionPage({ query, nextCursor: "page-1", hasMore: true })
-        : optionPage({ query, nextCursor: null, hasMore: false, cacheKey: "sha256:replaced" }),
+        ? optionPage({ query, nextCursor: "page-1", hasMore: true, total: 2 })
+        : optionPage({ query, nextCursor: null, hasMore: false, total: 2, cacheKey: "sha256:replaced" }),
     );
 
     expectPaginationFailure(page);
@@ -308,21 +318,72 @@ describe("Catalog primary workbench deferred source options pagination", () => {
   it("fails the group closed when the option count changes between pages", async () => {
     const page = await groupPage(async (query) =>
       query.queryKind === GROUP && !query.cursor
-        ? optionPage({ query, nextCursor: "page-1", hasMore: true })
+        ? optionPage({ query, nextCursor: "page-1", hasMore: true, total: 2 })
         : optionPage({ query, nextCursor: null, hasMore: false, total: 3 }),
     );
 
     expectPaginationFailure(page);
   });
 
-  it("returns every option when the continuation pages agree", async () => {
+  it("returns every option when the continuation pages agree with their total", async () => {
     const page = await groupPage(async (query) =>
-      query.queryKind === GROUP && !query.cursor
-        ? optionPage({ query, nextCursor: "page-1", hasMore: true })
-        : optionPage({ query, nextCursor: null, hasMore: false }),
+      query.queryKind !== GROUP
+        ? optionPage({ query, nextCursor: null, hasMore: false })
+        : !query.cursor
+          ? optionPage({ query, nextCursor: "page-1", hasMore: true, total: 2 })
+          : optionPage({ query, nextCursor: null, hasMore: false, total: 2 }),
     );
 
-    expect(page.items.map((item: { value: string }) => item.value)).toEqual(["option-first", "option-page-1"]);
+    expect(page!.items.map((item) => item.value)).toEqual(["option-first", "option-page-1"]);
+  });
+
+  // Each case answers the group's query with pages that end before, or past, the total they
+  // report; every other group gets one complete page.
+  it.each([
+    [
+      "a single last page carries fewer options than its total",
+      (query: OptionQuery) => optionPage({ query, nextCursor: null, hasMore: false, total: 3 }),
+    ],
+    [
+      "the continuation pages end, at a stable total, before every option",
+      (query: OptionQuery) =>
+        query.cursor
+          ? optionPage({ query, nextCursor: null, hasMore: false, total: 3 })
+          : optionPage({ query, nextCursor: "page-1", hasMore: true, total: 3 }),
+    ],
+    [
+      "the pages carry more options than their total",
+      (query: OptionQuery) =>
+        query.cursor
+          ? optionPage({ query, nextCursor: null, hasMore: false, total: 1 })
+          : optionPage({ query, nextCursor: "page-1", hasMore: true, total: 1 }),
+    ],
+    [
+      "a page's count disagrees with the options it carries",
+      (query: OptionQuery) => optionPage({ query, nextCursor: null, hasMore: false, total: 1, count: 2 }),
+    ],
+    [
+      "the total is not a count",
+      (query: OptionQuery) => optionPage({ query, nextCursor: null, hasMore: false, total: 1.5 }),
+    ],
+  ])("fails only the group closed when %s", async (_case, groupResponse) => {
+    // With a product line selected, its set names load beside the failing group.
+    const withProductLine = `/source-observations/workbench-surfaces/daily/source-options?${new URLSearchParams({
+      location: `${location}&productLineId=3&productLineName=Pokemon`,
+    })}`;
+    const pages = await surfacePages(
+      async (query) =>
+        query.queryKind === GROUP ? groupResponse(query) : optionPage({ query, nextCursor: null, hasMore: false }),
+      withProductLine,
+    );
+
+    expectPaginationFailure(pages.find((page) => page.queryKind === GROUP));
+    const others = pages.filter((page) => page.queryKind !== GROUP && page.state !== "not-requested");
+    expect(others.length).toBeGreaterThan(0);
+    for (const other of others) {
+      expect(other.state).not.toBe("unavailable");
+      expect(other.items.length).toBe(1);
+    }
   });
 });
 
