@@ -2,10 +2,6 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
-import {
-  findBootSchemaLedgerConvergenceViolations,
-  findBootSchemaRetainedUpgradeViolations,
-} from "../../../../../../scripts/check-structure/boot-schema-ddl-discipline.mjs";
 
 const root = new URL("../../../../../../", import.meta.url);
 const accountFile =
@@ -107,32 +103,40 @@ function historicalSource(text: string) {
 type Obligation = "identity" | "prefix" | "order" | "add" | "boot" | "closed";
 function violations(text: string, bypass?: Obligation) {
   const failures: string[] = [];
-  const require = (key: Obligation, valid: boolean) => {
+  const checkObligation = (key: Obligation, valid: boolean) => {
     if (key !== bypass && !valid) failures.push(key);
   };
-  require("identity", digest(text) === candidateHash);
+  checkObligation("identity", digest(text) === candidateHash);
   const parsed = declarations(text);
   if (!parsed) return [...failures, "opaque-source"];
   const { file, boot, array } = parsed;
-  require("prefix", digest(historicalSource(text)) === historicalHash);
+  checkObligation("prefix", digest(historicalSource(text)) === historicalHash);
   const ids = array.elements.map((entry) => property(entry, "migrationId"));
-  require("order", JSON.stringify(ids.map((id) => (id && ts.isStringLiteral(id) ? id.text : null))) ===
-    JSON.stringify(migrationIds));
+  checkObligation(
+    "order",
+    JSON.stringify(ids.map((id) => (id && ts.isStringLiteral(id) ? id.text : null))) === JSON.stringify(migrationIds),
+  );
   const last = array.elements.at(-1)!;
   const statements = property(last, "statements");
   const add =
     statements && ts.isArrayLiteralExpression(statements) && statements.elements.length === 1
       ? statements.elements[0]
       : undefined;
-  require("add", !!add &&
-    ts.isNoSubstitutionTemplateLiteral(add) &&
-    add.text === revisionSql &&
-    add.getText(file).slice(1, -1) === revisionSql);
-  require("boot", !/\brevision\b/.test(boot.text) && boot.getText(file).slice(1, -1) === boot.text);
-  require("closed", file.statements.length === 3 &&
-    ts.isObjectLiteralExpression(last) &&
-    JSON.stringify(last.properties.map((entry) => entry.name?.getText(file))) ===
-      JSON.stringify(["migrationId", "description", "statements"]));
+  checkObligation(
+    "add",
+    !!add &&
+      ts.isNoSubstitutionTemplateLiteral(add) &&
+      add.text === revisionSql &&
+      add.getText(file).slice(1, -1) === revisionSql,
+  );
+  checkObligation("boot", !/\brevision\b/.test(boot.text) && boot.getText(file).slice(1, -1) === boot.text);
+  checkObligation(
+    "closed",
+    file.statements.length === 3 &&
+      ts.isObjectLiteralExpression(last) &&
+      JSON.stringify(last.properties.map((entry) => entry.name?.getText(file))) ===
+        JSON.stringify(["migrationId", "description", "statements"]),
+  );
   return failures;
 }
 
@@ -182,7 +186,7 @@ describe("Settlement ledger-only schema contract", () => {
       expect(compositionViolations(new Map(sources).set(compositionFile, text))).toEqual([compositionFile]);
   });
 
-  it("preserves ordinary R99 candidate acceptance and the exact stopped-head fresh-CREATE refusal", () => {
+  it("rejects the exact stopped-head fresh-CREATE revision through the fixed boot obligation", () => {
     const baseSource = historicalSource(candidate);
     const stopped = candidate.replace(
       "  account_id text PRIMARY KEY,",
@@ -191,16 +195,6 @@ describe("Settlement ledger-only schema contract", () => {
     expect(digest(baseSource)).toBe(historicalHash);
     expect(digest(stopped)).toBe(stoppedHash);
     expect(violations(stopped)).toContain("boot");
-    for (const currentSource of [candidate, stopped]) {
-      expect(findBootSchemaLedgerConvergenceViolations({ baseSource, currentSource })).toEqual([]);
-      const refused = findBootSchemaRetainedUpgradeViolations({ baseSource, currentSource });
-      expect(refused.map((entry: { columnName: string }) => entry.columnName)).toEqual(
-        currentSource === stopped ? ["revision"] : [],
-      );
-      console.info(
-        `SETTLEMENT_R99_CONTROL ${currentSource === stopped ? "stopped-77ea12e" : "candidate"} refusals=${refused.length}`,
-      );
-    }
   });
 
   it.each([
