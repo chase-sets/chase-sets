@@ -19,6 +19,7 @@ use corten_ui::{Toast, Toaster};
 use platform::{theme, ui::toasts::Toasts};
 
 mod admin_nav;
+mod index_page;
 mod lifecycle;
 mod live_status;
 mod offline_page;
@@ -28,7 +29,8 @@ mod policy_table;
 mod sign_in_page;
 mod status_badge;
 
-pub use admin_nav::AdminNav;
+pub use admin_nav::{AdminNav, section_label};
+pub use index_page::{HomeSection, IndexPage};
 pub use lifecycle::{ActivateForm, CloneForm, Lifecycle, RetireForm};
 pub use live_status::{LiveStatus, LiveWords};
 pub use offline_page::OfflinePage;
@@ -42,9 +44,10 @@ pub use status_badge::StatusBadge;
 /// The components every page renders (the frame and the shared parts), tokens first: their
 /// stylesheets are `components.css`. The kit's `NavBar` is the top bar's, before `AdminNav`'s own rules,
 /// and its `Table` is every area's lists' (one stylesheet, so no area links another's). The layout's
-/// toaster is the kit's `Toasts` around corten-ui's `Toaster`.
+/// toaster is the kit's `Toasts` around corten-ui's `Toaster`. The home's (`IndexPage`) is here because
+/// no area can be at `/`.
 pub const COMPONENTS: &[Component] =
-    &[theme::TOKENS, platform::ui::nav_bar::NavBar, platform::ui::table::Table, AdminNav, Section, Toasts, Toaster];
+    &[theme::TOKENS, platform::ui::nav_bar::NavBar, platform::ui::table::Table, AdminNav, Section, IndexPage, Toasts, Toaster];
 
 /// Signing in (`/access/sign-in`, its magic link and account selection): the page's stylesheet.
 pub const SIGN_IN: &[Component] = &[SignInPage];

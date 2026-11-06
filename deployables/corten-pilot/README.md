@@ -37,6 +37,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Platform > Attention Queue, `/platform/operations-attention` |
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}`, with its Publish, Set Field Value and Add content line dialogs |
 | `admin/` | Catalog's home, `/catalog`, a dimension's and a field's page, `/catalog/dimensions/{id}`, `/catalog/fields/{id}`, and the scope attention review, `/catalog/scopes/attention/review` |
+| `admin/` | The admin home, `/`: a card for each section the viewer may open, straight to the section when there is one, or that there is none, as admin-web's is; the bar's brand goes there |
 | `admin/` | The Commerce, Growth, Support and Platform homes, `/commerce`, `/growth`, `/support`, `/platform`: each opens the first page in its nav the viewer may see, as admin-web's does, or answers 403 when there is none. With every section home the pilot's, both of admin's bars are marked by `req.nav_of` |
 | `admin/` | Catalog > Categories, `/catalog/categories` (search, status, hierarchy and parent filters, bulk publish, deprecate and archive), and a category's page, `/catalog/categories/{id}` |
 | `admin/` | Catalog > Components, `/catalog/components` (search, status and has-rules filters, bulk changes), and a component's page, `/catalog/components/{id}`, with its field and dimension rules (add, remove) |

@@ -6,6 +6,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
+//! | `GET /` | the admin home, for signed-in staff (`crate::sections::index`) |
 //! | `GET /favicon.svg`, `/favicon.ico` | the design system's logo (`Public`, a day) |
 //! | `GET /manifest.webmanifest`, `/service-worker.js` | the web app manifest and the service worker (Corten's) |
 //! | `GET /offline` | the page the service worker shows for a navigation it cannot make |
@@ -35,9 +36,13 @@ const NETWORK_ONLY: [&str; 8] = [
     "/health/",
 ];
 
-/// The site's own files.
+/// The site's own files, and the home, which takes a signed-in `Viewer` itself: `/` is in no area
+/// (no area's prefix can be `/`), and `App::new` takes one module, whose favicon is for everyone.
 #[corten::routes(state = crate::app::Shared)]
 pub mod files {
+    #[route("/", get = crate::sections::index)]
+    pub struct Home;
+
     #[route("/favicon.svg", get = crate::site::favicon)]
     pub struct FaviconSvg;
 

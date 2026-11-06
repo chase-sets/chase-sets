@@ -130,7 +130,8 @@ corten::assets::embed!(pub struct Static = "static");
 /// The pilot: every screen is an area whose routes module says which staff may use it
 /// (`caller = Staff<..>`), so every route there, and any added later, takes that caller. Nothing
 /// is served outside an area but Corten's own (health, the runtime, assets, the PWA's manifest and
-/// worker) and the favicon; the offline page is an area for everyone (see `site`).
+/// worker), the favicon and the home at `/`, whose handler takes a signed-in `Viewer`; the offline
+/// page is an area for everyone (see `site`).
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     App::new(crate::site::files::router(shared.clone()))

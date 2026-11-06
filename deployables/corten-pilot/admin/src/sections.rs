@@ -1,16 +1,20 @@
-//! admin-web's section homes (`routes/{commerce,growth,support,platform}-home.tsx`,
-//! `createAdminSectionHomeLoader`): each sends the staff member to the first page of the
-//! section's nav they may see, and answers 403 when they may see none. Access's home is a page of
-//! its own (`crate::access`), and Catalog's opens on the dimensions (`crate::catalog`).
+//! admin-web's home and section homes. The home (`routes/index.tsx`) lists the sections the
+//! staff member may open, and sends someone with exactly one straight to it. Each section home
+//! (`routes/{commerce,growth,support,platform}-home.tsx`, `createAdminSectionHomeLoader`) sends
+//! them to the first page of the section's nav they may see, and answers 403 when they may see
+//! none. Access's home is a page of its own (`crate::access`), and Catalog's opens on the
+//! dimensions (`crate::catalog`).
 //!
 //! | Route | Answers | Needs |
 //! |---|---|---|
+//! | `GET /` | the sections' cards, none, or a redirect to the only one | signed-in staff |
 //! | `GET /commerce`, `/growth`, `/support`, `/platform` | a redirect to the section's first page the viewer may see | signed-in staff with an entry in the section |
 use corten::{http::StatusCode, prelude::*};
 
 use crate::{
     auth::{self, Viewer},
-    views::link_to,
+    text::{Pilot, SiteMsg},
+    views::{self, HomeSection, link_to},
 };
 
 #[corten::routes(state = crate::app::Shared, area = Commerce, caller = crate::auth::Viewer)]
@@ -52,4 +56,31 @@ async fn home(req: Req, Caller(viewer): Caller<Viewer>) -> HtmlResult {
         Some(to) => req.redirect(&to.parse::<corten::http::Uri>().map_err(corten::Error::new)?),
         None => Err(corten::Error::status(StatusCode::FORBIDDEN)),
     }
+}
+
+/// admin-web's home: someone with one section goes to it; anyone else gets the sections' cards,
+/// or the page saying they may open none.
+pub(crate) async fn index(req: Req, Caller(viewer): Caller<Viewer>) -> HtmlResult {
+    let sections = auth::sections(&viewer);
+    if let [only] = sections.as_slice() {
+        let to = link_to(&req, &format!("/{only}")).ok_or_else(|| corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR))?;
+        return req.redirect(&to.parse::<corten::http::Uri>().map_err(corten::Error::new)?);
+    }
+    let p: Pilot = req.t();
+    let cards: Vec<HomeSection> = sections
+        .iter()
+        .filter_map(|section| {
+            Some(HomeSection {
+                label: views::section_label(p, section),
+                href: link_to(&req, &format!("/{section}"))?,
+                id: format!("home-{section}"),
+            })
+        })
+        .collect();
+    let t: SiteMsg = req.t();
+    req.page(html! {
+        <views::Layout req={&req} viewer={Some(&viewer)} title={p.shell_admin()} head="">
+            <views::IndexPage t={t} sections={&cards} />
+        </views::Layout>
+    })
 }

@@ -225,9 +225,9 @@
 //   marketplace.app.routes.manifest.description as manifest_description).
 // - marketplace/static/icons/: marketplace-web's four app icons (public/icons), which its manifest names.
 // - admin/favicon.svg: the same logo, admin-web's favicon. Not committed (see GENERATED).
-// - admin/locales/site.en.json: admin-web's offline page and its web app manifest's description
-//   (adminWeb.app.routes.offline.* as offline.*, and adminWeb.app.routes.manifest.description as
-//   manifest_description).
+// - admin/locales/site.en.json: admin-web's offline page, its home (the sections), and its web app
+//   manifest's description (adminWeb.app.routes.offline.* as offline.*, adminWeb.app.routes.index.*
+//   as index.*, and adminWeb.app.routes.manifest.description as manifest_description).
 // - admin/static/icons/: admin-web's four app icons (public/icons), which its manifest names.
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
@@ -1842,6 +1842,7 @@ const outputs = [
     json(
       await catalog("admin-web.ts", "adminWebEnglishTranslations", [
         ["adminWeb.app.routes.offline.", "offline"],
+        ["adminWeb.app.routes.index.", "index"],
         ["adminWeb.app.routes.manifest.description", "manifest_description"],
       ]),
     ),

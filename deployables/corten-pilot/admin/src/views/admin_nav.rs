@@ -26,7 +26,8 @@ fn section_of(path: &str) -> &'static str {
     auth::SECTIONS.into_iter().find(|s| *s == first).unwrap_or("commerce")
 }
 
-fn section_label(p: Pilot, section: &str) -> &'static str {
+/// A section's name, in the bar and on the home's cards.
+pub fn section_label(p: Pilot, section: &str) -> &'static str {
     match section {
         "access" => p.section_access(),
         "catalog" => p.section_catalog(),
@@ -37,20 +38,21 @@ fn section_label(p: Pilot, section: &str) -> &'static str {
     }
 }
 
-/// admin-web's frame: the sections the viewer can open, and the pages of the one the page is in
-/// (catalog or commerce). An entry links to the pilot's page when the pilot serves its path, and to
-/// admin-web's otherwise.
+/// admin-web's frame: the sections the viewer can open, and the pages of the one the page is in.
+/// The home (`/`) is admin-web's root shell, the bar only, so it has no section pages. An entry
+/// links to the pilot's page when the pilot serves its path, and to admin-web's otherwise; the
+/// brand is the pilot's home.
 ///
 /// The top bar is the kit's `NavBar`, which draws the current section from `aria-current="page"`.
 /// Every section home is the pilot's (`crate::sections`), so Corten marks both bars
 /// (`req.nav_of`, each entry current on the pages under it) and moves the marks after a client
-/// navigation. A page the pilot does not serve (Catalog's integrations) is a plain link to
-/// admin-web, never current.
+/// navigation. A page the pilot does not serve is a plain link to admin-web, never current.
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     let sections = auth::sections(viewer);
     let here = section_of(req.path());
-    let items = auth::section_items(viewer, here);
+    let home = req.path() == "/";
+    let items = if home { Vec::new() } else { auth::section_items(viewer, here) };
     let m: SignInMsg = req.t();
     // Each bar is one group: its entries the pilot serves, each current on the pages under it.
     let top_entries: Vec<(Local, &str)> =
@@ -65,7 +67,7 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
         let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
         let side: HashMap<&str, NavLink<'_>> = side_marks.links().map(|(link, key)| (*key, link)).collect();
         <header class={NavBar {}}>
-            <a class={NavBrand {}} href={admin_web("/").map(|u| u.to_string()).unwrap_or_default()}>
+            <a class={NavBrand {}} href={link_to(req, "/").unwrap_or_default()}>
                 {p.shell_admin()}
                 <span class={Tag}>{p.shell_pilot()}</span>
             </a>
@@ -100,30 +102,32 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
                 </details>
             </div>
         </header>
-        <nav class={Side} aria-label={p.shell_section_navigation(section_label(p, here))}>
-            <ul>
-                for (item, children) in &items {
-                    let away = (!side.contains_key(item.key.as_str())).then(|| link(req, here, item)).flatten();
-                    <li>
-                        if let Some(marked) = side.get(item.key.as_str()) {
-                            <a class={Item} {..marked}>{&item.label}</a>
-                        } else if let Some(href) = &away {
-                            <a class={Item} href={href}>{&item.label}</a>
-                        } else {
-                            <span class={Group}>{&item.label}</span>
-                        }
-                        if !children.is_empty() {
-                            <ul>
-                                for child in children {
-                                    if let Some(href) = link(req, here, child) {
-                                        <li><a class={Item} href={&href}>{&child.label}</a></li>
+        if !home {
+            <nav class={Side} aria-label={p.shell_section_navigation(section_label(p, here))}>
+                <ul>
+                    for (item, children) in &items {
+                        let away = (!side.contains_key(item.key.as_str())).then(|| link(req, here, item)).flatten();
+                        <li>
+                            if let Some(marked) = side.get(item.key.as_str()) {
+                                <a class={Item} {..marked}>{&item.label}</a>
+                            } else if let Some(href) = &away {
+                                <a class={Item} href={href}>{&item.label}</a>
+                            } else {
+                                <span class={Group}>{&item.label}</span>
+                            }
+                            if !children.is_empty() {
+                                <ul>
+                                    for child in children {
+                                        if let Some(href) = link(req, here, child) {
+                                            <li><a class={Item} href={&href}>{&child.label}</a></li>
+                                        }
                                     }
-                                }
-                            </ul>
-                        }
-                    </li>
-                }
-            </ul>
-        </nav>
+                                </ul>
+                            }
+                        </li>
+                    }
+                </ul>
+            </nav>
+        }
     }
 }

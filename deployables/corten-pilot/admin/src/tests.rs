@@ -2127,6 +2127,43 @@ async fn the_top_bar_is_the_kits_with_the_pages_section_current() {
 }
 
 #[tokio::test]
+async fn the_home_lists_the_sections_the_viewer_may_open_and_sends_one_with_one_straight_there() {
+    let pilot = Pilot::new().await;
+    let location = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    // Catalog and Commerce, in admin-web's order, each a card whose Open is the pilot's section home.
+    let (status, _, html) = pilot.send(get("/", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<h1>Admin sections</h1>"), "{html}");
+    let main = &html[html.find("<main>").unwrap()..];
+    let (catalog, commerce) = (main.find(r#"href="/catalog""#).unwrap(), main.find(r#"href="/commerce""#).unwrap());
+    assert!(catalog < commerce, "{main}");
+    assert!(
+        main.contains(r#"aria-describedby="home-catalog""#)
+            && main.contains(r#"id="home-commerce" class="index-page__name">Commerce</h2>"#),
+        "{main}"
+    );
+    assert!(
+        !main.contains(r#"href="/access""#) && !main.contains(r#"href="/platform""#),
+        "only what the viewer may open: {main}"
+    );
+    // admin-web's root shell: the bar, and no section's pages under it.
+    assert!(!html.contains("admin-nav__side"), "no section nav on the home: {html}");
+    let bar = &html[html.find("<header").unwrap()..html.find("</header>").unwrap()];
+    assert!(bar.contains(r#"<a class="nav-bar__brand" href="/">"#), "the brand is the pilot's home: {bar}");
+    // One section: straight to it, as admin-web's loader does.
+    let (status, headers, _) = pilot.send(get("/", Some("ops"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/platform"));
+    // None: the page says so, with no cards.
+    let (status, _, html) = pilot.send(get("/", Some("reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("No admin sections available") && !html.contains("Admin sections</h1>"), "{html}");
+    // Someone not signed in signs in first.
+    let (status, headers, _) = pilot.send(get("/", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(location(&headers).contains("sign-in"), "{headers:?}");
+}
+
+#[tokio::test]
 async fn a_section_home_opens_its_first_page_the_viewer_may_see() {
     let pilot = Pilot::new().await;
     let location = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
