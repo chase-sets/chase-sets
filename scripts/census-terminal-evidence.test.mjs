@@ -6,6 +6,7 @@ import {
   METHOD,
   RECEIPT,
   certifyCensusTerminal,
+  githubGet,
   instant,
   readAttemptJobs,
   readTerminalEvidence,
@@ -363,6 +364,40 @@ function changeDelete(f, mutate) {
 const read = (f) => readTerminalEvidence(f.envelope, f.admitted);
 
 describe("census terminal evidence synthetic controls", () => {
+  it("Source transport: bounded GET rejects redirects and retains no authorization headers", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url, options });
+      return {
+        status: 200,
+        text: async () => '{"synthetic":true}',
+        headers: new Headers({
+          ...headers,
+          authorization: "synthetic-not-a-credential",
+          "set-cookie": "synthetic-not-a-cookie",
+        }),
+      };
+    };
+    try {
+      const url = `https://api.github.com/repos/${repository}/actions/runs/900000000000001`;
+      const record = await githubGet(url, "synthetic-not-a-credential");
+      expect(calls).toHaveLength(1);
+      expect(calls[0].options).toMatchObject({
+        method: "GET",
+        redirect: "error",
+        headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+      });
+      expect(calls[0].options.signal).toBeInstanceOf(AbortSignal);
+      expect(record.headers).not.toHaveProperty("authorization");
+      expect(record.headers).not.toHaveProperty("set-cookie");
+      expect(record.sha256).toBe(sha256(record.body));
+      expect(instant(record.captureCompletedAt).ticks).toBeGreaterThanOrEqual(instant(record.captureStartedAt).ticks);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("No run/cancel: affirmative N7 has no future V identity, UID, W, D, acknowledgement or schedule precondition", () => {
     const f = fixture();
     const e = f.envelope;
