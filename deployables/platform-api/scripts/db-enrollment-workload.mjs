@@ -547,9 +547,16 @@ export function resolveHostedPostgresSettings(workflow, read) {
         throw new Error("ambiguous or mixed PostgreSQL preparation owner");
       }
       const caller = job.steps.find((step) => step.run === calls[0]);
-      const directory = caller["working-directory"] ?? job.defaults?.run?.["working-directory"] ?? definition.defaults?.run?.["working-directory"];
+      const directory =
+        caller["working-directory"] ??
+        job.defaults?.run?.["working-directory"] ??
+        definition.defaults?.run?.["working-directory"];
       const shell = caller.shell ?? job.defaults?.run?.shell ?? definition.defaults?.run?.shell;
-      if (caller.if !== undefined || (directory !== undefined && directory !== ".") || (shell !== undefined && shell !== "bash")) {
+      if (
+        caller.if !== undefined ||
+        (directory !== undefined && directory !== ".") ||
+        (shell !== undefined && shell !== "bash")
+      ) {
         throw new Error("unbound PostgreSQL preparation caller context");
       }
       const source = read("scripts/pr-checks/db-tests.sh")?.toString("utf8").replaceAll("\r\n", "\n");

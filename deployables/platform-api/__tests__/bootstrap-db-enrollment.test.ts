@@ -3831,37 +3831,57 @@ describe("Platform API bootstrap DB enrollment", () => {
       );
     });
 
-    it.each(["missing", "unreadable", "duplicate", "malformed", "unbound", "mixed", "ambiguous", "working directory", "conditional caller", "wrong shell"])(
-      "refuses %s PostgreSQL preparation ownership without fallback",
-      (kind) => {
-        let workflow = workflowSource();
-        let source: string | null = ownerSource();
-        if (kind === "missing") source = null;
-        if (kind === "duplicate") source += "\n  prepare)\n    target_max_connections=300\n    ;;\n";
-        if (kind === "malformed")
-          source = source!.replace("target_max_connections=300", "target_max_connections=unknown");
-        if (kind === "unbound") workflow = workflow.replace("db-tests.sh prepare", "db-tests.sh other");
-        if (kind === "working directory") workflow = workflow.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "working-directory: elsewhere\n        run: bash scripts/pr-checks/db-tests.sh prepare");
-        if (kind === "conditional caller") workflow = workflow.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "if: false\n        run: bash scripts/pr-checks/db-tests.sh prepare");
-        if (kind === "wrong shell") workflow = workflow.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "shell: python\n        run: bash scripts/pr-checks/db-tests.sh prepare");
-        if (kind === "mixed")
-          workflow = workflow.replace(
-            "run: bash scripts/pr-checks/db-tests.sh prepare",
-            "run: |\n          bash scripts/pr-checks/db-tests.sh prepare\n          target_max_connections=300",
-          );
-        if (kind === "ambiguous")
-          source = source!.replace(
-            "target_max_connections=300",
-            "target_max_connections=300\n    target_max_connections=200",
-          );
-        const result = resolveHostedPostgresSettings(workflow, () => {
-          if (kind === "unreadable") throw new Error("synthetic unreadable owner");
-          return source;
-        });
-        expect(result.values).toBeNull();
-        expect(result.gaps).toHaveLength(1);
-      },
-    );
+    it.each([
+      "missing",
+      "unreadable",
+      "duplicate",
+      "malformed",
+      "unbound",
+      "mixed",
+      "ambiguous",
+      "working directory",
+      "conditional caller",
+      "wrong shell",
+    ])("refuses %s PostgreSQL preparation ownership without fallback", (kind) => {
+      let workflow = workflowSource();
+      let source: string | null = ownerSource();
+      if (kind === "missing") source = null;
+      if (kind === "duplicate") source += "\n  prepare)\n    target_max_connections=300\n    ;;\n";
+      if (kind === "malformed")
+        source = source!.replace("target_max_connections=300", "target_max_connections=unknown");
+      if (kind === "unbound") workflow = workflow.replace("db-tests.sh prepare", "db-tests.sh other");
+      if (kind === "working directory")
+        workflow = workflow.replace(
+          "run: bash scripts/pr-checks/db-tests.sh prepare",
+          "working-directory: elsewhere\n        run: bash scripts/pr-checks/db-tests.sh prepare",
+        );
+      if (kind === "conditional caller")
+        workflow = workflow.replace(
+          "run: bash scripts/pr-checks/db-tests.sh prepare",
+          "if: false\n        run: bash scripts/pr-checks/db-tests.sh prepare",
+        );
+      if (kind === "wrong shell")
+        workflow = workflow.replace(
+          "run: bash scripts/pr-checks/db-tests.sh prepare",
+          "shell: python\n        run: bash scripts/pr-checks/db-tests.sh prepare",
+        );
+      if (kind === "mixed")
+        workflow = workflow.replace(
+          "run: bash scripts/pr-checks/db-tests.sh prepare",
+          "run: |\n          bash scripts/pr-checks/db-tests.sh prepare\n          target_max_connections=300",
+        );
+      if (kind === "ambiguous")
+        source = source!.replace(
+          "target_max_connections=300",
+          "target_max_connections=300\n    target_max_connections=200",
+        );
+      const result = resolveHostedPostgresSettings(workflow, () => {
+        if (kind === "unreadable") throw new Error("synthetic unreadable owner");
+        return source;
+      });
+      expect(result.values).toBeNull();
+      expect(result.gaps).toHaveLength(1);
+    });
 
     const fixturesPath = "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex";
     const seedingPath = "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts";
