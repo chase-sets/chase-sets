@@ -243,7 +243,11 @@ function preparationWorkflowEntries(lines, indent) {
     const match = line.match(new RegExp(`^ {${indent}}([A-Za-z_][A-Za-z0-9_-]*):(?: +(.*))?$`));
     if (!match || entries.has(match[1])) throw new Error("unsupported or duplicate workflow mapping");
     const start = ++index;
-    while (index < lines.length && (!lines[index].trim() || /^ *#/.test(lines[index]) || lines[index].search(/\S/) > indent)) index++;
+    while (
+      index < lines.length &&
+      (!lines[index].trim() || /^ *#/.test(lines[index]) || lines[index].search(/\S/) > indent)
+    )
+      index++;
     entries.set(match[1], { value: match[2] ?? "", lines: lines.slice(start, index) });
   }
   return entries;
@@ -260,9 +264,13 @@ function preparationWorkflowLiteral(entry, indent) {
   if (/^[|>][-+]?(?: +#.*)?$/.test(value)) {
     const lines = entry.lines.filter((line) => line.trim());
     if (lines.some((line) => !line.startsWith(" ".repeat(indent)))) throw new Error("unsupported caller block");
-    return lines.map((line) => line.slice(indent)).join("\n").trim();
+    return lines
+      .map((line) => line.slice(indent))
+      .join("\n")
+      .trim();
   }
-  if (entry.lines.some((line) => line.trim() && !line.trimStart().startsWith("#"))) throw new Error("unsupported multiline caller value");
+  if (entry.lines.some((line) => line.trim() && !line.trimStart().startsWith("#")))
+    throw new Error("unsupported multiline caller value");
   const match = value.match(/^(?:"([^"\\]*)"|'([^']*)')(?: +#.*)?$/);
   if (!match && /^[A-Za-z0-9_./]/.test(value)) return value.replace(/ +#.*$/, "").trim();
   if (!match) throw new Error("unsupported caller value");
@@ -274,7 +282,8 @@ function preparationWorkflowDefaults(mapping, indent) {
   const defaults = preparationWorkflowMapping(mapping.get("defaults"), indent);
   if (defaults.size !== 1 || !defaults.has("run")) throw new Error("unsupported caller defaults");
   const run = preparationWorkflowMapping(defaults.get("run"), indent + 2);
-  if ([...run.keys()].some((key) => !["shell", "working-directory"].includes(key))) throw new Error("unsupported run defaults");
+  if ([...run.keys()].some((key) => !["shell", "working-directory"].includes(key)))
+    throw new Error("unsupported run defaults");
   return new Map([...run].map(([key, entry]) => [key, preparationWorkflowLiteral(entry, indent + 4)]));
 }
 
@@ -285,7 +294,8 @@ function preparationWorkflowCaller(source, owner) {
   const workflowDefaults = preparationWorkflowDefaults(workflow, 2);
   const jobDefaults = preparationWorkflowDefaults(job, 6);
   const stepsEntry = job.get("steps");
-  if (!stepsEntry || (stepsEntry.value && !stepsEntry.value.startsWith("#"))) throw new Error("unsupported caller steps");
+  if (!stepsEntry || (stepsEntry.value && !stepsEntry.value.startsWith("#")))
+    throw new Error("unsupported caller steps");
   const steps = [];
   for (const line of stepsEntry.lines) {
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
@@ -298,13 +308,24 @@ function preparationWorkflowCaller(source, owner) {
   const parsed = steps.map((lines) => preparationWorkflowEntries(lines, 8));
   const runs = parsed.map((step) => preparationWorkflowLiteral(step.get("run"), 10));
   const callers = parsed.filter((_step, index) => /\bdb-tests\.sh\s+prepare\b/.test(runs[index] ?? ""));
-  if (callers.length !== 1 || runs.some((run) => /target_max_(?:connections|locks_per_transaction)\s*=/.test(run ?? ""))) throw new Error("missing, ambiguous, mixed or unbound prepare caller");
+  if (
+    callers.length !== 1 ||
+    runs.some((run) => /target_max_(?:connections|locks_per_transaction)\s*=/.test(run ?? ""))
+  )
+    throw new Error("missing, ambiguous, mixed or unbound prepare caller");
   const caller = callers[0];
-  if (preparationWorkflowLiteral(caller.get("run"), 10) !== `bash ${owner} prepare` || caller.has("if") || caller.has("uses")) throw new Error("unbound prepare caller");
-  const context = (key) => preparationWorkflowLiteral(caller.get(key), 10) ?? jobDefaults.get(key) ?? workflowDefaults.get(key);
+  if (
+    preparationWorkflowLiteral(caller.get("run"), 10) !== `bash ${owner} prepare` ||
+    caller.has("if") ||
+    caller.has("uses")
+  )
+    throw new Error("unbound prepare caller");
+  const context = (key) =>
+    preparationWorkflowLiteral(caller.get(key), 10) ?? jobDefaults.get(key) ?? workflowDefaults.get(key);
   const directory = context("working-directory");
   const shell = context("shell");
-  if ((directory !== undefined && directory !== ".") || (shell !== undefined && shell !== "bash")) throw new Error("unbound prepare caller context");
+  if ((directory !== undefined && directory !== ".") || (shell !== undefined && shell !== "bash"))
+    throw new Error("unbound prepare caller context");
 }
 
 function requireRelocatedDbPreparation(baseDir) {

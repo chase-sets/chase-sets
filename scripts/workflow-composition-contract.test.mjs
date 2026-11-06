@@ -186,10 +186,16 @@ describe("workflow composition contract inventory", () => {
     expect(git("diff", "--name-only", head, "--", ...changedFiles)).toBe("");
     const tree = git("rev-parse", `${head}^{tree}`);
     expect(tree).toMatch(/^[a-f0-9]{40}$/);
-    const outputMap = (text) => Object.fromEntries(text.trimEnd().split("\n").map((line) => {
-      const split = line.indexOf("=");
-      return [line.slice(0, split), line.slice(split + 1)];
-    }));
+    const outputMap = (text) =>
+      Object.fromEntries(
+        text
+          .trimEnd()
+          .split("\n")
+          .map((line) => {
+            const split = line.indexOf("=");
+            return [line.slice(0, split), line.slice(split + 1)];
+          }),
+      );
     try {
       const outputs = [];
       for (const event of ["pull_request", "merge_group"]) {
@@ -223,14 +229,23 @@ describe("workflow composition contract inventory", () => {
           GITHUB_OUTPUT: planOutput,
         });
         expect(plan.status, plan.error).toBe(0);
-        const expectedPlan = ciGatePlanOutputMap(createCiGatePlan({
-          mode,
-          provenance: mode === "pull-request" ? "same-repository" : undefined,
-          labels: [],
-          scope: JSON.parse(scope.scope_json),
-        }));
-        expect(readFileSync(planOutput, "utf8")).toBe(Object.entries(expectedPlan).map(([key, value]) => `${key}=${value}\n`).join(""));
-        expect(outputMap(readFileSync(planOutput, "utf8"))).toMatchObject({unit_tests_required: "true", db_tests_required: "true"});
+        const expectedPlan = ciGatePlanOutputMap(
+          createCiGatePlan({
+            mode,
+            provenance: mode === "pull-request" ? "same-repository" : undefined,
+            labels: [],
+            scope: JSON.parse(scope.scope_json),
+          }),
+        );
+        expect(readFileSync(planOutput, "utf8")).toBe(
+          Object.entries(expectedPlan)
+            .map(([key, value]) => `${key}=${value}\n`)
+            .join(""),
+        );
+        expect(outputMap(readFileSync(planOutput, "utf8"))).toMatchObject({
+          unit_tests_required: "true",
+          db_tests_required: "true",
+        });
       }
       expect(outputs[0]).toBe(outputs[1]);
       expect(outputs[0]).toContain("db_tests=true\n");
@@ -243,9 +258,15 @@ describe("workflow composition contract inventory", () => {
 
   it("loads the complete bootstrap runtime closure and classifies owner-only deltas without packages, rejecting the stopped source", () => {
     const entries = [
-      "change-scope.mjs", "ci-gate-plan.mjs", "pr-checks/required-jobs.mjs", "pr-release-status.mjs",
-      "release-qualification-scope.mjs", "merge-qualification.mjs", "release-deployment-scope.mjs",
-      "release-health-github-metadata.mjs", "release-health-delivery-health.mjs",
+      "change-scope.mjs",
+      "ci-gate-plan.mjs",
+      "pr-checks/required-jobs.mjs",
+      "pr-release-status.mjs",
+      "release-qualification-scope.mjs",
+      "merge-qualification.mjs",
+      "release-deployment-scope.mjs",
+      "release-health-github-metadata.mjs",
+      "release-health-delivery-health.mjs",
     ];
     const classifier = pathToFileURL(resolve("scripts/change-scope.mjs")).href;
     const program = `
@@ -281,10 +302,11 @@ describe("workflow composition contract inventory", () => {
         finally { fs.default.readFileSync = originalRead; syncBuiltinESMExports(); }
       }
       console.log('BOOTSTRAP_CLOSURE_AND_OWNER_OK');`;
-    const run = (stopped) => spawnSync(process.execPath, ["--input-type=module", "-e", program], {
-      encoding: "utf8",
-      env: { ...process.env, NODE_OPTIONS: bootstrapNodeOptions, BOOTSTRAP_STOPPED_SOURCE: stopped },
-    });
+    const run = (stopped) =>
+      spawnSync(process.execPath, ["--input-type=module", "-e", program], {
+        encoding: "utf8",
+        env: { ...process.env, NODE_OPTIONS: bootstrapNodeOptions, BOOTSTRAP_STOPPED_SOURCE: stopped },
+      });
     const negative = run("1");
     expect(negative.status).not.toBe(0);
     expect(negative.stderr).toContain("BOOTSTRAP_PACKAGE_DENIED: yaml");
@@ -295,10 +317,16 @@ describe("workflow composition contract inventory", () => {
       const {classifyChanges,toOutputMap} = await import(${JSON.stringify(classifier)});
       const {unit_test_workspaces,...outputs} = toOutputMap(classifyChanges({changedFiles:['README.md']}));
       console.log(JSON.stringify(outputs));`;
-    const parity = (main) => spawnSync(process.execPath, ["--input-type=module", "-e", parityProgram], {
-      encoding: "utf8",
-      env: { ...process.env, NODE_OPTIONS: bootstrapNodeOptions, BOOTSTRAP_STOPPED_SOURCE: "0", BOOTSTRAP_MAIN_SOURCE: main },
-    });
+    const parity = (main) =>
+      spawnSync(process.execPath, ["--input-type=module", "-e", parityProgram], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NODE_OPTIONS: bootstrapNodeOptions,
+          BOOTSTRAP_STOPPED_SOURCE: "0",
+          BOOTSTRAP_MAIN_SOURCE: main,
+        },
+      });
     const original = parity("1");
     const unrelated = parity("0");
     expect(original.status, original.stderr).toBe(0);
