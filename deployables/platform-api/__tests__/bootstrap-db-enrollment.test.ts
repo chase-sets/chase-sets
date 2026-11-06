@@ -4233,10 +4233,7 @@ describe("Platform API bootstrap DB enrollment", () => {
           if (["node_modules", "dist", "artifacts"].includes(entry) || entry.startsWith(".")) continue;
           const absolute = join(repositoryRoot, path);
           if (statSync(absolute).isDirectory()) visit(path);
-          else if (
-            /\.(?:[cm]?[jt]sx?)$/.test(entry) &&
-            read(path).includes("db-enrollment-workload")
-          ) {
+          else if (/\.(?:[cm]?[jt]sx?)$/.test(entry) && read(path).includes("db-enrollment-workload")) {
             callers.push(path);
           }
         }
