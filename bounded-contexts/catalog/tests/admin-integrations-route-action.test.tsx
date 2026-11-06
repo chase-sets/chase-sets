@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { cleanup, fireEvent, isInaccessible, render, renderHook, screen, within } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
@@ -757,10 +757,47 @@ describe("Catalog integrations route", () => {
       const node = document.querySelector("[data-catalog-promotion-receipt]");
       expect(node).not.toBeNull();
       expect(readOriginalReceiptDom(node!)).toEqual(receipt);
+      const emptyArrayPaths =
+        coverage === "empty"
+          ? ["preview.validation.coveredObservationIds", "preview.validation.diagnostics"]
+          : ["preview.validation.diagnostics.1.displayIdentity.missingTokens"];
+      for (const path of emptyArrayPaths) {
+        const array = node!.querySelector(`[data-catalog-receipt-array="${path}"]`)!;
+        expect(isInaccessible(within(array as HTMLElement).getByText(path, { exact: true }))).toBe(false);
+        expect(isInaccessible(within(array as HTMLElement).getByText("None", { exact: true }))).toBe(false);
+      }
+      const nullField = node!.querySelector('[data-catalog-receipt-field="selection.scopeRecordId"]')!;
+      expect(nullField.textContent).toBe("null");
+      expect(isInaccessible(nullField)).toBe(false);
       expect(node?.querySelector("input,textarea,script,a")).toBeNull();
       expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
     },
   );
+
+  it.each([
+    [undefined, "Not returned"],
+    ["", "Empty string"],
+    ["synthetic-search", "synthetic-search"],
+  ] as const)("renders the localized scalar state for returned search %s", (search, expectedText) => {
+    const receipt = syntheticPromotionReceipt();
+    receipt.preview.scope.search = search;
+    const model = loaderData().readModel;
+    render(
+      <CatalogIntegrationCreateItemsStage
+        readModel={{ ...model, promotionPreview: { ...model.promotionPreview, previewId: receipt.previewId, receipt } }}
+        selectedObservationIds={receipt.selection.observationIds}
+      />,
+    );
+    const disclosure = screen
+      .getAllByRole("button", { name: /Preview promotion/ })
+      .find((button) => button.hasAttribute("aria-expanded"));
+    fireEvent.click(disclosure!);
+    const node = document.querySelector("[data-catalog-promotion-receipt]")!;
+    expect(readOriginalReceiptDom(node)).toEqual(receipt);
+    const field = node.querySelector('[data-catalog-receipt-field="preview.scope.search"]')!;
+    expect(field.textContent).toBe(expectedText);
+    expect(isInaccessible(field)).toBe(false);
+  });
 
   it("binds confirmation and execute to the action token, invalidates observed drift, and rebinds only a new Preview", async () => {
     window.sessionStorage.clear();

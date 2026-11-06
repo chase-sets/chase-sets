@@ -37,11 +37,11 @@ function ReceiptFields({ fields }: { fields: readonly (readonly [string, Receipt
             data-catalog-receipt-kind={value === null ? "null" : value === "" ? "empty-string" : typeof value}
           >
             {value === undefined
-              ? "Not returned"
+              ? t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.receipt.notReturned")
               : value === null
                 ? "null"
                 : value === ""
-                  ? "Empty string"
+                  ? t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.receipt.emptyString")
                   : String(value)}
           </WorkbenchText>
         ),
@@ -57,7 +57,7 @@ function ReceiptStringList({ path, values }: { path: string; values: readonly st
         {path}
       </WorkbenchText>
       {values.length === 0 ? (
-        <WorkbenchText size="xs">Empty array</WorkbenchText>
+        <WorkbenchText size="xs">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</WorkbenchText>
       ) : (
         <ReceiptFields fields={values.map((value, index) => [`${path}.${index}`, value])} />
       )}
@@ -123,7 +123,9 @@ function OriginalPromotionReceipt({ receipt }: { receipt: SourceObservationPromo
         <WorkbenchText size="xs" weight="semibold">
           preview.validation.diagnostics
         </WorkbenchText>
-        {validation.diagnostics.length === 0 ? <WorkbenchText size="xs">Empty array</WorkbenchText> : null}
+        {validation.diagnostics.length === 0 ? (
+          <WorkbenchText size="xs">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</WorkbenchText>
+        ) : null}
         {validation.diagnostics.map((diagnostic, index) => {
           const path = `preview.validation.diagnostics.${index}`;
           const identity = diagnostic.displayIdentity;
