@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -82,7 +83,7 @@ describeDb("settlement account risk source review-role SQL persistence boundary"
 
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ settlement: pool });
-    await pool.query(settlementModule.schemaSql);
+    await bootstrapContextDatabase(settlementModule, pool);
   });
 
   afterAll(async () => {
