@@ -1,0 +1,233 @@
+.panel {
+  display: grid;
+  gap: var(--space-4);
+  margin-block-end: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.title {
+  margin: 0;
+  font: 600 1.25rem/1.3 var(--font-display);
+}
+.description {
+  margin: var(--space-1) 0 0;
+  max-width: 60ch;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+.metric {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+.metric dt {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.metric dd {
+  margin: 0;
+}
+.value {
+  font: 600 1.25rem/1.4 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.trend {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+.scroll {
+  max-height: 32rem;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.table th {
+  position: sticky;
+  inset-block-start: 0;
+  padding: var(--space-2) var(--space-3);
+  text-align: start;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border);
+}
+.table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+.table tr:last-child td {
+  border-bottom: 0;
+}
+.item,
+.scope {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.item-title {
+  overflow-wrap: anywhere;
+}
+.muted {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+.actions form {
+  display: contents;
+}
+.small {
+  min-height: 2rem;
+  padding: 0 var(--space-3);
+  font-size: 0.875rem;
+}
+.secondary {
+  background: var(--color-secondary);
+  color: var(--color-secondary-foreground);
+  border-color: var(--color-border-strong);
+}
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-block-end: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid;
+  border-radius: var(--radius-lg);
+}
+.banner p,
+.unavailable p {
+  margin: 0;
+}
+.banner-title {
+  font-weight: 600;
+}
+.done {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.failed,
+.unavailable {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.unavailable {
+  display: grid;
+  gap: var(--space-1);
+  margin-block-end: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-lg);
+}
+.sheet {
+  display: grid;
+  gap: var(--space-4);
+}
+.sheet dl {
+  margin: 0;
+}
+.sheet dd {
+  overflow-wrap: anywhere;
+}
+.link {
+  justify-self: start;
+  font-weight: 600;
+}
+.park {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+}
+.reason {
+  display: grid;
+  flex: 1 1 12rem;
+  gap: var(--space-1);
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+/* A phone: each row a card, each cell under its heading. */
+@media (max-width: 40rem) {
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+  }
+  .table tr {
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .table tr:last-child {
+    border-bottom: 0;
+  }
+  .table td {
+    border-bottom: 0;
+  }
+  .table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+  }
+  .actions {
+    justify-content: flex-start;
+  }
+}

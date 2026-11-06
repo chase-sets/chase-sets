@@ -8,6 +8,8 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import { catalogIsoUtcListSql, catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
+import type { CatalogAttentionSourceWindow } from "../../attention-queue/read-model/attention-item";
+import { catalogAttentionItemParkedSql } from "../../attention-queue/read-model/dismissal-queries";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type { CatalogPromotionDisplayIdentityEvidence } from "../api/promotion/promotion-display-identity";
 import type {
@@ -337,6 +339,79 @@ export async function listCatalogMergeCandidates(
   ]);
 }
 
+// The columns an attention-queue merge item needs: blocking conflicts and members
+// are counted in SQL, so no conflict, membership or provenance payload is read.
+export type CatalogMergeCandidateAttentionRow = Readonly<{
+  candidate_id: string;
+  scope_record_id: string | null;
+  status: CatalogMergeCandidateStatus;
+  status_reason: string | null;
+  blocking_conflict_count: number;
+  observation_count: number;
+  created_at: string;
+  updated_at: string;
+  stale_at: string | null;
+}>;
+
+export type CatalogMergeCandidateAttentionPage = Readonly<{
+  conflictTotal: number;
+  staleTotal: number;
+  rows: readonly CatalogMergeCandidateAttentionRow[];
+}>;
+
+/**
+ * Attention queue: merge candidates in `has-conflicts` (critical) or `stale`
+ * (warning). Counts each status's unparked cohort and reads one window in queue
+ * order: conflicts before stale, oldest first within each, then candidate id.
+ */
+export async function readCatalogMergeCandidateAttentionWindow(
+  db: PgQueryable,
+  window: CatalogAttentionSourceWindow,
+): Promise<CatalogMergeCandidateAttentionPage> {
+  const cohort = `FROM catalog_merge_candidates c
+     WHERE c.status IN ('has-conflicts', 'stale')
+       AND NOT ${catalogAttentionItemParkedSql("'merge-conflict:' || c.candidate_id", "$1")}`;
+  const [count, page] = await Promise.all([
+    db.query<{ conflict_total: number; stale_total: number }>(
+      `SELECT COUNT(*) FILTER (WHERE c.status = 'has-conflicts')::integer AS conflict_total,
+              COUNT(*) FILTER (WHERE c.status = 'stale')::integer AS stale_total
+       ${cohort}`,
+      [window.now],
+    ),
+    window.limit > 0
+      ? db.query<CatalogMergeCandidateAttentionRow>(
+          `SELECT c.candidate_id,
+                  c.scope_record_id,
+                  c.status,
+                  c.status_reason,
+                  (SELECT COUNT(*)::integer
+                   FROM jsonb_array_elements(
+                     CASE WHEN jsonb_typeof(c.conflicts_json) = 'array' THEN c.conflicts_json ELSE '[]'::jsonb END
+                   ) AS conflict_entry(value)
+                   WHERE conflict_entry.value->>'severity' = 'blocking') AS blocking_conflict_count,
+                  (SELECT COUNT(*)::integer
+                   FROM catalog_merge_candidate_observations candidate_member
+                   WHERE candidate_member.candidate_id = c.candidate_id) AS observation_count,
+                  ${catalogIsoUtcTimestamp("c.created_at", "created_at")},
+                  ${catalogIsoUtcTimestamp("c.updated_at", "updated_at")},
+                  ${catalogIsoUtcTimestamp("c.stale_at", "stale_at")}
+           ${cohort}
+           ORDER BY (c.status = 'has-conflicts') DESC,
+                    CASE WHEN c.status = 'has-conflicts' THEN c.updated_at ELSE COALESCE(c.stale_at, c.updated_at) END ASC,
+                    c.candidate_id ASC
+           LIMIT $2 OFFSET $3`,
+          [window.now, window.limit, window.offset],
+        )
+      : Promise.resolve({ rows: [] }),
+  ]);
+
+  return {
+    conflictTotal: count.rows[0]?.conflict_total ?? 0,
+    staleTotal: count.rows[0]?.stale_total ?? 0,
+    rows: page.rows,
+  };
+}
+
 /**
  * Every Catalog Merge Candidate id in one scope whose projected status is one of
  * `statuses`, in candidate-id order. Bulk review jobs enumerate their work units
@@ -359,13 +434,35 @@ export async function listCatalogMergeCandidateIdsForScope(
   return result.rows.map((row) => row.candidate_id);
 }
 
+/** Candidate stream ids for the scope records touched by an import. The
+ * projection supplies discovery only; callers load each stream authoritatively
+ * before reconciling or appending it.
+ */
+export async function listCatalogMergeCandidateIdsForScopeRecords(
+  db: PgQueryable,
+  scopeRecordIds: readonly string[],
+): Promise<readonly string[]> {
+  const ids = [...new Set(scopeRecordIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) {
+    return [];
+  }
+  const result = await db.query<{ candidate_id: string }>(
+    `SELECT candidate_id
+     FROM catalog_merge_candidates
+     WHERE scope_record_id = ANY($1::text[])
+     ORDER BY candidate_id ASC`,
+    [ids],
+  );
+  return result.rows.map((row) => row.candidate_id).filter(Boolean);
+}
+
 export async function listSourceObservationsForCandidateMatching(
   db: PgQueryable,
   params: SourceObservationFilterScope = {},
 ): Promise<readonly SourceObservationListRow[]> {
   const filter = buildSourceObservationFilter(params, {
     includeListFilters: true,
-    statuses: ["observed", "changed", "promoted"],
+    statuses: CATALOG_MERGE_CANDIDATE_MATCHING_STATUSES,
   });
   const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
   const result = await db.query<SourceObservationListRow>(
@@ -376,6 +473,31 @@ export async function listSourceObservationsForCandidateMatching(
     filter.values,
   );
 
+  return result.rows;
+}
+
+export const CATALOG_MERGE_CANDIDATE_MATCHING_STATUSES = ["observed", "changed", "promoted"] as const;
+
+/**
+ * Reads the current source rows for an already-membered candidate set. The
+ * observation ids are supplied by the event-sourced candidate membership, not
+ * by the projection, so an absent row remains an explicit unknown to callers.
+ */
+export async function listSourceObservationsByIds(
+  db: PgQueryable,
+  observationIds: readonly string[],
+): Promise<readonly SourceObservationListRow[]> {
+  const ids = [...new Set(observationIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) {
+    return [];
+  }
+  const result = await db.query<SourceObservationListRow>(
+    `SELECT ${sourceObservationListColumns}
+     FROM catalog_source_observations
+     WHERE observation_id = ANY($1::text[])
+     ORDER BY observation_id ASC`,
+    [ids],
+  );
   return result.rows;
 }
 

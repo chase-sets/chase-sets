@@ -23,6 +23,7 @@ import type { OpsMarketAnalyticsCrossContextPort } from "../../features/insights
 import { createOfferEconomicsRuntime } from "../../features/offer-economics/api/offer-economics-runtime";
 import type { OfferEconomicsCrossContextPort } from "../../features/offer-economics/api/offer-economics-contracts";
 import { rateLimitPolicy } from "../../features/rate-limit-policy/domain/rate-limit-policy";
+import { sellerComplianceCohortPolicy } from "../../features/seller-compliance-cohorts/domain/seller-compliance-cohort-policy";
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
 import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
 import { supportDeadlinePolicy } from "../../features/support-requests/domain/support-deadline-policy";
@@ -161,6 +162,7 @@ export function createPlatformOperationsServices(
     rateLimitPolicy,
     supportDeadlinePolicy,
     platformRemedyPolicy,
+    sellerComplianceCohortPolicy,
   ] as unknown as readonly PolicyDefinition<JsonValue>[];
   const policyConsoleEntries: readonly PolicyConsoleEntry[] = [
     ...ownPolicyDefinitions.map(

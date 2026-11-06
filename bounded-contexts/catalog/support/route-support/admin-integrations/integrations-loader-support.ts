@@ -25,6 +25,7 @@ import type {
   SourceObservationIntegrationJobScope,
   SourceObservationIntegrationOptionResponse,
   SourceObservationPromotionValidation,
+  SourceObservationPromotionPreview,
 } from "../../../features/source-observations/ui/contracts";
 import type { SourceObservationPromotionOutcomeRecord } from "../../../features/source-observations/api/runtime";
 import {
@@ -187,6 +188,7 @@ async function finalizeSurfaceLoad(input: {
   mergeCandidates?: ListResponse<CatalogMergeCandidateListItem> | null;
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   promotionValidation?: SourceObservationPromotionValidation | null;
+  promotionPreviewFingerprint?: string | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   readModelFailures?: readonly CatalogPrimaryWorkbenchReadModelFailure[];
 }) {
@@ -205,6 +207,7 @@ async function finalizeSurfaceLoad(input: {
     mergeCandidates: input.mergeCandidates ?? null,
     promotionOutcome: input.promotionOutcome ?? null,
     promotionValidation: input.promotionValidation ?? null,
+    promotionPreviewFingerprint: input.promotionPreviewFingerprint ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: null,
     catalogSyncPreview: null,
@@ -261,14 +264,14 @@ export async function loadDailySurfaceForRequest(request: Request) {
     ? catalogApiResult(() => api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery), null)
     : Promise.resolve({ value: null, failed: false } as const);
   const mergeCandidateQuery = buildDailyMergeCandidateQuery(normalizedRouteContext);
-  const [reviewObservationResult, mergeCandidateResult, promotionOutcome, promotionValidation] = await Promise.all([
+  const [reviewObservationResult, mergeCandidateResult, promotionOutcome, currentPromotionPreview] = await Promise.all([
     reviewObservationPromise,
     catalogApiResult(
       () => api.listCatalogMergeCandidates<ListResponse<CatalogMergeCandidateListItem>>(mergeCandidateQuery),
       null,
     ),
     selectedPromotionOutcome(api, normalizedRouteContext),
-    selectedPromotionValidation(api, normalizedRouteContext),
+    selectedPromotionPreview(api, normalizedRouteContext),
   ]);
   const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...normalized.readModelFailures];
   if (reviewObservationResult.failed) {
@@ -286,7 +289,8 @@ export async function loadDailySurfaceForRequest(request: Request) {
     reviewObservations: reviewObservationResult.value,
     mergeCandidates: mergeCandidateResult.value,
     promotionOutcome,
-    promotionValidation,
+    promotionValidation: currentPromotionPreview?.validation ?? null,
+    promotionPreviewFingerprint: currentPromotionPreview?.fingerprint ?? null,
     reviewPagination,
     readModelFailures,
   });
@@ -567,17 +571,16 @@ async function selectedPromotionOutcome(
 // Re-fetched on load so the create/update stage always paints the current
 // per-observation verdicts (identity blockers, draft-only carries) rather than
 // a count-only eligibility. Fail-soft: absence renders as not-previewed.
-async function selectedPromotionValidation(
+async function selectedPromotionPreview(
   api: ReturnType<typeof createCatalogRequestApiClient>,
   context: CatalogPrimaryWorkbenchRouteContext,
-): Promise<SourceObservationPromotionValidation | null> {
+): Promise<SourceObservationPromotionPreview | null> {
   if (!context.promotionPreviewId) {
     return null;
   }
 
   try {
-    const preview = await previewPromotionForContext(api, context, context.selectedObservationIds);
-    return preview.validation;
+    return await previewPromotionForContext(api, context, context.selectedObservationIds);
   } catch {
     return null;
   }
@@ -632,6 +635,7 @@ type BuildSurfaceReadModelInput = Readonly<{
   mergeCandidates: ListResponse<CatalogMergeCandidateListItem> | null;
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   promotionValidation?: SourceObservationPromotionValidation | null;
+  promotionPreviewFingerprint?: string | null;
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   catalogSyncPreview: CatalogSyncProviderParticipationPreview | null;
@@ -683,6 +687,7 @@ function surfaceReadModelInput(
     mergeCandidates: failures.has("merge-candidate-review") ? null : input.mergeCandidates,
     promotionOutcome: input.promotionOutcome,
     promotionValidation: input.promotionValidation ?? null,
+    promotionPreviewFingerprint: input.promotionPreviewFingerprint ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages,
     catalogSyncPreview: input.catalogSyncPreview,

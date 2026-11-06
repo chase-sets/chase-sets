@@ -52,7 +52,8 @@ describe("isolates capture", () => {
     const run = job.steps.find((step) => step.id === "capture");
     expect(run.run).toContain("catalog-staging-count-lifecycle");
     const credentialKeys = ["CATALOG_ADMIN_E2E_EMAIL", "CATALOG_ADMIN_E2E_PASSWORD", "GH_TOKEN"];
-    expect(Object.keys(run.env ?? {}).sort()).toEqual(credentialKeys.slice().sort());
+    expect(Object.keys(run.env ?? {}).sort()).toEqual([...credentialKeys, "PLAYWRIGHT_BROWSERS_PATH"].sort());
+    expect(run.env.PLAYWRIGHT_BROWSERS_PATH).toBe("${{ runner.temp }}/playwright-chromium");
     const validate = job.steps.find((step) => step.id === "capture-receipt");
     expect(validate.run).toContain("validate");
     expect(Object.keys(validate.env ?? {}).sort()).toEqual(credentialKeys.slice().sort());

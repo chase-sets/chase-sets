@@ -20,6 +20,20 @@ const minimumNode24ActionVersions = new Map([
   ["pnpm/action-setup", "v6.0.0"],
 ]);
 
+// Exact normalized references to immutable same-repository composite actions.
+// Each entry was inspected at its pinned commit: runs.using is composite, so
+// there is no Node runtime or semantic release to attest, and the Node 24
+// allowlist above does not apply. Membership is exact string equality; any
+// other owner, repository, action path or ref (including another full SHA or a
+// different SHA spelling) stays under the Node 24 policy. Changing a pin means
+// re-inspecting that commit's action metadata and updating the workflow's
+// structural test literal together with this entry.
+const trustedCompositeActionReferences = new Set([
+  // Docker Hub guard run by the Compose exact-target receiver before it
+  // checks out target_sha.
+  "chase-sets/chase-sets/.github/actions/block-docker-hub@9763ba0932d3904493e02ba6cb1df9d5133626d9",
+]);
+
 const fullCommitShaPattern = /^[a-f0-9]{40}$/i;
 
 function walkYamlFiles(rootDir) {
@@ -373,6 +387,10 @@ function riskReviewPolicyViolations(filePath) {
 function validateActionUse(actionUse) {
   const value = actionUse.value;
   if (value.startsWith("./") || value.startsWith("docker://")) {
+    return null;
+  }
+
+  if (trustedCompositeActionReferences.has(value)) {
     return null;
   }
 

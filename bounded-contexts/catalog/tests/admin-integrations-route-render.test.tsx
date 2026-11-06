@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
@@ -18,6 +18,7 @@ import {
   profileReview,
   sourceObservationListItem,
   sourceObservationScope,
+  syntheticPromotionReceipt,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../features/source-observations/ui/contracts";
 import { isActionAvailable } from "../features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls";
@@ -52,6 +53,7 @@ const {
   mockUseNavigate,
   mockUseRouteLoaderData,
   mockUseActionData,
+  mockUseNavigation,
 } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),
   mockIsTransientAuthResolutionError: vi.fn(),
@@ -60,6 +62,7 @@ const {
   mockUseNavigate: vi.fn(),
   mockUseRouteLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
+  mockUseNavigation: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -70,6 +73,7 @@ vi.mock("react-router", async () => {
     useNavigate: () => mockUseNavigate,
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
+    useNavigation: mockUseNavigation,
     // The import-jobs module polls live progress via useRevalidator and the daily
     // import-context form submits context changes via useSubmit; outside a data
     // router (this bare render) both need a stub so the workbench still renders.
@@ -94,10 +98,12 @@ describe("Catalog integrations route", () => {
     mockUseNavigate.mockReset();
     mockUseRouteLoaderData.mockReset();
     mockUseActionData.mockReset();
+    mockUseNavigation.mockReset();
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
     mockIsTransientAuthResolutionError.mockReturnValue(false);
     mockResolveActorFromAuthApi.mockResolvedValue({
       permissions: ["catalog.view", "catalog.manage"],
@@ -189,7 +195,7 @@ describe("Catalog integrations route", () => {
     expect(screen.getByText(/Catalog sync could not start for the selected provider scope/i)).toBeTruthy();
   });
 
-  it("replaces the daily URL when preview-ready action data carries a routable checkpoint", async () => {
+  it("retains Preview evidence in place without navigating or putting its token in links", () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
     const requestUrl =
@@ -198,24 +204,48 @@ describe("Catalog integrations route", () => {
     mockUseRouteLoaderData.mockReturnValue({
       actor: { permissions: ["catalog.view", "catalog.manage"] },
     });
+    const receipt = syntheticPromotionReceipt({ previewId: "preview_001" });
     mockUseActionData.mockReturnValue({
       feedback: { status: "success", intent: "observation.promote", result: "preview-ready" },
       context: parseCatalogPrimaryWorkbenchRouteContext(
         `${requestUrl}&selectedObservationIds=obs_001&promotionPreviewId=preview_001`,
       ),
       section: "import-to-promotion",
+      promotionReceipt: receipt,
     });
 
-    render(<IntegrationsRoute />);
-
-    await waitFor(() => expect(mockUseNavigate).toHaveBeenCalledTimes(1));
-    const [href, options] = mockUseNavigate.mock.calls[0] ?? [];
-    const target = new URL(String(href), "https://admin.example");
-    expect(options).toEqual({ replace: true });
-    expect(target.pathname).toBe("/catalog/integrations");
-    expect(target.searchParams.get("selectedObservationIds")).toBe("obs_001");
-    expect(target.searchParams.get("promotionPreviewId")).toBe("preview_001");
-    expect(target.searchParams.get("commandResult")).toBe("preview-ready");
+    const { rerender } = render(<IntegrationsRoute />);
+    const disclosure = screen
+      .getAllByRole("button", { name: /Preview promotion/ })
+      .find((button) => button.hasAttribute("aria-expanded"));
+    expect(disclosure).toBeTruthy();
+    fireEvent.click(disclosure!);
+    const receiptNode = document.querySelector(
+      '[data-catalog-promotion-receipt="source-observation-promotion-receipt/v1"]',
+    );
+    expect(receiptNode).not.toBeNull();
+    expect(receiptNode?.querySelector('[data-catalog-receipt-field="previewId"]')?.textContent).toBe("preview_001");
+    expect(receiptNode?.querySelector('[data-catalog-receipt-field="preview.fingerprint"]')?.textContent).toBe(
+      receipt.preview.fingerprint,
+    );
+    const executeToken = document
+      .querySelector<HTMLInputElement>('form input[name="promotionPhase"][value="execute"]')
+      ?.form?.querySelector<HTMLInputElement>('input[name="promotionPreviewId"]');
+    expect(executeToken?.value).toBe(receipt.previewId);
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+    for (const link of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+      expect(link.href).not.toContain("promotionPreviewId");
+      expect(link.href).not.toContain(receipt.previewId);
+    }
+    mockUseNavigation.mockReturnValue({ state: "submitting" });
+    rerender(<IntegrationsRoute />);
+    expect(
+      document
+        .querySelector("[data-catalog-promotion-receipt-state]")
+        ?.getAttribute("data-catalog-promotion-receipt-state"),
+    ).toBe("stale");
+    expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+    expect(mockUseNavigate).not.toHaveBeenCalled();
   });
 
   it("round-trips a submitted promotion through its routable job id to the rendered durable outcome", async () => {
@@ -627,7 +657,7 @@ describe("Catalog integrations route", () => {
     const rejectForm = document.querySelector<HTMLFormElement>('form[data-attention-resolution="alias.reject"]');
     expect(acceptForm?.getAttribute("action")).toBe(expectedActionHref);
     expect(rejectForm?.getAttribute("action")).toBe(expectedActionHref);
-    expect(acceptForm?.querySelector<HTMLInputElement>('input[name="aliasHash"]')?.value).toBe("h1");
+    expect(acceptForm?.querySelector<HTMLInputElement>('input[name="aliasHashes"]')?.value).toBe("h1");
     expect(rejectForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.value).toBe("Reject");
     const acceptButtons = attentionCommandButtons("alias.accept");
     const rejectButtons = attentionCommandButtons("alias.reject");
@@ -654,6 +684,54 @@ describe("Catalog integrations route", () => {
     expect(rejectButtons.length).toBeGreaterThan(0);
     expect(acceptButtons.map((button) => button.disabled)).toEqual(acceptButtons.map(() => true));
     expect(rejectButtons.map((button) => button.disabled)).toEqual(rejectButtons.map(() => true));
+  });
+
+  it("labels exact cohort totals beyond the summary window without page links on the daily mount", async () => {
+    const queue = catalogAttentionQueueReadModelFixture(undefined, undefined, {
+      cohorts: { "alias-candidate": { total: 5027 } },
+    });
+    // Even a result that carried navigation would not add page links here.
+    await renderDailyRouteWithAttention(
+      Promise.resolve({
+        status: "ready",
+        readModel: queue,
+        navigation: { pathname: "/catalog/integrations", search: "providerKey=tcgdex" },
+      }),
+    );
+
+    expect(await screen.findByText("5,028 need you")).toBeTruthy();
+    const aliasCoverage = document.querySelector<HTMLElement>('[data-attention-coverage-kind="alias-candidate"]');
+    expect(aliasCoverage?.textContent).toContain("Showing 1 of 5,027");
+    expect(queue.coverage["alias-candidate"].nextOffset).toBe(1);
+    expect(document.querySelectorAll("[data-attention-page]")).toHaveLength(0);
+    expect(screen.queryByText(/at least/i)).toBeNull();
+    // Action keys are unchanged by the window.
+    expect(attentionCommandButtons("alias.accept").length).toBeGreaterThan(0);
+    expect(attentionCommandButtons("alias.reject").length).toBeGreaterThan(0);
+  });
+
+  it("labels an incomplete job snapshot as at least N and an incomplete zero as unknown work", async () => {
+    const bounded = catalogAttentionQueueReadModelFixture(undefined, undefined, {
+      cohorts: { "import-job": { totalKind: "lower-bound" } },
+    });
+    await renderDailyRouteWithAttention(Promise.resolve({ status: "ready", readModel: bounded }));
+    expect(await screen.findByText("At least 2 need you")).toBeTruthy();
+    expect(screen.getAllByText("Some import jobs could not be checked.").length).toBeGreaterThan(0);
+    expect(screen.queryByText(ATTENTION_EMPTY_TITLE)).toBeNull();
+    cleanup();
+
+    const incompleteZero = catalogAttentionQueueReadModelFixture([], undefined, {
+      cohorts: { "import-job": { totalKind: "lower-bound" } },
+    });
+    await renderDailyRouteWithAttention(Promise.resolve({ status: "ready", readModel: incompleteZero }));
+    expect(await screen.findByText("At least 0 need you")).toBeTruthy();
+    expect(document.querySelector('[data-attention-incomplete="true"]')?.textContent).toContain(
+      "Some import jobs could not be checked.",
+    );
+    expect(screen.queryByText(ATTENTION_EMPTY_TITLE)).toBeNull();
+    expect(screen.queryByText(/running itself/i)).toBeNull();
+    expect(screen.queryByText(ATTENTION_UNAVAILABLE_TITLE)).toBeNull();
+    expect(attentionSlotMarkers()).toEqual({ panel: 1, unavailable: 0, loading: 0 });
   });
 
   it("contains rejected supplementary slots without unmounting the workbench", async () => {
