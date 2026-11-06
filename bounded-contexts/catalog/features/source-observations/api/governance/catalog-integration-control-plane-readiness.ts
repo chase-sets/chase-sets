@@ -492,6 +492,20 @@ export function createCatalogIntegrationProfileVersionResolvers(
     return version;
   }
 
+  // The profile version an integration job snapshotted when it was queued, whatever is active now.
+  async function requireCatalogProfileVersionForJobSnapshot(
+    profileVersions: CatalogProviderIntegrationProfileVersionReader,
+    snapshot: SourceObservationIntegrationProfileSnapshot,
+  ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+    const version = await findCatalogProfileVersionFromSnapshot(profileVersions, snapshot);
+    if (!version) {
+      throw new Error(
+        `Catalog provider profile version ${snapshot.providerKey}@${snapshot.profileVersion} from the integration job snapshot was not found.`,
+      );
+    }
+    return version;
+  }
+
   async function requireCatalogPromotionProfileVersionFromSnapshot(
     profileVersions: CatalogProviderIntegrationProfileVersionReader,
     snapshot: SourceObservationIntegrationProfileSnapshot,
@@ -637,6 +651,7 @@ export function createCatalogIntegrationProfileVersionResolvers(
   return {
     requireCatalogImportProfileVersion,
     requireCatalogImportProfileVersionForJob,
+    requireCatalogProfileVersionForJobSnapshot,
     requireCatalogReapplyActiveProfileVersion,
     requireCatalogPromotionProfileVersionForReapply,
     requireReferenceDataPromotionProfileVersionForReapply,

@@ -79,6 +79,7 @@ import {
   integrationProfileSnapshotKey,
   requireCatalogImportProfileVersion,
   requireCatalogImportProfileVersionForJob,
+  requireCatalogProfileVersionForJobSnapshot,
   requireCatalogReapplyActiveProfileVersion,
   requireIntegrationJobReapplyProfileMode,
   snapshotCatalogProfileVersion,
@@ -90,6 +91,18 @@ import type { SourceObservationPromotionReapplyRuntime } from "./source-observat
 
 const INTEGRATION_REAPPLY_JOB_BATCH_SIZE = 10;
 const RETIRED_TCGPLAYER_MESSAGE = "TCGplayer server transport is retired; use the browser handoff.";
+
+// A reapply for one ingestion unit takes only the observations its profile maps, so a sibling
+// unit's observations on the same coordinate stay out of it. Without a unit, or reapplying each
+// observation with its original source profile, every observation on the coordinate is taken.
+function unitObservationKind(
+  scope: SourceObservationIntegrationJobScope,
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord | null,
+): string | null {
+  return scope.ingestionUnitKey?.trim() && profileVersion
+    ? profileVersion.profile.normalizedObservationMapping.kind
+    : null;
+}
 
 function assertProviderTransportNotRetired(providerKey: string): void {
   if (providerKey.trim().toLowerCase() === "tcgplayer") {
@@ -299,7 +312,10 @@ export function createSourceObservationIntegrationJobRuntime({
     const jobId = createId("job");
     const unitObservationIds =
       input.action === "reapply"
-        ? await listSourceObservationIdsForReapply(deps.db, integrationScopeToObservationScope(scope))
+        ? await listSourceObservationIdsForReapply(
+            deps.db,
+            integrationScopeToObservationScope(scope, unitObservationKind(scope, reapplyActiveProfileVersion)),
+          )
         : [];
     const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
 
@@ -837,7 +853,16 @@ export function createSourceObservationIntegrationJobRuntime({
   > {
     throwIfJobRunCancelled(input.context);
     rolloutControlPolicy.assertAllowed({ capability: "reapply", providerKey: input.job.scope.provider });
-    const scope = integrationScopeToObservationScope(input.job.scope);
+    const unitProfileVersion =
+      input.job.scope.ingestionUnitKey &&
+      input.job.reapplyProfileMode === "current-active-profile" &&
+      input.job.profileSnapshot
+        ? await requireCatalogProfileVersionForJobSnapshot(profileVersions, input.job.profileSnapshot)
+        : null;
+    const scope = integrationScopeToObservationScope(
+      input.job.scope,
+      unitObservationKind(input.job.scope, unitProfileVersion),
+    );
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(input.job.progress.total, []);
     const completedObservationIds = new Set(
       previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean),

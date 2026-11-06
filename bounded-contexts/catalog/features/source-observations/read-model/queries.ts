@@ -69,6 +69,8 @@ export type SourceObservationFilterScope = Readonly<{
   seriesId?: string;
   expansionId?: string;
   setId?: string;
+  /** The normalized observation kind a profile's mapping takes, which keeps a unit's work to its own observations. */
+  normalizedKind?: string;
 }>;
 
 export type CatalogMergeCandidateListRow = Readonly<{
@@ -1185,6 +1187,11 @@ function buildSourceObservationFilter(
     );
   }
 
+  if (scope.normalizedKind) {
+    values.push(scope.normalizedKind);
+    conditions.push(`normalized->>'kind' = ${values.length}`);
+  }
+
   if (options.statuses && options.statuses.length > 0) {
     values.push(options.statuses);
     conditions.push(`status = ANY($${values.length}::text[])`);
@@ -1263,6 +1270,7 @@ function normalizeSourceObservationFilterScope(
     seriesId: params.seriesId?.trim() ?? "",
     expansionId,
     setId: expansionId,
+    normalizedKind: params.normalizedKind?.trim() ?? "",
   };
 }
 

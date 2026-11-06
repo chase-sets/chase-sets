@@ -27,8 +27,16 @@ class PersistenceReached extends Error {}
 function harness() {
   const adapterScopes: unknown[] = [];
   const enqueued: { scope: unknown; profileSnapshot: unknown }[] = [];
+  const queries: { text: string; values: readonly unknown[] }[] = [];
   const runtime = createSourceObservationIntegrationJobRuntime({
-    deps: { db: { query: async () => ({ rows: [] }) } },
+    deps: {
+      db: {
+        query: async (text: string, values: readonly unknown[] = []) => {
+          queries.push({ text, values });
+          return { rows: [] };
+        },
+      },
+    },
     profileVersions: {
       async listProfileVersions(provider?: string) {
         return profiles.filter((profile) => !provider || profile.providerKey === provider);
@@ -80,7 +88,11 @@ function harness() {
     return { status: response.status, body: (await response.json()) as Record<string, unknown> };
   }
 
-  return { post, adapterScopes, enqueued };
+  // The Source Observations a reapply selects to reapply: the query and its values.
+  const observationSelections = () =>
+    queries.filter((query) => query.text.includes("FROM catalog_source_observations"));
+
+  return { post, adapterScopes, enqueued, observationSelections };
 }
 
 function unitOf(provider: string, fragment: string) {
@@ -206,6 +218,105 @@ describe("A unit's reapply body selects the unit whose profile reapplies it", ()
     ]);
   });
 
+  it("selects only the unit's own kind of observation on a coordinate a sibling unit shares", async () => {
+    const sealed = unitOf("scrydex", ":one-piece:sealed-product:");
+    const coordinate = {
+      provider: "scrydex",
+      language: "en",
+      productLineId: "one-piece",
+      setId: "synthetic-expansion",
+    };
+    const selections = [];
+    for (const unit of [selected, sealed]) {
+      const { post, observationSelections } = harness();
+      expect((await post("/reapply", { scope: { ...coordinate, ingestionUnitKey: unit.unitKey } })).body).toEqual({
+        reached: "persistence",
+      });
+      const [selection] = observationSelections();
+      expect(selection?.text).toContain("normalized->>'kind'");
+      expect(selection?.values).toContain(unit.profile.profile.normalizedObservationMapping.kind);
+      selections.push(selection);
+    }
+
+    expect(selected.profile.profile.normalizedObservationMapping.kind).toBe("one-piece-card-print");
+    expect(sealed.profile.profile.normalizedObservationMapping.kind).toBe("one-piece-sealed-product");
+    expect(selections[0]!.values).not.toEqual(selections[1]!.values);
+  });
+
+  it("keeps a queued unit reapply to the unit's kind when a worker refills it", async () => {
+    const queries: { text: string; values: readonly unknown[] }[] = [];
+    const jobContext = { tenantId: "tnt_synthetic", audit: { performedByUserId: "usr_synthetic" } };
+    const job = {
+      jobId: "job_synthetic_reapply",
+      jobKind: "reapply",
+      status: "running",
+      claimOwnerId: "worker_synthetic",
+      eventContext: jobContext,
+      payload: {
+        action: "reapply",
+        scope: {
+          provider: "scrydex",
+          language: "en",
+          setId: "synthetic-expansion",
+          ingestionUnitKey: selected.unitKey,
+        },
+        syncRunId: null,
+        profileSnapshot: {
+          providerKey: "scrydex",
+          profileKey: selected.profile.profileKey,
+          profileVersion: selected.profile.profileVersion,
+          ingestionUnitKey: selected.unitKey,
+        },
+        reapplyProfileMode: "current-active-profile",
+      },
+      progress: { completed: 0, total: 0, currentName: null, status: null, phase: "queued" },
+      result: null,
+      createdAt: "2026-11-06T00:00:00.000Z",
+      updatedAt: "2026-11-06T00:00:00.000Z",
+    };
+    const runtime = createSourceObservationIntegrationJobRuntime({
+      deps: {
+        db: {
+          query: async (text: string, values: readonly unknown[] = []) => {
+            queries.push({ text, values });
+            return { rows: [] };
+          },
+        },
+      },
+      profileVersions: {
+        async listProfileVersions(provider?: string) {
+          return profiles.filter((profile) => !provider || profile.providerKey === provider);
+        },
+      },
+      rolloutControlPolicy: { assertAllowed() {}, decide: () => ({ allowed: true }) },
+      integrationJobStore: {
+        async claimNext(input: { jobKinds: readonly string[] }) {
+          return input.jobKinds.includes("reapply") ? job : null;
+        },
+        async complete() {
+          return job;
+        },
+      },
+      integrationWorkUnitStore: {
+        async claimNext() {
+          return { claim: null };
+        },
+        async summarize() {
+          return { queued: 0, running: 0 };
+        },
+      },
+      promotionReapply: {},
+      scopeSyncState: {},
+      providerImport: {},
+    } as unknown as Parameters<typeof createSourceObservationIntegrationJobRuntime>[0]);
+
+    await runtime.services.processNextIntegrationJob({ claimOwnerId: "worker_synthetic", claimTtlMs: 60_000 });
+
+    const [selection] = queries.filter((query) => query.text.includes("FROM catalog_source_observations"));
+    expect(selection?.text).toContain("normalized->>'kind'");
+    expect(selection?.values).toContain("one-piece-card-print");
+  });
+
   it("refuses a multi-unit provider's reapply without a unit, or with another provider's unit, as invalid", async () => {
     const { post, enqueued } = harness();
     const scope = worksetReapplyBody();
@@ -224,11 +335,15 @@ describe("A unit's reapply body selects the unit whose profile reapplies it", ()
       (provider) => activeProfiles(provider).length === 1 && activeProfiles(provider)[0]!.executableMappingContract,
     );
     expect(single).toBeDefined();
-    const { post, enqueued } = harness();
+    const harnessed = harness();
+    const { post, enqueued } = harnessed;
 
+    const { observationSelections } = harnessed;
     expect((await post("/reapply", { scope: { provider: single, language: "en" } })).body).toEqual({
       reached: "persistence",
     });
     expect(enqueued).toHaveLength(1);
+    // Without a unit, every promoted observation on the coordinate is selected, as before.
+    expect(observationSelections()[0]?.text).not.toContain("normalized->>'kind'");
   });
 });
