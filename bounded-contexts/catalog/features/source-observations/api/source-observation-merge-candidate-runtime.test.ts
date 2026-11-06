@@ -21,6 +21,8 @@ import { planCatalogMergeCandidateSplit } from "./promotion/catalog-merge-candid
 import { createSourceObservationMergeCandidateRuntime } from "./source-observation-merge-candidate-runtime";
 import { staticCatalogProviderIntegrationProfileVersions } from "./source-observation-runtime-contracts";
 import { catalogMergeCandidateStreamId } from "./source-observation-stream-identity";
+import type { SourceObservationRouteServices } from "./route";
+import { buildApp } from "./route-modules/route-test-harness";
 
 const context = {
   tenantId: "tnt_test",
@@ -342,6 +344,46 @@ describe("source observation merge candidate review commands under concurrent wr
     const retried = await split(harness, candidate, candidate.version + 1);
     expect(retried.version).toBe(candidate.version + 2);
     expect(harness.streams.get(candidate.splitStreamId)).toHaveLength(1);
+  });
+
+  it("refuses a split that loses to another split after its read as stale, and the route answers 409", async () => {
+    const harness = createHarness();
+    const candidate = await separableCandidate(harness);
+    const readStream = harness.eventStore.readStream.bind(harness.eventStore);
+    let competed = false;
+    vi.spyOn(harness.eventStore, "readStream").mockImplementation(async (request) => {
+      if (request.streamId === candidate.splitStreamId && !competed) {
+        // Another review splits the same member off between this split's read of the candidate
+        // and its look for an existing split candidate.
+        competed = true;
+        await split(harness, candidate, candidate.version);
+      }
+      return readStream(request);
+    });
+    const app = buildApp({
+      splitCatalogMergeCandidate: harness.services.splitCatalogMergeCandidate,
+    } as unknown as SourceObservationRouteServices);
+
+    const response = await app.request(`/source-observations/admin/merge-candidates/${candidate.candidateId}/split`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Separate observations",
+        expectedVersion: candidate.version,
+        splitObservationIds: [candidate.splitObservationId],
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "stale_merge_candidate" } });
+    // Only the winning split's events: the parent's split and the one split candidate's creation.
+    expect(harness.streams.get(candidate.streamId)!.map((event) => event.eventType)).toEqual([
+      "catalog.merge-candidate.created",
+      "catalog.merge-candidate.split",
+    ]);
+    expect(harness.streams.get(candidate.splitStreamId)!.map((event) => event.eventType)).toEqual([
+      "catalog.merge-candidate.created",
+    ]);
   });
 
   it("refuses a split without atomic appends and saves nothing", async () => {

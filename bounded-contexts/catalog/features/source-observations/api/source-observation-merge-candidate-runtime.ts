@@ -459,6 +459,10 @@ export function createSourceObservationMergeCandidateRuntime({
         limit: 1,
       });
       if (existingSplitEvents.length > 0) {
+        // A split that read the candidate before another split committed finds that split's
+        // candidate: the candidate has moved on, so this read is stale. Only at the version read
+        // does an existing split candidate refuse the split.
+        await loadCatalogMergeCandidateAtVersion(input.candidateId, input.expectedVersion);
         throw new Error("Split Catalog Merge Candidate already exists.");
       }
       const unsplit = { state: initialCatalogMergeCandidateState, version: 0 };
