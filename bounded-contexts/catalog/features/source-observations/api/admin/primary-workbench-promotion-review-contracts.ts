@@ -1,4 +1,5 @@
 import type { CatalogMergeCandidateReviewCommandPreview } from "../promotion/catalog-merge-candidate-review-command-payloads";
+import type { SourceObservationPromotionReceipt } from "../../ui/contracts";
 import type {
   CatalogAdminControlPlaneFreshnessState,
   CatalogAdminControlPlanePaginationMode,
@@ -451,6 +452,10 @@ export type CatalogPrimaryWorkbenchPromotionIdentityDiagnostic = Readonly<{
 
 export type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
   previewId: string | null;
+  /** Absent on loader-only models; current summaries are not original evidence. */
+  receipt?: SourceObservationPromotionReceipt | null;
+  /** Current loader evidence for drift detection, not the original Preview. */
+  currentFingerprint?: string | null;
   validation: CatalogPrimaryWorkbenchPromotionValidationReadModel;
   freshness: CatalogAdminControlPlaneFreshnessState;
   scope: Readonly<{
@@ -607,6 +612,19 @@ export function assertPrimaryWorkbenchPromotionPreview(
   }
   if (!value.scope) {
     throw new Error("Primary workbench promotion preview scope is required.");
+  }
+  if (
+    value.receipt &&
+    (value.receipt.schemaVersion !== "source-observation-promotion-receipt/v1" ||
+      !value.receipt.previewId ||
+      value.receipt.previewId !== value.previewId ||
+      !value.receipt.preview.fingerprint ||
+      !Array.isArray(value.receipt.preview.validation.coveredObservationIds) ||
+      !Array.isArray(value.receipt.preview.validation.diagnostics))
+  ) {
+    throw new Error(
+      "Primary workbench original promotion receipt must preserve its token, fingerprint and validation page.",
+    );
   }
   if (value.scope.partialFailureMode !== "per-observation") {
     throw new Error("Primary workbench promotion preview must preserve per-observation partial failure scope.");

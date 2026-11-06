@@ -1,4 +1,6 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
+import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
 import type { ProviderOptionAliasRecord } from "../api/provider-option-aliases";
 import type {
   CatalogMergeCandidateConflict,
@@ -694,6 +696,33 @@ export interface SourceObservationPromotionPreview {
    */
   validation: SourceObservationPromotionValidation;
 }
+
+/** Original action response, never reconstructed from a loader or persisted. */
+export interface SourceObservationPromotionReceipt {
+  schemaVersion: "source-observation-promotion-receipt/v1";
+  previewId: string;
+  selection: {
+    providerKey: string | null;
+    unitKey: string | null;
+    importScope: string | null;
+    profileVersion: string | null;
+    scopeRecordId: string | null;
+    observationIds: readonly string[];
+    promoteAsDraft: boolean;
+    scope: SourceObservationPromotionScope;
+  };
+  preview: SourceObservationPromotionPreview;
+}
+
+/** Ephemeral command outcome; each consuming surface owns its navigation. */
+export type CatalogIntegrationsCommandResult = Readonly<{
+  feedback: CatalogPrimaryWorkbenchCommandFeedback;
+  context: CatalogPrimaryWorkbenchRouteContext;
+  section: string;
+  commandSection?: string;
+  attentionItemKey?: string;
+  promotionReceipt?: SourceObservationPromotionReceipt | null;
+}>;
 
 export type SourceObservationPromotionDisplayIdentityTemplateReason =
   | "unresolved-title-tokens"

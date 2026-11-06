@@ -672,6 +672,8 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "Scoped to {scope}: only the {count} eligible observation(s) here are promoted.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteScope.title":
     "Promote all eligible in this scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.receipt.emptyString": "Empty string",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.receipt.notReturned": "Not returned",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.scoped.badge": "Scoped",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.summary":
     "{count} Catalog Item(s) created or updated.",
