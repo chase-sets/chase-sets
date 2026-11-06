@@ -160,6 +160,10 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "TCGplayer domain throttling covers {domains}; retryable statuses are {retryableCodes}.",
   "catalog.features.sourceObservations.api.route.profile.review.unavailable":
     "Provider profile review is not available.",
+  "catalog.features.sourceObservations.api.route.workbench.surface.invalid":
+    "The workbench surface must be daily, governance, or health.",
+  "catalog.features.sourceObservations.api.route.workbench.location.invalid":
+    "The workbench location must be a Catalog admin path.",
   "catalog.features.sourceObservations.api.route.profile.review.invalid.json.object":
     "Expected a JSON object request body.",
   "catalog.features.sourceObservations.api.route.profile.review.invalid.json.valid.object":
