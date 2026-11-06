@@ -24,6 +24,10 @@ on:
         options:
           - manual
           - automatic
+      census_terminal_binding:
+        description: Admitted census identity and source hashes for manual pre-delete certification; empty leaves the existing route unchanged.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -179,8 +183,25 @@ jobs:
         id: release
         env:
           VALIDATED_RELEASE_COMMIT: ${{ steps.handoff.outputs.release_commit }}
+          CENSUS_TERMINAL_BINDING: ${{ inputs.census_terminal_binding }}
+          FROZEN_WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
+          if [ "${{ inputs.dispatch_source }}" = "manual" ] && [ -n "$CENSUS_TERMINAL_BINDING" ]; then
+            mkdir -p "$RUNNER_TEMP/census-terminal-source/scripts"
+            helper="$RUNNER_TEMP/census-terminal-source/scripts/census-terminal-evidence.mjs"
+            git show "${FROZEN_WORKFLOW_SHA}:scripts/census-terminal-evidence.mjs" > "$helper"
+            git show "${FROZEN_WORKFLOW_SHA}:.github/workflows/platform-ephemeral-verification.yml" > "$RUNNER_TEMP/census-terminal-workflow.yml"
+            HELPER_PATH="$helper" node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          const binding = JSON.parse(process.env.CENSUS_TERMINAL_BINDING);
+          const hash = createHash('sha256').update(readFileSync(process.env.HELPER_PATH)).digest('hex');
+          if (!/^[a-f0-9]{64}$/.test(binding.helperHash) || hash !== binding.helperHash) throw new Error('STOP_HELPER_HASH');
+          const workflowHash = createHash('sha256').update(readFileSync(`${process.env.RUNNER_TEMP}/census-terminal-workflow.yml`)).digest('hex');
+          if (binding.workflowHash !== workflowHash || binding.workflowHead !== process.env.FROZEN_WORKFLOW_SHA) throw new Error('STOP_WORKFLOW_HASH');
+          NODE
+          fi
           if [ "${{ inputs.dispatch_source }}" = "automatic" ]; then
             release_commit="$VALIDATED_RELEASE_COMMIT"
           else
@@ -307,10 +328,17 @@ jobs:
 
       - name: Reset verification namespace
         id: namespace
+        env:
+          CENSUS_TERMINAL_BINDING: ${{ inputs.census_terminal_binding }}
         run: |
           set -euo pipefail
           kubectl delete namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found --wait=true --timeout=5m
-          kubectl create namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+          if [ "${{ inputs.dispatch_source }}" = "manual" ] && [ -n "$CENSUS_TERMINAL_BINDING" ]; then
+            mkdir -p artifacts/ephemeral-verification
+            kubectl create namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" -o json > artifacts/ephemeral-verification/namespace-created.json
+          else
+            kubectl create namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+          fi
           kubectl label namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" chasesets.com/purpose=release-verification
           kubectl annotate namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             chasesets.com/release-commit="${{ steps.release.outputs.release_commit }}" \
@@ -485,6 +513,20 @@ jobs:
           hold_end="$(date -u -d '+65 minutes' +%Y-%m-%dT%H:%M:%SZ)"
           printf 'hold_start=%s\nidle_end=%s\nhold_end=%s\n' "$hold_start" "$idle_end" "$hold_end"
           sleep 3900
+
+      - name: Certify census terminal before namespace deletion
+        id: census_terminal
+        if: always() && inputs.dispatch_source == 'manual' && inputs.census_terminal_binding != '' && steps.namespace.outcome != 'skipped'
+        working-directory: ${{ runner.temp }}/census-terminal-source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CENSUS_TERMINAL_BINDING: ${{ inputs.census_terminal_binding }}
+          FROZEN_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
+          RELEASE_DIGEST: ${{ steps.image.outputs.digest }}
+          NAMESPACE_CREATION_PATH: ${{ github.workspace }}/artifacts/ephemeral-verification/namespace-created.json
+          CENSUS_SEAL_PATH: ${{ github.workspace }}/artifacts/ephemeral-verification/census-terminal-seal.json
+        run: node scripts/census-terminal-evidence.mjs
 
       - name: Delete verification Kubernetes namespace
         id: namespace_teardown
