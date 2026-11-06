@@ -1,12 +1,17 @@
 import { existsSync, lstatSync, readdirSync, rmSync } from "node:fs";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { buildPackageManagerInvocation } from "./lib/process.mjs";
-import { runInstaller } from "./provider-browser-install-timeout.mjs";
+import { INSTALLER_TIMEOUT_GRACE_MS, runInstaller } from "./provider-browser-install-timeout.mjs";
 import { TIMING_RECORD_PREFIX } from "./provider-browser-install-timing.mjs";
 
 export const PLAYWRIGHT_INSTALL_COMMAND = ["exec", "playwright", "install", "--with-deps", "chromium"];
 export const PLAYWRIGHT_INSTALL_SITE = "playwright-chromium";
+export const PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS = 180;
+export const PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS = 390;
+export const PLAYWRIGHT_INSTALL_RETRY_DELAY_MS = 5_000;
 
 function safeField(value, fallback) {
   return typeof value === "string" && /^[A-Za-z0-9._:-]{1,120}$/.test(value) ? value : fallback;
@@ -99,6 +104,7 @@ export async function installPlaywrightChromium({
   buildInvocationImpl = buildPackageManagerInvocation,
   now,
   cancelSignal,
+  delayImpl = delay,
   write = (line) => console.log(line),
 } = {}) {
   const rawSite = env.PLAYWRIGHT_INSTALL_SITE;
@@ -115,7 +121,7 @@ export async function installPlaywrightChromium({
   const site = safeField(rawSite, PLAYWRIGHT_INSTALL_SITE);
   const attempt = safeField(rawAttempt, "1");
   const policy = env.PLAYWRIGHT_INSTALL_POLICY ?? "single-attempt";
-  if (policy !== "single-attempt") {
+  if (!["single-attempt", "diagnostic-retry"].includes(policy)) {
     return refusal({ site, attempt, reason: "invalid-policy", cache: "invalid", write });
   }
   let cachePath;
@@ -124,7 +130,16 @@ export async function installPlaywrightChromium({
   } catch {
     return refusal({ site, attempt, reason: "invalid-path", cache: "invalid", write });
   }
-  const cacheBefore = inspectCacheImpl(cachePath);
+  const diagnosticRetry = policy === "diagnostic-retry";
+  const timeoutSeconds = diagnosticRetry ? PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS : 600;
+  const maxAttempts = diagnosticRetry ? 2 : 1;
+  const clockMs = () => {
+    const value = typeof now === "function" ? now() : performance.now();
+    return value instanceof Date ? value.getTime() : Number(value);
+  };
+  const envelopeEndsAt = clockMs() + PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS * 1000;
+  const fits = (delayMs = 0) =>
+    clockMs() + delayMs + timeoutSeconds * 1000 + INSTALLER_TIMEOUT_GRACE_MS <= envelopeEndsAt;
   const callerEnv = {
     ...env,
     INSTALLER_TIMEOUT_SECONDS: "600",
@@ -134,41 +149,72 @@ export async function installPlaywrightChromium({
     PLAYWRIGHT_INSTALL_SITE: site,
     PLAYWRIGHT_INSTALL_ATTEMPT: attempt,
   };
-  let result;
-  try {
-    const invocation = buildInvocationImpl(PLAYWRIGHT_INSTALL_COMMAND, { env: callerEnv });
-    const writeInstaller = (line) => {
-      if (typeof line !== "string" || !line.startsWith(TIMING_RECORD_PREFIX)) write(line);
+  for (let installerAttempt = 1; installerAttempt <= maxAttempts; installerAttempt += 1) {
+    const cacheBefore = inspectCacheImpl(cachePath);
+    let result;
+    let timingLine;
+    const fail = (reason, cache = cacheBefore.state) => {
+      if (diagnosticRetry && timingLine) write(timingLine);
+      return refusal({ site, attempt, reason, cache, write });
     };
-    result = await runInstallerImpl({
-      identity: identityFromEnvironment(callerEnv),
-      env: callerEnv,
-      installerCommand: invocation.command,
-      installerArgs: invocation.args,
-      installerEnv: explicitEnv,
-      cacheHit: cacheBefore.state === "complete",
-      requireComplete: false,
-      cancelSignal,
-      timeoutSeconds: 600,
-      now,
-      write: writeInstaller,
-    });
-  } catch {
-    return refusal({ site, attempt, reason: "authority-refusal", cache: cacheBefore.state, write });
-  }
-  let cacheAfter = cacheBefore;
-  if (result?.status === 0) cacheAfter = inspectCacheImpl(cachePath);
-  if (result?.status !== 0 || !cacheAfter.complete) {
-    let reason = result?.record?.terminalOutcome ?? "incomplete-cache";
-    if (result?.status === 0) reason = "incomplete-cache";
+    if (cancelSignal?.aborted) return fail("cancelled");
+    if (diagnosticRetry && !fits()) return fail("timeout");
+    try {
+      const invocation = buildInvocationImpl(PLAYWRIGHT_INSTALL_COMMAND, { env: callerEnv });
+      if (cancelSignal?.aborted) return fail("cancelled");
+      if (diagnosticRetry && !fits()) return fail("timeout");
+      result = await runInstallerImpl({
+        identity: identityFromEnvironment(callerEnv),
+        env: callerEnv,
+        installerCommand: invocation.command,
+        installerArgs: invocation.args,
+        installerEnv: explicitEnv,
+        cacheHit: cacheBefore.state === "complete",
+        requireComplete: false,
+        cancelSignal,
+        timeoutSeconds,
+        now,
+        write: (line) => {
+          if (typeof line === "string" && line.startsWith(TIMING_RECORD_PREFIX)) timingLine = line;
+          else write(line);
+        },
+      });
+    } catch {
+      return fail("authority-refusal");
+    }
+    if (!result) return fail("authority-refusal");
+    const cacheAfter = result?.status === 0 ? inspectCacheImpl(cachePath) : cacheBefore;
+    const outcome = result?.record?.terminalOutcome;
+    let reason = result?.startRefused === true ? "start-refusal" : (outcome ?? "incomplete-cache");
+    if (["cleanup-failure", "cleanup-refusal"].includes(outcome)) return fail(outcome, cacheAfter.state);
+    if (cancelSignal?.aborted || outcome === "cancelled") reason = "cancelled";
+    else if (diagnosticRetry && clockMs() > envelopeEndsAt) reason = "timeout";
+    else if (result?.status === 0 && cacheAfter.complete) {
+      if (diagnosticRetry && timingLine) write(timingLine);
+      timingLine = undefined;
+      if (diagnosticRetry && clockMs() > envelopeEndsAt) reason = "timeout";
+      else return { ...result, reason: "success", cache: cacheAfter.state };
+    } else if (result?.status === 0) reason = "incomplete-cache";
     try {
       removeCacheImpl(cachePath);
     } catch {
-      reason = "cleanup-refusal";
+      return fail("cleanup-refusal", cacheAfter.state);
     }
-    return refusal({ site, attempt, reason, cache: cacheAfter.state, write });
+    if (["start-refusal", "cancelled", "cleanup-refusal"].includes(reason) || installerAttempt === maxAttempts)
+      return fail(reason, cacheAfter.state);
+    if (cancelSignal?.aborted) return fail("cancelled", cacheAfter.state);
+    if (!fits(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS)) return fail("timeout", cacheAfter.state);
+    write(
+      `Playwright Chromium install retry ${JSON.stringify({ site, attempt, installerAttempt, reason, cache: cacheAfter.state })}`,
+    );
+    try {
+      await delayImpl(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS);
+    } catch {
+      return fail("cancelled", cacheAfter.state);
+    }
+    if (cancelSignal?.aborted) return fail("cancelled", cacheAfter.state);
+    if (!fits()) return fail("timeout", cacheAfter.state);
   }
-  return { ...result, reason: "success", cache: cacheAfter.state };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
