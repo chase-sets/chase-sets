@@ -597,9 +597,9 @@ async fn dimension_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_dimensions()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_dimensions()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -693,9 +693,9 @@ async fn dimension_page(
     req.screen(
         &detail,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_dimension()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_dimension()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -963,7 +963,9 @@ async fn field_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_fields()} head="">{view}</crate::views::Layout>
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_fields()} head="">
+                {view}
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -1068,7 +1070,9 @@ async fn field_page(
     req.screen(
         &field,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_field()} head="">{view}</crate::views::Layout>
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_field()} head="">
+                {view}
+            </crate::views::OwnToastLayout>
         },
     )
 }

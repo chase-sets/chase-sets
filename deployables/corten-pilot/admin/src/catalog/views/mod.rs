@@ -130,7 +130,6 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::select::Select,
     platform::ui::steps::Steps,
     platform::ui::textarea::Textarea,
-    corten_ui::Toaster,
     corten_ui::ComboBox,
     corten_ui::CopyButton,
     corten_ui::dialog::COMPONENT,

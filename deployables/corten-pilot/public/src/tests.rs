@@ -388,6 +388,25 @@ fn indexing_is_on_unless_the_variable_says_off() {
 }
 
 #[tokio::test]
+async fn both_layouts_have_one_toaster_after_main_that_says_a_submit_that_got_no_answer() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    for path in ["/", "/welcome?signup=wls_01"] {
+        let (status, headers, page) = site.get(path, None).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {page}");
+        // The home page stays the same for everyone with the toaster; the welcome page is one signup's.
+        if path == "/" {
+            assert!(cache(&headers).starts_with("public"), "{path}: the toaster keeps the page the same for everyone");
+        }
+        assert_eq!(page.matches(r#"id="ui-toast""#).count(), 1, "{path}: {page}");
+        let after = page.split_once("</main>").map_or("", |(_, after)| after);
+        assert!(
+            after.contains("That did not go through, and may not have been saved. Check and try again."),
+            "{path}: the failed text: {after}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn the_home_page_draws_the_waitlists_landing_and_any_cache_may_keep_it() {
     let site = Site::new(true, "https://chasesets.com").await;
     let (status, headers, page) = site.get("/", None).await;
@@ -693,7 +712,7 @@ async fn a_wave_answer_saves_one_field_with_a_script_and_every_answered_field_wi
     let res = site.router.clone().oneshot(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let body = String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
-    assert!(body.contains(">Saved</p>") && body.contains(r#"role="status""#), "{body}");
+    assert!(body.contains(">Saved</p>") && main_of(&body).contains(r#"role="status""#), "{body}");
     let (sent, client) = COHORTS.lock().unwrap().pop().unwrap();
     assert_eq!(sent, json!({ "inventorySize": null }), "only the field that changed");
     assert_eq!(client.as_deref(), Some("203.0.113.9"), "the visitor's address, which the limiter keys on");
@@ -1086,4 +1105,10 @@ async fn the_site_files_are_public_webs_manifest_favicon_and_devtools_probe() {
         assert!(page.contains(r#"<link rel="icon" href="/favicon.svg" type="image/svg+xml">"#), "{path}: {page}");
         assert!(page.contains(r#"<link rel="alternate icon" href="/favicon.ico" sizes="any">"#), "{path}: {page}");
     }
+}
+
+/// The page before the layout's toaster (`</main>` on), or all of an answer that has no `<main>`
+/// (a patch): where a page's own `role="status"` is looked for.
+fn main_of(html: &str) -> &str {
+    html.split_once("</main>").map_or(html, |(main, _)| main)
 }

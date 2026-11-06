@@ -143,9 +143,9 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_templates()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_templates()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -246,9 +246,9 @@ async fn template_page(
     req.screen(
         &template,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_template()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_template()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }

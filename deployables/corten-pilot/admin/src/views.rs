@@ -15,7 +15,8 @@ use crate::{
     form::{ActivateInput, CloneInput, PolicyInput, RetireInput, default_payload},
     text::{Msg, Pilot},
 };
-use platform::theme;
+use corten_ui::{Toast, Toaster};
+use platform::{theme, ui::toasts::Toasts};
 
 mod admin_nav;
 mod lifecycle;
@@ -40,9 +41,10 @@ pub use status_badge::StatusBadge;
 
 /// The components every page renders (the frame and the shared parts), tokens first: their
 /// stylesheets are `components.css`. The kit's `NavBar` is the top bar's, before `AdminNav`'s own rules,
-/// and its `Table` is every area's lists' (one stylesheet, so no area links another's).
+/// and its `Table` is every area's lists' (one stylesheet, so no area links another's). The layout's
+/// toaster is the kit's `Toasts` around corten-ui's `Toaster`.
 pub const COMPONENTS: &[Component] =
-    &[theme::TOKENS, platform::ui::nav_bar::NavBar, platform::ui::table::Table, AdminNav, Section];
+    &[theme::TOKENS, platform::ui::nav_bar::NavBar, platform::ui::table::Table, AdminNav, Section, Toasts, Toaster];
 
 /// Signing in (`/access/sign-in`, its magic link and account selection): the page's stylesheet.
 pub const SIGN_IN: &[Component] = &[SignInPage];
@@ -103,12 +105,59 @@ pub fn now_iso() -> String {
 /// `viewer` and their color mode, `title`, the page's own `head` tags and the page
 /// (`children`). A client navigation gets only the title, the head tags and `<main>`'s children.
 /// The viewer is the handler's `Caller`, or the error page's.
+///
+/// Outside `<main>` is corten-ui's toaster, kept by a navigation: it shows a redirect's notice
+/// (`req.notice()`) and says a `data-patch` submit that got no answer (`corten:error`), so a
+/// write that did not go through is never silent.
 #[component]
 pub fn Layout<'a, H: Render, C: Render>(
     req: &'a Req,
     viewer: Option<&'a Viewer>,
     title: &'a str,
     head: H,
+    children: C,
+) -> impl Document + 'a {
+    let p: Pilot = req.t();
+    let toaster = html! {
+        <Toasts>
+            <Toaster
+                close={p.shell_toast_close()}
+                seconds={5}
+                toast={Toast { message: req.notice() }}
+                failed={p.shell_not_sent()}
+            />
+        </Toasts>
+    };
+    html! {
+        <Frame req={req} viewer={viewer} title={title} head={head} toaster={toaster}>{children}</Frame>
+    }
+}
+
+/// `Layout` for a page that draws its own toaster: the catalog's (`catalog::views::Toasts`),
+/// which says what the write before did from the address it redirected to (`done`), and a
+/// `data-patch` submit that got no answer. One toaster per page, since each listens on the
+/// document and owns `#ui-toast`.
+#[component]
+pub fn OwnToastLayout<'a, H: Render, C: Render>(
+    req: &'a Req,
+    viewer: Option<&'a Viewer>,
+    title: &'a str,
+    head: H,
+    children: C,
+) -> impl Document + 'a {
+    html! {
+        <Frame req={req} viewer={viewer} title={title} head={head} toaster="">{children}</Frame>
+    }
+}
+
+/// The document `Layout` and `OwnToastLayout` draw, with the toaster (`toaster`) after `<main>`.
+#[component]
+fn Frame<'a, H: Render, T: Render, C: Render>(
+    req: &'a Req,
+    viewer: Option<&'a Viewer>,
+    title: &'a str,
+    head: H,
+    toaster: T,
     children: C,
 ) -> impl Document + 'a {
     let p: Pilot = req.t();
@@ -137,6 +186,7 @@ pub fn Layout<'a, H: Render, C: Render>(
                     <AdminNav p={p} req={req} viewer={viewer} />
                 }
                 <main>{children}</main>
+                {toaster}
             </body>
         </html>
     }

@@ -2878,6 +2878,21 @@ async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidde
     );
 }
 
+#[tokio::test]
+async fn every_page_has_one_toaster_after_main_that_says_a_submit_that_got_no_answer() {
+    let pilot = Pilot::new().await;
+    for (path, session) in [(CART_SCREEN, Some("seller")), (SCREEN, Some("seller")), (CART_SCREEN, None), ("/offline", None)] {
+        let (_, _, html) = pilot.send(get(path, session)).await;
+        assert_eq!(html.matches(r#"id="ui-toast""#).count(), 1, "{path}: {html}");
+        let after = html.split_once("</main>").map_or("", |(_, after)| after);
+        assert!(after.contains(r#"id="ui-toast" hidden"#), "{path}: outside <main>, empty: {after}");
+        assert!(
+            after.contains("That did not go through, and may not have been saved. Check and try again."),
+            "{path}: the failed text: {after}"
+        );
+    }
+}
+
 /// Each nav link in `shell` to `href`: whether it is marked current, and its Corten nav group.
 fn nav_links_to(shell: &str, href: &str) -> Vec<(bool, String)> {
     let at = format!(r#" href="{href}" data-nav="section" data-nav-group=""#);
@@ -5509,7 +5524,7 @@ async fn a_listing_page_shows_the_listing_its_purchase_panel_and_its_seller() {
     assert!(html.contains(r#"href="/items/charizard">Compare market</a>"#), "{html}");
     assert!(html.contains(r#"href="/accounts/chase-sets#feedback">View account</a>"#), "{html}");
     assert!(html.contains(r#"<select name="reason" required>"#) && html.contains(r#"maxlength="1000""#), "{html}");
-    assert!(!html.contains(r#"role="status""#), "{html}");
+    assert!(!main_of(&html).contains(r#"role="status""#), "no notice in the page (the layout's toaster is after it): {html}");
 }
 
 #[tokio::test]
@@ -12874,7 +12889,7 @@ async fn a_magic_link_signs_in_or_says_why_it_could_not() {
     let body = "intent=magic-link-request&email=collector%40example.test";
     let (status, _, html) = pilot.send(sign_in_post("/sign-in?returnTo=%2Fsearch", None, body)).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("Magic link sent") && html.contains(r#"role="status""#), "{html}");
+    assert!(html.contains("Magic link sent") && main_of(&html).contains(r#"role="status""#), "{html}");
     let sent: Value = serde_json::from_str(&auth_calls(&pilot, "/api/auth/magic-link/request")[0].body).unwrap();
     assert_eq!(sent, json!({ "email": "collector@example.test", "landingPath": "/sign-in/magic", "returnTo": "/search" }));
 }
@@ -18458,4 +18473,10 @@ fn plain(html: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// The page before the layout's toaster (`</main>` on), or all of an answer that has no `<main>`
+/// (a patch): where a page's own `role="status"` is looked for.
+fn main_of(html: &str) -> &str {
+    html.split_once("</main>").map_or(html, |(main, _)| main)
 }

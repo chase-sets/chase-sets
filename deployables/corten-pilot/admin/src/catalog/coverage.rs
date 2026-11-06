@@ -142,9 +142,9 @@ pub(crate) async fn inbox(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(&staff.viewer)} title={t.route_scope_inbox()} head="">
+            <crate::views::OwnToastLayout req={&req} viewer={Some(&staff.viewer)} title={t.route_scope_inbox()} head="">
                 {page}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -192,9 +192,9 @@ pub(crate) async fn render(
     let refused = matches!(back, ScopeBack::Refused(_) | ScopeBack::Propose(..));
     let page = views::coverage_page(t, p, &screen, notice, back, manages(viewer));
     let html = html! {
-        <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_scope_coverage()} head="">
+        <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_scope_coverage()} head="">
             {page}
-        </crate::views::Layout>
+        </crate::views::OwnToastLayout>
     };
     if refused { req.page_with_status(StatusCode::UNPROCESSABLE_ENTITY, html) } else { req.screen(&screen, html) }
 }

@@ -189,9 +189,9 @@ async fn render(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={&title} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={&title} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }

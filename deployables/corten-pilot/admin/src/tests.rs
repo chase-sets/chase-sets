@@ -4161,7 +4161,7 @@ async fn a_scopes_coverage_page_writes_through_the_scope_routes_and_comes_back()
 
     let (status, _, html) = pilot.send(get("/catalog/scope-coverage/scp_down", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "a coverage that cannot be read is a banner: {html}");
-    assert!(html.contains(r#"role="status""#) && !html.contains("Accept all"), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && !html.contains("Accept all"), "{html}");
     let (status, _, _) = pilot.send(get("/catalog/scope-coverage/scp_gone", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "an unknown scope");
 }
@@ -5115,7 +5115,7 @@ async fn a_target_read_after_an_action_that_is_not_readable_yet_is_read_without_
     let at = format!("/support/reported-content/listing/lst_1?after_write={}", fresh_receipt());
     let (status, _, html) = pilot.send(get(&at, Some("moderator-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
     let reads = pilot.calls_to(REPORTED);
     assert_eq!(reads.len(), 2, "with the receipt, then without it");
     assert!(!reads[1].headers.contains_key("chase-sets-read-after-write"));
@@ -5131,7 +5131,7 @@ async fn an_action_answered_without_a_receipt_carries_its_time_and_the_page_says
     assert_eq!(to, "/support/reported-content/review/rev_1?recorded=2026-10-30T12%3A00%3A00.000Z");
     let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "older than the action: {html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "older than the action: {html}");
     let caught_up = "/support/reported-content/review/rev_1?recorded=2026-10-29T13%3A00%3A00.000Z";
     let (_, _, html) = pilot.send(get(caught_up, Some("moderator"))).await;
     assert!(!html.contains("Refresh in a moment"), "the target shows the action: {html}");
@@ -5179,7 +5179,7 @@ async fn a_risk_alert_response_is_sent_and_the_page_says_it_is_being_applied_unt
         (Method::POST, &*format!("{RISK}/ral_1/actions"), r#"{"action":"acknowledge","note":"Known seller"}"#)
     );
     let (_, _, html) = pilot.send(get(&to, Some("moderator"))).await;
-    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
     assert_eq!(pilot.send(post_as("moderator", at, "action=unlist", false)).await.0, StatusCode::BAD_REQUEST);
     assert_eq!(pilot.send(post_as("staff", at, "action=acknowledge", false)).await.0, StatusCode::FORBIDDEN);
     let writes = pilot.calls_to(RISK).into_iter().filter(|c| c.method == Method::POST).count();
@@ -5403,7 +5403,7 @@ async fn a_feedbacks_writes_are_sent_and_its_page_is_read_after_them() {
     let lagging = format!("{at}?after_write={}", fresh_receipt());
     let (status, _, html) = pilot.send(get(&lagging, Some("feedback-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
 }
 
 #[tokio::test]
@@ -5547,7 +5547,7 @@ async fn escalate_overdue_reports_its_counts_on_the_queue() {
     );
     let (status, _, html) = pilot.send(get(&to, Some("support-agent"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"role="status""#) && html.contains("120"), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("120"), "{html}");
 }
 
 #[tokio::test]
@@ -8040,7 +8040,7 @@ async fn each_provider_command_sends_the_apis_path_and_lands_on_the_page() {
     // The page it lands on says so.
     let (status, _, html) = pilot.send(get(&format!("/catalog/providers/tcgplayer?{at}&done=retired"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"role="status""#), "{html}");
+    assert!(main_of(&html).contains(r#"role="status""#), "{html}");
 }
 
 #[tokio::test]
@@ -8426,6 +8426,24 @@ async fn the_import_context_draws_the_providers_units_and_scope_selects_from_the
 }
 
 #[tokio::test]
+async fn every_page_has_one_toaster_the_layouts_or_the_catalog_pages_own() {
+    let pilot = Pilot::new().await;
+    // The layout's, outside <main>, where a page draws none of its own.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(html.matches(r#"id="ui-toast""#).count(), 1, "{html}");
+    let after = html.split_once("</main>").map_or("", |(_, after)| after);
+    assert!(
+        after.contains("That did not go through, and may not have been saved. Check and try again."),
+        "the failed text: {after}"
+    );
+    // A catalog page with its own toaster (what the write before did) gets no second one.
+    let (_, _, html) = pilot.send(get("/catalog/blueprints?has_components=true", Some("staff"))).await;
+    assert_eq!(html.matches(r#"id="ui-toast""#).count(), 1, "{html}");
+    let (main, after) = html.split_once("</main>").unwrap();
+    assert!(main.contains(r#"id="ui-toast""#) && !after.contains(r#"id="ui-toast""#), "{html}");
+}
+
+#[tokio::test]
 async fn a_source_options_control_reads_them_with_its_intent_and_lands_without_it() {
     let pilot = Pilot::new().await;
     let at = "providerKey=tcgplayer&unitKey=pokemon";
@@ -8512,7 +8530,7 @@ async fn each_command_sends_the_apis_body_and_lands_on_the_working_set() {
     let before = pilot.calls.lock().unwrap().len();
     let (status, _, html) = pilot.send(get(&landed, Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains(r#"role="status""#), "the outcome: {html}");
+    assert!(main_of(&html).contains(r#"role="status""#), "the outcome: {html}");
     let read =
         pilot.calls.lock().unwrap()[before..].iter().find(|c| c.path.contains("/workbench-surfaces/daily?")).cloned().unwrap();
     assert!(read.headers.contains_key("chase-sets-read-after-write"), "the receipt it carried: {:?}", read.headers);
@@ -9569,4 +9587,10 @@ async fn the_operator_session_pairs_once_with_the_browsers_origin_and_disconnect
         pilot.send(post_as("catalog-admin", "/catalog/providers/lorcast/operator-session/pair", "", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(pilot.calls.lock().unwrap()[before..].iter().all(|c| !c.path.starts_with("/api/catalog/operator-session")));
+}
+
+/// The page before the layout's toaster (`</main>` on), or all of an answer that has no `<main>`
+/// (a patch): where a page's own `role="status"` is looked for.
+fn main_of(html: &str) -> &str {
+    html.split_once("</main>").map_or(html, |(main, _)| main)
 }

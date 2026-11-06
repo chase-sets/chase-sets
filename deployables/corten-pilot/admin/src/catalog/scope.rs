@@ -481,7 +481,9 @@ async fn render(
     let status = if matches!(back, ScopeBack::Nothing) { StatusCode::OK } else { StatusCode::UNPROCESSABLE_ENTITY };
     let page = views::scope_page(t, p, &view, at.jobs.as_deref(), notice, back, manages(viewer));
     let html = html! {
-        <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_scope()} head="">{page}</crate::views::Layout>
+        <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_scope()} head="">
+            {page}
+        </crate::views::OwnToastLayout>
     };
     if status == StatusCode::OK { req.screen(&view, html) } else { req.page_with_status(status, html) }
 }

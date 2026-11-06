@@ -5,9 +5,11 @@ use corten::{
     http::{StatusCode, Uri},
     prelude::*,
 };
+use corten_ui::{Toast, Toaster};
 use platform::{
     section::{PageHeader, Section},
     theme,
+    ui::toasts::Toasts,
 };
 
 use crate::{
@@ -135,7 +137,7 @@ pub use support_page::SupportPage;
 pub use team_page::TeamPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, platform::ui::icon::Icon, MarketNav, Section];
+pub const COMPONENTS: &[Component] = &[theme::TOKENS, platform::ui::icon::Icon, MarketNav, Section, Toasts, Toaster];
 
 /// The inventory screens' components (`/account/inventory`), the import page's too.
 /// The inventory list uses Create listing's catalog picker script, and corten-ui's handler that
@@ -390,6 +392,10 @@ pub fn Layout<'a, H: Render, C: Render>(
 /// `Layout`'s document, with the shell (`shell`) or without it: for a page that cannot say who is
 /// asking, the offline page (the same for everyone; marketplace serves it outside its layout) and
 /// a session the API could not read, where a visitor's Sign in would be wrong.
+///
+/// Outside `<main>` is corten-ui's toaster, kept by a navigation: it shows a redirect's notice
+/// (`req.notice()`) and says a `data-patch` submit that got no answer (`corten:error`), so a
+/// write that did not go through is never silent.
 #[component]
 pub fn Frame<'a, H: Render, C: Render>(
     req: &'a Req,
@@ -425,6 +431,14 @@ pub fn Frame<'a, H: Render, C: Render>(
                     <MarketNav p={p} req={req} viewer={viewer} />
                 }
                 <main>{children}</main>
+                <Toasts>
+                    <Toaster
+                        close={p.shell_toast_close()}
+                        seconds={5}
+                        toast={Toast { message: req.notice() }}
+                        failed={p.shell_not_sent()}
+                    />
+                </Toasts>
             </body>
         </html>
     }

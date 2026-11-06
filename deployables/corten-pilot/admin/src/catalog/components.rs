@@ -201,9 +201,9 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_components()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_components()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -302,9 +302,9 @@ async fn component_page(
     req.screen(
         &component,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_component()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_component()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }

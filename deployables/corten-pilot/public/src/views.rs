@@ -1,7 +1,8 @@
 //! The pages' views. Each component's stylesheet is next to it in `views/`; `static/style.css` has
 //! the element defaults and the fonts.
 use corten::{Component, prelude::*};
-use platform::{chart::TimeSeries, theme};
+use corten_ui::{Toast, Toaster};
+use platform::{chart::TimeSeries, theme, ui::toasts::Toasts};
 
 use crate::{app::url, text::MarketMsg};
 
@@ -39,6 +40,8 @@ pub const COMPONENTS: &[Component] = &[
     PolicyPage,
     WelcomePage,
     corten_ui::CopyButton,
+    Toasts,
+    Toaster,
 ];
 
 /// The help center's components (`/help`, `/sales-fees` and `/press`), in a stylesheet those
@@ -56,9 +59,11 @@ pub const MARKET: &[Component] = &[MarketPage, TimeSeries];
 /// the favicon, `title`, the
 /// page's own `head` tags (description, social, canonical, robots, JSON-LD) and the page. No
 /// shell: public-web's pages draw their own. A client navigation gets only the title, the head
-/// tags and `<main>`'s children.
+/// tags and `<main>`'s children. Outside `<main>` is corten-ui's toaster, which says a `data-patch`
+/// submit that got no answer (`corten:error`), as `HomeLayout`'s does.
 #[component]
 pub fn Layout<'a, T: Render, H: Render, C: Render>(req: &'a Req, title: T, head: H, children: C) -> impl Document + 'a {
+    let p: crate::text::Pilot = req.t();
     html! {
         <!DOCTYPE html>
         <html lang={req.lang()}>
@@ -84,6 +89,14 @@ pub fn Layout<'a, T: Render, H: Render, C: Render>(req: &'a Req, title: T, head:
             </head>
             <body>
                 <main>{children}</main>
+                <Toasts>
+                    <Toaster
+                        close={p.shell_toast_close()}
+                        seconds={5}
+                        toast={Toast { message: req.notice() }}
+                        failed={p.shell_not_sent()}
+                    />
+                </Toasts>
             </body>
         </html>
     }
@@ -137,6 +150,14 @@ pub fn HomeLayout<'a, T: Render, H: Render, C: Render>(
                     <main class={Main} id={MainContentId}>{children}</main>
                     <home_page::HomeFooter t={t} web={web} />
                 </div>
+                <Toasts>
+                    <Toaster
+                        close={p.shell_toast_close()}
+                        seconds={5}
+                        toast={Toast { message: req.notice() }}
+                        failed={p.shell_not_sent()}
+                    />
+                </Toasts>
             </body>
         </html>
     }

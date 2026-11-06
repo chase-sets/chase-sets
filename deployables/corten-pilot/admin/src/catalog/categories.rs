@@ -170,9 +170,9 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_categories()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_categories()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -271,9 +271,9 @@ async fn category_page(
     req.screen(
         &category,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_category()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_category()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
