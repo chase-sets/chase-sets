@@ -183,6 +183,49 @@ jobs:
   });
 
   const notAllowlisted = "is not in the Node 24 compatibility allowlist";
+  const diagnosticAction = "chase-sets/chase-sets/.github/actions/pr-check-diagnostics";
+  const diagnosticOwnerSha = "40cbb2f1ebd752f28323c9f79e927ad155c567d3";
+
+  it("accepts only the exact pre-checkout diagnostic composite owner pin without a release comment", () => {
+    expect(
+      checkGithubActionsRuntime({
+        rootDir: workflowRootWith(workflowUsing(`${diagnosticAction}@${diagnosticOwnerSha}`)),
+      }),
+    ).toEqual({ passed: true, violations: [] });
+  });
+
+  it.each([
+    [
+      "another owner",
+      `other-owner/chase-sets/.github/actions/pr-check-diagnostics@${diagnosticOwnerSha}`,
+      notAllowlisted,
+    ],
+    [
+      "another repository",
+      `chase-sets/other-repo/.github/actions/pr-check-diagnostics@${diagnosticOwnerSha}`,
+      notAllowlisted,
+    ],
+    [
+      "another action path",
+      `chase-sets/chase-sets/.github/actions/setup-pnpm-workspace@${diagnosticOwnerSha}`,
+      notAllowlisted,
+    ],
+    ["a traversal", `${diagnosticAction}/../setup-pnpm-workspace@${diagnosticOwnerSha}`, notAllowlisted],
+    ["another full SHA", `${diagnosticAction}@40cbb2f1ebd752f28323c9f79e927ad155c567d0`, notAllowlisted],
+    ["a short SHA", `${diagnosticAction}@40cbb2f`, notAllowlisted],
+    ["an uppercase SHA", `${diagnosticAction}@${diagnosticOwnerSha.toUpperCase()}`, notAllowlisted],
+    ["a suffixed SHA", `${diagnosticAction}@${diagnosticOwnerSha}0`, notAllowlisted],
+    ["a branch", `${diagnosticAction}@main`, notAllowlisted],
+    ["a tag", `${diagnosticAction}@v1.0.0`, notAllowlisted],
+    ["an invented release comment", `${diagnosticAction}@${"f".repeat(40)} # v1.0.0`, notAllowlisted],
+    ["an expression", `${diagnosticAction}@\${{ inputs.target_sha }}`, notAllowlisted],
+    ["a missing ref", diagnosticAction, "must be pinned with an explicit @ref"],
+  ])("rejects %s for the pre-checkout diagnostic composite", (_name, uses, expectedViolation) => {
+    const result = checkGithubActionsRuntime({ rootDir: workflowRootWith(workflowUsing(uses)) });
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([expect.stringContaining(expectedViolation)]);
+  });
+
   it.each([
     ["another owner", `other-owner/chase-sets/.github/actions/block-docker-hub@${trustedGuardSha}`, notAllowlisted],
     ["another repository", `chase-sets/other-repo/.github/actions/block-docker-hub@${trustedGuardSha}`, notAllowlisted],

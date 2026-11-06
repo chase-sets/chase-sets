@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -145,6 +146,68 @@ const operations = [
     { PR_NUMBER: "${{ github.event.pull_request.number }}" },
   ],
 ];
+const diagnosticActionPath = ".github/actions/pr-check-diagnostics/action.yml";
+const diagnosticActionRef =
+  "chase-sets/chase-sets/.github/actions/pr-check-diagnostics@40cbb2f1ebd752f28323c9f79e927ad155c567d3";
+const diagnostics = [
+  ["known-failure-guard", "Defer circuit enforcement to merge queue", "known-failure-notice"],
+  ["release-qualification-scope-advisory", "Record job start for the Actions-minutes wager", "job-clock"],
+];
+
+function inlineStageOperations(workflow) {
+  return Object.keys(before.jobs).flatMap((id) =>
+    workflow.jobs[id].steps.flatMap((entry) => {
+      if (!entry.run) return [];
+      const command = entry.run
+        .trim()
+        .replace(/^set -(?:euo pipefail|o pipefail)\n/, "")
+        .replace(/\\\n\s*/g, " ");
+      const withoutExpressions = command.replace(/\$\{\{[\s\S]*?\}\}/g, "EXPRESSION");
+      const thinCall =
+        /^(?:(?:node|bash|python3) (?:\.\/)?[\w./-]+\.(?:mjs|js|sh|py)|pnpm run [\w:-]+)(?: [^\n]+)?$/.test(command) &&
+        !/[;&|<>`]|\$\(/.test(withoutExpressions);
+      const declarativeAssertion = /^test -n "\$[A-Z0-9_]+"$/.test(command);
+      return thinCall || declarativeAssertion ? [] : [`${id}/${entry.name}`];
+    }),
+  );
+}
+
+function stageOwnershipGaps(workflow) {
+  const expected = [...operations, ...diagnostics].map(([id, name]) => `${id}/${name}`).sort();
+  const discovered = inlineStageOperations(before).sort();
+  const missing = discovered.filter((identity) => !expected.includes(identity));
+  const extra = expected.filter((identity) => !discovered.includes(identity));
+  const inline = inlineStageOperations(workflow).sort();
+  const callers = diagnostics.flatMap(([id, name, operation]) => {
+    const original = { ...step(before, id, name) };
+    delete original.run;
+    const wanted = { ...original, uses: diagnosticActionRef, with: { operation } };
+    return isDeepStrictEqual(step(workflow, id, name), wanted) ? [] : [`${id}/${name}`];
+  });
+  return { missing, extra, inline, callers };
+}
+
+function diagnosticOwner(workflow = after, read = (file) => readFileSync(file, "utf8")) {
+  const references = diagnostics.map(([id, name]) => step(workflow, id, name).uses);
+  expect(references).toEqual([diagnosticActionRef, diagnosticActionRef]);
+  const pin = diagnosticActionRef.split("@")[1];
+  const source = execFileSync("git", ["show", `${pin}:${diagnosticActionPath}`], { encoding: "utf8" });
+  expect(read(diagnosticActionPath).replaceAll("\r\n", "\n")).toBe(source);
+  expect(execFileSync("git", ["show", `HEAD:${diagnosticActionPath}`], { encoding: "utf8" })).toBe(source);
+  const action = parse(source);
+  expect(action.runs.using).toBe("composite");
+  expect(action.runs.steps).toHaveLength(1);
+  expect(action.runs.steps[0]).toMatchObject({
+    id: "diagnostic",
+    shell: "bash",
+    env: { PR_CHECK_DIAGNOSTIC_OPERATION: "${{ inputs.operation }}" },
+  });
+  expect(Object.keys(action.runs.steps[0]).sort()).toEqual(["env", "id", "name", "run", "shell"]);
+  expect(action.runs.steps[0].env).toEqual({ PR_CHECK_DIAGNOSTIC_OPERATION: "${{ inputs.operation }}" });
+  expect(Object.keys(action.inputs)).toEqual(["operation"]);
+  expect(action.inputs.operation.required).toBe(true);
+  return action;
+}
 
 function runBash(run, env = {}) {
   const result = spawnSync(bash, ["-e", "-c", run], { encoding: "utf8", env: { ...process.env, ...env } });
@@ -351,6 +414,114 @@ function discoverExtractedInterfaces(read = (file) => readFileSync(file, "utf8")
 }
 
 describe("workflow composition contract inventory", () => {
+  it("discovers every original scoped inline operation and rejects restored or extra diagnostic bodies", () => {
+    const positive = { missing: [], extra: [], inline: [], callers: [] };
+    expect(stageOwnershipGaps(after)).toEqual(positive);
+    for (const [id, name] of diagnostics) {
+      const restored = structuredClone(after);
+      const index = restored.jobs[id].steps.findIndex((entry) => entry.name === name);
+      restored.jobs[id].steps[index] = structuredClone(step(before, id, name));
+      expect(stageOwnershipGaps(restored)).toEqual({
+        ...positive,
+        inline: [`${id}/${name}`],
+        callers: [`${id}/${name}`],
+      });
+      expect(stageOwnershipGaps(after)).toEqual(positive);
+    }
+    for (const run of ['echo "unowned"', "node -e 'console.log(1)'", "bash -c 'echo unowned'"]) {
+      const extra = structuredClone(after);
+      extra.jobs["known-failure-guard"].steps.push({ name: "Unowned diagnostic", run });
+      expect(stageOwnershipGaps(extra)).toEqual({
+        ...positive,
+        inline: ["known-failure-guard/Unowned diagnostic"],
+      });
+      expect(stageOwnershipGaps(after)).toEqual(positive);
+    }
+    console.info(
+      "Complete scoped inline ownership",
+      JSON.stringify({
+        original: inlineStageOperations(before),
+        final: inlineStageOperations(after),
+        restored: true,
+      }),
+    );
+  });
+
+  it("binds both pre-checkout diagnostic calls to identical immutable owner bytes and rejects retargeting", () => {
+    diagnosticOwner();
+    expect(() => diagnosticOwner(after, () => "")).toThrow();
+    for (const [id, name] of diagnostics) {
+      const original = before.jobs[id].steps.findIndex((entry) => entry.name === name);
+      expect(after.jobs[id].steps.findIndex((entry) => entry.name === name)).toBe(original);
+      expect(original).toBeLessThan(
+        after.jobs[id].steps.findIndex((entry) => entry.uses?.startsWith("actions/checkout@")),
+      );
+      for (const uses of [
+        undefined,
+        diagnosticActionRef.replace("pr-check-diagnostics@", "other-action@"),
+        diagnosticActionRef.replace(/.$/, "0"),
+        diagnosticActionRef.replace(/@.*/, "@main"),
+        "./.github/actions/pr-check-diagnostics",
+      ]) {
+        const retargeted = structuredClone(after);
+        step(retargeted, id, name).uses = uses;
+        expect(stageOwnershipGaps(retargeted).callers).toEqual([`${id}/${name}`]);
+        expect(() => diagnosticOwner(retargeted)).toThrow();
+      }
+    }
+    diagnosticOwner();
+  });
+
+  it("transports the exact diagnostic stdout and fixed UTC clock through the explicit action output", () => {
+    const action = diagnosticOwner();
+    expect(action.outputs).toEqual({
+      started_at: {
+        description: "UTC job-start timestamp emitted by the job-clock operation.",
+        value: "${{ steps.diagnostic.outputs.started_at }}",
+      },
+    });
+    const assertOutput = (owner) =>
+      expect(owner.outputs?.started_at?.value).toBe("${{ steps.diagnostic.outputs.started_at }}");
+    for (const outputs of [undefined, {}, { started_at: { value: "${{ steps.other.outputs.started_at }}" } }])
+      expect(() => assertOutput({ ...action, outputs })).toThrow();
+    const clock = step(after, diagnostics[1][0], diagnostics[1][1]);
+    expect(clock.id).toBe("clock");
+    expect(
+      step(after, "release-qualification-scope-advisory", "Classify release qualification scope (advisory only)"),
+    ).toEqual(
+      step(before, "release-qualification-scope-advisory", "Classify release qualification scope (advisory only)"),
+    );
+    const directory = mkdtempSync(resolve(tmpdir(), "pr-check-diagnostics-"));
+    const output = resolve(directory, "github-output");
+    const controlledDate =
+      'date() { [ "$#" = 2 ] && [ "$1" = -u ] && [ "$2" = +%Y-%m-%dT%H:%M:%SZ ] || return 92; echo 2026-11-06T12:34:56Z; };\n';
+    try {
+      for (const [id, name, operation] of diagnostics) {
+        const env = { GITHUB_OUTPUT: output, PR_CHECK_DIAGNOSTIC_OPERATION: operation };
+        const baseline = runBash(controlledDate + ': > "$GITHUB_OUTPUT"\n' + step(before, id, name).run, env);
+        const baselineOutput = readFileSync(output, "utf8");
+        const actual = runBash(controlledDate + ': > "$GITHUB_OUTPUT"\n' + action.runs.steps[0].run, env);
+        expect(actual).toEqual(baseline);
+        expect(actual.status, actual.error).toBe(0);
+        expect(readFileSync(output, "utf8")).toBe(baselineOutput);
+        expect(baselineOutput).toBe(operation === "job-clock" ? "started_at=2026-11-06T12:34:56Z\n" : "");
+      }
+      for (const operation of ["", "unknown", "job-clock; echo injected", "$(echo injected)"]) {
+        const result = runBash(': > "$GITHUB_OUTPUT"\n' + action.runs.steps[0].run, {
+          GITHUB_OUTPUT: output,
+          PR_CHECK_DIAGNOSTIC_OPERATION: operation,
+        });
+        expect(result.status).toBe(1);
+        expect(result.output).toBe("");
+        expect(result.error).toBe("::error::Unknown PR check diagnostic operation\n");
+        expect(readFileSync(output, "utf8")).toBe("");
+      }
+    } finally {
+      expect(dirname(directory)).toBe(resolve(tmpdir()));
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("discovers extracted runtime, companion and typed-consumer interfaces and rejects a real-path omitted declaration", () => {
     const positive = discoverExtractedInterfaces();
     expect(positive.gaps).toEqual([]);
@@ -605,6 +776,14 @@ describe("workflow composition contract inventory", () => {
         const oldStep = original.steps[index];
         const newStep = current.steps[index];
         const operation = operations.find(([job, name]) => id === job && oldStep.name === name);
+        const diagnostic = diagnostics.find(([job, name]) => id === job && oldStep.name === name);
+        if (diagnostic) {
+          expect(newStep.uses).toBe(diagnosticActionRef);
+          expect(newStep.with).toEqual({ operation: diagnostic[2] });
+          delete newStep.uses;
+          delete newStep.with;
+          newStep.run = oldStep.run;
+        }
         if (operation) {
           expect(newStep.run, `${id}/${oldStep.name}`).toBe(operation[2]);
           const extra = operation[3];
@@ -772,7 +951,16 @@ describe("workflow extraction authority parity", () => {
     expect(after.jobs["pr-required"].if).toBe("always()");
     expect(after.concurrency).toEqual(before.concurrency);
     expect(after.jobs["release-status"].if).toBe(before.jobs["release-status"].if);
-    expect(after.jobs["known-failure-guard"]).toEqual(before.jobs["known-failure-guard"]);
+    const guard = structuredClone(after.jobs["known-failure-guard"]);
+    const noticeIndex = guard.steps.findIndex((entry) => entry.name === diagnostics[0][1]);
+    expect(guard.steps[noticeIndex]).toEqual({
+      name: diagnostics[0][1],
+      if: "github.event_name == 'pull_request'",
+      uses: diagnosticActionRef,
+      with: { operation: "known-failure-notice" },
+    });
+    guard.steps[noticeIndex] = structuredClone(step(before, ...diagnostics[0]));
+    expect(guard).toEqual(before.jobs["known-failure-guard"]);
   });
 
   it("executes the actual JSON consumer and fails closed with missing or malformed needs", () => {
