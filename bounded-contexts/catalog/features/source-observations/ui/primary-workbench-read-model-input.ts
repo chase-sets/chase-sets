@@ -38,6 +38,8 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   /** The read-only preview validation for the route's promotion preview token, when one is in play. */
   promotionValidation?: SourceObservationPromotionValidation | null;
+  /** Recomputed current evidence only; never an original action receipt. */
+  promotionPreviewFingerprint?: string | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   canManageCatalog: boolean;
 }>;

@@ -23,7 +23,12 @@ import {
 import {
   sourceObservationEvidenceDetailFor,
   sourceObservationReviewCompositionFor,
+  projectPromotionReceipt,
+  promotionReceiptHasCompleteCoverage,
+  promotionReceiptMatchesContext,
 } from "./primary-workbench-source-observation-review";
+import { syntheticPromotionReceipt, loaderData } from "./primary-workbench-test-fixtures";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
 import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
 
 const slimRowRouteContext: CatalogPrimaryWorkbenchRouteContext = {
@@ -42,6 +47,168 @@ const slimRowRouteContext: CatalogPrimaryWorkbenchRouteContext = {
 };
 
 describe("Catalog primary workbench read model - source observation review", () => {
+  it("deep-projects the whole original Preview without nested extras, aliases or diagnostic loss", () => {
+    const receipt = syntheticPromotionReceipt();
+    const diagnostic = {
+      observationId: "synthetic-returned-id",
+      code: "display-identity-unresolvable",
+      path: "displayIdentity",
+      diagnosticText: "<img src=x onerror=synthetic()> stays text",
+      blocking: false,
+      displayIdentity: {
+        missingTokens: ["synthetic-token"],
+        templateKey: "synthetic-template",
+        templateTargetKind: "blueprint",
+        templateTargetId: "synthetic-target",
+        templateReason: "missing-required-fields" as const,
+        extra: "synthetic-private-nested",
+      },
+      headers: { authorization: "synthetic-private-header" },
+    };
+    const raw = {
+      ...receipt,
+      extra: "synthetic-private-root",
+      selection: {
+        ...receipt.selection,
+        extra: "synthetic-private-selection",
+        scope: { ...receipt.selection.scope, extra: "synthetic-private-scope" },
+      },
+      preview: {
+        ...receipt.preview,
+        matched: 9,
+        eligible: 3,
+        terminal: 6,
+        payload: "synthetic-private-provider",
+        scope: { ...receipt.preview.scope, extra: "synthetic-private-returned-scope" },
+        validation: {
+          ...receipt.preview.validation,
+          pageLimit: 100,
+          coverage: "partial" as const,
+          continuation: "synthetic-next",
+          coveredObservationIds: ["synthetic-a", "synthetic-b", "synthetic-c"],
+          diagnostics: [
+            diagnostic,
+            {
+              observationId: "synthetic-b",
+              code: "other-nonblocking",
+              path: "facts",
+              diagnosticText: "synthetic-warning",
+              blocking: false,
+            },
+          ],
+          extra: "synthetic-private-validation",
+        },
+      },
+    };
+    const projected = projectPromotionReceipt(raw);
+    expect(projected.preview).toMatchObject({
+      matched: 9,
+      eligible: 3,
+      terminal: 6,
+      fingerprint: receipt.preview.fingerprint,
+    });
+    expect(projected.preview.validation).toMatchObject({
+      coverage: "partial",
+      continuation: "synthetic-next",
+      coveredObservationIds: ["synthetic-a", "synthetic-b", "synthetic-c"],
+    });
+    expect(projected.preview.validation.diagnostics).toHaveLength(2);
+    expect(projected.preview.validation.diagnostics[0]?.displayIdentity).toEqual({
+      missingTokens: ["synthetic-token"],
+      templateKey: "synthetic-template",
+      templateTargetKind: "blueprint",
+      templateTargetId: "synthetic-target",
+      templateReason: "missing-required-fields",
+    });
+    expect(JSON.stringify(projected)).not.toContain("synthetic-private");
+    expect(projected.preview.validation.diagnostics[0]?.diagnosticText).toBe(diagnostic.diagnosticText);
+    raw.preview.validation.coveredObservationIds.push("synthetic-later-mutation");
+    expect(projected.preview.validation.coveredObservationIds).toHaveLength(3);
+    expect(promotionReceiptHasCompleteCoverage(projected)).toBe(false);
+  });
+
+  it("requires complete exact coverage, a fingerprint and the original draft choice", () => {
+    const receipt = syntheticPromotionReceipt();
+    expect(promotionReceiptHasCompleteCoverage(receipt)).toBe(true);
+    for (const validation of [
+      { ...receipt.preview.validation, coveredObservationIds: [] },
+      { ...receipt.preview.validation, coveredObservationIds: ["synthetic-other-id"] },
+      { ...receipt.preview.validation, coveredObservationIds: ["obs_001", "obs_001"] },
+      { ...receipt.preview.validation, coverage: "partial" as const },
+      { ...receipt.preview.validation, continuation: "synthetic-continuation" },
+      { ...receipt.preview.validation, promoteAsDraft: true },
+      {
+        ...receipt.preview.validation,
+        diagnostics: [
+          {
+            observationId: "obs_001",
+            code: "synthetic-block",
+            path: "facts",
+            diagnosticText: "blocked",
+            blocking: true,
+          },
+        ],
+      },
+    ]) {
+      expect(promotionReceiptHasCompleteCoverage({ ...receipt, preview: { ...receipt.preview, validation } })).toBe(
+        false,
+      );
+    }
+    expect(promotionReceiptHasCompleteCoverage({ ...receipt, preview: { ...receipt.preview, fingerprint: "" } })).toBe(
+      false,
+    );
+    expect(
+      promotionReceiptHasCompleteCoverage({
+        ...receipt,
+        selection: { ...receipt.selection, observationIds: [] },
+        preview: {
+          ...receipt.preview,
+          matched: 0,
+          eligible: 0,
+          validation: { ...receipt.preview.validation, coveredObservationIds: [] },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps helper-built models receipt-free and matches every governing context coordinate", () => {
+    expect(loaderData().readModel.promotionPreview.receipt).toBeNull();
+    const receipt = syntheticPromotionReceipt();
+    const url =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+    expect(promotionReceiptMatchesContext(receipt, parseCatalogPrimaryWorkbenchRouteContext(url))).toBe(true);
+    for (const [key, value] of [
+      ["providerKey", "synthetic-other-provider"],
+      ["unitKey", "synthetic-other-unit"],
+      ["profileVersion", "synthetic-other-profile"],
+      ["scopeRecordId", "synthetic-other-scope"],
+      ["importScope", "en:3:base:base2"],
+      ["filter.status", "changed"],
+      ["filter.search", "synthetic-query"],
+    ]) {
+      const changed = new URL(url);
+      changed.searchParams.set(key!, value!);
+      expect(
+        promotionReceiptMatchesContext(receipt, parseCatalogPrimaryWorkbenchRouteContext(changed.toString())),
+      ).toBe(false);
+    }
+  });
+
+  it("keeps current loader fingerprints distinct and rejects mismatched receipt contracts", () => {
+    const model = loaderData().readModel;
+    const receipt = syntheticPromotionReceipt();
+    expect(model.promotionPreview.currentFingerprint).toBeNull();
+    const malformed = {
+      ...model,
+      promotionPreview: { ...model.promotionPreview, previewId: "synthetic-different-token", receipt },
+    };
+    expect(() => validateCatalogPrimaryWorkbenchReadModelContract(malformed)).toThrow("original promotion receipt");
+    const mixed = syntheticPromotionReceipt();
+    mixed.selection.observationIds = ["obs_001", "synthetic-terminal-id"];
+    mixed.preview.matched = 2;
+    mixed.preview.terminal = 1;
+    expect(promotionReceiptHasCompleteCoverage(mixed)).toBe(true);
+  });
   it("keeps other scope and provider selections out of the Jungle review query", () => {
     for (const [providerKey, expansionId] of [
       ["tcgdex", "base3"],

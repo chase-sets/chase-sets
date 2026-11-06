@@ -16,7 +16,14 @@ import { ApiError } from "../../../../../support/shell-support/api/client";
 import { loader as loadDailySurface } from "../../../../../routes/admin/integrations";
 
 const { createApi } = vi.hoisted(() => ({ createApi: vi.fn() }));
-vi.mock("../../../../../support/request-support/api-client", () => ({ createCatalogRequestApiClient: createApi }));
+vi.mock("../../../../../support/request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../../../tests/integrations-surface-read-test-client")
+  >("../../../tests/integrations-surface-read-test-client");
+  return {
+    createCatalogRequestApiClient: (request: Request) => withCatalogSurfaceReads(createApi(request), request),
+  };
+});
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   resolveActorFromAuthApi: async () => ({ permissions: ["catalog.manage"] }),
   isTransientAuthResolutionError: () => false,

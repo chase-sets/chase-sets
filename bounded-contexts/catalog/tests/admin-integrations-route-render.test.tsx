@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
@@ -18,6 +18,7 @@ import {
   profileReview,
   sourceObservationListItem,
   sourceObservationScope,
+  syntheticPromotionReceipt,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../features/source-observations/ui/contracts";
 import { isActionAvailable } from "../features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls";
@@ -52,6 +53,7 @@ const {
   mockUseNavigate,
   mockUseRouteLoaderData,
   mockUseActionData,
+  mockUseNavigation,
 } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),
   mockIsTransientAuthResolutionError: vi.fn(),
@@ -60,6 +62,7 @@ const {
   mockUseNavigate: vi.fn(),
   mockUseRouteLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
+  mockUseNavigation: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -70,6 +73,7 @@ vi.mock("react-router", async () => {
     useNavigate: () => mockUseNavigate,
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
+    useNavigation: mockUseNavigation,
     // The import-jobs module polls live progress via useRevalidator and the daily
     // import-context form submits context changes via useSubmit; outside a data
     // router (this bare render) both need a stub so the workbench still renders.
@@ -78,9 +82,15 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("../support/request-support/api-client", () => ({
-  createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
-}));
+vi.mock("../support/request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../features/source-observations/tests/integrations-surface-read-test-client")
+  >("../features/source-observations/tests/integrations-surface-read-test-client");
+  return {
+    createCatalogRequestApiClient: (request: Request) =>
+      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+  };
+});
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   isTransientAuthResolutionError: mockIsTransientAuthResolutionError,
@@ -94,10 +104,12 @@ describe("Catalog integrations route", () => {
     mockUseNavigate.mockReset();
     mockUseRouteLoaderData.mockReset();
     mockUseActionData.mockReset();
+    mockUseNavigation.mockReset();
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
     mockIsTransientAuthResolutionError.mockReturnValue(false);
     mockResolveActorFromAuthApi.mockResolvedValue({
       permissions: ["catalog.view", "catalog.manage"],
@@ -189,7 +201,7 @@ describe("Catalog integrations route", () => {
     expect(screen.getByText(/Catalog sync could not start for the selected provider scope/i)).toBeTruthy();
   });
 
-  it("replaces the daily URL when preview-ready action data carries a routable checkpoint", async () => {
+  it("retains Preview evidence in place without navigating or putting its token in links", () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
     const requestUrl =
@@ -198,24 +210,48 @@ describe("Catalog integrations route", () => {
     mockUseRouteLoaderData.mockReturnValue({
       actor: { permissions: ["catalog.view", "catalog.manage"] },
     });
+    const receipt = syntheticPromotionReceipt({ previewId: "preview_001" });
     mockUseActionData.mockReturnValue({
       feedback: { status: "success", intent: "observation.promote", result: "preview-ready" },
       context: parseCatalogPrimaryWorkbenchRouteContext(
         `${requestUrl}&selectedObservationIds=obs_001&promotionPreviewId=preview_001`,
       ),
       section: "import-to-promotion",
+      promotionReceipt: receipt,
     });
 
-    render(<IntegrationsRoute />);
-
-    await waitFor(() => expect(mockUseNavigate).toHaveBeenCalledTimes(1));
-    const [href, options] = mockUseNavigate.mock.calls[0] ?? [];
-    const target = new URL(String(href), "https://admin.example");
-    expect(options).toEqual({ replace: true });
-    expect(target.pathname).toBe("/catalog/integrations");
-    expect(target.searchParams.get("selectedObservationIds")).toBe("obs_001");
-    expect(target.searchParams.get("promotionPreviewId")).toBe("preview_001");
-    expect(target.searchParams.get("commandResult")).toBe("preview-ready");
+    const { rerender } = render(<IntegrationsRoute />);
+    const disclosure = screen
+      .getAllByRole("button", { name: /Preview promotion/ })
+      .find((button) => button.hasAttribute("aria-expanded"));
+    expect(disclosure).toBeTruthy();
+    fireEvent.click(disclosure!);
+    const receiptNode = document.querySelector(
+      '[data-catalog-promotion-receipt="source-observation-promotion-receipt/v1"]',
+    );
+    expect(receiptNode).not.toBeNull();
+    expect(receiptNode?.querySelector('[data-catalog-receipt-field="previewId"]')?.textContent).toBe("preview_001");
+    expect(receiptNode?.querySelector('[data-catalog-receipt-field="preview.fingerprint"]')?.textContent).toBe(
+      receipt.preview.fingerprint,
+    );
+    const executeToken = document
+      .querySelector<HTMLInputElement>('form input[name="promotionPhase"][value="execute"]')
+      ?.form?.querySelector<HTMLInputElement>('input[name="promotionPreviewId"]');
+    expect(executeToken?.value).toBe(receipt.previewId);
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+    for (const link of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+      expect(link.href).not.toContain("promotionPreviewId");
+      expect(link.href).not.toContain(receipt.previewId);
+    }
+    mockUseNavigation.mockReturnValue({ state: "submitting" });
+    rerender(<IntegrationsRoute />);
+    expect(
+      document
+        .querySelector("[data-catalog-promotion-receipt-state]")
+        ?.getAttribute("data-catalog-promotion-receipt-state"),
+    ).toBe("stale");
+    expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+    expect(mockUseNavigate).not.toHaveBeenCalled();
   });
 
   it("round-trips a submitted promotion through its routable job id to the rendered durable outcome", async () => {
@@ -472,29 +508,39 @@ describe("Catalog integrations route", () => {
     );
   });
 
-  it("retries transient auth resolution before rendering the shared importer", async () => {
+  it("takes catalog.manage from the Catalog API's surface read without resolving the actor in the loader", async () => {
+    // The Catalog API decides catalog.manage from its own request actor, so a
+    // warming auth API in the admin loader can no longer deny the importer.
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
-    const transientAuthError = new Error("auth api warming");
-    mockIsTransientAuthResolutionError.mockImplementation((error) => error === transientAuthError);
-    mockResolveActorFromAuthApi
-      .mockRejectedValueOnce(transientAuthError)
-      .mockResolvedValueOnce({ permissions: ["catalog.view", "catalog.manage"] });
+    const requestUrl = "https://admin.example/catalog/integrations?providerKey=tcgdex";
+    mockIsTransientAuthResolutionError.mockReturnValue(true);
+    mockResolveActorFromAuthApi.mockRejectedValue(new Error("auth api warming"));
+    const getCatalogPrimaryWorkbenchSurface = vi.fn().mockResolvedValue({
+      readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+        requestUrl,
+        scopes,
+        profileReviews,
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      }),
+      readModelFailures: [],
+      catalogSyncScope: null,
+    });
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
-      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
-      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
-      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      getCatalogPrimaryWorkbenchSurface,
+      getCatalogPrimaryWorkbenchDeferredSourceOptions: vi.fn().mockRejectedValue(new Error("not under test")),
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });
 
     const routeData = await loader({
-      request: new Request("https://admin.example/catalog/integrations?providerKey=tcgdex"),
+      request: new Request(requestUrl),
       params: {},
       context: {},
     } as Parameters<typeof loader>[0]);
 
-    expect(mockResolveActorFromAuthApi).toHaveBeenCalledTimes(2);
+    expect(getCatalogPrimaryWorkbenchSurface).toHaveBeenCalledWith("daily", "/catalog/integrations?providerKey=tcgdex");
+    expect(mockResolveActorFromAuthApi).not.toHaveBeenCalled();
     expect(
       routeData.readModel.actions.find((actionEntry) => actionEntry.key === "scope.import")?.blockers,
     ).not.toContain("permission-denied");

@@ -11,6 +11,12 @@ import type {
 } from "../read-model/queries";
 import { catalogScopeProductDomains, catalogScopeRecordKinds } from "../domain/contract";
 import type { CatalogLifecycleStatus } from "../../../support/runtime-support/common";
+import {
+  catalogScopePromotionReadiness,
+  catalogScopeSyncFreshness,
+  type CatalogScopePromotionReadiness,
+  type CatalogScopeSyncFreshness,
+} from "../domain/scope-row-status";
 
 const catalogLifecycleStatuses = [
   "draft",
@@ -55,9 +61,15 @@ export type CatalogScopeRecordDetail = Readonly<{
   languageEditions: readonly string[];
   lifecycleStatus: string;
   updatedAt: string;
+  /** API-owned promotion posture derived from `lifecycleStatus`. */
+  promotionReadiness: CatalogScopePromotionReadiness;
+  /** API-owned sync-freshness proxy: `updatedAt` within two weeks of the response's generation time. */
+  syncFreshness: CatalogScopeSyncFreshness;
 }>;
 
-export function scopeRecordDetailFromRow(row: CatalogScopeRecordRow): CatalogScopeRecordDetail {
+// `generatedAt` is the response's generation time; sync freshness is measured
+// against it so every row in one response shares one clock.
+export function scopeRecordDetailFromRow(row: CatalogScopeRecordRow, generatedAt: string): CatalogScopeRecordDetail {
   return {
     scopeRecordId: row.scope_record_id,
     productDomain: row.product_domain,
@@ -74,6 +86,8 @@ export function scopeRecordDetailFromRow(row: CatalogScopeRecordRow): CatalogSco
     languageEditions: normalizeLanguageEditions(row.language_editions),
     lifecycleStatus: row.lifecycle_status,
     updatedAt: row.updated_at,
+    promotionReadiness: catalogScopePromotionReadiness(row.lifecycle_status),
+    syncFreshness: catalogScopeSyncFreshness(row.updated_at, generatedAt),
   };
 }
 
@@ -96,6 +110,7 @@ export function scopeRecordListParamsFromRecord(
 
 /** The canonical Scope Record list page the browser receives. */
 export type CatalogScopeRecordListResponse = Readonly<{
+  generatedAt: string;
   items: readonly CatalogScopeRecordDetail[];
   total: number;
   count: number;
@@ -118,9 +133,10 @@ export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteSe
 
     const params = scopeRecordListParamsFromRecord(c.req.query());
     const { items, total, facets } = await services.listScopeRecords(params);
-    const mapped = items.map(scopeRecordDetailFromRow);
+    const generatedAt = new Date().toISOString();
+    const mapped = items.map((row) => scopeRecordDetailFromRow(row, generatedAt));
 
-    return c.json<CatalogScopeRecordListResponse>({ items: mapped, total, count: mapped.length, facets });
+    return c.json<CatalogScopeRecordListResponse>({ generatedAt, items: mapped, total, count: mapped.length, facets });
   });
 
   app.get("/:id", async (c) => {
@@ -142,7 +158,7 @@ export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteSe
       );
     }
 
-    return c.json(scopeRecordDetailFromRow(scopeRecord));
+    return c.json(scopeRecordDetailFromRow(scopeRecord, new Date().toISOString()));
   });
 
   return app;

@@ -11,6 +11,29 @@ import { requireCatalogIntegrationControlPlanePermission } from "../admin/admin-
 
 export type CatalogMergeCandidateRouteServices = CatalogMergeCandidateServices & SourceObservationReadServices;
 
+// The `GET /merge-candidates` query, parsed once so the HTTP route and the
+// in-process workbench surface read list candidates with the same filters.
+export function catalogMergeCandidateListParamsFromQuery(
+  query: Readonly<Record<string, string | undefined>>,
+): Parameters<SourceObservationReadServices["listCatalogMergeCandidates"]>[0] {
+  return {
+    search: query.search ?? undefined,
+    status: candidateStatusQuery(query.status),
+    syncRunId: query.syncRunId ?? undefined,
+    identityFingerprint: query.identityFingerprint ?? undefined,
+    scopeRecordId: query.scopeRecordId ?? undefined,
+    matchedCatalogItemId: query.matchedCatalogItemId ?? undefined,
+    provider: query.provider ?? undefined,
+    language: query.language ?? undefined,
+    productLineId: query.productLineId ?? undefined,
+    productLineName: query.productLineName ?? undefined,
+    expansionId: query.expansionId ?? undefined,
+    setId: query.setId ?? undefined,
+    limit: positiveIntegerQuery(query.limit),
+    offset: nonNegativeIntegerQuery(query.offset),
+  };
+}
+
 export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRouteServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -20,22 +43,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
       return permissionError;
     }
 
-    const result = await services.listCatalogMergeCandidates({
-      search: c.req.query("search") ?? undefined,
-      status: candidateStatusQuery(c.req.query("status")),
-      syncRunId: c.req.query("syncRunId") ?? undefined,
-      identityFingerprint: c.req.query("identityFingerprint") ?? undefined,
-      scopeRecordId: c.req.query("scopeRecordId") ?? undefined,
-      matchedCatalogItemId: c.req.query("matchedCatalogItemId") ?? undefined,
-      provider: c.req.query("provider") ?? undefined,
-      language: c.req.query("language") ?? undefined,
-      productLineId: c.req.query("productLineId") ?? undefined,
-      productLineName: c.req.query("productLineName") ?? undefined,
-      expansionId: c.req.query("expansionId") ?? undefined,
-      setId: c.req.query("setId") ?? undefined,
-      limit: positiveIntegerQuery(c.req.query("limit")),
-      offset: nonNegativeIntegerQuery(c.req.query("offset")),
-    });
+    const result = await services.listCatalogMergeCandidates(catalogMergeCandidateListParamsFromQuery(c.req.query()));
 
     return c.json(result);
   });
