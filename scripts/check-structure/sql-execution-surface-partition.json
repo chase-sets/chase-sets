@@ -226,6 +226,7 @@
     "bounded-contexts/fulfillment/features/return-shipments/read-model/linkage.ts",
     "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
     "bounded-contexts/fulfillment/features/return-shipments/read-model/queries.ts",
+    "bounded-contexts/fulfillment/features/seller-checkout-readiness/api/runtime.ts",
     "bounded-contexts/fulfillment/features/shipments/api/runtime.ts",
     "bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts",
     "bounded-contexts/fulfillment/features/shipments/read-model/postage-operation-authority.ts",
