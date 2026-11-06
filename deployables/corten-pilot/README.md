@@ -183,7 +183,8 @@ the Sales tab's history on the server.
 
 Median of 7 cold-cache loads, signed in as the same user, production builds of both (the React
 app and the pilot `--release`) from the same commit, against the dev sandbox on one machine. The
-mobile profile is 4x CPU, 150 ms RTT and 1.6 Mbps down. Interactive is when the page's scripts ran.
+mobile profile is 4x CPU, 150 ms RTT and 1.6 Mbps down. Interactive is when the page's scripts ran. The pilot
+was built without thin LTO then; `Cargo.toml` sets it since, and nothing here was measured again.
 
 | Storage locations (list) | marketplace desktop | pilot desktop | marketplace mobile | pilot mobile |
 |---|---|---|---|---|

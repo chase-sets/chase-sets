@@ -30,3 +30,8 @@ uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 
+# Thin LTO, as `corten new` writes it (corten-run/corten#952): about 1.7% fewer instructions per page
+# than Cargo's default as Corten measured it, for a slower release build; `corten dev`, the checks
+# and the tests do not use it. Not measured on the pilot.
+[profile.release]
+lto = "thin"
