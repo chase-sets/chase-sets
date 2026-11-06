@@ -4214,7 +4214,18 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   describe("freshness uses workload bindings only", () => {
-    it("is called only by the Unit regression and its own producer, never by the test:db guard", () => {
+    const expectedReferences = [
+      "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts",
+      "deployables/platform-api/scripts/db-enrollment-workload.mjs",
+      "scripts/change-scope.mjs",
+      "scripts/change-scope.test.mjs",
+      "scripts/workflow-composition-contract.test.mjs",
+    ];
+    const compositionObserver = "scripts/workflow-composition-contract.test.mjs";
+    const enrollmentChecker = "deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
+    const readSource = (path: string) => readFileSync(join(repositoryRoot, path), "utf8");
+
+    function discoverWorkloadReferences(read = readSource) {
       const callers: string[] = [];
       function visit(directory: string) {
         for (const entry of readdirSync(join(repositoryRoot, directory)).sort()) {
@@ -4224,19 +4235,31 @@ describe("Platform API bootstrap DB enrollment", () => {
           if (statSync(absolute).isDirectory()) visit(path);
           else if (
             /\.(?:[cm]?[jt]sx?)$/.test(entry) &&
-            readFileSync(absolute, "utf8").includes("db-enrollment-workload")
+            read(path).includes("db-enrollment-workload")
           ) {
             callers.push(path);
           }
         }
       }
       for (const directory of ["deployables/platform-api", "scripts"]) visit(directory);
-      expect(callers.sort()).toEqual([
-        "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts",
-        "deployables/platform-api/scripts/db-enrollment-workload.mjs",
-        "scripts/change-scope.mjs",
-        "scripts/change-scope.test.mjs",
-      ]);
+      return callers.sort();
+    }
+
+    function verifyWorkloadReferences(callers: string[]) {
+      const missing = expectedReferences.filter((path) => !callers.includes(path));
+      const extra = callers.filter((path) => !expectedReferences.includes(path));
+      if (missing.length || extra.length) {
+        throw new Error(`workload references differ: ${JSON.stringify({ missing, extra })}`);
+      }
+      expect(callers).toEqual(expectedReferences);
+    }
+
+    it("is called only by the Unit regression and its own producer, never by the test:db guard", () => {
+      const callers = discoverWorkloadReferences();
+      verifyWorkloadReferences(callers);
+      expect(readSource(compositionObserver)).toContain("db-enrollment-workload");
+      expect(readSource(enrollmentChecker)).not.toContain("db-enrollment-workload");
+      console.info("Workload reference census", JSON.stringify({ callers, missing: [], extra: [] }));
       const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8")) as {
         scripts: Record<string, string>;
       };
@@ -4245,6 +4268,45 @@ describe("Platform API bootstrap DB enrollment", () => {
           /^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /,
         );
       }
+    });
+
+    function rejectReferenceOverlay(omitObserver: boolean, addChecker: boolean) {
+      const positive = discoverWorkloadReferences();
+      verifyWorkloadReferences(positive);
+      expect(readSource(compositionObserver)).toContain("db-enrollment-workload");
+      expect(readSource(enrollmentChecker)).not.toContain("db-enrollment-workload");
+      const overlaid: string[] = [];
+      const callers = discoverWorkloadReferences((path) => {
+        if (omitObserver && path === compositionObserver) {
+          overlaid.push(path);
+          return "";
+        }
+        if (addChecker && path === enrollmentChecker) {
+          overlaid.push(path);
+          return `${readSource(path)}\n// db-enrollment-workload\n`;
+        }
+        return readSource(path);
+      });
+      const missing = omitObserver ? [compositionObserver] : [];
+      const extra = addChecker ? [enrollmentChecker] : [];
+      expect(overlaid.sort()).toEqual([...missing, ...extra].sort());
+      expect(callers).toHaveLength(positive.length - missing.length + extra.length);
+      expect(() => verifyWorkloadReferences(callers)).toThrow(
+        new Error(`workload references differ: ${JSON.stringify({ missing, extra })}`),
+      );
+      const restored = discoverWorkloadReferences();
+      verifyWorkloadReferences(restored);
+      expect(restored).toEqual(positive);
+      console.info("Workload reference overlay", JSON.stringify({ callers, missing, extra, restored }));
+    }
+
+    it("rejects omitted or extra real-path workload references", () => {
+      rejectReferenceOverlay(true, false);
+      rejectReferenceOverlay(false, true);
+    });
+
+    it("rejects same-count workload-reference retargeting", () => {
+      rejectReferenceOverlay(true, true);
     });
 
     it("round-trips a newer capture through the shared producer derivation and refuses the stale baseline", async () => {
