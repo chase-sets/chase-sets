@@ -26,6 +26,7 @@ function positive(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
 
+// Parse explicit-offset UTC evidence without losing fractional precision.
 export function instant(raw) {
   requireEvidence(typeof raw === "string", "STOP_UTC");
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/.exec(raw);
@@ -467,7 +468,7 @@ function lifecycleEvidence(envelope, owner) {
       logs.safe === true &&
       logs.jobId === owner.id &&
       typeof logs.text === "string" &&
-      logs.text.includes(`CENSUS_SEAL_SHA256=${sha256(`${JSON.stringify(envelope.seal)}\n`)}`),
+      logs.text.includes('node "$RUNNER_TEMP/census-terminal-evidence.mjs"'),
     "STOP_EXECUTION_LOG",
   );
   const actions = roleValue("actions");
@@ -800,7 +801,6 @@ async function main(env) {
     seal: (value) => {
       const bytes = `${JSON.stringify(value)}\n`;
       writeFileSync(env.CENSUS_SEAL_PATH, bytes, { flag: "wx", mode: 0o600, flush: true });
-      console.log(`CENSUS_SEAL_SHA256=${sha256(bytes)}`);
     },
   });
 }

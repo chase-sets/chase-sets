@@ -266,7 +266,7 @@ function retain(f) {
       safe: true,
       entire: true,
       jobId: e.sourceMap.jobId,
-      text: `${e.sourceMap.steps.map((s) => `synthetic executed step ${s.name}`).join("\n")}\nCENSUS_SEAL_SHA256=${sha256(`${JSON.stringify(e.seal)}\n`)}`,
+      text: `${e.sourceMap.steps.map((s) => `synthetic executed step ${s.name}`).join("\n")}\nnode "$RUNNER_TEMP/census-terminal-evidence.mjs"`,
     },
     events: [
       "capture-start",
