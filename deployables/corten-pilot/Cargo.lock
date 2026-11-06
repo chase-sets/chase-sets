@@ -166,9 +166,93 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
-name = "corten"
+name = "corten-macros"
 version = "0.1.0"
-source = "git+https://github.com/corten-run/corten?rev=94cea04217f4efa5e7b5adbb16984db8412ead20#94cea04217f4efa5e7b5adbb16984db8412ead20"
+source = "git+https://github.com/corten-run/corten?rev=fdc1094ee9a08e17e09bcd11ceacc85e26f1b772#fdc1094ee9a08e17e09bcd11ceacc85e26f1b772"
+
+[[package]]
+name = "corten-pilot-admin"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "corten-pilot-platform",
+ "corten-run",
+ "corten-ui",
+ "futures-util",
+ "http-body-util",
+ "jiff",
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
+name = "corten-pilot-marketplace"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "corten-pilot-platform",
+ "corten-run",
+ "corten-ui",
+ "futures-util",
+ "http-body-util",
+ "jiff",
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "ulid",
+ "uuid",
+]
+
+[[package]]
+name = "corten-pilot-platform"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "corten-run",
+ "corten-ui",
+ "futures-util",
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "corten-pilot-public"
+version = "0.1.0"
+dependencies = [
+ "corten-pilot-platform",
+ "corten-run",
+ "corten-ui",
+ "http-body-util",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
+name = "corten-run"
+version = "0.1.0"
+source = "git+https://github.com/corten-run/corten?rev=fdc1094ee9a08e17e09bcd11ceacc85e26f1b772#fdc1094ee9a08e17e09bcd11ceacc85e26f1b772"
 dependencies = [
  "axum",
  "axum-core",
@@ -196,95 +280,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "corten-macros"
-version = "0.1.0"
-source = "git+https://github.com/corten-run/corten?rev=94cea04217f4efa5e7b5adbb16984db8412ead20#94cea04217f4efa5e7b5adbb16984db8412ead20"
-
-[[package]]
-name = "corten-pilot-admin"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "corten",
- "corten-pilot-platform",
- "corten-ui",
- "futures-util",
- "http-body-util",
- "jiff",
- "percent-encoding",
- "reqwest",
- "serde",
- "serde_json",
- "time",
- "tokio",
- "tower",
- "tracing",
- "ulid",
-]
-
-[[package]]
-name = "corten-pilot-marketplace"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "corten",
- "corten-pilot-platform",
- "corten-ui",
- "futures-util",
- "http-body-util",
- "jiff",
- "percent-encoding",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "time",
- "tokio",
- "tower",
- "tracing",
- "ulid",
- "uuid",
-]
-
-[[package]]
-name = "corten-pilot-platform"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "corten",
- "corten-ui",
- "futures-util",
- "percent-encoding",
- "reqwest",
- "serde",
- "serde_json",
- "time",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "corten-pilot-public"
-version = "0.1.0"
-dependencies = [
- "corten",
- "corten-pilot-platform",
- "corten-ui",
- "http-body-util",
- "percent-encoding",
- "serde",
- "serde_json",
- "tokio",
- "tower",
- "tracing",
-]
-
-[[package]]
 name = "corten-ui"
 version = "0.1.0"
-source = "git+https://github.com/corten-run/corten?rev=94cea04217f4efa5e7b5adbb16984db8412ead20#94cea04217f4efa5e7b5adbb16984db8412ead20"
+source = "git+https://github.com/corten-run/corten?rev=fdc1094ee9a08e17e09bcd11ceacc85e26f1b772#fdc1094ee9a08e17e09bcd11ceacc85e26f1b772"
 dependencies = [
- "corten",
+ "corten-run",
 ]
 
 [[package]]
