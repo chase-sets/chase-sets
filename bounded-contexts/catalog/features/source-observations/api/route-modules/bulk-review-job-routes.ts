@@ -198,11 +198,22 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
         400,
       );
     }
+    const observationIds = parseObservationIds(body.observationIds);
+    const scope = body.scope ? parsePromotionScope(body.scope) : undefined;
+    // Rejecting is destructive: an empty selection never means every reviewable observation.
+    if (observationIds.length === 0 && !hasExplicitBulkReviewScope(scope)) {
+      return c.json(
+        {
+          error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.selection.or.scope"),
+        },
+        400,
+      );
+    }
 
     const job = await services.enqueueBulkReviewJob({
       action: "reject",
-      observationIds: parseObservationIds(body.observationIds),
-      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+      observationIds,
+      scope,
       reason,
       context: c.get("context"),
     });
@@ -231,11 +242,22 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
         400,
       );
     }
+    const observationIds = parseObservationIds(body.observationIds);
+    const scope = body.scope ? parsePromotionScope(body.scope) : undefined;
+    // Rejecting is destructive: an empty selection never means every reviewable observation.
+    if (observationIds.length === 0 && !hasExplicitBulkReviewScope(scope)) {
+      return c.json(
+        {
+          error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.selection.or.scope"),
+        },
+        400,
+      );
+    }
 
     const job = await services.enqueueBulkReviewJob({
       action: "reject",
-      observationIds: parseObservationIds(body.observationIds),
-      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+      observationIds,
+      scope,
       reason,
       context: c.get("context"),
     });

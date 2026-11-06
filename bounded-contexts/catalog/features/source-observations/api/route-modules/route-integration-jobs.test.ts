@@ -1060,6 +1060,30 @@ describe("source observation routes: integration and bulk review jobs", () => {
     expect(services.rejectObservations).not.toHaveBeenCalled();
   });
 
+  it.each(["/source-observations/bulk-reject", "/source-observations/bulk-reject/jobs"])(
+    "refuses %s without explicit Source Observation ids or review scope",
+    async (path) => {
+      const enqueueBulkReviewJob = vi.fn();
+      const services = {
+        enqueueBulkReviewJob,
+      } as unknown as SourceObservationRouteServices;
+      const app = buildApp(services);
+
+      for (const body of [{ reason: "Duplicate provider row." }, { observationIds: [], scope: {}, reason: "x" }]) {
+        const response = await app.request(path, {
+          method: "POST",
+          body: JSON.stringify(body),
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toEqual({
+          error: "Bulk rejection requires selected observations or an explicit review scope.",
+        });
+      }
+      expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
+    },
+  );
   it("enqueues bulk rejection jobs for explicit observation ids with the shared reason", async () => {
     const job = bulkJobFixture({
       jobId: "job_reject_ids",
