@@ -182,6 +182,274 @@ describe("source observation merge candidate update and split", () => {
   });
 });
 
+describe("source observation merge candidate edit", () => {
+  it("switches the promotion intent, edits the product mapping and drops references by index", async () => {
+    const harness = createHarness();
+    const original = (await harness.generate()).candidates[0]!;
+    const streamId = catalogMergeCandidateStreamId(original.candidateId);
+
+    const result = await harness.services.updateCatalogMergeCandidate({
+      candidateId: original.candidateId,
+      expectedVersion: harness.streams.get(streamId)!.length,
+      edit: {
+        promotionIntent: "link-existing-catalog-item",
+        catalogItemId: " cat_charizard ",
+        productIds: ["prod_a", " prod_b", "prod_a", " "],
+        droppedExternalCatalogItemReferenceIndexes: [0],
+        droppedExternalProductReferenceIndexes: [0],
+      },
+      reason: "Link the existing Catalog Item",
+      context,
+    });
+
+    expect(result.snapshot?.promotionIntent).toBe("link-existing-catalog-item");
+    expect(result.snapshot?.matches).toEqual({ catalogItemId: "cat_charizard", productIds: ["prod_a", "prod_b"] });
+    expect(result.snapshot?.proposedExternalCatalogItemReferences).toEqual(
+      original.snapshot.proposedExternalCatalogItemReferences.slice(1),
+    );
+    expect(result.snapshot?.proposedExternalProductReferences).toEqual(
+      original.snapshot.proposedExternalProductReferences.slice(1),
+    );
+    expect(result.snapshot?.fieldProvenance).toEqual(original.snapshot.fieldProvenance);
+  });
+
+  it("keeps the stored candidate for an empty edit, and replaces a corrected fact's provenance once", async () => {
+    const harness = createHarness();
+    const original = (await harness.generate()).candidates[0]!;
+    const streamId = catalogMergeCandidateStreamId(original.candidateId);
+
+    const kept = await harness.services.updateCatalogMergeCandidate({
+      candidateId: original.candidateId,
+      expectedVersion: harness.streams.get(streamId)!.length,
+      edit: {},
+      reason: "Confirm the candidate",
+      context,
+    });
+    expect(kept.snapshot).toEqual(original.snapshot);
+
+    const factKey = Object.keys(original.snapshot.proposedCatalogItemFacts).find(
+      (key) => typeof original.snapshot.proposedCatalogItemFacts[key] === "string",
+    )!;
+    let corrected = kept;
+    for (const value of ["Corrected once", "Corrected twice"]) {
+      corrected = await harness.services.updateCatalogMergeCandidate({
+        candidateId: original.candidateId,
+        expectedVersion: corrected.version,
+        edit: { factOverrides: [{ key: factKey, value }] },
+        reason: "Correct the fact",
+        context,
+      });
+    }
+    const entries = corrected.snapshot!.fieldProvenance.filter((entry) => entry.fieldPath === `catalogItem.${factKey}`);
+    expect(entries).toEqual([
+      expect.objectContaining({
+        value: "Corrected twice",
+        confidence: "manual",
+        observationId: original.snapshot.membership[0]!.observationId,
+        evidence: { operatorCorrection: true },
+      }),
+    ]);
+
+    // Promotion carries the corrected value.
+    const promoted = await harness.services.promoteCatalogMergeCandidate({
+      candidateId: original.candidateId,
+      reason: "Promote the corrected candidate",
+      context,
+    });
+    expect(promoted.status).toBe("promoted");
+    expect(promoted.snapshot?.proposedCatalogItemFacts[factKey]).toBe("Corrected twice");
+  });
+});
+
+describe("source observation merge candidate review commands under concurrent writes", () => {
+  async function separableCandidate(harness: ReturnType<typeof createHarness>) {
+    const generated = (await harness.generate()).candidates[0]!;
+    // Each member carries its own reference, so a split of the second member plans.
+    const original = await harness.seedCandidate("cand_separable", {
+      ...generated.snapshot,
+      proposedExternalCatalogItemReferences: generated.snapshot.membership.map((member) => ({
+        providerKey: member.providerKey,
+        externalKey: member.externalKey,
+      })),
+    });
+    const splitObservationId = original.snapshot.membership[1]!.observationId;
+    const planned = planCatalogMergeCandidateSplit(original.candidateId, original.snapshot, [splitObservationId]);
+    if (!planned.ok) throw new Error(`Expected a separable candidate, got ${planned.blocker}.`);
+    return {
+      ...original,
+      streamId: catalogMergeCandidateStreamId(original.candidateId),
+      splitObservationId,
+      splitStreamId: catalogMergeCandidateStreamId(planned.plan.splitCandidateId),
+    };
+  }
+
+  const split = (
+    harness: ReturnType<typeof createHarness>,
+    candidate: Awaited<ReturnType<typeof separableCandidate>>,
+    expectedVersion: number,
+  ) =>
+    harness.services.splitCatalogMergeCandidate({
+      candidateId: candidate.candidateId,
+      expectedVersion,
+      splitObservationIds: [candidate.splitObservationId],
+      reason: "Separate observations",
+      context,
+    });
+
+  const ignore = (harness: ReturnType<typeof createHarness>, candidateId: string) =>
+    harness.services.ignoreCatalogMergeCandidate({ candidateId, reason: "Not a Catalog Item", context });
+
+  it("commits a split and its split candidate together", async () => {
+    const harness = createHarness();
+    const candidate = await separableCandidate(harness);
+
+    const result = await split(harness, candidate, candidate.version);
+
+    expect(result.snapshot?.membership.map((member) => member.observationId)).not.toContain(
+      candidate.splitObservationId,
+    );
+    expect(result.splitCandidate?.snapshot?.membership.map((member) => member.observationId)).toEqual([
+      candidate.splitObservationId,
+    ]);
+    expect(harness.streams.get(candidate.splitStreamId)).toHaveLength(1);
+  });
+
+  it("refuses a split whose candidate changed before the append as stale, saves no split candidate, and splits at the fresh version", async () => {
+    const harness = createHarness();
+    const candidate = await separableCandidate(harness);
+    const appendToStreams = harness.eventStore.appendToStreams!.bind(harness.eventStore);
+    vi.spyOn(harness.eventStore, "appendToStreams").mockImplementationOnce(async (inputs) => {
+      // Another review updates the candidate between this split's read and its append.
+      await harness.services.updateCatalogMergeCandidate({
+        candidateId: candidate.candidateId,
+        expectedVersion: candidate.version,
+        edit: {},
+        reason: "Concurrent review",
+        context,
+      });
+      return appendToStreams(inputs);
+    });
+
+    await expect(split(harness, candidate, candidate.version)).rejects.toMatchObject({
+      code: "stale_merge_candidate",
+    });
+    expect(harness.streams.get(candidate.splitStreamId) ?? []).toHaveLength(0);
+    expect(harness.streams.get(candidate.streamId)!.map((event) => event.eventType)).toEqual([
+      "catalog.merge-candidate.created",
+      "catalog.merge-candidate.updated",
+    ]);
+
+    const retried = await split(harness, candidate, candidate.version + 1);
+    expect(retried.version).toBe(candidate.version + 2);
+    expect(harness.streams.get(candidate.splitStreamId)).toHaveLength(1);
+  });
+
+  it("refuses a split without atomic appends and saves nothing", async () => {
+    const harness = createHarness();
+    const candidate = await separableCandidate(harness);
+    (harness.eventStore as { appendToStreams?: unknown }).appendToStreams = undefined;
+
+    await expect(split(harness, candidate, candidate.version)).rejects.toThrow("requires atomic multi-stream appends");
+    expect(harness.streams.get(candidate.splitStreamId) ?? []).toHaveLength(0);
+    expect(harness.streams.get(candidate.streamId)).toHaveLength(1);
+  });
+
+  it.each(["update", "split"] as const)(
+    "refuses the %s as stale when the candidate is rejected after the read, and saves nothing",
+    async (action) => {
+      const harness = createHarness();
+      const candidate = await separableCandidate(harness);
+      const readStream = harness.eventStore.readStream.bind(harness.eventStore);
+      vi.spyOn(harness.eventStore, "readStream").mockImplementationOnce(async (input) => {
+        // Another reviewer rejects the candidate just after this command reads it.
+        const read = await readStream(input);
+        await ignore(harness, candidate.candidateId);
+        return read;
+      });
+
+      const command =
+        action === "update"
+          ? harness.services.updateCatalogMergeCandidate({
+              candidateId: candidate.candidateId,
+              expectedVersion: candidate.version,
+              edit: {},
+              reason: "Correct the candidate",
+              context,
+            })
+          : split(harness, candidate, candidate.version);
+
+      await expect(command).rejects.toMatchObject({ code: "stale_merge_candidate" });
+      expect(harness.streams.get(candidate.splitStreamId) ?? []).toHaveLength(0);
+      expect(harness.streams.get(candidate.streamId)!.map((event) => event.eventType)).toEqual([
+        "catalog.merge-candidate.created",
+        "catalog.merge-candidate.ignored",
+      ]);
+    },
+  );
+
+  it("keeps a terminal candidate's own refusal when the update or split names its current version", async () => {
+    const harness = createHarness();
+    const candidate = await separableCandidate(harness);
+    await ignore(harness, candidate.candidateId);
+    const current = harness.streams.get(candidate.streamId)!.length;
+
+    const refusals = await Promise.allSettled([
+      harness.services.updateCatalogMergeCandidate({
+        candidateId: candidate.candidateId,
+        expectedVersion: current,
+        edit: {},
+        reason: "Correct the candidate",
+        context,
+      }),
+      split(harness, candidate, current),
+    ]);
+    for (const refusal of refusals) {
+      expect(refusal).toMatchObject({
+        status: "rejected",
+        reason: { message: "Terminal Catalog Merge Candidates cannot be changed." },
+      });
+      expect((refusal as PromiseRejectedResult).reason).not.toHaveProperty("code");
+    }
+    expect(harness.streams.get(candidate.streamId)).toHaveLength(current);
+  });
+
+  it("refuses a bulk review command at a version the candidate has moved on from with a concurrency conflict", async () => {
+    const harness = createHarness();
+    const candidate = await separableCandidate(harness);
+    const { version } = await harness.runtime.loadCatalogMergeCandidateForReview(candidate.candidateId);
+    await ignore(harness, candidate.candidateId);
+
+    await expect(
+      harness.runtime.applyCatalogMergeCandidateReviewAtVersion({
+        candidateId: candidate.candidateId,
+        command: {
+          type: "PromoteCatalogMergeCandidate",
+          reason: "Promote in bulk",
+          actor: { userId: "usr_reviewer", accountId: null },
+          promotedAt: "2026-06-24T12:30:00.000Z",
+        },
+        expectedVersion: version,
+        context,
+      }),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect(harness.streams.get(candidate.streamId)!.at(-1)?.eventType).toBe("catalog.merge-candidate.ignored");
+
+    await expect(
+      harness.runtime.applyCatalogMergeCandidateReviewAtVersion({
+        candidateId: candidate.candidateId,
+        command: {
+          type: "PromoteCatalogMergeCandidate",
+          reason: "Promote in bulk",
+          actor: { userId: "usr_reviewer", accountId: null },
+          promotedAt: "2026-06-24T12:30:00.000Z",
+        },
+        expectedVersion: version + 1,
+        context,
+      }),
+    ).rejects.toThrow("Terminal Catalog Merge Candidates cannot be changed.");
+  });
+});
+
 describe("source observation merge candidate reconciliation regressions", () => {
   it.each([false, true])(
     "AC1/AC2 Time Spiral provider permutation reversed=%s matches the one-pass oracle at every step",
@@ -620,6 +888,7 @@ function createHarness() {
   return {
     eventStore,
     streams,
+    runtime,
     services: runtime.services,
     generate: () => runtime.services.generateCatalogMergeCandidates({ context }),
     // A candidate stream created from `snapshot` as the domain creates one.

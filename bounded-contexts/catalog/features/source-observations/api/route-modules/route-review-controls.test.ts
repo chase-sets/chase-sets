@@ -348,9 +348,20 @@ describe("source observation routes: review and control-plane reads", () => {
     expect(snapshotUpdate.status).toBe(400);
     await expect(snapshotUpdate.json()).resolves.toMatchObject({ error: { code: "edit_required" } });
 
-    const badEdit = await post("update", { reason: "Correct identity.", expectedVersion: 2, edit: { productIds: 4 } });
-    expect(badEdit.status).toBe(400);
-    await expect(badEdit.json()).resolves.toMatchObject({ error: { code: "edit_required" } });
+    for (const edit of [
+      null,
+      { productIds: 4 },
+      { productIds: "prod_a" },
+      { promotionIntent: "delete-everything" },
+      { catalogItemId: 7 },
+      { factOverrides: [{ key: "name" }] },
+      { droppedExternalCatalogItemReferenceIndexes: [-1] },
+      { droppedExternalProductReferenceIndexes: [0.5] },
+    ]) {
+      const badEdit = await post("update", { reason: "Correct identity.", expectedVersion: 2, edit });
+      expect(badEdit.status).toBe(400);
+      await expect(badEdit.json()).resolves.toMatchObject({ error: { code: "edit_required" } });
+    }
 
     const snapshotSplit = await post("split", {
       reason: "Separate variants.",
@@ -390,14 +401,24 @@ describe("source observation routes: review and control-plane reads", () => {
     const update = await post("update", {
       reason: "Correct identity.",
       expectedVersion: 3,
-      edit: { catalogItemId: "cat_1", factOverrides: [{ key: "name", value: "Charizard" }] },
+      edit: {
+        catalogItemId: null,
+        factOverrides: [{ key: "name", value: "Charizard", ignored: true }],
+        droppedExternalProductReferenceIndexes: [0],
+        unknownField: "dropped",
+      },
     });
     expect(update.status).toBe(200);
+    // Only the edit's known fields reach the Catalog API, as sent; the rest keep stored values.
     expect(services.updateCatalogMergeCandidate).toHaveBeenCalledWith(
       expect.objectContaining({
         candidateId: "cand_1",
         expectedVersion: 3,
-        edit: { catalogItemId: "cat_1", factOverrides: [{ key: "name", value: "Charizard" }] },
+        edit: {
+          catalogItemId: null,
+          factOverrides: [{ key: "name", value: "Charizard" }],
+          droppedExternalProductReferenceIndexes: [0],
+        },
         reason: "Correct identity.",
       }),
     );

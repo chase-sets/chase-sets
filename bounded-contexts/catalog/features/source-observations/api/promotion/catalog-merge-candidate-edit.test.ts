@@ -1,18 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyCatalogMergeCandidateEdit,
   catalogMergeCandidateEditFormFor,
-  catalogMergeCandidateEditInputFor,
   catalogMergeCandidateEditRequestFromFormData,
-  catalogMergeCandidateEditRequestFromJson,
 } from "./catalog-merge-candidate-edit";
-import {
-  decideCatalogMergeCandidate,
-  evolveCatalogMergeCandidate,
-  initialCatalogMergeCandidateState,
-  type CatalogMergeCandidateObservationMember,
-  type CatalogMergeCandidateReviewSnapshot,
-  type CatalogMergeCandidateState,
+import type {
+  CatalogMergeCandidateObservationMember,
+  CatalogMergeCandidateReviewSnapshot,
 } from "../../domain/catalog-merge-candidate";
 import type { CatalogMergeCandidateListRow } from "../../read-model/queries";
 
@@ -107,103 +100,6 @@ function listRow(overrides: Partial<CatalogMergeCandidateListRow> = {}): Catalog
   };
 }
 
-function createdState(): CatalogMergeCandidateState {
-  const created = decideCatalogMergeCandidate(initialCatalogMergeCandidateState, {
-    type: "CreateCatalogMergeCandidate",
-    candidateId: "cand_1",
-    snapshot: baseSnapshot(),
-    createdAt: "2026-06-24T09:30:00.000Z",
-  })[0];
-  return evolveCatalogMergeCandidate(initialCatalogMergeCandidateState, created);
-}
-
-describe("applyCatalogMergeCandidateEdit", () => {
-  it("records a field override as manual provenance and carries the edited value", () => {
-    const edited = applyCatalogMergeCandidateEdit(baseSnapshot(), {
-      promotionIntent: "create-catalog-item",
-      catalogItemId: null,
-      productIds: [],
-      factOverrides: [{ key: "name", value: "Charmander - corrected" }],
-      droppedExternalCatalogItemReferenceIndexes: [],
-      droppedExternalProductReferenceIndexes: [],
-    });
-
-    expect(edited.proposedCatalogItemFacts.name).toBe("Charmander - corrected");
-    const manual = edited.fieldProvenance.find((entry) => entry.fieldPath === "catalogItem.name");
-    expect(manual).toMatchObject({
-      confidence: "manual",
-      value: "Charmander - corrected",
-      observationId: "obs_tcgplayer_base1_004",
-      evidence: { operatorCorrection: true },
-    });
-    // No duplicate provenance entry for the same field path.
-    expect(edited.fieldProvenance.filter((entry) => entry.fieldPath === "catalogItem.name")).toHaveLength(1);
-  });
-
-  it("switches promotion intent and edits the product mapping", () => {
-    const edited = applyCatalogMergeCandidateEdit(baseSnapshot(), {
-      promotionIntent: "link-existing-catalog-item",
-      catalogItemId: "cat_charmander",
-      productIds: ["prod_a", "prod_b", "prod_a"],
-      factOverrides: [],
-      droppedExternalCatalogItemReferenceIndexes: [],
-      droppedExternalProductReferenceIndexes: [],
-    });
-
-    expect(edited.promotionIntent).toBe("link-existing-catalog-item");
-    expect(edited.matches).toEqual({ catalogItemId: "cat_charmander", productIds: ["prod_a", "prod_b"] });
-  });
-
-  it("drops proposed external references by index", () => {
-    const edited = applyCatalogMergeCandidateEdit(baseSnapshot(), {
-      promotionIntent: "create-catalog-item",
-      catalogItemId: null,
-      productIds: [],
-      factOverrides: [],
-      droppedExternalCatalogItemReferenceIndexes: [0],
-      droppedExternalProductReferenceIndexes: [0],
-    });
-
-    expect(edited.proposedExternalCatalogItemReferences).toHaveLength(0);
-    expect(edited.proposedExternalProductReferences).toHaveLength(0);
-  });
-
-  it("produces a snapshot the domain accepts, and promotion carries the edited value with manual provenance", () => {
-    const edited = applyCatalogMergeCandidateEdit(baseSnapshot(), {
-      promotionIntent: "create-catalog-item",
-      catalogItemId: null,
-      productIds: [],
-      factOverrides: [{ key: "name", value: "Charmander - corrected" }],
-      droppedExternalCatalogItemReferenceIndexes: [],
-      droppedExternalProductReferenceIndexes: [],
-    });
-
-    const updateEvent = decideCatalogMergeCandidate(createdState(), {
-      type: "UpdateCatalogMergeCandidate",
-      snapshot: edited,
-      reason: "Operator corrected the printed name before promotion.",
-      actor: { userId: "user_1", accountId: null },
-      updatedAt: "2026-06-24T10:00:00.000Z",
-    })[0];
-    const updatedState = evolveCatalogMergeCandidate(createdState(), updateEvent);
-
-    expect(updatedState.snapshot?.proposedCatalogItemFacts.name).toBe("Charmander - corrected");
-    expect(updatedState.snapshot?.fieldProvenance).toEqual(
-      expect.arrayContaining([expect.objectContaining({ fieldPath: "catalogItem.name", confidence: "manual" })]),
-    );
-
-    // The corrected value survives to promotion, which carries the current snapshot.
-    const promoteEvent = decideCatalogMergeCandidate(updatedState, {
-      type: "PromoteCatalogMergeCandidate",
-      reason: "Promote the corrected candidate.",
-      actor: { userId: "user_1", accountId: null },
-      promotedAt: "2026-06-24T10:05:00.000Z",
-    })[0];
-    expect(promoteEvent.type).toBe("catalog.merge-candidate.promoted");
-    expect(updatedState.snapshot?.proposedCatalogItemFacts.name).toBe("Charmander - corrected");
-  });
-});
-
 describe("catalogMergeCandidateEditFormFor", () => {
   it("exposes the editable surface for an actionable candidate", () => {
     const editForm = catalogMergeCandidateEditFormFor(listRow(), { canManage: true });
@@ -240,7 +136,7 @@ describe("catalogMergeCandidateEditRequestFromFormData", () => {
     expect(request.factOverrides).toEqual([{ key: "name", value: "Charmander - corrected" }]);
   });
 
-  it("reads the mapping and dropped references, and applies to the stored snapshot", () => {
+  it("reads the mapping and dropped references", () => {
     const formData = new FormData();
     formData.set("candidateEditPromotionIntent", "update-catalog-item");
     formData.set("candidateEditCatalogItemId", "cat_charmander");
@@ -258,46 +154,14 @@ describe("catalogMergeCandidateEditRequestFromFormData", () => {
       droppedExternalCatalogItemReferenceIndexes: [],
       droppedExternalProductReferenceIndexes: [0],
     });
-    const snapshot = applyCatalogMergeCandidateEdit(
-      baseSnapshot(),
-      catalogMergeCandidateEditInputFor(baseSnapshot(), request),
-    );
-    expect(snapshot.promotionIntent).toBe("update-catalog-item");
-    expect(snapshot.matches.catalogItemId).toBe("cat_charmander");
-    expect(snapshot.proposedCatalogItemFacts.name).toBe("Charmander - corrected");
-    expect(snapshot.proposedExternalProductReferences).toHaveLength(0);
   });
 
-  it("sends an empty edit for a form without the edit fields, which keeps the stored candidate", () => {
+  it("sends an empty edit for a form without the edit fields", () => {
     const request = catalogMergeCandidateEditRequestFromFormData(new FormData());
     expect(request).toEqual({
       factOverrides: [],
       droppedExternalCatalogItemReferenceIndexes: [],
       droppedExternalProductReferenceIndexes: [],
     });
-    const base = baseSnapshot();
-    expect(applyCatalogMergeCandidateEdit(base, catalogMergeCandidateEditInputFor(base, request))).toEqual(base);
-  });
-});
-
-describe("catalogMergeCandidateEditRequestFromJson", () => {
-  it("takes a partial edit and refuses a field of the wrong shape", () => {
-    expect(catalogMergeCandidateEditRequestFromJson({})).toEqual({});
-    expect(
-      catalogMergeCandidateEditRequestFromJson({
-        catalogItemId: null,
-        factOverrides: [{ key: "name", value: "Charmander - corrected" }],
-        droppedExternalProductReferenceIndexes: [0],
-      }),
-    ).toEqual({
-      catalogItemId: null,
-      factOverrides: [{ key: "name", value: "Charmander - corrected" }],
-      droppedExternalProductReferenceIndexes: [0],
-    });
-    expect(catalogMergeCandidateEditRequestFromJson(null)).toBeNull();
-    expect(catalogMergeCandidateEditRequestFromJson({ promotionIntent: "delete-everything" })).toBeNull();
-    expect(catalogMergeCandidateEditRequestFromJson({ productIds: "prod_a" })).toBeNull();
-    expect(catalogMergeCandidateEditRequestFromJson({ factOverrides: [{ key: "name" }] })).toBeNull();
-    expect(catalogMergeCandidateEditRequestFromJson({ droppedExternalCatalogItemReferenceIndexes: [-1] })).toBeNull();
   });
 });

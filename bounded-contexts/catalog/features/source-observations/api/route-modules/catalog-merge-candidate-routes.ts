@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import type {
   CatalogMergeCandidateConflictResolution,
+  CatalogMergeCandidatePromotionIntent,
   CatalogMergeCandidateStatus,
 } from "../../domain/catalog-merge-candidate";
 import type {
@@ -11,7 +12,7 @@ import type {
   SourceObservationReadServices,
 } from "../runtime";
 import { isCatalogMergeCandidateReviewCommandError } from "../runtime";
-import { catalogMergeCandidateEditRequestFromJson } from "../promotion/catalog-merge-candidate-edit";
+import type { CatalogMergeCandidateEditRequest } from "../promotion/catalog-merge-candidate-edit";
 import { requireCatalogIntegrationControlPlanePermission } from "../admin/admin-control-plane-rbac";
 
 export type CatalogMergeCandidateRouteServices = CatalogMergeCandidateServices & SourceObservationReadServices;
@@ -269,6 +270,63 @@ function requiredReason(
 ): Readonly<{ ok: true; value: string } | { ok: false; error: string }> {
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
   return reason ? { ok: true, value: reason } : { ok: false, error: candidateActionReasonMessage(action) };
+}
+
+// The edit in an update's body, or null when a field it carries has the wrong shape. A field it
+// leaves out keeps the candidate's stored value.
+function catalogMergeCandidateEditRequestFromJson(value: unknown): CatalogMergeCandidateEditRequest | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const request: {
+    -readonly [K in keyof CatalogMergeCandidateEditRequest]: CatalogMergeCandidateEditRequest[K];
+  } = {};
+  if (value.promotionIntent !== undefined) {
+    if (!promotionIntents.includes(value.promotionIntent as CatalogMergeCandidatePromotionIntent)) return null;
+    request.promotionIntent = value.promotionIntent as CatalogMergeCandidatePromotionIntent;
+  }
+  if (value.catalogItemId !== undefined) {
+    if (value.catalogItemId !== null && typeof value.catalogItemId !== "string") return null;
+    request.catalogItemId = value.catalogItemId;
+  }
+  if (value.productIds !== undefined) {
+    if (!isStringArray(value.productIds)) return null;
+    request.productIds = value.productIds;
+  }
+  if (value.factOverrides !== undefined) {
+    if (
+      !Array.isArray(value.factOverrides) ||
+      !value.factOverrides.every(
+        (entry: unknown) => isRecord(entry) && typeof entry.key === "string" && typeof entry.value === "string",
+      )
+    ) {
+      return null;
+    }
+    request.factOverrides = (value.factOverrides as readonly { key: string; value: string }[]).map((entry) => ({
+      key: entry.key,
+      value: entry.value,
+    }));
+  }
+  for (const field of [
+    "droppedExternalCatalogItemReferenceIndexes",
+    "droppedExternalProductReferenceIndexes",
+  ] as const) {
+    const indexes = value[field];
+    if (indexes === undefined) continue;
+    if (!Array.isArray(indexes) || !indexes.every((index) => Number.isSafeInteger(index) && index >= 0)) return null;
+    request[field] = indexes as readonly number[];
+  }
+  return request;
+}
+
+const promotionIntents: readonly CatalogMergeCandidatePromotionIntent[] = [
+  "create-catalog-item",
+  "update-catalog-item",
+  "link-existing-catalog-item",
+];
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
 // The candidate version an update or split names as the one the operator saw.
