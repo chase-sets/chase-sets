@@ -795,7 +795,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by fulfillment-owned features and composition seams.",
-      "expectedConsumers": ["shipments"]
+      "expectedConsumers": ["seller-checkout-readiness"]
     },
     "seed-support": {
       "classification": "support",

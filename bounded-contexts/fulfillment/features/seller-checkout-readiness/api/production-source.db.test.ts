@@ -11,7 +11,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as fulfillmentModule } from "../../../index";
-import { createSellerCheckoutReadinessReader, createSellerShippingSetupServices } from "../../../server";
+import { createSellerCheckoutReadinessReader, createSellerShippingSetupServices } from "./runtime";
 import { actor, accountOwner, anonymousOwner, context, grantedAuthority, initialize, setup } from "./test-support";
 import type { SellerCheckoutReadinessKey } from "../domain/contract";
 import type { JsonObject } from "@chase-sets/primitives/json";
@@ -147,7 +147,11 @@ describeDb("seller shipping composed production source", () => {
     });
     await bootstrapContextDatabase(fulfillmentModule, pool);
     expect(await services().readSetup(accountOwner)).toEqual(saved);
-    await source.changeSupport(actor, { ...initialize, owner: anonymousOwner }, context);
+    await source.changeSupport(
+      actor,
+      { ...initialize, owner: anonymousOwner, operationId: "initialize_anonymous" },
+      context,
+    );
     expect(
       (await createSellerCheckoutReadinessReader(pool)({ ...key, owner: anonymousOwner })).sourceRevision,
     ).toBeNull();
