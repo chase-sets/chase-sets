@@ -4,6 +4,7 @@ import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/
 import type { CatalogIntegrationEngineServices, PromotionReapplyServices } from "../runtime";
 import { parseObservationIds, parsePromoteAsDraft, parsePromotionScope, parseValidationAfter } from "./route-helpers";
 import { requireCatalogIntegrationControlPlanePermission } from "../admin/admin-control-plane-rbac";
+import { sourceObservationPromotionPreviewToken } from "../promotion/promotion-preview-token";
 
 export type PromotionReviewRouteServices = Pick<
   PromotionReapplyServices,
@@ -39,8 +40,16 @@ export function promotionReviewRoutes(services: PromotionReviewRouteServices) {
             promoteAsDraft,
             validationAfter,
           });
+    // Only the first validation page confirms a promotion: a continuation
+    // page is evidence to read, not the preview an execution is checked against.
+    const previewToken = validationAfter
+      ? null
+      : sourceObservationPromotionPreviewToken(
+          observationIds.length > 0 ? { observationIds } : { scope: result.scope },
+          result,
+        );
 
-    return c.json(result);
+    return c.json({ ...result, previewToken });
   });
 
   app.post("/reapply/preview", async (c) => {

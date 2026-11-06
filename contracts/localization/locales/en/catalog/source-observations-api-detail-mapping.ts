@@ -169,6 +169,8 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
   "catalog.features.sourceObservations.api.route.bulk.deferral.requires.selection.or.scope":
     "Bulk deferral requires selected observations or an explicit review scope.",
   "catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason": "Bulk rejection requires a reason.",
+  "catalog.features.sourceObservations.api.route.bulk.promotion.stale.preview":
+    "Preview this promotion again: it is missing its preview, or the observations changed since that preview.",
   "catalog.features.sourceObservations.api.route.rejection.requires.reason": "Rejection requires a reason.",
   "catalog.features.sourceObservations.api.route.merge.candidate.promote.requires.reason":
     "Promotion requires a reason.",

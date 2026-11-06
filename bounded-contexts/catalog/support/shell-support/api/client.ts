@@ -78,6 +78,8 @@ export type CatalogBulkActionProgressOptions = Readonly<{
 export type CatalogPromotionActionOptions = CatalogBulkActionProgressOptions &
   Readonly<{
     promoteAsDraft?: boolean;
+    /** The `previewToken` of the preview this promotion confirms; the API refuses a missing or stale one. */
+    previewToken?: string | null;
   }>;
 
 /** Promotion preview options: draft choice plus the bounded validation page cursor. */
@@ -1534,13 +1536,14 @@ export function createCatalogApiClient({
       options: CatalogPromotionActionOptions = {},
     ): Promise<T> {
       const promoteAsDraft = options.promoteAsDraft === true;
+      const previewToken = options.previewToken ?? null;
       if (options.onProgress) {
         const job = await startBulkJob<T>({
           baseUrl,
           fetch: configuredFetch,
           headers,
           path: "/source-observations/bulk-promote/jobs",
-          body: { observationIds, promoteAsDraft },
+          body: { observationIds, promoteAsDraft, previewToken },
           errorMessage: "Bulk Source Observation promotion failed.",
         });
         return streamBulkJob<T>({
@@ -1555,7 +1558,7 @@ export function createCatalogApiClient({
       }
 
       const response = await client["source-observations"]["bulk-promote"].$post({
-        json: { observationIds, promoteAsDraft },
+        json: { observationIds, promoteAsDraft, previewToken },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -1585,13 +1588,14 @@ export function createCatalogApiClient({
       options: CatalogPromotionActionOptions = {},
     ): Promise<T> {
       const promoteAsDraft = options.promoteAsDraft === true;
+      const previewToken = options.previewToken ?? null;
       if (options.onProgress) {
         const job = await startBulkJob<T>({
           baseUrl,
           fetch: configuredFetch,
           headers,
           path: "/source-observations/bulk-promote/jobs",
-          body: { scope, promoteAsDraft },
+          body: { scope, promoteAsDraft, previewToken },
           errorMessage: "Bulk Source Observation promotion failed.",
         });
         return streamBulkJob<T>({
@@ -1606,7 +1610,7 @@ export function createCatalogApiClient({
       }
 
       const response = await client["source-observations"]["bulk-promote"].$post({
-        json: { scope, promoteAsDraft },
+        json: { scope, promoteAsDraft, previewToken },
         header: headers,
       });
       return parseJsonResponse<T>(response);

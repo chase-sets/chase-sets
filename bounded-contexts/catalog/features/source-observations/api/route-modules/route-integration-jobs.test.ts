@@ -8,9 +8,30 @@ import {
   integrationJob,
   integrationJobFixture,
   jobEvent,
+  promotionPreviewFixture,
   readSseData,
   rolloutDenied,
 } from "./route-test-harness";
+
+// Bulk promotion requires the token of a fresh preview; these tests cover the
+// enqueue itself, so they confirm through a preview that never changes.
+function withPromotionPreview(services: Record<string, unknown>): SourceObservationRouteServices {
+  return {
+    previewPromoteObservations: vi.fn(async () => promotionPreviewFixture()),
+    previewPromoteObservationScope: vi.fn(async () => promotionPreviewFixture()),
+    ...services,
+  } as unknown as SourceObservationRouteServices;
+}
+
+async function previewed(app: ReturnType<typeof buildApp>, body: Record<string, unknown>) {
+  const response = await app.request("/source-observations/bulk-promote/preview", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  });
+  const { previewToken } = (await response.json()) as { previewToken: string };
+  return { ...body, previewToken };
+}
 
 describe("source observation routes: integration and bulk review jobs", () => {
   it("enqueues provider integration jobs with normalized scope aliases", async () => {
@@ -584,16 +605,15 @@ describe("source observation routes: integration and bulk review jobs", () => {
       scope: { status: "observed", language: "en", setId: "base1" },
     });
     const enqueueBulkReviewJob = vi.fn(async () => job);
-    const services = {
-      enqueueBulkReviewJob,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
+    const app = buildApp(withPromotionPreview({ enqueueBulkReviewJob }));
 
     const response = await app.request("/source-observations/bulk-promote", {
       method: "POST",
-      body: JSON.stringify({
-        scope: { status: "observed", language: "en", setId: "base1" },
-      }),
+      body: JSON.stringify(
+        await previewed(app, {
+          scope: { status: "observed", language: "en", setId: "base1" },
+        }),
+      ),
       headers: { "content-type": "application/json" },
     });
 
@@ -627,7 +647,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
         observationIds: ["obs_1"],
       }),
     );
-    const app = buildApp({ enqueueBulkReviewJob } as unknown as SourceObservationRouteServices);
+    const app = buildApp(withPromotionPreview({ enqueueBulkReviewJob }));
 
     for (const body of [
       { observationIds: ["obs_1"], promoteAsDraft: true },
@@ -636,7 +656,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
     ]) {
       const response = await app.request("/source-observations/bulk-promote", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify(await previewed(app, body)),
         headers: { "content-type": "application/json" },
       });
       expect(response.status).toBe(202);
@@ -653,16 +673,15 @@ describe("source observation routes: integration and bulk review jobs", () => {
     const enqueueBulkReviewJob = vi.fn(async () => {
       throw rolloutDenied({ capability: "promotion", providerKey: "tcgdex" });
     });
-    const services = {
-      enqueueBulkReviewJob,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
+    const app = buildApp(withPromotionPreview({ enqueueBulkReviewJob }));
 
     const response = await app.request("/source-observations/bulk-promote", {
       method: "POST",
-      body: JSON.stringify({
-        scope: { source: "tcgdex", status: "observed", language: "en", setId: "base1" },
-      }),
+      body: JSON.stringify(
+        await previewed(app, {
+          scope: { source: "tcgdex", status: "observed", language: "en", setId: "base1" },
+        }),
+      ),
       headers: { "content-type": "application/json" },
     });
 
@@ -870,14 +889,11 @@ describe("source observation routes: integration and bulk review jobs", () => {
       observationIds: ["obs_1", "obs_2"],
     });
     const enqueueBulkReviewJob = vi.fn(async () => job);
-    const services = {
-      enqueueBulkReviewJob,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
+    const app = buildApp(withPromotionPreview({ enqueueBulkReviewJob }));
 
     const response = await app.request("/source-observations/bulk-promote", {
       method: "POST",
-      body: JSON.stringify({ observationIds: ["obs_1", "obs_2"] }),
+      body: JSON.stringify(await previewed(app, { observationIds: ["obs_1", "obs_2"] })),
       headers: { "content-type": "application/json" },
     });
 

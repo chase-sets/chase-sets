@@ -5,6 +5,7 @@ import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/
 import { sourceObservationRoutes } from "../route";
 import type { SourceObservationRouteServices } from "../route";
 import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
+import type { SourceObservationPromotionPreview } from "../../read-model/queries";
 import {
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -237,6 +238,31 @@ export function baseIntegrationJob() {
     completedAt: null as string | null,
     updatedAt: "2026-05-23T00:00:02.000Z",
   };
+}
+
+/** A promotion preview as the runtime returns it: counts, fingerprint and a complete, unblocked validation page. */
+export function promotionPreviewFixture(
+  overrides: Partial<Omit<SourceObservationPromotionPreview, "validation">> &
+    Readonly<{ validation?: Partial<SourceObservationPromotionPreview["validation"]> }> = {},
+): SourceObservationPromotionPreview {
+  const { validation, ...rest } = overrides;
+  return {
+    matched: 1,
+    eligible: 1,
+    terminal: 0,
+    scope: { search: "", status: "", provider: "", language: "", setId: "" },
+    fingerprint: "content-a",
+    ...rest,
+    validation: {
+      promoteAsDraft: false,
+      pageLimit: 100,
+      coveredObservationIds: [],
+      coverage: "complete",
+      continuation: null,
+      diagnostics: [],
+      ...validation,
+    },
+  } as SourceObservationPromotionPreview;
 }
 
 export function bulkJobFixture(

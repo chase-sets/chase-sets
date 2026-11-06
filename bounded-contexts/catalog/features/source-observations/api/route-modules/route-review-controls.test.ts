@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SourceObservationRouteServices } from "../route";
 import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
-import { buildApp, context, profileVersion, viewOnlyActor } from "./route-test-harness";
+import { buildApp, context, profileVersion, promotionPreviewFixture, viewOnlyActor } from "./route-test-harness";
 import {
   listSourceObservations,
   previewSourceObservationPromotionScope,
@@ -554,18 +554,20 @@ describe("source observation routes: review and control-plane reads", () => {
   });
 
   it("previews filter-scoped bulk promotion", async () => {
-    const previewPromoteObservationScope = vi.fn(async () => ({
-      matched: 102,
-      eligible: 100,
-      terminal: 2,
-      scope: {
-        search: "",
-        status: "observed",
-        provider: "",
-        language: "en",
-        setId: "base1",
-      },
-    }));
+    const previewPromoteObservationScope = vi.fn(async () =>
+      promotionPreviewFixture({
+        matched: 102,
+        eligible: 100,
+        terminal: 2,
+        scope: {
+          search: "",
+          status: "observed",
+          provider: "",
+          language: "en",
+          setId: "base1",
+        },
+      }),
+    );
     const services = {
       previewPromoteObservationScope,
     } as unknown as SourceObservationRouteServices;
@@ -584,6 +586,7 @@ describe("source observation routes: review and control-plane reads", () => {
       matched: 102,
       eligible: 100,
       terminal: 2,
+      previewToken: expect.stringMatching(/^spp1\./),
     });
     expect(previewPromoteObservationScope).toHaveBeenCalledWith({
       scope: {
@@ -667,18 +670,13 @@ describe("source observation routes: review and control-plane reads", () => {
   });
 
   it("previews selected Source Observation promotion without using the filter scope", async () => {
-    const previewPromoteObservations = vi.fn(async () => ({
-      matched: 2,
-      eligible: 1,
-      terminal: 1,
-      scope: {
-        search: "",
-        status: "",
-        provider: "",
-        language: "",
-        setId: "",
-      },
-    }));
+    const previewPromoteObservations = vi.fn(async () =>
+      promotionPreviewFixture({
+        matched: 2,
+        eligible: 1,
+        terminal: 1,
+      }),
+    );
     const previewPromoteObservationScope = vi.fn();
     const services = {
       previewPromoteObservations,

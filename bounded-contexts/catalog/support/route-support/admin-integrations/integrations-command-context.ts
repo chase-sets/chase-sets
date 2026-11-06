@@ -201,44 +201,14 @@ export function reapplyScopeFromContext(context: RouteContext): SourceObservatio
   };
 }
 
-// The promotion preview checkpoint token. It carries a genuine content
-// fingerprint of the eligible observations the preview was computed from (see
-// `SourceObservationPromotionPreview.fingerprint`), not just aggregate counts:
-// two previews with the same matched/eligible counts but different underlying
-// observation content (a re-import changed a field, an observation entered or
-// left the eligible set) produce different tokens, so `confirmsFreshPromotionPreview`
-// below rejects execution against the stale one — self-invalidation is a server-side
-// guarantee, not a UI nicety the operator can bypass by resubmitting a stale token.
-// The token also binds the explicit promote-as-draft choice and the validation
-// verdict of the covered page: toggling the choice, or a covered observation
-// changing between blocked and eligible, invalidates the confirmation.
-export function promotionPreviewIdFor(
-  preview: SourceObservationPromotionPreview,
-  context: RouteContext,
-  selectedObservationIds: readonly string[],
-): string {
-  return [
-    "preview",
-    promotionPreviewScopeToken(context, selectedObservationIds),
-    preview.matched,
-    preview.eligible,
-    preview.fingerprint || "no-fingerprint",
-    preview.validation.promoteAsDraft ? "draft" : "publishable",
-    promotionValidationToken(preview.validation),
-  ].join("-");
+/** The Catalog API's refusal of a promotion whose preview token is missing or stale. */
+export function isStalePromotionPreviewError(error: unknown): boolean {
+  return (
+    error instanceof CatalogApiError &&
+    error.status === 409 &&
+    recordValue(recordValue(error.body)?.error)?.code === "stale_promotion_preview"
+  );
 }
-
-export async function confirmsFreshPromotionPreview(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  context: RouteContext,
-  selectedObservationIds: readonly string[],
-): Promise<boolean> {
-  const preview = await previewPromotionForContext(api, context, selectedObservationIds);
-  const expectedPreviewId = promotionPreviewIdFor(preview, context, selectedObservationIds);
-
-  return context.promotionPreviewId === expectedPreviewId;
-}
-
 export async function previewPromotionForContext(
   api: ReturnType<typeof createCatalogRequestApiClient>,
   context: RouteContext,
@@ -254,27 +224,6 @@ export async function previewPromotionForContext(
         promotionScopeFromContext(context),
         options,
       );
-}
-
-/** Coverage plus a digest of the blocked observation ids, so a validation change re-previews. */
-function promotionValidationToken(validation: SourceObservationPromotionPreview["validation"]): string {
-  const blocked = [
-    ...new Set(
-      validation.diagnostics.filter((diagnostic) => diagnostic.blocking).map((diagnostic) => diagnostic.observationId),
-    ),
-  ].sort();
-  return [validation.coverage, `blocked${blocked.length}`, fnv1aDigest(blocked.join(","))].join(".");
-}
-
-// Isomorphic 32-bit FNV-1a digest: the token must be computable without
-// Node-only modules and only needs to detect a changed blocked set.
-function fnv1aDigest(value: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, "0");
 }
 
 export async function runProviderProfileLifecycleCommand(
@@ -341,24 +290,6 @@ export function lifecycleFailureResult(
   return "command-failed";
 }
 
-function promotionPreviewScopeToken(context: RouteContext, selectedObservationIds: readonly string[]): string {
-  const scope = promotionScopeFromContext(context);
-
-  return [
-    scope.provider ?? "all",
-    context.unitKey ?? "none",
-    context.importScope ?? "none",
-    context.profileVersion ?? "none",
-    scope.language ?? "all",
-    scope.setId ?? "all",
-    scope.status ?? "all",
-    scope.search ?? "none",
-    selectedObservationIds.join(".") || "filtered",
-  ]
-    .map(tokenSegment)
-    .join("_");
-}
-
 // A Catalog sync scope v2 reference is a canonical scope record id plus its
 // classification kind. Provider coordinates are no longer assembled here: the
 // server resolves them from the scope record's accepted Provider Scope Mappings.
@@ -379,8 +310,4 @@ function catalogSyncReferenceFromContext(
   }
 
   return { kind, scopeRecordId };
-}
-
-function tokenSegment(value: string): string {
-  return value.replace(/[^A-Za-z0-9_.-]+/g, "_") || "none";
 }

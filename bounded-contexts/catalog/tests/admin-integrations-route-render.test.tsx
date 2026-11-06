@@ -271,8 +271,7 @@ describe("Catalog integrations route", () => {
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
       selectedObservationIds: "obs_001",
-      promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-no-fingerprint-publishable-complete.blocked0.811c9dc5",
+      promotionPreviewId: "spp1.round-trip",
     });
     const routedHref = actionResponse.headers.get("Location") ?? "";
     expect(new URL(routedHref, "https://admin.example").searchParams.get("jobId")).toBe("job_promote_round_trip");
