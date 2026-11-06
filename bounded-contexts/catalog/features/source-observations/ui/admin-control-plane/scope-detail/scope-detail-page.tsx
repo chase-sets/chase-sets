@@ -38,8 +38,6 @@ export type CatalogScopeDetailPageProps = Readonly<{
   languageEditionAliasReviewFailed?: boolean;
   /** True while the route is revalidating, so the overview shows its loading state. */
   loading?: boolean;
-  /** Injectable clock for the sync-freshness proxy; defaults to now. */
-  now?: string;
   coverageMatrix?: ScopeCoverageMatrix | null;
   coverageMatrixFailed?: boolean;
   journey?: CatalogIntegrationsRouteData | null;
@@ -56,7 +54,6 @@ export function CatalogScopeDetailPage({
   canManageAliases = true,
   languageEditionAliasReviewFailed = false,
   loading = false,
-  now,
   coverageMatrix = null,
   coverageMatrixFailed = false,
   journey = null,
@@ -73,7 +70,6 @@ export function CatalogScopeDetailPage({
     scope,
     languageEditionReview: languageEditionsReadModel,
     languageEditionReviewFailed: languageEditionAliasReviewFailed,
-    generatedAt: now ?? new Date().toISOString(),
   });
 
   return (
