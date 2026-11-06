@@ -36,6 +36,16 @@ import type {
 } from "./source-observation-runtime-contracts";
 import { normalizeOptionalKey, normalizeCandidateGenerationScope } from "./source-observation-job-serialization";
 import { catalogMergeCandidateReviewActor, catalogMergeCandidateStreamId } from "./source-observation-stream-identity";
+import { CatalogMergeCandidateReviewCommandError } from "./source-observation-runtime-contracts";
+import {
+  applyCatalogMergeCandidateEdit,
+  catalogMergeCandidateEditableFactKeys,
+  catalogMergeCandidateEditInputFor,
+} from "./promotion/catalog-merge-candidate-edit";
+import {
+  planCatalogMergeCandidateSplit,
+  type CatalogMergeCandidateSplitBlocker,
+} from "./promotion/catalog-merge-candidate-review-command-payloads";
 
 export type SourceObservationMergeCandidateRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
@@ -313,12 +323,21 @@ export function createSourceObservationMergeCandidateRuntime({
     candidateId: string;
     action: CatalogMergeCandidateActionResult["action"];
     command: CatalogMergeCandidateCommand;
+    // When set, the command applies only at this stream version (an update or split names the
+    // version the operator saw); a write in between refuses it as stale.
+    expectedVersion?: number;
     context: EventStoreContext;
   }): Promise<CatalogMergeCandidateActionResult> {
     const result = await catalogMergeCandidateCommandHandler({
       streamId: catalogMergeCandidateStreamId(input.candidateId),
       command: input.command,
+      ...(input.expectedVersion === undefined ? {} : { expectedVersion: input.expectedVersion }),
       context: input.context,
+    }).catch((error: unknown) => {
+      if (input.expectedVersion !== undefined && isConcurrencyConflict(error)) {
+        throw staleCandidateError();
+      }
+      throw error;
     });
 
     return {
@@ -355,6 +374,22 @@ export function createSourceObservationMergeCandidateRuntime({
       statusReason: result.state.statusReason,
       snapshot: result.state.snapshot,
     };
+  }
+
+  // The candidate's stored snapshot, as of the version the operator saw: a candidate that has moved
+  // on since (a sync refreshed it, an observation joined, another review acted) is refused as stale.
+  async function loadCatalogMergeCandidateAtVersion(
+    candidateId: string,
+    expectedVersion: number,
+  ): Promise<Readonly<{ state: CatalogMergeCandidateState; snapshot: CatalogMergeCandidateReviewSnapshot }>> {
+    const loaded = await catalogMergeCandidateRepository.load(catalogMergeCandidateStreamId(candidateId));
+    if (loaded.state.snapshot === null) {
+      throw new Error("Catalog Merge Candidate must be created first.");
+    }
+    if (loaded.version !== expectedVersion) {
+      throw staleCandidateError();
+    }
+    return { state: loaded.state, snapshot: loaded.state.snapshot };
   }
 
   // Scope bulk review jobs re-check one candidate's aggregate state, then apply
@@ -399,23 +434,26 @@ export function createSourceObservationMergeCandidateRuntime({
       }),
     splitCatalogMergeCandidate: async (input) => {
       const splitAt = new Date().toISOString();
+      const original = await loadCatalogMergeCandidateAtVersion(input.candidateId, input.expectedVersion);
+      const planned = planCatalogMergeCandidateSplit(input.candidateId, original.snapshot, input.splitObservationIds);
+      if (!planned.ok) {
+        throw splitRefusal(planned.blocker);
+      }
+      const { remainingSnapshot, splitCandidateId, splitSnapshot } = planned.plan;
       const splitCommand: CatalogMergeCandidateCommand = {
         type: "SplitCatalogMergeCandidate",
-        remainingSnapshot: input.remainingSnapshot,
-        splitCandidateId: input.splitCandidateId,
-        splitSnapshot: input.splitSnapshot,
+        remainingSnapshot,
+        splitCandidateId,
+        splitSnapshot,
         reason: input.reason,
         actor: catalogMergeCandidateReviewActor(input.context),
         splitAt,
         conflictResolutions: input.conflictResolutions,
       };
-      const originalCandidate = await catalogMergeCandidateRepository.load(
-        catalogMergeCandidateStreamId(input.candidateId),
-      );
-      decideCatalogMergeCandidate(originalCandidate.state, splitCommand);
+      decideCatalogMergeCandidate(original.state, splitCommand);
       // @stream-read-contract bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.test.ts
       const existingSplitEvents = await deps.eventStore.readStream({
-        streamId: catalogMergeCandidateStreamId(input.splitCandidateId),
+        streamId: catalogMergeCandidateStreamId(splitCandidateId),
         limit: 1,
       });
       if (existingSplitEvents.length > 0) {
@@ -423,37 +461,49 @@ export function createSourceObservationMergeCandidateRuntime({
       }
 
       const splitCandidate = await createSplitCatalogMergeCandidate({
-        candidateId: input.splitCandidateId,
-        snapshot: input.splitSnapshot,
+        candidateId: splitCandidateId,
+        snapshot: splitSnapshot,
         createdAt: splitAt,
         context: input.context,
       });
-      const original = await dispatchCatalogMergeCandidateCommand({
+      const result = await dispatchCatalogMergeCandidateCommand({
         candidateId: input.candidateId,
         action: "split",
         command: splitCommand,
+        expectedVersion: input.expectedVersion,
         context: input.context,
       });
 
       return {
-        ...original,
+        ...result,
         splitCandidate,
       };
     },
-    updateCatalogMergeCandidate: (input) =>
-      dispatchCatalogMergeCandidateCommand({
+    updateCatalogMergeCandidate: async (input) => {
+      const { snapshot: stored } = await loadCatalogMergeCandidateAtVersion(input.candidateId, input.expectedVersion);
+      const edit = catalogMergeCandidateEditInputFor(stored, input.edit);
+      const editable = new Set(catalogMergeCandidateEditableFactKeys(stored.proposedCatalogItemFacts));
+      if (edit.factOverrides.some((override) => !editable.has(override.key.trim()))) {
+        throw new CatalogMergeCandidateReviewCommandError(
+          "edit_fact_not_editable",
+          "A Catalog Merge Candidate edit can correct only the candidate's text facts.",
+        );
+      }
+      return dispatchCatalogMergeCandidateCommand({
         candidateId: input.candidateId,
         action: "update",
         command: {
           type: "UpdateCatalogMergeCandidate",
-          snapshot: input.snapshot,
+          snapshot: applyCatalogMergeCandidateEdit(stored, edit),
           reason: input.reason,
           actor: catalogMergeCandidateReviewActor(input.context),
           updatedAt: new Date().toISOString(),
           conflictResolutions: input.conflictResolutions,
         },
+        expectedVersion: input.expectedVersion,
         context: input.context,
-      }),
+      });
+    },
     ignoreCatalogMergeCandidate: (input) =>
       dispatchCatalogMergeCandidateCommand({
         candidateId: input.candidateId,
@@ -496,3 +546,36 @@ export function createSourceObservationMergeCandidateRuntime({
 }
 
 export type SourceObservationMergeCandidateRuntime = ReturnType<typeof createSourceObservationMergeCandidateRuntime>;
+
+function staleCandidateError(): CatalogMergeCandidateReviewCommandError {
+  return new CatalogMergeCandidateReviewCommandError(
+    "stale_merge_candidate",
+    "The Catalog Merge Candidate changed after it was read; read it again before acting on it.",
+  );
+}
+
+function splitRefusal(
+  blocker: CatalogMergeCandidateSplitBlocker | "split-selection-invalid",
+): CatalogMergeCandidateReviewCommandError {
+  switch (blocker) {
+    case "split-selection-invalid":
+      return new CatalogMergeCandidateReviewCommandError(
+        "split_selection_invalid",
+        "A split names one or more of the candidate's own Source Observations.",
+      );
+    case "split-requires-two-members":
+      return new CatalogMergeCandidateReviewCommandError(
+        "split_requires_two_members",
+        "A split must leave at least one Source Observation on the candidate.",
+      );
+    case "split-requires-separable-reference-provenance":
+      return new CatalogMergeCandidateReviewCommandError(
+        "split_requires_separable_reference_provenance",
+        "Each side of a split needs an external reference of its own.",
+      );
+  }
+}
+
+function isConcurrencyConflict(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "concurrency_conflict";
+}

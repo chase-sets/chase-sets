@@ -6,10 +6,18 @@ import { normalizedObservation } from "../../../support/test-support/source-obse
 import type { SourceObservationListRow } from "../read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import type { SourceObservationMagicCardPrintNormalized } from "../domain/domain";
-import { evolveCatalogMergeCandidate, initialCatalogMergeCandidateState } from "../domain/catalog-merge-candidate";
-import type { CatalogMergeCandidateEvent } from "../domain/catalog-merge-candidate";
+import {
+  decideCatalogMergeCandidate,
+  evolveCatalogMergeCandidate,
+  initialCatalogMergeCandidateState,
+} from "../domain/catalog-merge-candidate";
+import type {
+  CatalogMergeCandidateEvent,
+  CatalogMergeCandidateReviewSnapshot,
+} from "../domain/catalog-merge-candidate";
 import { buildCatalogMergeCandidatesFromObservations } from "./promotion/catalog-merge-candidate-matcher";
 import { catalogProviderProfileVersionIngestionUnitKey } from "./provider-integration-profiles";
+import { planCatalogMergeCandidateSplit } from "./promotion/catalog-merge-candidate-review-command-payloads";
 import { createSourceObservationMergeCandidateRuntime } from "./source-observation-merge-candidate-runtime";
 import { staticCatalogProviderIntegrationProfileVersions } from "./source-observation-runtime-contracts";
 import { catalogMergeCandidateStreamId } from "./source-observation-stream-identity";
@@ -57,10 +65,24 @@ describe("source observation merge candidate bounded stream contracts", () => {
     const harness = createHarness();
     const generated = await harness.generate();
     expect(generated.exclusions).toEqual([]);
-    const original = generated.candidates[0]!;
-    await harness.generate();
-    const splitCandidateId = "candidate-already-exists";
+    const generatedCandidate = generated.candidates[0]!;
+    // A candidate each of whose members carries its own reference, so a split of the second member
+    // plans: the harness's generated candidate shares one reference between its members.
+    const original = await harness.seedCandidate("cand_separable", {
+      ...generatedCandidate.snapshot,
+      proposedExternalCatalogItemReferences: generatedCandidate.snapshot.membership.map((member) => ({
+        providerKey: member.providerKey,
+        externalKey: member.externalKey,
+      })),
+    });
+    const splitObservationId = original.snapshot.membership[1]!.observationId;
+    const planned = planCatalogMergeCandidateSplit(original.candidateId, original.snapshot, [splitObservationId]);
+    if (!planned.ok) {
+      throw new Error(`Expected a separable candidate, got ${planned.blocker}.`);
+    }
+    const splitCandidateId = planned.plan.splitCandidateId;
     const splitStreamId = catalogMergeCandidateStreamId(splitCandidateId);
+    const expectedVersion = original.version;
     await harness.eventStore.appendToStream({
       streamId: splitStreamId,
       expectedVersion: "no_stream",
@@ -75,9 +97,8 @@ describe("source observation merge candidate bounded stream contracts", () => {
     await expect(
       harness.services.splitCatalogMergeCandidate({
         candidateId: original.candidateId,
-        remainingSnapshot: { ...original.snapshot, membership: original.snapshot.membership.slice(0, 1) },
-        splitCandidateId,
-        splitSnapshot: { ...original.snapshot, membership: original.snapshot.membership.slice(1) },
+        expectedVersion,
+        splitObservationIds: [splitObservationId],
         reason: "Separate conflicting observations",
         context,
       }),
@@ -91,6 +112,73 @@ describe("source observation merge candidate bounded stream contracts", () => {
         .map(([request]) => request)
         .filter((request) => request.streamId === splitStreamId),
     });
+  });
+});
+
+describe("source observation merge candidate update and split", () => {
+  it("applies an update's edit to the stored snapshot at the version the page read", async () => {
+    const harness = createHarness();
+    const original = (await harness.generate()).candidates[0]!;
+    const streamId = catalogMergeCandidateStreamId(original.candidateId);
+    const factKey = Object.keys(original.snapshot.proposedCatalogItemFacts).find(
+      (key) => typeof original.snapshot.proposedCatalogItemFacts[key] === "string",
+    )!;
+
+    const result = await harness.services.updateCatalogMergeCandidate({
+      candidateId: original.candidateId,
+      expectedVersion: harness.streams.get(streamId)!.length,
+      edit: { catalogItemId: "cat_corrected", factOverrides: [{ key: factKey, value: "Corrected" }] },
+      reason: "Correct the candidate",
+      context,
+    });
+
+    expect(result.snapshot?.matches.catalogItemId).toBe("cat_corrected");
+    expect(result.snapshot?.proposedCatalogItemFacts[factKey]).toBe("Corrected");
+    expect(result.snapshot?.membership).toEqual(original.snapshot.membership);
+    expect(result.snapshot?.fieldProvenance).toContainEqual(
+      expect.objectContaining({ fieldPath: `catalogItem.${factKey}`, confidence: "manual" }),
+    );
+  });
+
+  it("refuses an update or split from a read the candidate has moved on from", async () => {
+    const harness = createHarness();
+    const original = (await harness.generate()).candidates[0]!;
+    const readVersion = harness.streams.get(catalogMergeCandidateStreamId(original.candidateId))!.length;
+    await harness.generate();
+
+    await expect(
+      harness.services.updateCatalogMergeCandidate({
+        candidateId: original.candidateId,
+        expectedVersion: readVersion,
+        edit: {},
+        reason: "Correct the candidate",
+        context,
+      }),
+    ).rejects.toMatchObject({ code: "stale_merge_candidate" });
+    await expect(
+      harness.services.splitCatalogMergeCandidate({
+        candidateId: original.candidateId,
+        expectedVersion: readVersion,
+        splitObservationIds: [original.snapshot.membership[1]!.observationId],
+        reason: "Separate observations",
+        context,
+      }),
+    ).rejects.toMatchObject({ code: "stale_merge_candidate" });
+  });
+
+  it("refuses an edit that corrects a fact the candidate has no text value for", async () => {
+    const harness = createHarness();
+    const original = (await harness.generate()).candidates[0]!;
+
+    await expect(
+      harness.services.updateCatalogMergeCandidate({
+        candidateId: original.candidateId,
+        expectedVersion: harness.streams.get(catalogMergeCandidateStreamId(original.candidateId))!.length,
+        edit: { factOverrides: [{ key: "notAFact", value: "Invented" }] },
+        reason: "Add a fact",
+        context,
+      }),
+    ).rejects.toMatchObject({ code: "edit_fact_not_editable" });
   });
 });
 
@@ -534,6 +622,22 @@ function createHarness() {
     streams,
     services: runtime.services,
     generate: () => runtime.services.generateCatalogMergeCandidates({ context }),
+    // A candidate stream created from `snapshot` as the domain creates one.
+    seedCandidate: async (candidateId: string, snapshot: CatalogMergeCandidateReviewSnapshot) => {
+      const events = decideCatalogMergeCandidate(initialCatalogMergeCandidateState, {
+        type: "CreateCatalogMergeCandidate",
+        candidateId,
+        snapshot,
+        createdAt: "2026-06-24T12:00:00.000Z",
+      });
+      await eventStore.appendToStream({
+        streamId: catalogMergeCandidateStreamId(candidateId),
+        expectedVersion: "no_stream",
+        context,
+        events: events.map((event) => ({ eventType: event.type, payload: event.data })),
+      });
+      return { candidateId, snapshot, version: events.length };
+    },
   };
 }
 

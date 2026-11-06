@@ -11,9 +11,9 @@ import { snapshotFromReviewRow } from "./catalog-merge-candidate-review-command-
 // editing: UpdateCatalogMergeCandidate replaces the review snapshot with audit,
 // and field provenance supports `manual` confidence. This module is the typed,
 // server-owned bridge between the trimmed workbench review row and that command.
-// The read model exposes a base snapshot plus the editable surface for one
-// candidate; the command handler applies the operator's overrides back onto that
-// base snapshot before submitting the update. Operator field corrections are
+// The read model exposes the editable surface for one candidate; the page posts
+// the operator's typed edit and the Catalog API applies it to the candidate's
+// stored snapshot (`updateCatalogMergeCandidate`). Operator field corrections are
 // recorded as `manual` provenance anchored to a real membership observation so
 // the domain's provenance invariant (every entry carries a concrete source) still
 // holds while promotion carries the edited value forward.
@@ -32,11 +32,13 @@ export type CatalogMergeCandidateEditReference = Readonly<{
 
 // The editable surface of one candidate, ready to render as a typed form. When a
 // candidate cannot be edited (no manage permission, terminal, or missing
-// membership provenance) `editable` is false and `baseSnapshotJson` is null; the
-// form renders a blocked explanation instead of inputs.
+// membership provenance) `editable` is false and `candidateVersion` is null; the
+// form renders a blocked explanation instead of inputs. `candidateVersion` is the
+// version the form names when it submits, so the Catalog API refuses an edit made
+// from a read the candidate has since moved on from.
 export type CatalogMergeCandidateEditFormModel = Readonly<{
   editable: boolean;
-  baseSnapshotJson: string | null;
+  candidateVersion: number | null;
   promotionIntent: CatalogMergeCandidatePromotionIntent;
   catalogItemId: string | null;
   productIds: readonly string[];
@@ -47,7 +49,7 @@ export type CatalogMergeCandidateEditFormModel = Readonly<{
 
 // The structured operator edit, parsed from the submitted form. Field overrides
 // only carry the values the operator changed; unchanged fields keep their source
-// provenance. Dropped-reference indexes point at the base snapshot's reference
+// provenance. Dropped-reference indexes point at the stored snapshot's reference
 // arrays (the read model renders them in the same order).
 export type CatalogMergeCandidateEditInput = Readonly<{
   promotionIntent: CatalogMergeCandidatePromotionIntent;
@@ -57,6 +59,80 @@ export type CatalogMergeCandidateEditInput = Readonly<{
   droppedExternalCatalogItemReferenceIndexes: readonly number[];
   droppedExternalProductReferenceIndexes: readonly number[];
 }>;
+
+// The edit a client sends the Catalog API's update command: a field it leaves out keeps the
+// candidate's stored value, so an empty edit keeps the candidate as it is.
+export type CatalogMergeCandidateEditRequest = Partial<CatalogMergeCandidateEditInput>;
+
+// The full edit `request` makes of the candidate's stored snapshot `base`.
+export function catalogMergeCandidateEditInputFor(
+  base: CatalogMergeCandidateReviewSnapshot,
+  request: CatalogMergeCandidateEditRequest,
+): CatalogMergeCandidateEditInput {
+  return {
+    promotionIntent: request.promotionIntent ?? base.promotionIntent,
+    catalogItemId: request.catalogItemId === undefined ? base.matches.catalogItemId : request.catalogItemId,
+    productIds: request.productIds ?? base.matches.productIds,
+    factOverrides: request.factOverrides ?? [],
+    droppedExternalCatalogItemReferenceIndexes: request.droppedExternalCatalogItemReferenceIndexes ?? [],
+    droppedExternalProductReferenceIndexes: request.droppedExternalProductReferenceIndexes ?? [],
+  };
+}
+
+// The edit in a request body, or null when a field it carries has the wrong shape.
+export function catalogMergeCandidateEditRequestFromJson(value: unknown): CatalogMergeCandidateEditRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const body = value as Record<string, unknown>;
+  const request: {
+    -readonly [K in keyof CatalogMergeCandidateEditRequest]: CatalogMergeCandidateEditRequest[K];
+  } = {};
+  if (body.promotionIntent !== undefined) {
+    if (!promotionIntents.includes(body.promotionIntent as CatalogMergeCandidatePromotionIntent)) return null;
+    request.promotionIntent = body.promotionIntent as CatalogMergeCandidatePromotionIntent;
+  }
+  if (body.catalogItemId !== undefined) {
+    if (body.catalogItemId !== null && typeof body.catalogItemId !== "string") return null;
+    request.catalogItemId = body.catalogItemId;
+  }
+  if (body.productIds !== undefined) {
+    if (!isStringArray(body.productIds)) return null;
+    request.productIds = body.productIds;
+  }
+  if (body.factOverrides !== undefined) {
+    if (
+      !Array.isArray(body.factOverrides) ||
+      !body.factOverrides.every(
+        (entry: unknown) =>
+          !!entry &&
+          typeof entry === "object" &&
+          typeof (entry as { key?: unknown }).key === "string" &&
+          typeof (entry as { value?: unknown }).value === "string",
+      )
+    ) {
+      return null;
+    }
+    request.factOverrides = (body.factOverrides as readonly { key: string; value: string }[]).map((entry) => ({
+      key: entry.key,
+      value: entry.value,
+    }));
+  }
+  for (const field of [
+    "droppedExternalCatalogItemReferenceIndexes",
+    "droppedExternalProductReferenceIndexes",
+  ] as const) {
+    const indexes = body[field];
+    if (indexes === undefined) continue;
+    if (!Array.isArray(indexes) || !indexes.every((index) => Number.isSafeInteger(index) && index >= 0)) return null;
+    request[field] = indexes as readonly number[];
+  }
+  return request;
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
 
 const promotionIntents: readonly CatalogMergeCandidatePromotionIntent[] = [
   "create-catalog-item",
@@ -78,7 +154,7 @@ export function catalogMergeCandidateEditFormFor(
   if (!base) {
     return {
       editable: false,
-      baseSnapshotJson: null,
+      candidateVersion: null,
       promotionIntent: candidate.promotion_intent,
       catalogItemId: candidate.matched_catalog_item_id,
       productIds: [...candidate.matched_product_ids_json],
@@ -90,7 +166,7 @@ export function catalogMergeCandidateEditFormFor(
 
   return {
     editable,
-    baseSnapshotJson: editable ? JSON.stringify(base) : null,
+    candidateVersion: editable ? candidate.last_stream_version : null,
     promotionIntent: base.promotionIntent,
     catalogItemId: base.matches.catalogItemId,
     productIds: [...base.matches.productIds],
@@ -106,7 +182,7 @@ export function catalogMergeCandidateEditFormFor(
   };
 }
 
-// Apply the operator's edit onto the base snapshot, producing the replacement
+// Apply the operator's edit onto the stored snapshot, producing the replacement
 // snapshot the UpdateCatalogMergeCandidate command carries. Field overrides update
 // the proposed facts and add a `manual` provenance entry anchored to the first
 // membership observation, so promotion carries the corrected value and the
@@ -166,72 +242,46 @@ export function applyCatalogMergeCandidateEdit(
   };
 }
 
-// Reconstruct the operator's edit from submitted form fields against the base
-// snapshot. The base tells us which fact keys are editable and how many
-// references exist, so the parser never trusts arbitrary form keys.
-export function catalogMergeCandidateEditInputFromFormData(
-  base: CatalogMergeCandidateReviewSnapshot,
-  formData: FormData,
-): CatalogMergeCandidateEditInput {
+// The operator's edit from the submitted edit form, for the Catalog API's update command. Each
+// fact input sits beside a hidden copy of the value the page showed
+// (`candidateEditFactShown.<key>`), so only the facts the operator changed become overrides. A form
+// without the mapping fields (the row's update button) sends an empty edit, which keeps the
+// candidate as it is. The Catalog API applies the edit to the snapshot it holds.
+export function catalogMergeCandidateEditRequestFromFormData(formData: FormData): CatalogMergeCandidateEditRequest {
   const factOverrides: { key: string; value: string }[] = [];
-  for (const key of editableFactKeys(base.proposedCatalogItemFacts)) {
-    const field = formData.get(`candidateEditFact.${key}`);
-    if (typeof field !== "string") {
+  for (const [name, value] of formData.entries()) {
+    if (!name.startsWith(factFieldPrefix) || typeof value !== "string") {
       continue;
     }
-    const current = base.proposedCatalogItemFacts[key];
-    if (typeof current === "string" && field !== current) {
-      factOverrides.push({ key, value: field });
+    const key = name.slice(factFieldPrefix.length);
+    const shown = formData.get(`${shownFactFieldPrefix}${key}`);
+    if (key && typeof shown === "string" && shown !== value) {
+      factOverrides.push({ key, value });
     }
   }
 
+  const promotionIntent = stringField(formData, "candidateEditPromotionIntent");
   return {
-    promotionIntent: promotionIntentFromFormData(formData, base.promotionIntent),
-    catalogItemId: stringField(formData, "candidateEditCatalogItemId") || null,
-    productIds: parseIdList(stringField(formData, "candidateEditProductIds")),
+    ...(promotionIntents.includes(promotionIntent as CatalogMergeCandidatePromotionIntent)
+      ? { promotionIntent: promotionIntent as CatalogMergeCandidatePromotionIntent }
+      : {}),
+    ...(formData.has("candidateEditCatalogItemId")
+      ? { catalogItemId: stringField(formData, "candidateEditCatalogItemId") || null }
+      : {}),
+    ...(formData.has("candidateEditProductIds")
+      ? { productIds: parseIdList(stringField(formData, "candidateEditProductIds")) }
+      : {}),
     factOverrides,
-    droppedExternalCatalogItemReferenceIndexes: droppedReferenceIndexes(
-      formData,
-      "candidateEditDropCatalogRef",
-      base.proposedExternalCatalogItemReferences.length,
-    ),
-    droppedExternalProductReferenceIndexes: droppedReferenceIndexes(
-      formData,
-      "candidateEditDropProductRef",
-      base.proposedExternalProductReferences.length,
-    ),
+    droppedExternalCatalogItemReferenceIndexes: droppedReferenceIndexes(formData, "candidateEditDropCatalogRef"),
+    droppedExternalProductReferenceIndexes: droppedReferenceIndexes(formData, "candidateEditDropProductRef"),
   };
 }
 
-// Parse the embedded base snapshot and apply the submitted edit, or null when no
-// edit-form base snapshot was posted (the caller then falls back to the typed
-// command-preview update path). Malformed JSON fails closed with null.
-export function editedSnapshotFromFormData(formData: FormData): CatalogMergeCandidateReviewSnapshot | null {
-  const raw = stringField(formData, "candidateEditBaseSnapshot");
-  if (!raw) {
-    return null;
-  }
-
-  let base: CatalogMergeCandidateReviewSnapshot;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    base = parsed as CatalogMergeCandidateReviewSnapshot;
-  } catch {
-    return null;
-  }
-
-  if (!Array.isArray(base.membership) || base.membership.length === 0) {
-    return null;
-  }
-
-  return applyCatalogMergeCandidateEdit(base, catalogMergeCandidateEditInputFromFormData(base, formData));
-}
+const factFieldPrefix = "candidateEditFact.";
+const shownFactFieldPrefix = "candidateEditFactShown.";
 
 function editableFactsFrom(facts: JsonObject): readonly CatalogMergeCandidateEditFieldOverride[] {
-  return editableFactKeys(facts).map((key) => ({
+  return catalogMergeCandidateEditableFactKeys(facts).map((key) => ({
     key,
     fieldPath: `catalogItem.${key}`,
     label: key,
@@ -241,7 +291,7 @@ function editableFactsFrom(facts: JsonObject): readonly CatalogMergeCandidateEdi
 
 // Only string-valued facts are safely editable as free text; structured facts
 // keep their provider provenance and are not surfaced as text inputs.
-function editableFactKeys(facts: JsonObject): readonly string[] {
+export function catalogMergeCandidateEditableFactKeys(facts: JsonObject): readonly string[] {
   return Object.keys(facts)
     .filter((key) => typeof facts[key] === "string")
     .sort();
@@ -261,24 +311,19 @@ function externalCatalogItemReferenceLabel(providerKey: string, externalKey: str
   return [providerKey, externalKey].join(":");
 }
 
-function promotionIntentFromFormData(
-  formData: FormData,
-  fallback: CatalogMergeCandidatePromotionIntent,
-): CatalogMergeCandidatePromotionIntent {
-  const value = stringField(formData, "candidateEditPromotionIntent");
-  return promotionIntents.includes(value as CatalogMergeCandidatePromotionIntent)
-    ? (value as CatalogMergeCandidatePromotionIntent)
-    : fallback;
-}
-
-function droppedReferenceIndexes(formData: FormData, prefix: string, count: number): readonly number[] {
-  const dropped: number[] = [];
-  for (let index = 0; index < count; index += 1) {
-    if (formData.has(`${prefix}.${index}`)) {
-      dropped.push(index);
+// The reference indexes whose drop box the operator checked (`<prefix>.<index>`).
+function droppedReferenceIndexes(formData: FormData, prefix: string): readonly number[] {
+  const dropped = new Set<number>();
+  for (const name of formData.keys()) {
+    if (!name.startsWith(`${prefix}.`)) {
+      continue;
+    }
+    const index = Number(name.slice(prefix.length + 1));
+    if (Number.isSafeInteger(index) && index >= 0) {
+      dropped.add(index);
     }
   }
-  return dropped;
+  return [...dropped].sort((left, right) => left - right);
 }
 
 function stringField(formData: FormData, name: string): string {

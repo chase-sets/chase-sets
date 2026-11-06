@@ -98,6 +98,8 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "Choose a durable import job before retrying, resuming, or cancelling it.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.lifecycle.conflict":
     "The lifecycle command was blocked by active jobs, references, or profile state. Review lifecycle recovery evidence before retrying.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.candidate.stale":
+    "The merge candidate changed after this page loaded it, so nothing was saved. Review the candidate as it is now and try again.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.description":
     "Promotion preview is ready for the current provider, scope, filters, and selection checkpoint.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.required":

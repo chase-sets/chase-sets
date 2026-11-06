@@ -88,6 +88,7 @@ export interface CatalogMergeCandidateListItem {
   created_at: string;
   updated_at: string;
   stale_at: string | null;
+  last_stream_version: number;
   observation_count: number;
 }
 

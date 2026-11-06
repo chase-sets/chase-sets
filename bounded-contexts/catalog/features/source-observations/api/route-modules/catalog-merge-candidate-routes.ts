@@ -1,12 +1,17 @@
 import { t } from "@chase-sets/localization";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import type {
   CatalogMergeCandidateConflictResolution,
-  CatalogMergeCandidateReviewSnapshot,
   CatalogMergeCandidateStatus,
 } from "../../domain/catalog-merge-candidate";
-import type { CatalogMergeCandidateServices, SourceObservationReadServices } from "../runtime";
+import type {
+  CatalogMergeCandidateReviewCommandErrorCode,
+  CatalogMergeCandidateServices,
+  SourceObservationReadServices,
+} from "../runtime";
+import { isCatalogMergeCandidateReviewCommandError } from "../runtime";
+import { catalogMergeCandidateEditRequestFromJson } from "../promotion/catalog-merge-candidate-edit";
 import { requireCatalogIntegrationControlPlanePermission } from "../admin/admin-control-plane-rbac";
 
 export type CatalogMergeCandidateRouteServices = CatalogMergeCandidateServices & SourceObservationReadServices;
@@ -104,33 +109,37 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     if (!reason.ok) {
       return c.json({ error: { code: "reason_required", message: reason.error } }, 400);
     }
+    const expectedVersion = expectedVersionFrom(body);
+    if (expectedVersion === null) {
+      return expectedVersionRequired(c);
+    }
+    const splitObservationIds = body.splitObservationIds;
     if (
-      !isRecord(body.remainingSnapshot) ||
-      !isRecord(body.splitSnapshot) ||
-      typeof body.splitCandidateId !== "string"
+      !Array.isArray(splitObservationIds) ||
+      splitObservationIds.length === 0 ||
+      !splitObservationIds.every((id) => typeof id === "string" && id.trim().length > 0)
     ) {
       return c.json(
         {
           error: {
-            code: "snapshot_required",
-            message: t("catalog.features.sourceObservations.api.route.merge.candidate.split.requires.snapshots"),
+            code: "split_observations_required",
+            message: t("catalog.features.sourceObservations.api.route.merge.candidate.split.requires.observations"),
           },
         },
         400,
       );
     }
 
-    const result = await services.splitCatalogMergeCandidate({
-      candidateId: c.req.param("candidateId"),
-      remainingSnapshot: body.remainingSnapshot as CatalogMergeCandidateReviewSnapshot,
-      splitCandidateId: body.splitCandidateId,
-      splitSnapshot: body.splitSnapshot as CatalogMergeCandidateReviewSnapshot,
-      reason: reason.value,
-      conflictResolutions: conflictResolutions(body),
-      context: c.get("context"),
-    });
-
-    return c.json(result);
+    return reviewCommandResponse(c, () =>
+      services.splitCatalogMergeCandidate({
+        candidateId: c.req.param("candidateId"),
+        expectedVersion,
+        splitObservationIds: splitObservationIds as readonly string[],
+        reason: reason.value,
+        conflictResolutions: conflictResolutions(body),
+        context: c.get("context"),
+      }),
+    );
   });
 
   app.post("/admin/merge-candidates/:candidateId/update", async (c) => {
@@ -144,27 +153,33 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     if (!reason.ok) {
       return c.json({ error: { code: "reason_required", message: reason.error } }, 400);
     }
-    if (!isRecord(body.snapshot)) {
+    const expectedVersion = expectedVersionFrom(body);
+    if (expectedVersion === null) {
+      return expectedVersionRequired(c);
+    }
+    const edit = catalogMergeCandidateEditRequestFromJson(body.edit);
+    if (edit === null) {
       return c.json(
         {
           error: {
-            code: "snapshot_required",
-            message: t("catalog.features.sourceObservations.api.route.merge.candidate.update.requires.snapshot"),
+            code: "edit_required",
+            message: t("catalog.features.sourceObservations.api.route.merge.candidate.update.requires.edit"),
           },
         },
         400,
       );
     }
 
-    const result = await services.updateCatalogMergeCandidate({
-      candidateId: c.req.param("candidateId"),
-      snapshot: body.snapshot as CatalogMergeCandidateReviewSnapshot,
-      reason: reason.value,
-      conflictResolutions: conflictResolutions(body),
-      context: c.get("context"),
-    });
-
-    return c.json(result);
+    return reviewCommandResponse(c, () =>
+      services.updateCatalogMergeCandidate({
+        candidateId: c.req.param("candidateId"),
+        expectedVersion,
+        edit,
+        reason: reason.value,
+        conflictResolutions: conflictResolutions(body),
+        context: c.get("context"),
+      }),
+    );
   });
 
   app.post("/admin/merge-candidates/:candidateId/ignore", async (c) => {
@@ -254,6 +269,54 @@ function requiredReason(
 ): Readonly<{ ok: true; value: string } | { ok: false; error: string }> {
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
   return reason ? { ok: true, value: reason } : { ok: false, error: candidateActionReasonMessage(action) };
+}
+
+// The candidate version an update or split names as the one the operator saw.
+function expectedVersionFrom(body: Record<string, unknown>): number | null {
+  const value = body.expectedVersion;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function expectedVersionRequired(c: Context<CatalogAuthoringEnv>) {
+  return c.json(
+    {
+      error: {
+        code: "expected_version_required",
+        message: t("catalog.features.sourceObservations.api.route.merge.candidate.requires.expected.version"),
+      },
+    },
+    400,
+  );
+}
+
+// An update or split, answered with its result, or with the reason the Catalog API refused it: a
+// candidate that moved on since the operator read it is a 409 the page can say so for; a split or
+// edit the candidate cannot take is a 400.
+async function reviewCommandResponse(c: Context<CatalogAuthoringEnv>, run: () => Promise<unknown>): Promise<Response> {
+  try {
+    return c.json(await run());
+  } catch (error) {
+    if (!isCatalogMergeCandidateReviewCommandError(error)) {
+      throw error;
+    }
+    const status = error.code === "stale_merge_candidate" ? 409 : 400;
+    return c.json({ error: { code: error.code, message: reviewCommandRefusalMessage(error.code) } }, status);
+  }
+}
+
+function reviewCommandRefusalMessage(code: CatalogMergeCandidateReviewCommandErrorCode): string {
+  switch (code) {
+    case "stale_merge_candidate":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.stale");
+    case "edit_fact_not_editable":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.update.fact.not.editable");
+    case "split_selection_invalid":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.split.selection.invalid");
+    case "split_requires_two_members":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.split.requires.remaining.member");
+    case "split_requires_separable_reference_provenance":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.split.requires.separable.references");
+  }
 }
 
 type CatalogMergeCandidateRouteAction = "promote" | "split" | "update" | "ignore" | "defer";

@@ -662,6 +662,7 @@ export function catalogMergeCandidateListItem(
     created_at: "2026-06-09T01:02:00.000Z",
     updated_at: "2026-06-09T01:03:00.000Z",
     stale_at: null,
+    last_stream_version: 2,
     observation_count: 2,
     ...overrides,
   };

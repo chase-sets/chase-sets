@@ -175,11 +175,23 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
   "catalog.features.sourceObservations.api.route.merge.candidate.promote.requires.reason":
     "Promotion requires a reason.",
   "catalog.features.sourceObservations.api.route.merge.candidate.split.requires.reason": "Split requires a reason.",
-  "catalog.features.sourceObservations.api.route.merge.candidate.split.requires.snapshots":
-    "Split requires remainingSnapshot, splitCandidateId, and splitSnapshot.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.split.requires.observations":
+    "Split requires splitObservationIds: the Source Observations to split off.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.split.selection.invalid":
+    "A split names only the candidate's own Source Observations.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.split.requires.remaining.member":
+    "A split must leave at least one Source Observation on the candidate.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.split.requires.separable.references":
+    "Each side of a split needs an external reference of its own.",
   "catalog.features.sourceObservations.api.route.merge.candidate.update.requires.reason": "Update requires a reason.",
-  "catalog.features.sourceObservations.api.route.merge.candidate.update.requires.snapshot":
-    "Update requires a candidate snapshot.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.update.requires.edit":
+    "Update requires an edit: promotionIntent, catalogItemId, productIds, factOverrides or dropped reference indexes.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.update.fact.not.editable":
+    "An edit can correct only the candidate's text facts.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.requires.expected.version":
+    "Update and split require expectedVersion: the candidate version the page read.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.stale":
+    "The candidate changed after this page read it. Read it again before acting on it.",
   "catalog.features.sourceObservations.api.route.merge.candidate.ignore.requires.reason": "Ignore requires a reason.",
   "catalog.features.sourceObservations.api.route.merge.candidate.defer.requires.reason": "Deferral requires a reason.",
   "catalog.features.sourceObservations.ui.mappingExpressionEditor.add.expression": "Add expression",
