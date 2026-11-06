@@ -73,7 +73,11 @@ export function createFulfillmentServices(
   return {
     shipments,
     returnShipments,
-    sellerShippingSetup: createSellerShippingSetupServices({ pool, eventStore, operatorAuthority: ports?.operatorAuthority }),
+    sellerShippingSetup: createSellerShippingSetupServices({
+      pool,
+      eventStore,
+      operatorAuthority: ports?.operatorAuthority,
+    }),
     projectors: [...shipments.projectors, ...returnShipments.projectors],
     pool,
     db,

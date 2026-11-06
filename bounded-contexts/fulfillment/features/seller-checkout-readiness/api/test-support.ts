@@ -10,18 +10,57 @@ import { createSellerShippingSetupRoutes } from "./route";
 
 export const accountOwner = { kind: "account", accountId: "acc_seller" } as const;
 export const anonymousOwner = { kind: "anonymous", anonymousSellListId: "anon_sell_list" } as const;
-export const setup = { origin: { name: "Seller", line1: "1 Main St", line2: null, city: "Austin", state: "TX", postalCode: "78701", country: "US" }, labelPreference: "prepaid-label" } as const;
-export const actor: ResolvedActor = { sessionId: "ses_admin", tenantId: "tnt_identity", userId: "usr_admin", accountId: "acc_admin", membershipId: "mem_admin", roleKey: "platform-admin", permissions: [] };
-export const context: EventStoreContext = { tenantId: "tnt_identity" as TenantId, audit: { performedByUserId: "usr_admin" as UserId, forAccountId: "acc_admin" as AccountId } };
-export const grantedAuthority: OperatorAuthority = async (requester) => ({ kind: "granted", membershipId: requester.membershipId, roleKey: "platform-admin", rolePermissions: [] });
-export const initialize = { owner: accountOwner, action: "initialize", reason: "Explicit launch initialization", operationId: "initialize_account" } as const;
+export const setup = {
+  origin: {
+    name: "Seller",
+    line1: "1 Main St",
+    line2: null,
+    city: "Austin",
+    state: "TX",
+    postalCode: "78701",
+    country: "US",
+  },
+  labelPreference: "prepaid-label",
+} as const;
+export const actor = {
+  sessionId: "ses_admin",
+  tenantId: "tnt_identity",
+  userId: "usr_admin",
+  accountId: "acc_admin",
+  membershipId: "mem_admin",
+  roleKey: "platform-admin",
+  permissions: [],
+} as const satisfies ResolvedActor;
+export const context: EventStoreContext = {
+  tenantId: "tnt_identity" as TenantId,
+  audit: { performedByUserId: "usr_admin" as UserId, forAccountId: "acc_admin" as AccountId },
+};
+export const grantedAuthority: OperatorAuthority = async (requester) => ({
+  kind: "granted",
+  membershipId: requester.membershipId,
+  roleKey: "platform-admin",
+  rolePermissions: [],
+});
+export const initialize = {
+  owner: accountOwner,
+  action: "initialize",
+  reason: "Explicit launch initialization",
+  operationId: "initialize_account",
+} as const;
 
 // The non-DB seam tests command/boundary behavior only. Real transaction,
 // restart and concurrent-writer proof lives in production-source.db.test.ts.
 export function createShippingTestHarness(authority: OperatorAuthority | undefined = grantedAuthority) {
   const memory = createInMemoryEventStore();
   function row(event: StoredEvent) {
-    return { current_version: String(event.streamVersion), stream_version: String(event.streamVersion), recorded_at: new Date(event.recordedAt), event_type: event.eventType, payload: event.payload, stream_id: event.streamId };
+    return {
+      current_version: String(event.streamVersion),
+      stream_version: String(event.streamVersion),
+      recorded_at: new Date(event.recordedAt),
+      event_type: event.eventType,
+      payload: event.payload,
+      stream_id: event.streamId,
+    };
   }
   const query: PgQueryFunction = async <Row>(sql: string, values?: readonly unknown[]) => {
     let rows: unknown[] = [];
@@ -36,21 +75,47 @@ export function createShippingTestHarness(authority: OperatorAuthority | undefin
     return { rows: rows as Row[] };
   };
   const pool: PgTransactionalPool = { query, connect: async () => ({ query, release: () => {} }) };
+  const appendToStreams = memory.eventStore.appendToStreams;
+  if (!appendToStreams) throw new Error("The shipping test seam requires atomic multi-stream append support.");
   const eventStore: PostgresEventStore = {
     ...memory.eventStore,
     appendToStreamInTransaction: async (_client, input) => memory.eventStore.appendToStream(input),
-    appendToStreamsInTransaction: async (_client, inputs) => memory.eventStore.appendToStreams(inputs),
+    appendToStreamsInTransaction: async (_client, inputs) => appendToStreams(inputs),
     readStreamInTransaction: async (_client, input) => memory.eventStore.readStream(input),
   };
   const makeServices = () => createSellerShippingSetupServices({ pool, eventStore, operatorAuthority: authority });
   const services = makeServices();
   const app = new Hono<AuthenticatedApiEnv>();
   let currentActor: ResolvedActor | null = actor;
-  app.use("*", async (c, next) => { c.set("actor", currentActor); c.set("context", currentActor ? context : null); await next(); });
+  app.use("*", async (c, next) => {
+    c.set("actor", currentActor);
+    c.set("context", currentActor ? context : null);
+    await next();
+  });
   app.route("/api/marketplace", createSellerShippingSetupRoutes(services));
-  return { services, makeServices, pool, events: memory.allEvents, app, setActor: (value: ResolvedActor | null) => { currentActor = value; }, query: vi.spyOn(pool, "query") };
+  return {
+    services,
+    makeServices,
+    pool,
+    events: memory.allEvents,
+    app,
+    setActor: (value: ResolvedActor | null) => {
+      currentActor = value;
+    },
+    query: vi.spyOn(pool, "query"),
+  };
 }
 
-export function jsonRequest(app: ReturnType<typeof createShippingTestHarness>["app"], path: string, body: unknown, method = "PUT", headers: Record<string, string> = {}) {
-  return app.request(`/api/marketplace${path}`, { method, headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+export function jsonRequest(
+  app: ReturnType<typeof createShippingTestHarness>["app"],
+  path: string,
+  body: unknown,
+  method = "PUT",
+  headers: Record<string, string> = {},
+) {
+  return app.request(`/api/marketplace${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
 }
