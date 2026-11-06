@@ -617,11 +617,12 @@ function withoutVerification(f) {
     "synthetic-capture.json": e.capture,
     "synthetic-consumption.json": e.consumption,
   };
+  for (const phase of ["capture", "consumption"])
+    for (const [i, record] of (e[phase]?.census ?? []).entries()) replacement[`${phase}-census-${i}`] = record;
+  for (const kind of ["pages", "details"])
+    for (const [i, record] of (e.jobs?.census?.[kind] ?? []).entries()) replacement[`census-${kind}-${i}`] = record;
   e.files = e.files
-    .filter(
-      (file) =>
-        file.path.startsWith("source-") || file.path.includes("census") || Object.hasOwn(replacement, file.path),
-    )
+    .filter((file) => file.path.startsWith("source-") || Object.hasOwn(replacement, file.path))
     .map((file) =>
       Object.hasOwn(replacement, file.path)
         ? { ...file, original: JSON.stringify(replacement[file.path]), backup: JSON.stringify(replacement[file.path]) }
@@ -971,6 +972,8 @@ describe("census terminal evidence synthetic controls", () => {
           d.conclusion = dConclusion;
           job.conclusion = dConclusion;
         });
+        f.envelope.namespace.deleted = dConclusion === "success";
+        retain(f);
         const before = JSON.stringify(f);
         const result = read(f);
         expect(result.bracketState).toBe("TERMINAL_BEFORE_DELETE");
@@ -1175,6 +1178,102 @@ describe("census terminal evidence synthetic controls", () => {
     expect(read(f)).toMatchObject({ t0Utc: "2030-01-01T01:00:00Z", cleanupSucceeded: false, c1Admission: false });
   });
 
+  it.each(["provider", "delete"])(
+    "Finalizers F1: coherent %s failure retains exact D and negative c1 admission",
+    (kind) => {
+      const f = fixture();
+      const jobs = f.envelope.jobs.verification.details.map((record) => JSON.parse(record.body));
+      const owner = jobs.find((job) => job.name === "Verify Release in Ephemeral Namespace");
+      owner.steps.find(
+        (s) => s.name === (kind === "provider" ? "Delete verification provider webhooks" : DELETE),
+      ).conclusion = "failure";
+      owner.conclusion = "failure";
+      f.envelope.jobs.verification = jobSet(f.envelope.binding.verification, jobs);
+      for (const phase of ["capture", "consumption"])
+        f.envelope[phase].verification = runs(f.envelope.binding.verification, "failure");
+      f.envelope.namespace.deleted = kind !== "delete";
+      f.lifecycleOverrides = {
+        finalizers: {
+          provider: kind === "provider" ? "failure" : "success",
+          delete: kind === "delete" ? "failure" : "success",
+        },
+      };
+      retain(f);
+      const detail = f.envelope.jobs.verification.details.find((record) => JSON.parse(record.body).id === owner.id);
+      const result = read(f);
+      expect(result).toMatchObject({
+        bracketState: "TERMINAL_BEFORE_DELETE",
+        cRunTerminal: { utc: null },
+        t0Utc: "2030-01-01T01:00:00Z",
+        cleanupSucceeded: false,
+        c1Admission: false,
+        c1Schedule: "HANDOFF_REQUIRED",
+        vDeleteTerminal: {
+          raw: "2030-01-01T01:00:00Z",
+          utc: "2030-01-01T01:00:00Z",
+          precision: 0,
+          jobId: owner.id,
+          pointer: "/steps/7/completed_at",
+          payloadHash: detail.sha256,
+          requestUrl: detail.url,
+          responseHash: sha256(JSON.stringify(detail)),
+          conclusion: kind === "delete" ? "failure" : "success",
+        },
+      });
+      expect(result.vDeleteTerminal.retainedPath).toBe(
+        f.envelope.files.find((file) => file.original === JSON.stringify(detail)).path,
+      );
+    },
+  );
+
+  it.each(["provider", "delete", "namespace"])(
+    "Finalizers F1: contradictory %s proof refuses cleanup qualification",
+    (kind) => {
+      const f = fixture();
+      if (kind === "provider") {
+        const jobs = f.envelope.jobs.verification.details.map((record) => JSON.parse(record.body));
+        jobs[0].steps.find((s) => s.name === "Delete verification provider webhooks").conclusion = "failure";
+        jobs[0].conclusion = "failure";
+        f.envelope.jobs.verification = jobSet(f.envelope.binding.verification, jobs);
+        for (const phase of ["capture", "consumption"])
+          f.envelope[phase].verification = runs(f.envelope.binding.verification, "failure");
+      } else if (kind === "delete") f.lifecycleOverrides = { finalizers: { provider: "success", delete: "failure" } };
+      else f.envelope.namespace.deleted = false;
+      retain(f);
+      expect(read(f)).toMatchObject({
+        bracketState: "STOP",
+        reasons: ["STOP_FINALIZER_CONFLICT"],
+        t0Utc: null,
+        cRunTerminal: null,
+        vDeleteTerminal: null,
+        c1Schedule: "NOT_STARTED",
+        newOpportunities: 0,
+      });
+    },
+  );
+
+  it.each(["skipped", "neutral", "in_progress", "missing", "duplicate", "null-time"])(
+    "Finalizers F1: %s provider teardown is not unique executed finalizer evidence",
+    (kind) => {
+      const f = fixture();
+      const jobs = f.envelope.jobs.verification.details.map((record) => JSON.parse(record.body));
+      const owner = jobs[0];
+      const provider = owner.steps.find((s) => s.name === "Delete verification provider webhooks");
+      if (["skipped", "neutral"].includes(kind)) provider.conclusion = kind;
+      if (kind === "in_progress") {
+        provider.status = "in_progress";
+        provider.conclusion = null;
+        provider.completed_at = null;
+      }
+      if (kind === "missing") owner.steps = owner.steps.filter((s) => s !== provider);
+      if (kind === "duplicate") owner.steps.push({ ...provider, number: 99 });
+      if (kind === "null-time") provider.completed_at = null;
+      f.envelope.jobs.verification = jobSet(f.envelope.binding.verification, jobs);
+      retain(f);
+      expect(read(f)).toMatchObject({ bracketState: "STOP", t0Utc: null, c1Schedule: "NOT_STARTED" });
+    },
+  );
+
   it.each(["no-namespace", "never-started", "zero-jobs"])("No run/cancel: %s stays CLOCK-2, not N7", (kind) => {
     const f = fixture();
     if (kind === "no-namespace") f.envelope.namespace.state = "NOT_CREATED";
@@ -1185,9 +1284,31 @@ describe("census terminal evidence synthetic controls", () => {
 
   it.each(["no-v", "c-never-captured", "admission-refused"])(
     "No run/cancel: affirmative %s is N7 only while no V was dispatched",
-    () => {
-      const f = withoutVerification(fixture());
-      expect(read(f)).toMatchObject({ bracketState: "NO_BRACKET_NO_T0", newOpportunities: 0 });
+    (kind) => {
+      const f = fixture();
+      if (kind === "c-never-captured") {
+        for (const phase of ["capture", "consumption"]) delete f.envelope[phase].census;
+        delete f.envelope.jobs.census;
+      } else if (kind === "admission-refused") {
+        f.envelope.dispatch.admissionRefused = true;
+        f.envelope.dispatch.inputHash = generatedHash("admission-refused-before-verification-dispatch");
+        f.envelope.capture.census = f.envelope.capture.census.map((record) =>
+          mutateRecord(record, (body) => {
+            body.status = "queued";
+            body.conclusion = null;
+          }),
+        );
+        delete f.envelope.consumption.census;
+        f.envelope.jobs.census = jobSet(f.envelope.binding.census, []);
+      }
+      withoutVerification(f);
+      expect(read(f)).toMatchObject({
+        bracketState: "NO_BRACKET_NO_T0",
+        reasons: ["N7"],
+        t0Utc: null,
+        c1Schedule: "NOT_STARTED",
+        newOpportunities: 0,
+      });
       f.envelope.dispatch.verificationDispatched = true;
       const file = f.envelope.files.find((file) => file.path === "facts.json");
       const facts = JSON.parse(file.original);
@@ -1195,6 +1316,63 @@ describe("census terminal evidence synthetic controls", () => {
       file.original = file.backup = JSON.stringify(facts);
       admitFiles(f);
       expect(read(f).bracketState).toBe("STOP");
+    },
+  );
+
+  it("No run/cancel F2: coherent nonterminal C and affirmative no V remains N7", () => {
+    const f = fixture();
+    for (const phase of ["capture", "consumption"])
+      f.envelope[phase].census = f.envelope[phase].census.map((record) =>
+        mutateRecord(record, (body) => {
+          body.status = "in_progress";
+          body.conclusion = null;
+        }),
+      );
+    const jobs = f.envelope.jobs.census.details.map((record) => JSON.parse(record.body));
+    jobs[0].status = "in_progress";
+    jobs[0].conclusion = null;
+    jobs[0].completed_at = null;
+    jobs[0].steps = jobs[0].steps.slice(0, 4);
+    Object.assign(jobs[0].steps.at(-1), { status: "in_progress", conclusion: null, completed_at: null });
+    f.envelope.jobs.census = jobSet(f.envelope.binding.census, jobs);
+    withoutVerification(f);
+    expect(read(f)).toMatchObject({
+      bracketState: "NO_BRACKET_NO_T0",
+      reasons: ["N7"],
+      t0Utc: null,
+      c1Schedule: "NOT_STARTED",
+      newOpportunities: 0,
+    });
+  });
+
+  it.each(["identity", "namespace", "seal", "jobs", "capture", "unknown-dispatch", "stale-response", "stale-backup"])(
+    "No run/cancel F2: no-V %s contradiction or custody defect still refuses",
+    (kind) => {
+      const original = fixture();
+      const f = withoutVerification(fixture());
+      if (kind === "identity") f.envelope.binding.verification = original.envelope.binding.verification;
+      if (kind === "namespace") f.envelope.namespace = original.envelope.namespace;
+      if (kind === "seal") f.envelope.seal = original.envelope.seal;
+      if (kind === "jobs") f.envelope.jobs.verification = original.envelope.jobs.verification;
+      if (kind === "capture") f.envelope.capture.verification = original.envelope.capture.verification;
+      if (kind === "unknown-dispatch") f.envelope.dispatch.verificationDispatched = null;
+      if (kind === "stale-response") {
+        const record = f.envelope.capture.census[0];
+        record.sha256 = generatedHash("stale no-V response");
+        withoutVerification(f);
+      }
+      const facts = f.envelope.files.find((file) => file.path === "facts.json");
+      const value = JSON.parse(facts.original);
+      for (const key of Object.keys(value)) value[key] = copy(f.envelope[key]);
+      facts.original = facts.backup = JSON.stringify(value);
+      admitFiles(f);
+      if (kind === "stale-backup") f.envelope.files[0].backup += "stale";
+      expect(read(f)).toMatchObject({
+        bracketState: "STOP",
+        t0Utc: null,
+        c1Schedule: "NOT_STARTED",
+        newOpportunities: 0,
+      });
     },
   );
 

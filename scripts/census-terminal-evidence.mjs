@@ -306,13 +306,13 @@ export function readAttemptJobs(pages, details, binding) {
   return jobs;
 }
 
-function executedStep(steps, name) {
+function executedStep(steps, name, reason = "STOP_MISSING_DELETE_TERMINAL") {
   const matches = steps.filter((step) => step.name === name);
   requireEvidence(
     matches.length === 1 &&
       terminal(matches[0]) &&
       ["success", "failure", "cancelled", "timed_out"].includes(matches[0].conclusion),
-    "STOP_MISSING_DELETE_TERMINAL",
+    reason,
   );
   const value = matches[0];
   const start = instant(value.started_at);
@@ -639,17 +639,25 @@ export function readTerminalEvidence(envelope, admitted) {
       "STOP_CUSTODIANS",
     );
     if (noV) {
-      if (envelope.binding.census) {
-        for (const phase of ["capture", "consumption"]) {
-          const base = runUrl(envelope.binding.census);
-          const urls = [base, `${base}/attempts/${envelope.binding.census.attempt}`, base];
-          requireEvidence(envelope[phase]?.census?.length === 3, "STOP_CURRENT_ATTEMPT_COVERAGE");
-          envelope[phase].census.forEach((record, index) =>
-            runIdentity(response(record, urls[index]), envelope.binding.census),
-          );
-        }
-        readAttemptJobs(envelope.jobs.census.pages, envelope.jobs.census.details, envelope.binding.census);
-      }
+      requireEvidence(
+        !envelope.binding.verification &&
+          !envelope.binding.namespace &&
+          !envelope.binding.uid &&
+          !envelope.namespace &&
+          !envelope.sourceMap &&
+          !envelope.seal &&
+          !envelope.ack &&
+          !envelope.schedule &&
+          ["capture", "consumption"].every((phase) => !envelope[phase]?.verification?.length) &&
+          !envelope.jobs?.verification,
+        "STOP_DISPATCH_CONFLICT",
+      );
+      for (const record of [
+        ...["capture", "consumption"].flatMap((phase) => envelope[phase]?.census ?? []),
+        ...(envelope.jobs?.census?.pages ?? []),
+        ...(envelope.jobs?.census?.details ?? []),
+      ])
+        response(record, record.url);
       return { ...stopped("N7"), bracketState: "NO_BRACKET_NO_T0" };
     }
     requireEvidence(
@@ -726,6 +734,17 @@ export function readTerminalEvidence(envelope, admitted) {
     const w = executedStep(steps, CERTIFY);
     requireEvidence(w.value.conclusion === "success", "STOP_SEAL_EXECUTION");
     const d = executedStep(steps, DELETE);
+    const provider = executedStep(
+      steps,
+      "Delete verification provider webhooks",
+      "STOP_MISSING_PROVIDER_FINALIZER_TERMINAL",
+    );
+    requireEvidence(
+      finalizers.provider === provider.value.conclusion &&
+        finalizers.delete === d.value.conclusion &&
+        envelope.namespace.deleted === (d.value.conclusion === "success"),
+      "STOP_FINALIZER_CONFLICT",
+    );
     requireEvidence(
       steps.indexOf(w.value) + 1 === steps.indexOf(d.value) &&
         w.end.ticks <= d.start.ticks &&
@@ -765,7 +784,10 @@ export function readTerminalEvidence(envelope, admitted) {
       conclusion: d.value.conclusion,
     };
     const cleanupSucceeded =
-      d.value.conclusion === "success" && finalizers.provider === "success" && envelope.namespace.deleted === true;
+      d.value.conclusion === "success" &&
+      finalizers.provider === "success" &&
+      finalizers.delete === "success" &&
+      envelope.namespace.deleted === true;
     return {
       method: METHOD,
       schemaVersion: RECEIPT,
