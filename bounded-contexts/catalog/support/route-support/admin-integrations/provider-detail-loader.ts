@@ -14,13 +14,13 @@ import { loadHealthSurface } from "./integrations-loader-support";
 // handful of existing fixtures/tests — still wins if present, matching the
 // prior provider-scoped surfaces' precedence.
 //
-// The "health" surface composition is reused verbatim (not duplicated) because it
-// is the one surface that already computes every slice this page renders in one
-// pass: profileAuthoring, validationReadiness (with the real authoring model),
+// The "health" surface read is reused verbatim (not duplicated) because it is the
+// one surface that already computes every slice this page renders in one pass:
+// profileAuthoring, validationReadiness (with the real authoring model),
 // lifecycleRecovery (with real rollback/deprecate/retire impact evidence), and
-// healthTriage (provider credential/transport readiness) — see
-// buildCatalogPrimaryWorkbenchReadModelForSurface's "health computes everything"
-// contract in primary-workbench-read-model-composition.ts.
+// healthTriage (provider credential/transport readiness). The Catalog API
+// composes it; see the "health computes everything" contract in
+// primary-workbench-read-model-composition.ts.
 export async function loadProviderDetail(args: LoaderFunctionArgs) {
   const providerKey = routeParamProviderKey(args);
   const url = new URL(args.request.url);
