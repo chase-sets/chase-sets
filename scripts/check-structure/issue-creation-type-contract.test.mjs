@@ -33,31 +33,62 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const statusOwner = "scripts/pr-release-status.mjs";
 const statusCaller = ".github/workflows/platform-pr.yml";
 const beforeComposition = JSON.parse(read("scripts/fixtures/workflow-composition/platform-pr.json"));
-const statusCommentStep = beforeComposition.workflow.jobs["release-status"].steps.find((step) => step.name === "Update PR release status comment");
+const statusCommentStep = beforeComposition.workflow.jobs["release-status"].steps.find(
+  (step) => step.name === "Update PR release status comment",
+);
 
 // Transfer the original three logical operations, not a reduced physical-file
 // census. The original reviewed context digest still constrains the caller;
 // the complete extracted declaration is constrained before projecting it.
-const reviewedStatusOwner = execFileSync("git", ["show", `69ad1c9a1541471dd88a550c9e38c04fc97ed4d8:${statusOwner}`], { encoding: "utf8" });
+const reviewedStatusOwner = execFileSync("git", ["show", `69ad1c9a1541471dd88a550c9e38c04fc97ed4d8:${statusOwner}`], {
+  encoding: "utf8",
+});
 
 function statusCreationProjection(workflowSource, ownerSource) {
   const tree = ts.createSourceFile(statusOwner, ownerSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-  const declarations = tree.statements.filter((node) => ts.isFunctionDeclaration(node) && node.name?.text === "commentPrReleaseStatus");
+  const declarations = tree.statements.filter(
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === "commentPrReleaseStatus",
+  );
   expect(declarations).toHaveLength(1);
   const printer = ts.createPrinter({ removeComments: true });
-  const expected = ts.createSourceFile(statusOwner, reviewedStatusOwner, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-  const expectedDeclaration = expected.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "commentPrReleaseStatus");
-  expect(printer.printNode(ts.EmitHint.Unspecified, declarations[0], tree)).toBe(printer.printNode(ts.EmitHint.Unspecified, expectedDeclaration, expected));
+  const expected = ts.createSourceFile(
+    statusOwner,
+    reviewedStatusOwner,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.JS,
+  );
+  const expectedDeclaration = expected.statements.find(
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === "commentPrReleaseStatus",
+  );
+  expect(printer.printNode(ts.EmitHint.Unspecified, declarations[0], tree)).toBe(
+    printer.printNode(ts.EmitHint.Unspecified, expectedDeclaration, expected),
+  );
   expect(creationContext(statusOwner, ownerSource)).toBe(creationContext(statusOwner, reviewedStatusOwner));
   expect(creationSites(ownerSource)).toHaveLength(3);
   const imports = tree.statements.filter(ts.isImportDeclaration);
-  for (const [moduleName, binding] of [["node:child_process", "execFileSync"], ["node:fs/promises", "readFile"]]) {
-    expect(imports.some((node) => node.moduleSpecifier.text === moduleName && node.importClause?.namedBindings?.elements?.some((entry) => entry.name.text === binding && !entry.propertyName))).toBe(true);
+  for (const [moduleName, binding] of [
+    ["node:child_process", "execFileSync"],
+    ["node:fs/promises", "readFile"],
+  ]) {
+    expect(
+      imports.some(
+        (node) =>
+          node.moduleSpecifier.text === moduleName &&
+          node.importClause?.namedBindings?.elements?.some(
+            (entry) => entry.name.text === binding && !entry.propertyName,
+          ),
+      ),
+    ).toBe(true);
   }
   const workflow = parse(workflowSource);
   const steps = workflow.jobs["release-status"].steps;
   const index = steps.findIndex((step) => step.name === statusCommentStep.name);
-  expect(steps[index]).toEqual({ ...statusCommentStep, run: "node ./scripts/pr-release-status.mjs comment", env: { ...statusCommentStep.env, PR_NUMBER: "${{ github.event.pull_request.number }}" } });
+  expect(steps[index]).toEqual({
+    ...statusCommentStep,
+    run: "node ./scripts/pr-release-status.mjs comment",
+    env: { ...statusCommentStep.env, PR_NUMBER: "${{ github.event.pull_request.number }}" },
+  });
   expect(steps.filter((step) => /pr-release-status\.mjs\s+comment/.test(step.run ?? ""))).toHaveLength(1);
   steps[index] = statusCommentStep;
   return workflow;
@@ -265,15 +296,13 @@ function filesUnder(root) {
 
 function sourceInventory(root = ".") {
   const inventory = {};
-  for (const [path, count] of (
-    roots
-      .flatMap((path) => filesUnder(join(root, path)))
-      .sort()
-      .flatMap((path) => {
-        const sites = creationSites(read(path));
-        return sites.length ? [[relative(root, path).replaceAll("\\", "/"), sites.length]] : [];
-      })
-  )) {
+  for (const [path, count] of roots
+    .flatMap((path) => filesUnder(join(root, path)))
+    .sort()
+    .flatMap((path) => {
+      const sites = creationSites(read(path));
+      return sites.length ? [[relative(root, path).replaceAll("\\", "/"), sites.length]] : [];
+    })) {
     const logicalPath = path === statusOwner ? statusCaller : path;
     inventory[logicalPath] = (inventory[logicalPath] ?? 0) + count;
   }
@@ -320,9 +349,7 @@ function contextInventory(root = ".") {
           statusCreationProjection(read(join(root, statusCaller)), source);
           return [];
         }
-        return creationSites(source).length
-          ? [[relativePath, creationContext(relativePath, source, ownerSource)]]
-          : [];
+        return creationSites(source).length ? [[relativePath, creationContext(relativePath, source, ownerSource)]] : [];
       }),
   );
 }
@@ -440,9 +467,17 @@ function creationSites(source) {
   for (const match of source.matchAll(/\bmethod\s*:\s*(?:[^\n,]*?)["']POST["']|\bgh\s+api\b[^\n]*(?:\\\n[^\n]*)*/g)) {
     sites.push({ kind: "rest", offset: match.index });
   }
-  const tree = /["']gh["']/.test(source) ? ts.createSourceFile("operations.mjs", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS) : null;
+  const tree = /["']gh["']/.test(source)
+    ? ts.createSourceFile("operations.mjs", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+    : null;
   function apiCall(node) {
-    return ts.isCallExpression(node) && node.arguments[0]?.text === "gh" && node.arguments[1] && ts.isArrayLiteralExpression(node.arguments[1]) && node.arguments[1].elements[0]?.text === "api";
+    return (
+      ts.isCallExpression(node) &&
+      node.arguments[0]?.text === "gh" &&
+      node.arguments[1] &&
+      ts.isArrayLiteralExpression(node.arguments[1]) &&
+      node.arguments[1].elements[0]?.text === "api"
+    );
   }
   function visit(node) {
     if (!ts.isFunctionDeclaration(node) && !ts.isFunctionExpression(node) && !ts.isArrowFunction(node)) {
@@ -785,17 +820,23 @@ describe("issue creation type contract", () => {
     expect(creationSites(read(statusCaller))).toHaveLength(2);
     expect(creationSites(read(statusOwner))).toHaveLength(3);
     expect(sourceInventory()[statusCaller]).toBe(5);
-    expect(creationContext(statusCaller, read(statusCaller), read(statusOwner))).toBe(reviewedSiteContexts[statusCaller]);
-    const baseline = parse(execFileSync("git", ["show", `${beforeComposition.sourceHead}:${statusCaller}`], { encoding: "utf8" }));
-    expect(baseline.jobs["release-status"].steps.find((step) => step.name === statusCommentStep.name)).toEqual(statusCommentStep);
+    expect(creationContext(statusCaller, read(statusCaller), read(statusOwner))).toBe(
+      reviewedSiteContexts[statusCaller],
+    );
+    const baseline = parse(
+      execFileSync("git", ["show", `${beforeComposition.sourceHead}:${statusCaller}`], { encoding: "utf8" }),
+    );
+    expect(baseline.jobs["release-status"].steps.find((step) => step.name === statusCommentStep.name)).toEqual(
+      statusCommentStep,
+    );
   });
 
   it.each([
     ["target", (source) => source.replace("/issues/${env.PR_NUMBER}/comments", "/pulls/${env.PR_NUMBER}/comments")],
     ["method", (source) => source.replace('commentId ? "PATCH" : "POST"', 'commentId ? "POST" : "PATCH"')],
-    ["payload", (source) => source.replace('`body=${body.replace', '`title=${body.replace')],
+    ["payload", (source) => source.replace("`body=${body.replace", "`title=${body.replace")],
     ["enclosing arguments", (source) => source.replace('encoding: "utf8"', 'encoding: "ascii"')],
-    ["credential binding", (source) => source.replace('{ stdio:', '{ env: {}, stdio:')],
+    ["credential binding", (source) => source.replace("{ stdio:", "{ env: {}, stdio:")],
     ["import binding", (source) => source.replace('from "node:child_process"', 'from "./synthetic-executor.mjs"')],
   ])("rejects same-count extracted-owner %s drift", (_name, edit) => {
     const source = read(statusOwner);
@@ -820,17 +861,54 @@ describe("issue creation type contract", () => {
     expect(() => statusCreationProjection(stringify(workflow), read(statusOwner))).toThrow();
   });
 
-  it.each(["", "11\n22\n"])("executes the extracted GET and conditional write with prior comments %j", async (comments) => {
-    const calls = [];
-    const invoke = await executeFunction(statusOwner, "commentPrReleaseStatus", {
-      readFile: async (path, encoding) => { expect(path).toBe("artifacts/pr-release-status.md"); expect(encoding).toBe("utf8"); return "synthetic body\n"; },
-    }, "env, execute, source = 'artifacts/pr-release-status.md'");
-    await invoke({ GITHUB_REPOSITORY: "synthetic/repository", PR_NUMBER: "42" }, (...args) => { calls.push(args); return comments; });
-    expect(calls).toEqual([
-      ["gh", ["api", "repos/synthetic/repository/issues/42/comments", "--jq", '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- chase-sets-pr-release-status -->"))) | .id'], { encoding: "utf8" }],
-      ["gh", ["api", "--method", comments ? "PATCH" : "POST", comments ? "repos/synthetic/repository/issues/comments/22" : "repos/synthetic/repository/issues/42/comments", "-f", "body=synthetic body"], { stdio: ["ignore", "ignore", "inherit"] }],
-    ]);
-  });
+  it.each(["", "11\n22\n"])(
+    "executes the extracted GET and conditional write with prior comments %j",
+    async (comments) => {
+      const calls = [];
+      const invoke = await executeFunction(
+        statusOwner,
+        "commentPrReleaseStatus",
+        {
+          readFile: async (path, encoding) => {
+            expect(path).toBe("artifacts/pr-release-status.md");
+            expect(encoding).toBe("utf8");
+            return "synthetic body\n";
+          },
+        },
+        "env, execute, source = 'artifacts/pr-release-status.md'",
+      );
+      await invoke({ GITHUB_REPOSITORY: "synthetic/repository", PR_NUMBER: "42" }, (...args) => {
+        calls.push(args);
+        return comments;
+      });
+      expect(calls).toEqual([
+        [
+          "gh",
+          [
+            "api",
+            "repos/synthetic/repository/issues/42/comments",
+            "--jq",
+            '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- chase-sets-pr-release-status -->"))) | .id',
+          ],
+          { encoding: "utf8" },
+        ],
+        [
+          "gh",
+          [
+            "api",
+            "--method",
+            comments ? "PATCH" : "POST",
+            comments
+              ? "repos/synthetic/repository/issues/comments/22"
+              : "repos/synthetic/repository/issues/42/comments",
+            "-f",
+            "body=synthetic body",
+          ],
+          { stdio: ["ignore", "ignore", "inherit"] },
+        ],
+      ]);
+    },
+  );
 
   it.each(roots)("rejects retargeting an existing non-issue POST under %s without adding a POST", (root) => {
     const source = 'await client.request(`/repos/${repo}/issues/${number}/comments`, { method: "POST", body });';

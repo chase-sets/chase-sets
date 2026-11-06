@@ -4214,38 +4214,63 @@ describe("change-scope", () => {
       }
     });
 
-    it.each([caller, owner].flatMap((file) => ["modified", "added", "deleted", "renamed"].map((operation) => ({ file, operation }))))(
+    it.each(
+      [caller, owner].flatMap((file) =>
+        ["modified", "added", "deleted", "renamed"].map((operation) => ({ file, operation })),
+      ),
+    )(
       "$operation $file stays selected or refuses unavailable ownership through real Git paths",
-      ({ file, operation }) => withEnrollmentRepository(({ baseDir, git, write, commit, workspaces }) => {
-        if (operation !== "added" || file !== caller) write(caller, workflow);
-        if (operation !== "added" || file !== owner) write(owner, preparation);
-        const base = commit();
-        if (operation === "modified") write(file, `${file === caller ? workflow : preparation}\n# changed\n`);
-        if (operation === "added") {
-          if (file === caller) { write(caller, `${workflow}\n# added caller\n`); }
-          else write(owner, preparation);
-        }
-        if (operation === "deleted") git("rm", file);
-        if (operation === "renamed") git("mv", file, `${file}.moved`);
-        const head = commit();
-        const changedFiles = listChangedFiles(base, head, { cwd: baseDir });
-        expect(changedFiles).toContain(file);
-        if (file === owner && ["deleted", "renamed"].includes(operation)) {
-          expect(() => classifyChanges({ baseDir, workspaces, changedFiles })).toThrow(/DB|db-tests/);
-        } else {
-          const scope = classifyChanges({ baseDir, workspaces, changedFiles });
-          expect(scope.unitTestWorkspaces).toContain("@test/platform-api");
-          expect(scope.dbTestsRequired).toBe(true);
-        }
-      }),
+      ({ file, operation }) =>
+        withEnrollmentRepository(({ baseDir, git, write, commit, workspaces }) => {
+          if (operation !== "added" || file !== caller) write(caller, workflow);
+          if (operation !== "added" || file !== owner) write(owner, preparation);
+          const base = commit();
+          if (operation === "modified") write(file, `${file === caller ? workflow : preparation}\n# changed\n`);
+          if (operation === "added") {
+            if (file === caller) {
+              write(caller, `${workflow}\n# added caller\n`);
+            } else write(owner, preparation);
+          }
+          if (operation === "deleted") git("rm", file);
+          if (operation === "renamed") git("mv", file, `${file}.moved`);
+          const head = commit();
+          const changedFiles = listChangedFiles(base, head, { cwd: baseDir });
+          expect(changedFiles).toContain(file);
+          if (file === owner && ["deleted", "renamed"].includes(operation)) {
+            expect(() => classifyChanges({ baseDir, workspaces, changedFiles })).toThrow(/DB|db-tests/);
+          } else {
+            const scope = classifyChanges({ baseDir, workspaces, changedFiles });
+            expect(scope.unitTestWorkspaces).toContain("@test/platform-api");
+            expect(scope.dbTestsRequired).toBe(true);
+          }
+        }),
     );
 
-    it.each(["missing caller", "unreadable caller", "unbound caller", "missing owner", "unreadable owner", "duplicate owner", "malformed setting"])(
-      "refuses script-only selection with %s rather than silently omitting Unit or DB",
-      (kind) => withEnrollmentRepository(({ baseDir, write, workspaces }) => {
-        if (kind !== "missing caller" && kind !== "unreadable caller") write(caller, kind === "unbound caller" ? workflow.replace("db-tests.sh prepare", "db-tests.sh other") : workflow);
+    it.each([
+      "missing caller",
+      "unreadable caller",
+      "unbound caller",
+      "missing owner",
+      "unreadable owner",
+      "duplicate owner",
+      "malformed setting",
+    ])("refuses script-only selection with %s rather than silently omitting Unit or DB", (kind) =>
+      withEnrollmentRepository(({ baseDir, write, workspaces }) => {
+        if (kind !== "missing caller" && kind !== "unreadable caller")
+          write(
+            caller,
+            kind === "unbound caller" ? workflow.replace("db-tests.sh prepare", "db-tests.sh other") : workflow,
+          );
         if (kind === "unreadable caller") mkdirSync(path.join(baseDir, caller), { recursive: true });
-        if (kind !== "missing owner" && kind !== "unreadable owner") write(owner, kind === "malformed setting" ? preparation.replace("target_max_connections=300", "target_max_connections=bad") : kind === "duplicate owner" ? `${preparation}\n  prepare)\n    ;;\n` : preparation);
+        if (kind !== "missing owner" && kind !== "unreadable owner")
+          write(
+            owner,
+            kind === "malformed setting"
+              ? preparation.replace("target_max_connections=300", "target_max_connections=bad")
+              : kind === "duplicate owner"
+                ? `${preparation}\n  prepare)\n    ;;\n`
+                : preparation,
+          );
         if (kind === "unreadable owner") mkdirSync(path.join(baseDir, owner), { recursive: true });
         expect(() => classifyChanges({ baseDir, workspaces, changedFiles: [owner] })).toThrow(/db-tests/);
       }),

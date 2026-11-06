@@ -239,8 +239,11 @@ function requireRelocatedDbPreparation(baseDir) {
       .map((step) => step.run)
       .filter((run) => typeof run === "string");
     const calls = runs.filter((run) => /\bdb-tests\.sh\s+prepare\b/.test(run));
-    if (calls.length !== 1 || calls[0].trim() !== `bash ${owner} prepare` ||
-        runs.some((run) => /target_max_(?:connections|locks_per_transaction)\s*=/.test(run))) {
+    if (
+      calls.length !== 1 ||
+      calls[0].trim() !== `bash ${owner} prepare` ||
+      runs.some((run) => /target_max_(?:connections|locks_per_transaction)\s*=/.test(run))
+    ) {
       throw new Error("missing, ambiguous, mixed or unbound prepare caller");
     }
     const source = readFileSync(path.join(baseDir, owner), "utf8").replaceAll("\r\n", "\n");
