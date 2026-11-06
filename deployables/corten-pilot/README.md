@@ -286,11 +286,7 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 
 ### Corten
 
-Each issue below is open and cited in the pilot's code. Remove the workaround when the issue closes.
-
-| Issue | Cited in |
-|---|---|
-| [corten-run/corten#998 Kit FailedAlert: its always-rendered live region adds an empty row to a kit Dialog's grid before anything has failed](https://github.com/corten-run/corten/issues/998) | [admin/src/catalog/views/catalog_dialog.css](admin/src/catalog/views/catalog_dialog.css) |
+None open. The pilot has no Corten workaround in its code at this pin.
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 

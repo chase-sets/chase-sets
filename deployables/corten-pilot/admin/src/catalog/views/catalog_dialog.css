@@ -25,10 +25,9 @@
   margin: 0 0 var(--space-4);
   color: var(--color-text-secondary);
 }
-/* The kit's FailedAlert, a live region that stays rendered: spaced from the form only once
-   `corten_ui::dialog::failed` shows its alert, so the empty region takes no room. Remove when
-   corten-run/corten#998 keeps an empty region out of the dialog's grid. */
-.dialog > [role="alert"]:has(> :not([hidden])) {
+/* The kit's FailedAlert, spaced from the form. While its alert is hidden the kit takes the region
+   out of the flow, so the margin takes no room until `corten_ui::dialog::failed` shows it. */
+.dialog > [role="alert"] {
   margin-block-end: var(--space-4);
 }
 .form {

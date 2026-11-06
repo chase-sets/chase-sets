@@ -244,7 +244,8 @@ pub fn admin_web(path: &str) -> Option<Uri> {
 }
 
 /// The operator's zone, for `t.date_time(..).zone(&here)`: Corten writes times in UTC unless told,
-/// and takes the zone as its `Zone` (todd-skelton/corten#387 is to give one for the visitor).
+/// and takes the zone as its `Zone`. Admin dates are in the operator's zone, not the visitor's
+/// (corten-ui's `LocalTime`, todd-skelton/corten#387, is for that).
 #[derive(Clone, Debug)]
 pub struct Here(pub jiff::tz::TimeZone);
 
