@@ -869,6 +869,20 @@ test.describe("marketplace critical flows", () => {
     await expectAccountRouteReady(page, accountCriticalRoutes[0]);
 
     const colorTheme = await openAccountColorThemeControl(page);
+    const persistedPreferences = await page.request.get("/api/identity/preferences");
+    expect(persistedPreferences.status()).toBe(200);
+    const persisted = (await persistedPreferences.json()) as { colorMode: string };
+    await expect(colorTheme.locator(`input[data-theme-choice="${persisted.colorMode}"]`)).toBeChecked();
+    if (persisted.colorMode === "dark") {
+      const awayResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/identity/preferences" && response.request().method() === "PUT",
+      );
+      await colorTheme.locator("label").filter({ hasText: /^Light$/ }).click();
+      expect((await awayResponse).status()).toBe(200);
+      await expect(colorTheme.locator('input[data-theme-choice="light"]')).toBeChecked();
+      await waitForPreferences(page, { colorMode: "light" });
+    }
     const preferencesResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return url.pathname === "/api/identity/preferences" && response.request().method() === "PUT";

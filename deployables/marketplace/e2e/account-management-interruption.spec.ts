@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { readFile, readdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { encodeFreshWriteReceipt } from "@chase-sets/http/responses";
 import { seedBrowserConsent } from "@chase-sets/identity/seed-support/account-management-browser";
@@ -15,7 +16,7 @@ function syntheticActor(testInfo: TestInfo) {
   return syntheticAccountFor({
     file: testInfo.file,
     project: { name: testInfo.project.name },
-    titlePath: [...testInfo.titlePath, `retry:${testInfo.retry}`],
+    titlePath: testInfo.titlePath,
   });
 }
 
@@ -192,13 +193,14 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await expect(page.getByLabel(/^Display name$/i)).toHaveValue("Synthetic interruption user");
     await page.goto("/account/team");
     const invitation = page.locator('form:has(input[name="intent"][value="create-invitation"])');
-    await invitation.getByLabel("Email", { exact: true }).fill("synthetic-invite7168@example.test");
+    const invitationEmail = `synthetic-invite7168-${randomUUID()}@example.test`;
+    await invitation.getByLabel("Email", { exact: true }).fill(invitationEmail);
     await invitation.getByRole("button", { name: /^Invite$/i }).click();
     await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
     expect(writes).toEqual(["/account/security.data", "/account/team.data"]);
     await expect(page).toHaveURL(/\/account\/team\?afterWrite=/);
     await page.reload();
-    await expect(page.getByText("synthetic-invite7168@example.test", { exact: true })).toBeVisible();
+    await expect(page.getByText(invitationEmail, { exact: true })).toBeVisible();
   });
 
   for (const [outcome, status, message] of [
@@ -446,6 +448,12 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     page,
   }) => {
     await page.goto("/account/shipping-addresses");
+    const ownership = randomUUID();
+    const defaultLabel = `Synthetic default ${ownership}`;
+    const homeLabel = `Synthetic home ${ownership}`;
+    const updatedLabel = `Updated synthetic home ${ownership}`;
+    const addressCard = (label: string) =>
+      page.getByText(label, { exact: true }).locator('xpath=ancestor::*[.//button[normalize-space()="Update address"]][1]');
     const writes: string[] = [];
     let tokens = 0;
     page.on("request", async (request) => {
@@ -477,21 +485,21 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
         await create.locator(`input[name="${name}"]`).fill(value);
       await create.locator('input[name="label"]').fill(label);
     }
-    await fillCreate("Synthetic default");
+    await fillCreate(defaultLabel);
     await create.getByRole("button", { name: "Save address", exact: true }).click();
     await expect(page).toHaveURL(/\/account\/shipping-addresses\?afterWrite=/);
-    await expect(page.getByText("Synthetic default", { exact: true })).toBeVisible();
+    await expect(page.getByText(defaultLabel, { exact: true })).toBeVisible();
     expect(tokens).toBe(1);
-    await fillCreate("Synthetic home");
+    await fillCreate(homeLabel);
     await create.getByRole("button", { name: "Save address", exact: true }).click();
-    await expect(page.getByText("Synthetic home", { exact: true })).toBeVisible();
+    await expect(page.getByText(homeLabel, { exact: true })).toBeVisible();
     expect(tokens).toBe(2);
-    await page.getByRole("button", { name: "Update address", exact: true }).last().click();
+    await addressCard(homeLabel).getByRole("button", { name: "Update address", exact: true }).click();
     const update = page.locator('form:has(input[name="intent"][value="update"])');
-    await update.locator('input[name="label"]').fill("Updated synthetic home");
+    await update.locator('input[name="label"]').fill(updatedLabel);
     const target = await update.locator('input[name="shippingAddressId"]').inputValue();
     await update.getByRole("button", { name: "Update address", exact: true }).click();
-    await expect(page.getByText("Updated synthetic home", { exact: true })).toBeVisible();
+    await expect(page.getByText(updatedLabel, { exact: true })).toBeVisible();
     await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
     expect(tokens).toBe(3);
     await page
@@ -500,14 +508,14 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       )
       .getByRole("button", { name: "Set default", exact: true })
       .click();
-    await expect(page.getByText("Default", { exact: true }).last()).toBeVisible();
+    await expect(addressCard(updatedLabel).getByText("Default", { exact: true })).toBeVisible();
     await expect(
       page.locator(
         `form:has(input[name="intent"][value="default"]):has(input[name="shippingAddressId"][value="${target}"])`,
       ),
     ).toHaveCount(0);
     expect(tokens).toBe(4);
-    await page.getByRole("button", { name: "Archive", exact: true }).first().click();
+    await addressCard(updatedLabel).getByRole("button", { name: "Archive", exact: true }).click();
     await expect(
       page.locator('form:has(input[name="intent"][value="archive"]) input[name="shippingAddressId"]'),
     ).toHaveValue(target);
@@ -515,8 +523,8 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       .locator('form:has(input[name="intent"][value="archive"])')
       .getByRole("button", { name: "Archive", exact: true })
       .click();
-    await expect(page.getByText("Updated synthetic home", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("Synthetic default", { exact: true })).toBeVisible();
+    await expect(page.getByText(updatedLabel, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(defaultLabel, { exact: true })).toBeVisible();
     expect(tokens).toBe(5);
     expect(writes).toEqual(["create", "create", "update", "default", "archive"]);
   });

@@ -43,14 +43,48 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
     await page.screenshot({ path: testInfo.outputPath("channels-connect-list-390.png"), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.screenshot({ path: testInfo.outputPath("channels-connect-list-1440.png"), fullPage: true });
+    await page.waitForFunction(() => {
+      const router = (window as unknown as { __reactRouterDataRouter?: { state: { initialized: boolean } } })
+        .__reactRouterDataRouter;
+      return router?.state.initialized === true;
+    });
+    await page.evaluate(async () => {
+      const router = (window as unknown as { __reactRouterDataRouter: { revalidate: () => Promise<void> } })
+        .__reactRouterDataRouter;
+      await router.revalidate();
+    });
+    const submissionOrder = ["hydrated-revalidation"];
+    const invalidPosts: string[] = [];
+    const trackInvalidPost = (request: import("@playwright/test").Request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/account/channels.data") {
+        invalidPosts.push(request.postData() ?? "");
+        submissionOrder.push("post");
+      }
+    };
+    page.on("request", trackInvalidPost);
     const provider = page.getByRole("combobox", { name: "Sales Channel", exact: true });
     await provider.evaluate((element) => {
       if (!(element instanceof HTMLSelectElement)) throw new Error("Sales Channel control must be a select");
       element.add(new Option("Unregistered", "unregistered"));
     });
+    submissionOrder.push("option-injected");
     await provider.selectOption("unregistered");
+    const invalidResponse = page.waitForResponse(
+      (response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/account/channels.data",
+    );
     await page.getByRole("button", { name: "Connect a channel", exact: true }).click();
+    await invalidResponse;
     await expect(page.getByText("provider-setup-not-registered", { exact: true })).toBeVisible();
+    submissionOrder.push("refusal-visible");
+    page.off("request", trackInvalidPost);
+    expect(invalidPosts).toHaveLength(1);
+    expect(new URLSearchParams(invalidPosts[0]).get("providerKey")).toBe("unregistered");
+    expect(submissionOrder).toEqual(["hydrated-revalidation", "option-injected", "post", "refusal-visible"]);
+    await expect(page).toHaveURL(/\/account\/channels(?:\?|$)/);
+    await testInfo.attach("channel-invalid-provider-order", {
+      body: JSON.stringify({ submissionOrder, posts: invalidPosts.length }),
+      contentType: "application/json",
+    });
     await captureViewports(page, testInfo, "channels-connect-error");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole("combobox", { name: "Sales Channel", exact: true }).selectOption("tcgplayer");
@@ -119,11 +153,17 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
       .poll(
         async () => {
           await page.goto(firstPath);
-          return page.locator('[data-channels-outbound-operation-log="true"] tbody tr').count();
+          const rows = page.locator('[data-channels-outbound-operation-log="true"] tbody tr');
+          return Promise.all(
+            capture.data.selections.map(async ({ listingId }) => {
+              expect(listingId).toBeDefined();
+              return rows.filter({ has: page.getByRole("cell", { name: listingId!, exact: true }) }).count();
+            }),
+          );
         },
         { message: "the publication pipeline must queue both published seller listings", timeout: 60_000 },
       )
-      .toBe(2);
+      .toEqual([1, 1]);
     const panel = page.getByTestId("manual-sync-panel");
     await expect(panel).toBeVisible({ timeout: 45_000 });
     await panel.getByLabel("TCGplayer Staged export", { exact: true }).setInputFiles({

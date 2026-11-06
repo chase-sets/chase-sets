@@ -186,8 +186,17 @@ describe("marketplace account lifecycle probe pins", () => {
     expect(checkout.with).toMatchObject({ "fetch-depth": 0, "persist-credentials": false });
     const probe = job.steps.find((step) => step.id === "probe");
     expect(probe.run).toBe(
-      "node scripts/marketplace-account-lifecycle-probe.mjs --out-dir artifacts/marketplace-account-lifecycle-probe",
+      'PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" node scripts/marketplace-account-lifecycle-probe.mjs --out-dir artifacts/marketplace-account-lifecycle-probe',
     );
+    const install = job.steps.find((step) => step.name === "Install Playwright Chromium");
+    expect(install.run).toBe(
+      'PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" pnpm exec playwright install --with-deps chromium',
+    );
+    expect(install["timeout-minutes"]).toBe(7);
+    expect(Object.hasOwn(install.env ?? {}, "PLAYWRIGHT_BROWSERS_PATH")).toBe(false);
+    expect(Object.hasOwn(probe.env ?? {}, "PLAYWRIGHT_BROWSERS_PATH")).toBe(false);
+    const cache = job.steps.find((step) => step.name === "Cache Playwright Chromium");
+    expect(cache.with.path).toBe("~/.cache/ms-playwright");
     const upload = job.steps.at(-1);
     expect(upload.if).toBe("always()");
     expect(upload.with).toMatchObject({
