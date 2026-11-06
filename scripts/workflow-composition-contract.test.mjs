@@ -9,6 +9,7 @@ import { requiredJobs, verifyRequiredJobs } from "./pr-checks/required-jobs.mjs"
 const fixture = JSON.parse(readFileSync("scripts/fixtures/workflow-composition/platform-pr.json", "utf8"));
 const before = fixture.workflow;
 const after = parse(readFileSync(".github/workflows/platform-pr.yml", "utf8"));
+const integratedMain = parse(execFileSync("git", ["show", "abb4857e8a034f0fb083244aa9dec5518a0b6102:.github/workflows/platform-pr.yml"], { encoding: "utf8" }));
 const bash =
   process.platform === "win32"
     ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
@@ -158,6 +159,16 @@ describe("workflow composition contract inventory", () => {
     for (const [id, original] of Object.entries(before.jobs)) {
       const current = structuredClone(after.jobs[id]);
       expect(current, id).toBeDefined();
+      if (id === "e2e-tests") {
+        const additions = integratedMain.jobs[id].steps.filter((entry) => !original.steps.some((old) => old.name === entry.name));
+        expect(additions.map((entry) => entry.name)).toEqual(["Prepare journey package", "Upload journey package"]);
+        for (const addition of additions) {
+          const index = current.steps.findIndex((entry) => entry.name === addition.name);
+          expect(index).toBe(integratedMain.jobs[id].steps.findIndex((entry) => entry.name === addition.name));
+          expect(current.steps[index]).toEqual(addition);
+        }
+        current.steps = current.steps.filter((entry) => !additions.some((addition) => addition.name === entry.name));
+      }
       expect(current.steps).toHaveLength(original.steps.length);
       for (let index = 0; index < original.steps.length; index++) {
         const oldStep = original.steps[index];

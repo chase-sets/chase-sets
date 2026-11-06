@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { loadImageSources, mirrorReference } from "../ci-image-sources.mjs";
 import { repoRoot } from "../lib/repo.mjs";
+import { requiredJobCalls } from "../fixtures/workflow-composition/harness.mjs";
+import { requiredJobs, verifyRequiredJobs } from "../pr-checks/required-jobs.mjs";
 
 const workflowsRoot = path.join(repoRoot, ".github", "workflows");
 // #9230: the moved builder steps gained exactly this pinned mirror builder on
@@ -573,7 +575,8 @@ describe("exact-target terminal behavior and isolation", () => {
     );
     const toleratedSteps = receiverSteps.filter((step) => step["continue-on-error"] === true);
     const rollup = callers[0].workflow.jobs["pr-required"];
-    const rollupScript = rollup.steps.find((step) => step.name === "Verify required jobs")?.run;
+    const rollupStep = rollup.steps.find((step) => step.name === "Verify required jobs");
+    const rollupScript = rollupStep.run;
 
     expect(receiverJob["continue-on-error"]).toBeUndefined();
     expect(caller["continue-on-error"]).toBeUndefined();
@@ -581,9 +584,17 @@ describe("exact-target terminal behavior and isolation", () => {
     expect(toleratedSteps).toHaveLength(1);
     expect(toleratedSteps[0].id).toBe("buildx");
     expect(rollup.needs).toContain("compose-preview-smoke");
-    expect(rollupScript).toContain(
-      `require_job "Compose Boot Smoke" "\${{ needs['compose-preview-smoke'].result }}" "\${{ needs['change-scope'].outputs.compose_preview_smoke_required }}"`,
-    );
+    expect(requiredJobCalls(rollupStep)).toContainEqual(expect.objectContaining({
+      name: "Compose Boot Smoke",
+      resultArgument: "${{ needs['compose-preview-smoke'].result }}",
+      requiredArgument: "${{ needs['change-scope'].outputs.compose_preview_smoke_required }}",
+    }));
+    const needs = Object.fromEntries(requiredJobs.map(([id]) => [id, { result: "success" }]));
+    needs["change-scope"].outputs = Object.fromEntries(requiredJobs.filter(([, , key]) => key).map(([, , key]) => [key, "true"]));
+    needs["compose-preview-smoke"].result = "failure";
+    expect(() => verifyRequiredJobs(needs, "false", "[]")).toThrow("Compose Boot Smoke was required but finished with result 'failure'.");
+    needs["compose-preview-smoke"].result = "success";
+    expect(() => verifyRequiredJobs(needs, "false", "[]")).not.toThrow();
     expect(rollupScript).not.toContain("compose_result=");
     expect(rollupScript).not.toContain("compose_required");
   });

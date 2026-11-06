@@ -7,6 +7,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { classifyChanges } from "./change-scope.mjs";
+import { requiredJobCalls } from "./fixtures/workflow-composition/harness.mjs";
+import { requiredJobs, verifyRequiredJobs } from "./pr-checks/required-jobs.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 import {
   ADMIN_DEPLOYED_API_SMOKE_PROBES,
@@ -961,15 +963,20 @@ describe("public route smoke workflow composition", () => {
     expect(scope.composeSmokeRequired).toBe(false);
 
     const platformPr = parseWorkflow(".github/workflows/platform-pr.yml");
-    const requiredStep = runSteps(platformPr).find((step) =>
-      step.run.includes(
-        `require_job "Deploy Preview and Smoke" "\${{ needs['preview-deploy-smoke'].result }}" "\${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}"`,
-      ),
-    );
+    const requiredStep = platformPr.jobs["pr-required"].steps.find((step) => step.name === "Verify required jobs");
     expect(requiredStep).toBeDefined();
-    expect(requiredStep.run).toContain(
-      `require_job "Deploy Preview and Smoke" "\${{ needs['preview-deploy-smoke'].result }}" "\${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}"`,
-    );
+    expect(platformPr.jobs["pr-required"].needs).toContain("preview-deploy-smoke");
+    expect(requiredJobCalls(requiredStep)).toContainEqual(expect.objectContaining({
+      name: "Deploy Preview and Smoke",
+      resultArgument: "${{ needs['preview-deploy-smoke'].result }}",
+      requiredArgument: "${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}",
+    }));
+    const needs = Object.fromEntries(requiredJobs.map(([id]) => [id, { result: "success" }]));
+    needs["change-scope"].outputs = Object.fromEntries(requiredJobs.filter(([, , key]) => key).map(([, , key]) => [key, "true"]));
+    needs["preview-deploy-smoke"].result = "failure";
+    expect(() => verifyRequiredJobs(needs, "false", "[]")).toThrow("Deploy Preview and Smoke was required but finished with result 'failure'.");
+    needs["preview-deploy-smoke"].result = "success";
+    expect(() => verifyRequiredJobs(needs, "false", "[]")).not.toThrow();
     expect(requiredStep.run).not.toContain("preview_result=");
     expect(requiredStep.run).not.toContain("preview_required=");
   });

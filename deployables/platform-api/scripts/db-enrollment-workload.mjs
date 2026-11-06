@@ -18,6 +18,7 @@ import { parseArgs } from "node:util";
 
 import ts from "@chase-sets/typescript-compiler-api";
 import { parseCLI, resolveConfig } from "vitest/node";
+import { parse as parseYaml } from "yaml";
 
 import { deriveBootstrapDbCaseIdentities, derivePlatformApiDbTestCensus } from "./check-bootstrap-db-enrollment.mjs";
 
@@ -532,6 +533,47 @@ export function resolveApiDbWorkspaceConcurrency(workflow) {
   return resolveApiDbWorkspaceConcurrencyFromJob(job, workflowPath);
 }
 
+export function resolveHostedPostgresSettings(workflow, read) {
+  const gaps = [];
+  let preparation;
+  try {
+    const job = parseYaml(workflow)?.jobs?.["db-tests"];
+    const runs = (job?.steps ?? []).map((step) => step.run).filter((run) => typeof run === "string");
+    const calls = runs.filter((run) => /\bdb-tests\.sh\s+prepare\b/.test(run));
+    const inline = runs.filter((run) => /target_max_(?:connections|locks_per_transaction)\s*=/.test(run));
+    if (calls.length) {
+      if (calls.length !== 1 || calls[0].trim() !== "bash scripts/pr-checks/db-tests.sh prepare" || inline.length) {
+        throw new Error("ambiguous or mixed PostgreSQL preparation owner");
+      }
+      const source = read("scripts/pr-checks/db-tests.sh")?.toString("utf8").replaceAll("\r\n", "\n");
+      const arms = [...(source ?? "").matchAll(/^  prepare\)\n([\s\S]*?)^    ;;\s*$/gm)];
+      if (!source || arms.length !== 1 || !/^case "\$1" in$/m.test(source)) {
+        throw new Error("missing, unreadable or ambiguous scripts/pr-checks/db-tests.sh prepare owner");
+      }
+      preparation = arms[0][1];
+    } else {
+      if (inline.length !== 1 || runs.some((run) => /db-tests\.sh/.test(run))) {
+        throw new Error("missing or unbound PostgreSQL preparation owner");
+      }
+      preparation = inline[0];
+    }
+    const values = {};
+    for (const [name, variable] of Object.entries({
+      maxConnections: "target_max_connections",
+      maxLocksPerTransaction: "target_max_locks_per_transaction",
+    })) {
+      const assignments = [...preparation.matchAll(new RegExp(`^\\s*${variable}=(.*?)\\s*$`, "gm"))];
+      if (assignments.length !== 1 || !/^[1-9][0-9]*$/.test(assignments[0][1])) {
+        throw new Error(`PostgreSQL preparation must declare exactly one positive integer ${name}`);
+      }
+      values[name] = assignments[0][1];
+    }
+    return { values, gaps };
+  } catch (error) {
+    return { values: null, gaps: [`${workflowPath} db-tests job: ${error.message}`] };
+  }
+}
+
 function derivePostgresSettings(tree, gaps) {
   const workflow = tree.read(workflowPath)?.toString("utf8");
   const job = extractDbTestsJob(workflow);
@@ -541,8 +583,6 @@ function derivePostgresSettings(tree, gaps) {
   }
   const settings = {
     image: /^\s+image:\s*(\S+)\s*$/gm,
-    maxConnections: /target_max_connections=(\d+)/g,
-    maxLocksPerTransaction: /target_max_locks_per_transaction=(\d+)/g,
   };
   const bindings = Object.entries(settings).flatMap(([name, pattern]) => {
     const matches = [...job.matchAll(pattern)];
@@ -552,6 +592,9 @@ function derivePostgresSettings(tree, gaps) {
     }
     return [["W4 postgres", name, matches[0][1]]];
   });
+  const preparation = resolveHostedPostgresSettings(workflow, (path) => tree.read(path));
+  gaps.push(...preparation.gaps);
+  for (const [name, value] of Object.entries(preparation.values ?? {})) bindings.push(["W4 postgres", name, value]);
   const concurrency = resolveApiDbWorkspaceConcurrencyFromJob(job, workflowPath);
   gaps.push(...concurrency.gaps);
   if (concurrency.value !== null) bindings.push(["W4 postgres", "workspaceConcurrency", concurrency.value]);

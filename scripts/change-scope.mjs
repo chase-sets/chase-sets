@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from 
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 import { batchBrowserE2eSuiteIds, e2eSuites, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
@@ -228,6 +229,32 @@ function isPlatformApiEnrollmentMember(filePath, baseline) {
   return platformApiEnrollmentSelectors.w3.patterns.some(({ include, exclude }) => {
     return new RegExp(include).test(filePath) && (!exclude || !new RegExp(exclude).test(filePath));
   });
+}
+
+function requireRelocatedDbPreparation(baseDir) {
+  const owner = "scripts/pr-checks/db-tests.sh";
+  try {
+    const workflow = parseYaml(readFileSync(path.join(baseDir, ".github/workflows/platform-pr.yml"), "utf8"));
+    const runs = (workflow?.jobs?.["db-tests"]?.steps ?? [])
+      .map((step) => step.run)
+      .filter((run) => typeof run === "string");
+    const calls = runs.filter((run) => /\bdb-tests\.sh\s+prepare\b/.test(run));
+    if (calls.length !== 1 || calls[0].trim() !== `bash ${owner} prepare` ||
+        runs.some((run) => /target_max_(?:connections|locks_per_transaction)\s*=/.test(run))) {
+      throw new Error("missing, ambiguous, mixed or unbound prepare caller");
+    }
+    const source = readFileSync(path.join(baseDir, owner), "utf8").replaceAll("\r\n", "\n");
+    const arms = [...source.matchAll(/^  prepare\)\n([\s\S]*?)^    ;;\s*$/gm)];
+    if (arms.length !== 1 || !/^case "\$1" in$/m.test(source)) throw new Error("unbound prepare operation");
+    for (const variable of ["target_max_connections", "target_max_locks_per_transaction"]) {
+      const assignments = [...arms[0][1].matchAll(new RegExp(`^\\s*${variable}=(.*?)\\s*$`, "gm"))];
+      if (assignments.length !== 1 || !/^[1-9][0-9]*$/.test(assignments[0][1])) {
+        throw new Error(`missing, duplicate or malformed ${variable}`);
+      }
+    }
+  } catch (error) {
+    throw new StaticScopeDerivationError("DB_PREPARATION_OWNER_UNAVAILABLE", `${owner}: ${error.message}`);
+  }
 }
 
 export class StaticScopeDerivationError extends Error {
@@ -611,11 +638,14 @@ export function classifyChanges({
   )?.name;
   const platformApiEnrollmentBaselineData = platformApiEnrollmentBaseline(baseDir);
   let platformApiEnrollmentChanged = false;
+  const relocatedDbPreparationChanged = normalizedFiles.includes("scripts/pr-checks/db-tests.sh");
+  if (relocatedDbPreparationChanged) requireRelocatedDbPreparation(baseDir);
 
   for (const filePath of normalizedFiles) {
     if (
       !platformApiEnrollmentBaselineData.available ||
-      isPlatformApiEnrollmentMember(filePath, platformApiEnrollmentBaselineData)
+      isPlatformApiEnrollmentMember(filePath, platformApiEnrollmentBaselineData) ||
+      relocatedDbPreparationChanged
     ) {
       platformApiEnrollmentChanged = true;
     }
@@ -790,6 +820,7 @@ export function classifyChanges({
     [...affectedWorkspaceSet].some((workspaceName) => dbTestScripts(workspaceByName.get(workspaceName)).length > 0);
   const dbTestsRequired =
     normalizedFiles.includes(".github/workflows/platform-pr.yml") ||
+    relocatedDbPreparationChanged ||
     [...runtimeAffectedWorkspaceSet, ...devDependencyTestAffectedWorkspaceSet].some((workspaceName) => {
       const workspace = workspaces.find((entry) => entry.name === workspaceName);
       return dbTestScripts(workspace).length > 0;

@@ -36,6 +36,7 @@ import {
   deriveBootstrapDbWorkload,
   formatBootstrapDbWorkloadBaseline,
   resolveApiDbWorkspaceConcurrency,
+  resolveHostedPostgresSettings,
   type BootstrapDbWorkloadBaseline,
   type BootstrapDbWorkloadBinding,
   type BootstrapDbWorkloadCaptureBinding,
@@ -3806,6 +3807,41 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   describe("workload changes require re-enrollment", () => {
+    const preparationOwner = "scripts/pr-checks/db-tests.sh";
+    const workflowSource = () => readFileSync(join(repositoryRoot, ".github/workflows/platform-pr.yml"), "utf8");
+    const ownerSource = () => readFileSync(join(repositoryRoot, preparationOwner), "utf8");
+
+    it("resolves the same PostgreSQL values from inline history and the bound extracted prepare owner", () => {
+      const fixture = JSON.parse(readFileSync(join(repositoryRoot, "scripts/fixtures/workflow-composition/platform-pr.json"), "utf8"));
+      const historical = execFileSync("git", ["show", `${fixture.sourceHead}:.github/workflows/platform-pr.yml`], { cwd: repositoryRoot, encoding: "utf8" });
+      const extracted = resolveHostedPostgresSettings(workflowSource(), (path: string) => {
+        expect(path).toBe(preparationOwner);
+        return ownerSource();
+      });
+      expect(extracted.gaps).toEqual([]);
+      expect(extracted).toEqual(resolveHostedPostgresSettings(historical, () => { throw new Error("historical inline source must not read an extracted owner"); }));
+    });
+
+    it.each(["missing", "unreadable", "duplicate", "malformed", "unbound", "mixed", "ambiguous"])(
+      "refuses %s PostgreSQL preparation ownership without fallback",
+      (kind) => {
+        let workflow = workflowSource();
+        let source: string | null = ownerSource();
+        if (kind === "missing") source = null;
+        if (kind === "duplicate") source += "\n  prepare)\n    target_max_connections=300\n    ;;\n";
+        if (kind === "malformed") source = source!.replace("target_max_connections=300", "target_max_connections=unknown");
+        if (kind === "unbound") workflow = workflow.replace("db-tests.sh prepare", "db-tests.sh other");
+        if (kind === "mixed") workflow = workflow.replace("run: bash scripts/pr-checks/db-tests.sh prepare", "run: |\n          bash scripts/pr-checks/db-tests.sh prepare\n          target_max_connections=300");
+        if (kind === "ambiguous") source = source!.replace("target_max_connections=300", "target_max_connections=300\n    target_max_connections=200");
+        const result = resolveHostedPostgresSettings(workflow, () => {
+          if (kind === "unreadable") throw new Error("synthetic unreadable owner");
+          return source;
+        });
+        expect(result.values).toBeNull();
+        expect(result.gaps).toHaveLength(1);
+      },
+    );
+
     const fixturesPath = "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex";
     const seedingPath = "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts";
     const settlementSupportPath = "bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts";
@@ -3967,7 +4003,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       {
         label: "a hosted PostgreSQL setting",
         edits: {
-          ".github/workflows/platform-pr.yml": replaceOnce(
+          "scripts/pr-checks/db-tests.sh": replaceOnce(
             "target_max_connections=300\n",
             "target_max_connections=200\n",
           ),
