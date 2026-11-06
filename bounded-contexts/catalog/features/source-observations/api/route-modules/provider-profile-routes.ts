@@ -19,6 +19,7 @@ import {
   rollbackCatalogProviderProfileVersionForReview,
   updateCatalogProviderProfileSectionForReview,
   CatalogProviderProfileLifecycleConsistencyError,
+  CatalogProviderProfileVersionImmutableError,
   CatalogProviderProfileVersionNotFoundError,
   type CatalogProviderProfileLifecycleBlockingJob,
 } from "../providers/provider-profile-review";
@@ -79,13 +80,20 @@ export function providerProfileRoutes(
     if (body instanceof Response) {
       return body;
     }
-    const result = await createCatalogProviderProfileVersionForReview({
-      store: profileVersions,
-      version: body.version as CatalogProviderIntegrationProfileVersionRecord,
-      audit: authoringAuditFromContext(c.get("context")),
-    });
+    try {
+      const result = await createCatalogProviderProfileVersionForReview({
+        store: profileVersions,
+        version: body.version as CatalogProviderIntegrationProfileVersionRecord,
+        audit: authoringAuditFromContext(c.get("context")),
+      });
 
-    return c.json(result, 201);
+      return c.json(result, 201);
+    } catch (error) {
+      if (error instanceof CatalogProviderProfileVersionImmutableError) {
+        return immutableProfileVersionResponse(c, error);
+      }
+      throw error;
+    }
   });
 
   app.get("/provider-profiles/:providerKey/:profileVersion/authoring", async (c) => {
@@ -149,6 +157,12 @@ export function providerProfileRoutes(
     } catch (error) {
       if (error instanceof CatalogProviderProfileLifecycleConsistencyError) {
         return lifecycleConsistencyErrorResponse(c, error);
+      }
+      if (error instanceof CatalogProviderProfileVersionImmutableError) {
+        return immutableProfileVersionResponse(c, error);
+      }
+      if (error instanceof CatalogProviderProfileVersionNotFoundError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 404);
       }
       if (!(error instanceof CatalogProviderProfileSectionValidationError)) {
         throw error;
@@ -502,6 +516,13 @@ function bulkReviewJobToLifecycleBlockingJob(
     providerKey: job.scope.provider ?? null,
     profileVersion: null,
   };
+}
+
+function immutableProfileVersionResponse(
+  c: Context<CatalogAuthoringEnv>,
+  error: CatalogProviderProfileVersionImmutableError,
+): Response {
+  return c.json({ error: { code: error.code, message: error.message, lifecycle: error.lifecycle } }, 409);
 }
 
 function lifecycleConsistencyErrorResponse(c: Context<CatalogAuthoringEnv>, error: unknown): Response {
