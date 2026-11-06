@@ -517,6 +517,7 @@ pub fn dimension_list<'a>(
         </Filters>
         <corten-live src={&live}>{dimension_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.dimension_list_create_dimension()}
             description={None}
@@ -594,6 +595,7 @@ pub fn field_list<'a>(
         </Filters>
         <corten-live src={&live}>{field_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.field_list_create_field()}
             description={None}
@@ -795,6 +797,7 @@ pub fn dimension_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.dimension_edit_dimension()}
                 description={None}
@@ -804,6 +807,7 @@ pub fn dimension_page<'a>(
                 <DimensionForm t={t} id={ids::EDIT} action={&edit_action} create={false} form={&edit} />
             </CatalogDialog>
             <CatalogDialog
+                p={p}
                 id={ids::ADD_OPTION_DIALOG}
                 title={t.dimension_add_option_2()}
                 description={None}
@@ -813,6 +817,7 @@ pub fn dimension_page<'a>(
                 <OptionForm t={t} id={ids::ADD_OPTION} action={&add_action} add form={&add} />
             </CatalogDialog>
             <CatalogDialog
+                p={p}
                 id={ids::REORDER_DIALOG}
                 title={t.dimension_reorder_options()}
                 description={Some(t.dimension_enter_option_ids_separated_by_commas())}
@@ -868,6 +873,7 @@ pub fn field_page<'a>(t: Cat, p: Pilot, field: &'a Field, notice: Option<String>
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.field_configure_field()}
                 description={None}

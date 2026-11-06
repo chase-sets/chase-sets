@@ -89,6 +89,7 @@ pub fn category_list<'a>(
         </Filters>
         <corten-live src={&live}>{category_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.category_list_create_category()}
             description={None}
@@ -206,6 +207,7 @@ pub fn category_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.category_edit_category()}
                 description={None}

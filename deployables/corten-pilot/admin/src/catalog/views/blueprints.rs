@@ -128,6 +128,7 @@ pub fn blueprint_list<'a>(
         </Filters>
         <corten-live src={&live}>{blueprint_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.blueprint_list_create_blueprint()}
             description={None}
@@ -287,6 +288,7 @@ pub fn blueprint_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.blueprint_edit_blueprint()}
                 description={None}
@@ -298,6 +300,7 @@ pub fn blueprint_page<'a>(
         }
         if draft {
             <CatalogDialog
+                p={p}
                 id={ids::ATTACH_DIALOG}
                 title={t.blueprint_attach_component_2()}
                 description={None}
@@ -356,6 +359,7 @@ pub fn FieldRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draf
     let action = url::FieldRules::of(id).href();
     html! {
         <CatalogDialog
+            p={p}
             id={ids::SET_FIELDS_DIALOG}
             title={t.blueprint_set_field_rules_2()}
             description={Some(t.blueprint_configure_which_fields_apply_to_this())}
@@ -377,6 +381,7 @@ pub fn DimensionRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a 
     let action = url::DimensionRules::of(id).href();
     html! {
         <CatalogDialog
+            p={p}
             id={ids::SET_DIMENSIONS_DIALOG}
             title={t.blueprint_set_dimension_rules_2()}
             description={Some(t.blueprint_configure_which_dimensions_apply_to_this())}
@@ -398,6 +403,7 @@ pub fn OrderDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draft<Ord
     let action = url::ProductResolutionRules::of(id).href();
     html! {
         <CatalogDialog
+            p={p}
             id={ids::SET_ORDER_DIALOG}
             title={t.blueprint_set_product_resolution_rules_2()}
             description={Some(t.blueprint_enter_dimension_ids_separated_by_commas())}

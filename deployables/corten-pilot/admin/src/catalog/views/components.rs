@@ -80,6 +80,7 @@ pub fn component_list<'a>(
         </Filters>
         <corten-live src={&live}>{component_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.component_list_create_component()}
             description={None}
@@ -231,6 +232,7 @@ pub fn component_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.component_edit_component()}
                 description={None}
@@ -240,6 +242,7 @@ pub fn component_page<'a>(
                 <ComponentForm t={t} id={ids::EDIT} action={&edit_action} create={false} form={&edit} />
             </CatalogDialog>
             <CatalogDialog
+                p={p}
                 id={ids::ADD_FIELD_RULE_DIALOG}
                 title={t.component_add_field_rule_2()}
                 description={None}
@@ -249,6 +252,7 @@ pub fn component_page<'a>(
                 <FieldRuleForm t={t} id={ids::ADD_FIELD_RULE} action={&field_action} form={&field_rule} />
             </CatalogDialog>
             <CatalogDialog
+                p={p}
                 id={ids::ADD_DIMENSION_RULE_DIALOG}
                 title={t.component_add_dimension_rule_2()}
                 description={None}

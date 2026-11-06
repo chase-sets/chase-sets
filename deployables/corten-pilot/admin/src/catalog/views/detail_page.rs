@@ -233,6 +233,7 @@ pub fn OptionRow<'a>(
                     if dimension.dimension.status != "archived" {
                         <Trigger dialog={&dialog} label={t.dimension_edit_2()} secondary />
                         <CatalogDialog
+                            p={p}
                             id={&dialog}
                             title={&title}
                             description={None}

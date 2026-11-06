@@ -157,9 +157,10 @@ async fn review(
         let caller = config.platform.caller(&headers, config.proto, None);
         let queue = scopes::read_queue(&caller, &query).await;
         let found = queue.as_ref().ok().and_then(|q| q.items.iter().find(|i| i.item_key == key));
-        let t: Cat = req.t();
+        let (t, p): (Cat, Pilot) = (req.t(), req.t());
         return req.patch(views::AttentionSheet {
             t,
+            p,
             query: &query,
             item: found,
             parked: None,

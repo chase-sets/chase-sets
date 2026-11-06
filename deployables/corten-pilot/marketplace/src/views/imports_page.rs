@@ -446,7 +446,8 @@ fn when(t: ImportsMsg, at: &str) -> String {
 /// page and modal once it joins the page; Close and Escape go back to the batch. One form whose
 /// action is the batch page with the drawer open on the row: the picker's steps (its buttons are
 /// `formmethod="get"`) read it again, as a page without a script and in place with one, and Apply
-/// alone posts, to the resolve route (its `formaction`).
+/// alone posts, to the resolve route (its `formaction`). A submit that gets no answer is said in
+/// the drawer (`corten_ui::dialog::failed`), where the page's toaster is covered.
 #[component(css = ImportsPage)]
 fn FixDialog<'a>(
     t: ImportsMsg,
@@ -461,7 +462,7 @@ fn FixDialog<'a>(
     let row = &fixing.row;
     let close = resolve_href(batch, screen.offset, None);
     let here = resolve_href(batch, screen.offset, Some(&row.row_id));
-    let back = refs();
+    let (back, said) = refs();
     let ready = fixing.ready().is_some();
     html! {
         <dialog
@@ -471,6 +472,7 @@ fn FixDialog<'a>(
             aria-describedby="import-fix-progress"
             open
             on:connect={corten_ui::dialog::modalClosedBy(target, back, signal)}
+            on:corten:error={corten_ui::dialog::failed(event, target, said)}
         >
             <div class={DialogHead}>
                 <h2 id="import-fix-title" class={PartTitle}>{t.page_resolve_import_row(row.row_number)}</h2>
@@ -489,6 +491,9 @@ fn FixDialog<'a>(
             if let Some(error) = &fixing.error {
                 <p class={ErrorText} role="alert">{error}</p>
             }
+            <div role="alert">
+                <p class={ErrorText} ref={said} hidden>{p.shell_not_sent()}</p>
+            </div>
             <form
                 id={FixFormId}
                 class={Fix}

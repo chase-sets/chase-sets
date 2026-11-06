@@ -42,6 +42,7 @@ pub fn PreviewDialog<'a>(t: Cat, p: Pilot, shown: Previewed<'a>) -> impl Patch {
             _ => &[],
         };
         <CatalogDialog
+            p={p}
             id={ids::PREVIEW_DIALOG}
             title={&title}
             description={description.as_deref()}
@@ -75,7 +76,7 @@ pub fn PreviewDialog<'a>(t: Cat, p: Pilot, shown: Previewed<'a>) -> impl Patch {
 pub fn JobDialog<'a>(t: Cat, p: Pilot, job: Option<&'a Job<Value>>, label: &'a str, live: Option<&'a str>) -> impl Render {
     html! {
         let title = t.bulk_result_title(label).to_string();
-        <CatalogDialog id={ids::JOB_DIALOG} title={&title} description={None} open close={p.catalog_close()}>
+        <CatalogDialog p={p} id={ids::JOB_DIALOG} title={&title} description={None} open close={p.catalog_close()}>
             if let Some(src) = live {
                 <corten-live src={src}>{job_status(t, p, job)}</corten-live>
             } else {

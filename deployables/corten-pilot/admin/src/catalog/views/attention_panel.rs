@@ -18,7 +18,7 @@ use crate::{
         attention::{Params, ParkInput, Parked, RestoreInput, shown, url as at},
         scopes::url::{AttentionDone, ScopeQuery, Scopes},
     },
-    text::Cat,
+    text::{Cat, Pilot},
     views::{Draft, admin_web},
 };
 
@@ -353,6 +353,7 @@ fn CommandButton<'a>(t: Cat, query: &'a ScopeQuery, resolution: &'a Resolution, 
 #[component(css = AttentionPanel)]
 pub fn AttentionSheet<'a>(
     t: Cat,
+    p: Pilot,
     query: &'a ScopeQuery,
     item: Option<&'a AttentionItem>,
     parked: Option<&'a Parked>,
@@ -379,6 +380,7 @@ pub fn AttentionSheet<'a>(
                     _ => blank(),
                 };
                 <CatalogDialog
+                    p={p}
                     id={ids::ATTENTION_DIALOG}
                     title={&title}
                     description={Some(t.attention_drawer_description())}

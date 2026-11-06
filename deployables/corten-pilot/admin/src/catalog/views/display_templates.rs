@@ -74,6 +74,7 @@ pub fn template_list<'a>(
         </Filters>
         <corten-live src={&live}>{template_rows(t, p, query, screen)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.template_list_create_display_template()}
             description={None}
@@ -185,6 +186,7 @@ pub fn template_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.template_edit_display_template()}
                 description={None}

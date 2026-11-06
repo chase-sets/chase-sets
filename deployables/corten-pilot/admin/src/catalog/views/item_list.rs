@@ -194,6 +194,7 @@ pub fn item_list<'a>(
         {item_rows(t, p, query, screen, manage)}
         if manage {
             <CatalogDialog
+                p={p}
                 id={ids::CREATE_DIALOG}
                 title={t.item_list_create_catalog_item()}
                 description={None}
@@ -509,6 +510,7 @@ pub fn ItemPreviewDialog<'a>(
     html! {
         let (title, description) = (title, description);
         <CatalogDialog
+            p={p}
             id={ids::PREVIEW_DIALOG}
             title={&title}
             description={description.as_deref()}
@@ -632,6 +634,7 @@ pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors,
     html! {
         let description = t.item_list_remove_draft_catalog_items_description(ids.len()).to_string();
         <CatalogDialog
+            p={p}
             id={ids::PREVIEW_DIALOG}
             title={t.item_list_remove_draft_catalog_items()}
             description={ready.then_some(description.as_str())}

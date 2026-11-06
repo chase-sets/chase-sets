@@ -69,6 +69,7 @@ pub fn RefRecordCreateDialog<'a>(t: Cat, p: Pilot, action: &'a str, draft: &'a R
     let RecordDraft { form, choices } = draft;
     html! {
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.ref_record_list_create_reference_record()}
             description={None}
@@ -96,6 +97,7 @@ pub fn RefRecordEditDialog<'a>(t: Cat, p: Pilot, id: &'a str, draft: &'a RecordD
     let action = url::RefRecordEdit::of(id).href();
     html! {
         <CatalogDialog
+            p={p}
             id={ids::EDIT_DIALOG}
             title={t.ref_record_edit_reference_record()}
             description={None}

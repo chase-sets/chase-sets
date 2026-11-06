@@ -487,6 +487,7 @@ fn ProposeDialog<'a>(t: Cat, p: Pilot, action: &'a str, back: Option<&'a (Propos
     let chosen = if input.confidence.is_empty() { "manual" } else { input.confidence.as_str() };
     html! {
         <CatalogDialog
+            p={p}
             id={ScopeProposeDialogId}
             title={t.coverage_propose_mapping()}
             description={None}

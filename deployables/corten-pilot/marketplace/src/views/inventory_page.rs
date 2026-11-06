@@ -493,7 +493,8 @@ pub fn SaleOutcome<'a>(t: InventoryMsg, outcome: &'a Outcome, verified: Option<V
     }
 }
 
-/// Record sale's dialog for `item`, drawn open; Close goes back to the list.
+/// Record sale's dialog for `item`, drawn open; Close goes back to the list. A sale that gets no
+/// answer is said in the dialog (`corten_ui::dialog::failed`), where the page's toaster is covered.
 #[component(css = InventoryPage)]
 fn SaleDialog<'a>(
     t: InventoryMsg,
@@ -503,7 +504,7 @@ fn SaleDialog<'a>(
     draft: &'a SaleDraft,
 ) -> impl Render {
     let close = screen.place.at(screen.place.bounds().1);
-    let back = refs();
+    let (back, said) = refs();
     html! {
         <dialog
             id={SaleDialogId}
@@ -512,12 +513,16 @@ fn SaleDialog<'a>(
             aria-describedby="sale-description"
             open
             on:connect={corten_ui::dialog::modalClosedBy(target, back, signal)}
+            on:corten:error={corten_ui::dialog::failed(event, target, said)}
         >
             <div class={DialogHead}>
                 <h2 id="sale-title" class={PartTitle}>{t.sale_title()}</h2>
                 <a ref={back} class={(Button, Ghost, Small)} href={close}>{t.sale_close()}</a>
             </div>
             <p id="sale-description" class={Muted}>{t.sale_sheet_description(label(item))}</p>
+            <div role="alert">
+                <p class={Error} ref={said} hidden>{p.shell_not_sent()}</p>
+            </div>
             <SaleForm
                 t={t}
                 p={p}

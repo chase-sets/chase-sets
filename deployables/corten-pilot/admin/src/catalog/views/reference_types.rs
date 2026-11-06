@@ -78,6 +78,7 @@ pub fn ref_type_list<'a>(
         </Filters>
         <corten-live src={&live}>{ref_type_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.ref_type_list_create_reference_type()}
             description={None}
@@ -188,6 +189,7 @@ pub fn ref_type_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.ref_type_edit_reference_type()}
                 description={None}

@@ -10849,6 +10849,11 @@ async fn record_sale_is_a_dialog_on_the_list_and_honoring_is_the_owners() {
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("<dialog") && text(&html).contains("Record a sale for Charizard without leaving Inventory."), "{html}");
     assert!(html.contains(r#"action="/account/inventory/items/inv_1/offline-sales?sale=inv_1""#), "{html}");
+    assert!(
+        html.contains("ui.dialog.failed(")
+            && html.contains(r#"hidden>That did not go through, and may not have been saved. Check and try again.</p>"#),
+        "a sale that gets no answer is said in the dialog, hidden until then: {html}"
+    );
     assert!(!text(&html).contains("Order commitments"), "a seller cannot honor a sale");
     assert!(html.contains(r#"name="collisionMode" value="protect-orders""#));
     let (_, _, html) = pilot.send(get("/account/inventory?sale=inv_1", Some("keeper"))).await;
@@ -16725,6 +16730,11 @@ async fn the_resolution_drawer_finds_an_item_sends_the_fix_and_moves_to_the_next
     );
     let shown = text(&html);
     assert!(shown.contains("Resolve import row 2 Close Row 1 of 1 to resolve No catalog product matches this row."), "{shown}");
+    assert!(
+        html.contains("ui.dialog.failed(")
+            && html.contains(r#"hidden>That did not go through, and may not have been saved. Check and try again.</p>"#),
+        "an Apply that gets no answer is said in the drawer, hidden until then: {html}"
+    );
     assert!(
         html.contains(r#"method="post" action="/account/inventory/imports/imb_1?resolveRowId=row_2" data-patch"#),
         "the picker's GETs read the batch: {html}"

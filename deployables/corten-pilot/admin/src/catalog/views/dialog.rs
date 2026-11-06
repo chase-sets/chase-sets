@@ -20,10 +20,14 @@ use crate::{
 /// drawn `open` when its form came back (refused without JavaScript, or a label row added or
 /// removed), or when it is an answer (a bulk preview, a bulk job), so it is in front of the user
 /// either way; `corten_ui::dialog::modal` makes a dialog drawn open modal when it joins the page.
+/// A `data-patch` submit in it that gets no answer is said in the dialog (`corten_ui::dialog::failed`,
+/// the page's toaster text in a `role="alert"` region), as the toaster behind a modal dialog is
+/// covered and inert.
 /// Not `Dialog`: the kit's `platform::ui::dialog::Dialog` would share its style symbol
 /// (todd-skelton/corten#570).
 #[component(css)]
 pub fn CatalogDialog<'a, I: Id + AttrValue + Copy, C: Render>(
+    p: Pilot,
     id: I,
     title: &'a str,
     description: Option<&'a str>,
@@ -32,8 +36,16 @@ pub fn CatalogDialog<'a, I: Id + AttrValue + Copy, C: Render>(
     children: C,
 ) -> impl Patch {
     let heading = super::id_with(&id, "-title");
+    let said = refs();
     html! {
-        <dialog class={Dialog} id={id} aria-labelledby={&heading} open={open} on:connect={corten_ui::dialog::modal(target)}>
+        <dialog
+            class={Dialog}
+            id={id}
+            aria-labelledby={&heading}
+            open={open}
+            on:connect={corten_ui::dialog::modal(target)}
+            on:corten:error={corten_ui::dialog::failed(event, target, said)}
+        >
             <header class={Head}>
                 <h2 class={Title} id={&heading}>{title}</h2>
                 <button type="button" class={(Small, Secondary)} command="close" commandfor={id}>{close}</button>
@@ -41,6 +53,9 @@ pub fn CatalogDialog<'a, I: Id + AttrValue + Copy, C: Render>(
             if let Some(description) = description {
                 <p class={Description}>{description}</p>
             }
+            <div role="alert">
+                <p class={Failed} ref={said} hidden>{p.catalog_not_sent()}</p>
+            </div>
             {children}
         </dialog>
     }

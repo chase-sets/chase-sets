@@ -380,7 +380,7 @@ pub fn item_page<'a>(
                 />
             </PartList>
         </DetailPage>
-        <ReferenceDialogs t={t} rows={&rows} />
+        <ReferenceDialogs t={t} p={p} rows={&rows} />
         if editable {
             {dialogs(t, p, item, back)}
         }
@@ -421,6 +421,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
     html! {
         if item.status == "draft" {
             <CatalogDialog
+                p={p}
                 id={ids::PUBLISH_DIALOG}
                 title={t.item_publish_catalog_item()}
                 description={Some(t.item_confirm_that_the_blueprint_is_active())}
@@ -432,6 +433,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
         }
         if item.status == "draft" && item.blueprint.is_none() {
             <CatalogDialog
+                p={p}
                 id={ids::BLUEPRINT_DIALOG}
                 title={t.item_assign_blueprint_2()}
                 description={None}
@@ -453,6 +455,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             <dialog id={ids::FIELD_DIALOG}></dialog>
         }
         <CatalogDialog
+            p={p}
             id={ids::CATEGORY_DIALOG}
             title={t.item_assign_category_2()}
             description={None}
@@ -468,6 +471,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::METADATA_DIALOG}
             title={t.item_edit_description_2()}
             description={None}
@@ -477,6 +481,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             <MetadataForm t={t} id={id} form={&metadata.0} />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::TAGS_DIALOG}
             title={t.item_set_tags_2()}
             description={Some(t.item_enter_tags_separated_by_commas())}
@@ -493,6 +498,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::URLS_DIALOG}
             title={t.item_set_image_urls_2()}
             description={Some(t.item_enter_one_url_per_line())}
@@ -509,6 +515,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::FALLBACK_DIALOG}
             title={t.item_set_image_fallback_2()}
             description={Some(t.item_image_fallback_description())}
@@ -518,6 +525,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             <FallbackForm t={t} id={id} form={&fallback.0} />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::CATALOG_REF_DIALOG}
             title={t.item_link_external_catalog_item_reference_2()}
             description={Some(t.item_external_catalog_item_reference_description())}
@@ -527,6 +535,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             <ReferenceForm t={t} id={id} form_id={ids::CATALOG_REF} product={false} form={&catalog_ref.0} />
         </CatalogDialog>
         <CatalogDialog
+            p={p}
             id={ids::PRODUCT_REF_DIALOG}
             title={t.item_link_external_reference_2()}
             description={Some(t.item_external_reference_description())}
@@ -672,7 +681,7 @@ fn FieldValues<'a>(
 
 /// A dialog for each reference record the field values name (each once).
 #[component(css = ItemPage)]
-fn ReferenceDialogs<'a>(t: Cat, rows: &'a [DetailRow<'a>]) -> impl Render {
+fn ReferenceDialogs<'a>(t: Cat, p: Pilot, rows: &'a [DetailRow<'a>]) -> impl Render {
     let mut seen = HashSet::new();
     let references: Vec<&Reference> =
         rows.iter().filter_map(|r| r.reference).filter(|r| seen.insert(r.reference_id.as_str())).collect();
@@ -696,6 +705,7 @@ fn ReferenceDialogs<'a>(t: Cat, rows: &'a [DetailRow<'a>]) -> impl Render {
                 .map(|r| (relationship_label(&r.relationship_type), r.reference.as_ref().map_or_else(|| r.reference_id.clone(), |x| x.name.clone())))
                 .collect();
             <CatalogDialog
+                p={p}
                 id={ids::ItemId(&dialog)}
                 title={&reference.name}
                 description={Some(&kind)}
@@ -1170,6 +1180,7 @@ pub fn IdForm<'a, I: Id + AttrValue + Copy>(
 pub fn FieldDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: &'a Draft<FieldValueInput>, choices: &'a FieldChoices) -> impl Patch {
     html! {
         <CatalogDialog
+            p={p}
             id={ids::FIELD_DIALOG}
             title={t.item_set_field_value_2()}
             description={None}
@@ -1372,6 +1383,7 @@ pub fn ContentDialog<'a>(
 ) -> impl Patch {
     html! {
         <CatalogDialog
+            p={p}
             id={ids::CONTENT_DIALOG}
             title={t.item_add_content_line()}
             description={None}

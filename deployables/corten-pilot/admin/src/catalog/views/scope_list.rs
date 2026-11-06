@@ -83,7 +83,7 @@ pub fn scope_list<'a>(
             <ListError t={t} message={error.as_str()} />
         }
         {scope_rows(t, p, query, &screen.list)}
-        <AttentionSheet t={t} query={query} item={item} parked={parked.as_ref()} manage={manage} />
+        <AttentionSheet t={t} p={p} query={query} item={item} parked={parked.as_ref()} manage={manage} />
     }
 }
 

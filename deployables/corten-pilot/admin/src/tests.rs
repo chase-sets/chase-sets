@@ -2976,7 +2976,8 @@ async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_w
     assert_eq!(status, StatusCode::OK);
     assert!(headers.contains_key("corten-patch"), "{headers:?}");
     assert!(
-        html.starts_with(r#"<dialog class="catalog-dialog__dialog" id="catalog-bulk-preview""#) && html.contains(" open "),
+        html.starts_with(r#"<dialog data-scope="catalog-dialog" class="catalog-dialog__dialog" id="catalog-bulk-preview""#)
+            && html.contains(" open "),
         "{html}"
     );
     assert!(html.contains("Bulk Deprecate Preview") && html.contains("1 ready, 1 blocked."), "{html}");
@@ -3072,7 +3073,10 @@ async fn a_refused_confirm_is_the_preview_again_with_the_apis_message() {
     let (status, _, html) =
         pilot.send(post("/catalog/dimensions/bulk/confirm", "action=archive&mode=ids&ids=dim_seed", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.starts_with(r#"<dialog class="catalog-dialog__dialog" id="catalog-bulk-preview""#), "{html}");
+    assert!(
+        html.starts_with(r#"<dialog data-scope="catalog-dialog" class="catalog-dialog__dialog" id="catalog-bulk-preview""#),
+        "{html}"
+    );
     assert!(html.contains(r#"<p class="form-error" role="alert">Another bulk change is running.</p>"#), "{html}");
     assert!(html.contains("1 ready, 1 blocked."), "the preview is drawn again: {html}");
     let paths: Vec<_> = pilot.catalog_writes().iter().map(|c| c.path.clone()).collect();
@@ -3589,7 +3593,7 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
         html.starts_with(
-            r#"<dialog class="catalog-dialog__dialog" id="attention-sheet" aria-labelledby="attention-sheet-title" open"#
+            r#"<dialog data-scope="catalog-dialog" class="catalog-dialog__dialog" id="attention-sheet" aria-labelledby="attention-sheet-title" open"#
         ),
         "{html}"
     );
@@ -3604,6 +3608,11 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     );
     assert!(html.contains(r#"<input type="hidden" name="kind" value="provider-health">"#), "{html}");
     assert!(!html.contains("Paldean Fates"), "only the sheet: {html}");
+    assert!(
+        html.contains("ui.dialog.failed(")
+            && html.contains(r#"hidden>That did not go through, and may not have been saved. Check and try again.</p>"#),
+        "a park that gets no answer is said in the sheet, hidden until then: {html}"
+    );
 
     let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=gone")).await;
     assert_eq!(html, r#"<dialog id="attention-sheet"></dialog>"#, "an item no longer in the queue");
