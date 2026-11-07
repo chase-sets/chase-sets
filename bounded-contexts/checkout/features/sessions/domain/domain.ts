@@ -226,6 +226,8 @@ export type RecordOrdersCreatedCommand = Readonly<{
   orderIds: readonly OrderId[];
   orderWriteCommitPositions?: readonly CheckoutSourceCommitPosition[];
   orderHash?: string | null;
+  /** The fulfillment preview revision the order hash was bound to; the Session keeps it once the preview is gone. */
+  fulfillmentPreviewRevision?: string | null;
   recordedAt: string;
 }>;
 
@@ -346,6 +348,7 @@ export type CheckoutOrdersCreatedEvent = DomainEvent<
     orderCartCleanupPlan?: OrderCartCleanupPlan;
     orderWriteCommitPositions: CheckoutSourceCommitPosition[];
     orderHash?: string;
+    fulfillmentPreviewRevision?: string;
     recordedAt: string;
   }>
 >;
@@ -852,6 +855,7 @@ export const decideCheckoutSession: AggregateDecider<
       }
       const cleanupPlan = orderCartCleanupPlan(state, command.fulfilledLineKeys);
       const orderHash = normalizeOptionalText(command.orderHash);
+      const fulfillmentPreviewRevision = normalizeOptionalText(command.fulfillmentPreviewRevision);
       return [
         {
           type: "checkout.session.orders-created",
@@ -861,6 +865,7 @@ export const decideCheckoutSession: AggregateDecider<
             ...(cleanupPlan ? { orderCartCleanupPlan: cleanupPlan } : {}),
             orderWriteCommitPositions: normalizeCommitPositions(command.orderWriteCommitPositions),
             ...(orderHash ? { orderHash } : {}),
+            ...(fulfillmentPreviewRevision ? { fulfillmentPreviewRevision } : {}),
             recordedAt: normalizeRequiredText(command.recordedAt, "Order recording must include a timestamp."),
           },
         },
@@ -1054,6 +1059,8 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         })),
         orderWriteCommitPositions: event.data.orderWriteCommitPositions ?? [],
         orderHash: event.data.orderHash ?? null,
+        // Confirm's shipping-address write cleared the preview; the orders keep the revision they were bound to.
+        fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision ?? state.fulfillmentPreviewRevision,
         updatedAt: event.data.recordedAt,
       };
       retainedOrderCartCleanup(next);

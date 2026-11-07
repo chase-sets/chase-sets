@@ -202,6 +202,7 @@ export type CheckoutSessionServices = Readonly<{
       fulfilledLineKeys?: readonly string[];
       orderWriteCommitPositions?: readonly CheckoutSourceCommitPosition[];
       orderHash?: string | null;
+      fulfillmentPreviewRevision?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;

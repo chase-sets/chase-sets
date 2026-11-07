@@ -412,6 +412,37 @@ describe("union cleanup retained state replay", () => {
       }),
     ).toEqual([]);
   });
+  // chase-sets/chase-sets#10785: confirm's address write cleared the preview before the orders were created.
+  it("keeps the fulfillment preview revision the orders were bound to, and an older event keeps the state as it was", () => {
+    const state: CheckoutSessionState = {
+      ...started(),
+      shippingAddress,
+      lines: [line, line],
+      fulfillmentPreviewRevision: null,
+    };
+    const events = decideCheckoutSession(state, {
+      type: "RecordOrdersCreated",
+      orderIds: ["ord_1" as never],
+      orderHash: "hash_1",
+      fulfillmentPreviewRevision: "rev_1",
+      recordedAt: "2026-09-01T01:00:00Z",
+    });
+    const event = events[0]!;
+    if (event.type !== "checkout.session.orders-created") throw new Error("Expected order event");
+    expect(event.data).toMatchObject({ orderHash: "hash_1", fulfillmentPreviewRevision: "rev_1" });
+    expect(events.reduce(evolveCheckoutSession, state).fulfillmentPreviewRevision).toBe("rev_1");
+
+    const { fulfillmentPreviewRevision: _omitted, ...legacy } = event.data;
+    expect(evolveCheckoutSession(state, { ...event, data: legacy }).fulfillmentPreviewRevision).toBeNull();
+    const blank = decideCheckoutSession(state, {
+      type: "RecordOrdersCreated",
+      orderIds: ["ord_1" as never],
+      fulfillmentPreviewRevision: "  ",
+      recordedAt: "2026-09-01T01:00:00Z",
+    })[0]!;
+    expect("fulfillmentPreviewRevision" in blank.data).toBe(false);
+  });
+
   it("retains deduplicated immutable intent and explicit pending/complete day-after states", () => {
     const { state } = pending();
     expect(state.orderCartCleanup).toEqual({

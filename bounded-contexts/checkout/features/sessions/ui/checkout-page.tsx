@@ -143,7 +143,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
         >
           <Stack gap={4}>
             <CheckoutFormLevelHiddenFields
-              fulfillmentPreviewRevision={model.preview?.revision}
+              fulfillmentPreviewRevision={model.confirmationPreviewRevision}
               marketplaceCheckoutFeeQuoteFingerprint={model.payment?.marketplace_checkout_fee.quote_fingerprint}
               requestedBalanceCreditAmount={
                 model.walletUnavailable

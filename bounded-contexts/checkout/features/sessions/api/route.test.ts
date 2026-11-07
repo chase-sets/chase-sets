@@ -4408,6 +4408,86 @@ describe("confirmation bound-hash conflict", () => {
     expect(paid.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
+  /**
+   * chase-sets/chase-sets#10785: the first confirm bound its orders to a preview revision, then its own address
+   * write cleared it. The orders keep that revision, which the page posts back to resume their payment.
+   */
+  async function ordersBoundToRevision() {
+    const first = createServices();
+    expect((await confirm(first, { ...confirmBody, fulfillmentPreviewRevision: "rev_1" })).status).toBe(200);
+    const recorded = vi.mocked(first.recordOrdersCreated).mock.calls[0]?.[0];
+    for (const mock of [
+      mockCreateCheckoutInventoryReservations,
+      mockCreateCheckoutOrdersThroughOrdering,
+      mockCreateCheckoutPaymentThroughPayments,
+    ]) {
+      mock.mockClear();
+    }
+    return { orderHash: recorded?.orderHash ?? null, keptRevision: recorded?.fulfillmentPreviewRevision ?? null };
+  }
+
+  it("confirmation bound-hash conflict: a repeat confirm after orders resumes their payment with the revision they kept", async () => {
+    const { orderHash, keptRevision } = await ordersBoundToRevision();
+    expect(keptRevision).toBe("rev_1");
+    const services = createServices({
+      getSession: vi.fn(async () =>
+        createSession({ order_ids: ["ord_1"], fulfillment_preview_revision: keptRevision }),
+      ),
+      getConfirmationBinding: vi.fn(async () => ({ orderHash, paymentHash: null })),
+    });
+
+    const response = await confirm(services, { ...confirmBody, fulfillmentPreviewRevision: keptRevision });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ payment_id: "pay_1", order_ids: ["ord_1"] });
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+  });
+
+  it("confirmation bound-hash conflict: a Session whose orders kept no revision is refused as before", async () => {
+    const { orderHash } = await ordersBoundToRevision();
+    const ordered = createSession({ order_ids: ["ord_1"], fulfillment_preview_revision: null });
+    const services = createServices({
+      getSession: vi.fn(async () => ordered),
+      getConfirmationBinding: vi.fn(async () => ({ orderHash, paymentHash: null })),
+    });
+
+    // The page has no revision to post for it, as before the orders kept one.
+    const response = await confirm(services, confirmBody);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "checkout_confirmation_changed" } });
+    expectZeroOwnerCalls(services);
+  });
+
+  it.each([
+    ["revision", { fulfillmentPreviewRevision: "rev_2" }],
+    [
+      "shipping address",
+      { fulfillmentPreviewRevision: "rev_1", shippingAddress: { ...shippingAddress, line1: "200 Changed Street" } },
+    ],
+  ])(
+    "confirmation bound-hash conflict: a changed %s after orders that kept their revision is still refused",
+    async (_part, change) => {
+      const { orderHash, keptRevision } = await ordersBoundToRevision();
+      const ordered = createSession({ order_ids: ["ord_1"], fulfillment_preview_revision: keptRevision });
+      const services = createServices({
+        getSession: vi.fn(async () => ordered),
+        getConfirmationBinding: vi.fn(async () => ({ orderHash, paymentHash: null })),
+      });
+
+      const response = await confirm(services, { ...confirmBody, ...change });
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({
+        error: { code: "checkout_confirmation_changed", message: expect.any(String) },
+        session: ordered,
+      });
+      expectZeroOwnerCalls(services);
+    },
+  );
+
   it("confirmation bound-hash conflict: a part no recorded side effect binds still proceeds", async () => {
     const bound = await boundByFirstConfirm();
     const services = createServices({

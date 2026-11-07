@@ -1211,6 +1211,25 @@ describe("checkout session page", () => {
     }
   });
 
+  // chase-sets/chase-sets#10785: once the orders exist the preview is gone, and Pay now resumes their payment.
+  it.each([
+    ["the revision its orders kept", "rev_orders", "rev_orders"],
+    ["no revision for a Session whose orders kept none", null, ""],
+  ])("posts %s once the orders exist without a payment", (_case, kept, posted) => {
+    const { container } = render(
+      <CheckoutSessionPage
+        session={{ ...readySession, order_ids: ["ord_1"], payment_id: null, fulfillment_preview_revision: kept }}
+        fulfillmentPreview={null}
+        paymentPreview={paymentPreview}
+        wallet={null}
+        walletUnavailable={false}
+        isSignedInBuyer
+      />,
+    );
+
+    expect(container.querySelector('input[name="fulfillmentPreviewRevision"]')?.getAttribute("value")).toBe(posted);
+  });
+
   it("omits wallet credit from both summaries for a signed-in no-wallet quote", () => {
     const markup = renderToString(
       <CheckoutSessionPage

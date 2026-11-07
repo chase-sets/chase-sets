@@ -51,6 +51,10 @@ export function useCheckoutSessionModel({
   const guestBuyCheckout = !isSignedInBuyer && !isOfferIntent;
   const preview = fulfillmentPreview ?? null;
   const payment = walletUnavailable && !hasPayment ? null : (paymentPreview ?? null);
+  // Confirm posts the revision its orders were bound to; once they exist the preview is gone and the Session keeps it.
+  const confirmationPreviewRevision =
+    preview?.revision ??
+    (!hasPayment && session.order_ids.length > 0 ? (session.fulfillment_preview_revision ?? null) : null);
   const fulfillmentPreviewChanged = Boolean(
     !isOfferIntent &&
     preview?.revision &&
@@ -295,6 +299,7 @@ export function useCheckoutSessionModel({
     hasPayment,
     preview,
     payment,
+    confirmationPreviewRevision,
     hasAcknowledgedVisibleFulfillmentPreview,
     canConfirm,
     reservationExpired,
