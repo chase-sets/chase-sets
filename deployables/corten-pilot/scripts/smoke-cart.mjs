@@ -272,8 +272,9 @@ if (sendWrites) {
       const shown = await page
         .waitForFunction(
           ([id, n]) =>
-            /** @type {HTMLInputElement | null} */ (document.querySelector(`li[data-cart-line="${id}"] [data-quantity]`))
-              ?.value === String(n),
+            /** @type {HTMLInputElement | null} */ (
+              document.querySelector(`li[data-cart-line="${id}"] [data-quantity]`)
+            )?.value === String(n),
           [id, expected],
           { timeout: 35_000 },
         )
